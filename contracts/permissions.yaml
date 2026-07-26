@@ -1,0 +1,90 @@
+# Permission Contract
+# All permission strings and their meanings.
+
+version: 1.0
+
+permissions:
+  server:read:
+    description: View server details and status
+    scope: server_id
+
+  server:write:
+    description: Modify server configuration
+    scope: server_id
+
+  server:start:
+    description: Start a server
+    scope: server_id
+
+  server:stop:
+    description: Stop a server
+    scope: server_id
+
+  server:delete:
+    description: Delete a server
+    scope: server_id
+
+  backup:read:
+    description: View backup list and details
+    scope: server_id
+
+  backup:create:
+    description: Create backups
+    scope: server_id
+
+  backup:restore:
+    description: Restore from backup
+    scope: server_id
+
+  backup:delete:
+    description: Delete backups
+    scope: server_id
+
+  plugin:read:
+    description: View installed plugins
+    scope: server_id
+
+  plugin:install:
+    description: Install new plugins
+    scope: server_id
+
+  plugin:manage:
+    description: Enable/disable/uninstall plugins
+    scope: server_id
+
+  user:read:
+    description: View user list
+    scope: global
+
+  user:write:
+    description: Create/edit users
+    scope: global
+
+  user:delete:
+    description: Delete users
+    scope: global
+
+  settings:read:
+    description: View system settings
+    scope: global
+
+  settings:write:
+    description: Modify system settings
+    scope: global
+
+  admin:full:
+    description: Unrestricted access
+    scope: global
+
+roles:
+  viewer:
+    permissions: [server:read, backup:read, plugin:read]
+
+  operator:
+    permissions:
+      - server:read, server:write, server:start, server:stop
+      - backup:read, backup:create
+      - plugin:read, plugin:install, plugin:manage
+
+  admin:
+    permissions: [admin:full]

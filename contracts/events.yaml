@@ -1,0 +1,74 @@
+# Event Contract
+# Every domain event schema.
+
+version: 1.0
+
+event_envelope:
+  id: uuid
+  type: string  # dot-notation: "server.crashed"
+  version: integer  # schema version, starts at 1
+  timestamp: datetime
+  source: string  # batch name that published
+  correlation_id: uuid
+  payload: object  # event-specific
+
+events:
+  server.created:
+    version: 1
+    payload:
+      server_id: string
+      name: string
+      version: string
+
+  server.started:
+    version: 1
+    payload:
+      server_id: string
+      pid: integer
+      port: integer
+
+  server.crashed:
+    version: 1
+    payload:
+      server_id: string
+      exit_code: integer?
+      last_log_lines: string[]
+
+  backup.completed:
+    version: 1
+    payload:
+      backup_id: string
+      server_id: string
+      size_bytes: integer
+      checksum_sha256: string
+
+  backup.completed:
+    version: 2
+    payload:
+      backup_id: string
+      server_id: string
+      size_bytes: integer
+      size_human: string
+      checksum_sha256: string
+      checksum_algorithm: string
+
+  plugin.installed:
+    version: 1
+    payload:
+      plugin_id: string
+      server_id: string
+      version: string
+
+  user.login:
+    version: 1
+    payload:
+      user_id: string
+      ip_address: string
+      timestamp: datetime
+
+  circuit.opened:
+    version: 1
+    payload:
+      provider_name: string
+      failure_count: integer
+      window_seconds: integer

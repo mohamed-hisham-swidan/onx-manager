@@ -1,0 +1,60 @@
+# Plugin Contract
+# Plugin manifest schema and lifecycle.
+
+version: 1.0
+
+manifest:
+  name: string  # unique identifier
+  display_name: string?
+  version: string  # semver
+  min_app_version: string
+  max_app_version: string?
+  author:
+    name: string
+    email: string?
+  isolation: enum(subprocess, container)
+  permissions:
+    filesystem:
+      paths:
+        path: string
+        access: enum(read, read_write)
+    network:
+      hosts:
+        host: string
+        ports: integer[]
+    events:
+      subscribe: string[]
+      publish: string[]
+    system:
+      commands: string[]
+  hooks:
+    event_type:
+      handler: string  # dotted path to function
+      timeout: integer  # seconds
+  dependencies:
+    plugins:
+      name: string
+      min_version: string?
+      max_version: string?
+      optional: bool?
+
+lifecycle:
+  states:
+    - INSTALLED
+    - DISABLED
+    - ENABLING
+    - ENABLED
+    - DISABLING
+    - DISABLED
+    - UNINSTALLING
+    - UNINSTALLED
+    - FAILED
+
+  transitions:
+    INSTALLED: [DISABLED]
+    DISABLED: [ENABLING, UNINSTALLING]
+    ENABLING: [ENABLED, FAILED]
+    ENABLED: [DISABLING]
+    DISABLING: [DISABLED, FAILED]
+    DISABLED: [UNINSTALLING]
+    UNINSTALLING: [UNINSTALLED, FAILED]

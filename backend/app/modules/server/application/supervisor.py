@@ -1,0 +1,378 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
+
+import os
+import signal
+
+from app.modules.server.application.logging_utils import (
+    add_timeline_milestone,
+    log_crash_diagnostics,
+)
+from app.modules.server.domain.aggregate import Server, ServerStatus
+from app.modules.server.domain.diagnostics import FailureCode, RuntimeDiagnostics
+from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.domain.runtime_exceptions import (
+    RuntimeProcessLost,
+    StartupTimeoutError,
+    TmuxSessionLost,
+)
+from app.modules.server.infrastructure.providers.base import (
+    ServerHandle,
+    ServerProvider,
+    ServerRuntimeStatus,
+)
+from app.modules.shared.value_objects import ServerId
+
+logger = logging.getLogger("mcs.supervisor")
+
+
+class RuntimeSupervisor:
+    _instances: dict[str, RuntimeSupervisor] = {}
+
+    def __init__(
+        self,
+        server: Server,
+        provider: ServerProvider,
+        handle: ServerHandle,
+        repo_get: Callable[[ServerId], Awaitable[Server]],
+        repo_save: Callable[[Server], Awaitable[None]],
+        on_crash: Callable[[str, RuntimeDiagnostics], None] | None = None,
+        health_interval: float = 5.0,
+        startup_timeout: float = 120.0,
+    ) -> None:
+        self._server_id = str(server.id)
+        self._server_name = server.name
+        self._provider = provider
+        self._handle = handle
+        self._repo_get = repo_get
+        self._repo_save = repo_save
+        self._on_crash = on_crash
+        self._health_interval = health_interval
+        self._startup_timeout = startup_timeout
+        self._task: asyncio.Task[None] | None = None
+        self._active = False
+        self._started_at = time.monotonic()
+        self._last_heartbeat = time.time()
+        self._start_duration: float | None = None
+        self._stop_event = asyncio.Event()
+
+    @property
+    def server_id(self) -> str:
+        return self._server_id
+
+    @property
+    def server_name(self) -> str:
+        return self._server_name
+
+    @property
+    def is_running(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    @property
+    def last_heartbeat(self) -> float:
+        return self._last_heartbeat
+
+    @property
+    def start_duration(self) -> float | None:
+        return self._start_duration
+
+    @property
+    def uptime(self) -> float:
+        if self._start_duration is not None:
+            return time.time() - (self._started_at + self._start_duration)
+        return 0.0
+
+    async def start(self) -> None:
+        if self._task is not None and not self._task.done():
+            logger.warning(
+                'Supervisor already running for server "%s" (%s)',
+                self._server_name, self._server_id,
+            )
+            return
+        self._stop_event.clear()
+        self._task = asyncio.create_task(
+            self._run(),
+            name=f"supervisor-{self._server_id}",
+        )
+
+    async def stop(self) -> None:
+        self._stop_event.set()
+        self._active = False
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.warning(
+                    'Supervisor stop task raised server="%s" sid=%s provider=%s handle=%s phase=stop',
+                    self._server_name, self._server_id,
+                    self._provider.provider_type if hasattr(self._provider, "provider_type") else "?",
+                    self._handle.external_id if hasattr(self._handle, "external_id") else "?",
+                    exc_info=True,
+                )
+        self._instances.pop(self._server_id, None)
+
+    async def _run(self) -> None:
+        logger.info(
+            'Supervisor started for server "%s" (%s)',
+            self._server_name, self._server_id,
+        )
+        try:
+            add_timeline_milestone(None, "Supervisor _run started", self._server_name, self._server_id)
+            await self._verify_startup()
+            health_checks = 0
+            while not self._stop_event.is_set():
+                health_checks += 1
+                await self._health_check()
+                await asyncio.sleep(self._health_interval)
+            logger.info(
+                'Supervisor exiting run loop — server="%s" health_checks=%d sid=%s',
+                self._server_name, health_checks, self._server_id,
+            )
+        except asyncio.CancelledError:
+            logger.info(
+                'Supervisor cancelled for server "%s" (%s)',
+                self._server_name, self._server_id,
+            )
+        except Exception:
+            logger.exception(
+                'Supervisor crashed server="%s" sid=%s provider=%s handle=%s phase=_run',
+                self._server_name, self._server_id,
+                self._provider.provider_type if hasattr(self._provider, "provider_type") else "?",
+                self._handle.external_id if hasattr(self._handle, "external_id") else "?",
+            )
+        finally:
+            self._active = False
+            self._instances.pop(self._server_id, None)
+            logger.info(
+                'Supervisor stopped for server "%s" (%s)',
+                self._server_name, self._server_id,
+            )
+
+    async def _verify_startup(self) -> None:
+        deadline = self._started_at + self._startup_timeout
+        iteration = 0
+        while time.monotonic() < deadline:
+            if self._stop_event.is_set():
+                return
+            remaining = deadline - time.monotonic()
+            ready = await self._provider.wait_ready(
+                server_id=self._server_id,
+                handle=self._handle,
+                timeout=max(remaining, 5.0),
+            )
+            if ready:
+                elapsed = time.monotonic() - self._started_at
+                self._start_duration = elapsed
+                self._last_heartbeat = time.time()
+                logger.info(
+                    'Server "%s" ready after %.1fs — sid=%s',
+                    self._server_name, elapsed, self._server_id,
+                )
+                add_timeline_milestone(
+                    None, "Startup verification passed", self._server_name, self._server_id,
+                )
+                return
+
+            iteration += 1
+            alive = await self._provider.verify_process(self._handle)
+            logger.info(
+                'Server "%s" verify_process=%s remaining=%.0fs iter=%d sid=%s',
+                self._server_name, alive, remaining, iteration, self._server_id,
+            )
+            if not alive:
+                diag = await self._provider.collect_diagnostics(self._handle)
+                logger.info(
+                    'Server "%s" crash diag: pid=%s exit=%s lines=%d sid=%s',
+                    self._server_name, diag.pid, diag.exit_code,
+                    len(diag.last_log_lines or []), self._server_id,
+                )
+                diag.failure_code = FailureCode.STARTUP_TIMEOUT
+                diag.failure_reason = f"Process died during startup verification"
+                await self._handle_crash(diag)
+                return
+            await asyncio.sleep(2)
+
+        elapsed = time.monotonic() - self._started_at
+        alive = await self._provider.verify_process(self._handle)
+        if alive:
+            logger.info(
+                'Server "%s" startup deadline elapsed=%.1fs but process still alive — continuing sid=%s',
+                self._server_name, elapsed, self._server_id,
+            )
+            return
+        diag = await self._provider.collect_diagnostics(self._handle)
+        log_crash_diagnostics(
+            message="Startup deadline exceeded",
+            server_name=self._server_name,
+            server_id=self._server_id,
+            pid=diag.pid,
+            exit_code=diag.exit_code,
+            log_lines=diag.last_log_lines,
+            failure_code=FailureCode.STARTUP_TIMEOUT.value,
+            failure_reason=f"Startup timeout after {elapsed:.1f}s",
+        )
+        diag.failure_code = FailureCode.STARTUP_TIMEOUT
+        diag.failure_reason = f"Startup timeout after {elapsed:.1f}s while waiting for readiness probe"
+        diag.startup_duration = elapsed
+        await self._handle_crash(diag)
+
+    async def _health_check(self) -> None:
+        try:
+            alive = await self._provider.verify_process(self._handle)
+            if not alive:
+                status = await self._provider.status(self._handle)
+                if status == ServerRuntimeStatus.STOPPED:
+                    logger.info(
+                        'health_check server="%s" sid=%s provider=%s handle=%s phase=health_check status=stopped',
+                        self._server_name, self._server_id,
+                        self._provider.provider_type if hasattr(self._provider, "provider_type") else "?",
+                        self._handle.external_id if hasattr(self._handle, "external_id") else "?",
+                    )
+                    add_timeline_milestone(
+                        None, "Health check — process stopped",
+                        self._server_name, self._server_id,
+                    )
+                    self._stop_event.set()
+                    return
+                diag = await self._provider.collect_diagnostics(self._handle)
+                diag.failure_code = FailureCode.RUNTIME_PROCESS_LOST
+                pid = self._handle.metadata.get("pid") if hasattr(self._handle, "metadata") else None
+                diag.failure_reason = f"Runtime process lost during RUNNING state (pid={pid})"
+                await self._handle_crash(diag)
+                return
+            self._last_heartbeat = time.time()
+        except Exception:
+            logger.exception(
+                'health_check failed server="%s" sid=%s provider=%s handle=%s phase=health_check',
+                self._server_name, self._server_id,
+                self._provider.provider_type if hasattr(self._provider, "provider_type") else "?",
+                self._handle.external_id if hasattr(self._handle, "external_id") else "?",
+            )
+
+    async def _cleanup_os_resources(self) -> None:
+        session_name = self._handle.external_id if hasattr(self._handle, "external_id") else ""
+        if not session_name:
+            return
+        try:
+            has = os.popen(f"tmux has-session -t {session_name} 2>/dev/null").read()
+            if has:
+                logger.info(
+                    'Cleaning up tmux session after crash — server="%s" session=%s sid=%s',
+                    self._server_name, session_name, self._server_id,
+                )
+                os.popen(f"tmux kill-session -t {session_name} 2>/dev/null")
+        except Exception:
+            logger.debug(
+                'tmux cleanup after crash failed server="%s" sid=%s',
+                self._server_name, self._server_id,
+            )
+
+    async def _handle_crash(self, diag: RuntimeDiagnostics) -> None:
+        if self._stop_event.is_set():
+            logger.info(
+                'Server "%s" stop already requested — crash suppressed (%s)',
+                self._server_name, self._server_id,
+            )
+            return
+
+        prov_type = self._provider.provider_type if hasattr(self._provider, "provider_type") else "?"
+        handle_ext = self._handle.external_id if hasattr(self._handle, "external_id") else "?"
+
+        log_crash_diagnostics(
+            message="Runtime process lost",
+            server_name=self._server_name,
+            server_id=self._server_id,
+            pid=self._handle.metadata.get("pid") if hasattr(self._handle, "metadata") else None,
+            exit_code=diag.exit_code,
+            log_lines=diag.last_log_lines,
+            failure_code=diag.failure_code.value if diag.failure_code else None,
+            failure_reason=diag.failure_reason,
+        )
+
+        await self._cleanup_os_resources()
+
+        try:
+            server = await self._repo_get(ServerId(self._server_id))
+            server.crash(
+                exit_code=diag.exit_code or -1,
+                last_log_lines=diag.last_log_lines or [],
+            )
+            await self._repo_save(server)
+        except Exception:
+            logger.critical(
+                'Failed to persist crash state for server "%s" — crash data will be LOST. '
+                'sid=%s provider=%s handle=%s phase=_handle_crash persist diag=%s',
+                self._server_name, self._server_id,
+                prov_type, handle_ext,
+                diag.to_dict(),
+                exc_info=True,
+            )
+
+        if self._on_crash:
+            try:
+                self._on_crash(self._server_id, diag)
+            except Exception:
+                logger.exception(
+                    'Crash callback failed server="%s" sid=%s provider=%s handle=%s phase=_handle_crash callback',
+                    self._server_name, self._server_id, prov_type, handle_ext,
+                )
+
+        self._stop_event.set()
+
+    @classmethod
+    def start_for(
+        cls,
+        server: Server,
+        provider: ServerProvider,
+        handle: ServerHandle,
+        repo_get: Callable[[ServerId], Awaitable[Server]],
+        repo_save: Callable[[Server], Awaitable[None]],
+        on_crash: Callable[[str, RuntimeDiagnostics], None] | None = None,
+        health_interval: float = 5.0,
+        startup_timeout: float = 120.0,
+    ) -> RuntimeSupervisor:
+        sid = str(server.id)
+        existing = cls._instances.get(sid)
+        if existing and existing._active:
+            logger.warning(
+                'Supervisor already active for server "%s" (%s), returning existing',
+                server.name, sid,
+            )
+            return existing
+
+        supervisor = cls(
+            server=server,
+            provider=provider,
+            handle=handle,
+            repo_get=repo_get,
+            repo_save=repo_save,
+            on_crash=on_crash,
+            health_interval=health_interval,
+            startup_timeout=startup_timeout,
+        )
+        supervisor._active = True
+        cls._instances[sid] = supervisor
+        asyncio.ensure_future(supervisor.start())
+        return supervisor
+
+    @classmethod
+    async def stop_for(cls, server_id: str) -> None:
+        supervisor = cls._instances.get(server_id)
+        if supervisor:
+            await supervisor.stop()
+
+    @classmethod
+    def get_for(cls, server_id: str) -> RuntimeSupervisor | None:
+        return cls._instances.get(server_id)
+
+    @classmethod
+    def is_supervised(cls, server_id: str) -> bool:
+        return server_id in cls._instances

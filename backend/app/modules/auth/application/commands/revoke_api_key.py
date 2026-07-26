@@ -1,0 +1,28 @@
+from __future__ import annotations
+
+from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.event_bus import EventBus
+from app.modules.auth.infrastructure.repository import SQLUserRepository
+from app.modules.shared.value_objects import ApiKeyId, UserId
+from app.storage.unit_of_work import UnitOfWork
+
+
+class RevokeApiKeyCommand(Command):
+    user_id: str
+    api_key_id: str
+
+
+class RevokeApiKeyHandler(CommandHandler[RevokeApiKeyCommand]):
+    def __init__(self, event_bus: EventBus) -> None:
+        self._event_bus = event_bus
+
+    async def handle(self, command: RevokeApiKeyCommand) -> CommandResult:
+        async with UnitOfWork(self._event_bus) as uow:
+            repo = SQLUserRepository(uow.session)
+            user = await repo.get(UserId(command.user_id))
+            user.revoke_api_key(ApiKeyId(command.api_key_id))
+            await repo.save(user)
+            for event in user.collect_events():
+                uow.add_event(event)
+            await uow.commit()
+        return CommandResult(success=True, data={"revoked": True})

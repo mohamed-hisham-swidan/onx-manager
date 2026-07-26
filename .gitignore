@@ -1,0 +1,122 @@
+# ──────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.Python
+.venv/
+venv/
+env/
+
+# ──────────────────────────────────────────────
+# Node / Frontend
+# ──────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/build/
+.vite/
+*.local
+
+# ──────────────────────────────────────────────
+# Databases
+# ──────────────────────────────────────────────
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.mv.db
+*.mv.properties
+/data/
+
+# ──────────────────────────────────────────────
+# Secrets / Keys / Environment
+# ──────────────────────────────────────────────
+*.pem
+*.key
+*.cert
+.env
+.env.*
+!.env.example
+
+# ──────────────────────────────────────────────
+# Logs
+# ──────────────────────────────────────────────
+*.log
+logs/
+
+# ──────────────────────────────────────────────
+# Runtime / Process Artifacts
+# ──────────────────────────────────────────────
+/run/
+.mcs/
+*.pid
+*.sock
+*.lock
+
+# ──────────────────────────────────────────────
+# OS / Editor
+# ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.orig
+
+# ──────────────────────────────────────────────
+# IDE / Project config
+# ──────────────────────────────────────────────
+.history/
+
+# ──────────────────────────────────────────────
+# AI agent / session state (locks are transient)
+# ──────────────────────────────────────────────
+# NOTE: .ai/ itself IS tracked (contains AI_RULES, TOKEN_POLICY, PROJECT_STATE)
+# Only ignore runtime lock files inside it
+.ai/locks/*.lock
+
+# ──────────────────────────────────────────────
+# Coverage / Test Artifacts
+# ──────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+coverage/
+.mypy_cache/
+.pyright/
+
+# ──────────────────────────────────────────────
+# Build Artifacts
+# ──────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+
+# ──────────────────────────────────────────────
+# Docker
+# ──────────────────────────────────────────────
+.docker/
+
+# ──────────────────────────────────────────────
+# Server runtime data (worlds, JARs, plugins)
+# ──────────────────────────────────────────────
+backend/data/servers/
+
+# ──────────────────────────────────────────────
+# Generated / auto-documented artifacts
+# ──────────────────────────────────────────────
+openapi.json
+openapi.yaml
+
+# ──────────────────────────────────────────────
+# Backup / snapshot files (contains runtime data)
+# ──────────────────────────────────────────────
+*.backup
+*.db.*

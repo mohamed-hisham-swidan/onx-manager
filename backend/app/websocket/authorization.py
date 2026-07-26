@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+CHANNEL_PATTERNS: dict[str, set[str]] = {
+    "server:*": {"servers:read", "servers:write"},
+    "server:{server_id}": {"servers:read"},
+    "server:{server_id}:console": {"servers:console"},
+    "backup:*": {"backups:read"},
+    "backup:{backup_id}": {"backups:read"},
+    "plugin:*": {"plugins:read"},
+    "plugin:{plugin_id}": {"plugins:read"},
+    "monitoring:*": {"monitoring:read"},
+    "monitoring:{server_id}": {"monitoring:read"},
+    "metrics:*": {"monitoring:read"},
+    "metrics:{server_id}": {"monitoring:read"},
+    "auth:*": {"auth:read"},
+    "user:{user_id}": {"users:read"},
+}
+
+MAX_CHANNELS_PER_CONNECTION = 50
+
+WILDCARD_CHANNELS: set[str] = {
+    "server:*",
+    "backup:*",
+    "plugin:*",
+    "monitoring:*",
+    "metrics:*",
+    "auth:*",
+}
+
+
+class ChannelAuthorizer:
+    def __init__(self) -> None:
+        self._user_permissions: dict[str, set[str]] = {}
+
+    def set_permissions(self, user_id: str, permissions: set[str]) -> None:
+        self._user_permissions[user_id] = permissions
+
+    def get_permissions(self, user_id: str) -> set[str]:
+        return self._user_permissions.get(user_id, set())
+
+    def can_subscribe(self, user_id: str, channel: str) -> bool:
+        permissions = self.get_permissions(user_id)
+        if not permissions:
+            return False
+
+        if channel in WILDCARD_CHANNELS:
+            required = CHANNEL_PATTERNS.get(channel, set())
+            return required.issubset(permissions)
+
+        for pattern, required in CHANNEL_PATTERNS.items():
+            if self._match_pattern(channel, pattern):
+                if required.issubset(permissions):
+                    return True
+
+        return False
+
+    @staticmethod
+    def _match_pattern(channel: str, pattern: str) -> bool:
+        if pattern == channel:
+            return True
+        if "{" not in pattern:
+            return False
+        pattern_parts = pattern.split(":")
+        channel_parts = channel.split(":")
+        if len(pattern_parts) != len(channel_parts):
+            return False
+        for p, c in zip(pattern_parts, channel_parts):
+            if p.startswith("{") and p.endswith("}"):
+                continue
+            if p != c:
+                return False
+        return True
+
+    @staticmethod
+    def is_wildcard(channel: str) -> bool:
+        return channel in WILDCARD_CHANNELS or channel.endswith(":*")
+
+    @staticmethod
+    def validate_channel(channel: str) -> bool:
+        if not channel or len(channel) > 128:
+            return False
+        parts = channel.split(":")
+        if len(parts) != 2:
+            return False
+        valid_prefixes = {"server", "backup", "plugin", "monitoring", "metrics", "auth", "user"}
+        if parts[0] not in valid_prefixes:
+            return False
+        return True

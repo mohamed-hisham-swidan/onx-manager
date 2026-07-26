@@ -1,0 +1,29 @@
+# API Contract
+# Cross-batch agreement on REST API behavior.
+
+version: 1.0
+base_path: /api/v1
+content_type: application/json
+
+auth:
+  header: Authorization
+  scheme: Bearer
+  token_type: jwt
+
+error_format:
+  code: string
+  message: string
+  details: object?
+  request_id: string
+  retryable: bool
+  documentation_url: string?
+
+pagination:
+  page: integer  # 1-indexed
+  per_page: integer  # default 20, max 100
+  total: integer
+  total_pages: integer
+
+response_envelope:
+  data: any
+  pagination: Pagination?

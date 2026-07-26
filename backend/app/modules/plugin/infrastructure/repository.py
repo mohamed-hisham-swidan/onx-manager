@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.plugin.domain.aggregate import Plugin, PluginStatus
+from app.modules.plugin.domain.repository import PluginRepository
+from app.modules.plugin.infrastructure.models import PluginModel
+from app.modules.shared.value_objects import PluginId, PluginVersion, ServerId
+
+
+class SQLPluginRepository(PluginRepository):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get(self, plugin_id: PluginId) -> Plugin:
+        model = await self._session.get(PluginModel, str(plugin_id))
+        if model is None:
+            from app.core.exceptions import NotFoundError
+            raise NotFoundError(f"Plugin '{plugin_id}' not found")
+        return self._model_to_domain(model)
+
+    async def list_by_server(self, server_id: ServerId) -> list[Plugin]:
+        stmt = (
+            select(PluginModel)
+            .where(PluginModel.server_id == str(server_id))
+            .order_by(PluginModel.name)
+        )
+        result = await self._session.execute(stmt)
+        return [self._model_to_domain(m) for m in result.scalars().all()]
+
+    async def save(self, plugin: Plugin) -> None:
+        model = await self._session.get(PluginModel, str(plugin.plugin_id))
+        if model is None:
+            model = PluginModel(id=str(plugin.plugin_id))
+            self._session.add(model)
+
+        model.server_id = str(plugin.server_id)
+        model.name = plugin.name
+        model.version = str(plugin.version)
+        model.description = plugin.description
+        model.author = plugin.author
+        model.website = plugin.website
+        model.dependencies = ",".join(plugin.dependencies)
+        model.status = plugin.status.value
+        model.installed_at = plugin.installed_at
+        model.updated_at = datetime.now(timezone.utc)
+        await self._session.flush()
+
+    async def delete(self, plugin_id: PluginId) -> None:
+        model = await self._session.get(PluginModel, str(plugin_id))
+        if model:
+            await self._session.delete(model)
+            await self._session.flush()
+
+    def _model_to_domain(self, model: PluginModel) -> Plugin:
+        deps = [d.strip() for d in model.dependencies.split(",") if d.strip()]
+
+        plugin = Plugin(
+            plugin_id=PluginId(model.id),
+            server_id=ServerId(model.server_id),
+            name=model.name,
+            version=PluginVersion.parse(model.version),
+            description=model.description,
+            author=model.author,
+            website=model.website,
+            dependencies=deps,
+            status=PluginStatus(model.status),
+            installed_at=model.installed_at,
+            updated_at=model.updated_at,
+        )
+
+        status_map = {s.value: s for s in PluginStatus}
+        plugin._status = status_map.get(model.status, PluginStatus.INSTALLED)
+
+        return plugin

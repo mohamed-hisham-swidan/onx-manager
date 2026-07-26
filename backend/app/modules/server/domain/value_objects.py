@@ -1,0 +1,176 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from enum import Enum
+
+
+@dataclass(frozen=True)
+class MemoryAllocation:
+    min_mb: int
+    max_mb: int
+
+    def __post_init__(self) -> None:
+        if self.min_mb < 128:
+            raise ValueError(f"min_mb must be at least 128, got {self.min_mb}")
+        if self.max_mb < self.min_mb:
+            raise ValueError(f"max_mb ({self.max_mb}) must be >= min_mb ({self.min_mb})")
+        if self.max_mb > 262144:
+            raise ValueError(f"max_mb must be at most 262144 (256GB), got {self.max_mb}")
+
+    @property
+    def delta_mb(self) -> int:
+        return self.max_mb - self.min_mb
+
+    def __str__(self) -> str:
+        return f"{self.min_mb}-{self.max_mb}M"
+
+
+@dataclass(frozen=True)
+class PortNumber:
+    value: int
+
+    def __post_init__(self) -> None:
+        if self.value < 1 or self.value > 65535:
+            raise ValueError(f"Port must be between 1 and 65535, got {self.value}")
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+
+@dataclass(frozen=True)
+class JavaArguments:
+    args: tuple[str, ...]
+
+    def __init__(self, args: list[str] | None = None) -> None:
+        validated = tuple(args or [])
+        for arg in validated:
+            if not arg.startswith("-"):
+                raise ValueError(f"Invalid JVM argument: {arg!r} (must start with '-')")
+        object.__setattr__(self, "args", validated)
+
+    def __str__(self) -> str:
+        return " ".join(self.args)
+
+    def as_list(self) -> list[str]:
+        return list(self.args)
+
+
+@dataclass(frozen=True)
+class ServerProperties:
+    port: PortNumber
+    motd: str = "A Minecraft Server"
+    max_players: int = 20
+    gamemode: str = "survival"
+    difficulty: str = "easy"
+    spawn_protection: int = 16
+    pvp: bool = True
+    enable_command_block: bool = False
+    online_mode: bool = True
+    whitelist: bool = False
+    view_distance: int = 10
+    simulation_distance: int = 10
+
+    _valid_gamemodes: tuple[str, ...] = ("survival", "creative", "adventure", "spectator")
+    _valid_difficulties: tuple[str, ...] = ("peaceful", "easy", "normal", "hard")
+
+    def __post_init__(self) -> None:
+        if self.gamemode not in self._valid_gamemodes:
+            raise ValueError(f"Invalid gamemode: {self.gamemode!r}")
+        if self.difficulty not in self._valid_difficulties:
+            raise ValueError(f"Invalid difficulty: {self.difficulty!r}")
+        if self.max_players < 1 or self.max_players > 500:
+            raise ValueError(f"max_players must be 1-500, got {self.max_players}")
+        if self.view_distance < 2 or self.view_distance > 32:
+            raise ValueError(f"view_distance must be 2-32, got {self.view_distance}")
+
+
+class ServerType(str, Enum):
+    VANILLA = "vanilla"
+    PAPER = "paper"
+    PURPUR = "purpur"
+    FABRIC = "fabric"
+    FORGE = "forge"
+    SPIGOT = "spigot"
+    BUKKIT = "bukkit"
+
+    @classmethod
+    def known_types(cls) -> list[str]:
+        return [e.value for e in cls]
+
+    @classmethod
+    def display_name(cls, value: str) -> str:
+        mapping = {
+            "vanilla": "Vanilla",
+            "paper": "Paper",
+            "purpur": "Purpur",
+            "fabric": "Fabric",
+            "forge": "Forge",
+            "spigot": "Spigot",
+            "bukkit": "Bukkit",
+        }
+        return mapping.get(value, value.capitalize())
+
+
+class LocationType(str, Enum):
+    LOCAL = "local"
+    DOCKER = "docker"
+    SSH = "ssh"
+    NETWORK = "network"
+
+
+@dataclass(frozen=True)
+class ServerDeployment:
+    location_type: LocationType = LocationType.LOCAL
+    location_uri: str = ""
+    root_path: str = ""
+    working_directory: str = "."
+    startup_jar: str = "server.jar"
+    startup_command: str = ""
+    primary_world: str = "world"
+
+    def server_directory(self) -> str:
+        if self.working_directory and self.working_directory != ".":
+            return os.path.join(self.root_path, self.working_directory)
+        return self.root_path
+
+    def jar_path(self) -> str:
+        return os.path.join(self.server_directory(), self.startup_jar)
+
+    def properties_path(self) -> str:
+        return os.path.join(self.server_directory(), "server.properties")
+
+    def eula_path(self) -> str:
+        return os.path.join(self.server_directory(), "eula.txt")
+
+    def world_path(self, world_name: str | None = None) -> str:
+        return os.path.join(self.server_directory(), world_name or self.primary_world)
+
+
+@dataclass(frozen=True)
+class LaunchConfiguration:
+    java_executable: str = "java"
+    startup_command: str = ""
+    startup_jar: str = "server.jar"
+    jvm_flags: tuple[str, ...] = ()
+    environment: dict[str, str] = field(default_factory=dict)
+    working_directory: str = ""
+
+    def effective_command(self) -> str:
+        if self.startup_command:
+            return self.startup_command
+        flags = " ".join(self.jvm_flags)
+        return f"{self.java_executable} {flags} -jar {self.startup_jar} nogui"
+
+
+@dataclass
+class RuntimeInfo:
+    status: str = "created"
+    provider: str = "local"
+    host: str = ""
+    port: int = 25565
+    pid: int | None = None
+    uptime_seconds: float = 0.0
+    last_crash_time: float | None = None
+    restart_count: int = 0
+    external_id: str = ""

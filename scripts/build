@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+echo "=== Building MCS Manager ==="
+
+# Backend
+docker build -t mcs-manager:latest -f backend/Dockerfile .
+
+# Frontend
+cd frontend
+npm run build
+
+echo "=== Build Complete ==="

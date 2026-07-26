@@ -1,0 +1,129 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ServerDetailPage } from "./ServerDetailPage";
+
+const mockServer = {
+  server_id: "srv-1",
+  name: "Test Server",
+  server_type: "vanilla",
+  minecraft_version: "1.20.4",
+  status: "running",
+  group_id: "default",
+  port: 25565,
+  motd: "Welcome!",
+  max_players: 20,
+  gamemode: "survival",
+  difficulty: "normal",
+  min_memory_mb: 1024,
+  max_memory_mb: 2048,
+  java_args: "-Xmx2G",
+  spawn_protection: 16,
+  pvp: true,
+  enable_command_block: false,
+  online_mode: true,
+  whitelist: false,
+  view_distance: 10,
+  simulation_distance: 10,
+  provider: null,
+  deployment_host: null,
+  deployment_port: null,
+  deployment_pid: null,
+  created_at: "2024-01-01T00:00:00Z",
+  updated_at: "2024-01-01T00:00:00Z",
+};
+
+let mockData: typeof mockServer | null = mockServer;
+let mockIsLoading = false;
+let mockError: Error | null = null;
+
+vi.mock("@/server_manager/hooks/useServers", () => ({
+  useServerDetail: vi.fn(() => ({
+    data: mockData,
+    isLoading: mockIsLoading,
+    error: mockError,
+  })),
+  useStartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useStopServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useRestartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useDeleteServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+}));
+
+vi.mock("@/server_manager/components/ServerConfigEditor", () => ({
+  ServerConfigEditor: () => <div data-testid="config-editor">ConfigEditor</div>,
+}));
+
+vi.mock("@/server_manager/components/ServerConsole", () => ({
+  ServerConsole: () => <div data-testid="server-console">Console</div>,
+}));
+
+vi.mock("@/server_manager/components/ServerMetricsCharts", () => ({
+  ServerMetricsCharts: () => <div data-testid="metrics-charts">Metrics</div>,
+}));
+
+function renderPage(serverId = "srv-1") {
+  const qc = new QueryClient();
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[`/servers/${serverId}`]}>
+        <Routes>
+          <Route path="/servers/:serverId" element={<ServerDetailPage />} />
+          <Route path="/servers" element={<div data-testid="servers-list">Servers</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("ServerDetailPage", () => {
+  beforeEach(() => {
+    mockData = mockServer;
+    mockIsLoading = false;
+    mockError = null;
+  });
+
+  it("shows loading skeletons", () => {
+    mockIsLoading = true;
+    const { container } = renderPage();
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+  });
+
+  it("shows server name and status", () => {
+    renderPage();
+    expect(screen.getByText("Test Server")).toBeInTheDocument();
+    expect(screen.getByText("Online")).toBeInTheDocument();
+  });
+
+  it("shows error message on error", () => {
+    mockError = new Error("Failed to load");
+    renderPage();
+    expect(screen.getByText("Failed to load")).toBeInTheDocument();
+  });
+
+  it("shows not found when no data", () => {
+    mockData = null;
+    renderPage();
+    expect(screen.getByText("Server not found.")).toBeInTheDocument();
+  });
+
+  it("shows info tab by default", () => {
+    renderPage();
+    expect(screen.getByText("1.20.4")).toBeInTheDocument();
+    expect(screen.getByText("25565")).toBeInTheDocument();
+  });
+
+  it("switches tabs on click", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByText("Console"));
+    expect(screen.getByTestId("server-console")).toBeInTheDocument();
+  });
+
+  it("shows Start button when stopped", () => {
+    mockData = { ...mockServer, status: "stopped" };
+    renderPage();
+    expect(screen.getByText("Start")).toBeInTheDocument();
+  });
+});

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <version>"
+    echo "Example: $0 v4.2.0"
+    exit 1
+fi
+
+VERSION="$1"
+cd "$(dirname "$0")/.."
+
+echo "=== Releasing $VERSION ==="
+
+# Run checks
+./scripts/check
+
+# Tag
+git tag -a "$VERSION" -m "Release $VERSION"
+git push origin "$VERSION"
+
+# Build
+./scripts/build
+
+# Push Docker image
+docker tag mcs-manager:latest "mcs-manager:$VERSION"
+docker push "mcs-manager:$VERSION"
+
+echo "=== Release $VERSION Complete ==="

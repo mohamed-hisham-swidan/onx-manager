@@ -1,0 +1,355 @@
+import os
+import signal
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.modules.server.application.runtime_reconciliation import (
+    MismatchType,
+    reconcile_all_runtimes,
+    reconcile_orphans,
+    reconcile_server_runtime,
+)
+from app.modules.server.application.supervisor import RuntimeSupervisor
+from app.modules.server.domain.aggregate import Server, ServerStatus
+from app.modules.server.domain.value_objects import (
+    JavaArguments,
+    MemoryAllocation,
+    PortNumber,
+    RuntimeInfo,
+    ServerProperties,
+    ServerType,
+)
+from app.modules.server.infrastructure.providers.base import (
+    ServerHandle,
+    ServerRuntimeStatus,
+)
+from app.modules.shared.value_objects import MinecraftVersion, ServerId
+
+
+def _make_server(
+    sid: str,
+    status: ServerStatus,
+    with_external_id: bool = True,
+    pid: int | None = 100,
+    port: int = 25565,
+) -> Server:
+    s = Server.create(
+        server_id=ServerId(sid),
+        name=f"Server-{sid}",
+        server_type=ServerType.VANILLA,
+        minecraft_version=MinecraftVersion.parse("1.21"),
+        memory=MemoryAllocation(1024, 2048),
+        java_args=JavaArguments(),
+        properties=ServerProperties(port=PortNumber(port)),
+    )
+    s.collect_events()
+
+    if status in (ServerStatus.STARTING, ServerStatus.RUNNING, ServerStatus.STOPPING):
+        s.start()
+        s.collect_events()
+    if status in (ServerStatus.RUNNING, ServerStatus.STOPPING):
+        ext_id = f"mcs-{sid}" if with_external_id else ""
+        s.mark_running(pid=pid or 0, port=port, external_id=ext_id)
+        s.collect_events()
+    if status == ServerStatus.STOPPING:
+        s.stop()
+        s.collect_events()
+    if status == ServerStatus.CRASHED:
+        s.start()
+        s.mark_running(pid=0, port=port)
+        s.crash(exit_code=1)
+        s.collect_events()
+
+    return s
+
+
+def _mock_provider(verify_process: bool = True, tmux_pid: int | None = 100):
+    p = MagicMock()
+    p.provider_type = "local"
+    p.verify_process = AsyncMock(return_value=verify_process)
+    p.get_runtime_pid = AsyncMock(return_value=tmux_pid)
+    return p
+
+
+@pytest.mark.asyncio
+class TestReconcileServerRuntime:
+    async def test_running_server_healthy(self):
+        server = _make_server("s1", ServerStatus.RUNNING)
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+            return_value=_mock_provider(verify_process=True, tmux_pid=100),
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+                return_value=None,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                    return_value=MagicMock(is_running=True),
+                ):
+                    outcome = await reconcile_server_runtime(server, repo)
+
+        assert len(outcome.mismatches) == 0
+        assert outcome.repaired is False
+
+    async def test_running_no_supervisor(self):
+        server = _make_server("s2", ServerStatus.RUNNING)
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+        repo.save = AsyncMock()
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+            return_value=_mock_provider(verify_process=True, tmux_pid=100),
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+                return_value=None,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                    return_value=None,
+                ):
+                    outcome = await reconcile_server_runtime(server, repo)
+
+        assert len(outcome.mismatches) >= 1
+        types = [m.mismatch_type for m in outcome.mismatches]
+        assert MismatchType.DB_RUNNING_NO_SUPERVISOR in types
+
+    async def test_running_no_tmux(self):
+        server = _make_server("s3", ServerStatus.RUNNING)
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+        repo.save = AsyncMock()
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+            return_value=_mock_provider(verify_process=False, tmux_pid=None),
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                return_value=None,
+            ):
+                outcome = await reconcile_server_runtime(server, repo)
+
+        assert outcome.repaired is True
+        repo.save.assert_called_once()
+        assert server.status == ServerStatus.CRASHED
+
+    async def test_tmux_pid_dead(self):
+        server = _make_server("s4", ServerStatus.RUNNING)
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+        repo.save = AsyncMock()
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+            return_value=_mock_provider(verify_process=True, tmux_pid=999),
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+                side_effect=ProcessLookupError,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                    return_value=MagicMock(is_running=True),
+                ):
+                    outcome = await reconcile_server_runtime(server, repo)
+
+        assert outcome.repaired is True
+        assert server.status == ServerStatus.CRASHED
+
+    async def test_supervisor_no_tmux(self):
+        server = _make_server("s5", ServerStatus.RUNNING)
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+        repo.save = AsyncMock()
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+            return_value=_mock_provider(verify_process=False, tmux_pid=None),
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                return_value=MagicMock(is_running=True),
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.stop_for",
+                    AsyncMock(),
+                ) as mock_stop:
+                    outcome = await reconcile_server_runtime(server, repo)
+
+        assert outcome.repaired is True
+        mock_stop.assert_awaited_once_with("s5")
+
+    async def test_starting_but_alive(self):
+        server = _make_server("s6", ServerStatus.STARTING, pid=None)
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+        repo.save = AsyncMock()
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+            return_value=_mock_provider(verify_process=True, tmux_pid=200),
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+                return_value=None,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation._port_is_listening",
+                    return_value=True,
+                ):
+                    with patch(
+                        "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                        return_value=None,
+                    ):
+                        outcome = await reconcile_server_runtime(server, repo)
+
+        assert outcome.repaired is True
+        assert server.status == ServerStatus.RUNNING
+        assert len(outcome.actions) == 1
+        assert "STARTING" in outcome.actions[0]
+
+    async def test_created_server_no_action(self):
+        for status in (ServerStatus.CREATED, ServerStatus.STOPPED, ServerStatus.CRASHED):
+            server = _make_server(f"s-{status.value}", status)
+            repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+            repo.save = AsyncMock()
+
+            outcome = await reconcile_server_runtime(server, repo)
+
+            assert len(outcome.mismatches) == 0
+            assert outcome.repaired is False
+            repo.save.assert_not_called()
+
+    async def test_provider_not_found(self):
+        server = _make_server("s9", ServerStatus.RUNNING)
+        server._runtime = RuntimeInfo(status="running", provider="nonexistent")
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+
+        outcome = await reconcile_server_runtime(server, repo)
+
+        assert outcome.error is not None
+        assert "provider" in (outcome.error or "").lower()
+
+
+@pytest.mark.asyncio
+class TestReconcileAllRuntimes:
+    async def test_all_healthy(self):
+        servers = [
+            _make_server("a1", ServerStatus.CREATED),
+            _make_server("a2", ServerStatus.STOPPED),
+            _make_server("a3", ServerStatus.RUNNING),
+        ]
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+        repo.list = AsyncMock(return_value=servers)
+        repo.save = AsyncMock()
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+            return_value=_mock_provider(verify_process=True, tmux_pid=100),
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+                return_value=None,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                    return_value=MagicMock(is_running=True),
+                ):
+                    outcomes = await reconcile_all_runtimes(repo)
+
+        assert len(outcomes) == 3
+        assert all(o.repaired is False for o in outcomes)
+        assert sum(len(o.mismatches) for o in outcomes) == 0
+
+    async def test_specific_servers_only(self):
+        servers = [
+            _make_server("b1", ServerStatus.RUNNING),
+            _make_server("b2", ServerStatus.RUNNING),
+        ]
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+        repo.get = AsyncMock(side_effect=lambda sid: next(s for s in servers if str(s.id) == str(sid)))
+        repo.save = AsyncMock()
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+            return_value=_mock_provider(verify_process=True, tmux_pid=100),
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+                return_value=None,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                    return_value=MagicMock(is_running=True),
+                ):
+                    outcomes = await reconcile_all_runtimes(repo, server_ids=["b1"])
+
+        assert len(outcomes) == 1
+        assert str(outcomes[0].server_id) == "b1"
+
+
+@pytest.mark.asyncio
+class TestReconcileOrphans:
+    async def test_no_orphans(self):
+        with patch(
+            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+            return_value=[],
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                return_value=[],
+            ):
+                actions = await reconcile_orphans()
+
+        assert actions == []
+
+    async def test_kills_orphan_tmux(self):
+        with patch(
+            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+            return_value=["mcs-orphan"],
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
+                return_value=12345,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.os.kill",
+                ) as mock_kill:
+                    with patch(
+                        "app.modules.server.application.runtime_reconciliation.os.popen",
+                    ):
+                        with patch(
+                            "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                            return_value=[],
+                        ):
+                            actions = await reconcile_orphans()
+
+        assert len(actions) == 1
+        assert actions[0]["type"] == "orphan_tmux"
+        assert actions[0]["session"] == "mcs-orphan"
+        mock_kill.assert_any_call(12345, signal.SIGTERM)
+
+    async def test_kills_orphan_java_pids(self):
+        with patch(
+            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+            return_value=[],
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                return_value=[9999, 8888],
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation._is_minecraft_java_pid",
+                    return_value=True,
+                ):
+                    with patch(
+                        "app.modules.server.application.runtime_reconciliation.os.kill",
+                    ) as mock_kill:
+                        actions = await reconcile_orphans()
+
+        assert len(actions) == 1
+        assert actions[0]["type"] == "orphan_java"
+        assert set(actions[0]["pids"]) == {9999, 8888}
+        mock_kill.assert_any_call(9999, signal.SIGTERM)
+        mock_kill.assert_any_call(8888, signal.SIGTERM)

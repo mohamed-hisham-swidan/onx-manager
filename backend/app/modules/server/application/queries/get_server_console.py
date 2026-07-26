@@ -1,0 +1,46 @@
+from app.core.exceptions import ProviderError, ServerNotRunningError
+from app.core.query_bus import Query, QueryHandler
+from app.modules.server.domain.aggregate import ServerStatus
+from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.infrastructure.repository import SQLServerRepository
+from app.modules.shared.value_objects import ServerId
+from app.storage.db import database
+
+
+RUNNING_STATUSES = {ServerStatus.RUNNING, ServerStatus.STARTING}
+
+
+class GetServerConsoleQuery(Query):
+    server_id: str
+    tail: int = 100
+
+
+class ConsoleReadModel:
+    def __init__(self, server_id: str, lines: list[str]) -> None:
+        self.server_id = server_id
+        self.lines = lines
+
+
+class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
+    async def handle(self, query: GetServerConsoleQuery) -> ConsoleReadModel:
+        async with database.session_factory() as session:
+            repo: ServerRepository = SQLServerRepository(session)
+            server = await repo.get(ServerId(query.server_id))
+
+            if not server.runtime or not server.runtime.external_id or server.status not in RUNNING_STATUSES:
+                raise ServerNotRunningError(server_id=query.server_id)
+
+            provider_type = server.runtime.provider
+            from app.modules.server.infrastructure.providers import provider_factory
+            provider = provider_factory.get(provider_type)
+            from app.modules.server.infrastructure.providers.base import ServerHandle
+            handle = ServerHandle(
+                provider=provider_type,
+                server_id=str(server.id),
+                external_id=server.runtime.external_id,
+            )
+            try:
+                lines = await provider.console(handle, tail=query.tail)
+            except ProviderError:
+                raise ServerNotRunningError(server_id=query.server_id)
+            return ConsoleReadModel(server_id=query.server_id, lines=lines)

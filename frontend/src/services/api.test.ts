@@ -1,0 +1,135 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createApiClient, ApiError } from "./api";
+
+function mockFetch(data: unknown, status = 200) {
+  return vi.fn().mockResolvedValue({
+    status,
+    ok: status >= 200 && status < 300,
+    json: vi.fn().mockResolvedValue(data),
+  });
+}
+
+function mockFetchNetworkError() {
+  return vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+}
+
+describe("createApiClient", () => {
+  let api: ReturnType<typeof createApiClient>;
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    api = createApiClient("http://localhost:8000", () => null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("health returns status", async () => {
+    const data = { status: "ok", version: "1.0", database: "connected", uptime_seconds: 1234 };
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(data));
+    const result = await api.health();
+    expect(result.status).toBe("ok");
+    expect(result.version).toBe("1.0");
+  });
+
+  it("login sends POST with body", async () => {
+    const resp = { access_token: "tok", refresh_token: "rtok", token_type: "bearer", expires_in: 3600 };
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(resp));
+    const result = await api.login({ email: "a@b.com", password: "secret" });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/auth/login",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "a@b.com", password: "secret" }),
+      }),
+    );
+    expect(result.access_token).toBe("tok");
+  });
+
+  it("injects authorization header when token available", async () => {
+    api = createApiClient("http://localhost:8000", () => "my-token");
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ status: "ok", version: "", database: "", uptime_seconds: null }));
+    await api.health();
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer my-token" }),
+      }),
+    );
+  });
+
+  it("listServers sends GET with no body", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([{ server_id: "s1", name: "Test" }]));
+    const result = await api.listServers();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/servers"),
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].server_id).toBe("s1");
+  });
+
+  it("listServers passes params as query string", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([]));
+    await api.listServers({ status: "running" });
+    const url = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(url).toContain("status=running");
+  });
+
+  it("throws ApiError on 4xx", async () => {
+    const errBody = { error: "Not found", error_code: "NOT_FOUND", detail: null, timestamp: null };
+    vi.mocked(fetch).mockImplementation(mockFetch(errBody, 404));
+    await expect(api.getServer("bad-id")).rejects.toThrow(ApiError);
+    await expect(api.getServer("bad-id")).rejects.toThrow("Not found");
+  });
+
+  it("ApiError has status and code", async () => {
+    const errBody = { error: "Unauthorized", error_code: "UNAUTHORIZED", detail: null, timestamp: null };
+    vi.mocked(fetch).mockImplementation(mockFetch(errBody, 401));
+    try {
+      await api.getMe();
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      const ae = e as ApiError;
+      expect(ae.status).toBe(401);
+      expect(ae.code).toBe("UNAUTHORIZED");
+      expect(ae.message).toBe("Unauthorized");
+    }
+  });
+
+  it("returns undefined on 204", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(null, 204));
+    const result = await api.deleteServer("s1");
+    expect(result).toBeUndefined();
+  });
+
+  it("throws NETWORK_ERROR on fetch failure", async () => {
+    vi.mocked(fetch).mockImplementation(mockFetchNetworkError());
+    await expect(api.health()).rejects.toThrow(ApiError);
+    await expect(api.health()).rejects.toThrow("Unable to reach server");
+  });
+
+  it("throws PARSE_ERROR on invalid JSON", async () => {
+    vi.mocked(fetch).mockImplementation(
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token")),
+      }),
+    );
+    await expect(api.health()).rejects.toThrow(ApiError);
+    await expect(api.health()).rejects.toThrow("Invalid response from server");
+  });
+
+  it("deleteServer sends DELETE", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(null, 204));
+    await api.deleteServer("s1");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/servers/s1"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+});
