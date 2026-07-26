@@ -7,6 +7,7 @@ Create Date: 2026-07-24 15:55:56.359897
 from typing import Sequence, Union
 
 from alembic import op
+from sqlalchemy import inspect
 import sqlalchemy as sa
 
 
@@ -17,10 +18,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "servers",
-        sa.Column("server_type", sa.String(32), nullable=False, server_default="vanilla"),
-    )
+    conn = op.get_bind()
+    existing = {c["name"] for c in inspect(conn).get_columns("servers")}
+    if "server_type" not in existing:
+        op.add_column(
+            "servers",
+            sa.Column("server_type", sa.String(32), nullable=False, server_default="vanilla"),
+        )
 
 
 def downgrade() -> None:

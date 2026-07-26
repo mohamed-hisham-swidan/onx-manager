@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 revision: str = "fcc7545db19e"
 down_revision: Union[str, None] = "ff9c2b3a8e4d"
@@ -17,7 +18,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("servers", sa.Column("launch_config_json", sa.Text(), nullable=True))
+    conn = op.get_bind()
+    existing = {c["name"] for c in inspect(conn).get_columns("servers")}
+    if "launch_config_json" not in existing:
+        op.add_column("servers", sa.Column("launch_config_json", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
