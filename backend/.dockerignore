@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+.Python
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Database (production data must not be in the image)
+mcs.db
+data/mcs.db
+
+# Server data (baked into volume at runtime, not the image)
+data/servers/
+data/servers_test/
+
+# Tests / lint
+tests/
+.ruff_cache/
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+
+# Git
+.git/
+.gitignore
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker
+.docker/
+
+# Auto-generated / docs
+openapi.json
+openapi.yaml
+
+# Agent / AI artifacts
+.ai/

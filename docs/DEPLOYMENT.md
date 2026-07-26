@@ -1,0 +1,134 @@
+# Deployment Guide (Docker)
+
+## Prerequisites
+
+- **Docker** ≥ 24.0 (with Compose plugin v2 or standalone `docker-compose`)
+- **Git** (to clone the repo)
+
+Verify:
+
+```bash
+docker --version
+docker compose version
+```
+
+## Quick start
+
+```bash
+# 1. Clone the repo
+git clone <repo-url> && cd mcs-manager
+
+# 2. Set up environment
+cp .env.example .env
+# Edit .env — at minimum change MCS_SECRET_KEY to a long random string
+
+# 3. Build and start
+docker compose up -d
+
+# 4. Check status
+docker compose ps
+curl http://localhost:8000/health
+curl http://localhost:80/
+```
+
+## Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCS_DATABASE_URL` | `sqlite+aiosqlite:///data/mcs.db` | Database connection string |
+| `MCS_SECRET_KEY` | `change-me…` | App secret key (change in production!) |
+| `MCS_DEBUG` | `false` | Enable debug mode |
+| `MCS_LOG_LEVEL` | `INFO` | Logging level |
+| `MCS_JWT_PRIVATE_KEY` | *(auto-generated)* | PEM-encoded RSA private key for JWT signing. If omitted, a key is generated on first start and persisted to `config/jwt_private_key.pem` inside the container — all JWTs are invalidated if the container is recreated without preserving this file. |
+
+## Persistent data
+
+Docker Compose creates two named volumes:
+
+| Volume | Mount point | Contents |
+|--------|-------------|----------|
+| `mcs-db-data` | `/data/` | SQLite database (`mcs.db`) |
+| `mcs-server-data` | `/app/data/servers/` | Minecraft server files (worlds, JARs, plugins) |
+
+Data survives container restarts and upgrades. To wipe everything (including the database):
+
+```bash
+docker compose down -v
+```
+
+## Common commands
+
+```bash
+# Start
+docker compose up -d
+
+# Stop (keep data)
+docker compose down
+
+# Stop and delete volumes (WARNING: destroys DB + server data)
+docker compose down -v
+
+# View logs
+docker compose logs -f
+docker compose logs backend -f
+docker compose logs frontend -f
+
+# Rebuild after code changes
+docker compose build
+docker compose up -d
+
+# Restart a single service
+docker compose restart backend
+```
+
+## Architecture
+
+```
+                        ┌─────────────┐
+                        │  nginx:80   │  ← frontend service
+                        │  (static)   │
+                        └──────┬──────┘
+                               │  /api/*  /ws  /health
+                               ▼
+                        ┌─────────────┐
+                        │  uvicorn    │  ← backend service
+                        │  :8000      │
+                        └──────┬──────┘
+                               │
+                    ┌──────────┴──────────┐
+                    │  mcs-db-data        │
+                    │  mcs-server-data    │  ← named volumes
+                    └─────────────────────┘
+```
+
+The frontend nginx serves the compiled Vite SPA and proxies API/WebSocket
+requests to the backend container. The backend runs migrations on startup
+and serves the REST API.
+
+## Production considerations
+
+1. **Change `MCS_SECRET_KEY`** in `.env` to a long (≥32 chars) random string.
+2. **Provide a JWT private key** — either set `MCS_JWT_PRIVATE_KEY` in `.env`, or mount a PEM file and set `MCS_JWT_PRIVATE_KEY_PATH`. Without this, JWTs are invalidated on every container restart.
+3. **Back up the volumes** regularly — especially `mcs-db-data` and `mcs-server-data`.
+4. **Resource limits** — Minecraft servers can use significant RAM. Consider adding `deploy.resources.limits` in `docker-compose.yml` if running on constrained hardware.
+
+## Local dev (non-Docker) alternative
+
+The project also supports a local development path:
+
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Use the Docker path for deployment and CI. Use the local path for
+active development (hot-reload, debugger access, test runner).
