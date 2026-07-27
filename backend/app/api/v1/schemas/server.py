@@ -1,12 +1,23 @@
 from datetime import datetime
+import re
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 
 
 class ServerCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     server_type: str = Field(default="vanilla")
     minecraft_version: str = Field(default="1.20.4")
+
+    @field_validator("minecraft_version")
+    @classmethod
+    def validate_version(cls, v: str) -> str:
+        if not VERSION_PATTERN.match(v):
+            raise ValueError(f"Invalid Minecraft version format: {v!r}")
+        return v
     min_memory_mb: int = Field(default=1024, ge=128)
     max_memory_mb: int = Field(default=2048, ge=128)
     port: int = Field(default=25565, ge=1, le=65535)

@@ -67,7 +67,17 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 root_path=str(command.install_dir),
             ),
             server_id=str(server_id),
+            name=command.name,
         )
+
+        try:
+            parsed_version = MinecraftVersion.parse(command.minecraft_version)
+        except ValueError as exc:
+            return CommandResult(
+                success=False,
+                error=str(exc),
+                error_code="VALIDATION_ERROR",
+            )
 
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerRepository = SQLServerRepository(uow.session)
@@ -91,7 +101,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 server_id=server_id,
                 name=command.name,
                 server_type=ServerType(command.server_type),
-                minecraft_version=MinecraftVersion.parse(command.minecraft_version),
+                minecraft_version=parsed_version,
                 memory=MemoryAllocation(
                     min_mb=command.min_memory_mb,
                     max_mb=command.max_memory_mb,

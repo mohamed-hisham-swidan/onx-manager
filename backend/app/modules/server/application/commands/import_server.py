@@ -17,12 +17,17 @@ from app.modules.server.domain.value_objects import (
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.server.application.services.import_service import _find_server_jar
+from app.modules.server.application.services.jar_service import server_dir_name
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 from app.storage.unit_of_work import UnitOfWork
 
 logger = logging.getLogger("mcs.commands.import_server")
 
-SERVERS_DATA_DIR = "data/servers"
+def _servers_data_dir() -> str:
+    from app.core.config import AppSettings
+    return AppSettings().servers_data_dir
+
+SERVERS_DATA_DIR = _servers_data_dir()
 
 
 class ImportServerCommand(Command):
@@ -63,7 +68,8 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
             )
 
         server_id = ServerId()
-        target = (Path(SERVERS_DATA_DIR) / str(server_id)).resolve()
+        dirname = server_dir_name(command.name, str(server_id))
+        target = (Path(SERVERS_DATA_DIR) / dirname).resolve()
 
         if target.exists():
             return CommandResult(
