@@ -32,12 +32,13 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                 server = await repo.get(server_id)
             except ServerNotFoundError:
                 logger.warning(
-                    'Delete called for nonexistent server %s — treating as success',
+                    'Delete called for nonexistent server %s — returning 404',
                     command.server_id,
                 )
                 return CommandResult(
-                    success=True,
-                    data={"server_id": command.server_id, "already_deleted": True},
+                    success=False,
+                    error=f"Server {command.server_id} not found",
+                    error_code="NOT_FOUND",
                 )
 
             server_dir: str | None = None
