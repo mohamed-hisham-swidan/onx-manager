@@ -35,20 +35,26 @@ async def reconcile_filesystem(repo: ServerRepository) -> list[dict]:
         return results
 
     db_ids: set[str] = {str(s.id) for s in all_servers}
+    db_short_ids: set[str] = {str(s.id)[:8] for s in all_servers}
 
     orphan_count = 0
     for entry in os.listdir(data_dir):
         entry_path = os.path.join(data_dir, entry)
         if not os.path.isdir(entry_path):
             continue
-        if entry not in db_ids:
-            orphan_count += 1
-            logger.warning("Orphan directory detected: %s (no matching DB record)", entry_path)
-            results.append({
-                "path": entry_path,
-                "server_id": entry,
-                "action": "pending",
-            })
+        if entry in db_ids:
+            continue
+        parts = entry.split("-")
+        dir_short_id = parts[-1] if len(parts) > 1 and len(parts[-1]) == 8 and all(c in "0123456789abcdef" for c in parts[-1]) else None
+        if dir_short_id is not None and dir_short_id in db_short_ids:
+            continue
+        orphan_count += 1
+        logger.warning("Orphan directory detected: %s (no matching DB record)", entry_path)
+        results.append({
+            "path": entry_path,
+            "server_id": entry,
+            "action": "pending",
+        })
 
     logger.info(
         "Filesystem reconciliation complete: %d orphan directories found",

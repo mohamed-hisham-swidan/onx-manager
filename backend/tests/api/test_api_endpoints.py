@@ -40,9 +40,11 @@ def _override_deps(buses) -> None:
 
 
 @pytest.fixture
-async def client() -> AsyncClient:
-    from app.storage.base import Base
-    from app.storage.db import database
+async def client(tmp_path) -> AsyncClient:
+    import os
+
+    from app.core.persistence.base import Base
+    from app.core.persistence.db import database
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
@@ -51,6 +53,11 @@ async def client() -> AsyncClient:
 
     database._engine = engine
     database._session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+    old_data_dir = os.environ.get("MCS_SERVERS_DATA_DIR")
+    test_servers_dir = tmp_path / "test_servers"
+    test_servers_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["MCS_SERVERS_DATA_DIR"] = str(test_servers_dir)
 
     transport = ASGITransport(app=app)
     with patch(
@@ -63,6 +70,10 @@ async def client() -> AsyncClient:
     await engine.dispose()
     database._engine = None
     database._session_factory = None
+    if old_data_dir is not None:
+        os.environ["MCS_SERVERS_DATA_DIR"] = old_data_dir
+    else:
+        os.environ.pop("MCS_SERVERS_DATA_DIR", None)
 
 
 @pytest.fixture
@@ -255,7 +266,7 @@ class TestServers:
         assert data["server_id"] == server_id
 
     async def test_stop_server(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
-        from app.storage.db import database
+        from app.core.persistence.db import database
         from sqlalchemy import text
         from app.modules.server.infrastructure.providers.base import (
             DeploymentResult,
