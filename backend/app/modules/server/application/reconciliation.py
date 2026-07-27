@@ -13,7 +13,11 @@ from app.modules.shared.value_objects import ServerId
 
 logger = logging.getLogger("mcs.reconciliation")
 
-SERVERS_DATA_DIR = "data/servers"
+def _servers_data_dir() -> str:
+    from app.core.config import AppSettings
+    return AppSettings().servers_data_dir
+
+SERVERS_DATA_DIR = _servers_data_dir()
 
 
 async def reconcile_filesystem(repo: ServerRepository) -> list[dict]:

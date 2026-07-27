@@ -28,6 +28,7 @@ class AppSettings(BaseSettings):
     saga_timeout_seconds: int = 300
     jwt_private_key: str = ""
     jwt_private_key_path: str = ""
+    servers_data_dir: str = "data/servers"
 
     model_config = {"env_prefix": "MCS_"}
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -80,8 +81,24 @@ SOFTWARE_METADATA: dict[str, dict] = {
 SERVER_TYPES_REQUIRING_MANUAL_INSTALL: set[str] = {"forge"}
 
 
+def _slugify(text: str) -> str:
+    """Lowercase, strip non-alphanumeric (unicode-aware), collapse whitespace to hyphens."""
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = text.replace("_", "-")
+    text = re.sub(r"[\s-]+", "-", text)
+    text = text.strip("-")
+    return text or "server"
+
+
+def server_dir_name(name: str, server_id: str) -> str:
+    """Human-readable directory name: <slug>-<first-8-chars-of-uuid> (e.g. oneblock-reborn-be193e92)."""
+    return f"{_slugify(name)}-{server_id[:8]}"
+
+
 def _default_data_dir() -> Path:
-    return Path("data") / "servers"
+    from app.core.config import AppSettings
+    return Path(AppSettings().servers_data_dir)
 
 
 def server_dir(server_id: str) -> Path:
@@ -201,9 +218,15 @@ def _resolve_jar_dest(deployment: ServerDeployment | None, server_id: str | None
     return str(jar_path(server_id or "unknown"))
 
 
-def _resolve_server_dir(deployment: ServerDeployment | None, server_id: str | None) -> str:
+def _resolve_server_dir(
+    deployment: ServerDeployment | None,
+    server_id: str | None,
+    name: str | None = None,
+) -> str:
     if deployment and deployment.root_path:
         return deployment.server_directory()
+    if name and server_id:
+        return str(_default_data_dir() / server_dir_name(name, server_id))
     return str(server_dir(server_id or "unknown"))
 
 
