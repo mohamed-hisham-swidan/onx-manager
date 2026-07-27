@@ -47,7 +47,7 @@ from app.modules.server.domain.value_objects import (
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 def _mock_provisioning():
@@ -171,8 +171,8 @@ class TestDeleteServerHandler:
         bus.register(DeleteServerCommand, DeleteServerHandler(event_bus))
         result = await bus.send(DeleteServerCommand(server_id="nonexistent"))
 
-        assert result.success is True
-        assert result.data.get("already_deleted") is True
+        assert result.success is False
+        assert result.error_code == "NOT_FOUND"
 
 
 @pytest.mark.usefixtures("init_test_db")
@@ -367,8 +367,8 @@ class TestDeleteServerFS:
         assert r1.success is True
 
         r2 = await handler.handle(DeleteServerCommand(server_id="test-del-double-1"))
-        assert r2.success is True
-        assert r2.data.get("already_deleted") is True
+        assert r2.success is False
+        assert r2.error_code == "NOT_FOUND"
 
     @pytest.mark.asyncio
     async def test_delete_without_deployment_skips_fs(self, mock_delete_dir: AsyncMock, event_bus: EventBus) -> None:

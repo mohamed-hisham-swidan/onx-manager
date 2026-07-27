@@ -6,8 +6,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.event_bus import DomainEvent, EventBus
-from app.storage.base import BaseRepository
-from app.storage.db import database
+from app.core.persistence.base import BaseRepository
+from app.core.persistence.db import database
 
 
 class UnitOfWork:

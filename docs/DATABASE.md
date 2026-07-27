@@ -10,9 +10,9 @@
 | Migrations | Alembic |
 | Embedded mode | SQLite 3 (fallback via config) |
 
-Connection pooling: 20 pool size, 10 max overflow, `pool_pre_ping=True` for PostgreSQL. SQLite mode skips pooling. See `backend/app/storage/db.py`.
+Connection pooling: 20 pool size, 10 max overflow, `pool_pre_ping=True` for PostgreSQL. SQLite mode skips pooling. See `backend/app/core/persistence/db.py`.
 
-The `DatabaseEngine` class (`backend/app/storage/db.py:16`) wraps `create_async_engine` and provides an `async_sessionmaker`. Sessions are injected via FastAPI `Depends(get_db)`.
+The `DatabaseEngine` class (`backend/app/core/persistence/db.py:16`) wraps `create_async_engine` and provides an `async_sessionmaker`. Sessions are injected via FastAPI `Depends(get_db)`.
 
 ## Schema Design
 
@@ -199,7 +199,7 @@ The `StoredEventModel` is in `backend/app/modules/event_store/models.py`. Events
 
 ### Base Repository
 
-All domain entities use `BaseRepository[T]` (`backend/app/storage/base.py:31`):
+All domain entities use `BaseRepository[T]` (`backend/app/core/persistence/base.py:31`):
 
 ```python
 await repo.add(entity)
@@ -211,7 +211,7 @@ await repo.delete(entity)
 
 ### Unit of Work
 
-All mutations run inside a `UnitOfWork` context (`backend/app/storage/unit_of_work.py:13`):
+All mutations run inside a `UnitOfWork` context (`backend/app/core/persistence/unit_of_work.py:13`):
 
 ```python
 async with UnitOfWork(event_bus) as uow:

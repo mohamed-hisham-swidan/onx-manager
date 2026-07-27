@@ -24,7 +24,7 @@ backend/app/core/
   ├── saga.py
   └── security.py
 
-backend/app/storage/
+backend/app/core/persistence/
   ├── __init__.py
   ├── base.py
   ├── db.py

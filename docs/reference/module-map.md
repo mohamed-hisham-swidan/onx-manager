@@ -11,7 +11,7 @@ Every backend module mapped to its purpose, path, and the batch that built it. D
 | Module | Path | Type | Description |
 |---|---|---|---|
 | Core | `backend/app/core/` | Foundation | Config factory, exception hierarchy, CQRS buses, idempotency, saga base, circuit breaker, feature flags, logging, security utils |
-| Storage | `backend/app/storage/` | Foundation | SQLAlchemy engine, base ORM model, `BaseRepository`, `UnitOfWork` |
+| Persistence | `backend/app/core/persistence/` | Foundation | SQLAlchemy engine, base ORM model, `BaseRepository`, `UnitOfWork` |
 | Migrations | `backend/alembic/` | Foundation | Database migration scripts, env config |
 
 ## Domain Layer — Batch 02
@@ -99,7 +99,7 @@ Every backend module mapped to its purpose, path, and the batch that built it. D
 
 | Batch | Layer | Modules |
 |---|---|---|
-| 01 | Foundation | core, storage, alembic |
+| 01 | Foundation | core, persistence, alembic |
 | 02 | Domain | server/domain, backup/domain, plugin/domain, auth/domain, monitoring/domain, shared |
 | 03 | Infrastructure | server/infrastructure, backup/infrastructure, plugin/infrastructure (repos), modules/storage |
 | 04 | Application | server/application, backup/application, plugin/application, monitoring/application, services |

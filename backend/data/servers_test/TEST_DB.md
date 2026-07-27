@@ -32,7 +32,7 @@ MCS_DATABASE_URL="sqlite+aiosqlite:///./data/servers_test/test_mcs.db" \
 import asyncio, os
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
-from app.storage.base import Base
+from app.core.persistence.base import Base
 import app.modules.server.infrastructure.models
 import app.modules.backup.infrastructure.models
 import app.modules.plugin.infrastructure.models
@@ -145,7 +145,7 @@ In `backend/app/core/config.py`, `AppSettings` uses the env prefix
 - `MCS_SERVERS_DATA_DIR` → `servers_data_dir`
 
 The global singleton `database = DatabaseEngine()` in
-`backend/app/storage/db.py` reads `AppSettings().database_url` when
+`backend/app/core/persistence/db.py` reads `AppSettings().database_url` when
 `init()` is called.
 
 Similarly, `jar_service._default_data_dir()` now reads
