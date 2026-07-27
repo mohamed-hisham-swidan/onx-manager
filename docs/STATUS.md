@@ -243,7 +243,7 @@ server_manger/
 | Build | Vite | — |
 | Styling | TailwindCSS | 4 |
 | State | TanStack Query + Zustand | — |
-| Testing (BE) | pytest (781 tests) | — |
+| Testing (BE) | pytest (784 tests) | — |
 | Testing (FE) | Vitest (148 tests) | — |
 | Linting | Ruff | — |
 | Container | Docker | — |
@@ -278,7 +278,7 @@ server_manger/
 
 ## Tests & Coverage
 
-### Backend — 781 passing
+### Backend — 784 passing
 
 | Test File | Tests | Group |
 |-----------|-------|-------|
@@ -370,4 +370,4 @@ server_manger/
 
 ---
 
-*Generated: 2026-07-27 · Project: MCS Manager v4.0 (7.1.0) · 10 commits across 5 batches*
+*Generated: 2026-07-27 · Project: MCS Manager v4.0 (7.1.0) · 13 commits across 5 batches*
