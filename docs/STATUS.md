@@ -107,13 +107,15 @@ server_manger/
 │       │   ├── server_orchestrator.py
 │       │   ├── backup_orchestrator.py
 │       │   └── deployment_orchestrator.py
-│       ├── storage/                   # Storage backends
-│       │   ├── db.py                 # Database engine
-│       │   ├── base.py               # Abstract storage
-│       │   ├── local.py              # Local filesystem
-│       │   ├── s3.py                 # S3-compatible
-│       │   ├── encryption.py         # AES-256-GCM
-│       │   └── unit_of_work.py       # UoW pattern
+│       ├── core/persistence/          # DB persistence (ORM, UoW)
+│       │   ├── base.py               # DeclarativeBase, BaseRepository
+│       │   ├── db.py                 # DatabaseEngine, get_db
+│       │   └── unit_of_work.py       # UnitOfWork pattern
+│       ├── modules/storage/           # File storage backends
+│       │   ├── base.py               # StorageBackend ABC
+│       │   ├── local.py              # Local filesystem adapter
+│       │   ├── s3.py                 # S3-compatible adapter
+│       │   └── encryption.py         # AES-256-GCM encryption
 │       ├── tasks/                     # Task queue & scheduling
 │       │   ├── base.py               # Abstract Task
 │       │   ├── queue.py              # InProcessQueue (SQLite)
