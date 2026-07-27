@@ -1,5 +1,10 @@
 # Architecture Overview
 
+**Last updated**: 2026-07-27  
+**Cross-references**: [ADR-0001](decisions/0001-modular-monolith.md), [ADR-0002](decisions/0002-command-query-event-buses.md), [ADR-0007](decisions/0007-core-persistence-rename.md)
+
+---
+
 ## System Context
 
 ```
@@ -20,67 +25,155 @@
                 └──────────────┘
 ```
 
-The system is a **modular monolith** with hexagonal architecture per module. Three client types (browser, CLI, plugin subprocesses) interact with a FastAPI backend. The backend dispatches through Command, Query, and Event buses backed by PostgreSQL (primary), Redis (cache + WebSocket), and subprocess-isolated plugins.
+Three client types (browser, CLI, plugin subprocesses) interact with a FastAPI backend. The backend dispatches through Command, Query, and Event buses backed by PostgreSQL (primary), Redis (cache + WebSocket), and subprocess-isolated plugins. SQLite is supported as an embedded/development fallback.
 
-## Bounded Contexts
+---
 
-| Context | Responsibility | Aggregate Roots |
-|---|---|---|
-| Server Management | Server lifecycle, configuration, deployment | `Server`, `ServerGroup` |
-| Plugin Engine | Plugin lifecycle, sandboxing, dependency resolution | `Plugin`, `PluginRegistry` |
-| Backup | Backup scheduling, execution, restoration | `BackupJob`, `BackupPolicy` |
-| Monitoring | Metrics, health checks, alert rules | `MetricSeries`, `AlertRule` |
-| Notification | Alert delivery (Discord, Telegram, Email) | `NotificationChannel` |
-| User & Auth | Users, roles, permissions, API keys | `User`, `Role`, `ApiKey` |
-| Storage | File storage abstraction | `StoredFile` |
-| Event Store | Immutable event log | `StoredEvent` |
-| Configuration | Config templates and snapshots | `ConfigurationProfile` |
+## Module Architecture
 
-## Module Map
+### Layered Structure
 
 ```
-mcs_manager/
-├── core/               # CommandBus, QueryBus, EventBus, UoW
-├── server/             # Minecraft server domain
-├── backup/             # Backup/restore domain
-├── plugin/             # Plugin system (subprocess-isolated)
-├── user/               # Auth + RBAC/ABAC
-├── monitor/            # Health checks, metrics
-├── task/               # Scheduled tasks
-└── api/                # REST + WebSocket
+backend/app/
+├── main.py                    # FastAPI app factory + startup
+├── registration.py            # Module registration
+├── api/                       # Interface layer (REST + WebSocket)
+│   ├── deps.py                # FastAPI dependency injection
+│   ├── errors.py              # Global exception handlers
+│   └── v1/
+│       ├── middleware/        # Auth, audit, rate-limit, request-id
+│       ├── routers/           # 9 endpoint groups
+│       └── schemas/           # Pydantic request/response schemas
+├── core/                      # Foundation layer
+│   ├── command_bus.py         # CQRS command bus
+│   ├── query_bus.py           # CQRS query bus
+│   ├── event_bus.py           # Async event bus with retry + DLQ
+│   ├── persistence/           # Database engine, Base ORM, UoW ← ADR-0007
+│   ├── saga.py                # Saga orchestrator
+│   ├── circuit_breaker.py     # Circuit breaker pattern
+│   ├── idempotency.py         # Idempotency keys
+│   ├── feature_flags.py       # Feature flag system
+│   ├── config.py              # Configuration (AppSettings)
+│   ├── exceptions.py          # MCSError hierarchy
+│   └── logging.py             # Structured logging
+├── modules/                   # 7 DDD modules
+│   ├── server/                # Minecraft server domain
+│   ├── backup/                # Backup/restore domain
+│   ├── auth/                  # User & auth domain
+│   ├── plugin/                # Plugin system domain
+│   ├── monitoring/            # Health & metrics domain
+│   ├── event_store/           # Event store module
+│   └── storage/               # File storage backends (S3/local)
+├── services/                  # Cross-module orchestration
+├── tasks/                     # Task queue + scheduling
+└── websocket/                 # WebSocket connection manager
 ```
 
-Each module follows a consistent internal structure:
+### Dependency Direction
+
+Hexagonal (ports/adapters) architecture — verified clean in Batch 4 audit:
+
+```
+api/ ──► application/ ──► domain/
+  │                          │
+  └──────────────────────► infrastructure/
+                                │
+core/ ──────────────────────────┘
+```
+
+- **Domain** never imports from infrastructure, application, or API
+- **Application** never imports from API
+- **Infrastructure** never imports from API
+- Cross-module communication happens only through domain events (EventBus) or shared value objects (`app/modules/shared/`)
+- The `core/` layer provides reusable infrastructure consumed by all layers
+
+### Each DDD Module
 
 ```
 module/
-├── domain/             # Aggregates, value objects, repository interfaces
-├── application/        # Command/query handlers, sagas
-└── infrastructure/     # Repository implementations, external adapters
+├── domain/              # Core business logic
+│   ├── aggregate.py     # Aggregate roots, entities
+│   ├── events.py        # Domain events
+│   └── repository.py    # Repository interfaces (ports)
+├── application/         # Use cases
+│   ├── commands/        # Command handlers
+│   └── queries/         # Query handlers
+└── infrastructure/      # Adapters
+    ├── models.py        # SQLAlchemy ORM models
+    └── repository.py    # SQL repository implementations
 ```
 
-The **core/** module is foundational and owned by Batch 01. It provides the infrastructure consumed by all other modules: buses, Unit of Work, configuration factory, exception hierarchy, structured logging, and base repository class.
+---
 
 ## Key Patterns
 
-- **CQRS**: Commands and queries are segregated at the bus level. Commands mutate state; queries return data. Every command carries an idempotency key — duplicate commands return cached results. See [API docs](API.md) for endpoint conventions.
-- **Event Bus**: Modules communicate exclusively via domain events dispatched through an in-process async event bus. Events are delivered concurrently with retry (backoff, 3 attempts) and overflow to a dead letter queue.
-- **Repository**: Each aggregate root has a dedicated repository interface (domain layer) with infrastructure-level implementations. Persistence is abstracted behind ports.
-- **Unit of Work**: Sessions collect domain events during a transaction. On commit, events are published after the database flush. See [Database docs](DATABASE.md) for transaction boundaries.
-- **Domain Events & Audit Log**: All domain events are appended to an immutable event store with cryptographic chaining. The event store has no UPDATE/DELETE privileges.
-- **Saga Orchestration**: Multi-step operations are managed by process managers with compensation actions (Saga pattern). The `SagaOrchestrator` coordinates long-running workflows across bounded contexts.
-- **Hexagonal Architecture**: Every module defines ports (interfaces) in its domain layer and adapters (implementations) in its infrastructure layer. Adapters are swappable without affecting business logic.
+### CQRS (ADR-0002)
+
+Commands and queries are segregated at the bus level:
+
+```
+CommandBus          QueryBus           EventBus
+──────────          ────────           ────────
+Synchronous         Synchronous        Asynchronous
+Returns result      Returns data       Fire-and-forget
+With transaction    With cache         With retry + DLQ
+Idempotency keys    No idempotency     No idempotency
+```
+
+Every command handler returns `CommandResult(success, data, error, error_code)`. Every query handler returns `QueryResult(data, total)` for paginated queries.
+
+### Unit of Work
+
+All mutations run inside a `UnitOfWork` context (`core/persistence/unit_of_work.py`). The UoW collects domain events during a transaction and publishes them to the EventBus after a successful commit. On failure, the session is rolled back and no events are published.
+
+### Event Bus
+
+Modules communicate exclusively via domain events dispatched through an in-process async event bus (ADR-0002). Events are delivered concurrently with retry (exponential backoff, 3 attempts) and overflow to a dead letter queue.
+
+### Saga Orchestration
+
+Multi-step operations (server provisioning, backup workflows) are managed by saga process managers with compensation actions. The `SagaOrchestrator` coordinates long-running workflows across bounded contexts.
+
+### Repository Pattern
+
+Each aggregate root has a dedicated repository interface in its domain layer with a SQLAlchemy implementation in its infrastructure layer. The generic `BaseRepository[T]` (`core/persistence/base.py`) provides common CRUD operations.
+
+---
+
+## Validation Strategy (ADR-0009)
+
+Input validation follows a two-layer defense:
+
+1. **Pydantic schema layer** (HTTP boundary): `@field_validator` on request schemas in `api/v1/schemas/` ensures invalid input is rejected at HTTP 422 with a structured error detail list.
+2. **Handler safety-net** (domain boundary): Try/except around domain value-object constructors catches `ValueError` and raises `InvalidValueError` (MCSError subclass) for a consistent `VALIDATION_ERROR` code.
+
+This pattern was applied to `minecraft_version` (Batch 2.5) and `email` (Batch 4). Any future domain value object that validates input must have a matching Pydantic validator.
+
+---
+
+## Sandbox Isolation (ADR-0008)
+
+Testing and development are isolated from production via environment variables:
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `MCS_DATABASE_URL` | Database connection | `sqlite+aiosqlite:///data/mcs.db` |
+| `MCS_SERVERS_DATA_DIR` | Server file directory | `data/servers` |
+
+Both must be set together when running test/development backends. Because `setsid` drops environment variables, they must be passed in the same command invocation as the uvicorn process.
+
+---
 
 ## Technology Stack
 
 ### Backend
 
 | Component | Choice |
-|---|---|
-| Language | Python 3.12+ |
+|-----------|--------|
+| Language | Python 3.14+ |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic |
+| Migrations | Alembic (9 revisions) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
 | Message Queue | InProcessQueue (dev), Arq/Redis (production) |
@@ -90,10 +183,9 @@ The **core/** module is foundational and owned by Batch 01. It provides the infr
 ### Frontend
 
 | Component | Choice |
-|---|---|
+|-----------|--------|
 | Language | TypeScript 5+ |
-| Framework | React 19+ |
-| Build | Vite |
+| Framework | React 19+ (Vite) |
 | Styling | TailwindCSS 4+, shadcn/ui |
 | Data Fetching | TanStack Query |
 | State | Zustand |
@@ -101,59 +193,72 @@ The **core/** module is foundational and owned by Batch 01. It provides the infr
 ### Data Stores
 
 | Store | Purpose |
-|---|---|
+|-------|---------|
 | PostgreSQL 16 | Primary database |
-| SQLite 3 | Embedded/desktop mode |
-| Redis | Cache, WebSocket pub/sub, production message queue |
+| SQLite 3 | Dev/test fallback |
+| Redis 7 | Cache, WebSocket pub/sub, production task queue |
 
-## Core Infrastructure
+### Containerization
 
-All components below are provided by the **core/** module and used by every other module.
+| Component | Details |
+|-----------|---------|
+| Dockerfile (backend) | Multi-stage: deps → app → runtime |
+| Dockerfile (frontend) | Build → nginx static serving |
+| docker-compose.yml | Backend + frontend services, health checks, volumes |
 
-- **CommandBus**: Middleware pipeline — logging → idempotency → auth → validation → transaction → handler. Returns cached results for duplicate idempotency keys (24h expiry via `IdempotencyStore`).
-- **QueryBus**: Middleware pipeline — logging → cache → handler. Read-only, no transaction wrapper.
-- **EventBus**: Concurrent dispatch with retry (exponential backoff, 3 attempts), dead letter queue for failed events.
-- **UnitOfWork**: Session manager that collects domain events during a transaction. On successful commit, publishes all collected events to the EventBus.
-- **ConfigFactory**: Immutable configuration assembled from layered sources (defaults → config files → env → overrides).
-- **CircuitBreaker**: Fail-fast wrapper for all infrastructure providers (database, Redis, external APIs). Prevents cascading failures.
-- **FeatureFlags**: Boolean toggle, percentage rollout, and per-user override support. All new features are gated behind flags.
-- **SagaOrchestrator**: Coordinates multi-step operations across bounded contexts. Each step has a forward action and a compensation action for rollback.
+---
 
-## Provisioning Flow
+## Production Deployment
 
-See [Provisioning docs](PROVISIONING.md) for the complete server provisioning flow:
+### Docker
 
-1. **JAR Download** — type-specific URL resolution
-2. **Validation** — magic bytes + minimum size checks
-3. **Retry** — 2x exponential backoff on failure
-4. **Cleanup** — filesystem cleanup on failure
-5. **Server Type Support** — multiple Minecraft server types
+```
+docker compose up --build    # Full stack
+docker compose build         # Rebuild images
+```
 
-## Key Design Decisions
+Both Dockerfiles and `docker-compose.yml` are at the repository root. The backend exposes port 8000; the frontend nginx proxy serves on port 80 and proxies `/api`, `/ws`, `/health`, `/docs` to the backend.
 
-1. **Idempotency** — Every command carries an idempotency key. Duplicate commands return cached results.
-2. **Immutable Audit Log** — Event store is append-only with cryptographic chaining. No UPDATE/DELETE privileges.
-3. **Saga Pattern** — Multi-step operations use a saga process manager with compensation actions.
-4. **Circuit Breakers** — All infrastructure providers wrapped in circuit breakers.
-5. **Feature Flags** — All new features behind toggles. Percentage rollouts supported.
-6. **Zero-Downtime Deployment** — Expand-contract migration pattern. Connection draining before shutdown.
-7. **Plugin Subprocess Isolation** — All plugins run as subprocesses. No in-process plugin execution.
-8. **Configuration: Two-Layer Only** — Templates (snapshotted) + Server overrides (absolute). No inheritance chain.
+### Environment Variables (production)
 
-## File Ownership
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MCS_DATABASE_URL` | Yes | PostgreSQL connection string |
+| `REDIS_URL` | Yes | Redis connection for production |
+| `JWT_PRIVATE_KEY` | Yes* | RSA private key PEM (*auto-generated if absent) |
+| `JWT_PUBLIC_KEY` | Yes* | RSA public key PEM (*auto-generated if absent) |
+| `STORAGE_BACKEND` | No | `local` or `s3` (default: `local`) |
 
-Every source file belongs to exactly one batch. No shared ownership. See [File Ownership](reference/file-ownership.md).
+---
 
-Cross-batch communication occurs through defined interfaces only. A batch that needs a feature from another batch creates a **Request**; the target batch implements the interface in its next session. No batch may modify files owned by another batch. See [Contributing Guide](CONTRIBUTING.md).
+## File Ownership & Conventions (ADR-0010)
+
+Every source file belongs to exactly one batch. No shared ownership. Changes are committed one logical step at a time — each commit is independently verifiable and has a clear message explaining the change, rationale, and verification results.
+
+---
 
 ## Testing
 
 ```bash
-pytest                          # All tests
-pytest tests/unit/              # Unit tests (fast)
-pytest tests/test_integration.py  # Core component interaction tests
-pytest tests/e2e/               # E2E tests (with Docker)
-pytest --cov=app                # Coverage report
+pytest                          # All tests (781 passing)
+pytest tests/ -x -q             # Quick run, stop on first failure
 ```
 
-See [Development guide](DEVELOPMENT.md) for contribution workflow and testing conventions.
+Test isolation: sandbox database + sandbox server directory, set via `MCS_DATABASE_URL` and `MCS_SERVERS_DATA_DIR`.
+
+---
+
+## Architectural Decision Records
+
+| ADR | Date | Title |
+|-----|------|-------|
+| 0001 | 2026-07-22 | Modular Monolith with Hexagonal Boundaries |
+| 0002 | 2026-07-22 | Separate Command, Query, and Event Buses |
+| 0003 | 2026-07-22 | All Plugins Run as Subprocesses |
+| 0004 | 2026-07-22 | WebSocket — asyncio.Lock, EventDispatcher, Channel Permissions |
+| 0005 | 2026-07-22 | JWT RS256 Authentication |
+| 0006 | 2026-07-23 | Task Queue — Dual Implementation, Event Store Chain, DLQ |
+| 0007 | 2026-07-27 | Rename app/storage/ to app/core/persistence/ |
+| 0008 | 2026-07-27 | Environment-Variable-Driven Sandbox Isolation |
+| 0009 | 2026-07-27 | Pydantic Field Validators for Domain Value-Object Inputs |
+| 0010 | 2026-07-27 | Commit-per-Step Discipline for Structural Changes |
