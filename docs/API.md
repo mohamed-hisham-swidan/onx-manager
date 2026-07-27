@@ -345,7 +345,7 @@ Exceeding the limit returns `429 Too Many Requests` with a `Retry-After` header.
 
 #### `DELETE /servers/{id}`
 
-Returns `204 No Content` on success.
+Returns `204 No Content` on success. Returns `404 NOT_FOUND` if the server does not exist.
 
 #### `POST /servers/{id}/start`
 

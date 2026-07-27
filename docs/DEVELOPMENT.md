@@ -142,11 +142,33 @@ See [Database docs](DATABASE.md) for full schema reference.
 ### Backend
 
 ```bash
-pytest                     # All tests
-pytest tests/unit/         # Unit tests (fast, no DB)
-pytest tests/test_integration.py  # Core component interaction
-pytest tests/e2e/          # E2E tests (with Docker)
-pytest --cov=app           # Coverage report
+cd backend
+python -m pytest tests/ -q          # All tests (781 passing)
+python -m pytest tests/ -x -q       # Stop on first failure
+```
+
+### Sandbox Isolation
+
+Tests MUST use a sandbox database and sandbox server directory to avoid
+affecting production data:
+
+```bash
+MCS_DATABASE_URL="sqlite+aiosqlite:///data/servers_test/test.db" \
+MCS_SERVERS_DATA_DIR="data/servers_test" \
+  python -m uvicorn app.main:app --host 0.0.0.0 --port 8002
+```
+
+Both variables must be passed in the same command as the process (setsid
+does not propagate inherited environment variables). See ADR-0008 for
+details.
+
+### Test Database Setup
+
+```python
+from app.core.persistence.base import Base
+from app.core.persistence.db import database
+# Create all tables via Base.metadata.create_all()
+# Then alembic stamp head for migration-dependent tables
 ```
 
 ### Frontend
@@ -157,6 +179,17 @@ cd frontend && npm run test:watch  # Watch mode
 ```
 
 148 frontend tests across 27 files. Vitest with jsdom environment.
+
+## Docker Development
+
+```bash
+docker compose up --build    # Build and start full stack
+docker compose build         # Rebuild images after dependency changes
+```
+
+Both backend (uvicorn on :8000) and frontend (nginx on :80) are defined in
+`docker-compose.yml` at the repository root. Backend health checks are
+configured with a 30s interval and 5s timeout.
 
 ## Code Conventions
 
