@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -10,6 +11,19 @@ from app.core.event_bus import EventBus
 from app.core.exceptions import MCSError
 from app.core.idempotency import InMemoryIdempotencyStore
 from app.core.query_bus import QueryBus
+
+
+@pytest.fixture(autouse=True)
+def _sandbox_servers_data_dir(tmp_path: os.PathLike) -> None:
+    old_val = os.environ.get("MCS_SERVERS_DATA_DIR")
+    test_servers_dir = os.path.join(str(tmp_path), "test_servers")
+    os.makedirs(test_servers_dir, exist_ok=True)
+    os.environ["MCS_SERVERS_DATA_DIR"] = test_servers_dir
+    yield
+    if old_val is not None:
+        os.environ["MCS_SERVERS_DATA_DIR"] = old_val
+    else:
+        os.environ.pop("MCS_SERVERS_DATA_DIR", None)
 
 
 @pytest.fixture
