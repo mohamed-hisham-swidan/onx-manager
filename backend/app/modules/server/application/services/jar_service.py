@@ -105,6 +105,18 @@ def server_dir(server_id: str) -> Path:
     return _default_data_dir() / server_id
 
 
+def resolve_server_dir(
+    server_id: str,
+    name: str | None = None,
+    deployment: ServerDeployment | None = None,
+) -> str:
+    if deployment and deployment.root_path:
+        return deployment.server_directory()
+    if name:
+        return str(_default_data_dir() / server_dir_name(name, server_id))
+    return str(server_dir(server_id))
+
+
 def jar_path(server_id: str) -> Path:
     return server_dir(server_id) / "server.jar"
 
@@ -212,22 +224,35 @@ async def get_versions_for(server_type: str) -> list[str]:
     return await fetcher()
 
 
+def parse_server_dir_name(dirname: str) -> str | None:
+    """Extract the server ID prefix from a directory name.
+
+    Supports two formats:
+    - Raw UUID: ``be193e92e2aa4728a0854cad9e37cca1`` → full ID
+    - Slug+short-uuid: ``my-server-be193e92`` → ``be193e92`` (first 8 chars)
+
+    Returns the extracted prefix (full ID or first 8 chars), or *None* if the
+    name matches neither format.
+    """
+    if re.match(r"^[0-9a-f]{32}$", dirname):
+        return dirname
+    parts = dirname.split("-")
+    if (
+        len(parts) > 1
+        and len(parts[-1]) == 8
+        and all(c in "0123456789abcdef" for c in parts[-1])
+    ):
+        return parts[-1]
+    return None
+
+
 def _resolve_jar_dest(deployment: ServerDeployment | None, server_id: str | None) -> str:
     if deployment and deployment.root_path:
         return deployment.jar_path()
     return str(jar_path(server_id or "unknown"))
 
 
-def _resolve_server_dir(
-    deployment: ServerDeployment | None,
-    server_id: str | None,
-    name: str | None = None,
-) -> str:
-    if deployment and deployment.root_path:
-        return deployment.server_directory()
-    if name and server_id:
-        return str(_default_data_dir() / server_dir_name(name, server_id))
-    return str(server_dir(server_id or "unknown"))
+
 
 
 def _resolve_properties_dest(deployment: ServerDeployment | None, server_id: str | None) -> str:

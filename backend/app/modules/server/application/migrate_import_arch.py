@@ -3,8 +3,8 @@ from pathlib import Path
 
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.repository import SQLServerRepository
-from app.modules.server.application.commands.import_server import SERVERS_DATA_DIR
-from app.storage.db import database
+from app.core.config import AppSettings
+from app.core.persistence.db import database
 
 logger = logging.getLogger("mcs.migrate_import_arch")
 
@@ -26,7 +26,7 @@ async def _do_migration(repo: ServerRepository) -> int:
     from app.modules.server.domain.repository import ServerFilters
 
     all_servers = await repo.list()
-    new_data_dir = Path(SERVERS_DATA_DIR).resolve()
+    new_data_dir = Path(AppSettings().servers_data_dir).resolve()
 
     removed = 0
     for server in all_servers:

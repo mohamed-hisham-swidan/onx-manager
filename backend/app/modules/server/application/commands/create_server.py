@@ -18,7 +18,7 @@ from app.modules.server.domain.value_objects import (
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +54,21 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
     async def handle(self, command: CreateServerCommand) -> CommandResult:
         from app.modules.server.application.services.jar_service import (
             SERVER_TYPES_REQUIRING_MANUAL_INSTALL,
-            _resolve_server_dir,
+            resolve_server_dir,
             download_server_jar,
             write_eula,
             write_server_properties,
         )
 
         server_id = ServerId()
-        server_dir_path = _resolve_server_dir(
-            deployment=None if command.install_dir is None else ServerDeployment(
-                location_type=LocationType.LOCAL,
-                root_path=str(command.install_dir),
-            ),
+        deployment = None if command.install_dir is None else ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path=str(command.install_dir),
+        )
+        server_dir_path = resolve_server_dir(
             server_id=str(server_id),
             name=command.name,
+            deployment=deployment,
         )
 
         try:

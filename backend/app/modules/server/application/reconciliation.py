@@ -4,6 +4,7 @@ import logging
 import os
 import time
 
+from app.modules.server.application.services.jar_service import parse_server_dir_name
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository, ServerFilters
 from app.modules.server.infrastructure.fs import local_fs
@@ -44,9 +45,8 @@ async def reconcile_filesystem(repo: ServerRepository) -> list[dict]:
             continue
         if entry in db_ids:
             continue
-        parts = entry.split("-")
-        dir_short_id = parts[-1] if len(parts) > 1 and len(parts[-1]) == 8 and all(c in "0123456789abcdef" for c in parts[-1]) else None
-        if dir_short_id is not None and dir_short_id in db_short_ids:
+        dir_prefix = parse_server_dir_name(entry)
+        if dir_prefix is not None and dir_prefix in db_short_ids:
             continue
         orphan_count += 1
         logger.warning("Orphan directory detected: %s (no matching DB record)", entry_path)
