@@ -344,6 +344,7 @@ server_manger/
 
 | Issue | Impact | Status |
 |-------|--------|--------|
+| `reconcile_orphans()` in `runtime_reconciliation.py` kills ALL `mcs-*` tmux sessions + ALL Minecraft Java PIDs with **zero DB cross-reference** | Called at every backend startup (`main.py:74`) and via POST `/reconcile` — kills even correctly-running servers. ~1s race window during server start where just-spawned process can be killed before PID/external_id committed to DB. | 🐛 Confirmed — Batch 5 finding |
 | ArqQueue.get_status/get_result return stubs | Cannot query task progress in prod | ⚠️ Known |
 | Metrics retention rollups not implemented | Raw metrics only (no 1m/1h/1d aggregation) | 🔶 Future |
 | ContainerPluginRunner is a stub | Plugins can't run in Docker isolation yet | 🔶 Future |
@@ -364,7 +365,8 @@ server_manger/
 | 2026-07-27 | 2.5 | `e765390`, `43a8ca6`, `4b4f097` | Fix 1: MCS_SERVERS_DATA_DIR isolation. Fix 2: minecraft_version 422. Fix 3: DELETE 404. All verified 11/11. |
 | 2026-07-27 | 3 | `40fd4b9`, `20bd07e`, `d4f11b8` | Reorganize: app/storage/ → app/core/persistence/, docs consolidation, STATUS.md fix |
 | 2026-07-27 | 4 | `01beca4`, `9906ff8`, `3dddb68`, `7a4f443`, *(this)*, *(B5)*, *(B6)* | Phase A: architecture audit + email validation fix. Phase B: full docs rewrite, 4 new ADRs |
-| 2026-07-27 | 5 | *(this commit)* | Fix 5: reconcile_filesystem() directory naming mismatch — refactored to explicit `server_dir_name()` comparison + 3 regression tests. Removed stale Known Limitation. |
+| 2026-07-27 | 5 | `4b48281` | Fix 5: reconcile_filesystem() directory naming mismatch — refactored to explicit `server_dir_name()` comparison + 3 regression tests. Removed stale Known Limitation. |
+| 2026-07-27 | *investigation* | *(docs only)* | Investigated actual process-killing logic (runtime_reconciliation.py + runtime_ownership.py). Found: `reconcile_orphans()` kills ALL `mcs-*` tmux sessions + ALL Minecraft Java PIDs with zero DB cross-reference — called at every backend startup and via POST `/reconcile`. Added to Known Limitations. |
 
 ---
 
