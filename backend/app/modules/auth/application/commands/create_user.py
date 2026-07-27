@@ -8,7 +8,7 @@ from app.core.security import hash_password
 from app.modules.auth.domain.aggregate import User
 from app.modules.auth.infrastructure.repository import SQLUserRepository
 from app.modules.shared.value_objects import EmailAddress, UserId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class CreateUserCommand(Command):
@@ -33,9 +33,14 @@ class CreateUserHandler(CommandHandler[CreateUserCommand]):
             if existing:
                 raise ConflictError("Email already registered")
 
+            try:
+                email_vo = EmailAddress(command.email)
+            except ValueError as e:
+                raise InvalidValueError("email", command.email, str(e))
+
             user = User.create(
                 user_id=UserId(uuid.uuid4().hex),
-                email=EmailAddress(command.email),
+                email=email_vo,
                 password_hash=hash_password(command.password),
                 display_name=command.display_name,
             )
