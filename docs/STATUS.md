@@ -336,7 +336,7 @@ server_manger/
 | Services | 10 |
 | Hooks | 8 |
 
-**Total: 929 tests** (781 backend + 148 frontend)
+**Total: 932 tests** (784 backend + 148 frontend)
 
 ---
 
@@ -348,14 +348,14 @@ server_manger/
 | Metrics retention rollups not implemented | Raw metrics only (no 1m/1h/1d aggregation) | 🔶 Future |
 | ContainerPluginRunner is a stub | Plugins can't run in Docker isolation yet | 🔶 Future |
 | Production DB is 1 revision behind head | alembic upgrade head runs 2 pending migrations | ⚠️ Documented |
-| `reconcile_filesystem()` uses raw UUID vs slug+uuid dirname | Every production server directory falsely flagged as orphan | 🐛 Pre-existing (Batch 4 A1 finding) |
-| `server_dir()` vs `server_dir_name()` in jar_service.py | Inconsistent UUID-only vs slug+uuid naming | 🐛 Pre-existing (Batch 4 A1 finding) |
+| ~~`reconcile_filesystem()` uses raw UUID vs slug+uuid dirname~~ | ~~Every production server directory falsely flagged as orphan~~ | ✅ Fixed in 415c3a3 + this batch |
+| `server_dir()` vs `server_dir_name()` in jar_service.py | Inconsistent UUID-only vs slug+uuid naming | ⚠️ Architecture debt — no runtime impact; fallbacks only |
 | JWT keys auto-generated in-process | Keys lost on restart unless PEM set explicitly | ⚠️ Documented |
 | Permissions stored as comma-separated Text | Not normalized in DB | ⚠️ Known |
 
 ---
 
-## Changelog — This Session (Batches 1–4)
+## Changelog — This Session (Batches 1–5)
 
 | Date | Batch | Commits | Summary |
 |------|-------|---------|---------|
@@ -364,7 +364,8 @@ server_manger/
 | 2026-07-27 | 2.5 | `e765390`, `43a8ca6`, `4b4f097` | Fix 1: MCS_SERVERS_DATA_DIR isolation. Fix 2: minecraft_version 422. Fix 3: DELETE 404. All verified 11/11. |
 | 2026-07-27 | 3 | `40fd4b9`, `20bd07e`, `d4f11b8` | Reorganize: app/storage/ → app/core/persistence/, docs consolidation, STATUS.md fix |
 | 2026-07-27 | 4 | `01beca4`, `9906ff8`, `3dddb68`, `7a4f443`, *(this)*, *(B5)*, *(B6)* | Phase A: architecture audit + email validation fix. Phase B: full docs rewrite, 4 new ADRs |
+| 2026-07-27 | 5 | *(this commit)* | Fix 5: reconcile_filesystem() directory naming mismatch — refactored to explicit `server_dir_name()` comparison + 3 regression tests. Removed stale Known Limitation. |
 
 ---
 
-*Generated: 2026-07-27 · Project: MCS Manager v4.0 (7.1.0) · 10 commits across 4 batches*
+*Generated: 2026-07-27 · Project: MCS Manager v4.0 (7.1.0) · 10 commits across 5 batches*

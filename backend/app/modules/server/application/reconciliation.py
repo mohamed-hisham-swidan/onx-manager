@@ -4,7 +4,7 @@ import logging
 import os
 import time
 
-from app.modules.server.application.services.jar_service import parse_server_dir_name
+from app.modules.server.application.services.jar_service import server_dir_name
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository, ServerFilters
 from app.modules.server.infrastructure.fs import local_fs
@@ -35,18 +35,18 @@ async def reconcile_filesystem(repo: ServerRepository) -> list[dict]:
         logger.exception("Failed to list servers for filesystem reconciliation")
         return results
 
-    db_ids: set[str] = {str(s.id) for s in all_servers}
-    db_short_ids: set[str] = {str(s.id)[:8] for s in all_servers}
+    known_dirs: set[str] = set()
+    for s in all_servers:
+        sid = str(s.id)
+        known_dirs.add(sid)
+        known_dirs.add(server_dir_name(s.name, sid))
 
     orphan_count = 0
     for entry in os.listdir(data_dir):
         entry_path = os.path.join(data_dir, entry)
         if not os.path.isdir(entry_path):
             continue
-        if entry in db_ids:
-            continue
-        dir_prefix = parse_server_dir_name(entry)
-        if dir_prefix is not None and dir_prefix in db_short_ids:
+        if entry in known_dirs:
             continue
         orphan_count += 1
         logger.warning("Orphan directory detected: %s (no matching DB record)", entry_path)

@@ -9,6 +9,7 @@ from app.modules.server.application.reconciliation import (
     reconcile_filesystem,
     reconcile_servers,
 )
+from app.modules.server.application.services.jar_service import server_dir_name
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.value_objects import (
     JavaArguments,
@@ -23,10 +24,11 @@ from app.modules.server.infrastructure.providers.base import (
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 
-def _make_server(sid: str, status: ServerStatus) -> Server:
+def _make_server(sid: str, status: ServerStatus, name: str | None = None) -> Server:
+    server_name = name or f"Server-{sid}"
     s = Server.create(
         server_id=ServerId(sid),
-        name=f"Server-{sid}",
+        name=server_name,
         server_type=ServerType.VANILLA,
         minecraft_version=MinecraftVersion.parse("1.21"),
         memory=MemoryAllocation(1024, 2048),
@@ -213,6 +215,69 @@ class TestReconcileFilesystem:
 
             assert len(results) == 1
             assert results[0]["server_id"] == "orphan-uuid"
+
+    async def test_slug_uuid_dirs_not_orphaned(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "data/servers")
+            os.makedirs(data_dir, exist_ok=True)
+
+            sid = "be193e92e2aa4728a0854cad9e37cca1"
+            name = "OneBlock Reborn"
+            server = _make_server(sid, ServerStatus.STOPPED, name=name)
+            slug_uuid_dir = server_dir_name(name, sid)
+            os.makedirs(os.path.join(data_dir, slug_uuid_dir), exist_ok=True)
+
+            repo = MagicMock()
+            repo.list = AsyncMock(return_value=[server])
+
+            with patch(
+                "app.modules.server.application.reconciliation.SERVERS_DATA_DIR",
+                data_dir,
+            ):
+                results = await reconcile_filesystem(repo)
+
+            assert results == [], f"slug+uuid dir '{slug_uuid_dir}' falsely flagged as orphan: {results}"
+
+    async def test_slug_uuid_orphan_still_detected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "data/servers")
+            os.makedirs(data_dir, exist_ok=True)
+
+            os.makedirs(os.path.join(data_dir, "no-match-aaaaaaaa"), exist_ok=True)
+
+            repo = MagicMock()
+            repo.list = AsyncMock(return_value=[
+                _make_server("be193e92e2aa4728a0854cad9e37cca1", ServerStatus.STOPPED, name="RealServer"),
+            ])
+
+            with patch(
+                "app.modules.server.application.reconciliation.SERVERS_DATA_DIR",
+                data_dir,
+            ):
+                results = await reconcile_filesystem(repo)
+
+            assert len(results) == 1
+            assert results[0]["server_id"] == "no-match-aaaaaaaa"
+
+    async def test_raw_uuid_dir_matched(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "data/servers")
+            os.makedirs(data_dir, exist_ok=True)
+
+            sid = "be193e92e2aa4728a0854cad9e37cca1"
+            server = _make_server(sid, ServerStatus.STOPPED, name="AnyName")
+            os.makedirs(os.path.join(data_dir, sid), exist_ok=True)
+
+            repo = MagicMock()
+            repo.list = AsyncMock(return_value=[server])
+
+            with patch(
+                "app.modules.server.application.reconciliation.SERVERS_DATA_DIR",
+                data_dir,
+            ):
+                results = await reconcile_filesystem(repo)
+
+            assert results == [], f"raw UUID dir '{sid}' falsely flagged as orphan"
 
     async def test_data_dir_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
