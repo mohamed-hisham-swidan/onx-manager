@@ -234,6 +234,76 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 Config-driven URL: supports both PostgreSQL (`postgresql+asyncpg://...`) and SQLite (`sqlite+aiosqlite:///...`) via `AppSettings.database_url`.
 
+## Migration Guide
+
+### Connection
+
+The application reads the database URL from the `MCS_DATABASE_URL` environment
+variable.  If unset it falls back to `alembic.ini` → `sqlalchemy.url`.
+
+```bash
+export MCS_DATABASE_URL="sqlite+aiosqlite:///path/to/mcs.db"
+alembic upgrade head
+```
+
+### Migration Chain (chronological)
+
+| Revision | Description |
+|----------|-------------|
+| `001` | Initial schema |
+| `002` | Batch-09 tables: task_queue, cron_jobs, metric_points, alert_rules |
+| `16f9e2a1f2d6` | Auth users tables |
+| `003` | **Deployment columns** on `servers` (location_type, …) |
+| `5a50140d37df` | `server_type` on `servers` |
+| `ff9c2b3a8e4d` | `updated_at` on `metric_points` |
+| `fcc7545db19e` | `launch_config_json` on `servers` |
+| `902b076bfa36` | `external_id` on `servers` |
+| `876be46160d3` | ORM-only tables: servers*, api_keys, audit_log, backup_jobs, backup_policies, plugins, refresh_tokens, roles, user_roles |
+
+> \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
+> no-op for it when replaying existing history.
+
+### Fresh-clone bug (fixed)
+
+#### Before
+
+`alembic upgrade head` on an empty database failed at migration `003`:
+
+```
+sqlite3.OperationalError: no such table: servers
+```
+
+Nine tables (`servers`, `api_keys`, `audit_log`, `backup_jobs`,
+`backup_policies`, `plugins`, `refresh_tokens`, `roles`, `user_roles`) were
+historically created only via `Base.metadata.create_all()` during early
+development and were never captured in any migration.
+
+#### After (5-file fix)
+
+| File | Change |
+|------|--------|
+| `003_add_deployment_columns.py` | Creates `servers` table if absent (all 39 columns); adds deployment columns individually (guarded) if table already exists |
+| `5a50140d37df_add_server_type_to_servers.py` | Guards `add_column` with column-existence check |
+| `fcc7545db19e_add_launch_config_json_to_servers.py` | Guards `add_column` with column-existence check |
+| `902b076bfa36_add_external_id_to_servers.py` | Guards `add_column` with column-existence check |
+| `876be46160d3_add_missing_orm_only_tables.py` | **New** — creates 8 ORM-only tables (excluding `servers`), each guarded by `_table_exists()` |
+
+The 4 existing migrations were made **idempotent**: if replayed against a
+database that already has the target column/table they silently skip the
+redundant operation instead of crashing.  Behavior on already-migrated
+databases is unchanged (verified by replay test against a pre-migration
+backup — final schema matches production column-for-column).
+
+### Current production state
+
+- **File**: `backend/mcs.db`
+- **Alembic version**: `fcc7545db19e` (1 revision behind head)
+- **Servers**: 2
+- **Tables**: 23 (including `alembic_version`)
+
+Production is intentionally not upgraded to head; that is tracked as a
+separate, explicitly scheduled operation.
+
 ## Cross-References
 
 - [Architecture](ARCHITECTURE.md) — system context, CQRS, Event Bus, Saga orchestration
