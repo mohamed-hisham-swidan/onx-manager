@@ -5,7 +5,7 @@
 **Version:** 7.1.0  
 **License:** MIT  
 **Repository:** `server_manger/`  
-**Last updated:** 2026-07-27
+**Last updated:** 2026-07-28
 
 ---
 
@@ -245,7 +245,7 @@ server_manger/
 | Build | Vite | — |
 | Styling | TailwindCSS | 4 |
 | State | TanStack Query + Zustand | — |
-| Testing (BE) | pytest (878 tests) | — |
+| Testing (BE) | pytest (920 tests) | — |
 | Testing (FE) | Vitest (148 tests) | — |
 | Linting | Ruff | — |
 | Container | Docker | — |
@@ -280,7 +280,7 @@ server_manger/
 
 ## Tests & Coverage
 
-### Backend — 878+ passing
+### Backend — 920+ passing
 
 | Test File | Tests | Group |
 |-----------|-------|-------|
@@ -334,6 +334,9 @@ server_manger/
 | `tests/application/test_discovery_engine.py` | 3 | Discovery |
 | `tests/application/test_registration_engine.py` | 2 | Discovery |
 | `tests/application/test_startup_guard.py` | 4 | Startup |
+| `tests/infrastructure/test_evidence_collector.py` | 11 | Diagnostics |
+| `tests/infrastructure/test_crash_analyzer.py` | 18 | Diagnostics |
+| `tests/infrastructure/test_recovery_orchestrator.py` | 13 | Diagnostics |
 | `tests/event_store/test_event_store.py` | 15 | Event Store |
 | `tests/event_store/test_dead_letter.py` | 8 | Event Store |
 | `tests/plugin/test_plugin_runner.py` | 12 | Plugin |
@@ -350,7 +353,7 @@ server_manger/
 | Services | 10 |
 | Hooks | 8 |
 
-**Total: 1026 tests** (878 backend + 148 frontend)
+**Total: 1068 tests** (920 backend + 148 frontend)
 
 ---
 
@@ -385,6 +388,7 @@ server_manger/
 | 2026-07-28 | BATCH-01 | `18effba` | Created health bounded context foundation: domain aggregates/value objects/events/repository interfaces/domain services, application commands/queries/handlers, infrastructure ORM models/repository implementations, API router + schemas, Alembic migration, unit tests, documented integration. |
 | 2026-07-28 | BATCH-02a | `3521d33` | `reconcile_orphans()` fix — now cross-references DB before killing. Running/starting servers protected. |
 | 2026-07-28 | BATCH-02b | `2fc5938` | Discovery Engine (FilesystemScanner + DiscoveryEngine + periodic scan task), Registration Engine (consumes ServerDiscoveredEvent, creates Server aggregate), Integrity Validator (file/config checks), Environment Scanner (Java/disk/memory/provider), Startup Guard (pre-flight in StartServerHandler). 845→878 tests. |
+| 2026-07-28 | BATCH-03 | *(this commit)* | Crash Diagnostics & Recovery — EvidenceCollector (log reader + crash report parser + system snapshot), PatternCrashAnalyzer (18 patterns mapped to FailureCode), RecoveryOrchestrator (auto-restart with escalation after 3 crashes/300s), ServerCrashedEvent handler (collect→classify→recover pipeline). 878→920 tests. |
 
 ---
 
