@@ -238,10 +238,27 @@ Every source file belongs to exactly one batch. No shared ownership. Changes are
 
 ---
 
+## Filesystem Reconciliation
+
+A standalone service (`server/application/services/filesystem_reconciliation.py`)
+keeps the database in sync with the filesystem. It treats the disk as the single
+**Source of Truth** — any directory under `data/servers/` is a real server, and
+any DB record without a matching directory is stale.
+
+- **Startup**: runs after runtime reconciliation in `main.py` lifespan
+- **Refresh**: `POST /api/v1/servers/refresh` endpoint
+- **Auto-import**: new directories are imported with type/version detection
+- **Cleanup**: stale DB records are deleted when their directory is gone
+
+See [runtime/filesystem-reconciliation.md](runtime/filesystem-reconciliation.md)
+for full details.
+
+---
+
 ## Testing
 
 ```bash
-pytest                          # All tests (781 passing)
+pytest                          # All tests (941 passing)
 pytest tests/ -x -q             # Quick run, stop on first failure
 ```
 

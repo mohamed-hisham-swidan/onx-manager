@@ -17,13 +17,21 @@ The runtime system manages Minecraft server lifecycle, supervision, state reconc
 │ (start/stop/ │    │ (per-server async │    │ (local/docker/   │
 │  restart)    │    │  heartbeat loop)  │    │  ssh/cloud)      │
 └──────────────┘    └────────┬─────────┘    └──────────────────┘
-                             │ crash detection
-                             v
-                    ┌───────────────────────┐
-                    │   ReconciliationEngine │
-                    │  (DB ↔ OS state fixer, │
-                    │   orphan cleanup)      │
-                    └───────────────────────┘
+                    │  crash detection
+                    v
+                     ┌───────────────────────┐
+                     │   ReconciliationEngine │
+                     │  (DB ↔ OS state fixer, │
+                     │   orphan cleanup)      │
+                     └───────────────────────┘
+                              │ filesystem drift
+                              v
+                     ┌──────────────────────────┐
+                     │ FilesystemReconciliation │
+                     │ (DB ↔ disk sync,         │
+                     │  auto-import,            │
+                     │  stale record cleanup)    │
+                     └──────────────────────────┘
 ```
 
 ## Components
@@ -46,6 +54,15 @@ Defined in `runtime/reconciliation.md`. A stateless scanner that:
 - Detects mismatches: `DB_RUNNING_NO_SUPERVISOR`, `DB_RUNNING_NO_TMUX`, `DB_STARTING_ALIVE`, `TMUX_PID_DEAD`, `SUPERVISOR_NO_TMUX`.
 - Auto-repairs where possible: transitions `STARTING → RUNNING` if the process is alive, marks `CRASHED` if the process is dead but DB says `RUNNING`.
 - Cleans orphan OS resources (tmux sessions, Java processes) that have no matching DB record.
+
+### FilesystemReconciliation
+
+Defined in `runtime/filesystem-reconciliation.md`. A directory scanner that:
+
+- Scans `data/servers/` and compares directories against DB records.
+- Auto-imports new directories (detects server type, version, properties).
+- Deletes stale DB records whose directories no longer exist.
+- Runs at startup and on `POST /api/v1/servers/refresh`.
 
 ### RuntimeOwnershipManager
 
@@ -97,6 +114,7 @@ backend/app/modules/server/
 - [Server Lifecycle](lifecycle.md)
 - [Supervision](supervision.md)
 - [Reconciliation](reconciliation.md)
+- [Filesystem Reconciliation](filesystem-reconciliation.md)
 - [Ownership](ownership.md)
 - [Providers](providers.md)
 - [Recovery Procedures](recovery.md)
