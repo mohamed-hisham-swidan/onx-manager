@@ -1,3 +1,5 @@
+from app.modules.health.infrastructure.environment import HostEnvironmentScanner
+from app.modules.health.infrastructure.integrity import FilesystemIntegrityChecker
 from app.modules.health.infrastructure.models import (
     DiagnosticsReportModel,
     EvidenceBundleModel,
@@ -16,4 +18,6 @@ __all__ = [
     "DiagnosticsReportModel",
     "SQLHealthRepository",
     "SQLDiagnosticsRepository",
+    "FilesystemIntegrityChecker",
+    "HostEnvironmentScanner",
 ]

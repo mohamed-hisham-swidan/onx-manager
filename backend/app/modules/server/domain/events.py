@@ -78,3 +78,19 @@ class ServerDeletedEvent(DomainEvent):
 
     def __init__(self, server_id: ServerId, **data: Any) -> None:
         super().__init__(server_id=str(server_id), **data)
+
+
+class ServerDiscoveredEvent(DomainEvent):
+    path: str
+    detected_type: str
+    metadata: dict[str, Any]
+
+    def __init__(self, path: str, detected_type: str = "unknown", metadata: dict[str, Any] | None = None, **data: Any) -> None:
+        super().__init__(path=path, detected_type=detected_type, metadata=metadata or {}, **data)
+
+
+class ServerVanishedEvent(DomainEvent):
+    path: str
+
+    def __init__(self, path: str, **data: Any) -> None:
+        super().__init__(path=path, **data)

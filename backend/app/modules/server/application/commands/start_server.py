@@ -17,13 +17,14 @@ from app.modules.server.application.runtime_ownership import (
     _port_is_listening,
     _wait_for_port_free,
 )
+from app.modules.server.application.startup_guard import check_startup_readiness
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger("mcs.commands.start_server")
 
@@ -64,6 +65,23 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                 logger.warning(
                     'Server "%s" has stale runtime handle "%s" — cleaning up before start server_id=%s',
                     server.name, server.runtime.external_id, sid,
+                )
+
+            guard_result = await check_startup_readiness(sid)
+            if not guard_result.allowed:
+                logger.warning(
+                    'Startup guard blocked server="%s" — %s server_id=%s',
+                    server.name, "; ".join(guard_result.reasons), sid,
+                )
+                return CommandResult(
+                    success=False,
+                    error=f"Startup guard blocked: {'; '.join(guard_result.reasons)}",
+                    error_code="STARTUP_BLOCKED",
+                )
+            if guard_result.warnings:
+                logger.warning(
+                    'Startup guard warnings for "%s" — %s server_id=%s',
+                    server.name, "; ".join(guard_result.warnings), sid,
                 )
 
             provider_type = server.runtime.provider if server.runtime else "local"
@@ -248,7 +266,7 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
 
 async def sql_get_server(sid: ServerId) -> Server:
     from app.modules.server.infrastructure.repository import SQLServerRepository
-    from app.storage.db import database
+    from app.core.persistence.db import database
 
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
@@ -257,7 +275,7 @@ async def sql_get_server(sid: ServerId) -> Server:
 
 async def sql_save_server(server: Server, event_bus: EventBus) -> None:
     from app.modules.server.infrastructure.repository import SQLServerRepository
-    from app.storage.unit_of_work import UnitOfWork
+    from app.core.persistence.unit_of_work import UnitOfWork
 
     async with UnitOfWork(event_bus) as uow:
         repo = SQLServerRepository(uow.session)
