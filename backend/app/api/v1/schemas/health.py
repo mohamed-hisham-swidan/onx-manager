@@ -44,3 +44,23 @@ class HealthDashboardResponse(BaseModel):
     unknown: int = 0
     pending: int = 0
     servers: list[ServerHealthSummaryResponse] = Field(default_factory=list)
+
+
+class IntegrityCheckResponse(BaseModel):
+    check_name: str
+    severity: str
+    status: str
+    detail: str = ""
+    file_path: str | None = None
+
+
+class IntegrityReportResponse(BaseModel):
+    server_id: str
+    overall_status: str
+    scope: str = "full"
+    checks: list[IntegrityCheckResponse]
+    timestamp: datetime | None = None
+
+
+class IntegrityAuditResponse(BaseModel):
+    audits: list[IntegrityReportResponse]

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
-import re
+import stat
 from pathlib import Path
 
 from app.core.config import AppSettings
+from app.core.event_bus import EventBus
 from app.modules.health.domain.services import IntegrityChecker
 from app.modules.health.domain.value_objects import IntegrityCheck, IntegrityReport
+from app.modules.health.domain.events import IntegrityCheckPassedEvent, IntegrityCheckFailedEvent
 from app.modules.server.application.services.jar_service import resolve_server_dir
 
 logger = logging.getLogger("mcs.health.integrity")
@@ -32,6 +34,9 @@ def _resolve_path(server_id: str) -> Path | None:
 
 
 class FilesystemIntegrityChecker(IntegrityChecker):
+    def __init__(self, event_bus: EventBus | None = None) -> None:
+        self._event_bus = event_bus
+
     async def check(self, server_id: str, scope: str = "full") -> IntegrityReport:
         checks: list[IntegrityCheck] = []
         srvd = _resolve_path(server_id)
@@ -43,7 +48,9 @@ class FilesystemIntegrityChecker(IntegrityChecker):
                 status="error",
                 detail=f"Server directory not found for {server_id}",
             ))
-            return IntegrityReport(server_id=server_id, checks=checks, overall_status="fail")
+            report = IntegrityReport(server_id=server_id, checks=checks, overall_status="fail")
+            await self._emit_events(report)
+            return report
 
         checks.append(IntegrityCheck(
             check_name="server_directory",
@@ -56,17 +63,45 @@ class FilesystemIntegrityChecker(IntegrityChecker):
         _check_properties(srvd, checks)
         _check_eula(srvd, checks)
         _check_world(srvd, checks)
+        _check_permissions(srvd, checks)
+        _check_symlinks(srvd, checks)
+        _check_plugins_dir(srvd, checks)
+        _check_db_path_mismatch(srvd, checks)
 
         if scope == "full":
             _check_disk_space(srvd, checks)
 
         overall = _compute_overall(checks)
-        return IntegrityReport(
+        report = IntegrityReport(
             server_id=server_id,
             checks=checks,
             overall_status=overall,
             scope=scope,
         )
+        await self._emit_events(report)
+        return report
+
+    async def _emit_events(self, report: IntegrityReport) -> None:
+        if self._event_bus is None:
+            return
+        for c in report.checks:
+            if c.status == "pass":
+                event = IntegrityCheckPassedEvent(
+                    server_id=report.server_id,
+                    check_name=c.check_name,
+                    scope=report.scope,
+                )
+            elif c.status in ("fail", "error"):
+                event = IntegrityCheckFailedEvent(
+                    server_id=report.server_id,
+                    check_name=c.check_name,
+                    severity=c.severity,
+                    detail=c.detail,
+                    scope=report.scope,
+                )
+            else:
+                continue
+            await self._event_bus.publish(event)
 
 
 def _check_jar(srvd: Path, checks: list[IntegrityCheck]) -> None:
@@ -240,6 +275,118 @@ def _check_disk_space(srvd: Path, checks: list[IntegrityCheck]) -> None:
             status="error",
             detail=str(exc),
         ))
+
+
+def _check_permissions(srvd: Path, checks: list[IntegrityCheck]) -> None:
+    world_writable: list[str] = []
+    for entry in srvd.rglob("*"):
+        if entry.is_file():
+            try:
+                mode = entry.stat().st_mode
+                if mode & stat.S_IWOTH:
+                    rel = entry.relative_to(srvd)
+                    world_writable.append(str(rel))
+            except (FileNotFoundError, PermissionError, OSError):
+                pass
+    if world_writable:
+        checks.append(IntegrityCheck(
+            check_name="permissions",
+            severity="warning",
+            status="warn",
+            detail=f"World-writable files: {', '.join(world_writable[:5])}",
+            file_path=",".join(world_writable[:5]),
+        ))
+    else:
+        checks.append(IntegrityCheck(
+            check_name="permissions",
+            severity="info",
+            status="pass",
+            detail="No world-writable files detected",
+        ))
+
+
+def _check_symlinks(srvd: Path, checks: list[IntegrityCheck]) -> None:
+    for entry in srvd.rglob("*"):
+        if entry.is_symlink():
+            try:
+                target = entry.readlink()
+                if not target.is_absolute():
+                    target = (entry.parent / target).resolve()
+                srvd_resolved = srvd.resolve()
+                if not str(target).startswith(str(srvd_resolved)):
+                    rel = entry.relative_to(srvd)
+                    checks.append(IntegrityCheck(
+                        check_name="symlinks",
+                        severity="critical",
+                        status="fail",
+                        detail=f"Symlink escapes server dir: {rel} → {target}",
+                        file_path=str(rel),
+                    ))
+                    return
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+    checks.append(IntegrityCheck(
+        check_name="symlinks",
+        severity="info",
+        status="pass",
+        detail="No dangerous symlinks detected",
+    ))
+
+
+def _check_plugins_dir(srvd: Path, checks: list[IntegrityCheck]) -> None:
+    plugins_dir = srvd / "plugins"
+    if not plugins_dir.is_dir():
+        checks.append(IntegrityCheck(
+            check_name="plugins_directory",
+            severity="info",
+            status="pass",
+            detail="No plugins directory yet",
+        ))
+        return
+    jar_count = len(list(plugins_dir.glob("*.jar")))
+    if jar_count == 0:
+        checks.append(IntegrityCheck(
+            check_name="plugins_directory",
+            severity="warning",
+            status="warn",
+            detail="Plugins directory exists but is empty",
+        ))
+    else:
+        checks.append(IntegrityCheck(
+            check_name="plugins_directory",
+            severity="info",
+            status="pass",
+            detail=f"Plugins directory contains {jar_count} plugin(s)",
+        ))
+
+
+def _check_db_path_mismatch(srvd: Path, checks: list[IntegrityCheck]) -> None:
+    props_path = srvd / "server.properties"
+    if not props_path.is_file():
+        return
+    try:
+        level_name = "world"
+        for line in props_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.strip().startswith("level-name="):
+                level_name = line.strip().split("=", 1)[1].strip()
+                break
+        world_dir = srvd / level_name
+        if world_dir.is_dir():
+            checks.append(IntegrityCheck(
+                check_name="db_path_mismatch",
+                severity="info",
+                status="pass",
+                detail=f"World directory '{level_name}' matches level-name in properties",
+            ))
+        else:
+            checks.append(IntegrityCheck(
+                check_name="db_path_mismatch",
+                severity="warning",
+                status="warn",
+                detail=f"level-name='{level_name}' but no '{level_name}' directory exists",
+            ))
+    except (FileNotFoundError, PermissionError, OSError):
+        pass
 
 
 def _compute_overall(checks: list[IntegrityCheck]) -> str:

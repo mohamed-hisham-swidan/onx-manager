@@ -5,10 +5,13 @@ from app.modules.health.infrastructure.models import (
     EvidenceBundleModel,
     HealthStatusModel,
     HealthTimelineModel,
+    IntegrityAuditModel,
+    IntegrityBaselineModel,
 )
 from app.modules.health.infrastructure.repository import (
     SQLDiagnosticsRepository,
     SQLHealthRepository,
+    SQLIntegrityRepository,
 )
 
 __all__ = [
@@ -16,8 +19,11 @@ __all__ = [
     "HealthTimelineModel",
     "EvidenceBundleModel",
     "DiagnosticsReportModel",
+    "IntegrityAuditModel",
+    "IntegrityBaselineModel",
     "SQLHealthRepository",
     "SQLDiagnosticsRepository",
+    "SQLIntegrityRepository",
     "FilesystemIntegrityChecker",
     "HostEnvironmentScanner",
 ]

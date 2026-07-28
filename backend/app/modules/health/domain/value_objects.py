@@ -43,6 +43,9 @@ class IntegrityCheck:
     severity: str
     status: str
     detail: str = ""
+    file_path: str | None = None
+    expected_hash: str | None = None
+    actual_hash: str | None = None
 
 
 @dataclass(frozen=True)
