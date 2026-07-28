@@ -22,8 +22,9 @@
    - [Backups](#backups)
    - [Plugins](#plugins)
    - [Users](#users)
-   - [Monitoring](#monitoring)
-   - [Tasks](#tasks)
+    - [Health](#health)
+    - [Monitoring](#monitoring)
+    - [Tasks](#tasks)
 8. [WebSocket Protocol](#websocket-protocol)
 
 ---
@@ -562,6 +563,101 @@ Returns `202 Accepted`. The server will be stopped, restored, and restarted asyn
 
 ---
 
+### Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health/status/{id}` | Get server health status |
+| `POST` | `/health/evaluate/{id}` | Trigger health evaluation |
+| `GET` | `/health/timeline/{id}` | Get health timeline entries |
+| `GET` | `/health/dashboard` | Aggregated health dashboard |
+
+#### `GET /health/status/{server_id}`
+
+```json
+// Response 200
+{
+  "data": {
+    "server_id": "srv_abc123",
+    "status": "healthy",
+    "previous_status": "warning",
+    "contributing_factors": ["All checks passed"],
+    "trend": "improving",
+    "confidence": 0.95,
+    "last_updated": "2025-01-20T12:00:00Z"
+  }
+}
+```
+
+Status values: `healthy`, `warning`, `critical`, `broken`, `unknown`, `pending`.
+
+#### `POST /health/evaluate/{server_id}`
+
+Triggers a health evaluation for the server. Returns the computed status.
+
+```json
+// Response 200
+{
+  "data": {
+    "server_id": "srv_abc123",
+    "status": "healthy"
+  }
+}
+```
+
+#### `GET /health/timeline/{server_id}`
+
+Returns the health state change history for a server.
+
+| Query Parameter | Type | Default | Description |
+|-----------------|------|---------|-------------|
+| `limit` | integer | `100` | Number of entries |
+
+```json
+// Response 200
+{
+  "data": {
+    "entries": [
+      {
+        "server_id": "srv_abc123",
+        "previous_status": "pending",
+        "new_status": "healthy",
+        "contributing_factors": ["All checks passed"],
+        "timestamp": "2025-01-20T12:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+#### `GET /health/dashboard`
+
+```json
+// Response 200
+{
+  "data": {
+    "total_servers": 5,
+    "healthy": 3,
+    "warning": 1,
+    "critical": 1,
+    "broken": 0,
+    "unknown": 0,
+    "pending": 0,
+    "servers": [
+      {
+        "server_id": "srv_abc123",
+        "status": "healthy",
+        "trend": "stable",
+        "contributing_factors": [],
+        "last_updated": "2025-01-20T12:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
 ### Monitoring
 
 | Method | Endpoint | Description |
@@ -663,6 +759,9 @@ All WebSocket messages are JSON-encoded:
 | `plugin.installed` | `{ id, server_id, name, version }` | Plugin installed |
 | `metrics` | `{ server_id, cpu_pct, memory_mb, tps }` | Periodic metrics tick |
 | `task.status` | `{ id, type, status, progress_pct }` | Task state change |
+| `health.status` | `{ server_id, status, previous_status, contributing_factors, trend }` | Health state change |
+| `health.crash_classified` | `{ server_id, failure_code, confidence, summary }` | Crash classified |
+| `health.alarm` | `{ server_id, alert_type, current_value, threshold }` | Health alert triggered |
 
 ### Client-to-Server Commands
 

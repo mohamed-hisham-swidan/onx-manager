@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+from sqlalchemy import Column, DateTime, Float, Integer, String, Text
+
+from app.core.persistence.base import Base, TimestampMixin
+
+
+class HealthStatusModel(Base, TimestampMixin):
+    __tablename__ = "health_status"
+
+    server_id = Column(String(36), primary_key=True)
+    classification = Column(String(16), nullable=False, default="pending")
+    previous_classification = Column(String(16), nullable=True)
+    contributing_factors = Column(Text, nullable=False, default="[]")
+    trend = Column(String(16), nullable=False, default="stable")
+    confidence = Column(Float, nullable=False, default=0.0)
+    last_updated = Column(DateTime(timezone=True), nullable=False)
+
+
+class HealthTimelineModel(Base, TimestampMixin):
+    __tablename__ = "health_timeline"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    server_id = Column(String(36), nullable=False, index=True)
+    previous_status = Column(String(16), nullable=True)
+    new_status = Column(String(16), nullable=False)
+    contributing_factors = Column(Text, nullable=False, default="[]")
+    entry_timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class EvidenceBundleModel(Base, TimestampMixin):
+    __tablename__ = "health_evidence"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(String(36), nullable=False, index=True)
+    latest_log_tail = Column(Text, nullable=True)
+    crash_reports = Column(Text, nullable=True)
+    provider_diagnostics = Column(Text, nullable=True)
+    system_snapshot = Column(Text, nullable=True)
+    collection_errors = Column(Text, nullable=True)
+    recorded_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class DiagnosticsReportModel(Base, TimestampMixin):
+    __tablename__ = "health_diagnostics"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(String(36), nullable=False, index=True)
+    evidence_id = Column(String(36), nullable=True)
+    failure_code = Column(String(48), nullable=True)
+    confidence = Column(Float, nullable=True)
+    summary = Column(Text, nullable=True)
+    suggested_action = Column(Text, nullable=True)
+    recorded_at = Column(DateTime(timezone=True), nullable=False)

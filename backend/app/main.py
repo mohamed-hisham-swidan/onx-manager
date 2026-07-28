@@ -14,7 +14,7 @@ from app.api.v1.middleware.audit import AuditMiddleware
 from app.api.v1.middleware.auth import AuthMiddleware
 from app.api.v1.middleware.rate_limit import RateLimitMiddleware
 from app.api.v1.middleware.request_id import RequestIDMiddleware
-from app.api.v1.routers import auth, backups, monitoring, plugins, schedules, servers, settings, software, users
+from app.api.v1.routers import auth, backups, health, monitoring, plugins, schedules, servers, settings, software, users
 from app.core.command_bus import CommandBus
 from app.core.config import AppSettings, ConfigFactory
 from app.core.event_bus import EventBus
@@ -22,7 +22,7 @@ from app.core.query_bus import QueryBus
 from app.modules.auth.infrastructure.jwt import init_jwt_from_settings
 from app.registration import register_handlers
 from app.modules.server.infrastructure.repository import SQLServerRepository
-from app.storage.db import database
+from app.core.persistence.db import database
 from app.websocket.endpoint import init_websocket, router as ws_router
 
 _start_time: float = 0.0
@@ -143,6 +143,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(monitoring.router)
+    app.include_router(health.router)
     app.include_router(schedules.router)
     app.include_router(settings.router)
     app.include_router(software.router)

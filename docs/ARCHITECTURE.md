@@ -56,10 +56,11 @@ backend/app/
 │   ├── config.py              # Configuration (AppSettings)
 │   ├── exceptions.py          # MCSError hierarchy
 │   └── logging.py             # Structured logging
-├── modules/                   # 7 DDD modules
+├── modules/                   # 8 DDD modules
 │   ├── server/                # Minecraft server domain
 │   ├── backup/                # Backup/restore domain
 │   ├── auth/                  # User & auth domain
+│   ├── health/                # Health monitoring & diagnostics
 │   ├── plugin/                # Plugin system domain
 │   ├── monitoring/            # Health & metrics domain
 │   ├── event_store/           # Event store module

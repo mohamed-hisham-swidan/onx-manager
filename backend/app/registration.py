@@ -37,6 +37,14 @@ from app.modules.backup.application import (
     VerifyBackupCommand,
     VerifyBackupHandler,
 )
+from app.modules.health.application import (
+    EvaluateHealthCommand,
+    EvaluateHealthHandler,
+    GetHealthStatusHandler,
+    GetHealthStatusQuery,
+    GetHealthTimelineHandler,
+    GetHealthTimelineQuery,
+)
 from app.modules.monitoring.application import (
     CreateAlertRuleCommand,
     CreateAlertRuleHandler,
@@ -120,6 +128,8 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(EnablePluginCommand, EnablePluginHandler(event_bus))
     command_bus.register(DisablePluginCommand, DisablePluginHandler(event_bus))
 
+    command_bus.register(EvaluateHealthCommand, EvaluateHealthHandler(event_bus))
+
     command_bus.register(CreateAlertRuleCommand, CreateAlertRuleHandler(event_bus))
     command_bus.register(UpdateAlertRuleCommand, UpdateAlertRuleHandler(event_bus))
 
@@ -144,6 +154,9 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
 
     query_bus.register(ListPluginsQuery, ListPluginsHandler())
     query_bus.register(GetPluginQuery, GetPluginHandler())
+
+    query_bus.register(GetHealthStatusQuery, GetHealthStatusHandler())
+    query_bus.register(GetHealthTimelineQuery, GetHealthTimelineHandler())
 
     query_bus.register(GetMetricsQuery, GetMetricsHandler())
 

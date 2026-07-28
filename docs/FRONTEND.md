@@ -85,6 +85,7 @@ queryKeys = {
   plugins: { all: ["plugins"], list: (serverId) => ["plugins", "list", serverId] },
   auth:    { me: ["auth", "me"], apiKeys: ["auth", "api-keys"] },
   users:   { all: ["users"], list: () => ["users", "list"], detail: (id) => ["users", "detail", id] },
+  health: { status: (id) => ["health", "status", id], timeline: (id) => ["health", "timeline", id], dashboard: ["health", "dashboard"] },
   monitoring: { metrics: (serverId?) => ["monitoring", "metrics", serverId] },
   console: { history: (serverId) => ["console", "history", serverId] },
   settings: { all: ["settings"] },
@@ -120,6 +121,8 @@ All forms use native React controlled components through TanStack Query mutation
 | `/plugins` | `PluginListPage` | Plugin table, install/enable/disable |
 | `/settings` | `SettingsPage` | Global application settings |
 | `/settings/api-keys` | `ApiKeysPage` | API key management |
+| `/health` | `HealthDashboardPage` | Health overview dashboard |
+| `/servers/:serverId/health` | `ServerHealthPage` | Per-server health timeline & diagnostics |
 
 All authenticated routes are wrapped in `AuthGuard` (`frontend/src/components/guards/AuthGuard.tsx`) which redirects to `/login` if `isAuthenticated` is false. Each page is wrapped in `ErrorBoundary` for isolated error handling.
 
@@ -189,6 +192,8 @@ Connection lifecycle: connect on login → subscribe to channels → disconnect 
 "server:{id}"       → ["servers", "detail", id]
 "backups:list"      → ["backups", "list"]
 "plugins:list"      → ["plugins", "list"]
+"health:{id}"       → ["health", "status", id]
+"health:dashboard"  → ["health", "dashboard"]
 "metrics:{id}"      → ["monitoring", "metrics", id]
 "metrics_batch:{id}" → ["monitoring", "metrics", id]
 ```
@@ -197,7 +202,7 @@ Invalidation events are derived from domain event types: `ServerCreated`/`Server
 
 ### Channel Manager (`frontend/src/websocket/channels.ts`)
 
-- Valid prefix list: `server`, `backup`, `plugin`, `monitoring`, `metrics`, `auth`, `user`
+- Valid prefix list: `server`, `backup`, `plugin`, `monitoring`, `metrics`, `health`, `auth`, `user`
 - Max 50 simultaneous channels
 - Channel format: `<prefix>:<id>` or `<prefix>:*` for wildcard
 - Wildcard, server, backup, plugin, and monitoring helpers for type checking

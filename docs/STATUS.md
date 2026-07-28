@@ -142,10 +142,11 @@ server_manger/
 │   │   │       ├── base.py       # DeclarativeBase, BaseRepository
 │   │   │       ├── db.py         # DatabaseEngine, get_db
 │   │   │       └── unit_of_work.py  # UnitOfWork
-│   │   ├── modules/              # 7 DDD modules
+│   │   ├── modules/              # 8 DDD modules
 │   │   │   ├── server/           # Minecraft server domain
 │   │   │   ├── backup/           # Backup/restore domain
 │   │   │   ├── auth/             # User & auth domain
+│   │   │   ├── health/           # Health monitoring & diagnostics
 │   │   │   ├── plugin/           # Plugin system domain
 │   │   │   ├── monitoring/       # Health & metrics domain
 │   │   │   ├── event_store/      # Event store module
@@ -214,7 +215,7 @@ server_manger/
 | 0009 | 2026-07-27 | Pydantic Field Validators for Domain Value-Object Inputs |
 | 0010 | 2026-07-27 | Commit-per-Step Discipline for Structural Changes |
 
-### Bounded Contexts (7 Modules)
+### Bounded Contexts (8 Modules)
 
 | Context | Module | Responsibility |
 |---------|--------|----------------|
@@ -222,6 +223,7 @@ server_manger/
 | Backup/Restore | `backup/` | World backup, restore, verification |
 | Plugin System | `plugin/` | Install, isolated subprocess execution, SDK |
 | User & Auth | `auth/` | JWT RS256 auth, RBAC/ABAC, audit chain |
+| Health | `health/` | Health monitoring, crash diagnostics, integrity validation, health timeline |
 | Monitoring | `monitoring/` | Health checks, metrics, alert rules |
 | Event Store | `event_store/` | Append-only event log with cryptographic chain |
 | File Storage | `storage/` | S3/local file storage backends for backups |
@@ -278,7 +280,7 @@ server_manger/
 
 ## Tests & Coverage
 
-### Backend — 784 passing
+### Backend — 800+ passing
 
 | Test File | Tests | Group |
 |-----------|-------|-------|
@@ -320,6 +322,12 @@ server_manger/
 | `tests/tasks/test_queue.py` | 28 | Tasks |
 | `tests/tasks/test_monitoring.py` | 20 | Monitoring |
 | `tests/monitoring/test_collector.py` | 15 | Monitoring |
+| `tests/domain/test_health_aggregate.py` | 15 | Health |
+| `tests/domain/test_health_events.py` | 20 | Health |
+| `tests/domain/test_health_value_objects.py` | 30 | Health |
+| `tests/application/test_health_commands.py` | 6 | Health |
+| `tests/application/test_health_queries.py` | 6 | Health |
+| `tests/infrastructure/test_health_repository.py` | 12 | Health |
 | `tests/event_store/test_event_store.py` | 15 | Event Store |
 | `tests/event_store/test_dead_letter.py` | 8 | Event Store |
 | `tests/plugin/test_plugin_runner.py` | 12 | Plugin |
@@ -367,7 +375,9 @@ server_manger/
 | 2026-07-27 | 4 | `01beca4`, `9906ff8`, `3dddb68`, `7a4f443`, *(this)*, *(B5)*, *(B6)* | Phase A: architecture audit + email validation fix. Phase B: full docs rewrite, 4 new ADRs |
 | 2026-07-27 | 5 | `4b48281` | Fix 5: reconcile_filesystem() directory naming mismatch — refactored to explicit `server_dir_name()` comparison + 3 regression tests. Removed stale Known Limitation. |
 | 2026-07-27 | *investigation* | *(docs only)* | Investigated actual process-killing logic (runtime_reconciliation.py + runtime_ownership.py). Found: `reconcile_orphans()` kills ALL `mcs-*` tmux sessions + ALL Minecraft Java PIDs with zero DB cross-reference — called at every backend startup and via POST `/reconcile`. Added to Known Limitations. |
+| 2026-07-28 | *architecture* | *(design doc)* | Designed Server Health & Integrity Engine architecture (13-section design document in `architecture/health-engine-design.md`) |
+| 2026-07-28 | BATCH-01 | — | Created health bounded context foundation: domain aggregates/value objects/events/repository interfaces/domain services, application commands/queries/handlers, infrastructure ORM models/repository implementations, API router + schemas, Alembic migration, unit tests, documented integration. |
 
 ---
 
-*Generated: 2026-07-27 · Project: MCS Manager v4.0 (7.1.0) · 13 commits across 5 batches*
+*Generated: 2026-07-28 · Project: MCS Manager v4.0 (7.1.0) · Server Health & Integrity Engine Batch 01*

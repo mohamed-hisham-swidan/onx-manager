@@ -216,6 +216,7 @@ backend/
 │   │   ├── backup/         # Backup/restore
 │   │   ├── plugin/         # Plugin system
 │   │   ├── auth/           # Users, roles, API keys
+│   │   ├── health/         # Health monitoring, crash diagnostics, integrity validation
 │   │   ├── monitoring/     # Metrics, alerts
 │   │   ├── event_store/    # Immutable event log
 │   │   └── ...             # Other bounded contexts
