@@ -60,7 +60,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         if _is_api_key(token):
-            from app.storage.db import database
+            from app.core.persistence.db import database
 
             async with database.session_factory() as db:
                 try:

@@ -22,9 +22,12 @@ def _resolve_path(server_id: str) -> Path | None:
         p = Path(raw)
         if p.exists():
             return p
-    fallback = _default_data_dir() / server_id
-    if fallback.exists():
-        return fallback
+    short_id = server_id[:8]
+    if short_id:
+        data_dir = _default_data_dir()
+        for candidate in data_dir.glob(f"*-{short_id}"):
+            if candidate.is_dir():
+                return candidate
     return None
 
 

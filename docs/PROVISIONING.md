@@ -57,13 +57,14 @@ All provisioning errors **delete the server directory** and **do not commit** th
 ## File Layout
 
 ```
-data/servers/{server_id}/
+data/servers/{slug}-{uuid[:8]}/
 ├── server.jar
 ├── eula.txt
 └── server.properties
 ```
 
-Custom paths via `install_dir` in the request body.
+Every server created through the Create flow lives under `data/servers/`.
+For servers from an existing directory, use the **Import** endpoint (`POST /api/v1/servers/import`) instead — it copies the external directory into the managed layout.
 
 ## Key Source Files
 

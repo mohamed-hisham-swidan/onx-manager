@@ -6,6 +6,8 @@ import logging
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.persistence.db import database
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
     format_event,
@@ -24,7 +26,6 @@ from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger("mcs.commands.start_server")
 
@@ -265,8 +266,8 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
 
 
 async def sql_get_server(sid: ServerId) -> Server:
-    from app.modules.server.infrastructure.repository import SQLServerRepository
     from app.core.persistence.db import database
+    from app.modules.server.infrastructure.repository import SQLServerRepository
 
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
@@ -274,8 +275,8 @@ async def sql_get_server(sid: ServerId) -> Server:
 
 
 async def sql_save_server(server: Server, event_bus: EventBus) -> None:
-    from app.modules.server.infrastructure.repository import SQLServerRepository
     from app.core.persistence.unit_of_work import UnitOfWork
+    from app.modules.server.infrastructure.repository import SQLServerRepository
 
     async with UnitOfWork(event_bus) as uow:
         repo = SQLServerRepository(uow.session)

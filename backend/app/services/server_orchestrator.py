@@ -6,7 +6,7 @@ from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.providers.base import ServerProvider
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(__name__)
 

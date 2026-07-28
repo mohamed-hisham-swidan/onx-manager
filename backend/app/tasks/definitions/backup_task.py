@@ -9,7 +9,7 @@ from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
 from app.modules.storage.base import StorageBackend
 from app.services.backup_orchestrator import BackupSaga
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.storage.db import database
+from app.core.persistence.db import database
 
 logger = logging.getLogger(__name__)
 

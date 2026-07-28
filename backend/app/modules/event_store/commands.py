@@ -8,7 +8,7 @@ from typing import Any
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.modules.event_store.dead_letter import DeadLetterService
-from app.storage.db import database
+from app.core.persistence.db import database
 
 logger = logging.getLogger(__name__)
 

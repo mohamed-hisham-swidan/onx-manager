@@ -21,7 +21,7 @@ from app.modules.backup.application.commands.verify_backup import (
 from app.modules.backup.domain.aggregate import BackupJob, BackupType
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 def _bus(event_bus: EventBus) -> CommandBus:

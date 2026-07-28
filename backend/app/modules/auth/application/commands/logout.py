@@ -4,7 +4,7 @@ from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.security import hash_api_key
 from app.modules.auth.infrastructure.models import RefreshTokenModel
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 from sqlalchemy import select
 

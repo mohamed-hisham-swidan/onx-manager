@@ -192,7 +192,7 @@ class SQLEventRepository:
         event.event_type = entry.event_type
 
         try:
-            from app.storage.db import database
+            from app.core.persistence.db import database
             from app.core.event_bus import EventBus
 
             bus = EventBus()

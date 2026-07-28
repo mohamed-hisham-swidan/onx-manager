@@ -3,7 +3,7 @@ from sqlalchemy import Column, Integer, String, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declared_attr
 
-from app.storage.base import Base, BaseRepository, TimestampMixin
+from app.core.persistence.base import Base, BaseRepository, TimestampMixin
 
 
 class SampleModel(TimestampMixin, Base):

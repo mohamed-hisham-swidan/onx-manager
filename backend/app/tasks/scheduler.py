@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import Column, DateTime, Integer, String, Text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.storage.base import Base
+from app.core.persistence.base import Base
 from app.tasks.base import TaskQueue
 
 

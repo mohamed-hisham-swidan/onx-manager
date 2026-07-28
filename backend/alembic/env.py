@@ -1,10 +1,13 @@
 import asyncio
+import os
+import sys
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.storage.base import Base
+from app.core.persistence.base import Base
 
 config = context.config
 if config.config_file_name is not None:
@@ -12,11 +15,15 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Resolve database URL: MCS_DATABASE_URL env var overrides alembic.ini
+_db_url = os.environ.get("MCS_DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+_db_label = _db_url.rsplit("/", 1)[-1] if "/" in _db_url else _db_url
+print(f"Alembic target DB: {_db_url}  ({_db_label})", file=sys.stderr)
+
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=_db_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -32,8 +39,7 @@ def do_run_migrations(connection: Any) -> None:
 
 
 async def run_async_migrations() -> None:
-    url = config.get_main_option("sqlalchemy.url")
-    connectable = create_async_engine(url)
+    connectable = create_async_engine(_db_url)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

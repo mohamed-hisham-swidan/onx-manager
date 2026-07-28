@@ -42,7 +42,7 @@ from app.modules.shared.value_objects import (
     PluginVersion,
     ServerId,
 )
-from app.storage.base import Base
+from app.core.persistence.base import Base
 
 from app.modules.server.infrastructure.models import ServerModel
 from app.modules.backup.infrastructure.models import BackupJobModel, BackupPolicyModel

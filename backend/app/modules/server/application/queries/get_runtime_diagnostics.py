@@ -9,7 +9,7 @@ from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 class GetServerRuntimeDiagnosticsQuery(Query):

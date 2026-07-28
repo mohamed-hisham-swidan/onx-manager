@@ -6,7 +6,7 @@ from app.core.query_bus import Query, QueryHandler
 from app.modules.plugin.domain.repository import PluginRepository
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 class PluginReadModel:

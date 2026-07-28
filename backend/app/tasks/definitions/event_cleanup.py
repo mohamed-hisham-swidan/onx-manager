@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.event_store.models import StoredEventModel
-from app.storage.db import database
+from app.core.persistence.db import database
 
 logger = logging.getLogger(__name__)
 

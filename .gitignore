@@ -58,6 +58,11 @@ logs/
 *.lock
 
 # ──────────────────────────────────────────────
+# AI bootstrap entry point (auto-generated)
+# ──────────────────────────────────────────────
+AGENTS.md
+
+# ──────────────────────────────────────────────
 # OS / Editor
 # ──────────────────────────────────────────────
 .DS_Store
@@ -75,11 +80,12 @@ Thumbs.db
 .history/
 
 # ──────────────────────────────────────────────
-# AI agent / session state (locks are transient)
+# AI agent / session state (locks + bootstrap cache)
 # ──────────────────────────────────────────────
 # NOTE: .ai/ itself IS tracked (contains AI_RULES, TOKEN_POLICY, PROJECT_STATE)
-# Only ignore runtime lock files inside it
+# Only ignore runtime lock files and generated bootstrap cache
 .ai/locks/*.lock
+.ai/CURRENT_STATE.json
 
 # ──────────────────────────────────────────────
 # Coverage / Test Artifacts
@@ -108,6 +114,18 @@ build/
 # Server runtime data (worlds, JARs, plugins)
 # ──────────────────────────────────────────────
 backend/data/servers/
+
+# ──────────────────────────────────────────────
+# Test / dev server sandbox (agent-created data)
+# ──────────────────────────────────────────────
+backend/data/servers_test/*
+!backend/data/servers_test/TEST_DB.md
+!backend/data/servers_test/AGENT_README.md
+
+# ──────────────────────────────────────────────
+# Agent guardrail files (warnings for AI agents)
+# ──────────────────────────────────────────────
+backend/data/AGENT_README.md
 
 # ──────────────────────────────────────────────
 # Generated / auto-documented artifacts

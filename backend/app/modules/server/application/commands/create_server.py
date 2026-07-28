@@ -1,9 +1,11 @@
 import logging
+from pathlib import Path
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import ProvisioningError
 from app.core.idempotency import IdempotencyKey
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import (
@@ -18,7 +20,6 @@ from app.modules.server.domain.value_objects import (
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
-from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(__name__)
 
@@ -54,21 +55,16 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
     async def handle(self, command: CreateServerCommand) -> CommandResult:
         from app.modules.server.application.services.jar_service import (
             SERVER_TYPES_REQUIRING_MANUAL_INSTALL,
-            resolve_server_dir,
             download_server_jar,
+            resolve_server_dir,
             write_eula,
             write_server_properties,
         )
 
         server_id = ServerId()
-        deployment = None if command.install_dir is None else ServerDeployment(
-            location_type=LocationType.LOCAL,
-            root_path=str(command.install_dir),
-        )
         server_dir_path = resolve_server_dir(
             server_id=str(server_id),
             name=command.name,
-            deployment=deployment,
         )
 
         try:
@@ -83,20 +79,12 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerRepository = SQLServerRepository(uow.session)
 
-            if command.install_dir:
-                deployment = ServerDeployment(
-                    location_type=LocationType.LOCAL,
-                    root_path=str(command.install_dir),
-                    working_directory=".",
-                    startup_jar="server.jar",
-                )
-            else:
-                deployment = ServerDeployment(
-                    location_type=LocationType.LOCAL,
-                    root_path=server_dir_path,
-                    working_directory=".",
-                    startup_jar="server.jar",
-                )
+            deployment = ServerDeployment(
+                location_type=LocationType.LOCAL,
+                root_path=str(Path(server_dir_path).resolve()),
+                working_directory=".",
+                startup_jar="server.jar",
+            )
 
             server = Server.create(
                 server_id=server_id,

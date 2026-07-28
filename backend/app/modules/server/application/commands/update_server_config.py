@@ -7,7 +7,7 @@ from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import MemoryAllocation
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class UpdateServerConfigCommand(Command):

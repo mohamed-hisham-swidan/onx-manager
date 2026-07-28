@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import Column, DateTime, String, Text
 
-from app.storage.base import Base, TimestampMixin
+from app.core.persistence.base import Base, TimestampMixin
 
 
 class PluginModel(Base, TimestampMixin):

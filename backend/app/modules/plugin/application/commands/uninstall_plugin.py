@@ -4,7 +4,7 @@ from app.core.idempotency import IdempotencyKey
 from app.modules.plugin.domain.repository import PluginRepository
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
 from app.modules.shared.value_objects import PluginId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class UninstallPluginCommand(Command):

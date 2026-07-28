@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import Column, DateTime, Integer, String, Text, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.storage.base import Base
+from app.core.persistence.base import Base
 
 
 class AuditLogModel(Base):

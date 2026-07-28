@@ -40,8 +40,8 @@ def _override_deps(buses) -> None:
 
 @pytest.fixture
 async def client() -> AsyncClient:
-    from app.storage.base import Base
-    from app.storage.db import database
+    from app.core.persistence.base import Base
+    from app.core.persistence.db import database
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)

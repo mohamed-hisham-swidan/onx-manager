@@ -21,7 +21,7 @@ from app.modules.plugin.application.commands.uninstall_plugin import (
 from app.modules.plugin.domain.aggregate import Plugin
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
 from app.modules.shared.value_objects import PluginId, PluginVersion, ServerId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 def _bus(event_bus: EventBus) -> CommandBus:

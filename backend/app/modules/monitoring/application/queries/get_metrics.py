@@ -3,7 +3,7 @@ from datetime import datetime
 from app.core.query_bus import Query, QueryHandler
 from app.modules.monitoring.infrastructure.repository import SQLMetricRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 class MetricPointReadModel:

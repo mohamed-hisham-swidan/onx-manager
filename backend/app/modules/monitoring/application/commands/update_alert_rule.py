@@ -5,7 +5,7 @@ from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
 from app.modules.monitoring.domain.aggregate import AlertCondition, AlertSeverity
 from app.modules.monitoring.infrastructure.repository import SQLAlertRuleRepository
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class UpdateAlertRuleCommand(Command):

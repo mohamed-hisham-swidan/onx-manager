@@ -695,12 +695,25 @@ class SystemMonitor:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+class WindowGeometry:
+    def __init__(self, x: int, y: int, width: int, height: int):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+
+
+# Each monitor half at 1920×1080: 960×540 per terminal
+WINDOW_BACKEND = WindowGeometry(0, 0, 960, 540)
+WINDOW_FRONTEND = WindowGeometry(960, 0, 960, 540)
+
+
 class TerminalOpener:
     """Opens a service in its own terminal window with log capture."""
 
     TERMINAL_PREFERENCE: list[tuple[str, list[str]]] = [
         ("gnome-terminal", ["--", "bash", "-c"]),
-        ("konsole", ["--hold", "-e", "bash", "-c"]),
+        ("konsole", ["--separate", "--hold", "-e", "bash", "-c"]),
         ("xfce4-terminal", ["-e", "bash", "-c"]),
         ("xterm", ["-e", "bash", "-c"]),
     ]
@@ -718,6 +731,66 @@ class TerminalOpener:
         return None
 
     @staticmethod
+    def _find_kdotool() -> Path | None:
+        candidates = [
+            Path.home() / ".local" / "bin" / "kdotool",
+            Path("/usr") / "bin" / "kdotool",
+            Path("/usr") / "local" / "bin" / "kdotool",
+            Path(MCS_DIR) / "bin" / "kdotool",
+        ]
+        for c in candidates:
+            if c.is_file() and os.access(c, os.X_OK):
+                return c
+        return None
+
+    @staticmethod
+    def _list_konsole_windows(kdotool: Path) -> set[str]:
+        try:
+            result = subprocess.run(
+                [str(kdotool), "search", "--classname", "--limit", "20", "konsole"],
+                capture_output=True, text=True, timeout=5,
+            )
+            ids = set()
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if line and "{" in line:
+                    ids.add(line)
+            return ids
+        except subprocess.TimeoutExpired:
+            return set()
+
+    @staticmethod
+    def _position_new_window(
+        kdotool: Path, before: set[str], geo: WindowGeometry,
+    ) -> bool:
+        time.sleep(2)
+        after = TerminalOpener._list_konsole_windows(kdotool)
+        new_windows = after - before
+        if len(new_windows) != 1:
+            return False
+        win_id = next(iter(new_windows))
+        try:
+            subprocess.run(
+                [str(kdotool), "windowmove", win_id, str(geo.x), str(geo.y)],
+                capture_output=True, timeout=5,
+            )
+            subprocess.run(
+                [str(kdotool), "windowsize", win_id, str(geo.width), str(geo.height)],
+                capture_output=True, timeout=5,
+            )
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+
+    @staticmethod
+    def _build_cmd(service_title: str, wrapped: str, geo: WindowGeometry | None) -> list[str]:
+        terminal = TerminalOpener._find_terminal()
+        if terminal is None:
+            return []
+        term_exe, term_args = terminal
+        return [term_exe] + term_args + [wrapped]
+
+    @staticmethod
     def open_backend(
         python: Path,
         port: int,
@@ -729,30 +802,28 @@ class TerminalOpener:
             f"{python} -m uvicorn app.main:app "
             f"--host 0.0.0.0 --port {port} --reload"
         )
-        return TerminalOpener._open("Backend", cmd_str, BACKEND_LOG, env)
+        return TerminalOpener._open("Backend", cmd_str, BACKEND_LOG, env, WINDOW_BACKEND)
 
     @staticmethod
     def open_frontend() -> int | None:
         cmd_str = f"cd '{FRONTEND_DIR}' && npm run dev"
-        return TerminalOpener._open("Frontend", cmd_str, FRONTEND_LOG)
+        return TerminalOpener._open("Frontend", cmd_str, FRONTEND_LOG, None, WINDOW_FRONTEND)
 
     @staticmethod
     def _open(
-        _title: str,
+        service_title: str,
         cmd_str: str,
         log_file: Path,
         extra_env: dict[str, str] | None = None,
+        geometry: WindowGeometry | None = None,
     ) -> int | None:
-        terminal = TerminalOpener._find_terminal()
         wrapped = TerminalOpener._wrap_command(cmd_str, log_file)
-
         env = os.environ.copy()
         if extra_env:
             env.update(extra_env)
 
-        if terminal is not None:
-            term_exe, term_args = terminal
-            full_cmd = [term_exe] + term_args + [wrapped]
+        full_cmd = TerminalOpener._build_cmd(service_title, wrapped, geometry)
+        if full_cmd:
             try:
                 proc = subprocess.Popen(
                     full_cmd,
@@ -760,6 +831,15 @@ class TerminalOpener:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+                if geometry:
+                    kd_path = TerminalOpener._find_kdotool()
+                    if kd_path:
+                        before_wins = TerminalOpener._list_konsole_windows(kd_path)
+                        threading.Thread(
+                            target=TerminalOpener._position_new_window,
+                            args=(kd_path, before_wins, geometry),
+                            daemon=True,
+                        ).start()
                 return proc.pid
             except OSError:
                 pass

@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.core.query_bus import Query, QueryHandler
 from app.modules.auth.infrastructure.repository import SQLUserRepository
 from app.modules.shared.value_objects import UserId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 class GetCurrentUserQuery(Query):

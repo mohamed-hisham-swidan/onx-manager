@@ -6,7 +6,7 @@ from app.core.idempotency import IdempotencyKey
 from app.modules.monitoring.domain.aggregate import AlertCondition, AlertRule, AlertSeverity
 from app.modules.monitoring.infrastructure.repository import SQLAlertRuleRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class CreateAlertRuleCommand(Command):

@@ -5,7 +5,7 @@ import json
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
-from app.storage.base import Base, TimestampMixin
+from app.core.persistence.base import Base, TimestampMixin
 
 
 class ServerModel(Base, TimestampMixin):

@@ -6,7 +6,7 @@ from app.core.query_bus import Query, QueryHandler
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 class BackupReadModel:

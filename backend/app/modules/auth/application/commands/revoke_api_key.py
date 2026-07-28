@@ -4,7 +4,7 @@ from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.modules.auth.infrastructure.repository import SQLUserRepository
 from app.modules.shared.value_objects import ApiKeyId, UserId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class RevokeApiKeyCommand(Command):

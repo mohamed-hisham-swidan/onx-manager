@@ -9,7 +9,7 @@ from app.core.security import generate_api_key, hash_api_key
 from app.modules.auth.domain.aggregate import ApiKey
 from app.modules.auth.infrastructure.repository import SQLUserRepository
 from app.modules.shared.value_objects import ApiKeyId, Permission, UserId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class CreateApiKeyCommand(Command):

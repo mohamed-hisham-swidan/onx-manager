@@ -5,7 +5,7 @@ from app.modules.backup.domain.aggregate import BackupJob, BackupType
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class CreateBackupCommand(Command):

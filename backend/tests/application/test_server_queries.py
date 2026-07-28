@@ -18,7 +18,7 @@ from app.modules.server.domain.value_objects import (
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 @pytest.mark.usefixtures("init_test_db")

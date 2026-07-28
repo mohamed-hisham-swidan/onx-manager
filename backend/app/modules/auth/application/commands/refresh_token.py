@@ -16,7 +16,7 @@ from app.modules.auth.infrastructure.models import RefreshTokenModel
 from app.modules.auth.infrastructure.permissions import PermissionEvaluator
 from app.modules.auth.infrastructure.repository import SQLUserRepository
 from app.modules.shared.value_objects import UserId
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class RefreshTokenCommand(Command):

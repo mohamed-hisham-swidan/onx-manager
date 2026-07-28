@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.modules.monitoring.infrastructure.metrics import PrometheusMetricsRegistry
-from app.storage.db import database
+from app.core.persistence.db import database
 
 import structlog
 

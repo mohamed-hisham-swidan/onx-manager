@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import Column, DateTime, Integer, String, Text
 
-from app.storage.base import Base
+from app.core.persistence.base import Base
 
 
 class StoredEventModel(Base):

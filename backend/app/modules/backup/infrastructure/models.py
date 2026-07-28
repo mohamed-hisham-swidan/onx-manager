@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 
-from app.storage.base import Base, TimestampMixin
+from app.core.persistence.base import Base, TimestampMixin
 
 
 class BackupJobModel(Base, TimestampMixin):

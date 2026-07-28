@@ -3,7 +3,7 @@ from app.modules.backup.application.queries.list_backups import BackupReadModel
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 class GetBackupQuery(Query):

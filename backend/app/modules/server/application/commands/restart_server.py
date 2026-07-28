@@ -20,8 +20,8 @@ from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle, ServerRuntimeStatus
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.db import database
-from app.storage.unit_of_work import UnitOfWork
+from app.core.persistence.db import database
+from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger("mcs.commands.restart_server")
 
@@ -265,7 +265,7 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
 
 async def sql_get_server(sid: ServerId) -> Server:
     from app.modules.server.infrastructure.repository import SQLServerRepository
-    from app.storage.db import database
+    from app.core.persistence.db import database
 
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
@@ -274,7 +274,7 @@ async def sql_get_server(sid: ServerId) -> Server:
 
 async def sql_save_server(server: Server, event_bus: EventBus) -> None:
     from app.modules.server.infrastructure.repository import SQLServerRepository
-    from app.storage.unit_of_work import UnitOfWork
+    from app.core.persistence.unit_of_work import UnitOfWork
 
     async with UnitOfWork(event_bus) as uow:
         repo = SQLServerRepository(uow.session)

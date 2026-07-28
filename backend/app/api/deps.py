@@ -6,7 +6,7 @@ from app.core.command_bus import CommandBus
 from app.core.config import AppSettings, ConfigFactory
 from app.core.event_bus import EventBus
 from app.core.query_bus import QueryBus
-from app.storage.db import get_db
+from app.core.persistence.db import get_db
 
 _command_bus: CommandBus | None = None
 _query_bus: QueryBus | None = None

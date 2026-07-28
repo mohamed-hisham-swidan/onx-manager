@@ -4,7 +4,7 @@ from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.storage.db import database
+from app.core.persistence.db import database
 
 
 RUNNING_STATUSES = {ServerStatus.RUNNING, ServerStatus.STARTING}
