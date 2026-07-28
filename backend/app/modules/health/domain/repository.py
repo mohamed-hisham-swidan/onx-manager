@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 
 from app.modules.health.domain.aggregate import DiagnosticsReport, HealthStatus
-from app.modules.health.domain.value_objects import IntegrityReport
 from app.modules.health.domain.value_objects import (
     CrashClassification,
     EvidenceBundle,
@@ -74,36 +73,4 @@ class DiagnosticsRepository(ABC):
         server_id: str,
         limit: int = 50,
     ) -> list[DiagnosticsReport]:
-        ...
-
-
-class IntegrityRepository(ABC):
-    @abstractmethod
-    async def save_audit(self, report: IntegrityReport) -> None:
-        ...
-
-    @abstractmethod
-    async def list_audits(
-        self,
-        server_id: str,
-        limit: int = 50,
-    ) -> list[IntegrityReport]:
-        ...
-
-    @abstractmethod
-    async def save_baseline(
-        self,
-        server_id: str,
-        file_path: str,
-        file_name: str,
-        file_hash: str,
-        hash_algorithm: str = "sha256",
-    ) -> None:
-        ...
-
-    @abstractmethod
-    async def get_baselines(
-        self,
-        server_id: str,
-    ) -> list[dict]:
         ...

@@ -5,33 +5,6 @@ from sqlalchemy import Column, DateTime, Float, Integer, String, Text
 from app.core.persistence.base import Base, TimestampMixin
 
 
-class IntegrityAuditModel(Base, TimestampMixin):
-    __tablename__ = "integrity_audit"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    server_id = Column(String(36), nullable=False, index=True)
-    overall_status = Column(String(16), nullable=False)
-    scope = Column(String(16), nullable=False, default="full")
-    total_checks = Column(Integer, nullable=False, default=0)
-    passed_checks = Column(Integer, nullable=False, default=0)
-    failed_checks = Column(Integer, nullable=False, default=0)
-    warnings = Column(Integer, nullable=False, default=0)
-    summary = Column(Text, nullable=True)
-    checked_at = Column(DateTime(timezone=True), nullable=False)
-
-
-class IntegrityBaselineModel(Base, TimestampMixin):
-    __tablename__ = "integrity_baseline"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    server_id = Column(String(36), nullable=False, index=True)
-    file_path = Column(String(1024), nullable=False)
-    file_name = Column(String(256), nullable=False)
-    file_hash = Column(String(64), nullable=False)
-    hash_algorithm = Column(String(16), nullable=False, default="sha256")
-    baseline_at = Column(DateTime(timezone=True), nullable=False)
-
-
 class HealthStatusModel(Base, TimestampMixin):
     __tablename__ = "health_status"
 

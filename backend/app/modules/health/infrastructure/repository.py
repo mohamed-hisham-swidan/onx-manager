@@ -1,33 +1,25 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.health.domain.aggregate import DiagnosticsReport, HealthStatus
-from app.modules.health.domain.repository import (
-    DiagnosticsRepository,
-    HealthRepository,
-    IntegrityRepository,
-)
+from app.modules.health.domain.repository import DiagnosticsRepository, HealthRepository
 from app.modules.health.domain.value_objects import (
     CrashClassification,
     EvidenceBundle,
     HealthStatusEnum,
     HealthTimelineEntry,
     HealthTrend,
-    IntegrityCheck,
-    IntegrityReport,
 )
 from app.modules.health.infrastructure.models import (
     DiagnosticsReportModel,
     EvidenceBundleModel,
     HealthStatusModel,
     HealthTimelineModel,
-    IntegrityAuditModel,
-    IntegrityBaselineModel,
 )
 
 
@@ -238,117 +230,4 @@ class SQLDiagnosticsRepository(DiagnosticsRepository):
             report_id=model.id,
             classification=classification,
             created_at=model.recorded_at,
-        )
-
-
-class SQLIntegrityRepository(IntegrityRepository):
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
-
-    async def save_audit(self, report: IntegrityReport) -> None:
-        checks_data = [
-            {
-                "check_name": c.check_name,
-                "severity": c.severity,
-                "status": c.status,
-                "detail": c.detail,
-                "file_path": c.file_path,
-            }
-            for c in report.checks
-        ]
-        passed = sum(1 for c in report.checks if c.status == "pass")
-        failed = sum(1 for c in report.checks if c.status in ("fail", "error"))
-        warnings = sum(1 for c in report.checks if c.status == "warn")
-
-        model = IntegrityAuditModel(
-            server_id=report.server_id,
-            overall_status=report.overall_status,
-            scope=report.scope,
-            total_checks=len(report.checks),
-            passed_checks=passed,
-            failed_checks=failed,
-            warnings=warnings,
-            summary=json.dumps(checks_data),
-            checked_at=report.timestamp,
-        )
-        self._session.add(model)
-        await self._session.flush()
-
-    async def list_audits(
-        self,
-        server_id: str,
-        limit: int = 50,
-    ) -> list[IntegrityReport]:
-        stmt = (
-            select(IntegrityAuditModel)
-            .where(IntegrityAuditModel.server_id == server_id)
-            .order_by(IntegrityAuditModel.checked_at.desc())
-            .limit(limit)
-        )
-        result = await self._session.execute(stmt)
-        return [self._audit_model_to_domain(m) for m in result.scalars().all()]
-
-    async def save_baseline(
-        self,
-        server_id: str,
-        file_path: str,
-        file_name: str,
-        file_hash: str,
-        hash_algorithm: str = "sha256",
-    ) -> None:
-        model = IntegrityBaselineModel(
-            server_id=server_id,
-            file_path=file_path,
-            file_name=file_name,
-            file_hash=file_hash,
-            hash_algorithm=hash_algorithm,
-            baseline_at=datetime.now(timezone.utc),
-        )
-        self._session.add(model)
-        await self._session.flush()
-
-    async def get_baselines(
-        self,
-        server_id: str,
-    ) -> list[dict]:
-        stmt = (
-            select(IntegrityBaselineModel)
-            .where(IntegrityBaselineModel.server_id == server_id)
-            .order_by(IntegrityBaselineModel.baseline_at.desc())
-        )
-        result = await self._session.execute(stmt)
-        return [
-            {
-                "file_path": m.file_path,
-                "file_name": m.file_name,
-                "file_hash": m.file_hash,
-                "hash_algorithm": m.hash_algorithm,
-                "baseline_at": m.baseline_at.isoformat() if m.baseline_at else "",
-            }
-            for m in result.scalars().all()
-        ]
-
-    def _audit_model_to_domain(self, model: IntegrityAuditModel) -> IntegrityReport:
-        raw_checks: list[dict] = []
-        if model.summary:
-            try:
-                raw_checks = json.loads(model.summary)
-            except (json.JSONDecodeError, TypeError):
-                raw_checks = []
-        checks = [
-            IntegrityCheck(
-                check_name=c.get("check_name", ""),
-                severity=c.get("severity", "info"),
-                status=c.get("status", "unknown"),
-                detail=c.get("detail", ""),
-                file_path=c.get("file_path"),
-            )
-            for c in raw_checks
-        ]
-        return IntegrityReport(
-            server_id=model.server_id,
-            checks=checks,
-            overall_status=model.overall_status,
-            scope=model.scope,
-            timestamp=model.checked_at,
         )

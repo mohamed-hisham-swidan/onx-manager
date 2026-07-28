@@ -107,18 +107,6 @@ def register_handlers(
     init_infrastructure()
     _register_command_handlers(command_bus, event_bus)
     _register_query_handlers(query_bus)
-    _subscribe_event_handlers(event_bus)
-
-
-def _subscribe_event_handlers(event_bus: EventBus) -> None:
-    from app.modules.health.application.event_handlers.health_signal_handler import HealthSignalHandler
-    from app.core.event_bus import Priority
-
-    handler = HealthSignalHandler(event_bus)
-    event_bus.subscribe("IntegrityCheckPassedEvent", handler, priority=Priority.NORMAL)
-    event_bus.subscribe("IntegrityCheckFailedEvent", handler, priority=Priority.NORMAL)
-    event_bus.subscribe("RuntimeHealthSignalEvent", handler, priority=Priority.NORMAL)
-    event_bus.subscribe("CrashClassifiedEvent", handler, priority=Priority.NORMAL)
 
 
 def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> None:

@@ -23,13 +23,9 @@ from app.modules.auth.infrastructure.jwt import init_jwt_from_settings
 from app.registration import register_handlers
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.core.persistence.db import database
-from app.tasks.integrity_tasks import cleanup_old_audits, scan_all_servers
-from app.tasks.queue import InProcessQueue
-from app.tasks.scheduler import Scheduler
 from app.websocket.endpoint import init_websocket, router as ws_router
 
 _start_time: float = 0.0
-_scheduler: Scheduler | None = None
 
 
 @asynccontextmanager
@@ -110,46 +106,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Import architecture migration failed")
 
-    scheduler = await _init_scheduler()
     yield
-    await scheduler.stop() if scheduler else None
-
-
-async def _init_scheduler() -> Scheduler | None:
-    global _scheduler
-    try:
-        from sqlalchemy.ext.asyncio import AsyncSession
-
-        async def _session_factory() -> AsyncSession:
-            return database.session_factory()
-
-        queue = InProcessQueue(_session_factory)
-        queue.register("scan_all_servers", scan_all_servers)
-        queue.register("cleanup_old_audits", cleanup_old_audits)
-
-        scheduler = Scheduler(_session_factory)
-        scheduler.set_task_queue(queue)
-        await scheduler.start()
-
-        await scheduler.add_job(
-            name="integrity_scan_hourly",
-            cron_expression="0 * * * *",
-            task_name="scan_all_servers",
-            params={"scope": "quick"},
-        )
-        await scheduler.add_job(
-            name="audit_cleanup_daily",
-            cron_expression="0 3 * * *",
-            task_name="cleanup_old_audits",
-            params={"retention_days": 90},
-        )
-
-        _scheduler = scheduler
-        logger.info("Scheduler started with integrity scan (hourly) + audit cleanup (daily)")
-        return scheduler
-    except Exception:
-        logger.exception("Failed to initialize scheduler")
-        return None
 
 
 def create_app() -> FastAPI:
