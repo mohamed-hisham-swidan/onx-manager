@@ -37,7 +37,7 @@ async def run_discovery_scan(
     new_count = 0
     known_count = 0
     for entry in discovered:
-        if entry.path in known_dirs:
+        if entry.path in known_dirs or entry.dirname in known_dirs:
             known_count += 1
             continue
         parsed_id = entry.properties.get("server-id", "")

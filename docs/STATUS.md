@@ -245,7 +245,7 @@ server_manger/
 | Build | Vite | — |
 | Styling | TailwindCSS | 4 |
 | State | TanStack Query + Zustand | — |
-| Testing (BE) | pytest (784 tests) | — |
+| Testing (BE) | pytest (878 tests) | — |
 | Testing (FE) | Vitest (148 tests) | — |
 | Linting | Ruff | — |
 | Container | Docker | — |
@@ -280,7 +280,7 @@ server_manger/
 
 ## Tests & Coverage
 
-### Backend — 800+ passing
+### Backend — 878+ passing
 
 | Test File | Tests | Group |
 |-----------|-------|-------|
@@ -328,6 +328,12 @@ server_manger/
 | `tests/application/test_health_commands.py` | 6 | Health |
 | `tests/application/test_health_queries.py` | 6 | Health |
 | `tests/infrastructure/test_health_repository.py` | 12 | Health |
+| `tests/infrastructure/test_scanner.py` | 10 | Discovery |
+| `tests/infrastructure/test_integrity.py` | 9 | Integrity |
+| `tests/infrastructure/test_environment.py` | 5 | Environment |
+| `tests/application/test_discovery_engine.py` | 3 | Discovery |
+| `tests/application/test_registration_engine.py` | 2 | Discovery |
+| `tests/application/test_startup_guard.py` | 4 | Startup |
 | `tests/event_store/test_event_store.py` | 15 | Event Store |
 | `tests/event_store/test_dead_letter.py` | 8 | Event Store |
 | `tests/plugin/test_plugin_runner.py` | 12 | Plugin |
@@ -344,7 +350,7 @@ server_manger/
 | Services | 10 |
 | Hooks | 8 |
 
-**Total: 932 tests** (784 backend + 148 frontend)
+**Total: 1026 tests** (878 backend + 148 frontend)
 
 ---
 
@@ -352,7 +358,7 @@ server_manger/
 
 | Issue | Impact | Status |
 |-------|--------|--------|
-| `reconcile_orphans()` in `runtime_reconciliation.py` kills ALL `mcs-*` tmux sessions + ALL Minecraft Java PIDs with **zero DB cross-reference** | Called at every backend startup (`main.py:74`) and via POST `/reconcile` — kills even correctly-running servers. ~1s race window during server start where just-spawned process can be killed before PID/external_id committed to DB. | 🐛 Confirmed — Batch 5 finding |
+| ~~`reconcile_orphans()` kills ALL mcs-* tmux + Java PIDs~~ | ~~Called at every startup, no DB cross-reference~~ | ✅ Fixed in 3521d33 |
 | ArqQueue.get_status/get_result return stubs | Cannot query task progress in prod | ⚠️ Known |
 | Metrics retention rollups not implemented | Raw metrics only (no 1m/1h/1d aggregation) | 🔶 Future |
 | ContainerPluginRunner is a stub | Plugins can't run in Docker isolation yet | 🔶 Future |
@@ -376,8 +382,10 @@ server_manger/
 | 2026-07-27 | 5 | `4b48281` | Fix 5: reconcile_filesystem() directory naming mismatch — refactored to explicit `server_dir_name()` comparison + 3 regression tests. Removed stale Known Limitation. |
 | 2026-07-27 | *investigation* | *(docs only)* | Investigated actual process-killing logic (runtime_reconciliation.py + runtime_ownership.py). Found: `reconcile_orphans()` kills ALL `mcs-*` tmux sessions + ALL Minecraft Java PIDs with zero DB cross-reference — called at every backend startup and via POST `/reconcile`. Added to Known Limitations. |
 | 2026-07-28 | *architecture* | *(design doc)* | Designed Server Health & Integrity Engine architecture (13-section design document in `architecture/health-engine-design.md`) |
-| 2026-07-28 | BATCH-01 | — | Created health bounded context foundation: domain aggregates/value objects/events/repository interfaces/domain services, application commands/queries/handlers, infrastructure ORM models/repository implementations, API router + schemas, Alembic migration, unit tests, documented integration. |
+| 2026-07-28 | BATCH-01 | `18effba` | Created health bounded context foundation: domain aggregates/value objects/events/repository interfaces/domain services, application commands/queries/handlers, infrastructure ORM models/repository implementations, API router + schemas, Alembic migration, unit tests, documented integration. |
+| 2026-07-28 | BATCH-02a | `3521d33` | `reconcile_orphans()` fix — now cross-references DB before killing. Running/starting servers protected. |
+| 2026-07-28 | BATCH-02b | `2fc5938` | Discovery Engine (FilesystemScanner + DiscoveryEngine + periodic scan task), Registration Engine (consumes ServerDiscoveredEvent, creates Server aggregate), Integrity Validator (file/config checks), Environment Scanner (Java/disk/memory/provider), Startup Guard (pre-flight in StartServerHandler). 845→878 tests. |
 
 ---
 
-*Generated: 2026-07-28 · Project: MCS Manager v4.0 (7.1.0) · Server Health & Integrity Engine Batch 01*
+*Generated: 2026-07-28 · Project: MCS Manager v4.0 (7.1.0) · Server Health & Integrity Engine Batch 02*

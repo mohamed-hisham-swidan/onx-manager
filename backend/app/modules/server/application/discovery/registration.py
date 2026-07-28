@@ -47,7 +47,7 @@ async def handle_server_discovered(
             server_id=ServerId(),
             name=name,
             server_type=server_type,
-            minecraft_version=MinecraftVersion.parse("latest"),
+            minecraft_version=MinecraftVersion.parse("1.21"),
             memory=MemoryAllocation(min_mb=1024, max_mb=2048),
             java_args=JavaArguments(),
             properties=ServerProperties(port=PortNumber(port)),
