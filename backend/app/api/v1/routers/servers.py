@@ -23,6 +23,7 @@ from app.api.v1.schemas.server import (
 from app.core.command_bus import Command, CommandBus, CommandResult
 from app.core.event_bus import EventBus
 from app.core.query_bus import QueryBus
+from app.core.persistence.db import database
 from app.modules.server.application import (
     CreateServerCommand,
     DeleteServerCommand,
@@ -393,4 +394,25 @@ async def reconcile_runtimes(
             for o in outcomes
         ],
         "orphans_cleaned": len(orphan_actions),
+    }
+
+
+@router.post("/refresh", response_model=dict)
+async def refresh_servers(
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    from app.modules.server.application.services.filesystem_reconciliation import reconcile as fs_reconcile
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+
+    async with database.session_factory() as session:
+        repo = SQLServerRepository(session)
+        result = await fs_reconcile(repo)
+
+    return {
+        "imported": result["imported"],
+        "deleted": result["deleted"],
+        "errors": result["errors"],
+        "total_imported": len(result["imported"]),
+        "total_deleted": len(result["deleted"]),
+        "total_errors": len(result["errors"]),
     }

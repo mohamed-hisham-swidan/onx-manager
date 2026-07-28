@@ -21,6 +21,13 @@ from app.core.event_bus import EventBus
 from app.core.query_bus import QueryBus
 from app.modules.auth.infrastructure.jwt import init_jwt_from_settings
 from app.registration import register_handlers
+from app.modules.server.application.reconciliation import reconcile_servers
+from app.modules.server.application.runtime_reconciliation import (
+    reconcile_all_runtimes,
+    reconcile_orphans,
+)
+from app.modules.server.application.services.filesystem_reconciliation import reconcile as fs_reconcile
+from app.modules.server.application.migrate_import_arch import migrate_old_import_arch
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.core.persistence.db import database
 from app.websocket.endpoint import init_websocket, router as ws_router
@@ -41,13 +48,6 @@ async def lifespan(app: FastAPI):
     register_handlers(command_bus, query_bus, event_bus)
     init_buses(command_bus, query_bus, event_bus)
     init_websocket(event_bus)
-
-    from app.modules.server.application.reconciliation import reconcile_servers
-    from app.modules.server.application.runtime_reconciliation import (
-        reconcile_all_runtimes,
-        reconcile_orphans,
-    )
-    from app.modules.server.application.migrate_import_arch import migrate_old_import_arch
 
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
@@ -105,6 +105,17 @@ async def lifespan(app: FastAPI):
                 logger.info("Migrated %d old-arch servers", migrated)
         except Exception:
             logger.exception("Import architecture migration failed")
+
+        try:
+            fs_result = await fs_reconcile(repo)
+            if fs_result["imported"]:
+                logger.info("FS reconciliation imported %d server(s)", len(fs_result["imported"]))
+            if fs_result["deleted"]:
+                logger.info("FS reconciliation deleted %d stale record(s)", len(fs_result["deleted"]))
+            if fs_result["errors"]:
+                logger.warning("FS reconciliation encountered %d error(s)", len(fs_result["errors"]))
+        except Exception:
+            logger.exception("Filesystem reconciliation failed")
 
     yield
 
