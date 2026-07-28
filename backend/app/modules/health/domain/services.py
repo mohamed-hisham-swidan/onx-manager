@@ -24,7 +24,7 @@ class HealthCalculatorService(ABC):
         self,
         current_status: HealthStatusEnum,
         signals: list[HealthSignal],
-    ) -> tuple[HealthStatusEnum, list[str], float]:
+    ) -> tuple[HealthStatusEnum, list[str], float, str]:
         ...
 
 

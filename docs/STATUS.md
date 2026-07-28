@@ -245,7 +245,7 @@ server_manger/
 | Build | Vite | — |
 | Styling | TailwindCSS | 4 |
 | State | TanStack Query + Zustand | — |
-| Testing (BE) | pytest (920 tests) | — |
+| Testing (BE) | pytest (942 tests) | — |
 | Testing (FE) | Vitest (148 tests) | — |
 | Linting | Ruff | — |
 | Container | Docker | — |
@@ -280,7 +280,7 @@ server_manger/
 
 ## Tests & Coverage
 
-### Backend — 920+ passing
+### Backend — 942+ passing
 
 | Test File | Tests | Group |
 |-----------|-------|-------|
@@ -337,6 +337,7 @@ server_manger/
 | `tests/infrastructure/test_evidence_collector.py` | 11 | Diagnostics |
 | `tests/infrastructure/test_crash_analyzer.py` | 18 | Diagnostics |
 | `tests/infrastructure/test_recovery_orchestrator.py` | 13 | Diagnostics |
+| `tests/infrastructure/test_health_calculator.py` | 22 | Health Calculator |
 | `tests/event_store/test_event_store.py` | 15 | Event Store |
 | `tests/event_store/test_dead_letter.py` | 8 | Event Store |
 | `tests/plugin/test_plugin_runner.py` | 12 | Plugin |
@@ -353,7 +354,7 @@ server_manger/
 | Services | 10 |
 | Hooks | 8 |
 
-**Total: 1068 tests** (920 backend + 148 frontend)
+**Total: 1090 tests** (942 backend + 148 frontend)
 
 ---
 
@@ -388,8 +389,9 @@ server_manger/
 | 2026-07-28 | BATCH-01 | `18effba` | Created health bounded context foundation: domain aggregates/value objects/events/repository interfaces/domain services, application commands/queries/handlers, infrastructure ORM models/repository implementations, API router + schemas, Alembic migration, unit tests, documented integration. |
 | 2026-07-28 | BATCH-02a | `3521d33` | `reconcile_orphans()` fix — now cross-references DB before killing. Running/starting servers protected. |
 | 2026-07-28 | BATCH-02b | `2fc5938` | Discovery Engine (FilesystemScanner + DiscoveryEngine + periodic scan task), Registration Engine (consumes ServerDiscoveredEvent, creates Server aggregate), Integrity Validator (file/config checks), Environment Scanner (Java/disk/memory/provider), Startup Guard (pre-flight in StartServerHandler). 845→878 tests. |
-| 2026-07-28 | BATCH-03 | *(this commit)* | Crash Diagnostics & Recovery — EvidenceCollector (log reader + crash report parser + system snapshot), PatternCrashAnalyzer (18 patterns mapped to FailureCode), RecoveryOrchestrator (auto-restart with escalation after 3 crashes/300s), ServerCrashedEvent handler (collect→classify→recover pipeline). 878→920 tests. |
+| 2026-07-28 | BATCH-03 | `40e8571` | Crash Diagnostics & Recovery — EvidenceCollector (log reader + crash report parser + system snapshot), PatternCrashAnalyzer (18 patterns mapped to FailureCode), RecoveryOrchestrator (auto-restart with escalation after 3 crashes/300s), ServerCrashedEvent handler (collect→classify→recover pipeline). 878→920 tests. |
+| 2026-07-28 | BATCH-04 | *(this commit)* | Health Calculator Engine — SignalHealthCalculator (sliding window, signal weighting, transition constraints, trend detection), EvaluateHealthCommand refactored to use real computation, HealthSignalHandler (subscribes to RuntimeHealthSignal/IntegrityCheckFailed/CrashClassified events, re-computes health), GenerateHealthReport query (uptime %, crash frequency, worst status), periodic health recalculation task. 920→942 tests. |
 
 ---
 
-*Generated: 2026-07-28 · Project: MCS Manager v4.0 (7.1.0) · Server Health & Integrity Engine Batch 02*
+*Generated: 2026-07-28 · Project: MCS Manager v4.0 (7.1.0) · Server Health & Integrity Engine Batch 04*
