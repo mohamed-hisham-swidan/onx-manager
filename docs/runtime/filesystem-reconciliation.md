@@ -2,82 +2,119 @@
 
 ## Purpose
 
-Keeps the database in sync with the actual files on disk by treating the
-filesystem as the single **Source of Truth**.
-
-Any server directory under `data/servers/` that exists on disk is considered
-real. Any DB record whose directory no longer exists on disk is considered
-stale.
+Keeps the database in sync with the actual files on disk. The filesystem is the
+single **Source of Truth** — any server directory under `data/servers/` is real,
+and any DB record without a matching directory is stale.
 
 Defined in `app/modules/server/application/services/filesystem_reconciliation.py`.
 
-## How It Works
+## Identity Model
+
+Each server directory carries its identity inside `.mcsmanager/server.json`:
+
+```json
+{"server_id": "<32-hex-char-uuid>"}
+```
+
+The directory name is **not** the identity. This allows folders to be renamed
+without losing the link to the DB record. Dirs without an identity file are
+**unowned** — reconciliation adopts them by writing a new identity and importing.
+
+## Algorithm
 
 ```
 Scan data/servers/ directories
        │
        ▼
-Build set of directory server IDs
+For each dir:
+  a. Read .mcsmanager/server.json → extract server_id (UID)
+  b. Run scan_server_directory() → detect /minecraft? /broken?
        │
        ▼
-Read all DB server records
+Query DB for all known servers
        │
        ▼
-Compare
+Build reconciliation plan in memory
        │
-       ├── Folder exists, no DB record → Auto-import
-       │     (detect type, version, properties from files)
+       ├── FS dir has UID not in DB → Import (even if broken)
+       ├── FS dir has UID in DB     → Update deployment info or Unchanged
+       ├── FS dir unowned + minecraft→ Adopt (write identity) + Import
+       ├── FS dir unowned + !minecraft→ Ignore
+       ├── DB server, no FS dir
+       │     ├── First pass  → Mark MISSING (status = missing)
+       │     └── Second pass → Delete DB record (was already MISSING)
+       └── DB server, matches FS   → Unchanged
        │
-       └── DB record exists, no folder → Delete DB record
+       ▼
+Execute entire plan in a single session (all-or-nothing)
+       │
+       ▼
+Return ReconciliationResult
 ```
 
-### Auto-Import
+## ReconciliationResult
 
-When a new directory appears in `data/servers/`:
+The `reconcile()` function returns a full report:
 
-1. `scan_server_directory()` reads `server.properties`, detects server type from
-   jar name, extracts version, and discovers worlds/plugins/mods.
-2. A new `Server` aggregate is created with the detected values and saved to the
-   database.
+| Field     | Description |
+|-----------|-------------|
+| imported  | New servers auto-imported from disk |
+| updated   | Existing servers with changed deployment info |
+| deleted   | DB records deleted (second-pass MISSING) |
+| missing   | Servers marked as MISSING (first-pass) |
+| broken    | Servers found to be broken (no jar / no properties) |
+| unchanged | Perfect matches (FS ↔ DB in sync) |
+| ignored   | Non-Minecraft dirs without identity |
+| errors    | Operations that failed |
 
-### Stale Record Cleanup
+## Broken Servers
 
-When a DB server has no matching directory on disk:
+A server is considered **broken** when:
+- No `.jar` file found in the directory
+- No `server.properties` found (or file is empty)
 
-1. The directory name is matched by extracting the UUID prefix (32-char hex or
-   the last 8 chars of `{slug}-{short_uuid}` format).
-2. If no directory matches the server ID, the DB record is deleted.
+Broken servers are **still imported** with `status = broken`. They appear in
+the UI and can be repaired (add the missing files, then run refresh).
+
+## Two-Pass Deletion
+
+DB servers without a matching FS directory are handled in two passes:
+
+1. **First reconciliation**: status → `missing` (record stays in DB)
+2. **Second reconciliation** (if still `missing` + no dir): record is deleted
+
+This prevents accidental data loss from transient FS issues.
 
 ## When It Runs
 
 | Trigger | Where |
 |---------|-------|
 | Application startup | `main.py` lifespan (after other reconciliations) |
-| Manual refresh | `POST /api/v1/servers/refresh` |
+| Manual refresh | `POST /api/v1/servers/refresh` (returns full report) |
 
-Not run after every create/delete/import because those handlers already update
-both filesystem and DB in the same transaction. The reconciliation catches
-cases where they diverge (user manually deletes a folder, restore from backup,
-disk corruption, etc.).
+Startup + refresh cover all divergence cases (manual folder deletion, restore
+from backup, disk corruption, etc.).
 
 ## Scenarios
 
 ### User deletes a server folder
 
 ```
-data/servers/MyServer-a1b2c3d4  (deleted by user)
+data/servers/ (MyServer dir removed)
 
-Reconciliation runs:
-  Folder missing → Delete DB record ✓
+Pass 1: Mark DB record as MISSING
+Pass 2: Delete DB record (if still missing)
 ```
 
 ### User copies a new server folder
 
 ```
-data/servers/NewSMP  (copied by user)
+data/servers/NewSMP  (unowned dir)
 
-Reconciliation runs:
-  Folder discovered → Auto-import → Create DB record ✓
+Reconciliation:
+  .mcsmanager/server.json not found → adopt
+  scan_server_directory → valid Minecraft server
+  Write identity file → Import → Create DB record
 ```
 
 ### User renames a folder
@@ -85,9 +122,20 @@ Reconciliation runs:
 ```
 OldServer → BestServer
 
-Reconciliation runs:
-  Old folder missing → Delete old DB record
-  New folder discovered → Auto-import new one ✓
+Reconciliation:
+  .mcsmanager/server.json still inside → identity unchanged
+  Root path updated in deployment → record is Updated, not re-imported
+```
+
+### Incomplete server (missing jar)
+
+```
+data/servers/BrokenSrv/  (no server.jar)
+
+Reconciliation:
+  scan_server_directory succeeds (no jar = broken)
+  Imported anyway with status = broken
+  Listed in result.broken[] with reason "No server jar detected"
 ```
 
 ## Comparison with Runtime Reconciliation
@@ -96,9 +144,8 @@ Reconciliation runs:
 |--------|----------------------|--------------------------|
 | What it checks | OS processes, tmux sessions, PIDs, ports | Server directories on disk |
 | Source of Truth | OS process state | Filesystem |
-| Action | Fix runtime state (mark RUNNING/CRASHED) | Fix DB records (import/delete) |
+| Action | Fix runtime state (mark RUNNING/CRASHED) | Import/Update/Mark/Delete DB records |
 | When | Startup + periodic | Startup + refresh |
-| Defined in | `runtime_reconciliation.py` | `filesystem_reconciliation.py` |
 
 ## References
 

@@ -108,12 +108,21 @@ async def lifespan(app: FastAPI):
 
         try:
             fs_result = await fs_reconcile(repo)
-            if fs_result["imported"]:
-                logger.info("FS reconciliation imported %d server(s)", len(fs_result["imported"]))
-            if fs_result["deleted"]:
-                logger.info("FS reconciliation deleted %d stale record(s)", len(fs_result["deleted"]))
-            if fs_result["errors"]:
-                logger.warning("FS reconciliation encountered %d error(s)", len(fs_result["errors"]))
+            await session.commit()
+            if fs_result.imported:
+                logger.info("FS reconciliation imported %d server(s)", len(fs_result.imported))
+            if fs_result.updated:
+                logger.info("FS reconciliation updated %d server(s)", len(fs_result.updated))
+            if fs_result.deleted:
+                logger.info("FS reconciliation deleted %d stale record(s)", len(fs_result.deleted))
+            if fs_result.missing:
+                logger.warning("FS reconciliation marked %d server(s) as MISSING", len(fs_result.missing))
+            if fs_result.broken:
+                logger.warning("FS reconciliation found %d broken server(s)", len(fs_result.broken))
+            if fs_result.ignored:
+                logger.info("FS reconciliation ignored %d non-Minecraft directory(ies)", len(fs_result.ignored))
+            if fs_result.errors:
+                logger.warning("FS reconciliation encountered %d error(s)", len(fs_result.errors))
         except Exception:
             logger.exception("Filesystem reconciliation failed")
 

@@ -145,3 +145,22 @@ class ValidationChainResponse(BaseModel):
 
 class CommandRequest(BaseModel):
     command: str = Field(..., min_length=1)
+
+
+class ReconciliationResultResponse(BaseModel):
+    imported: list[dict] = []
+    updated: list[dict] = []
+    deleted: list[dict] = []
+    missing: list[dict] = []
+    broken: list[dict] = []
+    unchanged: list[dict] = []
+    ignored: list[dict] = []
+    errors: list[dict] = []
+    total_imported: int = 0
+    total_updated: int = 0
+    total_deleted: int = 0
+    total_missing: int = 0
+    total_broken: int = 0
+    total_unchanged: int = 0
+    total_ignored: int = 0
+    total_errors: int = 0

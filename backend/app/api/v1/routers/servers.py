@@ -11,6 +11,7 @@ from app.api.v1.schemas.server import (
     ClaimLocalhostResponse,
     CommandRequest,
     ConsoleResponse,
+    ReconciliationResultResponse,
     RuntimeDiagnosticsResponse,
     RuntimeOwnershipResponse,
     ServerActionRequest,
@@ -397,22 +398,33 @@ async def reconcile_runtimes(
     }
 
 
-@router.post("/refresh", response_model=dict)
+@router.post("/refresh", response_model=ReconciliationResultResponse)
 async def refresh_servers(
     current_user: dict = Depends(get_current_user),
-) -> dict:
+) -> ReconciliationResultResponse:
     from app.modules.server.application.services.filesystem_reconciliation import reconcile as fs_reconcile
     from app.modules.server.infrastructure.repository import SQLServerRepository
 
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
         result = await fs_reconcile(repo)
+        await session.commit()
 
-    return {
-        "imported": result["imported"],
-        "deleted": result["deleted"],
-        "errors": result["errors"],
-        "total_imported": len(result["imported"]),
-        "total_deleted": len(result["deleted"]),
-        "total_errors": len(result["errors"]),
-    }
+    return ReconciliationResultResponse(
+        imported=result.imported,
+        updated=result.updated,
+        deleted=result.deleted,
+        missing=result.missing,
+        broken=result.broken,
+        unchanged=result.unchanged,
+        ignored=result.ignored,
+        errors=result.errors,
+        total_imported=len(result.imported),
+        total_updated=len(result.updated),
+        total_deleted=len(result.deleted),
+        total_missing=len(result.missing),
+        total_broken=len(result.broken),
+        total_unchanged=len(result.unchanged),
+        total_ignored=len(result.ignored),
+        total_errors=len(result.errors),
+    )

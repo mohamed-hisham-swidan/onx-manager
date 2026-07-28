@@ -30,6 +30,8 @@ from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 class ServerStatus(Enum):
     CREATED = "created"
+    BROKEN = "broken"
+    MISSING = "missing"
     STARTING = "starting"
     RUNNING = "running"
     STOPPING = "stopping"
@@ -38,7 +40,9 @@ class ServerStatus(Enum):
 
 
 _SERVER_TRANSITIONS: dict[ServerStatus, set[ServerStatus]] = {
-    ServerStatus.CREATED: {ServerStatus.STARTING},
+    ServerStatus.CREATED: {ServerStatus.STARTING, ServerStatus.BROKEN},
+    ServerStatus.BROKEN: {ServerStatus.STARTING, ServerStatus.CREATED},
+    ServerStatus.MISSING: {ServerStatus.CREATED},
     ServerStatus.STARTING: {ServerStatus.RUNNING, ServerStatus.CRASHED},
     ServerStatus.RUNNING: {ServerStatus.STOPPING, ServerStatus.CRASHED},
     ServerStatus.STOPPING: {ServerStatus.STOPPED, ServerStatus.CRASHED},
