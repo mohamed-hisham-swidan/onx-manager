@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import get_command_bus, get_current_user, get_event_bus, get_query_bus
 from app.api.errors import check_command_result
 from app.api.v1.schemas.health import (
+    BaselineEntryResponse,
+    BaselineListResponse,
     HealthDashboardResponse,
     HealthStatusResponse,
     HealthTimelineEntryResponse,
@@ -12,6 +14,7 @@ from app.api.v1.schemas.health import (
     IntegrityAuditResponse,
     IntegrityCheckResponse,
     IntegrityReportResponse,
+    OrphanCheckResponse,
     ServerHealthSummaryResponse,
 )
 from app.core.command_bus import CommandBus
@@ -139,10 +142,10 @@ async def run_integrity_check(
     event_bus: EventBus = Depends(get_event_bus),
     current_user: dict = Depends(get_current_user),
 ) -> IntegrityReportResponse:
-    checker = FilesystemIntegrityChecker(event_bus=event_bus)
-    report = await checker.check(server_id, scope=scope)
     async with database.session_factory() as session:
         repo = SQLIntegrityRepository(session)
+        checker = FilesystemIntegrityChecker(event_bus=event_bus, integrity_repo=repo)
+        report = await checker.check(server_id, scope=scope)
         await repo.save_audit(report)
     return _report_to_response(report)
 
@@ -159,6 +162,29 @@ async def get_integrity_history(
     return IntegrityAuditResponse(
         audits=[_report_to_response(r) for r in audits],
     )
+
+
+@router.post("/integrity/{server_id}/baseline", response_model=IntegrityReportResponse)
+async def capture_baseline(
+    server_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> IntegrityReportResponse:
+    async with database.session_factory() as session:
+        repo = SQLIntegrityRepository(session)
+        checker = FilesystemIntegrityChecker(integrity_repo=repo)
+        report = await checker.capture_baseline(server_id)
+    return _report_to_response(report)
+
+
+@router.get("/integrity/{server_id}/baseline", response_model=BaselineListResponse)
+async def list_baselines(
+    server_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> BaselineListResponse:
+    async with database.session_factory() as session:
+        repo = SQLIntegrityRepository(session)
+        entries = await repo.get_baselines(server_id)
+    return BaselineListResponse(entries=[BaselineEntryResponse(**e) for e in entries])
 
 
 def _report_to_response(report: object) -> IntegrityReportResponse:

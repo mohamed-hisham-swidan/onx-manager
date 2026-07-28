@@ -64,3 +64,21 @@ class IntegrityReportResponse(BaseModel):
 
 class IntegrityAuditResponse(BaseModel):
     audits: list[IntegrityReportResponse]
+
+
+class BaselineEntryResponse(BaseModel):
+    file_path: str
+    file_name: str
+    file_hash: str
+    hash_algorithm: str = "sha256"
+    baseline_at: str = ""
+
+
+class BaselineListResponse(BaseModel):
+    entries: list[BaselineEntryResponse]
+
+
+class OrphanCheckResponse(BaseModel):
+    orphan_count: int = 0
+    orphans: list[str] = Field(default_factory=list)
+    detail: str = ""

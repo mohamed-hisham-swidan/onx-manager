@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import stat
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.core.config import AppSettings
@@ -9,9 +11,24 @@ from app.core.event_bus import EventBus
 from app.modules.health.domain.services import IntegrityChecker
 from app.modules.health.domain.value_objects import IntegrityCheck, IntegrityReport
 from app.modules.health.domain.events import IntegrityCheckPassedEvent, IntegrityCheckFailedEvent
+from app.modules.health.domain.repository import IntegrityRepository
 from app.modules.server.application.services.jar_service import resolve_server_dir
 
 logger = logging.getLogger("mcs.health.integrity")
+
+
+def _hash_file(filepath: Path) -> str | None:
+    try:
+        h = hashlib.sha256()
+        with open(filepath, "rb") as f:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
+    except (FileNotFoundError, PermissionError, OSError):
+        return None
 
 
 def _default_data_dir() -> Path:
@@ -34,8 +51,13 @@ def _resolve_path(server_id: str) -> Path | None:
 
 
 class FilesystemIntegrityChecker(IntegrityChecker):
-    def __init__(self, event_bus: EventBus | None = None) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus | None = None,
+        integrity_repo: IntegrityRepository | None = None,
+    ) -> None:
         self._event_bus = event_bus
+        self._integrity_repo = integrity_repo
 
     async def check(self, server_id: str, scope: str = "full") -> IntegrityReport:
         checks: list[IntegrityCheck] = []
@@ -68,6 +90,11 @@ class FilesystemIntegrityChecker(IntegrityChecker):
         _check_plugins_dir(srvd, checks)
         _check_db_path_mismatch(srvd, checks)
 
+        baselines: list[dict] = []
+        if self._integrity_repo:
+            baselines = await self._integrity_repo.get_baselines(server_id)
+        _check_file_hashes(srvd, checks, baselines)
+
         if scope == "full":
             _check_disk_space(srvd, checks)
 
@@ -80,6 +107,72 @@ class FilesystemIntegrityChecker(IntegrityChecker):
         )
         await self._emit_events(report)
         return report
+
+    async def capture_baseline(
+        self,
+        server_id: str,
+    ) -> IntegrityReport:
+        checks: list[IntegrityCheck] = []
+        srvd = _resolve_path(server_id)
+
+        if srvd is None:
+            checks.append(IntegrityCheck(
+                check_name="server_directory",
+                severity="critical",
+                status="error",
+                detail=f"Server directory not found for {server_id}",
+            ))
+            return IntegrityReport(server_id=server_id, checks=checks, overall_status="fail")
+
+        now = datetime.now(timezone.utc)
+        target_files = _get_baseline_targets(srvd)
+
+        if not target_files:
+            checks.append(IntegrityCheck(
+                check_name="baseline_capture",
+                severity="warning",
+                status="warn",
+                detail="No files found to baseline",
+            ))
+            return IntegrityReport(server_id=server_id, checks=checks, overall_status="warn")
+
+        captured = 0
+        for rel_path, full_path in target_files:
+            file_hash = _hash_file(full_path)
+            if file_hash is None:
+                checks.append(IntegrityCheck(
+                    check_name="baseline_capture",
+                    severity="warning",
+                    status="warn",
+                    detail=f"Cannot hash {rel_path}",
+                    file_path=rel_path,
+                ))
+                continue
+            if self._integrity_repo:
+                await self._integrity_repo.save_baseline(
+                    server_id=server_id,
+                    file_path=str(rel_path),
+                    file_name=full_path.name,
+                    file_hash=file_hash,
+                    hash_algorithm="sha256",
+                )
+            checks.append(IntegrityCheck(
+                check_name="baseline_capture",
+                severity="info",
+                status="pass",
+                detail=f"Baseline captured: {rel_path} → {file_hash[:16]}...",
+                file_path=rel_path,
+                actual_hash=file_hash,
+            ))
+            captured += 1
+
+        overall = "pass" if captured > 0 else "warn"
+        return IntegrityReport(
+            server_id=server_id,
+            checks=checks,
+            overall_status=overall,
+            scope="baseline",
+        )
 
     async def _emit_events(self, report: IntegrityReport) -> None:
         if self._event_bus is None:
@@ -387,6 +480,118 @@ def _check_db_path_mismatch(srvd: Path, checks: list[IntegrityCheck]) -> None:
             ))
     except (FileNotFoundError, PermissionError, OSError):
         pass
+
+
+def _get_baseline_targets(srvd: Path) -> list[tuple[str, Path]]:
+    targets: list[tuple[str, Path]] = []
+    important = ["server.jar", "server.properties", "eula.txt", "bukkit.yml", "spigot.yml", "paper.yml"]
+    for name in important:
+        p = srvd / name
+        if p.is_file():
+            targets.append((name, p))
+    for jar in sorted(srvd.glob("*.jar")):
+        rel = str(jar.relative_to(srvd))
+        if rel not in [t[0] for t in targets]:
+            targets.append((rel, jar))
+    return targets
+
+
+def _check_file_hashes(srvd: Path, checks: list[IntegrityCheck], baselines: list[dict]) -> None:
+    if not baselines:
+        checks.append(IntegrityCheck(
+            check_name="file_hashes",
+            severity="info",
+            status="pass",
+            detail="No baselines recorded yet — run baseline capture first",
+        ))
+        return
+
+    baseline_map: dict[str, str] = {}
+    for b in baselines:
+        fp = b.get("file_path", "")
+        fh = b.get("file_hash", "")
+        if fp and fh:
+            baseline_map[fp] = fh
+
+    tampered: list[str] = []
+    new_files: list[str] = []
+    ok_count = 0
+
+    for rel_path, full_path in _get_baseline_targets(srvd):
+        if rel_path in baseline_map:
+            current_hash = _hash_file(full_path)
+            if current_hash is None:
+                tampered.append(f"{rel_path} (unreadable)")
+            elif current_hash != baseline_map[rel_path]:
+                tampered.append(rel_path)
+                checks.append(IntegrityCheck(
+                    check_name="file_hashes",
+                    severity="critical",
+                    status="fail",
+                    detail=f"{rel_path} hash mismatch (was {baseline_map[rel_path][:16]}…, now {current_hash[:16]}…)",
+                    file_path=rel_path,
+                    expected_hash=baseline_map[rel_path],
+                    actual_hash=current_hash,
+                ))
+            else:
+                ok_count += 1
+        else:
+            new_files.append(rel_path)
+
+    for rel_path in baseline_map:
+        if rel_path not in [t[0] for t in _get_baseline_targets(srvd)]:
+            new_files.append(f"{rel_path} (baseline exists but file missing)")
+
+    if ok_count > 0:
+        checks.append(IntegrityCheck(
+            check_name="file_hashes",
+            severity="info",
+            status="pass",
+            detail=f"{ok_count} file(s) match baseline",
+        ))
+    if new_files and not tampered:
+        checks.append(IntegrityCheck(
+            check_name="file_hashes",
+            severity="warning",
+            status="warn",
+            detail=f"New/changed files without baseline: {', '.join(new_files[:5])}",
+        ))
+
+
+def _check_orphans(
+    known_server_ids: set[str],
+    checks: list[IntegrityCheck],
+) -> None:
+    data_dir = _default_data_dir()
+    if not data_dir.is_dir():
+        return
+    orphans: list[str] = []
+    for candidate in sorted(data_dir.iterdir()):
+        if not candidate.is_dir():
+            continue
+        dir_name = candidate.name
+        parts = dir_name.rsplit("-", 1)
+        if len(parts) != 2:
+            continue
+        slug, short_id = parts
+        if len(short_id) != 8:
+            continue
+        if short_id not in known_server_ids:
+            orphans.append(dir_name)
+    if orphans:
+        checks.append(IntegrityCheck(
+            check_name="orphan_directories",
+            severity="warning",
+            status="warn",
+            detail=f"Orphan directories: {', '.join(orphans[:10])}",
+        ))
+    else:
+        checks.append(IntegrityCheck(
+            check_name="orphan_directories",
+            severity="info",
+            status="pass",
+            detail="No orphan directories detected",
+        ))
 
 
 def _compute_overall(checks: list[IntegrityCheck]) -> str:
