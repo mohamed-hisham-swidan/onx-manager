@@ -155,6 +155,7 @@ class ReconciliationResultResponse(BaseModel):
     broken: list[dict] = []
     unchanged: list[dict] = []
     ignored: list[dict] = []
+    invalid_identity: list[dict] = []
     errors: list[dict] = []
     total_imported: int = 0
     total_updated: int = 0
@@ -163,4 +164,5 @@ class ReconciliationResultResponse(BaseModel):
     total_broken: int = 0
     total_unchanged: int = 0
     total_ignored: int = 0
+    total_invalid_identity: int = 0
     total_errors: int = 0

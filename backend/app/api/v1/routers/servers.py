@@ -418,6 +418,7 @@ async def refresh_servers(
         broken=result.broken,
         unchanged=result.unchanged,
         ignored=result.ignored,
+        invalid_identity=result.invalid_identity,
         errors=result.errors,
         total_imported=len(result.imported),
         total_updated=len(result.updated),
@@ -426,5 +427,6 @@ async def refresh_servers(
         total_broken=len(result.broken),
         total_unchanged=len(result.unchanged),
         total_ignored=len(result.ignored),
+        total_invalid_identity=len(result.invalid_identity),
         total_errors=len(result.errors),
     )

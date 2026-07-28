@@ -31,7 +31,6 @@ from app.modules.shared.value_objects import MinecraftVersion, ServerId
 class ServerStatus(Enum):
     CREATED = "created"
     BROKEN = "broken"
-    MISSING = "missing"
     STARTING = "starting"
     RUNNING = "running"
     STOPPING = "stopping"
@@ -42,7 +41,6 @@ class ServerStatus(Enum):
 _SERVER_TRANSITIONS: dict[ServerStatus, set[ServerStatus]] = {
     ServerStatus.CREATED: {ServerStatus.STARTING, ServerStatus.BROKEN},
     ServerStatus.BROKEN: {ServerStatus.STARTING, ServerStatus.CREATED},
-    ServerStatus.MISSING: {ServerStatus.CREATED},
     ServerStatus.STARTING: {ServerStatus.RUNNING, ServerStatus.CRASHED},
     ServerStatus.RUNNING: {ServerStatus.STOPPING, ServerStatus.CRASHED},
     ServerStatus.STOPPING: {ServerStatus.STOPPED, ServerStatus.CRASHED},
@@ -67,6 +65,7 @@ class Server(AggregateRoot):
         launch_config: LaunchConfiguration | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
+        missing_since: datetime | None = None,
     ) -> None:
         super().__init__()
         self._id = server_id
@@ -81,6 +80,7 @@ class Server(AggregateRoot):
         self._deployment = deployment
         self._runtime = runtime or RuntimeInfo()
         self._launch_config = launch_config
+        self._missing_since = missing_since
         now = datetime.now(timezone.utc)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
@@ -140,6 +140,26 @@ class Server(AggregateRoot):
     @property
     def updated_at(self) -> datetime:
         return self._updated_at
+
+    @property
+    def missing_since(self) -> datetime | None:
+        return self._missing_since
+
+    def mark_broken(self) -> None:
+        self._status = ServerStatus.BROKEN
+        self._updated_at = datetime.now(timezone.utc)
+
+    def mark_repaired(self) -> None:
+        self._status = ServerStatus.CREATED
+        self._updated_at = datetime.now(timezone.utc)
+
+    def mark_missing(self) -> None:
+        self._missing_since = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(timezone.utc)
+
+    def clear_missing(self) -> None:
+        self._missing_since = None
+        self._updated_at = datetime.now(timezone.utc)
 
     @classmethod
     def create(

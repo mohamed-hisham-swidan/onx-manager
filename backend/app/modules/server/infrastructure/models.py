@@ -50,3 +50,4 @@ class ServerModel(Base, TimestampMixin):
     last_crash_time = Column(Float, nullable=True)
     restart_count = Column(Integer, nullable=False, default=0)
     launch_config_json = Column(Text, nullable=True)
+    missing_since = Column(DateTime, nullable=True)

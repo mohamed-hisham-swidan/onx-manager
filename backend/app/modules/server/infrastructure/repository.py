@@ -102,6 +102,8 @@ class SQLServerRepository(ServerRepository):
         else:
             model.launch_config_json = None
 
+        model.missing_since = server.missing_since
+
         await self._session.flush()
 
     async def delete(self, id: ServerId) -> None:
@@ -184,6 +186,7 @@ class SQLServerRepository(ServerRepository):
             launch_config=launch_config,
             created_at=model.created_at,
             updated_at=model.updated_at,
+            missing_since=model.missing_since,
         )
 
         from app.modules.server.domain.aggregate import ServerStatus

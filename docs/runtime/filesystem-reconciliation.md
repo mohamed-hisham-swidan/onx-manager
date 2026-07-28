@@ -8,64 +8,60 @@ and any DB record without a matching directory is stale.
 
 Defined in `app/modules/server/application/services/filesystem_reconciliation.py`.
 
+## Architecture — Pipeline
+
+The reconciliation is built as a **6-stage pipeline**. Each stage has a single
+responsibility and produces structured output for the next stage.
+
+```
+Stage 1: scan_filesystem()
+    → list[FsEntry]           # Just list directories — no I/O beyond ls
+
+Stage 2: read_identity(entry)
+    → IdentityResult          # Read/validate .mcsmanager/server.json
+
+Stage 3: detect_minecraft(entry)
+    → ScanOutcome             # scan_server_directory() + broken check
+
+Stage 4: build_plan(entries, identities, scans, db_servers)
+    → ReconciliationPlan      # Pure logic — no I/O, no side effects
+
+Stage 5: execute_plan(plan, repo)
+    → ReconciliationResult    # Transactional DB writes
+
+Stage 6: write_pending_identities(pending)
+    → None                    # Write identity files post-commit
+```
+
 ## Identity Model
 
 Each server directory carries its identity inside `.mcsmanager/server.json`:
 
 ```json
-{"server_id": "<32-hex-char-uuid>"}
+{
+  "version": 1,
+  "uid": "<32-hex-char-uuid>",
+  "created_at": "2026-07-28T12:00:00Z",
+  "manager": "mcsmanager",
+  "schema": 1
+}
 ```
 
-The directory name is **not** the identity. This allows folders to be renamed
-without losing the link to the DB record. Dirs without an identity file are
-**unowned** — reconciliation adopts them by writing a new identity and importing.
+The directory name is **not** the identity. The file is versioned so the schema
+can evolve in the future. Dirs without an identity file are **unowned** —
+reconciliation adopts them by assigning a new UID and writing the identity file
+**after** the DB transaction commits.
 
-## Algorithm
+## Identity States
 
-```
-Scan data/servers/ directories
-       │
-       ▼
-For each dir:
-  a. Read .mcsmanager/server.json → extract server_id (UID)
-  b. Run scan_server_directory() → detect /minecraft? /broken?
-       │
-       ▼
-Query DB for all known servers
-       │
-       ▼
-Build reconciliation plan in memory
-       │
-       ├── FS dir has UID not in DB → Import (even if broken)
-       ├── FS dir has UID in DB     → Update deployment info or Unchanged
-       ├── FS dir unowned + minecraft→ Adopt (write identity) + Import
-       ├── FS dir unowned + !minecraft→ Ignore
-       ├── DB server, no FS dir
-       │     ├── First pass  → Mark MISSING (status = missing)
-       │     └── Second pass → Delete DB record (was already MISSING)
-       └── DB server, matches FS   → Unchanged
-       │
-       ▼
-Execute entire plan in a single session (all-or-nothing)
-       │
-       ▼
-Return ReconciliationResult
-```
+| State | Meaning |
+|-------|---------|
+| `valid` | File exists, JSON valid, has 32-char UID |
+| `invalid` | File exists but corrupted / wrong format / bad UID |
+| `missing` | No `.mcsmanager/server.json` found |
 
-## ReconciliationResult
-
-The `reconcile()` function returns a full report:
-
-| Field     | Description |
-|-----------|-------------|
-| imported  | New servers auto-imported from disk |
-| updated   | Existing servers with changed deployment info |
-| deleted   | DB records deleted (second-pass MISSING) |
-| missing   | Servers marked as MISSING (first-pass) |
-| broken    | Servers found to be broken (no jar / no properties) |
-| unchanged | Perfect matches (FS ↔ DB in sync) |
-| ignored   | Non-Minecraft dirs without identity |
-| errors    | Operations that failed |
+Invalid identities are reported in a separate `invalid_identity` result category
+and **not** imported automatically — they require manual inspection.
 
 ## Broken Servers
 
@@ -74,78 +70,40 @@ A server is considered **broken** when:
 - No `server.properties` found (or file is empty)
 
 Broken servers are **still imported** with `status = broken`. They appear in
-the UI and can be repaired (add the missing files, then run refresh).
+the UI and can be repaired (add the missing files, then run refresh). The
+aggregate exposes `mark_broken()` and `mark_repaired()` methods — reconciliation
+never mutates private fields directly.
 
 ## Two-Pass Deletion
 
 DB servers without a matching FS directory are handled in two passes:
 
-1. **First reconciliation**: status → `missing` (record stays in DB)
-2. **Second reconciliation** (if still `missing` + no dir): record is deleted
+1. **First reconciliation**: `server.mark_missing()` sets `missing_since` timestamp
+2. **Second reconciliation** (if still missing): record is deleted
 
-This prevents accidental data loss from transient FS issues.
+This prevents accidental data loss from transient FS issues. Servers outside
+`data/servers/` are skipped entirely.
+
+## ReconciliationResult
+
+| Field | Description |
+|-------|-------------|
+| `imported` | New servers auto-imported from disk |
+| `updated` | Existing servers with changed status or deployment |
+| `deleted` | DB records deleted (second-pass missing) |
+| `missing` | Servers marked with `missing_since` (first-pass) |
+| `broken` | Servers found to be broken (no jar / no properties) |
+| `unchanged` | Perfect matches (FS ↔ DB in sync) |
+| `ignored` | Non-Minecraft dirs without identity |
+| `invalid_identity` | Dirs with corrupted/unreadable identity files |
+| `errors` | Operations that failed |
 
 ## When It Runs
 
 | Trigger | Where |
 |---------|-------|
-| Application startup | `main.py` lifespan (after other reconciliations) |
+| Application startup | `main.py` lifespan |
 | Manual refresh | `POST /api/v1/servers/refresh` (returns full report) |
-
-Startup + refresh cover all divergence cases (manual folder deletion, restore
-from backup, disk corruption, etc.).
-
-## Scenarios
-
-### User deletes a server folder
-
-```
-data/servers/ (MyServer dir removed)
-
-Pass 1: Mark DB record as MISSING
-Pass 2: Delete DB record (if still missing)
-```
-
-### User copies a new server folder
-
-```
-data/servers/NewSMP  (unowned dir)
-
-Reconciliation:
-  .mcsmanager/server.json not found → adopt
-  scan_server_directory → valid Minecraft server
-  Write identity file → Import → Create DB record
-```
-
-### User renames a folder
-
-```
-OldServer → BestServer
-
-Reconciliation:
-  .mcsmanager/server.json still inside → identity unchanged
-  Root path updated in deployment → record is Updated, not re-imported
-```
-
-### Incomplete server (missing jar)
-
-```
-data/servers/BrokenSrv/  (no server.jar)
-
-Reconciliation:
-  scan_server_directory succeeds (no jar = broken)
-  Imported anyway with status = broken
-  Listed in result.broken[] with reason "No server jar detected"
-```
-
-## Comparison with Runtime Reconciliation
-
-| Aspect | Runtime Reconciliation | Filesystem Reconciliation |
-|--------|----------------------|--------------------------|
-| What it checks | OS processes, tmux sessions, PIDs, ports | Server directories on disk |
-| Source of Truth | OS process state | Filesystem |
-| Action | Fix runtime state (mark RUNNING/CRASHED) | Import/Update/Mark/Delete DB records |
-| When | Startup + periodic | Startup + refresh |
 
 ## References
 
