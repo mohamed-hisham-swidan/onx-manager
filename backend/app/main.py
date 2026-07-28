@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
             logger.exception("Startup runtime reconciliation failed")
 
         try:
-            orphan_results = await reconcile_orphans()
+            orphan_results = await reconcile_orphans(repo)
             if orphan_results:
                 logger.info("Cleaned up %d orphan runtime artifacts", len(orphan_results))
         except Exception:

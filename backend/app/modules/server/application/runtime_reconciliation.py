@@ -11,7 +11,7 @@ from typing import Any
 
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
-from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.domain.repository import ServerFilters, ServerRepository
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
@@ -343,13 +343,36 @@ async def reconcile_all_runtimes(
     return outcomes
 
 
-async def reconcile_orphans() -> list[dict]:
+async def reconcile_orphans(repo: ServerRepository | None = None) -> list[dict]:
     actions: list[dict] = []
+
+    expected_sessions: set[str] = set()
+    known_pids: set[int] = set()
+
+    if repo is not None:
+        try:
+            active_servers = await repo.list(ServerFilters(status="running"))
+            active_servers += await repo.list(ServerFilters(status="starting"))
+        except Exception:
+            logger.exception("Failed to list active servers for orphan reconciliation")
+            active_servers = []
+
+        for s in active_servers:
+            sid = str(s.id)
+            expected_sessions.add(f"mcs-{sid}")
+            if s.runtime and s.runtime.external_id:
+                expected_sessions.add(s.runtime.external_id)
+            if s.runtime and s.runtime.pid:
+                known_pids.add(s.runtime.pid)
 
     tmux_sessions = _find_all_tmux_sessions()
     for session in tmux_sessions:
+        if session in expected_sessions:
+            logger.debug("Skipping tmux session %s — matches an active server", session)
+            continue
+
         pid = _get_tmux_pid(session)
-        reason = f"orphan tmux session {session} — no matching server in database"
+        reason = f"orphan tmux session {session} — no matching running/starting server in database"
         if pid:
             logger.warning(
                 "Killing orphan tmux — session=%s pid=%d reason=%s",
@@ -366,10 +389,10 @@ async def reconcile_orphans() -> list[dict]:
         actions.append({"type": "orphan_tmux", "session": session, "pid": pid, "action": "killed"})
 
     all_java_pids = _find_all_java_pids()
-    minecraft_pids = [p for p in all_java_pids if _is_minecraft_java_pid(p)]
-    if minecraft_pids:
-        for pid in minecraft_pids:
-            reason = f"orphan Java process (Minecraft) pid={pid} — not attached to any managed tmux session"
+    orphan_java_pids = [p for p in all_java_pids if _is_minecraft_java_pid(p) and p not in known_pids]
+    if orphan_java_pids:
+        for pid in orphan_java_pids:
+            reason = f"orphan Java process (Minecraft) pid={pid} — not attached to any managed server"
             logger.warning("Killing orphan Minecraft process — pid=%d reason=%s", pid, reason)
             try:
                 os.kill(pid, signal.SIGTERM)
@@ -379,9 +402,9 @@ async def reconcile_orphans() -> list[dict]:
                 pass
         logger.info(
             "Killed %d orphan Minecraft processes (filtered from %d total Java PIDs)",
-            len(minecraft_pids), len(all_java_pids),
+            len(orphan_java_pids), len(all_java_pids),
         )
-        actions.append({"type": "orphan_java", "pids": minecraft_pids, "action": "killed"})
+        actions.append({"type": "orphan_java", "pids": orphan_java_pids, "action": "killed"})
 
     return actions
 

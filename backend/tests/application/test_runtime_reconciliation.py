@@ -12,6 +12,7 @@ from app.modules.server.application.runtime_reconciliation import (
 )
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
+from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import (
     JavaArguments,
     MemoryAllocation,
@@ -353,3 +354,152 @@ class TestReconcileOrphans:
         assert set(actions[0]["pids"]) == {9999, 8888}
         mock_kill.assert_any_call(9999, signal.SIGTERM)
         mock_kill.assert_any_call(8888, signal.SIGTERM)
+
+    async def test_skips_running_server_tmux(self):
+        server = _make_server("srv-running", ServerStatus.RUNNING)
+        server._runtime = RuntimeInfo(
+            status="running",
+            pid=7777,
+            external_id="",
+        )
+
+        mock_repo = AsyncMock(spec=ServerRepository)
+        mock_repo.list = AsyncMock(side_effect=[
+            [server],
+            [],
+        ])
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+            return_value=["mcs-srv-running", "mcs-actual-orphan"],
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
+                return_value=12345,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.os.kill",
+                ) as mock_kill:
+                    with patch(
+                        "app.modules.server.application.runtime_reconciliation.os.popen",
+                    ):
+                        with patch(
+                            "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                            return_value=[],
+                        ):
+                            actions = await reconcile_orphans(mock_repo)
+
+        assert len(actions) == 1
+        assert actions[0]["session"] == "mcs-actual-orphan"
+        mock_kill.assert_any_call(12345, signal.SIGTERM)
+        assert mock_repo.list.call_count == 2
+
+    async def test_skips_running_server_tmux_by_external_id(self):
+        server = _make_server("srv-custom", ServerStatus.RUNNING)
+        server._runtime = RuntimeInfo(
+            status="running",
+            pid=7777,
+            external_id="my-custom-session",
+        )
+
+        mock_repo = AsyncMock(spec=ServerRepository)
+        mock_repo.list = AsyncMock(side_effect=[
+            [server],
+            [],
+        ])
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+            return_value=["my-custom-session", "mcs-actual-orphan-2"],
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
+                return_value=9999,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.os.kill",
+                ) as mock_kill:
+                    with patch(
+                        "app.modules.server.application.runtime_reconciliation.os.popen",
+                    ):
+                        with patch(
+                            "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                            return_value=[],
+                        ):
+                            actions = await reconcile_orphans(mock_repo)
+
+        assert len(actions) == 1
+        assert actions[0]["session"] == "mcs-actual-orphan-2"
+        mock_kill.assert_any_call(9999, signal.SIGTERM)
+
+    async def test_skips_running_server_java_pid(self):
+        server = _make_server("srv-java", ServerStatus.RUNNING)
+        server._runtime = RuntimeInfo(
+            status="running",
+            pid=7777,
+            external_id="",
+        )
+
+        mock_repo = AsyncMock(spec=ServerRepository)
+        mock_repo.list = AsyncMock(side_effect=[
+            [server],
+            [],
+        ])
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+            return_value=["mcs-srv-java"],
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                return_value=[7777, 9999],
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation._is_minecraft_java_pid",
+                    return_value=True,
+                ):
+                    with patch(
+                        "app.modules.server.application.runtime_reconciliation.os.kill",
+                    ) as mock_kill:
+                        with patch(
+                            "app.modules.server.application.runtime_reconciliation.os.popen",
+                        ):
+                            actions = await reconcile_orphans(mock_repo)
+
+        assert len(actions) == 1
+        assert actions[0]["type"] == "orphan_java"
+        assert actions[0]["pids"] == [9999]
+        mock_kill.assert_any_call(9999, signal.SIGTERM)
+
+    async def test_kills_stopped_server_tmux(self):
+        server = _make_server("srv-stopped", ServerStatus.STOPPED)
+
+        mock_repo = AsyncMock(spec=ServerRepository)
+        mock_repo.list = AsyncMock(side_effect=[
+            [],
+            [],
+        ])
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+            return_value=["mcs-srv-stopped"],
+        ):
+            with patch(
+                "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
+                return_value=5555,
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_reconciliation.os.kill",
+                ) as mock_kill:
+                    with patch(
+                        "app.modules.server.application.runtime_reconciliation.os.popen",
+                    ):
+                        with patch(
+                            "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                            return_value=[],
+                        ):
+                            actions = await reconcile_orphans(mock_repo)
+
+        assert len(actions) == 1
+        assert actions[0]["session"] == "mcs-srv-stopped"
+        mock_kill.assert_any_call(5555, signal.SIGTERM)

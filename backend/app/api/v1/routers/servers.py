@@ -38,7 +38,7 @@ from app.modules.server.application import (
 )
 from app.modules.server.application.services.import_service import scan_server_directory
 from app.modules.server.infrastructure.models import ServerModel
-from app.storage.db import database
+from app.core.persistence.db import database
 
 router = APIRouter(prefix="/api/v1/servers", tags=["servers"])
 
@@ -377,7 +377,7 @@ async def reconcile_runtimes(
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
         outcomes = await reconcile_all_runtimes(repo)
-        orphan_actions = await reconcile_orphans()
+        orphan_actions = await reconcile_orphans(repo)
 
     return {
         "total_checked": len(outcomes),
