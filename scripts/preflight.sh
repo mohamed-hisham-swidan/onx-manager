@@ -89,6 +89,10 @@ belongs_to_project() {
     if [ -L "/proc/${pid}/cwd" ]; then
         cwd="$(readlink -f "/proc/${pid}/cwd" 2>/dev/null || true)"
         if [[ "$cwd" == "${PROJECT_ROOT}"* ]]; then
+            # Exclude server data directories — these are live Minecraft servers
+            if [[ "$cwd" == "${PROJECT_ROOT}/backend/data/servers/"* ]]; then
+                return 1
+            fi
             return 0
         fi
     fi
@@ -100,11 +104,13 @@ belongs_to_project() {
             return 1
         fi
         # Match any of: project dir, mcs-frontend, mcs-manager, backend app path
-        if [[ "$cmd" == *"${PROJECT_ROOT}"* ]] ||
-           [[ "$cmd" == *"mcs-frontend"* ]] ||
+        if [[ "$cmd" == *"${PROJECT_ROOT}"* ]] &&
+           [[ "$cmd" != *"${PROJECT_ROOT}/backend/data/servers/"* ]]; then
+            return 0
+        fi
+        if [[ "$cmd" == *"mcs-frontend"* ]] ||
            [[ "$cmd" == *"mcs-manager"* ]] ||
            [[ "$cmd" == *"app.main:app"* ]] ||
-           [[ "$cmd" == *"server_manger"* ]] ||
            [[ "$cmd" == *"npm"* ]]; then
             return 0
         fi
@@ -137,8 +143,7 @@ kill_safe() {
         log_warn "PID ${pid} ($source_desc) does NOT appear to belong to this project."
         log_warn "Printing details for manual review — will NOT kill:"
         print_process "${pid}"
-        FAILED_ANY=true
-        SUMMARY_LINES+=("${RED}✖${RESET} PID ${pid}  ${source_desc}  ${RED}unknown owner — skipped${RESET}")
+        SUMMARY_LINES+=("${YELLOW}⚠${RESET} PID ${pid}  ${source_desc}  skipped (unknown owner)${RESET}")
         return 1
     fi
 
@@ -194,6 +199,35 @@ check_port() {
     done
 }
 
+# Remove stale PID files from .mcs/ after killing matching processes
+# This prevents launcher.py from reading a dead PID on next startup.
+cleanup_pid_files() {
+    local mcs_dir="${PROJECT_ROOT}/.mcs"
+    if [ ! -d "${mcs_dir}" ]; then
+        return 0
+    fi
+
+    local cleaned=0
+    for pid_file in "${mcs_dir}"/*.pid; do
+        [ -f "${pid_file}" ] || continue
+        local old_pid
+        old_pid="$(cat "${pid_file}" 2>/dev/null || true)"
+        if [ -z "${old_pid}" ]; then
+            rm -f "${pid_file}" 2>/dev/null || true
+            cleaned=$((cleaned + 1))
+            continue
+        fi
+        if ! kill -0 "${old_pid}" 2>/dev/null; then
+            rm -f "${pid_file}" 2>/dev/null || true
+            cleaned=$((cleaned + 1))
+        fi
+    done
+
+    if [ "${cleaned}" -gt 0 ]; then
+        log_info "Cleaned ${cleaned} stale PID file(s) from .mcs/"
+    fi
+}
+
 check_db_lock() {
     local db_path="$1"
     if [ ! -f "${db_path}" ]; then
@@ -238,11 +272,13 @@ scan_orphans() {
             if [[ -z "${cmdline}" ]]; then
                 continue
             fi
+            if [[ "${cmdline}" == *"${PROJECT_ROOT}/backend/data/servers/"* ]]; then
+                continue
+            fi
             if [[ "${cmdline}" != *"${PROJECT_ROOT}"* ]] &&
                [[ "${cmdline}" != *"mcs-frontend"* ]] &&
                [[ "${cmdline}" != *"mcs-manager"* ]] &&
                [[ "${cmdline}" != *"app.main:app"* ]] &&
-               [[ "${cmdline}" != *"server_manger"* ]] &&
                [[ "${cmdline}" != *"npm"* ]]; then
                 continue
             fi
@@ -309,7 +345,7 @@ print_summary() {
 
     echo ""
 
-    if ${FAILED_ANY} || ${any_remaining}; then
+    if ${any_remaining}; then
         log_error "Preflight FAILED — cannot guarantee clean state."
         log_raw ""
         return 1
@@ -338,6 +374,9 @@ main() {
     check_port "${FRONTEND_PORT}" "frontend"
     check_db_lock "${MCS_DB}"
     scan_orphans
+
+    # Clean stale .mcs/*.pid files after killing matching processes
+    cleanup_pid_files
 
     print_summary
     local rc=$?
