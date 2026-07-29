@@ -22,6 +22,18 @@ Both share the same interface; the active implementation is selected via configu
 
 **Consequences**: The `InProcessQueue` is not durable across process restarts. `ArqQueue.get_status()` and `ArqQueue.get_result()` are stubs because Arq manages state internally within the worker. Batch 10 (Frontend) can use either queue transparently through the shared interface.
 
+**Post-hoc finding (2026-07-29)**: The `Scheduler` and `InProcessQueue` were
+defined in Batch 09 but **never wired into production**. They were only
+instantiated in test fixtures. The `lifespan()` function in `main.py` did
+not create or start them, meaning:
+- `integrity_scan_hourly` and `metrics_collect_every_60s` cron jobs never fired
+- `run_metrics_collection_task` was never called
+- No rows were ever written to `metric_points`
+
+This was fixed by adding the wiring to `main.py` lifespan in commit
+`9bef6fa`. If that wiring is ever removed or moved, the same symptoms will
+recur — there is no second-chance initialization path.
+
 ---
 
 ### Decision 2: Event Store — Application-Level Hash Chain over DB Triggers

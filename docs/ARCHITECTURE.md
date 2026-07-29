@@ -277,6 +277,69 @@ for full details.
 
 ---
 
+## Task Queue & Scheduler
+
+The task system is wired up in `main.py`'s `lifespan()` function, **not** in
+any module's startup — this was the root cause of the metrics pipeline being
+dead: the classes existed, but nothing ever instantiated or started them.
+
+### Wiring (main.py lifespan)
+
+```
+InProcessQueue            ← instantiated, handlers registered
+  └─ register("run_metrics_collection", handler)
+MetricsCollector          ← instantiated, passed to init_collector()
+Scheduler                 ← instantiated, given queue, started
+  └─ start()              → loads cron_jobs from DB via _load_jobs()
+  └─ add_job()            → persists to DB + schedules in APScheduler
+```
+
+### What breaks if this wiring is removed
+
+- No cron jobs fire (including `metrics_collect_every_60s` and
+  `integrity_scan_hourly`)
+- `run_metrics_collection_task` is never called → no rows in `metric_points`
+- The Prometheus metrics registry (`/monitor/metrics`) never updates
+- There is no second-chance wiring — if `lifespan()` doesn't do it, nothing
+  does.
+
+### Data Sources — Monitoring
+
+The `MetricsCollector.collect(server_id)` method consults three data sources
+in priority order, each with an honest fallback when unavailable:
+
+| Source | What it provides | When available | Fallback |
+|--------|-----------------|----------------|----------|
+| `psutil.Process(pid)` | RAM (RSS → MB), CPU % | When `server.runtime.pid` is set AND the process exists | `ram_used_mb=0.0, cpu_percent=0.0` |
+| RCON (`/tps`, `/list`) | TPS, player count | When `server.properties` has `enable-rcon=true` AND `rcon.password` is set | `tps=20.0, players=0` |
+| Hardcoded defaults | — | Always used as baseline | `tps=20.0, players=0, ram_used_mb=0.0, cpu_percent=0.0` |
+
+This means `metric_points` rows can contain **functionally default values**
+even though the pipeline runs correctly — the data source (PID, RCON) may
+simply not be reachable for a given server.
+
+---
+
+## Known Issues
+
+### Nested-directory root_path (`data/servers/server` vs `data/servers/<uuid>`)
+
+Some servers have `root_path = "data/servers/server"` (a single flat directory
+name) instead of the expected UUID-based path `data/servers/<uuid>`. This was
+likely caused by an older import or reconciliation version.
+
+**Impact on monitoring**: Since the metrics collector resolves
+`server.properties` via `deployment.properties_path()` →
+`os.path.join(root_path, "server.properties")`, a mismatched root_path means
+the properties file (and thus RCON config) is never found. This blocks TPS
+and player-count collection for affected servers even if RCON is enabled on
+disk.
+
+**Status**: Deferred — the pipeline completes correctly; the data source just
+isn't reachable until root_path is fixed.
+
+---
+
 ## Testing
 
 ```bash
