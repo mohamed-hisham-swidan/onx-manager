@@ -49,8 +49,9 @@ The central aggregate. Each row represents a single Minecraft server instance wi
 | `launch_config_json` | `Text` | nullable | Full launch config snapshot |
 | `uptime_seconds` | `Float` | 0 | |
 | `external_id` | `String(255)` | nullable | Cloud provider instance ID |
+| `missing_since` | `DateTime` | nullable | When server dir was detected missing (two-pass deletion) |
 
-Server config properties (motd, difficulty, etc.) map to `server.properties` fields. The `server_type` column was added in migration `5a50140d37df`; deployment columns in `003`; `launch_config_json` in `fcc7545db19e`; `external_id` in `902b076bfa36`.
+Server config properties (motd, difficulty, etc.) map to `server.properties` fields. The `server_type` column was added in migration `5a50140d37df`; deployment columns in `003`; `launch_config_json` in `fcc7545db19e`; `external_id` in `902b076bfa36`; `missing_since` in `a1b2c3d4e5f6`.
 
 ### Backups
 
@@ -133,7 +134,7 @@ Integrity is verified by replaying the hash chain. Retention: 1 year (partitione
 
 Time-series data for server performance: `tps`, `players`, `ram_used_mb`, `cpu_percent`. Indexed by `server_id`. Supports sliding-window chart queries.
 
-`alert_rules` — threshold-based alerting per server per metric: condition (`>`, `<`, `>=`, `<=`), threshold, severity, cooldown.
+`alert_rules` — threshold-based alerting per server per metric: condition (`>`, `<`, `>=`, `<=`), threshold, severity, cooldown. `updated_at` added in migration `a2b2c3d4e5f7`.
 
 ### Infrastructure Tables
 
@@ -182,6 +183,10 @@ alembic downgrade -1
 | `ff9c2b3a8e4d` | `5a50140d37df` | updated_at on metric_points |
 | `fcc7545db19e` | `ff9c2b3a8e4d` | launch_config_json on servers |
 | `902b076bfa36` | `fcc7545db19e` | external_id on servers |
+| `876be46160d3` | `902b076bfa36` | ORM-only tables (servers*, api_keys, audit_log, etc.) |
+| `876be46160d4` | `876be46160d3` | Health tables (health_status, timeline, evidence, diagnostics) |
+| `a1b2c3d4e5f6` | `876be46160d4` | missing_since on servers |
+| `a2b2c3d4e5f7` | `a1b2c3d4e5f6` | updated_at on alert_rules |
 
 ## Audit Log Implementation
 
@@ -259,6 +264,9 @@ alembic upgrade head
 | `fcc7545db19e` | `launch_config_json` on `servers` |
 | `902b076bfa36` | `external_id` on `servers` |
 | `876be46160d3` | ORM-only tables: servers*, api_keys, audit_log, backup_jobs, backup_policies, plugins, refresh_tokens, roles, user_roles |
+| `876be46160d4` | Health tables: health_status, health_timeline, health_evidence, health_diagnostics |
+| `a1b2c3d4e5f6` | `missing_since` on `servers` |
+| `a2b2c3d4e5f7` | `updated_at` on `alert_rules` |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.
@@ -294,15 +302,11 @@ redundant operation instead of crashing.  Behavior on already-migrated
 databases is unchanged (verified by replay test against a pre-migration
 backup — final schema matches production column-for-column).
 
-### Current production state
+### Current dev database state
 
 - **File**: `backend/mcs.db`
-- **Alembic version**: `fcc7545db19e` (1 revision behind head)
-- **Servers**: 2
-- **Tables**: 23 (including `alembic_version`)
-
-Production is intentionally not upgraded to head; that is tracked as a
-separate, explicitly scheduled operation.
+- **Alembic version**: `a2b2c3d4e5f7` (head)
+- **Tables**: 27 (including `alembic_version`)
 
 ## Cross-References
 
