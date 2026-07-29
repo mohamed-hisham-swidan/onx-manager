@@ -100,11 +100,24 @@ class Scheduler:
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
+    @staticmethod
+    def _parse_cron(expression: str) -> dict[str, str]:
+        parts = expression.strip().split()
+        fields = ["second", "minute", "hour", "day", "month", "day_of_week"]
+        if len(parts) == 5:
+            fields = ["minute", "hour", "day", "month", "day_of_week"]
+        elif len(parts) == 6:
+            fields = ["second", "minute", "hour", "day", "month", "day_of_week"]
+        else:
+            raise ValueError(f"Invalid cron expression: {expression!r} (expected 5 or 6 fields)")
+        return dict(zip(fields, parts))
+
     def _schedule_job(self, model: CronJobModel) -> None:
         if self._aps is None:
             return
 
         params = json.loads(model.params_json) if model.params_json else {}
+        trigger_args = self._parse_cron(model.cron_expression)
 
         async def run_job() -> None:
             if self._task_queue:
@@ -121,5 +134,5 @@ class Scheduler:
             trigger="cron",
             id=model.id,
             replace_existing=True,
-            cron_expression=model.cron_expression,
+            **trigger_args,
         )

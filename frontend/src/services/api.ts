@@ -257,7 +257,7 @@ export function createApiClient(
 
     // Monitoring
     getMetrics: (serverId: string, limit?: number) =>
-      request<Record<string, unknown>[]>("/api/v1/monitoring/metrics", { params: { server_id: serverId, limit: limit?.toString() } }),
+      request<MetricsSnapshot[]>("/api/v1/monitoring/metrics", { params: { server_id: serverId, limit: limit?.toString() } }),
     listAlerts: () =>
       request<Record<string, unknown>[]>("/api/v1/monitoring/alerts"),
     createAlertRule: (body: CreateAlertRuleRequest) =>
@@ -295,6 +295,14 @@ export function createApiClient(
     updateSettings: (body: Record<string, unknown>) =>
       request<Record<string, unknown>>("/api/v1/settings", { method: "PATCH", body }),
   };
+}
+
+export interface MetricsSnapshot {
+  tps: number;
+  players: number;
+  ram_used_mb: number;
+  cpu_percent: number;
+  timestamp: string;
 }
 
 

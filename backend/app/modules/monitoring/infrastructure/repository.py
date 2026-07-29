@@ -15,6 +15,7 @@ class SQLMetricRepository:
         self._session = session
 
     async def record(self, server_id: ServerId, point: MetricPoint) -> None:
+        now = datetime.now(timezone.utc)
         model = MetricPointModel(
             server_id=str(server_id),
             tps=point.tps,
@@ -22,6 +23,8 @@ class SQLMetricRepository:
             ram_used_mb=point.ram_used_mb,
             cpu_percent=point.cpu_percent,
             recorded_at=point.timestamp,
+            created_at=now,
+            updated_at=now,
         )
         self._session.add(model)
         await self._session.flush()
@@ -77,10 +80,13 @@ class SQLAlertRuleRepository:
         return [self._model_to_domain(m) for m in result.scalars().all()]
 
     async def save(self, rule: AlertRule) -> None:
+        now = datetime.now(timezone.utc)
         model = await self._session.get(AlertRuleModel, rule._alert_rule_id)
         if model is None:
-            model = AlertRuleModel(id=rule._alert_rule_id)
+            model = AlertRuleModel(id=rule._alert_rule_id, created_at=now)
             self._session.add(model)
+
+        model.updated_at = now
 
         model.server_id = str(rule.server_id)
         model.metric_name = rule.metric_name

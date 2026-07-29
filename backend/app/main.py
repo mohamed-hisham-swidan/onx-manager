@@ -129,7 +129,66 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Filesystem reconciliation failed")
 
+    # ── Task Queue & Scheduler (wired up once, during startup) ──────────
+    logger.info("Starting task queue and scheduler")
+    from app.tasks.queue import InProcessQueue
+    from app.tasks.scheduler import Scheduler
+    from app.tasks.definitions.metrics_collector import (
+        init_collector as init_metrics_collector,
+        run_metrics_collection_task,
+    )
+    from app.modules.monitoring.infrastructure.collector import MetricsCollector
+
+    async def _session_factory():
+        return database.session_factory()
+
+    # InProcessQueue — runs handler functions in-process when a task fires
+    task_queue = InProcessQueue(_session_factory)
+    task_queue.register("run_metrics_collection", run_metrics_collection_task)
+
+    # MetricsCollector — collects real-time data from running servers
+    metrics_collector = MetricsCollector(event_bus=event_bus)
+    init_metrics_collector(metrics_collector)
+
+    # Scheduler — loads cron_jobs from DB and fires them on schedule
+    scheduler = Scheduler(_session_factory)
+    scheduler.set_task_queue(task_queue)
+    await scheduler.start()
+
+    # Register the metrics collection cron job (every 60 seconds)
+    try:
+        async with await _session_factory() as sess:
+            from app.tasks.scheduler import CronJobModel
+            from sqlalchemy import select
+            existing = await sess.execute(
+                select(CronJobModel).where(CronJobModel.name == "metrics_collect_every_60s")
+            )
+            if existing.scalar_one_or_none() is None:
+                await scheduler.add_job(
+                    name="metrics_collect_every_60s",
+                    cron_expression="*/1 * * * *",
+                    task_name="run_metrics_collection",
+                    params={},
+                )
+                logger.info("Scheduler: metrics_collect_every_60s registered")
+            else:
+                logger.info("Scheduler: metrics_collect_every_60s already registered, skipping")
+    except Exception:
+        logger.exception("Failed to register metrics collection cron job")
+
+    # Log the cron jobs now loaded from DB (including integrity_scan_hourly)
+    async with await _session_factory() as sess:
+        from app.tasks.scheduler import CronJobModel
+        from sqlalchemy import select
+        result = await sess.execute(select(CronJobModel).where(CronJobModel.enabled == 1))
+        jobs = result.scalars().all()
+        logger.info("Scheduler loaded %d cron job(s)", len(jobs))
+        for j in jobs:
+            logger.info("  cron job: %s (%s)", j.name, j.cron_expression)
     yield
+
+    # ── Shutdown ────────────────────────────────────────────────────────
+    await scheduler.stop()
 
 
 def create_app() -> FastAPI:
