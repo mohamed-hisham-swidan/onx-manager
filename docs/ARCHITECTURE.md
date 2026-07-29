@@ -250,8 +250,10 @@ The service implements a 6-stage pipeline with strict separation:
 
 1. **FilesystemScanner** — list directories only
 2. **IdentityReader** — read/validate `.mcsmanager/server.json` per dir
-3. **MinecraftDetector** — reuse `scan_server_directory()` for detection
+3. **MinecraftDetector** — reuse `scan_server_directory()` with `ScanCategory`
+   (MINECRAFT_VALID / MINECRAFT_BROKEN / NOT_MINECRAFT / SCAN_FAILED)
 4. **ReconciliationPlanner** — pure logic, builds Plan, no I/O
+   (includes REPAIR_IDENTITY for self-healing corrupt identity files)
 5. **TransactionExecutor** — write identity first (write-ahead), then DB writes
 6. **IdentityWriter** — called during execution, not post-commit
 
@@ -260,6 +262,8 @@ Key properties:
 - Identity files are written **before** each DB write (write-ahead safety)
 - If identity write fails → exception → session rollback → clean state
 - If DB write fails → identity file exists, idempotent on next reconciliation
+- Self-healing: corrupted identity files are repaired and directory re-scanned
+- Shared builder `_build_server_from_scan()` centralizes Server construction
 - Supports `dry_run` mode for previewing changes
 - All domain mutations go through aggregate methods, never private fields
 

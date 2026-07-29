@@ -20,7 +20,9 @@ FilesystemScanner           Stage 1 — list directories only
     ↓
 IdentityReader              Stage 2 — read/validate .mcsmanager/server.json
     ↓                               (every dir gets a UID, even non-MC)
-MinecraftDetector           Stage 3 — scan_server_directory() + broken check
+MinecraftDetector           Stage 3 — scan_server_directory() with ScanCategory
+    ↓                            (MINECRAFT_VALID / MINECRAFT_BROKEN /
+    ↓                             NOT_MINECRAFT / SCAN_FAILED)
     ↓
 ReconciliationPlanner       Stage 4 — pure logic, no I/O, builds Plan
     ↓
@@ -82,17 +84,35 @@ after a successful DB commit (Stage 6):
 This means every directory, even ignored ones, persists its UID across
 restarts — no re-scan of non-server directories on every startup.
 
-## Broken Servers
+## Scan Categories
 
-A server is considered **broken** when:
-- No `.jar` file found in the directory
-- No `server.properties` found (or file is empty)
+Each directory falls into one of four scan categories:
+
+| Category | Meaning |
+|----------|---------|
+| `MINECRAFT_VALID` | Has jar + properties — valid server |
+| `MINECRAFT_BROKEN` | Has Minecraft files but missing jar or properties |
+| `NOT_MINECRAFT` | No Minecraft files found |
+| `SCAN_FAILED` | Filesystem error (unreadable dir, permission denied) |
+
+`SCAN_FAILED` entries are never imported — they're reported and skipped.
+`NOT_MINECRAFT` entries are ignored (but still get a UID).
+`MINECRAFT_BROKEN` servers are imported with `status = BROKEN`.
 
 Detection reuses `scan_server_directory()` from `import_service.py`.
 
-Broken servers are **still imported** with `status = broken`. They appear in
-the UI and can be repaired. The aggregate is mutated only through its public
-methods (`mark_broken()`, `mark_repaired()`).
+## Self-Healing Identity
+
+When an identity file is corrupted (bad JSON, wrong schema version, invalid
+UID), reconciliation doesn't just report it — it repairs automatically:
+
+1. A new UID is generated
+2. The identity file is overwritten
+3. The directory is re-scanned
+4. If it's a Minecraft server → imported (even if broken)
+5. If not a Minecraft server → ignored (with identity file)
+
+This ensures every directory eventually has a valid identity file.
 
 ## Two-Pass Deletion
 
