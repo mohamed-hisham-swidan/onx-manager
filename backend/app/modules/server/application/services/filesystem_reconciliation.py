@@ -126,12 +126,21 @@ class IdentityResult:
 # ===================================================================
 
 
+class ScanCategory(Enum):
+    MINECRAFT_VALID = "valid"
+    MINECRAFT_BROKEN = "broken"
+    NOT_MINECRAFT = "not_minecraft"
+    SCAN_FAILED = "scan_failed"
+
+
 @dataclass
 class ScanOutcome:
     scanned: dict | None
+    category: ScanCategory
     is_minecraft: bool
     is_broken: bool
     broken_reasons: list[str]
+    scan_error: str | None = None
 
 
 # ===================================================================
@@ -149,6 +158,7 @@ class ActionType(Enum):
     UNCHANGED = "unchanged"
     IGNORE = "ignore"
     INVALID_IDENTITY = "invalid_identity"
+    REPAIR_IDENTITY = "repair_identity"
 
 
 @dataclass
@@ -253,6 +263,14 @@ class FilesystemReconciliationService:
         if not isinstance(raw, dict):
             return IdentityResult(status=IdentityStatus.INVALID, error="Identity is not a JSON object")
 
+        version = raw.get("version", 0)
+        if version != IDENTITY_VERSION:
+            return IdentityResult(
+                status=IdentityStatus.INVALID,
+                error=f"Unsupported identity version: {version}, expected {IDENTITY_VERSION}",
+                identity=raw,
+            )
+
         uid = raw.get("uid") or raw.get("server_id")
         if not isinstance(uid, str) or len(uid) != 32:
             return IdentityResult(
@@ -276,20 +294,24 @@ class FilesystemReconciliationService:
     def _detect_single(self, entry: FsEntry) -> ScanOutcome:
         try:
             scanned = scan_server_directory(entry.path, fs=self._fs)
-        except (NotADirectoryError, ValueError):
+        except (NotADirectoryError, ValueError) as exc:
             return ScanOutcome(
                 scanned=None,
+                category=ScanCategory.SCAN_FAILED,
                 is_minecraft=False,
                 is_broken=True,
-                broken_reasons=["Directory is not a valid Minecraft server (empty or unreadable)"],
+                broken_reasons=[str(exc)],
+                scan_error=str(exc),
             )
         except Exception as exc:
             logger.warning("Unexpected scan error %s: %s", entry.path, exc)
             return ScanOutcome(
                 scanned=None,
+                category=ScanCategory.SCAN_FAILED,
                 is_minecraft=False,
                 is_broken=True,
                 broken_reasons=[f"Scan error: {exc}"],
+                scan_error=str(exc),
             )
 
         reasons: list[str] = []
@@ -297,12 +319,22 @@ class FilesystemReconciliationService:
             reasons.append("No server jar detected")
         if not scanned.get("properties"):
             reasons.append("No server.properties found or empty")
-        is_broken = len(reasons) > 0
+
+        if reasons:
+            return ScanOutcome(
+                scanned=scanned,
+                category=ScanCategory.MINECRAFT_BROKEN,
+                is_minecraft=True,
+                is_broken=True,
+                broken_reasons=reasons,
+            )
+
         return ScanOutcome(
             scanned=scanned,
+            category=ScanCategory.MINECRAFT_VALID,
             is_minecraft=True,
-            is_broken=is_broken,
-            broken_reasons=reasons,
+            is_broken=False,
+            broken_reasons=[],
         )
 
     # ------------------------------------------------------------------
@@ -324,6 +356,14 @@ class FilesystemReconciliationService:
         for i, entry in enumerate(entries):
             identity = identities[i]
             scan = scans[i]
+
+            if scan.category == ScanCategory.SCAN_FAILED:
+                plan.actions.append(PlanAction(
+                    action=ActionType.IGNORE,
+                    fs_entry=entry, identity=identity,
+                    scan=scan,
+                ))
+                continue
 
             if identity.status == IdentityStatus.VALID:
                 uid = identity.uid
@@ -355,7 +395,7 @@ class FilesystemReconciliationService:
 
             elif identity.status == IdentityStatus.INVALID:
                 plan.actions.append(PlanAction(
-                    action=ActionType.INVALID_IDENTITY,
+                    action=ActionType.REPAIR_IDENTITY,
                     fs_entry=entry, identity=identity,
                     scan=scan,
                 ))
@@ -456,6 +496,7 @@ class FilesystemReconciliationService:
             ActionType.UNCHANGED: self._handle_unchanged,
             ActionType.IGNORE: self._handle_ignore,
             ActionType.INVALID_IDENTITY: self._handle_invalid_identity,
+            ActionType.REPAIR_IDENTITY: self._handle_repair_identity,
         }
         return handlers[action]
 
@@ -470,43 +511,16 @@ class FilesystemReconciliationService:
         uid = pa.identity.uid
         entry = pa.fs_entry
         scan = pa.scan
-        server_id = ServerId(uid)
 
-        name = self._find_name(entry, scan)
-        scanned_type = (scan.scanned or {}).get("server_type", "vanilla")
-        try:
-            server_type = ServerType(scanned_type)
-        except ValueError:
-            server_type = ServerType.VANILLA
-
-        mc_version_str = (scan.scanned or {}).get("minecraft_version", "")
-        mc_version = MinecraftVersion.parse(mc_version_str) if mc_version_str else MinecraftVersion(0, 0)
-
-        # Write identity FIRST — before DB write (write-ahead).
-        # If this fails, we abort before touching the DB — safe.
-        # If DB write fails later, identity exists but is idempotent
-        # (next reconciliation re-imports same UID).
         self._write_single_identity(entry.path, uid, result)
 
-        props = self._build_server_properties(scan.scanned)
-        deployment = self._build_deployment(entry, scan)
-
-        server = Server(
-            server_id=server_id,
-            name=name,
-            server_type=server_type,
-            minecraft_version=mc_version,
-            memory=MemoryAllocation(min_mb=1024, max_mb=2048),
-            java_args=JavaArguments(),
-            properties=props,
-            deployment=deployment,
-        )
+        server = self._build_server_from_scan(ServerId(uid), entry, scan)
 
         if scan.is_broken:
             server.mark_broken()
             result.broken.append({
                 "server_id": uid,
-                "name": name,
+                "name": server.name,
                 "path": entry.path,
                 "reasons": scan.broken_reasons,
             })
@@ -514,11 +528,11 @@ class FilesystemReconciliationService:
         await self._repo.save(server)
         result.imported.append({
             "server_id": uid,
-            "name": name,
+            "name": server.name,
             "path": entry.path,
             "broken": scan.is_broken,
         })
-        logger.info("Imported server %s (%s) from %s", name, uid, entry.path)
+        logger.info("Imported server %s (%s) from %s", server.name, uid, entry.path)
 
     async def _handle_update_broken(self, pa: PlanAction, result: ReconciliationResult) -> None:
         server = pa.db_server
@@ -615,14 +629,53 @@ class FilesystemReconciliationService:
         logger.debug("Ignored non-Minecraft directory %s", pa.fs_entry.path)
 
     async def _handle_invalid_identity(self, pa: PlanAction, result: ReconciliationResult) -> None:
-        new_uid = uuid.uuid4().hex
-        self._write_single_identity(pa.fs_entry.path, new_uid, result)
         result.invalid_identity.append({
             "path": pa.fs_entry.path,
             "error": pa.identity.error or "Invalid identity file",
             "identity": pa.identity.identity,
         })
-        logger.warning("Invalid identity in %s overwritten with new UID: %s", pa.fs_entry.path, new_uid)
+        logger.warning("Invalid identity in %s: %s", pa.fs_entry.path, pa.identity.error)
+
+    async def _handle_repair_identity(self, pa: PlanAction, result: ReconciliationResult) -> None:
+        new_uid = uuid.uuid4().hex
+        self._write_single_identity(pa.fs_entry.path, new_uid, result)
+        logger.info("Repaired identity in %s → new UID: %s", pa.fs_entry.path, new_uid)
+
+        new_scan = self._detect_single(pa.fs_entry)
+        if new_scan.category == ScanCategory.SCAN_FAILED:
+            result.ignored.append({
+                "path": pa.fs_entry.path,
+                "reason": f"Identity repaired but scan failed: {new_scan.scan_error}",
+            })
+            return
+
+        if not new_scan.is_minecraft:
+            result.ignored.append({
+                "path": pa.fs_entry.path,
+                "reason": "Identity repaired but directory is not a Minecraft server",
+            })
+            return
+
+        server = self._build_server_from_scan(ServerId(new_uid), pa.fs_entry, new_scan)
+
+        if new_scan.is_broken:
+            server.mark_broken()
+            result.broken.append({
+                "server_id": new_uid,
+                "name": server.name,
+                "path": pa.fs_entry.path,
+                "reasons": new_scan.broken_reasons,
+            })
+
+        await self._repo.save(server)
+        result.imported.append({
+            "server_id": new_uid,
+            "name": server.name,
+            "path": pa.fs_entry.path,
+            "broken": new_scan.is_broken,
+            "repaired_identity": True,
+        })
+        logger.info("Imported server after identity repair: %s (%s)", server.name, new_uid)
 
     # ------------------------------------------------------------------
     # Build helpers (reuse scan_server_directory output)
@@ -655,6 +708,37 @@ class FilesystemReconciliationService:
 
     def _find_name(self, entry: FsEntry, scan: ScanOutcome) -> str:
         return (scan.scanned or {}).get("name") or entry.name
+
+    # ------------------------------------------------------------------
+    # Shared Builder — constructs a Server domain object from scan data.
+    # Centralizes property/deployment construction so ImportService
+    # scan output is used directly without duplicating the mapping.
+    # ------------------------------------------------------------------
+
+    def _build_server_from_scan(self, server_id: ServerId, entry: FsEntry, scan: ScanOutcome) -> Server:
+        name = self._find_name(entry, scan)
+        scanned_type = (scan.scanned or {}).get("server_type", "vanilla")
+        try:
+            server_type = ServerType(scanned_type)
+        except ValueError:
+            server_type = ServerType.VANILLA
+
+        mc_version_str = (scan.scanned or {}).get("minecraft_version", "")
+        mc_version = MinecraftVersion.parse(mc_version_str) if mc_version_str else MinecraftVersion(0, 0)
+
+        props = self._build_server_properties(scan.scanned)
+        deployment = self._build_deployment(entry, scan)
+
+        return Server(
+            server_id=server_id,
+            name=name,
+            server_type=server_type,
+            minecraft_version=mc_version,
+            memory=MemoryAllocation(min_mb=1024, max_mb=2048),
+            java_args=JavaArguments(),
+            properties=props,
+            deployment=deployment,
+        )
 
     # ------------------------------------------------------------------
     # Identity Writer — write identity file for a single directory
@@ -736,6 +820,11 @@ class FilesystemReconciliationService:
                 result.invalid_identity.append({
                     "path": pa.fs_entry.path,
                     "error": pa.identity.error,
+                })
+            elif pa.action == ActionType.REPAIR_IDENTITY:
+                result.ignored.append({
+                    "path": pa.fs_entry.path,
+                    "reason": "Identity will be repaired and rescanned",
                 })
         return result
 
