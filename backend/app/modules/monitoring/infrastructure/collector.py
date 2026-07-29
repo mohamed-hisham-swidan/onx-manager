@@ -4,6 +4,7 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.core.event_bus import DomainEvent, EventBus
 from app.core.persistence.db import database
@@ -39,10 +40,25 @@ class ServerMetrics:
     world_size_bytes: int = 0
 
 
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _resolve_properties_path(properties_path: str) -> Path:
+    p = Path(properties_path)
+    if p.is_absolute():
+        return p
+    if p.exists():
+        return p.resolve()
+    backend_relative = _BACKEND_DIR / p
+    if backend_relative.exists():
+        return backend_relative
+    return p.resolve()
+
+
 def _read_server_properties(properties_path: str) -> dict[str, str]:
     result: dict[str, str] = {}
     try:
-        path = os.path.abspath(properties_path)
+        path = _resolve_properties_path(properties_path)
         with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
