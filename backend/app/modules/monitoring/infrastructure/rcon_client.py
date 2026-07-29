@@ -60,7 +60,7 @@ class AsyncRCONClient:
     async def _send_packet(self, req_id: int, ptype: int, body: str) -> None:
         if self._writer is None:
             raise RCONError("Not connected")
-        body_bytes = body.encode("utf-8")
+        body_bytes = body.encode("utf-8") + b"\x00"
         length = 10 + len(body_bytes)
         data = struct.pack("<iii", length, req_id, ptype) + body_bytes + b"\x00\x00"
         self._writer.write(data)
