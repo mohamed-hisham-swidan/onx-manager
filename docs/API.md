@@ -235,7 +235,7 @@ Exceeding the limit returns `429 Too Many Requests` with a `Retry-After` header.
 ### Servers
 
 | Method | Endpoint | Description |
-|---|---|---|
+|---|---|---|---|
 | `GET` | `/servers` | List servers |
 | `POST` | `/servers` | Create a server |
 | `GET` | `/servers/{id}` | Server details |
@@ -247,6 +247,8 @@ Exceeding the limit returns `429 Too Many Requests` with a `Retry-After` header.
 | `POST` | `/servers/{id}/kill` | Force-kill the server process |
 | `POST` | `/servers/{id}/console` | Send a console command |
 | `GET` | `/servers/{id}/log` | Fetch log lines |
+| `POST` | `/servers/refresh` | Filesystem reconciliation (sync DB to disk) |
+| `POST` | `/servers/refresh?dry_run=true` | Preview reconciliation changes without applying |
 
 #### `GET /servers`
 
@@ -404,6 +406,40 @@ Returns `202 Accepted` — the server will stop asynchronously. Track progress v
       {"timestamp": "2025-01-20T08:00:01Z", "level": "INFO", "message": "Server started"},
       {"timestamp": "2025-01-20T08:00:02Z", "level": "INFO", "message": "Done!"}
     ]
+  }
+}
+```
+
+---
+
+#### `POST /servers/refresh`
+
+Triggers a full filesystem reconciliation scan. Compares `data/servers/`
+directories against the database and auto-imports, updates, or deletes
+records as needed.
+
+| Query Parameter | Type | Default | Description |
+|---|---|---|---|
+| `dry_run` | boolean | `false` | If `true`, returns a preview of changes without modifying DB or filesystem |
+
+```json
+// Response 200 (dry_run=false)
+{
+  "data": {
+    "imported": [{"server_id": "...", "name": "My Server", "path": "data/servers/my-server", "broken": false}],
+    "updated": [],
+    "deleted": [],
+    "missing": [],
+    "broken": [],
+    "unchanged": [{"server_id": "...", "name": "Existing Server"}],
+    "ignored": [{"path": "data/servers/not-a-server"}],
+    "invalid_identity": [],
+    "errors": [],
+    "identity_written": [{"path": "data/servers/my-server", "uid": "...", "ignored": false}],
+    "total_imported": 1,
+    "total_updated": 0,
+    "total_deleted": 0,
+    "dry_run": false
   }
 }
 ```

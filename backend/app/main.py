@@ -26,7 +26,7 @@ from app.modules.server.application.runtime_reconciliation import (
     reconcile_all_runtimes,
     reconcile_orphans,
 )
-from app.modules.server.application.services.filesystem_reconciliation import reconcile as fs_reconcile
+from app.modules.server.application.services.filesystem_reconciliation import FilesystemReconciliationService
 from app.modules.server.application.migrate_import_arch import migrate_old_import_arch
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.core.persistence.db import database
@@ -107,24 +107,25 @@ async def lifespan(app: FastAPI):
             logger.exception("Import architecture migration failed")
 
         try:
-            fs_result = await fs_reconcile(repo)
+            service = FilesystemReconciliationService(repo)
+            fs_result = await service.reconcile()
             await session.commit()
             if fs_result.imported:
-                logger.info("FS reconciliation imported %d server(s)", len(fs_result.imported))
+                logger.info("FS reconciliation imported %d server(s)", fs_result.total_imported)
             if fs_result.updated:
-                logger.info("FS reconciliation updated %d server(s)", len(fs_result.updated))
+                logger.info("FS reconciliation updated %d server(s)", fs_result.total_updated)
             if fs_result.deleted:
-                logger.info("FS reconciliation deleted %d stale record(s)", len(fs_result.deleted))
+                logger.info("FS reconciliation deleted %d stale record(s)", fs_result.total_deleted)
             if fs_result.missing:
-                logger.warning("FS reconciliation marked %d server(s) as MISSING", len(fs_result.missing))
+                logger.warning("FS reconciliation marked %d server(s) as MISSING", fs_result.total_missing)
             if fs_result.broken:
-                logger.warning("FS reconciliation found %d broken server(s)", len(fs_result.broken))
+                logger.warning("FS reconciliation found %d broken server(s)", fs_result.total_broken)
             if fs_result.ignored:
-                logger.info("FS reconciliation ignored %d non-Minecraft directory(ies)", len(fs_result.ignored))
+                logger.info("FS reconciliation ignored %d non-Minecraft directory(ies)", fs_result.total_ignored)
             if fs_result.invalid_identity:
-                logger.warning("FS reconciliation found %d invalid identity file(s)", len(fs_result.invalid_identity))
+                logger.warning("FS reconciliation found %d invalid identity file(s)", fs_result.total_invalid_identity)
             if fs_result.errors:
-                logger.warning("FS reconciliation encountered %d error(s)", len(fs_result.errors))
+                logger.warning("FS reconciliation encountered %d error(s)", fs_result.total_errors)
         except Exception:
             logger.exception("Filesystem reconciliation failed")
 

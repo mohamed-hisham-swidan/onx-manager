@@ -240,13 +240,31 @@ Every source file belongs to exactly one batch. No shared ownership. Changes are
 
 ## Filesystem Reconciliation
 
-A standalone service (`server/application/services/filesystem_reconciliation.py`)
-keeps the database in sync with the filesystem. It treats the disk as the single
-**Source of Truth** — any directory under `data/servers/` is a real server, and
-any DB record without a matching directory is stale.
+A class-based service (`FilesystemReconciliationService` in
+`server/application/services/filesystem_reconciliation.py`) keeps the database
+in sync with the filesystem. It treats the disk as the single **Source of
+Truth** — any directory under `data/servers/` is real, and any DB record
+without a matching directory is stale.
+
+The service implements a 6-stage pipeline with strict separation:
+
+1. **FilesystemScanner** — list directories only
+2. **IdentityReader** — read/validate `.mcsmanager/server.json` per dir
+3. **MinecraftDetector** — reuse `scan_server_directory()` for detection
+4. **ReconciliationPlanner** — pure logic, builds Plan, no I/O
+5. **TransactionExecutor** — write identity first (write-ahead), then DB writes
+6. **IdentityWriter** — called during execution, not post-commit
+
+Key properties:
+- Every directory gets a UID (even non-Minecraft dirs)
+- Identity files are written **before** each DB write (write-ahead safety)
+- If identity write fails → exception → session rollback → clean state
+- If DB write fails → identity file exists, idempotent on next reconciliation
+- Supports `dry_run` mode for previewing changes
+- All domain mutations go through aggregate methods, never private fields
 
 - **Startup**: runs after runtime reconciliation in `main.py` lifespan
-- **Refresh**: `POST /api/v1/servers/refresh` endpoint
+- **Refresh**: `POST /api/v1/servers/refresh?dry_run=true` endpoint
 - **Auto-import**: new directories are imported with type/version detection
 - **Cleanup**: stale DB records are deleted when their directory is gone
 

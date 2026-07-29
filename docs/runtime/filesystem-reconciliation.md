@@ -8,34 +8,37 @@ and any DB record without a matching directory is stale.
 
 Defined in `app/modules/server/application/services/filesystem_reconciliation.py`.
 
+The service is implemented as a class: `FilesystemReconciliationService(repo, fs)`.
+
 ## Architecture — Pipeline
 
-The reconciliation is built as a **6-stage pipeline**. Each stage has a single
-responsibility and produces structured output for the next stage.
+The reconciliation is built as a **6-stage pipeline** with strict separation of
+concerns. Stages 1–4 are read-only, Stage 5 writes to DB, Stage 6 writes to disk.
 
 ```
-Stage 1: scan_filesystem()
-    → list[FsEntry]           # Just list directories — no I/O beyond ls
-
-Stage 2: read_identity(entry)
-    → IdentityResult          # Read/validate .mcsmanager/server.json
-
-Stage 3: detect_minecraft(entry)
-    → ScanOutcome             # scan_server_directory() + broken check
-
-Stage 4: build_plan(entries, identities, scans, db_servers)
-    → ReconciliationPlan      # Pure logic — no I/O, no side effects
-
-Stage 5: execute_plan(plan, repo)
-    → ReconciliationResult    # Transactional DB writes
-
-Stage 6: write_pending_identities(pending)
-    → None                    # Write identity files post-commit
+FilesystemScanner           Stage 1 — list directories only
+    ↓
+IdentityReader              Stage 2 — read/validate .mcsmanager/server.json
+    ↓                               (every dir gets a UID, even non-MC)
+MinecraftDetector           Stage 3 — scan_server_directory() + broken check
+    ↓
+ReconciliationPlanner       Stage 4 — pure logic, no I/O, builds Plan
+    ↓
+TransactionExecutor         Stage 5 — write identity FIRST (write-ahead),
+                                     then save/delete in DB
+    ↓
+session.commit()            Called by the caller, commits all DB changes
 ```
+
+Identity files are written **during** execution (before each DB write), not
+after commit. If identity writing fails, the exception prevents the DB write
+and the session rolls back. If the DB write fails, the identity file already
+exists and is idempotent — the next reconciliation uses the same UID.
 
 ## Identity Model
 
-Each server directory carries its identity inside `.mcsmanager/server.json`:
+Every directory under `data/servers/` carries an identity file at
+`.mcsmanager/server.json`. The UID belongs to the **directory**, not the server:
 
 ```json
 {
@@ -43,25 +46,41 @@ Each server directory carries its identity inside `.mcsmanager/server.json`:
   "uid": "<32-hex-char-uuid>",
   "created_at": "2026-07-28T12:00:00Z",
   "manager": "mcsmanager",
-  "schema": 1
+  "schema_version": 1
 }
 ```
 
-The directory name is **not** the identity. The file is versioned so the schema
-can evolve in the future. Dirs without an identity file are **unowned** —
-reconciliation adopts them by assigning a new UID and writing the identity file
-**after** the DB transaction commits.
+Key properties:
+- The directory name is **not** the identity — renaming folders is safe
+- Every directory gets a UID on first encounter, **even non-Minecraft directories**
+- The identity file is written only **after** the DB transaction commits
+- If identity writing fails, the next reconciliation will fix it (idempotent)
 
 ## Identity States
 
 | State | Meaning |
 |-------|---------|
-| `valid` | File exists, JSON valid, has 32-char UID |
-| `invalid` | File exists but corrupted / wrong format / bad UID |
-| `missing` | No `.mcsmanager/server.json` found |
+| `VALID` | File exists, JSON valid, has 32-char UID |
+| `INVALID` | File exists but corrupted / wrong format / bad UID |
+| `MISSING` | No `.mcsmanager/server.json` found |
 
-Invalid identities are reported in a separate `invalid_identity` result category
-and **not** imported automatically — they require manual inspection.
+Invalid identities are reported under `invalid_identity` and are not imported
+automatically — they require manual inspection.
+
+## UID Assignment
+
+UIDs are assigned in-memory during planning (Stage 4) and written to disk only
+after a successful DB commit (Stage 6):
+
+| Scenario | UID Source |
+|----------|-----------|
+| Identity file exists and valid | Use existing UID |
+| Identity file missing + is Minecraft | Generate new UUID (adopted) |
+| Identity file missing + not Minecraft | Generate new UUID (ignored) |
+| Identity file corrupted | Generate new UUID (invalid overwritten) |
+
+This means every directory, even ignored ones, persists its UID across
+restarts — no re-scan of non-server directories on every startup.
 
 ## Broken Servers
 
@@ -69,10 +88,11 @@ A server is considered **broken** when:
 - No `.jar` file found in the directory
 - No `server.properties` found (or file is empty)
 
+Detection reuses `scan_server_directory()` from `import_service.py`.
+
 Broken servers are **still imported** with `status = broken`. They appear in
-the UI and can be repaired (add the missing files, then run refresh). The
-aggregate exposes `mark_broken()` and `mark_repaired()` methods — reconciliation
-never mutates private fields directly.
+the UI and can be repaired. The aggregate is mutated only through its public
+methods (`mark_broken()`, `mark_repaired()`).
 
 ## Two-Pass Deletion
 
@@ -81,8 +101,14 @@ DB servers without a matching FS directory are handled in two passes:
 1. **First reconciliation**: `server.mark_missing()` sets `missing_since` timestamp
 2. **Second reconciliation** (if still missing): record is deleted
 
-This prevents accidental data loss from transient FS issues. Servers outside
-`data/servers/` are skipped entirely.
+This prevents accidental data loss from transient FS issues (moves, renames).
+Servers deployed outside `data/servers/` are skipped entirely.
+
+## Dry Run
+
+`POST /api/v1/servers/refresh?dry_run=true` runs stages 1–4 and returns a
+preview of what would happen without touching the DB or filesystem. The
+response has the same structure as a real run.
 
 ## ReconciliationResult
 
@@ -94,16 +120,60 @@ This prevents accidental data loss from transient FS issues. Servers outside
 | `missing` | Servers marked with `missing_since` (first-pass) |
 | `broken` | Servers found to be broken (no jar / no properties) |
 | `unchanged` | Perfect matches (FS ↔ DB in sync) |
-| `ignored` | Non-Minecraft dirs without identity |
+| `ignored` | Non-Minecraft directories (still get UID) |
 | `invalid_identity` | Dirs with corrupted/unreadable identity files |
 | `errors` | Operations that failed |
+| `identity_written` | Identity files written during execution (write-ahead) |
+| `total_dirs_found` | Number of directories scanned |
+| `total_minecraft_dirs` | Number of directories that are valid Minecraft servers |
+| `started_at` | ISO 8601 timestamp when reconciliation started |
+| `finished_at` | ISO 8601 timestamp when reconciliation finished |
+| `duration_ms` | Total elapsed time in milliseconds |
+
+Each list field also has a `total_*` property (e.g. `total_imported`).
+
+## Transaction Model
+
+Identity files are written **during** execution (Stage 5), **before** each DB
+write (write-ahead). This ensures:
+
+- If identity file write fails → exception → session rolls back → clean state
+- If DB save fails → identity file exists but is idempotent (next reconciliation uses same UID)
+- The caller only needs to commit the session after `reconcile()` returns
+
+```
+service.reconcile()
+  Stage 1–4: read-only
+  Stage 5:
+    for IMPORT: write identity.json → save server to DB
+    for IGNORE: write identity.json (no DB change)
+    for INVALID_IDENTITY: overwrite identity.json (no DB change)
+    for UPDATE/MISSING/DELETE: DB writes only
+    ↓
+session.commit()   # Caller commits the DB transaction
+```
+
+There is no separate post-commit identity writing step. Identity files are
+always written before their corresponding DB operations.
 
 ## When It Runs
 
 | Trigger | Where |
 |---------|-------|
-| Application startup | `main.py` lifespan |
+| Application startup | `main.py` lifespan (after runtime reconciliation) |
 | Manual refresh | `POST /api/v1/servers/refresh` (returns full report) |
+| Dry run preview | `POST /api/v1/servers/refresh?dry_run=true` |
+
+## Class API
+
+```python
+class FilesystemReconciliationService:
+    def __init__(self, repo: ServerRepository, fs: FileSystem = local_fs)
+
+    async def reconcile(self, dry_run: bool = False) -> ReconciliationResult
+    # Runs all 6 stages. Identity files are written during execution
+    # (write-ahead, before DB saves). Caller just commits the session.
+```
 
 ## References
 

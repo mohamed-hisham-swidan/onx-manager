@@ -400,15 +400,18 @@ async def reconcile_runtimes(
 
 @router.post("/refresh", response_model=ReconciliationResultResponse)
 async def refresh_servers(
+    dry_run: bool = Query(default=False, description="Preview changes without applying them"),
     current_user: dict = Depends(get_current_user),
 ) -> ReconciliationResultResponse:
-    from app.modules.server.application.services.filesystem_reconciliation import reconcile as fs_reconcile
+    from app.modules.server.application.services.filesystem_reconciliation import FilesystemReconciliationService
     from app.modules.server.infrastructure.repository import SQLServerRepository
 
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
-        result = await fs_reconcile(repo)
-        await session.commit()
+        service = FilesystemReconciliationService(repo)
+        result = await service.reconcile(dry_run=dry_run)
+        if not dry_run:
+            await session.commit()
 
     return ReconciliationResultResponse(
         imported=result.imported,
@@ -420,13 +423,20 @@ async def refresh_servers(
         ignored=result.ignored,
         invalid_identity=result.invalid_identity,
         errors=result.errors,
-        total_imported=len(result.imported),
-        total_updated=len(result.updated),
-        total_deleted=len(result.deleted),
-        total_missing=len(result.missing),
-        total_broken=len(result.broken),
-        total_unchanged=len(result.unchanged),
-        total_ignored=len(result.ignored),
-        total_invalid_identity=len(result.invalid_identity),
-        total_errors=len(result.errors),
+        identity_written=result.identity_written,
+        total_imported=result.total_imported,
+        total_updated=result.total_updated,
+        total_deleted=result.total_deleted,
+        total_missing=result.total_missing,
+        total_broken=result.total_broken,
+        total_unchanged=result.total_unchanged,
+        total_ignored=result.total_ignored,
+        total_invalid_identity=result.total_invalid_identity,
+        total_errors=result.total_errors,
+        total_dirs_found=result.total_dirs_found,
+        total_minecraft_dirs=result.total_minecraft_dirs,
+        started_at=result.started_at,
+        finished_at=result.finished_at,
+        duration_ms=result.duration_ms,
+        dry_run=dry_run,
     )

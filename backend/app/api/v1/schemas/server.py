@@ -157,6 +157,7 @@ class ReconciliationResultResponse(BaseModel):
     ignored: list[dict] = []
     invalid_identity: list[dict] = []
     errors: list[dict] = []
+    identity_written: list[dict] = []
     total_imported: int = 0
     total_updated: int = 0
     total_deleted: int = 0
@@ -166,3 +167,9 @@ class ReconciliationResultResponse(BaseModel):
     total_ignored: int = 0
     total_invalid_identity: int = 0
     total_errors: int = 0
+    total_dirs_found: int = 0
+    total_minecraft_dirs: int = 0
+    started_at: str = ""
+    finished_at: str = ""
+    duration_ms: float = 0.0
+    dry_run: bool = False
