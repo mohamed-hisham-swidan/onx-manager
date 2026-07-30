@@ -362,7 +362,7 @@ server_manger/
 
 | Issue | Impact | Status |
 |-------|--------|--------|
-| ~~`reconcile_orphans()` kills ALL mcs-* tmux + Java PIDs~~ | ~~Called at every startup, no DB cross-reference~~ | ✅ Fixed in 4a6b9f3 — ownership verification (marker env var + cwd check), scope param, audit logging, fail-safe |
+| ~~`reconcile_orphans()` / `claim_localhost()` / `cleanup_orphans()` kill heuristically~~ | ~~Called at startup/pre-start, no ownership verification~~ | ✅ Fixed — `reconcile_orphans()` (4a6b9f3, Batch 6): ownership marker + cwd check + scope + audit + fail-safe. `claim_localhost()` / `cleanup_orphans()` (6d99146, Batch 7): shared `ownership_verifier.py`, PID-reuse protection via `start_time` (a66f322). |
 | ArqQueue.get_status/get_result return stubs | Cannot query task progress in prod | ⚠️ Known |
 | Metrics retention rollups not implemented | Raw metrics only (no 1m/1h/1d aggregation) | 🔶 Future |
 | ContainerPluginRunner is a stub | Plugins can't run in Docker isolation yet | 🔶 Future |
@@ -403,4 +403,17 @@ server_manger/
 
 **Verification:** 950 backend tests (948 passing, 2 pre-existing env failures), 148 frontend tests, lint clean.
 
-*Generated: 2026-07-30 · Project: MCS Manager v4.0 (7.1.0) · Batch 6 — Orphan Reconciliation*
+---
+
+### Batch 7 — Runtime Ownership Verification — 2 commits (2026-07-30)
+
+| Commit | Step | What changed |
+|--------|------|-------------|
+| `6d99146` | Gap 1 | `ownership_verifier.py` (shared module): ownership check before kill in `claim_localhost()` + `cleanup_orphans()`; `scope` param; `KILL_DECISION` audit logging. +13 tests for verifier; +4 existing patched. |
+| `a66f322` | Gap 2 | Store process `start_time` in DB (`RuntimeInfo.start_time`, `ServerModel.deployment_start_time`, Alembic migration). Capture in local provider. Compare in `verify_ownership()` — rejects recycled PIDs on start_time mismatch. +2 tests. |
+
+**Known Limitations changes:** `⚠️ Partially fixed` → `✅ Fixed` (both `reconcile_orphans()` in Batch 6 and `runtime_ownership.py` in Batch 7 now verify ownership before killing).
+
+**Verification:** 950 backend tests (948 passing, 2 pre-existing env failures), 148 frontend tests, all pass.
+
+*Generated: 2026-07-30 · Project: MCS Manager v4.0 (7.1.0) · Batch 7 — Runtime Ownership*
