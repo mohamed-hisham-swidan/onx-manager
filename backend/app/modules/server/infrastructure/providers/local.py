@@ -7,6 +7,7 @@ import re
 import signal
 import socket
 import time
+import uuid
 from typing import Any
 
 logger = logging.getLogger("mcs.provider.local")
@@ -133,6 +134,10 @@ class LocalLinuxProvider(ServerProvider):
                 f"-Xms{memory_min}M -Xmx{memory_max}M "
                 f"-jar {jar} nogui"
             )
+
+        instance_id = uuid.uuid4().hex[:16]
+        marker_prefix = f"export MCS_MANAGED=1 MCS_INSTANCE_ID={instance_id}; "
+        cmd = f"{marker_prefix}{cmd}"
 
         server_label = f'"{server_id}"' if server_id else server_id
         logger.info(

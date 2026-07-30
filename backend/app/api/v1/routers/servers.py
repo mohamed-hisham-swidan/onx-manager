@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from app.api.deps import get_command_bus, get_current_user, get_event_bus, get_query_bus
 from app.api.errors import check_command_result
@@ -11,6 +11,7 @@ from app.api.v1.schemas.server import (
     ClaimLocalhostResponse,
     CommandRequest,
     ConsoleResponse,
+    ReconcileRequest,
     ReconciliationResultResponse,
     RuntimeDiagnosticsResponse,
     RuntimeOwnershipResponse,
@@ -366,6 +367,7 @@ async def validate_server_runtime(
 
 @router.post("/reconcile", response_model=dict)
 async def reconcile_runtimes(
+    body: ReconcileRequest = Body(default=ReconcileRequest()),
     command_bus: CommandBus = Depends(get_command_bus),
     event_bus: EventBus = Depends(get_event_bus),
     current_user: dict = Depends(get_current_user),
@@ -379,7 +381,7 @@ async def reconcile_runtimes(
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
         outcomes = await reconcile_all_runtimes(repo)
-        orphan_actions = await reconcile_orphans(repo)
+        orphan_actions = await reconcile_orphans(repo, scope=body.scope)  # type: ignore[arg-type]
 
     return {
         "total_checked": len(outcomes),

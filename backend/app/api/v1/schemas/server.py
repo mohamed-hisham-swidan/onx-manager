@@ -147,6 +147,15 @@ class CommandRequest(BaseModel):
     command: str = Field(..., min_length=1)
 
 
+class ReconcileRequest(BaseModel):
+    scope: str = Field(
+        default="project_owned",
+        pattern=r"^(project_owned|system_wide)$",
+        description="'project_owned' (default) — only kill processes with positive ownership marker/cwd inside project data dir. "
+        "'system_wide' — kill any mcs-* tmux session or Minecraft Java PID not in DB (legacy behavior).",
+    )
+
+
 class ReconciliationResultResponse(BaseModel):
     imported: list[dict] = []
     updated: list[dict] = []

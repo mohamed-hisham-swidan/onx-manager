@@ -7,8 +7,9 @@ import signal
 import socket
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
+from app.core.config import AppSettings
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerFilters, ServerRepository
@@ -68,6 +69,69 @@ class ReconciliationOutcome:
     repaired: bool = False
     actions: list[str] = field(default_factory=list)
     error: str | None = None
+
+
+MCS_MARKER = "MCS_MANAGED"
+
+
+def _get_process_cwd(pid: int) -> str | None:
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return None
+
+
+def _get_process_env(pid: int) -> dict[str, str]:
+    env: dict[str, str] = {}
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            raw = f.read()
+        for item in raw.decode("utf-8", errors="replace").split("\0"):
+            if "=" in item:
+                k, v = item.split("=", 1)
+                env[k] = v
+    except OSError:
+        pass
+    return env
+
+
+def _get_process_start_time(pid: int) -> int | None:
+    try:
+        with open(f"/proc/{pid}/stat", "r") as f:
+            data = f.read()
+        paren_end = data.rfind(")")
+        if paren_end == -1:
+            return None
+        fields = data[paren_end + 2:].split()
+        if len(fields) >= 20:
+            return int(fields[19])
+        return None
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _get_servers_data_dir() -> str:
+    try:
+        settings = AppSettings()
+        return os.path.abspath(settings.servers_data_dir)
+    except Exception:
+        return os.path.abspath("data/servers")
+
+
+def _is_project_owned_process(pid: int, servers_data_dir: str | None = None) -> bool:
+    env = _get_process_env(pid)
+    if env.get(MCS_MARKER) == "1":
+        return True
+    if servers_data_dir is not None:
+        cwd = _get_process_cwd(pid)
+        if cwd is not None:
+            try:
+                common = os.path.commonpath([cwd, servers_data_dir])
+                if common == servers_data_dir:
+                    return True
+            except ValueError:
+                pass
+    return False
 
 
 def _port_is_listening(port: int, host: str = "127.0.0.1") -> bool:
@@ -343,8 +407,12 @@ async def reconcile_all_runtimes(
     return outcomes
 
 
-async def reconcile_orphans(repo: ServerRepository | None = None) -> list[dict]:
+async def reconcile_orphans(
+    repo: ServerRepository | None = None,
+    scope: Literal["project_owned", "system_wide"] = "project_owned",
+) -> list[dict]:
     actions: list[dict] = []
+    servers_data_dir = _get_servers_data_dir() if scope == "project_owned" else None
 
     expected_sessions: set[str] = set()
     known_pids: set[int] = set()
@@ -372,12 +440,33 @@ async def reconcile_orphans(repo: ServerRepository | None = None) -> list[dict]:
             continue
 
         pid = _get_tmux_pid(session)
+
+        if scope == "project_owned":
+            try:
+                is_owned = pid is not None and _is_project_owned_process(pid, servers_data_dir)
+            except Exception:
+                logger.warning("KILL_DECISION session=%s pid=%s scope=%s decision=SKIP reason='ownership-check-failed'", session, pid, scope)
+                actions.append({"type": "orphan_tmux_skipped", "session": session, "pid": pid, "reason": "ownership-check-error"})
+                continue
+            if not is_owned:
+                env_marker = _get_process_env(pid).get(MCS_MARKER) if pid else None
+                proc_cwd = _get_process_cwd(pid) if pid else None
+                logger.info(
+                    "KILL_DECISION session=%s pid=%s scope=%s marker=%s cwd=%s decision=SKIP reason='not-project-owned'",
+                    session, pid, scope, env_marker, proc_cwd,
+                )
+                actions.append({"type": "orphan_tmux_skipped", "session": session, "pid": pid, "reason": "not-project-owned"})
+                continue
+
         reason = f"orphan tmux session {session} — no matching running/starting server in database"
+        env_marker = _get_process_env(pid).get(MCS_MARKER) if pid else None
+        proc_cwd = _get_process_cwd(pid) if pid else None
+        proc_start = _get_process_start_time(pid) if pid else None
+        logger.info(
+            "KILL_DECISION session=%s pid=%s scope=%s marker=%s cwd=%s start_time=%s decision=KILL reason=%s",
+            session, pid, scope, env_marker, proc_cwd, proc_start, reason,
+        )
         if pid:
-            logger.warning(
-                "Killing orphan tmux — session=%s pid=%d reason=%s",
-                session, pid, reason,
-            )
             try:
                 os.kill(pid, signal.SIGTERM)
                 await asyncio.sleep(0.5)
@@ -385,26 +474,45 @@ async def reconcile_orphans(repo: ServerRepository | None = None) -> list[dict]:
             except ProcessLookupError:
                 pass
         os.popen(f"tmux kill-session -t {session} 2>/dev/null")
-        logger.info("Killed orphan tmux — session=%s pid=%s reason=%s", session, pid, reason)
         actions.append({"type": "orphan_tmux", "session": session, "pid": pid, "action": "killed"})
 
     all_java_pids = _find_all_java_pids()
-    orphan_java_pids = [p for p in all_java_pids if _is_minecraft_java_pid(p) and p not in known_pids]
-    if orphan_java_pids:
-        for pid in orphan_java_pids:
-            reason = f"orphan Java process (Minecraft) pid={pid} — not attached to any managed server"
-            logger.warning("Killing orphan Minecraft process — pid=%d reason=%s", pid, reason)
+    for pid in all_java_pids:
+        if not _is_minecraft_java_pid(pid):
+            continue
+        if pid in known_pids:
+            continue
+
+        if scope == "project_owned":
             try:
-                os.kill(pid, signal.SIGTERM)
-                await asyncio.sleep(0.5)
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+                is_owned = _is_project_owned_process(pid, servers_data_dir)
+            except Exception:
+                logger.warning("KILL_DECISION pid=%s scope=%s decision=SKIP reason='ownership-check-failed'", pid, scope)
+                continue
+            if not is_owned:
+                env_marker = _get_process_env(pid).get(MCS_MARKER)
+                proc_cwd = _get_process_cwd(pid)
+                logger.info(
+                    "KILL_DECISION pid=%s scope=%s marker=%s cwd=%s decision=SKIP reason='not-project-owned'",
+                    pid, scope, env_marker, proc_cwd,
+                )
+                continue
+
+        reason = f"orphan Java process (Minecraft) pid={pid} — not attached to any managed server"
+        env_marker = _get_process_env(pid).get(MCS_MARKER)
+        proc_cwd = _get_process_cwd(pid)
+        proc_start = _get_process_start_time(pid)
         logger.info(
-            "Killed %d orphan Minecraft processes (filtered from %d total Java PIDs)",
-            len(orphan_java_pids), len(all_java_pids),
+            "KILL_DECISION pid=%s scope=%s marker=%s cwd=%s start_time=%s decision=KILL reason=%s",
+            pid, scope, env_marker, proc_cwd, proc_start, reason,
         )
-        actions.append({"type": "orphan_java", "pids": orphan_java_pids, "action": "killed"})
+        try:
+            os.kill(pid, signal.SIGTERM)
+            await asyncio.sleep(0.5)
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        actions.append({"type": "orphan_java", "pid": pid, "action": "killed"})
 
     return actions
 
