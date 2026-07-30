@@ -83,6 +83,16 @@ def _verified_ownership(pid: int | None = None, servers_data_dir: str | None = N
     return OwnershipResult(status=OwnershipStatus.VERIFIED, has_marker=True, detail="marker present")
 
 
+def _cwd_verified_ownership(pid: int | None = None, servers_data_dir: str | None = None) -> OwnershipResult:
+    return OwnershipResult(
+        status=OwnershipStatus.VERIFIED,
+        has_marker=False,
+        cwd="/data/servers/my-server",
+        cwd_matches=True,
+        detail="cwd matches",
+    )
+
+
 class TestIsMinecraftCmdline:
     def test_matches_jar_pattern(self):
         assert _is_minecraft_cmdline("java -jar server.jar nogui")
@@ -526,6 +536,43 @@ class TestRuntimeOwnershipManagerClaim:
 
         assert result.success is True
         assert result.conflicts_resolved >= 1
+
+    async def test_claim_kills_orphan_tmux_with_cwd_only(self):
+        server = _make_server("s1", ServerStatus.STARTING)
+        repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+        repo.list = AsyncMock(return_value=[])
+        repo.get = AsyncMock(return_value=server)
+
+        manager = RuntimeOwnershipManager(repo)
+        with patch(
+            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+            return_value=[("mcs-orphan", 999)],
+        ):
+            with patch(
+                "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
+                return_value=[],
+            ):
+                with patch(
+                    "app.modules.server.application.runtime_ownership._find_all_java_pids",
+                    return_value=[999],
+                ):
+                    with patch(
+                        "app.modules.server.application.runtime_ownership._port_is_listening",
+                        return_value=False,
+                    ):
+                        with patch(
+                            "app.modules.server.application.runtime_ownership.verify_ownership",
+                            side_effect=_cwd_verified_ownership,
+                        ):
+                            with patch(
+                                "app.modules.server.application.runtime_ownership._try_kill_tmux_session",
+                                return_value=(True, "killed"),
+                            ):
+                                result = await manager.claim_localhost("s1")
+
+        assert result.success is True
+        assert result.conflicts_resolved >= 1
+        assert not any("skipped" in w.lower() for w in result.warnings)
 
     async def test_claim_kills_orphan_process(self):
         server = _make_server("s1", ServerStatus.STARTING)
