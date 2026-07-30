@@ -362,7 +362,7 @@ server_manger/
 
 | Issue | Impact | Status |
 |-------|--------|--------|
-| ~~`reconcile_orphans()` kills ALL mcs-* tmux + Java PIDs~~ | ~~Called at every startup, no DB cross-reference~~ | ✅ Fixed in 3521d33 |
+| ~~`reconcile_orphans()` kills ALL mcs-* tmux + Java PIDs~~ | ~~Called at every startup, no DB cross-reference~~ | ⚠️ Partially fixed in 3521d33 — DB-tracked servers protected; untracked real servers still killed (no ownership-verification mechanism) |
 | ArqQueue.get_status/get_result return stubs | Cannot query task progress in prod | ⚠️ Known |
 | Metrics retention rollups not implemented | Raw metrics only (no 1m/1h/1d aggregation) | 🔶 Future |
 | ContainerPluginRunner is a stub | Plugins can't run in Docker isolation yet | 🔶 Future |
