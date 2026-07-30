@@ -5,7 +5,7 @@
 **Version:** 7.1.0  
 **License:** MIT  
 **Repository:** `server_manger/`  
-**Last updated:** 2026-07-28
+**Last updated:** 2026-07-30
 
 ---
 
@@ -280,7 +280,7 @@ server_manger/
 
 ## Tests & Coverage
 
-### Backend — 942+ passing
+### Backend — 950 total (948 passing, 2 pre-existing test environment failures)
 
 | Test File | Tests | Group |
 |-----------|-------|-------|
@@ -304,7 +304,7 @@ server_manger/
 | `tests/application/test_monitoring.py` | 20 | Monitoring |
 | `tests/application/test_supervisor.py` | 15 | Runtime |
 | `tests/application/test_runtime_ownership.py` | 38 | Runtime |
-| `tests/application/test_runtime_reconciliation.py` | 13 | Runtime |
+| `tests/application/test_runtime_reconciliation.py` | 25 | Runtime |
 | `tests/application/test_import_service.py` | 10 | Services |
 | `tests/application/test_sagas.py` | 12 | Sagas |
 | `tests/domain/test_server_aggregate.py` | 30 | Domain |
@@ -354,7 +354,7 @@ server_manger/
 | Services | 10 |
 | Hooks | 8 |
 
-**Total: 1090 tests** (942 backend + 148 frontend)
+**Total: 1098 tests** (950 backend + 148 frontend)
 
 ---
 
@@ -362,7 +362,7 @@ server_manger/
 
 | Issue | Impact | Status |
 |-------|--------|--------|
-| ~~`reconcile_orphans()` kills ALL mcs-* tmux + Java PIDs~~ | ~~Called at every startup, no DB cross-reference~~ | ⚠️ Partially fixed in 3521d33 — DB-tracked servers protected; untracked real servers still killed (no ownership-verification mechanism) |
+| ~~`reconcile_orphans()` kills ALL mcs-* tmux + Java PIDs~~ | ~~Called at every startup, no DB cross-reference~~ | ✅ Fixed in 4a6b9f3 — ownership verification (marker env var + cwd check), scope param, audit logging, fail-safe |
 | ArqQueue.get_status/get_result return stubs | Cannot query task progress in prod | ⚠️ Known |
 | Metrics retention rollups not implemented | Raw metrics only (no 1m/1h/1d aggregation) | 🔶 Future |
 | ContainerPluginRunner is a stub | Plugins can't run in Docker isolation yet | 🔶 Future |
@@ -394,4 +394,13 @@ server_manger/
 
 ---
 
-*Generated: 2026-07-28 · Project: MCS Manager v4.0 (7.1.0) · Server Health & Integrity Engine Batch 04*
+### Batch 6 — Orphan Reconciliation Ownership Verification — 2 commits (2026-07-30)
+
+| Commit | Step | What changed |
+|--------|------|-------------|
+| `cb39233` | Phase 1 | Docs: correct Known Limitations entry — reconcile_orphans gap confirmed for untracked servers |
+| `4a6b9f3` | Fix 6 | reconcile_orphans(): ownership marker (MCS_MANAGED=1) at process spawn, cwd verification vs project data dir, scope param (project_owned/system_wide), structured audit logging, fail-safe default on check uncertainty. main.py + API route updated. 13→25 tests (+12). |
+
+**Verification:** 950 backend tests (948 passing, 2 pre-existing env failures), 148 frontend tests, lint clean.
+
+*Generated: 2026-07-30 · Project: MCS Manager v4.0 (7.1.0) · Batch 6 — Orphan Reconciliation*

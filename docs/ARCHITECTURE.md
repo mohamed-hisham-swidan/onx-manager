@@ -320,6 +320,48 @@ simply not be reachable for a given server.
 
 ---
 
+## Orphan Reconciliation Ownership Verification
+
+`reconcile_orphans()` in `runtime_reconciliation.py` cleans up stale OS resources
+(tmux sessions, Java processes) that belong to the project but have no matching
+DB record. To prevent killing untracked real Minecraft servers, it uses a
+**multi-factor ownership verification** system:
+
+### Factors (checked in order)
+
+1. **Positive ownership marker** — Every process spawned by `LocalLinuxProvider`
+   gets `MCS_MANAGED=1` in its environment (`/proc/{pid}/environ`). Presence of
+   this marker proves project ownership.
+2. **cwd inside project data directory** — `/proc/{pid}/cwd` is resolved and
+   compared against `MCS_SERVERS_DATA_DIR`. If the process's working directory
+   is within the project's server data directory, it's treated as owned.
+3. **DB cross-reference** — PID/session name matched against running/starting
+   servers in the database (existing behavior from 3521d33).
+
+### Scope separation
+
+| Scope | Startup default | Behavior |
+|-------|----------------|----------|
+| `project_owned` | ✅ | Kills only if ≥1 ownership check passes AND not in DB as running/starting. Uncertain → skip (fail-safe). |
+| `system_wide` | ❌ (manual API only) | Legacy: kills any `mcs-*` tmux session or Minecraft Java PID not in DB. |
+
+### Fail-safe default
+
+If any ownership check cannot be completed with certainty (`PermissionError`,
+`OSError`, missing PID, etc.), the process is **not killed**, a warning is
+logged, and the scanner moves on. This ensures startup never kills an untracked
+server due to transient filesystem errors.
+
+### Audit logging
+
+Every kill decision produces a structured log line:
+```
+KILL_DECISION pid=12345 scope=project_owned marker=True cwd=/data/servers/abc start_time=98765 decision=KILL reason="orphan tmux session"
+KILL_DECISION pid=99999 scope=project_owned marker=None cwd=None decision=SKIP reason="not-project-owned"
+```
+
+---
+
 ## Known Issues
 
 ### Nested-directory root_path (`data/servers/server` vs `data/servers/<uuid>`)

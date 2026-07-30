@@ -64,6 +64,28 @@ pytest-watch           # backend
 cd frontend && npm run test:watch  # frontend
 ```
 
+### POST /api/v1/servers/reconcile (Orphan Cleanup)
+
+The `/reconcile` endpoint triggers both runtime reconciliation (repairs DB/OS
+state mismatches for tracked servers) and orphan cleanup (kills stale OS resources).
+
+By default, orphan cleanup uses **safe `project_owned` scope** — it will only
+kill processes that can be positively identified as belonging to this project
+(via `MCS_MANAGED=1` env marker or cwd inside `MCS_SERVERS_DATA_DIR`). An
+untracked real Minecraft server will not be touched.
+
+To force legacy behavior (kill any `mcs-*` session or Minecraft PID not in DB):
+
+```bash
+curl -X POST http://localhost:8000/api/v1/servers/reconcile \
+  -H "Content-Type: application/json" \
+  -d '{"scope": "system_wide"}'
+```
+
+> ⚠️ **Warning**: `scope="system_wide"` will kill any process on the machine
+> that looks like a Minecraft server (matches cmdline pattern) and is not in
+> this project's DB. Use with extreme care on shared or production hosts.
+
 ### Preflight Cleanup
 
 Before starting, the project runs `scripts/preflight.sh` automatically to:
