@@ -81,6 +81,7 @@ class SQLServerRepository(ServerRepository):
         model.deployment_host = server.runtime.host if server.runtime else None
         model.deployment_port = server.runtime.port if server.runtime else None
         model.deployment_pid = server.runtime.pid if server.runtime else None
+        model.deployment_start_time = server.runtime.start_time if server.runtime else None
         model.external_id = server.runtime.external_id if server.runtime else None
 
         if server.deployment:
@@ -138,6 +139,7 @@ class SQLServerRepository(ServerRepository):
             host=model.deployment_host or "",
             port=model.deployment_port or 25565,
             pid=model.deployment_pid,
+            start_time=model.deployment_start_time,
             uptime_seconds=model.uptime_seconds or 0.0,
             last_crash_time=model.last_crash_time,
             restart_count=model.restart_count or 0,

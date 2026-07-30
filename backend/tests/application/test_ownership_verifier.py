@@ -150,3 +150,49 @@ class TestVerifyOwnership:
         result = verify_ownership(99999)
         assert result.status == OwnershipStatus.NOT_FOUND
 
+    @patch("app.modules.server.application.ownership_verifier._is_pid_alive", return_value=True)
+    @patch("app.modules.server.application.ownership_verifier._get_process_env")
+    @patch("app.modules.server.application.ownership_verifier._get_process_cwd")
+    @patch("app.modules.server.application.ownership_verifier._get_process_start_time")
+    def test_rejects_recycled_pid_via_start_time(
+        self,
+        mock_start_time,
+        mock_cwd,
+        mock_env,
+        mock_alive,
+    ):
+        mock_env.return_value = {"MCS_MANAGED": "1"}
+        mock_cwd.return_value = "/data/servers/my-server"
+        mock_start_time.return_value = 99999
+
+        result = verify_ownership(
+            100,
+            servers_data_dir="/data/servers",
+            stored_start_time=50000,
+        )
+        assert result.status == OwnershipStatus.NOT_OWNED
+        assert "start_time mismatch" in result.detail
+        assert result.start_time == 99999
+
+    @patch("app.modules.server.application.ownership_verifier._is_pid_alive", return_value=True)
+    @patch("app.modules.server.application.ownership_verifier._get_process_env")
+    @patch("app.modules.server.application.ownership_verifier._get_process_cwd")
+    @patch("app.modules.server.application.ownership_verifier._get_process_start_time")
+    def test_accepts_matching_start_time(
+        self,
+        mock_start_time,
+        mock_cwd,
+        mock_env,
+        mock_alive,
+    ):
+        mock_env.return_value = {"MCS_MANAGED": "1"}
+        mock_cwd.return_value = "/data/servers/my-server"
+        mock_start_time.return_value = 50000
+
+        result = verify_ownership(
+            100,
+            servers_data_dir="/data/servers",
+            stored_start_time=50000,
+        )
+        assert result.status == OwnershipStatus.VERIFIED
+

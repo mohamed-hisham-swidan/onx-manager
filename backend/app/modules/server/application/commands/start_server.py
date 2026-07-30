@@ -219,6 +219,7 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     port=result.port,
                     host=result.address,
                     external_id=external_id,
+                    start_time=result.metadata.get("start_time"),
                 )
                 await repo.save(server)
                 for event in server.collect_events():

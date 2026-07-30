@@ -188,9 +188,21 @@ class LocalLinuxProvider(ServerProvider):
                 f"Process died immediately after tmux creation server={server_id} session={session_name}",
             )
 
+        start_time: int | None = None
+        try:
+            with open(f"/proc/{pid}/stat", "r") as f:
+                data = f.read()
+            paren_end = data.rfind(")")
+            if paren_end != -1:
+                fields = data[paren_end + 2:].split()
+                if len(fields) >= 20:
+                    start_time = int(fields[19])
+        except (OSError, ValueError, IndexError):
+            pass
+
         logger.info(
-            "Phase 4/4: Server process started — server=%s pid=%d port=%d session=%s phase=startup",
-            server_label, pid, port, session_name,
+            "Phase 4/4: Server process started — server=%s pid=%d start_time=%s port=%d session=%s phase=startup",
+            server_label, pid, start_time, port, session_name,
         )
 
         handle = ServerHandle(
@@ -205,7 +217,7 @@ class LocalLinuxProvider(ServerProvider):
             address="127.0.0.1",
             port=port,
             pid=pid,
-            metadata={"handle": str(handle), "session_name": session_name},
+            metadata={"handle": str(handle), "session_name": session_name, "start_time": start_time},
         )
 
     async def stop(self, handle: ServerHandle, force: bool = False) -> None:

@@ -170,6 +170,7 @@ class RuntimeInfo:
     host: str = ""
     port: int = 25565
     pid: int | None = None
+    start_time: int | None = None
     uptime_seconds: float = 0.0
     last_crash_time: float | None = None
     restart_count: int = 0

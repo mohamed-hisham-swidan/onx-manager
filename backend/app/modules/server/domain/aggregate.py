@@ -209,7 +209,7 @@ class Server(AggregateRoot):
         self._transition_to(ServerStatus.STARTING)
         self._add_event(ServerStartingEvent(server_id=self._id))
 
-    def mark_running(self, pid: int, port: int, host: str = "127.0.0.1", external_id: str = "") -> None:
+    def mark_running(self, pid: int, port: int, host: str = "127.0.0.1", external_id: str = "", start_time: int | None = None) -> None:
         self._transition_to(ServerStatus.RUNNING)
         self._runtime = RuntimeInfo(
             status="running",
@@ -217,6 +217,7 @@ class Server(AggregateRoot):
             host=host,
             port=port,
             pid=pid,
+            start_time=start_time,
             restart_count=self._runtime.restart_count + 1 if self._runtime.status in ("running", "starting") else self._runtime.restart_count,
             external_id=external_id,
         )

@@ -37,6 +37,7 @@ class ServerModel(Base, TimestampMixin):
     deployment_host = Column(String(255), nullable=True)
     deployment_port = Column(Integer, nullable=True)
     deployment_pid = Column(Integer, nullable=True)
+    deployment_start_time = Column(Integer, nullable=True)
     external_id = Column(String(255), nullable=True)
 
     location_type = Column(String(16), nullable=False, default="local")

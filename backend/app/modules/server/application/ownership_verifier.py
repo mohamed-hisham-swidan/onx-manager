@@ -84,6 +84,7 @@ def _get_servers_data_dir() -> str:
 def verify_ownership(
     pid: int,
     servers_data_dir: Optional[str] = None,
+    stored_start_time: Optional[int] = None,
 ) -> OwnershipResult:
     if not _is_pid_alive(pid):
         return OwnershipResult(
@@ -105,13 +106,26 @@ def verify_ownership(
 
     start_time = _get_process_start_time(pid)
 
+    if stored_start_time is not None and start_time is not None:
+        if start_time != stored_start_time:
+            return OwnershipResult(
+                status=OwnershipStatus.NOT_OWNED,
+                has_marker=has_marker,
+                cwd=cwd,
+                cwd_matches=cwd_matches,
+                start_time=start_time,
+                detail=f"start_time mismatch: process={start_time} stored={stored_start_time} — PID likely recycled",
+            )
+
     if has_marker or cwd_matches:
         status = OwnershipStatus.VERIFIED
         detail_parts = []
         if has_marker:
             detail_parts.append("marker present")
         if cwd_matches:
-            detail_parts.append(f"cwd matches")
+            detail_parts.append("cwd matches")
+        if start_time is not None:
+            detail_parts.append(f"start_time={start_time}")
         detail = "; ".join(detail_parts)
     else:
         status = OwnershipStatus.UNKNOWN
