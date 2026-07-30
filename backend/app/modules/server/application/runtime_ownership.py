@@ -8,8 +8,13 @@ import socket
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
+from app.modules.server.application.ownership_verifier import (
+    OwnershipStatus,
+    log_ownership_decision,
+    verify_ownership,
+)
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
@@ -546,6 +551,18 @@ class RuntimeOwnershipManager:
         for orphan in snapshot.orphan_tmux:
             try:
                 reason = f"orphan tmux session {orphan.identifier} — no matching server in database"
+                if orphan.pid:
+                    ownership = verify_ownership(orphan.pid)
+                    log_ownership_decision(
+                        logger, "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
+                        f"session={orphan.identifier}", orphan.pid, ownership, reason,
+                    )
+                    if ownership.status != OwnershipStatus.VERIFIED:
+                        warnings.append(
+                            f"Skipped orphan tmux {orphan.identifier} — not verified as project-owned ({ownership.detail})"
+                        )
+                        resolved += 1
+                        continue
                 killed, info = _try_kill_tmux_session(orphan.identifier)
                 if killed:
                     actions.append(f"Killed orphan tmux session {orphan.identifier} — {reason}")
@@ -564,6 +581,17 @@ class RuntimeOwnershipManager:
             try:
                 reason = f"orphan Minecraft process PID {orphan.pid} — not attached to any managed server"
                 if orphan.pid:
+                    ownership = verify_ownership(orphan.pid)
+                    log_ownership_decision(
+                        logger, "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
+                        f"pid={orphan.pid}", orphan.pid, ownership, reason,
+                    )
+                    if ownership.status != OwnershipStatus.VERIFIED:
+                        warnings.append(
+                            f"Skipped orphan process PID {orphan.pid} — not verified as project-owned ({ownership.detail})"
+                        )
+                        resolved += 1
+                        continue
                     killed, info = _try_kill_process(orphan.pid)
                     if killed:
                         actions.append(f"Killed orphan Minecraft process PID {orphan.pid} — {reason}")
@@ -607,13 +635,38 @@ class RuntimeOwnershipManager:
             error="; ".join(warnings) if warnings else None,
         )
 
-    async def cleanup_orphans(self) -> list[dict[str, Any]]:
+    async def cleanup_orphans(
+        self,
+        scope: Literal["project_owned", "system_wide"] = "project_owned",
+    ) -> list[dict[str, Any]]:
         snapshot = await self.discover_all()
         cleanup_actions: list[dict[str, Any]] = []
+        servers_data_dir: str | None = None
+        if scope == "project_owned":
+            try:
+                from app.modules.server.application.ownership_verifier import _get_servers_data_dir
+                servers_data_dir = _get_servers_data_dir()
+            except Exception:
+                pass
 
         for orphan in snapshot.orphan_tmux:
             try:
                 reason = f"orphan tmux session {orphan.identifier} — no matching DB server"
+                if scope == "project_owned" and orphan.pid:
+                    ownership = verify_ownership(orphan.pid, servers_data_dir)
+                    log_ownership_decision(
+                        logger, "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
+                        f"session={orphan.identifier}", orphan.pid, ownership, reason,
+                    )
+                    if ownership.status != OwnershipStatus.VERIFIED:
+                        cleanup_actions.append({
+                            "type": "orphan_tmux",
+                            "identifier": orphan.identifier,
+                            "pid": orphan.pid,
+                            "action": "skipped",
+                            "reason": f"not verified as project-owned ({ownership.detail})",
+                        })
+                        continue
                 logger.warning("Cleaning orphan tmux — %s", reason)
                 killed, info = _try_kill_tmux_session(orphan.identifier)
                 cleanup_actions.append({
@@ -641,6 +694,20 @@ class RuntimeOwnershipManager:
         for orphan in snapshot.orphan_processes:
             try:
                 reason = f"orphan Minecraft process PID {orphan.pid} — not attached to any managed server"
+                if scope == "project_owned" and orphan.pid:
+                    ownership = verify_ownership(orphan.pid, servers_data_dir)
+                    log_ownership_decision(
+                        logger, "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
+                        f"pid={orphan.pid}", orphan.pid, ownership, reason,
+                    )
+                    if ownership.status != OwnershipStatus.VERIFIED:
+                        cleanup_actions.append({
+                            "type": "orphan_process",
+                            "pid": orphan.pid,
+                            "action": "skipped",
+                            "reason": f"not verified as project-owned ({ownership.detail})",
+                        })
+                        continue
                 logger.warning("Cleaning orphan process — %s", reason)
                 if orphan.pid:
                     killed, info = _try_kill_process(orphan.pid)

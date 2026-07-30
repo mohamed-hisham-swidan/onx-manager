@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.modules.server.application.ownership_verifier import (
+    OwnershipResult,
+    OwnershipStatus,
+)
 from app.modules.server.application.runtime_ownership import (
     ConflictReason,
     RuntimeOwnershipManager,
@@ -73,6 +77,10 @@ def _make_server(
         s.collect_events()
 
     return s
+
+
+def _verified_ownership(pid: int | None = None, servers_data_dir: str | None = None) -> OwnershipResult:
+    return OwnershipResult(status=OwnershipStatus.VERIFIED, has_marker=True, detail="marker present")
 
 
 class TestIsMinecraftCmdline:
@@ -507,10 +515,14 @@ class TestRuntimeOwnershipManagerClaim:
                         return_value=False,
                     ):
                         with patch(
-                            "app.modules.server.application.runtime_ownership._try_kill_tmux_session",
-                            return_value=(True, "killed"),
+                            "app.modules.server.application.runtime_ownership.verify_ownership",
+                            side_effect=_verified_ownership,
                         ):
-                            result = await manager.claim_localhost("s1")
+                            with patch(
+                                "app.modules.server.application.runtime_ownership._try_kill_tmux_session",
+                                return_value=(True, "killed"),
+                            ):
+                                result = await manager.claim_localhost("s1")
 
         assert result.success is True
         assert result.conflicts_resolved >= 1
@@ -543,10 +555,14 @@ class TestRuntimeOwnershipManagerClaim:
                             return_value=False,
                         ):
                             with patch(
-                                "app.modules.server.application.runtime_ownership._try_kill_process",
-                                return_value=(True, "killed by test mock"),
+                                "app.modules.server.application.runtime_ownership.verify_ownership",
+                                side_effect=_verified_ownership,
                             ):
-                                result = await manager.claim_localhost("s1")
+                                with patch(
+                                    "app.modules.server.application.runtime_ownership._try_kill_process",
+                                    return_value=(True, "killed by test mock"),
+                                ):
+                                    result = await manager.claim_localhost("s1")
 
         assert result.success is True
         assert result.conflicts_resolved >= 1
@@ -572,12 +588,16 @@ class TestRuntimeOwnershipManagerCleanup:
                     return_value=[888],
                 ):
                     with patch(
-                        "app.modules.server.application.runtime_ownership.os.kill",
+                        "app.modules.server.application.runtime_ownership.verify_ownership",
+                        side_effect=_verified_ownership,
                     ):
                         with patch(
-                            "app.modules.server.application.runtime_ownership.os.popen",
+                            "app.modules.server.application.runtime_ownership.os.kill",
                         ):
-                            actions = await manager.cleanup_orphans()
+                            with patch(
+                                "app.modules.server.application.runtime_ownership.os.popen",
+                            ):
+                                actions = await manager.cleanup_orphans()
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_tmux"
@@ -605,9 +625,13 @@ class TestRuntimeOwnershipManagerCleanup:
                         return_value=True,
                     ):
                         with patch(
-                            "app.modules.server.application.runtime_ownership.os.kill",
+                            "app.modules.server.application.runtime_ownership.verify_ownership",
+                            side_effect=_verified_ownership,
                         ):
-                            actions = await manager.cleanup_orphans()
+                            with patch(
+                                "app.modules.server.application.runtime_ownership.os.kill",
+                            ):
+                                actions = await manager.cleanup_orphans()
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_process"
