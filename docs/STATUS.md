@@ -354,7 +354,7 @@ server_manger/
 | Services | 10 |
 | Hooks | 8 |
 
-**Total: 1098 tests** (950 backend + 148 frontend)
+**Total: 1114 tests** (966 backend + 148 frontend)
 
 ---
 
@@ -405,15 +405,16 @@ server_manger/
 
 ---
 
-### Batch 7 — Runtime Ownership Verification — 2 commits (2026-07-30)
+### Batch 7 — Runtime Ownership Verification — 3 commits (2026-07-30)
 
 | Commit | Step | What changed |
 |--------|------|-------------|
 | `6d99146` | Gap 1 | `ownership_verifier.py` (shared module): ownership check before kill in `claim_localhost()` + `cleanup_orphans()`; `scope` param; `KILL_DECISION` audit logging. +13 tests for verifier; +4 existing patched. |
 | `a66f322` | Gap 2 | Store process `start_time` in DB (`RuntimeInfo.start_time`, `ServerModel.deployment_start_time`, Alembic migration). Capture in local provider. Compare in `verify_ownership()` — rejects recycled PIDs on start_time mismatch. +2 tests. |
+| `433f982` | Gap 2b | Test: cwd-only ownership detection — verifies pre-fix servers (no env marker, correct cwd) are identified as owned and cleaned up. +1 test. |
 
 **Known Limitations changes:** `⚠️ Partially fixed` → `✅ Fixed` (both `reconcile_orphans()` in Batch 6 and `runtime_ownership.py` in Batch 7 now verify ownership before killing).
 
-**Verification:** 950 backend tests (948 passing, 2 pre-existing env failures), 148 frontend tests, all pass.
+**Verification:** 966 backend tests (964 passing, 2 pre-existing env failures — `test_start_server` startup guard, `test_metrics_task_requires_collector` graceful handler), 148 frontend tests. Docker build + up: both containers healthy.
 
 *Generated: 2026-07-30 · Project: MCS Manager v4.0 (7.1.0) · Batch 7 — Runtime Ownership*
