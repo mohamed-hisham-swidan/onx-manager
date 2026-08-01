@@ -246,7 +246,7 @@ class TestBackupSaga:
             encryption=BackupEncryption(key=os.urandom(32)),
         )
 
-        path = f"backups/{backup_id}.tar.gz.enc"
+        path = f"{backup_id}.tar.gz.enc"
         assert await storage.exists(path) is True
         async with database.session_factory() as session:
             repo = SQLBackupRepository(session)
@@ -280,7 +280,7 @@ class TestBackupSaga:
             encryption=BackupEncryption(key=os.urandom(32)),
         )
 
-        path = f"backups/{backup_id}.tar.gz.enc"
+        path = f"{backup_id}.tar.gz.enc"
         assert await storage.exists(path) is False
         async with database.session_factory() as session:
             repo = SQLBackupRepository(session)

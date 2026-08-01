@@ -29,7 +29,7 @@ CONFIG_FILES: tuple[str, ...] = (
 
 
 def artifact_path(backup_id: BackupJobId) -> str:
-    return f"backups/{backup_id}.tar.gz.enc"
+    return f"{backup_id}.tar.gz.enc"
 
 
 class BackupSaga:

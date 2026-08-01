@@ -136,7 +136,7 @@ class TestBackupSaga:
         assert job.status == BackupStatus.COMPLETED
         assert job.backup_type == BackupType.FULL
         assert job.size_bytes > 0
-        expected_path = f"backups/{backup_id}.tar.gz.enc"
+        expected_path = f"{backup_id}.tar.gz.enc"
         assert job.storage_path == expected_path
 
         artifact = await storage.read(expected_path)
@@ -182,7 +182,7 @@ class TestBackupSaga:
 
         assert job.status == BackupStatus.FAILED
         assert job.size_bytes == 0
-        assert not await storage.exists(f"backups/{backup_id}.tar.gz.enc")
+        assert not await storage.exists(f"{backup_id}.tar.gz.enc")
 
 
 class TestDeleteBackupHandler:
