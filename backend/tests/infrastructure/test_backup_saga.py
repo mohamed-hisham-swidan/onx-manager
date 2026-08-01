@@ -33,6 +33,7 @@ from app.modules.server.domain.value_objects import (
     ServerType,
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
+from app.modules.server.domain.value_objects import RuntimeInfo
 from app.modules.shared.value_objects import BackupJobId, MinecraftVersion, ServerId
 from app.modules.storage.encryption import BackupEncryption
 from app.modules.storage.local import LocalStorage
@@ -242,3 +243,116 @@ class TestDeleteBackupHandler:
         async with database.session_factory() as session:
             job = await SQLBackupRepository(session).get_job(backup_id)
             assert job.storage_path == path
+
+
+class _FakeProvider:
+    def __init__(self, console_responses: list[list[str]]) -> None:
+        self.commands: list[str] = []
+        self._responses = list(console_responses)
+
+    async def execute_command(self, handle, command: str) -> str:
+        self.commands.append(command)
+        return ""
+
+    async def console(self, handle, tail: int = 100) -> list[str]:
+        if self._responses:
+            return self._responses.pop(0)
+        return []
+
+
+def _build_running_server(server_id: ServerId, server_dir: str) -> Server:
+    server = _build_server(server_id, server_dir)
+    server._status = ServerStatus.RUNNING
+    server._runtime = RuntimeInfo(
+        status="running",
+        provider="local",
+        host="127.0.0.1",
+        port=25566,
+        pid=12345,
+        external_id="mcs-save-test-session",
+    )
+    return server
+
+
+class TestSaveAllOnRunningServer:
+    @pytest.mark.asyncio
+    async def test_save_world_confirmed_backup_proceeds(self, app_db, tmp_path) -> None:
+        server_dir = str(tmp_path / "server")
+        _seed_world(server_dir)
+        server_id = ServerId(uuid.uuid4().hex)
+        backup_id = BackupJobId()
+        storage = LocalStorage(str(tmp_path / "backups"))
+        encryption = BackupEncryption(key=os.urandom(32))
+
+        fake = _FakeProvider(
+            [
+                ["[Server thread/INFO]: Saving chunks for level 'world'/overworld"],
+                ["[Server thread/INFO]: Saved the game"],
+            ],
+        )
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(_build_running_server(server_id, server_dir))
+            await session.commit()
+        await _seed_pending_job(backup_id, server_id)
+
+        saga = BackupSaga(SagaOrchestrator())
+        with patch(
+            "app.modules.server.infrastructure.providers.provider_factory"
+        ) as mock_factory:
+            mock_factory.get.return_value = fake
+            await saga.execute(
+                backup_id=backup_id,
+                server_id=server_id,
+                storage=storage,
+                encryption=encryption,
+            )
+
+        assert fake.commands == ["save-all"]
+        async with database.session_factory() as session:
+            job = await SQLBackupRepository(session).get_job(backup_id)
+        assert job.status == BackupStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_save_world_timeout_marks_job_failed(self, app_db, tmp_path) -> None:
+        server_dir = str(tmp_path / "server")
+        _seed_world(server_dir)
+        server_id = ServerId(uuid.uuid4().hex)
+        backup_id = BackupJobId()
+        storage = LocalStorage(str(tmp_path / "backups"))
+
+        fake = _FakeProvider(
+            [["[Server thread/INFO]: Saving chunks for level 'world'/overworld"]],
+        )
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(_build_running_server(server_id, server_dir))
+            await session.commit()
+        await _seed_pending_job(backup_id, server_id)
+
+        saga = BackupSaga(SagaOrchestrator())
+        with patch(
+            "app.modules.server.infrastructure.providers.provider_factory"
+        ) as mock_factory, patch(
+            "app.services.backup_orchestrator.SAVE_ALL_CONFIRMATION_TIMEOUT_S",
+            0.6,
+        ), patch(
+            "app.services.backup_orchestrator.SAVE_ALL_POLL_INTERVAL_S",
+            0.1,
+        ):
+            mock_factory.get.return_value = fake
+            await saga.execute(
+                backup_id=backup_id,
+                server_id=server_id,
+                storage=storage,
+                encryption=BackupEncryption(key=os.urandom(32)),
+            )
+
+        assert fake.commands == ["save-all"]
+        async with database.session_factory() as session:
+            job = await SQLBackupRepository(session).get_job(backup_id)
+        assert job.status == BackupStatus.FAILED
+        assert job.size_bytes == 0
+        assert "save_world" in job.error_message

@@ -1,15 +1,19 @@
+import asyncio
 import hashlib
 import logging
 import os
+import re
 import shutil
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 
 from app.core.saga import SagaOrchestrator, SagaStep
 from app.modules.backup.domain.aggregate import BackupStatus
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
+from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
 from app.modules.storage.base import StorageBackend
@@ -26,6 +30,20 @@ CONFIG_FILES: tuple[str, ...] = (
     "banned-players.json",
     "banned-ips.json",
 )
+
+# Timeout for a save-all on a running server to be confirmed via console
+# output. A normal world save completes in a few seconds even on a loaded
+# world; 30s is an order of magnitude beyond that but still well inside the
+# backup saga's 600s budget, so a genuinely stalled save fails fast without
+# aborting a legitimately slow one.
+SAVE_ALL_CONFIRMATION_TIMEOUT_S = 30.0
+SAVE_ALL_POLL_INTERVAL_S = 0.5
+
+# Minecraft's save-all completion line. No sample log output exists in this
+# repo, so both the vanilla wording ("Saved the game") and the
+# paper/purpur/spigot wording ("Saved the world") are matched,
+# case-insensitively.
+_SAVE_CONFIRMED_RE = re.compile(r"saved the (game|world)", re.IGNORECASE)
 
 
 def artifact_path(backup_id: BackupJobId) -> str:
@@ -99,9 +117,51 @@ class BackupSaga:
             if not await self._server_is_running(server_id):
                 logger.info("World save not required — server %s is not running (backup %s)", server_id, backup_id)
                 return
-            logger.info("World saved for backup %s", backup_id)
+
+            server = await self._load_server(server_id)
+            if not server.runtime or not server.runtime.external_id:
+                raise RuntimeError(
+                    f"Server {server_id} is running but has no runtime handle — "
+                    f"cannot send save-all for backup {backup_id}",
+                )
+
+            handle = ServerHandle(
+                provider=server.runtime.provider,
+                server_id=str(server_id),
+                external_id=server.runtime.external_id,
+            )
+            from app.modules.server.infrastructure.providers import provider_factory
+
+            provider = provider_factory.get(server.runtime.provider)
+            await provider.execute_command(handle, "save-all")
+            await self._wait_for_save_confirmed(backup_id, server_id, provider, handle)
+            logger.info(
+                "Save-all confirmed for server %s (backup %s) — proceeding with backup",
+                server_id, backup_id,
+            )
 
         return fn
+
+    async def _wait_for_save_confirmed(
+        self,
+        backup_id: BackupJobId,
+        server_id: ServerId,
+        provider,
+        handle: ServerHandle,
+    ) -> None:
+        deadline = time.monotonic() + SAVE_ALL_CONFIRMATION_TIMEOUT_S
+        while True:
+            lines = await provider.console(handle, tail=200)
+            for line in lines:
+                if _SAVE_CONFIRMED_RE.search(line):
+                    return
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"save-all confirmation not observed within "
+                    f"{SAVE_ALL_CONFIRMATION_TIMEOUT_S:.0f}s for server {server_id}, "
+                    f"backup {backup_id}",
+                )
+            await asyncio.sleep(SAVE_ALL_POLL_INTERVAL_S)
 
     def _compress(self, backup_id: BackupJobId, server_id: ServerId):
         async def fn() -> None:
@@ -254,3 +314,8 @@ class BackupSaga:
             repo = SQLServerRepository(uow.session)
             server = await repo.get(server_id)
             return server.status.value in ("running", "starting")
+
+    async def _load_server(self, server_id: ServerId):
+        async with UnitOfWork() as uow:
+            repo = SQLServerRepository(uow.session)
+            return await repo.get(server_id)
