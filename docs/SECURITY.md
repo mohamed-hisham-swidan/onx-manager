@@ -1,6 +1,6 @@
 # Security Architecture
 
-This document describes the authentication, authorization, audit, data protection, rate limiting, and session management systems. Cross-reference: `Implementation/Shared/Contracts/permissions.yaml` for the full permission and role definitions, `Implementation/Batch-08/DECISIONS.md` for design rationale.
+This document describes the authentication, authorization, audit, data protection, rate limiting, and session management systems. Cross-reference: `contracts/permissions.yaml` for the full permission and role definitions.
 
 ---
 
@@ -24,7 +24,7 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 
 | Token | TTL | Storage | Notes |
 |---|---|---|---|
-| Access token | 15 minutes | In-memory (not localStorage) | Short-lived, stateless |
+| Access token | 15 minutes | Persisted in the frontend `authStore` (localStorage key `mcs_auth`) | Short-lived, stateless |
 | Refresh token | 7 days | httpOnly cookie + DB (SHA-256 hash) | Individually revocable, rotated on use |
 
 ### Refresh Token Rotation
@@ -71,7 +71,7 @@ The authorization system uses Role-Based Access Control as the primary model wit
 
 ### Permission Strings
 
-Permission strings follow the `<resource>:<action>` format. Defined in `Implementation/Shared/Contracts/permissions.yaml`.
+Permission strings follow the `<resource>:<action>` format. Defined in `contracts/permissions.yaml`.
 
 | Permission | Description | Scope |
 |---|---|---|

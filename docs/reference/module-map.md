@@ -49,7 +49,7 @@ Every backend module mapped to its purpose, path, and the batch that built it. D
 | Module | Path | Type | Description |
 |---|---|---|---|
 | API Layer | `backend/app/api/` | Interface | FastAPI app factory, dependency injection, global error handlers |
-| API v1 Routers | `backend/app/api/v1/routers/` | Interface | REST endpoints for servers, backups, plugins, users, auth, monitoring, schedules, settings, software |
+| API v1 Routers | `backend/app/api/v1/routers/` | Interface | REST endpoints for servers, backups, plugins, users, auth, monitoring, health, schedules, settings, software |
 | API v1 Schemas | `backend/app/api/v1/schemas/` | Interface | Pydantic request/response schemas |
 | API v1 Middleware | `backend/app/api/v1/middleware/` | Interface | Auth, audit, request ID, rate-limit middleware |
 
@@ -82,6 +82,14 @@ Every backend module mapped to its purpose, path, and the batch that built it. D
 | Monitoring Infra | `backend/app/modules/monitoring/infrastructure/` | Infrastructure | Metrics registry, server metrics collector, health check registry, ORM models |
 | Event Store | `backend/app/modules/event_store/` | Infrastructure | Event repository, cryptographic chain verification, dead letter queue |
 
+## Health & Integrity Engine — post-Batch 10
+
+| Module | Path | Type | Description |
+|---|---|---|---|
+| Health Domain | `backend/app/modules/health/domain/` | Domain | `ServerHealth` aggregate, `FailureCode` enum, domain events, repository interface |
+| Health App | `backend/app/modules/health/application/` | Application | Commands (evaluate health, crash recovery), queries (status, timeline, dashboard), event handlers |
+| Health Infra | `backend/app/modules/health/infrastructure/` | Infrastructure | Health calculator, crash analyzer, evidence collector, environment fingerprinting, integrity validation, recovery orchestrator, ORM models |
+
 ## Frontend — Batch 10
 
 | Module | Path | Type | Description |
@@ -89,7 +97,7 @@ Every backend module mapped to its purpose, path, and the batch that built it. D
 | Frontend App | `frontend/src/` | Interface | React SPA (Vite + TypeScript), stores, components, pages, services, hooks |
 | App Entry | `frontend/src/main.tsx`, `App.tsx` | Interface | Root component and entry point |
 | Pages | `frontend/src/pages/` | Interface | Login, Register |
-| Server Manager Pages | `frontend/src/server_manager/pages/` | Interface | Dashboard, Servers, Server Detail, Backup List, Plugin List, Settings, API Keys |
+| Server Manager Pages | `frontend/src/server_manager/pages/` | Interface | Dashboard, Servers, Create Server, Import Server, Server Detail, Backup List, Plugin List, Settings, API Keys |
 | Components | `frontend/src/components/` | Interface | Shared UI: `WebSocketManager`, `ErrorBoundary`, `EmptyState`, `Skeleton`, `AuthGuard`, `Sidebar`, `TopNav` |
 | Server Manager Components | `frontend/src/server_manager/components/` | Interface | Server-specific: `ServerConsole`, `ServerConfigEditor`, `ServerMetricsCharts`, `CreateBackupDialog`, `InstallPluginDialog`, `Sparkline` |
 
@@ -109,6 +117,7 @@ Every backend module mapped to its purpose, path, and the batch that built it. D
 | 08 | Infrastructure + App | auth/infrastructure, auth/application |
 | 09 | Infrastructure | tasks, monitoring/infrastructure, event_store |
 | 10 | Interface | frontend/src |
+| health | Domain + App + Infra | health/domain, health/application, health/infrastructure |
 
 ---
 

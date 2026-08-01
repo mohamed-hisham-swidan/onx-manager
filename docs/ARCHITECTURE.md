@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**Last updated**: 2026-07-27  
+**Last updated**: 2026-08-01  
 **Cross-references**: [ADR-0001](decisions/0001-modular-monolith.md), [ADR-0002](decisions/0002-command-query-event-buses.md), [ADR-0007](decisions/0007-core-persistence-rename.md)
 
 ---
@@ -42,7 +42,7 @@ backend/app/
 │   ├── errors.py              # Global exception handlers
 │   └── v1/
 │       ├── middleware/        # Auth, audit, rate-limit, request-id
-│       ├── routers/           # 9 endpoint groups
+│       ├── routers/           # 10 endpoint groups + WebSocket
 │       └── schemas/           # Pydantic request/response schemas
 ├── core/                      # Foundation layer
 │   ├── command_bus.py         # CQRS command bus
@@ -174,7 +174,7 @@ Both must be set together when running test/development backends. Because `setsi
 | Language | Python 3.14+ |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (9 revisions) |
+| Migrations | Alembic (13 revisions) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
 | Message Queue | InProcessQueue (dev), Arq/Redis (production) |
@@ -187,7 +187,7 @@ Both must be set together when running test/development backends. Because `setsi
 |-----------|--------|
 | Language | TypeScript 5+ |
 | Framework | React 19+ (Vite) |
-| Styling | TailwindCSS 4+, shadcn/ui |
+| Styling | TailwindCSS 4+ (raw Tailwind components, no shadcn/ui) |
 | Data Fetching | TanStack Query |
 | State | Zustand |
 
@@ -224,11 +224,14 @@ Both Dockerfiles and `docker-compose.yml` are at the repository root. The backen
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MCS_DATABASE_URL` | Yes | PostgreSQL connection string |
-| `REDIS_URL` | Yes | Redis connection for production |
-| `JWT_PRIVATE_KEY` | Yes* | RSA private key PEM (*auto-generated if absent) |
-| `JWT_PUBLIC_KEY` | Yes* | RSA public key PEM (*auto-generated if absent) |
-| `STORAGE_BACKEND` | No | `local` or `s3` (default: `local`) |
+| `MCS_DATABASE_URL` | Yes | SQLite or PostgreSQL connection string |
+| `MCS_JWT_PRIVATE_KEY` | Yes* | RSA private key PEM (*auto-generated if absent) |
+| `MCS_JWT_PRIVATE_KEY_PATH` | No | Path to a PEM file to load instead of the env/auto-generated key |
+| `MCS_STORAGE_BACKEND` | No | `local` or `s3` (default: `local`) |
+
+The RSA public key is derived from the private key at runtime — no public-key
+env var is needed. The Arq/Redis task queue connects to `redis://localhost:6379`
+by default (not configurable via `MCS_*` env vars).
 
 ---
 
@@ -385,7 +388,7 @@ isn't reachable until root_path is fixed.
 ## Testing
 
 ```bash
-pytest                          # All tests (941 passing)
+pytest                          # All tests (984 passing)
 pytest tests/ -x -q             # Quick run, stop on first failure
 ```
 
@@ -407,3 +410,4 @@ Test isolation: sandbox database + sandbox server directory, set via `MCS_DATABA
 | 0008 | 2026-07-27 | Environment-Variable-Driven Sandbox Isolation |
 | 0009 | 2026-07-27 | Pydantic Field Validators for Domain Value-Object Inputs |
 | 0010 | 2026-07-27 | Commit-per-Step Discipline for Structural Changes |
+| 0011 | 2026-07-27 | Orphan Reconciliation with Ownership Verification |

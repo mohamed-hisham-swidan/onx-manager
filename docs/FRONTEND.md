@@ -11,8 +11,8 @@
 | Server state | TanStack Query 5 |
 | Global state | Zustand 5 |
 | Routing | React Router v7 |
-| Forms | Native React Hook Form + Zod |
-| Charts | Recharts / Nivo |
+| Forms | Native React controlled components |
+| Charts | Custom components (Sparkline, ServerMetricsCharts) — no chart library |
 | Testing | Vitest + jsdom + @testing-library/react |
 
 UI primitives are raw Tailwind components — shadcn/ui is not used (intentional decision to avoid dependency overhead). See `frontend/package.json` for exact versions.
@@ -85,7 +85,6 @@ queryKeys = {
   plugins: { all: ["plugins"], list: (serverId) => ["plugins", "list", serverId] },
   auth:    { me: ["auth", "me"], apiKeys: ["auth", "api-keys"] },
   users:   { all: ["users"], list: () => ["users", "list"], detail: (id) => ["users", "detail", id] },
-  health: { status: (id) => ["health", "status", id], timeline: (id) => ["health", "timeline", id], dashboard: ["health", "dashboard"] },
   monitoring: { metrics: (serverId?) => ["monitoring", "metrics", serverId] },
   console: { history: (serverId) => ["console", "history", serverId] },
   settings: { all: ["settings"] },
@@ -104,7 +103,7 @@ Three stores, all accessed via selector functions for optimal re-render:
 
 ### Forms
 
-All forms use native React controlled components through TanStack Query mutations. Zod schemas validate inputs before submission.
+All forms use native React controlled components through TanStack Query mutations.
 
 ## Key Pages & Routes
 
@@ -121,8 +120,6 @@ All forms use native React controlled components through TanStack Query mutation
 | `/plugins` | `PluginListPage` | Plugin table, install/enable/disable |
 | `/settings` | `SettingsPage` | Global application settings |
 | `/settings/api-keys` | `ApiKeysPage` | API key management |
-| `/health` | `HealthDashboardPage` | Health overview dashboard |
-| `/servers/:serverId/health` | `ServerHealthPage` | Per-server health timeline & diagnostics |
 
 All authenticated routes are wrapped in `AuthGuard` (`frontend/src/components/guards/AuthGuard.tsx`) which redirects to `/login` if `isAuthenticated` is false. Each page is wrapped in `ErrorBoundary` for isolated error handling.
 
@@ -192,8 +189,6 @@ Connection lifecycle: connect on login → subscribe to channels → disconnect 
 "server:{id}"       → ["servers", "detail", id]
 "backups:list"      → ["backups", "list"]
 "plugins:list"      → ["plugins", "list"]
-"health:{id}"       → ["health", "status", id]
-"health:dashboard"  → ["health", "dashboard"]
 "metrics:{id}"      → ["monitoring", "metrics", id]
 "metrics_batch:{id}" → ["monitoring", "metrics", id]
 ```

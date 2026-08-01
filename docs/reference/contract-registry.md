@@ -2,7 +2,7 @@
 
 > Cross-references: [Dependency Graph](dependency-graph.md), [Event Catalog](event-catalog.md), [Module Map](module-map.md), [Architecture](../ARCHITECTURE.md)
 
-Source: `Implementation/Shared/Contracts/`
+Source: `contracts/`
 
 ---
 
@@ -29,7 +29,7 @@ Source: `Implementation/Shared/Contracts/`
 
 - **Version:** Draft-07
 - **Scope:** Server module
-- **Path:** `Implementation/Shared/Contracts/config.schema.json`
+- **Path:** `contracts/config.schema.json`
 
 Top-level schema for immutable server configuration. Validates Minecraft version (semver pattern), memory allocation (1024 MB min), port range (1024–65535), JVM args, provider type, stop timeout. Conditional requirement: `provider_type: "remote"` requires `ssh_host`, `ssh_user`, `ssh_key_path`.
 
@@ -37,7 +37,7 @@ Top-level schema for immutable server configuration. Validates Minecraft version
 
 - **Version:** 1.0
 - **Scope:** Plugin system
-- **Path:** `Implementation/Shared/Contracts/plugin.yaml`
+- **Path:** `contracts/plugin.yaml`
 
 Defines the plugin manifest schema (name, version, author, isolation mode, permissions for filesystem/network/events/system) and the plugin lifecycle state machine with nine states (INSTALLED → DISABLED → ENABLING → ENABLED → DISABLING → UNINSTALLING → UNINSTALLED, +FAILED) and valid transitions.
 
@@ -45,7 +45,7 @@ Defines the plugin manifest schema (name, version, author, isolation mode, permi
 
 - **Version:** 1.0
 - **Scope:** Auth system
-- **Path:** `Implementation/Shared/Contracts/permissions.yaml`
+- **Path:** `contracts/permissions.yaml`
 
 Defines every permission string and its scoping (`server_id` or `global`). Covers server CRUD + start/stop, backup CRUD, plugin management, user management, settings, and `admin:full`. Defines three built-in roles:
 - **viewer:** read-only on servers, backups, plugins
@@ -56,7 +56,7 @@ Defines every permission string and its scoping (`server_id` or `global`). Cover
 
 - **Version:** 1.0
 - **Scope:** All modules
-- **Path:** `Implementation/Shared/Contracts/events.yaml`
+- **Path:** `contracts/events.yaml`
 
 Standard event envelope schema (id, type, version, timestamp, source, correlation_id, payload) plus schemas for every domain event. See [Event Catalog](event-catalog.md) for full list.
 
@@ -64,7 +64,7 @@ Standard event envelope schema (id, type, version, timestamp, source, correlatio
 
 - **Version:** 1.0
 - **Scope:** REST API
-- **Path:** `Implementation/Shared/Contracts/api.yaml`
+- **Path:** `contracts/api.yaml`
 
 Cross-batch agreement on REST API behavior:
 - **Base path:** `/api/v1`
@@ -83,4 +83,4 @@ Cross-batch agreement on REST API behavior:
 
 ---
 
-The concrete abstract class / protocol stubs live in `Implementation/Shared/Interfaces/` (populated during implementation as batches stabilize).
+The concrete abstract classes / protocol stubs live in each module's `domain/` (ports) and `infrastructure/` (adapters) layers — see the [Module Map](module-map.md) for locations.

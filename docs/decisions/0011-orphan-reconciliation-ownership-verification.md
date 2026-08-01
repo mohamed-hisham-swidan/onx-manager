@@ -18,7 +18,7 @@ Reconcile-orphans must not kill a process unless it can verify the process was a
 
 2. **cwd-based ownership** — `/proc/{pid}/cwd` is checked against the project's `MCS_SERVERS_DATA_DIR`. A process whose working directory is inside the project's data directory is treated as owned. This catches processes launched before the marker was introduced.
 
-3. **Process start-time verification** — `/proc/{pid}/stat` start_time is read for audit logging. (Full DB-stored start_time comparison deferred to future work requiring schema migration.)
+3. **Process start-time verification** — `/proc/{pid}/stat` start_time is read for audit logging. This is now also compared against the DB-stored `deployment_start_time` (`ServerModel`), populated at start and migrated via revision `a3b2c3d4e5f6`.
 
 ### Scope parameter
 

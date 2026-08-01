@@ -2,7 +2,7 @@
 
 > Cross-references: [Contract Registry](contract-registry.md), [Dependency Graph](dependency-graph.md), [Module Map](module-map.md)
 
-Sources: `Implementation/Shared/Events/README.md`, `Implementation/Shared/Contracts/events.yaml`
+Sources: `events/README.md`, `contracts/events.yaml`
 
 ---
 

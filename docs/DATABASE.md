@@ -187,6 +187,7 @@ alembic downgrade -1
 | `876be46160d4` | `876be46160d3` | Health tables (health_status, timeline, evidence, diagnostics) |
 | `a1b2c3d4e5f6` | `876be46160d4` | missing_since on servers |
 | `a2b2c3d4e5f7` | `a1b2c3d4e5f6` | updated_at on alert_rules |
+| `a3b2c3d4e5f6` | `a2b2c3d4e5f7` | deployment_start_time on servers (ownership verification) |
 
 ## Audit Log Implementation
 
@@ -267,6 +268,7 @@ alembic upgrade head
 | `876be46160d4` | Health tables: health_status, health_timeline, health_evidence, health_diagnostics |
 | `a1b2c3d4e5f6` | `missing_since` on `servers` |
 | `a2b2c3d4e5f7` | `updated_at` on `alert_rules` |
+| `a3b2c3d4e5f6` | `deployment_start_time` on `servers` |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.
@@ -305,7 +307,7 @@ backup — final schema matches production column-for-column).
 ### Current dev database state
 
 - **File**: `backend/mcs.db`
-- **Alembic version**: `a2b2c3d4e5f7` (head)
+- **Alembic version**: `a3b2c3d4e5f6` (head)
 - **Tables**: 27 (including `alembic_version`)
 
 ## Cross-References

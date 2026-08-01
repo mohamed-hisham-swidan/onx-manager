@@ -39,7 +39,12 @@ backend/alembic/
       ├── 003_add_deployment_columns.py
       ├── 16f9e2a1f2d6_add_auth_users_tables.py
       ├── 5a50140d37df_add_server_type_to_servers.py
+      ├── 876be46160d3_add_missing_orm_only_tables.py
+      ├── 876be46160d4_add_health_tables.py
       ├── 902b076bfa36_add_external_id_to_servers.py
+      ├── a1b2c3d4e5f6_add_missing_since_to_servers.py
+      ├── a2b2c3d4e5f7_add_updated_at_to_alert_rules.py
+      ├── a3b2c3d4e5f6_add_deployment_start_time_to_servers.py
       ├── fcc7545db19e_add_launch_config_json_to_servers.py
       └── ff9c2b3a8e4d_add_updated_at_to_metric_points.py
 
@@ -134,10 +139,12 @@ backend/app/modules/server/application/
   ├── __init__.py
   ├── logging_utils.py
   ├── migrate_import_arch.py
+  ├── ownership_verifier.py
   ├── read_models.py
   ├── reconciliation.py
   ├── runtime_ownership.py
   ├── runtime_reconciliation.py
+  ├── startup_guard.py
   ├── supervisor.py
   ├── commands/
   │   ├── __init__.py
@@ -156,6 +163,7 @@ backend/app/modules/server/application/
   │   └── list_servers.py
   └── services/
       ├── __init__.py
+      ├── filesystem_reconciliation.py
       ├── import_service.py
       └── jar_service.py
 
@@ -354,6 +362,48 @@ backend/app/modules/event_store/
   ├── commands.py
   ├── dead_letter.py
   ├── models.py
+  └── repository.py
+```
+
+## Health Engine — post-Batch 10
+
+```
+backend/app/modules/health/domain/
+  ├── __init__.py
+  ├── aggregate.py
+  ├── events.py
+  ├── repository.py
+  ├── services.py
+  └── value_objects.py
+
+backend/app/modules/health/application/
+  ├── __init__.py
+  ├── commands/
+  │   ├── __init__.py
+  │   ├── classify_crash.py
+  │   ├── collect_evidence.py
+  │   └── evaluate_health.py
+  ├── event_handlers/
+  │   ├── __init__.py
+  │   ├── health_signal_handler.py
+  │   └── server_crashed_handler.py
+  ├── queries/
+  │   ├── __init__.py
+  │   ├── generate_health_report.py
+  │   ├── get_health_status.py
+  │   └── get_health_timeline.py
+  └── services/
+      └── __init__.py
+
+backend/app/modules/health/infrastructure/
+  ├── __init__.py
+  ├── crash_analyzer.py
+  ├── environment.py
+  ├── evidence_collector.py
+  ├── health_calculator.py
+  ├── integrity.py
+  ├── models.py
+  ├── recovery_orchestrator.py
   └── repository.py
 ```
 

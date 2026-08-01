@@ -8,7 +8,7 @@
 | [API Reference](API.md) | REST endpoints, WebSocket protocol, error codes, rate limiting, pagination |
 | [Database Architecture](DATABASE.md) | Schema design, key tables, migration strategy, audit log implementation, query patterns |
 | [Security Architecture](SECURITY.md) | JWT RS256 auth, RBAC+ABAC permissions, audit hash chain, rate limiting, session management |
-| [Decisions Index](decisions/README.md) | All Architecture Decision Records (10 ADRs covering the key architectural choices) |
+| [Decisions Index](decisions/README.md) | All Architecture Decision Records (11 ADRs covering the key architectural choices) |
 | [Project Status](STATUS.md) | Complete session history, repository tree, test matrix, known limitations |
 
 ## Backend
@@ -70,14 +70,15 @@
 
 | Document | Description |
 |---|---|
-| [Decisions Index](decisions/README.md) | Index of all 10 Architecture Decision Records |
+| [Decisions Index](decisions/README.md) | Index of all 11 Architecture Decision Records |
 | [ADR-0001](decisions/0001-modular-monolith.md) | Modular monolith with hexagonal boundaries |
 | [ADR-0002](decisions/0002-command-query-event-buses.md) | Separate command, query, and event buses |
 | [ADR-0003](decisions/0003-plugin-subprocess-isolation.md) | All plugins run as subprocesses |
 | [ADR-0004](decisions/0004-websocket-asyncio-lock.md) | WebSocket concurrent patterns |
 | [ADR-0005](decisions/0005-jwt-rs256-auth.md) | JWT RS256 authentication and audit chain |
 | [ADR-0006](decisions/0006-task-queue-dual-impl.md) | Task queue, event store, DLQ, metrics retention |
-| [ADR-0007](decisions/0007-persistence-layer-rename.md) | Rename app/storage to app/core/persistence |
-| [ADR-0008](decisions/0008-commit-per-step-discipline.md) | One concern per commit, no batch commits |
-| [ADR-0009](decisions/0009-pydantic-field-validators.md) | Pydantic field validators for domain boundary defense |
-| [ADR-0010](decisions/0010-doc-index-cross-ref.md) | All docs listed in README index, cross-checked |
+| [ADR-0007](decisions/0007-core-persistence-rename.md) | Rename app/storage to app/core/persistence |
+| [ADR-0008](decisions/0008-env-var-sandbox-isolation.md) | Environment-variable-driven sandbox isolation |
+| [ADR-0009](decisions/0009-pydantic-field-validator-for-domain-values.md) | Pydantic field validators for domain boundary defense |
+| [ADR-0010](decisions/0010-commit-per-step-discipline.md) | One concern per commit, no batch commits |
+| [ADR-0011](decisions/0011-orphan-reconciliation-ownership-verification.md) | Orphan reconciliation with ownership verification |

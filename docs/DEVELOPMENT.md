@@ -165,7 +165,7 @@ See [Database docs](DATABASE.md) for full schema reference.
 
 ```bash
 cd backend
-python -m pytest tests/ -q          # All tests (781 passing)
+python -m pytest tests/ -q          # All tests (984 passing)
 python -m pytest tests/ -x -q       # Stop on first failure
 ```
 
@@ -242,7 +242,7 @@ backend/
 │   │   ├── monitoring/     # Metrics, alerts
 │   │   ├── event_store/    # Immutable event log
 │   │   └── ...             # Other bounded contexts
-│   └── storage/            # Database engine, UoW, base repository
+│   └── core/persistence/   # Database engine, UoW, base repository
 ├── alembic/                # Migrations
 └── tests/                  # Test suite
 ```

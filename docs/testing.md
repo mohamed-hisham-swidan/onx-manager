@@ -4,7 +4,7 @@
 
 | Layer | Framework | Test Count | Location |
 |---|---|---|---|
-| Backend (unit + integration) | pytest + pytest-asyncio | 633 | `backend/tests/` |
+| Backend (unit + integration) | pytest + pytest-asyncio | 984 | `backend/tests/` |
 | Frontend (component + unit) | Vitest + jsdom | 148 | `frontend/src/**/*.test.*` |
 
 ---
@@ -25,8 +25,8 @@ cd backend && pytest
 # Run with coverage report
 cd backend && pytest --cov=app
 
-# Run unit tests only (fast, no external deps)
-cd backend && pytest tests/unit/
+# Run a single module's tests (e.g. API endpoints)
+cd backend && pytest tests/api/
 
 # Run integration tests
 cd backend && pytest tests/test_integration.py

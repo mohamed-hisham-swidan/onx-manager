@@ -116,6 +116,13 @@ async def reconcile_orphans() → list[dict]
 2. Filters to Minecraft-related processes (checks cmdline for `-jar`, `server.jar`, `minecraft`, etc.).
 3. For each orphan: sends `SIGTERM`, waits 0.5s, sends `SIGKILL`.
 
+> **Ownership verification**: before any kill, `verify_ownership()` confirms the
+> process is genuinely managed by this application — the process must carry the
+> `MCS_MANAGED` marker and its `deployment_start_time` must match the DB record.
+> Kills are skipped (with a `KILL_DECISION` log) when the marker is missing, the
+> working directory mismatches, the start time differs, or the process is marked
+> as system-wide rather than project-owned.
+
 ## Typical Mismatch Scenarios
 
 | Scenario | Mismatch | Resolution |

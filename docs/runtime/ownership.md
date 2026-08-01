@@ -94,6 +94,12 @@ Disposes all unowned resources discovered by `discover_all()`:
 - Marks stale DB records as `CRASHED` (with reason "Stale DB record cleaned by orphan cleanup").
 - Detects stale supervisors (logs only — does not automatically restart).
 
+> Every kill is gated by `verify_ownership()`: the process must carry the
+> `MCS_MANAGED` marker and a `deployment_start_time` matching the DB record.
+> Verification compares marker, working directory, process start time, and
+> ownership scope (`project_owned` vs `system_wide`); kills are skipped when the
+> process cannot be proven to belong to this project.
+
 ## Conflict Reasons
 
 Defined in `ConflictReason` enum (`ownership.py:43`):

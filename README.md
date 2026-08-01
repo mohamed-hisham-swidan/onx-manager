@@ -1,7 +1,7 @@
 # Minecraft Server Manager
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-280%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-984%20passing-brightgreen.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](#)
 [![TypeScript](https://img.shields.io/badge/typescript-5%2B-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](#)
@@ -37,7 +37,7 @@ A **modular monolith** with hexagonal architecture. Every bounded context (Serve
 git clone https://github.com/your-org/minecraft-server-manager.git
 cd minecraft-server-manager
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 python launcher.py
 ```
 
@@ -58,7 +58,7 @@ Then open `http://localhost:8000` — the first-run wizard creates your admin ac
 | Security | [docs/SECURITY.md](docs/SECURITY.md) |
 | Frontend | [docs/FRONTEND.md](docs/FRONTEND.md) |
 | Development Guide | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
-| Roadmap | [Implementation/ROADMAP.md](Implementation/ROADMAP.md) |
+| Roadmap | [docs/roadmap.md](docs/roadmap.md) |
 
 ## Project Structure
 

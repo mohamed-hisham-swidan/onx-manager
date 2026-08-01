@@ -95,7 +95,7 @@ Every `StartServerHandler` calls `RuntimeOwnershipManager.claim_localhost()` bef
 
 **Steps:**
 
-1. Run `reconcile_orphans()` — this kills orphan tmux sessions and Minecraft processes.
+1. Run `reconcile_orphans()` — this kills orphan tmux sessions and Minecraft processes (after verifying each process is genuinely managed via the `MCS_MANAGED` marker and matching `deployment_start_time`).
 2. Or use the ownership manager:
    ```python
    await mgr.cleanup_orphans()

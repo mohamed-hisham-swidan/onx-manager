@@ -48,7 +48,7 @@ The frontend is available at `http://localhost:5173`. It proxies `/api` and `/ws
 
 ## Open the Browser
 
-Navigate to `http://localhost:5173`. You will see the login page. The first registered user is automatically granted admin privileges.
+Navigate to `http://localhost:5173`. You will see the login page. Register an account from the login page to get started.
 
 ## First Steps
 
