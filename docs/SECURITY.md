@@ -38,7 +38,7 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 ### API Keys
 
 - Prefix: `mcs_`
-- Storage: Argon2id hash — never stored in plaintext
+- Storage: SHA-256 hash via `hash_api_key()` (`backend/app/core/security.py`) — **unsalted** (not currently salted or peppered)
 - Display: Shown once at creation, never retrievable afterward
 
 ### Login Flow
@@ -60,14 +60,16 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 
 ### Model: RBAC + ABAC Hybrid
 
-The authorization system uses Role-Based Access Control as the primary model with Attribute-Based Access Control extensions for resource-level checks.
+The authorization system *defines* Role-Based Access Control as the primary model with Attribute-Based Access Control extensions for resource-level checks. **However, authorization is not currently enforced anywhere in the request path.** See the known-gap callout in [`docs/API.md`](API.md) — the practical consequence is that any authenticated user can call any endpoint regardless of their token's `permissions` or `roles`.
 
-**Flow**:
+What exists today:
 
-1. `PermissionEvaluator` checks role permissions first (RBAC)
-2. Applies context rules such as resource ownership (ABAC)
-3. Inactive users are rejected at evaluation time
-4. All API endpoints check permissions before executing
+1. `PermissionEvaluator` (`backend/app/modules/auth/infrastructure/permissions.py`) can evaluate role permissions (RBAC) and apply ABAC rules such as resource ownership
+2. Inactive users are rejected at evaluation time (`has_permission`/`evaluate_abac` return `False` for inactive users)
+3. The evaluator is only called at **login/refresh** to build the token's claims — it is **not** invoked by any command/query handler, router, or middleware to gate a request
+4. **No API endpoint checks permissions before executing**
+
+> **Known gap — no authorization is enforced.** `PermissionDenied` is defined and mapped to HTTP 403 in `backend/app/api/errors.py`, but nothing in the codebase ever raises it; there is no `require_permission` dependency; `request.state.permissions` is written by `AuthMiddleware` but never read anywhere else. This is a real security gap that needs a dedicated fix, not an intentional design choice.
 
 ### Permission Strings
 
@@ -104,10 +106,12 @@ Permission strings follow the `<resource>:<action>` format. Defined in `contract
 
 ### ABAC Context Rules
 
-The ABAC extension evaluates resource-specific attributes:
+The ABAC extension (as implemented in `PermissionEvaluator.evaluate_abac()`) defines resource-specific rules:
 
 - **Resource ownership**: A user can modify a resource if they are the `resource_owner_id`
 - **Scope enforcement**: Server-scoped permissions (`server_id`) only apply to specific server resources; global-scoped permissions apply system-wide
+
+These rules are **not enforced** — `evaluate_abac()` exists but is never called in any request path (see the known-gap callout above). They describe the intended model, not current behavior.
 
 ---
 
@@ -142,16 +146,12 @@ This ensures identical hashes across write and verification reads regardless of 
 
 ### Database Enforcement
 
-- The database user has no `UPDATE` or `DELETE` privileges on audit tables
-- Periodic chain integrity verification runs automatically
+- No database-level privilege restrictions exist: the default SQLite deployment has no per-user `UPDATE`/`DELETE` restrictions on audit tables, and no migration defines any
+- Chain integrity verification: `verify_chain()` exists (it recomputes all hashes and reports mismatches), but **nothing schedules or calls it** — there is currently no automatic periodic integrity check running
 
 ### Query Format
 
-```
-GET /audit?from=<ISO_timestamp>&to=<ISO_timestamp>&actor=<user_id>&action=<action_type>
-```
-
-Response includes each log entry with its hash, previous hash, and chain position for independent verification.
+There is currently **no audit query endpoint** — the `audit_log` table and its writer exist, but no read API (`GET /audit` is not implemented in any router). A future endpoint could expose each log entry with its hash, previous hash, and chain position for independent verification.
 
 ---
 
@@ -163,7 +163,7 @@ Response includes each log entry with its hash, previous hash, and chain positio
 |---|---|
 | Backups | AES-256-GCM |
 | Passwords | Argon2id (memory-hard, GPU-resistant) |
-| API keys | Argon2id hash, never stored in plaintext |
+| API keys | SHA-256 hash (unsalted) via `hash_api_key()`, never stored in plaintext |
 
 ### TLS
 
@@ -171,7 +171,7 @@ All communications use TLS 1.3. Protocol downgrade is rejected at the reverse pr
 
 ### Secrets Management
 
-- Secrets are loaded from environment variables or HashiCorp Vault
+- Secrets are loaded from environment variables only (there is no HashiCorp Vault / `hvac` integration in the codebase)
 - **Never** hardcoded in source code, configuration files, or documentation
 - Production deployments must use persistent key material (see JWT keys above)
 
@@ -181,35 +181,16 @@ All communications use TLS 1.3. Protocol downgrade is rejected at the reverse pr
 
 ### Architecture
 
-Rate limiting operates at two layers:
+Rate limiting is a single global `RateLimitMiddleware`:
 
 | Layer | Scope | Mechanism |
 |---|---|---|
-| Reverse proxy (nginx) | Global per-IP | Token bucket |
-| Application | Per-user, per-endpoint | Token bucket |
-| WebSocket | Per-connection message rate | 50 messages/second |
+| Application (REST) | Per `client_ip:path` pair | In-memory sliding window — **60 requests per minute**, not configurable per route, no per-user/per-endpoint tiers |
+| WebSocket | Per-connection message rate | 50 messages/second (`WSRateLimiter`) |
 
-### Per-Route Limits
+There are no `X-RateLimit-*` headers. On exceeding the limit the middleware returns `429 Too Many Requests` with a `Retry-After` header.
 
-Route categories and their default limits:
-
-| Route Category | Limit | Window |
-|---|---|---|
-| Authentication (`/auth/*`) | 10 requests | 1 minute |
-| API endpoints | 100 requests | 1 minute |
-| WebSocket messages | 50 messages | 1 second |
-
-### Response Headers
-
-All rate-limited endpoints return the following headers:
-
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 87
-X-RateLimit-Reset: 1627000000
-```
-
-On breach, the API responds with `429 Too Many Requests` and a `Retry-After` header.
+The same behavior is described (and matches the implementation) in [`docs/API.md`](API.md) — rate limiting. Earlier per-route tiers (e.g. 10/min for `/auth/*`, 100/min for API endpoints) and a reverse-proxy/nginx token-bucket layer do **not** exist in the current implementation.
 
 ---
 
@@ -219,8 +200,8 @@ On breach, the API responds with `429 Too Many Requests` and a `Retry-After` hea
 
 - One refresh token per active session
 - Stored as SHA-256 hash in the database
-- Bound to a specific user agent and IP (optional, configurable)
 - Rotated on each refresh — old token is revoked, new token is issued
+- Not bound to a user agent or IP: the `refresh_tokens` table stores only `token_hash`, `expires_at`, and `user_id` (IP/user-agent fields exist only on `audit_log`, for a different purpose)
 
 ### Revocation
 
@@ -232,7 +213,7 @@ On breach, the API responds with `429 Too Many Requests` and a `Retry-After` hea
 
 ### Inactive Session Cleanup
 
-- Expired refresh tokens (past 7-day TTL) are pruned periodically
+- Expired refresh tokens (past 7-day TTL) are **not** currently pruned: a cleanup task exists in code (`run_cleanup_task`), but it is not registered with the scheduler and never runs automatically
 - No active session data survives token expiry
 
 ---

@@ -237,9 +237,8 @@ server_manger/
 | ASGI Server | Uvicorn | — |
 | ORM | SQLAlchemy | 2.0+ (async) |
 | Database | PostgreSQL / SQLite | 16 / 3 |
-| Cache | Redis | 7 |
 | Validation | Pydantic | 2 |
-| Task Queue | InProcessQueue / Arq | Dev / Prod |
+| Task Queue | InProcessQueue (only implementation in use; Arq/Redis exists as unused code) | — |
 | Frontend | React | 19 |
 | Language | TypeScript | 5 |
 | Build | Vite | — |

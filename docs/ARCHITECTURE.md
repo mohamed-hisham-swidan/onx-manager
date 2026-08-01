@@ -14,8 +14,8 @@
 └─────────┘     │              │     └──────────────┘
                 │  ┌──────────┐│
 ┌─────────┐     │  │ Command  ││     ┌──────────────┐
-│  CLI    ├────►│  │  Bus     ││────►│  Redis       │
-│         │     │  ├──────────┤│     │  (Cache+WS)  │
+│  CLI    ├────►│  │  Bus     ││────►│  SQLite      │
+│         │     │  ├──────────┤│     │ (data store) │
 └─────────┘     │  │ Query    ││     └──────────────┘
                 │  │  Bus     ││
 ┌─────────┐     │  ├──────────┤│     ┌──────────────┐
@@ -25,7 +25,7 @@
                 └──────────────┘
 ```
 
-Three client types (browser, CLI, plugin subprocesses) interact with a FastAPI backend. The backend dispatches through Command, Query, and Event buses backed by PostgreSQL (primary), Redis (cache + WebSocket), and subprocess-isolated plugins. SQLite is supported as an embedded/development fallback.
+Three client types (browser, CLI, plugin subprocesses) interact with a FastAPI backend. The backend dispatches through Command, Query, and Event buses backed by PostgreSQL (primary) and subprocess-isolated plugins. SQLite is supported as an embedded/development fallback. There is no Redis cache or pub/sub: the task queue is in-process (`InProcessQueue`), and the Arq/Redis queue is defined in code but not wired up (see the task-queue note below).
 
 ---
 
@@ -177,7 +177,7 @@ Both must be set together when running test/development backends. Because `setsi
 | Migrations | Alembic (13 revisions) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
-| Message Queue | InProcessQueue (dev), Arq/Redis (production) |
+| Message Queue | InProcessQueue (only implementation in use; Arq/Redis exists as unused code) |
 | Event Bus | In-process async bus + dead letter queue |
 | WebSocket | FastAPI WebSocket + custom connection manager |
 
@@ -195,9 +195,8 @@ Both must be set together when running test/development backends. Because `setsi
 
 | Store | Purpose |
 |-------|---------|
-| PostgreSQL 16 | Primary database |
-| SQLite 3 | Dev/test fallback |
-| Redis 7 | Cache, WebSocket pub/sub, production task queue |
+| PostgreSQL 16 | Primary database (design; see note) |
+| SQLite 3 | Default dev/test and current deployment store |
 
 ### Containerization
 
@@ -230,8 +229,13 @@ Both Dockerfiles and `docker-compose.yml` are at the repository root. The backen
 | `MCS_STORAGE_BACKEND` | No | `local` or `s3` (default: `local`) |
 
 The RSA public key is derived from the private key at runtime — no public-key
-env var is needed. The Arq/Redis task queue connects to `redis://localhost:6379`
-by default (not configurable via `MCS_*` env vars).
+env var is needed.
+
+Task queue: `ArqQueue` (`backend/app/tasks/arq_queue.py`, default
+`redis://localhost:6379`) is **defined but not wired up or used** — it is never
+instantiated and `aredis` is not a declared dependency, so the import inside it
+would fail if ever exercised. The runtime always uses `InProcessQueue`
+(`backend/app/main.py`) in all environments; there is no Arq/Redis deployment.
 
 ---
 

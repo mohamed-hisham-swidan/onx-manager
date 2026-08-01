@@ -67,18 +67,32 @@ Authentication is enforced globally by an `AuthMiddleware` (plus the
 - All `/api/v1/schedules/*`
 - `/health`, `/metrics`, `/docs`, `/redoc`, `/openapi.json`, `/.well-known/jwks.json`
 
-Every other route requires a valid Bearer token. **Permissions are carried in
-the token claims but are not enforced by a per-route dependency** — the API
-layer authenticates; authorization is enforced by the command/query handlers
-in the application layer, which raise a `PermissionDenied` error (→ 403) when
-the current user's `permissions` do not satisfy the operation.
+Every other route requires a valid Bearer token.
+
+> **Known gap — no authorization is enforced.**
+>
+> Authentication is enforced, but **authorization is not**. Permissions and
+> roles are carried in the token claims, yet nothing in the request path
+> checks them: there is no per-route permission dependency
+> (`require_permission` does not exist), and the command/query handlers do
+> not gate operations on the caller's `permissions`. `PermissionDenied` is
+> defined (`backend/app/core/exceptions.py`) and wired to HTTP 403 in
+> `backend/app/api/errors.py`, but nothing in the codebase ever raises it.
+> `PermissionEvaluator.has_permission()` and `evaluate_abac()` exist but are
+> only called at login/refresh to build the token's claims — never to gate a
+> request.
+>
+> **Practical consequence: any authenticated user (any valid Bearer token,
+> any role) can call every endpoint in the system.** This is a known
+> security gap in the current implementation, not an intentional design
+> choice, and it needs a dedicated fix.
 
 ### 401 vs 403
 
 | Status | Meaning in this codebase |
 |---|---|
 | `401 AUTHENTICATION_ERROR` | Missing, malformed, expired, or invalid Bearer token; revoked/expired API key; deactivated account. No request reaches the route. |
-| `403 PERMISSION_DENIED` | Authenticated, but the application-layer permission check rejected the operation. |
+| `403 PERMISSION_DENIED` | Reserved for denied authorization (see the known gap above). **Not produced in practice** — the exception is defined and mapped, but no code path currently raises it. |
 
 ---
 
@@ -91,7 +105,7 @@ the current user's `permissions` do not satisfy the operation.
 | `204` | Deleted / void (no body) |
 | `400` | Bad request (e.g. `POST /servers/scan` on a non-directory) |
 | `401` | Authentication failure (see above) |
-| `403` | Permission denied / directory read denied |
+| `403` | Permission denied — defined and mapped, but no code path currently raises it (see the authorization known gap above) |
 | `404` | Resource not found (e.g. unknown software type) |
 | `409` | Conflict (raised from command handlers) |
 | `415` | Mutating request without `Content-Type: application/json` |
@@ -145,6 +159,10 @@ Pydantic request-validation failures return FastAPI's default `422` shape
 | `INFRASTRUCTURE_ERROR` | 503 |
 | `INTERNAL_ERROR`, `UNEXPECTED_ERROR`, `HANDLER_NOT_FOUND` | 500 |
 | anything else | 400 |
+
+The `PERMISSION_DENIED` entry above is wired to a handler in
+`backend/app/api/errors.py`, but **no code path currently raises it** — it is
+effectively dead on the enforcement path (see the authorization known gap).
 
 Domain error codes produced by command handlers (e.g. `SERVER_NOT_RUNNING`,
 `SERVER_NOT_FOUND`, `BACKUP_IN_PROGRESS`, `INVALID_CREDENTIALS`) are returned
