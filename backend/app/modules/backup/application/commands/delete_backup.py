@@ -25,14 +25,26 @@ class DeleteBackupHandler(CommandHandler[DeleteBackupCommand]):
             repo: BackupRepository = SQLBackupRepository(uow.session)
             job = await repo.get_job(backup_id)
             storage_path = job.storage_path
+
+        if storage_path:
+            try:
+                storage = build_storage_backend(ConfigFactory.global_settings())
+                await storage.delete(storage_path)
+            except Exception as exc:
+                return CommandResult(
+                    success=False,
+                    error=(
+                        f"Failed to delete backup artifact at {storage_path}: {exc}"
+                    ),
+                )
+
+        async with UnitOfWork(self._event_bus) as uow:
+            repo: BackupRepository = SQLBackupRepository(uow.session)
+            job = await repo.get_job(backup_id)
             job.mark_deleted()
             await repo.delete_job(backup_id)
             for event in job.collect_events():
                 uow.add_event(event)
             await uow.commit()
-
-        if storage_path:
-            storage = build_storage_backend(ConfigFactory.global_settings())
-            await storage.delete(storage_path)
 
         return CommandResult(success=True, data={"backup_id": command.backup_id})

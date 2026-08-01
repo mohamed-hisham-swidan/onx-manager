@@ -6,13 +6,20 @@ import os
 import tarfile
 import uuid
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core.event_bus import EventBus
+from app.core.exceptions import NotFoundError
 from app.core.persistence.base import Base
 from app.core.persistence.db import database
 from app.core.saga import SagaOrchestrator
+from app.modules.backup.application.commands.delete_backup import (
+    DeleteBackupCommand,
+    DeleteBackupHandler,
+)
 from app.modules.backup.domain.aggregate import BackupJob, BackupStatus, BackupType
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.server.domain.aggregate import Server, ServerStatus
@@ -176,3 +183,62 @@ class TestBackupSaga:
         assert job.status == BackupStatus.FAILED
         assert job.size_bytes == 0
         assert not await storage.exists(f"backups/{backup_id}.tar.gz.enc")
+
+
+class TestDeleteBackupHandler:
+    async def _seed_completed_job(self, backup_id: BackupJobId, server_id: ServerId, path: str) -> None:
+        async with database.session_factory() as session:
+            job = BackupJob.create(
+                backup_id=backup_id,
+                server_id=server_id,
+                backup_type=BackupType.FULL,
+            )
+            job.mark_completed(size_bytes=100, checksum="deadbeef", storage_path=path)
+            await SQLBackupRepository(session).save_job(job)
+            await session.commit()
+
+    @pytest.mark.asyncio
+    async def test_delete_backup_deletes_artifact_and_row(self, app_db, tmp_path) -> None:
+        storage = LocalStorage(str(tmp_path / "backups"))
+        server_id = ServerId(uuid.uuid4().hex)
+        backup_id = BackupJobId()
+        path = f"{backup_id}.tar.gz.enc"
+        await storage.write(path, b"x" * 100)
+        await self._seed_completed_job(backup_id, server_id, path)
+
+        with patch(
+            "app.modules.backup.application.commands.delete_backup.build_storage_backend",
+            return_value=storage,
+        ):
+            handler = DeleteBackupHandler(EventBus())
+            result = await handler.handle(DeleteBackupCommand(backup_id=str(backup_id)))
+
+        assert result.success is True
+        assert not await storage.exists(path)
+        async with database.session_factory() as session:
+            with pytest.raises(NotFoundError):
+                await SQLBackupRepository(session).get_job(backup_id)
+
+    @pytest.mark.asyncio
+    async def test_delete_backup_keeps_row_when_artifact_delete_fails(self, app_db, tmp_path) -> None:
+        server_id = ServerId(uuid.uuid4().hex)
+        backup_id = BackupJobId()
+        path = f"{backup_id}.tar.gz.enc"
+        await self._seed_completed_job(backup_id, server_id, path)
+
+        mock_storage = AsyncMock()
+        mock_storage.delete.side_effect = OSError("disk full")
+
+        with patch(
+            "app.modules.backup.application.commands.delete_backup.build_storage_backend",
+            return_value=mock_storage,
+        ):
+            handler = DeleteBackupHandler(EventBus())
+            result = await handler.handle(DeleteBackupCommand(backup_id=str(backup_id)))
+
+        assert result.success is False
+        assert path in result.error
+        assert "disk full" in result.error
+        async with database.session_factory() as session:
+            job = await SQLBackupRepository(session).get_job(backup_id)
+            assert job.storage_path == path
