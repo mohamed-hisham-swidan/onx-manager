@@ -361,6 +361,38 @@ class TestBackups:
         resp = await client.delete(f"/api/v1/backups/{backup_id}", headers=auth_header)
         assert resp.status_code == 204
 
+    @pytest.mark.parametrize("invalid_type", ["incremental", "world_only", "FULL", ""])
+    async def test_create_backup_rejects_invalid_type_with_422(
+        self,
+        client: AsyncClient,
+        auth_header: dict[str, str],
+        created_server: dict,
+        invalid_type: str,
+    ) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.post(
+            "/api/v1/backups",
+            json={"server_id": server_id, "backup_type": invalid_type},
+            headers=auth_header,
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.parametrize("valid_type", ["full", "world", "plugins"])
+    async def test_create_backup_accepts_valid_types(
+        self,
+        client: AsyncClient,
+        auth_header: dict[str, str],
+        created_server: dict,
+        valid_type: str,
+    ) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.post(
+            "/api/v1/backups",
+            json={"server_id": server_id, "backup_type": valid_type},
+            headers=auth_header,
+        )
+        assert resp.status_code == 201
+
 
 class TestPlugins:
     async def test_list_plugins_empty(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:

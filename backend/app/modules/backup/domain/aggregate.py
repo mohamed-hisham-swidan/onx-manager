@@ -36,6 +36,7 @@ class BackupJob(AggregateRoot):
         status: BackupStatus = BackupStatus.PENDING,
         size_bytes: int = 0,
         checksum: str = "",
+        storage_path: str = "",
         error_message: str = "",
         created_at: datetime | None = None,
         completed_at: datetime | None = None,
@@ -47,6 +48,7 @@ class BackupJob(AggregateRoot):
         self._status = status
         self._size_bytes = size_bytes
         self._checksum = checksum
+        self._storage_path = storage_path
         self._error_message = error_message
         self._created_at = created_at or datetime.now(timezone.utc)
         self._completed_at = completed_at
@@ -76,6 +78,10 @@ class BackupJob(AggregateRoot):
         return self._checksum
 
     @property
+    def storage_path(self) -> str:
+        return self._storage_path
+
+    @property
     def error_message(self) -> str:
         return self._error_message
 
@@ -93,10 +99,12 @@ class BackupJob(AggregateRoot):
         job._add_event(BackupStartedEvent(backup_id=str(backup_id), server_id=str(server_id)))
         return job
 
-    def mark_completed(self, size_bytes: int, checksum: str) -> None:
+    def mark_completed(self, size_bytes: int, checksum: str, storage_path: str = "") -> None:
         self._status = BackupStatus.COMPLETED
         self._size_bytes = size_bytes
         self._checksum = checksum
+        if storage_path:
+            self._storage_path = storage_path
         self._completed_at = datetime.now(timezone.utc)
         self._add_event(
             BackupCompletedEvent(
@@ -104,6 +112,7 @@ class BackupJob(AggregateRoot):
                 server_id=str(self._server_id),
                 size_bytes=size_bytes,
                 checksum=checksum,
+                storage_path=storage_path,
             ),
         )
 

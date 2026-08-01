@@ -1,11 +1,14 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+BackupTypeValue = Literal["full", "world", "plugins"]
 
 
 class CreateBackupRequest(BaseModel):
     server_id: str
-    backup_type: str = Field(default="full")
+    backup_type: BackupTypeValue = Field(default="full")
 
 
 class RestoreBackupRequest(BaseModel):

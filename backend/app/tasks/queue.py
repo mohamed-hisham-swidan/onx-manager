@@ -131,3 +131,17 @@ class InProcessQueue(TaskQueue):
                 model.error = f"{type(e).__name__}: {e}"
                 model.completed_at = datetime.now(timezone.utc)
                 await session.commit()
+
+
+_task_queue: TaskQueue | None = None
+
+
+def init_task_queue(queue: TaskQueue) -> None:
+    global _task_queue
+    _task_queue = queue
+
+
+def get_task_queue() -> TaskQueue:
+    if _task_queue is None:
+        raise RuntimeError("TaskQueue not initialized")
+    return _task_queue

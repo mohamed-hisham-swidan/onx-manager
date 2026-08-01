@@ -38,6 +38,7 @@ class SQLBackupRepository(BackupRepository):
         model.status = job.status.value
         model.size_bytes = job.size_bytes
         model.checksum = job.checksum
+        model.storage_path = job.storage_path or None
         model.error_message = job.error_message or None
         model.completed_at = job.completed_at
         await self._session.flush()
@@ -90,6 +91,7 @@ class SQLBackupRepository(BackupRepository):
             status=BackupStatus(model.status),
             size_bytes=model.size_bytes,
             checksum=model.checksum,
+            storage_path=model.storage_path or "",
             error_message=model.error_message or "",
             created_at=model.created_at,
             completed_at=model.completed_at,

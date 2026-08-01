@@ -6,7 +6,11 @@ import tempfile
 import pytest
 
 from app.modules.storage.base import StorageBackend
-from app.modules.storage.encryption import BackupEncryption
+from app.modules.storage.encryption import (
+    BackupEncryption,
+    build_backup_encryption,
+    load_or_create_backup_key,
+)
 from app.modules.storage.local import LocalStorage
 
 
@@ -144,3 +148,37 @@ class TestBackupEncryption:
     def test_invalid_key_length(self) -> None:
         with pytest.raises(ValueError, match="Key must be 32 bytes"):
             BackupEncryption(key=b"too-short")
+
+
+class TestBackupKeyLoader:
+    def test_generates_persists_and_reloads_same_key(self, tmp_path) -> None:
+        key_path = os.path.join(str(tmp_path), "backup_encryption_key.bin")
+        first = load_or_create_backup_key(key_path)
+        assert len(first) == 32
+
+        assert os.path.exists(key_path)
+        with open(key_path, "rb") as f:
+            assert f.read() == first
+
+        second = load_or_create_backup_key(key_path)
+        assert second == first
+
+    def test_uses_existing_key_without_overwriting(self, tmp_path) -> None:
+        key_path = os.path.join(str(tmp_path), "existing.bin")
+        with open(key_path, "wb") as f:
+            f.write(b"x" * 32)
+        loaded = load_or_create_backup_key(key_path)
+        assert loaded == b"x" * 32
+
+    def test_rejects_wrong_sized_key_file(self, tmp_path) -> None:
+        key_path = os.path.join(str(tmp_path), "short.bin")
+        with open(key_path, "wb") as f:
+            f.write(b"too-short")
+        with pytest.raises(ValueError, match="exactly 32 bytes"):
+            load_or_create_backup_key(key_path)
+
+    def test_build_backup_encryption_uses_persisted_key(self, tmp_path) -> None:
+        key_path = os.path.join(str(tmp_path), "key.bin")
+        enc1 = build_backup_encryption(key_path)
+        enc2 = build_backup_encryption(key_path)
+        assert enc1.key == enc2.key

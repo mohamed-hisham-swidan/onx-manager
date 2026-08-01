@@ -29,6 +29,14 @@ class AppSettings(BaseSettings):
     jwt_private_key: str = ""
     jwt_private_key_path: str = ""
     servers_data_dir: str = "data/servers"
+    backup_encryption_key_path: str = ""
+    storage_backend: str = "local"
+    backup_storage_path: str = "data/backups"
+    s3_bucket: str = ""
+    s3_region: str = "us-east-1"
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_endpoint_url: str = ""
 
     model_config = {"env_prefix": "MCS_"}
 

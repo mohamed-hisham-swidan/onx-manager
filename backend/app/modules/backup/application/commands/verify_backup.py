@@ -1,4 +1,6 @@
+from app.api.deps import build_backup_encryption, build_storage_backend
 from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.config import ConfigFactory
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
 from app.modules.backup.domain.repository import BackupRepository
@@ -22,9 +24,38 @@ class VerifyBackupHandler(CommandHandler[VerifyBackupCommand]):
         async with UnitOfWork(self._event_bus) as uow:
             repo: BackupRepository = SQLBackupRepository(uow.session)
             job = await repo.get_job(backup_id)
-            checksum_valid = bool(job.checksum and len(job.checksum) > 0)
-            size_valid = job.size_bytes > 0
-            valid = checksum_valid and size_valid and job.status.value == "completed"
+
+        checksum_valid = bool(job.checksum and len(job.checksum) > 0)
+        size_valid = job.size_bytes > 0
+
+        artifact_present = False
+        artifact_matches = False
+        artifact_error = ""
+        if job.status.value == "completed":
+            try:
+                settings = ConfigFactory.global_settings()
+                storage = build_storage_backend(settings)
+                encryption = build_backup_encryption(settings.backup_encryption_key_path)
+                if not job.storage_path:
+                    artifact_error = "backup has no stored artifact path"
+                else:
+                    data = await storage.read(job.storage_path)
+                    artifact_present = len(data) > 0
+                    actual_checksum = encryption.checksum(data)
+                    artifact_matches = (
+                        len(data) == job.size_bytes
+                        and actual_checksum == job.checksum
+                    )
+                    if not artifact_matches:
+                        artifact_error = (
+                            f"artifact mismatch: expected size={job.size_bytes} "
+                            f"checksum={job.checksum}, got size={len(data)} "
+                            f"checksum={actual_checksum}"
+                        )
+            except Exception as exc:
+                artifact_error = str(exc)
+
+        valid = checksum_valid and size_valid and artifact_present and artifact_matches
 
         return CommandResult(
             success=True,
@@ -33,5 +64,8 @@ class VerifyBackupHandler(CommandHandler[VerifyBackupCommand]):
                 "valid": valid,
                 "checksum_valid": checksum_valid,
                 "size_valid": size_valid,
+                "artifact_present": artifact_present,
+                "artifact_matches": artifact_matches,
+                "artifact_error": artifact_error,
             },
         )

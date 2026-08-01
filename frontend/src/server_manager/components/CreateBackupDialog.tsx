@@ -44,10 +44,9 @@ export function CreateBackupDialog({ onDone }: CreateBackupDialogProps) {
           name="backup_type"
           className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          <option value="">Default</option>
-          <option value="full">Full</option>
-          <option value="incremental">Incremental</option>
-          <option value="world_only">World Only</option>
+          <option value="full">Full Backup</option>
+          <option value="world">World Only</option>
+          <option value="plugins">Plugins Only</option>
         </select>
       </div>
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

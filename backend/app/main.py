@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.deps import init_buses
+from app.api.deps import init_buses, init_storage
 from app.api.errors import register_error_handlers
 from app.api.v1.middleware.audit import AuditMiddleware
 from app.api.v1.middleware.auth import AuthMiddleware
@@ -47,6 +47,7 @@ async def lifespan(app: FastAPI):
     event_bus = EventBus()
     register_handlers(command_bus, query_bus, event_bus)
     init_buses(command_bus, query_bus, event_bus)
+    init_storage(settings)
     init_websocket(event_bus)
 
     async with database.session_factory() as session:
@@ -131,10 +132,11 @@ async def lifespan(app: FastAPI):
 
     # ── Task Queue & Scheduler (wired up once, during startup) ──────────
     logger.info("Starting task queue and scheduler")
-    from app.tasks.queue import InProcessQueue
+    from app.tasks.queue import InProcessQueue, init_task_queue
     from app.tasks.scheduler import Scheduler
-    from app.tasks.definitions.metrics_collector import (
+    from app.tasks.definitions import (
         init_collector as init_metrics_collector,
+        run_backup_task,
         run_metrics_collection_task,
     )
     from app.modules.monitoring.infrastructure.collector import MetricsCollector
@@ -145,6 +147,8 @@ async def lifespan(app: FastAPI):
     # InProcessQueue — runs handler functions in-process when a task fires
     task_queue = InProcessQueue(_session_factory)
     task_queue.register("run_metrics_collection", run_metrics_collection_task)
+    task_queue.register("run_backup_task", run_backup_task)
+    init_task_queue(task_queue)
 
     # MetricsCollector — collects real-time data from running servers
     metrics_collector = MetricsCollector(event_bus=event_bus)

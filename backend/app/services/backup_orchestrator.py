@@ -1,9 +1,16 @@
+import hashlib
 import logging
+import os
+import shutil
+import tarfile
+import tempfile
+from pathlib import Path
 
 from app.core.saga import SagaOrchestrator, SagaStep
-from app.modules.backup.domain.aggregate import BackupJob, BackupStatus
+from app.modules.backup.domain.aggregate import BackupStatus
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
+from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
 from app.modules.storage.base import StorageBackend
 from app.modules.storage.encryption import BackupEncryption
@@ -11,10 +18,29 @@ from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(__name__)
 
+CONFIG_FILES: tuple[str, ...] = (
+    "server.properties",
+    "eula.txt",
+    "whitelist.json",
+    "ops.json",
+    "banned-players.json",
+    "banned-ips.json",
+)
+
+
+def artifact_path(backup_id: BackupJobId) -> str:
+    return f"backups/{backup_id}.tar.gz.enc"
+
 
 class BackupSaga:
     def __init__(self, saga_orchestrator: SagaOrchestrator) -> None:
         self._saga = saga_orchestrator
+        self._result_size: int = 0
+        self._result_checksum: str = ""
+        self._result_storage_path: str = ""
+        self._temp_dir: str | None = None
+        self._tar_path: str | None = None
+        self._enc_path: str | None = None
 
     async def execute(
         self,
@@ -26,27 +52,27 @@ class BackupSaga:
         steps = [
             SagaStep(
                 name="save_world",
-                forward=self._save_world(backup_id),
+                forward=self._save_world(backup_id, server_id),
                 compensate=None,
             ),
             SagaStep(
                 name="compress_backup",
-                forward=self._compress(backup_id),
-                compensate=self._cleanup_compressed(backup_id, storage),
+                forward=self._compress(backup_id, server_id),
+                compensate=self._cleanup_compressed(),
             ),
             SagaStep(
                 name="encrypt_backup",
                 forward=self._encrypt(backup_id, encryption),
-                compensate=self._cleanup_encrypted(backup_id, storage),
+                compensate=self._cleanup_encrypted(),
             ),
             SagaStep(
                 name="upload_backup",
-                forward=self._upload(backup_id, storage),
+                forward=self._upload(backup_id, storage, encryption),
                 compensate=self._remove_uploaded(backup_id, storage),
             ),
             SagaStep(
                 name="verify_backup",
-                forward=self._verify(backup_id, storage),
+                forward=self._verify(backup_id, storage, encryption),
                 compensate=self._mark_failed(backup_id),
             ),
         ]
@@ -54,71 +80,137 @@ class BackupSaga:
         instance = await self._saga.create_saga("backup", steps, timeout_seconds=600.0)
         result = await self._saga.execute(instance.saga_id)
 
-        if result.status.value in ("completed", "compensated"):
-            async with UnitOfWork() as uow:
-                repo: BackupRepository = SQLBackupRepository(uow.session)
-                job = await repo.get_job(backup_id)
-                if result.status.value == "completed":
-                    job.mark_completed(size_bytes=0, checksum="")
-                else:
-                    job.mark_failed("Backup saga failed")
-                await repo.save_job(job)
-                await uow.commit()
+        async with UnitOfWork() as uow:
+            repo: BackupRepository = SQLBackupRepository(uow.session)
+            job = await repo.get_job(backup_id)
+            if result.status.value == "completed":
+                job.mark_completed(
+                    size_bytes=self._result_size,
+                    checksum=self._result_checksum,
+                    storage_path=self._result_storage_path,
+                )
+            else:
+                job.mark_failed(result.error or "Backup saga failed")
+            await repo.save_job(job)
+            await uow.commit()
 
-    def _save_world(self, backup_id: BackupJobId):
+    def _save_world(self, backup_id: BackupJobId, server_id: ServerId):
         async def fn() -> None:
+            if not await self._server_is_running(server_id):
+                logger.info("World save not required — server %s is not running (backup %s)", server_id, backup_id)
+                return
             logger.info("World saved for backup %s", backup_id)
 
         return fn
 
-    def _compress(self, backup_id: BackupJobId):
+    def _compress(self, backup_id: BackupJobId, server_id: ServerId):
         async def fn() -> None:
-            logger.info("Backup compressed: %s", backup_id)
+            server_dir = await self._resolve_server_dir(server_id)
+            self._temp_dir = tempfile.mkdtemp(prefix=f"mcs-backup-{str(backup_id)[:8]}-")
+            self._tar_path = os.path.join(self._temp_dir, f"{backup_id}.tar.gz")
+            self._write_tar(self._tar_path, server_dir)
+            logger.info(
+                "Backup compressed: %s (%d bytes)",
+                backup_id, os.path.getsize(self._tar_path),
+            )
 
         return fn
 
     def _encrypt(self, backup_id: BackupJobId, encryption: BackupEncryption | None):
         async def fn() -> None:
-            if encryption:
-                logger.info("Backup encrypted: %s", backup_id)
+            if encryption is None:
+                raise RuntimeError(f"Encryption is required to complete backup {backup_id}")
+            if not self._tar_path or not os.path.exists(self._tar_path):
+                raise RuntimeError(f"Compressed artifact missing for backup {backup_id}")
+            self._enc_path = f"{self._tar_path}.enc"
+            with open(self._tar_path, "rb") as f:
+                plaintext = f.read()
+            encrypted = encryption.encrypt(plaintext)
+            with open(self._enc_path, "wb") as f:
+                f.write(encrypted)
+            os.remove(self._tar_path)
+            logger.info(
+                "Backup encrypted: %s (%d bytes plaintext -> %d bytes ciphertext)",
+                backup_id, len(plaintext), len(encrypted),
+            )
 
         return fn
 
-    def _upload(self, backup_id: BackupJobId, storage: StorageBackend):
+    def _upload(
+        self,
+        backup_id: BackupJobId,
+        storage: StorageBackend,
+        encryption: BackupEncryption | None,
+    ):
         async def fn() -> None:
-            path = f"backups/{backup_id}.tar.gz"
-            await storage.write(path, b"")
-            logger.info("Backup uploaded: %s", backup_id)
+            if not self._enc_path or not os.path.exists(self._enc_path):
+                raise RuntimeError(f"Encrypted artifact missing for backup {backup_id}")
+            with open(self._enc_path, "rb") as f:
+                encrypted = f.read()
+            path = artifact_path(backup_id)
+            await storage.write(path, encrypted)
+            self._result_size = len(encrypted)
+            self._result_checksum = encryption.checksum(encrypted) if encryption else hashlib.sha256(encrypted).hexdigest()
+            self._result_storage_path = path
+            logger.info(
+                "Backup uploaded: %s -> %s (%d bytes, sha256=%s)",
+                backup_id, path, self._result_size, self._result_checksum[:16],
+            )
+            self._cleanup_temp_dir()
 
         return fn
 
-    def _verify(self, backup_id: BackupJobId, storage: StorageBackend):
+    def _verify(
+        self,
+        backup_id: BackupJobId,
+        storage: StorageBackend,
+        encryption: BackupEncryption | None,
+    ):
         async def fn() -> None:
-            path = f"backups/{backup_id}.tar.gz"
-            exists = await storage.exists(path)
-            if not exists:
-                raise RuntimeError(f"Backup {backup_id} not found after upload")
-            logger.info("Backup verified: %s", backup_id)
+            path = artifact_path(backup_id)
+            data = await storage.read(path)
+            actual_size = len(data)
+            actual_checksum = encryption.checksum(data) if encryption else hashlib.sha256(data).hexdigest()
+            if actual_size != self._result_size:
+                raise RuntimeError(
+                    f"Backup {backup_id} size mismatch: expected {self._result_size}, got {actual_size}",
+                )
+            if actual_checksum != self._result_checksum:
+                raise RuntimeError(
+                    f"Backup {backup_id} checksum mismatch: expected {self._result_checksum}, got {actual_checksum}",
+                )
+            logger.info("Backup verified: %s (%d bytes, sha256=%s)", backup_id, actual_size, actual_checksum[:16])
 
         return fn
 
-    def _cleanup_compressed(self, backup_id: BackupJobId, storage: StorageBackend):
+    def _cleanup_compressed(self):
         async def fn() -> None:
-            logger.info("Cleaned up compressed data for %s", backup_id)
+            if self._tar_path and os.path.exists(self._tar_path):
+                os.remove(self._tar_path)
+                logger.info("Cleaned up compressed data for %s", self._tar_path)
+            self._cleanup_temp_dir()
 
         return fn
 
-    def _cleanup_encrypted(self, backup_id: BackupJobId, storage: StorageBackend):
+    def _cleanup_encrypted(self):
         async def fn() -> None:
-            logger.info("Cleaned up encrypted data for %s", backup_id)
+            if self._enc_path and os.path.exists(self._enc_path):
+                os.remove(self._enc_path)
+                logger.info("Cleaned up encrypted data for %s", self._enc_path)
+            self._cleanup_temp_dir()
 
         return fn
 
     def _remove_uploaded(self, backup_id: BackupJobId, storage: StorageBackend):
         async def fn() -> None:
-            path = f"backups/{backup_id}.tar.gz"
-            await storage.delete(path)
-            logger.info("Removed uploaded backup: %s", backup_id)
+            path = artifact_path(backup_id)
+            try:
+                await storage.delete(path)
+            except Exception as exc:
+                logger.warning("Failed to remove uploaded backup %s: %s", path, exc)
+            else:
+                logger.info("Removed uploaded backup: %s", path)
+            self._cleanup_temp_dir()
 
         return fn
 
@@ -132,3 +224,33 @@ class BackupSaga:
                 await uow.commit()
 
         return fn
+
+    def _cleanup_temp_dir(self) -> None:
+        if self._temp_dir and os.path.isdir(self._temp_dir):
+            shutil.rmtree(self._temp_dir, ignore_errors=True)
+            self._temp_dir = None
+
+    def _write_tar(self, tar_path: str, server_dir: str) -> None:
+        world_dir = Path(server_dir) / "world"
+        if not world_dir.is_dir():
+            raise FileNotFoundError(f"World directory not found: {world_dir}")
+        with tarfile.open(tar_path, "w:gz") as tar:
+            tar.add(str(world_dir), arcname="world")
+            for name in CONFIG_FILES:
+                candidate = Path(server_dir) / name
+                if candidate.is_file():
+                    tar.add(str(candidate), arcname=name)
+
+    async def _resolve_server_dir(self, server_id: ServerId) -> str:
+        async with UnitOfWork() as uow:
+            repo = SQLServerRepository(uow.session)
+            server = await repo.get(server_id)
+            if server.deployment is None or not server.deployment.root_path:
+                raise ValueError(f"Server {server_id} has no deployment root path — cannot back up")
+            return server.deployment.server_directory()
+
+    async def _server_is_running(self, server_id: ServerId) -> bool:
+        async with UnitOfWork() as uow:
+            repo = SQLServerRepository(uow.session)
+            server = await repo.get(server_id)
+            return server.status.value in ("running", "starting")

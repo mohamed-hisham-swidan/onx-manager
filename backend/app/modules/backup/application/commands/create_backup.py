@@ -6,6 +6,11 @@ from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.tasks.queue import get_task_queue
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CreateBackupCommand(Command):
@@ -34,5 +39,17 @@ class CreateBackupHandler(CommandHandler[CreateBackupCommand]):
             for event in job.collect_events():
                 uow.add_event(event)
             await uow.commit()
+
+        try:
+            await get_task_queue().enqueue(
+                "run_backup_task",
+                {
+                    "backup_id": str(backup_id),
+                    "server_id": str(server_id),
+                    "backup_type": backup_type.value,
+                },
+            )
+        except Exception:
+            logger.exception("Failed to enqueue backup task for backup %s", backup_id)
 
         return CommandResult(success=True, data={"backup_id": str(backup_id)})

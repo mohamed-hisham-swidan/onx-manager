@@ -2,9 +2,40 @@ from __future__ import annotations
 
 import hashlib
 import os
+from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+_DEFAULT_KEY_PATH = Path("config/backup_encryption_key.bin")
+
+
+def load_or_create_backup_key(path: str | None = None) -> bytes:
+    """Load the 32-byte AES key from disk, generating and persisting it if missing.
+
+    Mirrors the JWT key persistence pattern in app.modules.auth.infrastructure.jwt:
+    if the key file exists it is read back; otherwise a new key is generated and
+    written to disk so it survives process restarts. Calling this repeatedly
+    without deleting the file returns the same key.
+    """
+    key_path = Path(path) if path else _DEFAULT_KEY_PATH
+    if key_path.exists():
+        data = key_path.read_bytes()
+        if len(data) != 32:
+            raise ValueError(
+                f"Backup encryption key file {key_path} must contain exactly 32 bytes "
+                f"(found {len(data)})"
+            )
+        return data
+
+    key = os.urandom(32)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.write_bytes(key)
+    return key
+
+
+def build_backup_encryption(path: str | None = None) -> BackupEncryption:
+    return BackupEncryption(key=load_or_create_backup_key(path))
 
 
 class BackupEncryption:

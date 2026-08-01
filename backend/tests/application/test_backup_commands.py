@@ -1,3 +1,6 @@
+import hashlib
+from unittest.mock import patch
+
 import pytest
 
 from app.core.command_bus import CommandBus
@@ -21,7 +24,36 @@ from app.modules.backup.application.commands.verify_backup import (
 from app.modules.backup.domain.aggregate import BackupJob, BackupType
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
+from app.modules.storage.base import StorageBackend, StorageResult
 from app.core.persistence.db import database
+
+
+class FakeStorage(StorageBackend):
+    def __init__(self) -> None:
+        self._store: dict[str, bytes] = {}
+
+    async def write(self, path: str, data: bytes) -> StorageResult:
+        self._store[path] = data
+        return StorageResult(path=path, size_bytes=len(data), checksum="")
+
+    async def read(self, path: str) -> bytes:
+        return self._store.get(path, b"")
+
+    async def delete(self, path: str) -> bool:
+        return self._store.pop(path, None) is not None
+
+    async def exists(self, path: str) -> bool:
+        return path in self._store
+
+    async def list_files(self, prefix: str) -> list:
+        return []
+
+    async def info(self, path: str):
+        return None
+
+    async def copy(self, source: str, destination: str) -> StorageResult:
+        data = await self.read(source)
+        return await self.write(destination, data)
 
 
 def _bus(event_bus: EventBus) -> CommandBus:
@@ -114,23 +146,65 @@ class TestRestoreBackupHandler:
 class TestVerifyBackupHandler:
     @pytest.mark.asyncio
     async def test_verify_valid_backup(self, event_bus: EventBus) -> None:
+        artifact = b"encrypted-backup-data"
+        checksum = hashlib.sha256(artifact).hexdigest()
+        path = "vrf-bak-1.tar.gz.enc"
+
         async with database.session_factory() as session:
             repo = SQLBackupRepository(session)
             job = BackupJob.create(
                 backup_id=BackupJobId("vrf-bak-1"),
                 server_id=ServerId("srv-1"),
             )
-            job.mark_completed(size_bytes=5000, checksum="sha256-abc")
+            job.mark_completed(
+                size_bytes=len(artifact),
+                checksum=checksum,
+                storage_path=path,
+            )
             await repo.save_job(job)
             await session.commit()
 
-        handler = VerifyBackupHandler(event_bus)
-        result = await handler.handle(VerifyBackupCommand(backup_id="vrf-bak-1"))
+        fake_storage = FakeStorage()
+        await fake_storage.write(path, artifact)
+
+        with patch(
+            "app.modules.backup.application.commands.verify_backup.build_storage_backend",
+            return_value=fake_storage,
+        ):
+            handler = VerifyBackupHandler(event_bus)
+            result = await handler.handle(VerifyBackupCommand(backup_id="vrf-bak-1"))
 
         assert result.success is True
         assert result.data["valid"] is True
         assert result.data["checksum_valid"] is True
         assert result.data["size_valid"] is True
+
+    @pytest.mark.asyncio
+    async def test_verify_invalid_when_artifact_missing(self, event_bus: EventBus) -> None:
+        async with database.session_factory() as session:
+            repo = SQLBackupRepository(session)
+            job = BackupJob.create(
+                backup_id=BackupJobId("vrf-bak-2"),
+                server_id=ServerId("srv-1"),
+            )
+            job.mark_completed(
+                size_bytes=5000,
+                checksum="sha256-abc",
+                storage_path="missing.tar.gz.enc",
+            )
+            await repo.save_job(job)
+            await session.commit()
+
+        with patch(
+            "app.modules.backup.application.commands.verify_backup.build_storage_backend",
+            return_value=FakeStorage(),
+        ):
+            handler = VerifyBackupHandler(event_bus)
+            result = await handler.handle(VerifyBackupCommand(backup_id="vrf-bak-2"))
+
+        assert result.success is True
+        assert result.data["valid"] is False
+        assert result.data["artifact_present"] is False
 
     @pytest.mark.asyncio
     async def test_verify_nonexistent(self, event_bus: EventBus) -> None:
