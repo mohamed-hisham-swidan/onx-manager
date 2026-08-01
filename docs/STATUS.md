@@ -5,7 +5,7 @@
 **Version:** 7.1.0  
 **License:** MIT  
 **Repository:** `server_manger/`  
-**Last updated:** 2026-07-30
+**Last updated:** 2026-08-01
 
 ---
 
@@ -245,7 +245,7 @@ server_manger/
 | Build | Vite | — |
 | Styling | TailwindCSS | 4 |
 | State | TanStack Query + Zustand | — |
-| Testing (BE) | pytest (942 tests) | — |
+| Testing (BE) | pytest (984 tests) | — |
 | Testing (FE) | Vitest (148 tests) | — |
 | Linting | Ruff | — |
 | Container | Docker | — |
@@ -280,7 +280,7 @@ server_manger/
 
 ## Tests & Coverage
 
-### Backend — 950 total (948 passing, 2 pre-existing test environment failures)
+### Backend — 984 total (982 passing, 2 pre-existing test environment failures)
 
 | Test File | Tests | Group |
 |-----------|-------|-------|
@@ -296,8 +296,8 @@ server_manger/
 | `tests/application/test_server_commands.py` | 40 | Server |
 | `tests/application/test_server_queries.py` | 15 | Server |
 | `tests/application/test_console.py` | 5 | Server |
-| `tests/application/test_backup_commands.py` | 20 | Backup |
-| `tests/application/test_restore_backup.py` | 8 | Backup |
+| `tests/application/test_backup_commands.py` | 9 | Backup |
+| `tests/infrastructure/test_backup_saga.py` | 6 | Backup |
 | `tests/application/test_plugin_commands.py` | 25 | Plugin |
 | `tests/application/test_plugin_manifest.py` | 12 | Plugin |
 | `tests/application/test_auth_commands.py` | 37 | Auth |
@@ -306,17 +306,17 @@ server_manger/
 | `tests/application/test_runtime_ownership.py` | 38 | Runtime |
 | `tests/application/test_runtime_reconciliation.py` | 25 | Runtime |
 | `tests/application/test_import_service.py` | 10 | Services |
-| `tests/application/test_sagas.py` | 12 | Sagas |
+| `tests/application/test_sagas.py` | 6 | Sagas |
 | `tests/domain/test_server_aggregate.py` | 30 | Domain |
 | `tests/domain/test_value_objects.py` | 25 | Domain |
 | `tests/domain/test_events.py` | 10 | Domain |
 | `tests/infrastructure/test_providers.py` | 22 | Providers |
 | `tests/infrastructure/test_sandbox.py` | 12 | Plugin |
 | `tests/infrastructure/test_repositories.py` | 50 | Infra |
-| `tests/infrastructure/test_storage.py` | 10 | Storage |
+| `tests/infrastructure/test_storage.py` | 21 | Storage |
 | `tests/websocket/test_ws_manager.py` | 15 | WS |
 | `tests/websocket/test_ws_handlers.py` | 10 | WS |
-| `tests/api/test_api_endpoints.py` | 60 | API |
+| `tests/api/test_api_endpoints.py` | 65 | API |
 | `tests/auth/test_login_flow.py` | 15 | Auth |
 | `tests/auth/test_audit.py` | 8 | Auth |
 | `tests/tasks/test_queue.py` | 28 | Tasks |
@@ -354,7 +354,7 @@ server_manger/
 | Services | 10 |
 | Hooks | 8 |
 
-**Total: 1114 tests** (966 backend + 148 frontend)
+**Total: 1132 tests** (984 backend + 148 frontend)
 
 ---
 
@@ -371,6 +371,8 @@ server_manger/
 | `server_dir()` vs `server_dir_name()` in jar_service.py | Inconsistent UUID-only vs slug+uuid naming | ⚠️ Architecture debt — no runtime impact; fallbacks only |
 | JWT keys auto-generated in-process | Keys lost on restart unless PEM set explicitly | ⚠️ Documented |
 | Permissions stored as comma-separated Text | Not normalized in DB | ⚠️ Known |
+| Backup `save-all` completion regex unverified | `_save_world()` confirms save via console polling matching `saved the (game|world)` — written from general Minecraft-fork behavior, no confirmed Purpur log sample in repo | ⚠️ Verify against a real Purpur server |
+| Backup saga step failures lose exception detail | `job.error_message` stores only `Failed at step '<step_name>'` (e.g. `save_world`); underlying cause visible only in server-side logs | ⚠️ Known |
 
 ---
 
@@ -417,4 +419,15 @@ server_manger/
 
 **Verification:** 966 backend tests (964 passing, 2 pre-existing env failures — `test_start_server` startup guard, `test_metrics_task_requires_collector` graceful handler), 148 frontend tests. Docker build + up: both containers healthy.
 
-*Generated: 2026-07-30 · Project: MCS Manager v4.0 (7.1.0) · Batch 7 — Runtime Ownership*
+### Batch 8 — Real Backup Pipeline — 4 commits (2026-08-01)
+
+| Commit | Step | What changed |
+|--------|------|-------------|
+| `71b1626` | Phase 2 | Real backup pipeline: tar.gz world + config, AES-256-GCM encryption, upload with size/checksum, verify re-reads the artifact. `BackupJob.storage_path` tracked end-to-end. Encrypted on disk. Backend: 942→950 tests. |
+| `775a457` | Fix 1 | Delete storage artifact **before** DB row deletion; on failure keep the row and return `success=False` — no more orphaned encrypted files. |
+| `e5d4cb6` | Fix 2 | `artifact_path()` returns `f"{backup_id}.tar.gz.enc"` (no duplicated `backups/` prefix; `data/backups` base provides scoping). One historical row `1eb2ed72…` retains the old prefixed path, intentionally not migrated. |
+| `0195589` | Fix 3 | `_save_world()` on a running server sends `save-all` and polls provider console output (up to 30s) for `saved the (game|world)` before backing up; timeout marks the job FAILED. Stopped server → no-op. |
+
+**Verification:** 984 backend tests (982 passing, 2 pre-existing env failures — `test_start_server` startup guard, `test_metrics_task_requires_collector` graceful handler), 148 frontend tests. Two broken historical rows (`19089a12…`, `85b82fbe…`) are known stale test artifacts with NULL `storage_path`, not an open bug.
+
+*Generated: 2026-08-01 · Project: MCS Manager v4.0 (7.1.0) · Batch 8 — Backup Pipeline*
