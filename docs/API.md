@@ -69,30 +69,41 @@ Authentication is enforced globally by an `AuthMiddleware` (plus the
 
 Every other route requires a valid Bearer token.
 
-> **Known gap — no authorization is enforced.**
+> **Known gap — authorization is only partially enforced.**
 >
-> Authentication is enforced, but **authorization is not**. Permissions and
-> roles are carried in the token claims, yet nothing in the request path
-> checks them: there is no per-route permission dependency
-> (`require_permission` does not exist), and the command/query handlers do
-> not gate operations on the caller's `permissions`. `PermissionDenied` is
-> defined (`backend/app/core/exceptions.py`) and wired to HTTP 403 in
-> `backend/app/api/errors.py`, but nothing in the codebase ever raises it.
-> `PermissionEvaluator.has_permission()` and `evaluate_abac()` exist but are
-> only called at login/refresh to build the token's claims — never to gate a
-> request.
+> Authentication is enforced globally, and since the "enforce authorization
+> on highest-risk destructive endpoints" fix a small set of destructive
+> routes gate on the caller's token claims via the `require_permission`
+> dependency. But the rest of the request path is **not** gated: most
+> endpoints check neither the caller's `permissions` nor `roles`, the
+> command/query handlers do not gate operations on the caller's
+> `permissions`, and `PermissionEvaluator.has_permission()` /
+> `evaluate_abac()` are only called at login/refresh to build the token's
+> claims — never to gate a request.
+>
+> **Currently enforced** (raise `PermissionDenied` → 403 when the caller
+> lacks the permission; `admin:full` always passes):
+>
+> - `DELETE /servers/{server_id}` → `server:delete`
+> - `POST /servers/{server_id}/stop` and `/restart` → `server:stop`
+> - `POST /servers/reconcile` and `/runtime/ownership/claim` → `server:write`
+> - `DELETE /backups/{backup_id}` → `backup:delete`
+> - `POST /backups/{backup_id}/restore` → `backup:restore`
+> - `PATCH /users/{user_id}` → `user:write`; `DELETE /users/{user_id}` → `user:delete`
+> - `POST /auth/api-keys` and `DELETE /auth/api-keys/{id}` → `user:write`
+> - `DELETE /servers/{server_id}/plugins/{plugin_id}` → `plugin:manage`
 >
 > **Practical consequence: any authenticated user (any valid Bearer token,
-> any role) can call every endpoint in the system.** This is a known
-> security gap in the current implementation, not an intentional design
-> choice, and it needs a dedicated fix.
+> any role) can still call every other endpoint in the system.** The
+> remaining routes are a known security gap in the current implementation,
+> not an intentional design choice, and still need a dedicated fix.
 
 ### 401 vs 403
 
 | Status | Meaning in this codebase |
 |---|---|
 | `401 AUTHENTICATION_ERROR` | Missing, malformed, expired, or invalid Bearer token; revoked/expired API key; deactivated account. No request reaches the route. |
-| `403 PERMISSION_DENIED` | Reserved for denied authorization (see the known gap above). **Not produced in practice** — the exception is defined and mapped, but no code path currently raises it. |
+| `403 PERMISSION_DENIED` | Caller authenticated but lacks the required permission. Produced by the `require_permission` dependency on the destructive endpoints listed in the authorization known gap above. Other routes never produce it (not yet enforced). |
 
 ---
 
@@ -105,7 +116,7 @@ Every other route requires a valid Bearer token.
 | `204` | Deleted / void (no body) |
 | `400` | Bad request (e.g. `POST /servers/scan` on a non-directory) |
 | `401` | Authentication failure (see above) |
-| `403` | Permission denied — defined and mapped, but no code path currently raises it (see the authorization known gap above) |
+| `403` | Permission denied — raised by `require_permission` on the destructive endpoints listed in the authorization known gap above; not yet enforced on other routes |
 | `404` | Resource not found (e.g. unknown software type) |
 | `409` | Conflict (raised from command handlers) |
 | `415` | Mutating request without `Content-Type: application/json` |
@@ -161,8 +172,10 @@ Pydantic request-validation failures return FastAPI's default `422` shape
 | anything else | 400 |
 
 The `PERMISSION_DENIED` entry above is wired to a handler in
-`backend/app/api/errors.py`, but **no code path currently raises it** — it is
-effectively dead on the enforcement path (see the authorization known gap).
+`backend/app/api/errors.py` and is produced by the `require_permission`
+dependency on the destructive endpoints listed in the authorization known
+gap. It is still not raised for the majority of routes, which remain
+unauthorized on the enforcement path.
 
 Domain error codes produced by command handlers (e.g. `SERVER_NOT_RUNNING`,
 `SERVER_NOT_FOUND`, `BACKUP_IN_PROGRESS`, `INVALID_CREDENTIALS`) are returned

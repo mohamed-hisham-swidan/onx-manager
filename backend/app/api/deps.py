@@ -5,6 +5,7 @@ from app.core.auth_utils import resolve_bearer_token
 from app.core.command_bus import CommandBus
 from app.core.config import AppSettings, ConfigFactory
 from app.core.event_bus import EventBus
+from app.core.exceptions import PermissionDenied
 from app.core.query_bus import QueryBus
 from app.core.persistence.db import get_db
 from app.modules.storage.base import StorageBackend
@@ -81,6 +82,23 @@ async def get_current_user(
         raise
     except Exception as e:
         raise HTTPException(status_code=401, detail=str(e))
+
+
+def require_permission(permission: str):
+    """FastAPI dependency factory: require a permission from the caller's token claims.
+
+    `admin:full` always satisfies the check. Missing or expired tokens are
+    rejected by the underlying `get_current_user` (401); an authenticated
+    caller without the required permission gets a `PermissionDenied` (403).
+    """
+
+    async def _check(current_user: dict = Depends(get_current_user)) -> dict:
+        permissions = current_user.get("permissions", [])
+        if "admin:full" not in permissions and permission not in permissions:
+            raise PermissionDenied(f"missing required permission: {permission}")
+        return current_user
+
+    return _check
 
 
 async def get_storage_backend() -> StorageBackend:

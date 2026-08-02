@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Depends
 
-from app.api.deps import get_command_bus, get_current_user, get_query_bus
+from app.api.deps import (
+    get_command_bus,
+    get_current_user,
+    get_query_bus,
+    require_permission,
+)
 from app.api.errors import check_command_result
 from app.api.v1.schemas.plugin import InstallPluginRequest, PluginResponse
 from app.core.command_bus import CommandBus
@@ -66,7 +71,7 @@ async def uninstall_plugin(
     server_id: str,
     plugin_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> None:
     cmd = UninstallPluginCommand(plugin_id=plugin_id)
     result = await command_bus.send(cmd)

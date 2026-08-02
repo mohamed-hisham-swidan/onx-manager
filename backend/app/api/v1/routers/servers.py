@@ -1,6 +1,12 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
-from app.api.deps import get_command_bus, get_current_user, get_event_bus, get_query_bus
+from app.api.deps import (
+    get_command_bus,
+    get_current_user,
+    get_event_bus,
+    get_query_bus,
+    require_permission,
+)
 from app.api.errors import check_command_result
 from app.api.v1.schemas.import_server import (
     ImportServerRequest,
@@ -187,7 +193,7 @@ async def update_server(
 async def delete_server(
     server_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:delete")),
 ) -> None:
     result = await command_bus.send(DeleteServerCommand(server_id=server_id))
     check_command_result(result)
@@ -208,7 +214,7 @@ async def stop_server(
     server_id: str,
     body: ServerActionRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:stop")),
 ) -> dict:
     result = await command_bus.send(StopServerCommand(server_id=server_id, reason=body.reason))
     return check_command_result(result)
@@ -218,7 +224,7 @@ async def stop_server(
 async def restart_server(
     server_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:stop")),
 ) -> dict:
     result = await command_bus.send(RestartServerCommand(server_id=server_id))
     return check_command_result(result)
@@ -328,7 +334,7 @@ async def get_runtime_ownership(
 @router.post("/runtime/ownership/claim", response_model=ClaimLocalhostResponse)
 async def claim_runtime_ownership(
     server_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:write")),
 ) -> ClaimLocalhostResponse:
     from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
     from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -370,7 +376,7 @@ async def reconcile_runtimes(
     body: ReconcileRequest = Body(default=ReconcileRequest()),
     command_bus: CommandBus = Depends(get_command_bus),
     event_bus: EventBus = Depends(get_event_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:write")),
 ) -> dict:
     from app.modules.server.application.runtime_reconciliation import (
         reconcile_all_runtimes,

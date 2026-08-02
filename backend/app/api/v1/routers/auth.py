@@ -2,7 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_command_bus, get_current_user, get_db, get_query_bus
+from app.api.deps import (
+    get_command_bus,
+    get_current_user,
+    get_db,
+    get_query_bus,
+    require_permission,
+)
 from app.api.errors import check_command_result
 from app.api.v1.schemas.auth import (
     ApiKeyCreateRequest,
@@ -115,7 +121,7 @@ async def list_api_keys(
 @router.post("/api-keys", response_model=ApiKeyResponse, status_code=201)
 async def create_api_key(
     body: ApiKeyCreateRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("user:write")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> ApiKeyResponse:
     result = await command_bus.send(
@@ -141,7 +147,7 @@ async def create_api_key(
 @router.delete("/api-keys/{api_key_id}", status_code=204)
 async def revoke_api_key(
     api_key_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("user:write")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> None:
     await command_bus.send(

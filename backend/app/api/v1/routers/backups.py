@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_command_bus, get_current_user, get_query_bus
+from app.api.deps import (
+    get_command_bus,
+    get_current_user,
+    get_query_bus,
+    require_permission,
+)
 from app.api.errors import check_command_result
 from app.api.v1.schemas.backup import (
     BackupResponse,
@@ -59,7 +64,7 @@ async def get_backup(
 async def delete_backup(
     backup_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("backup:delete")),
 ) -> None:
     cmd = DeleteBackupCommand(backup_id=backup_id)
     result = await command_bus.send(cmd)
@@ -70,7 +75,7 @@ async def delete_backup(
 async def restore_backup(
     backup_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("backup:restore")),
 ) -> dict:
     cmd = RestoreBackupCommand(backup_id=backup_id)
     result = await command_bus.send(cmd)

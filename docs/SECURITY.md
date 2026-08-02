@@ -60,16 +60,16 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 
 ### Model: RBAC + ABAC Hybrid
 
-The authorization system *defines* Role-Based Access Control as the primary model with Attribute-Based Access Control extensions for resource-level checks. **However, authorization is not currently enforced anywhere in the request path.** See the known-gap callout in [`docs/API.md`](API.md) — the practical consequence is that any authenticated user can call any endpoint regardless of their token's `permissions` or `roles`.
+The authorization system *defines* Role-Based Access Control as the primary model with Attribute-Based Access Control extensions for resource-level checks. **However, authorization is only partially enforced in the request path.** See the known-gap callout in [`docs/API.md`](API.md) — the practical consequence is that any authenticated user can call most endpoints regardless of their token's `permissions` or `roles`, with only a small set of destructive endpoints gated.
 
 What exists today:
 
 1. `PermissionEvaluator` (`backend/app/modules/auth/infrastructure/permissions.py`) can evaluate role permissions (RBAC) and apply ABAC rules such as resource ownership
 2. Inactive users are rejected at evaluation time (`has_permission`/`evaluate_abac` return `False` for inactive users)
 3. The evaluator is only called at **login/refresh** to build the token's claims — it is **not** invoked by any command/query handler, router, or middleware to gate a request
-4. **No API endpoint checks permissions before executing**
+4. **Only a small set of destructive API endpoints checks permissions before executing** (via the `require_permission` dependency — see the callout below); every other endpoint does not
 
-> **Known gap — no authorization is enforced.** `PermissionDenied` is defined and mapped to HTTP 403 in `backend/app/api/errors.py`, but nothing in the codebase ever raises it; there is no `require_permission` dependency; `request.state.permissions` is written by `AuthMiddleware` but never read anywhere else. This is a real security gap that needs a dedicated fix, not an intentional design choice.
+> **Known gap — authorization is only partially enforced.** `PermissionDenied` is defined and mapped to HTTP 403 in `backend/app/api/errors.py`, and since the "enforce authorization on highest-risk destructive endpoints" fix a `require_permission` dependency gates `server:delete`, `server:stop`, `server:write`, `backup:delete`, `backup:restore`, `user:write`, `user:delete`, and `plugin:manage` on their respective routes. The vast majority of routes still do not check permissions (`request.state.permissions` is written by `AuthMiddleware` but never read outside those routes). This is a real security gap that needs a dedicated fix, not an intentional design choice.
 
 ### Permission Strings
 
@@ -111,7 +111,7 @@ The ABAC extension (as implemented in `PermissionEvaluator.evaluate_abac()`) def
 - **Resource ownership**: A user can modify a resource if they are the `resource_owner_id`
 - **Scope enforcement**: Server-scoped permissions (`server_id`) only apply to specific server resources; global-scoped permissions apply system-wide
 
-These rules are **not enforced** — `evaluate_abac()` exists but is never called in any request path (see the known-gap callout above). They describe the intended model, not current behavior.
+These rules are **not enforced** — `evaluate_abac()` exists but is never called in any request path (see the known-gap callout above). The permission strings above *are* enforced on the small set of destructive routes gated by `require_permission`; the ABAC ownership/scope rules are not. Together they describe the intended model, not current behavior.
 
 ---
 

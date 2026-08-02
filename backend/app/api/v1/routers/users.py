@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import get_command_bus, get_current_user, get_query_bus
+from app.api.deps import (
+    get_command_bus,
+    get_current_user,
+    get_query_bus,
+    require_permission,
+)
 from app.api.errors import check_command_result
 from app.api.v1.schemas.user import CreateUserRequest, UpdateUserRequest, UserResponse
 from app.core.command_bus import CommandBus
@@ -51,7 +56,7 @@ async def get_user(
 async def update_user(
     user_id: str,
     body: UpdateUserRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("user:write")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> UserResponse:
     result = await command_bus.send(
@@ -69,7 +74,7 @@ async def update_user(
 @router.delete("/{user_id}", status_code=204)
 async def delete_user(
     user_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("user:delete")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> None:
     result = await command_bus.send(DeleteUserCommand(user_id=user_id))

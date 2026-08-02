@@ -1,3 +1,4 @@
+import hashlib
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,6 +10,19 @@ from app.core.event_bus import EventBus
 from app.core.query_bus import QueryBus
 from app.main import app
 from app.registration import register_handlers
+
+
+def _reset_rate_limits() -> None:
+    from app.api.v1.middleware.rate_limit import InMemoryRateLimitStore
+
+    stack = getattr(app, "middleware_stack", None)
+    while stack is not None:
+        if isinstance(stack, InMemoryRateLimitStore):
+            stack._hits.clear()
+        store = getattr(stack, "_store", None)
+        if isinstance(store, InMemoryRateLimitStore):
+            store._hits.clear()
+        stack = getattr(stack, "app", None)
 
 
 @pytest.fixture(scope="session")
@@ -46,6 +60,8 @@ async def client(tmp_path) -> AsyncClient:
     from app.core.persistence.base import Base
     from app.core.persistence.db import database
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    _reset_rate_limits()
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     async with engine.begin() as conn:
@@ -96,6 +112,56 @@ async def auth_token(client: AsyncClient, created_user: dict) -> str:
 @pytest.fixture
 def auth_header(auth_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {auth_token}"}
+
+
+async def _seed_api_key_header(
+    client: AsyncClient,
+    user_id: str,
+    permissions: list[str],
+) -> dict[str, str]:
+    from app.core.persistence.db import database
+    from app.core.security import generate_api_key, hash_api_key
+    from app.modules.auth.infrastructure.models import ApiKeyModel
+
+    raw_key = generate_api_key()
+    async with database._session_factory() as session:
+        session.add(
+            ApiKeyModel(
+                id="test-" + hashlib.sha1(raw_key.encode()).hexdigest()[:16],
+                user_id=user_id,
+                name="test-seeded-key",
+                prefix=raw_key[:8],
+                key_hash=hash_api_key(raw_key),
+                permissions=",".join(sorted(permissions)),
+                expires_at=None,
+                is_revoked=False,
+            )
+        )
+        await session.commit()
+    return {"Authorization": f"Bearer {raw_key}"}
+
+
+@pytest.fixture
+async def privileged_header(client: AsyncClient, created_user: dict) -> dict[str, str]:
+    return await _seed_api_key_header(
+        client,
+        created_user["user_id"],
+        [
+            "server:delete",
+            "server:stop",
+            "server:write",
+            "backup:delete",
+            "backup:restore",
+            "plugin:manage",
+            "user:write",
+            "user:delete",
+        ],
+    )
+
+
+@pytest.fixture
+async def admin_header(client: AsyncClient, created_user: dict) -> dict[str, str]:
+    return await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
 
 
 @pytest.fixture
@@ -176,19 +242,19 @@ class TestAuth:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    async def test_create_api_key(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
-        resp = await client.post("/api/v1/auth/api-keys", json={"name": "test-key"}, headers=auth_header)
+    async def test_create_api_key(self, client: AsyncClient, privileged_header: dict[str, str]) -> None:
+        resp = await client.post("/api/v1/auth/api-keys", json={"name": "test-key"}, headers=privileged_header)
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "test-key"
         assert data["key"] is not None
         assert data["key"].startswith("mcs_")
 
-    async def test_revoke_api_key(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
-        resp = await client.post("/api/v1/auth/api-keys", json={"name": "test-key"}, headers=auth_header)
+    async def test_revoke_api_key(self, client: AsyncClient, privileged_header: dict[str, str]) -> None:
+        resp = await client.post("/api/v1/auth/api-keys", json={"name": "test-key"}, headers=privileged_header)
         assert resp.status_code == 201
         key_id = resp.json()["api_key_id"]
-        resp = await client.delete(f"/api/v1/auth/api-keys/{key_id}", headers=auth_header)
+        resp = await client.delete(f"/api/v1/auth/api-keys/{key_id}", headers=privileged_header)
         assert resp.status_code == 204
 
 
@@ -265,7 +331,13 @@ class TestServers:
         data = resp.json()
         assert data["server_id"] == server_id
 
-    async def test_stop_server(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_stop_server(
+        self,
+        client: AsyncClient,
+        auth_header: dict[str, str],
+        privileged_header: dict[str, str],
+        created_server: dict,
+    ) -> None:
         from app.core.persistence.db import database
         from sqlalchemy import text
         from app.modules.server.infrastructure.providers.base import (
@@ -292,12 +364,17 @@ class TestServers:
             await session.execute(text("UPDATE servers SET status = 'running' WHERE id = :id"), {"id": server_id})
             await session.commit()
         with patch("app.modules.server.application.commands.stop_server.provider_factory.get", return_value=mock_provider):
-            resp = await client.post(f"/api/v1/servers/{server_id}/stop", json={"reason": "test"}, headers=auth_header)
+            resp = await client.post(f"/api/v1/servers/{server_id}/stop", json={"reason": "test"}, headers=privileged_header)
         assert resp.status_code == 200
 
-    async def test_delete_server(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_delete_server(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        created_server: dict,
+    ) -> None:
         server_id = created_server["server_id"]
-        resp = await client.delete(f"/api/v1/servers/{server_id}", headers=auth_header)
+        resp = await client.delete(f"/api/v1/servers/{server_id}", headers=privileged_header)
         assert resp.status_code == 204
 
     async def test_unauthorized_access(self, client: AsyncClient) -> None:
@@ -350,15 +427,20 @@ class TestBackups:
         data = verify_resp.json()
         assert "valid" in data
 
-    async def test_delete_backup(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_delete_backup(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        created_server: dict,
+    ) -> None:
         server_id = created_server["server_id"]
         create_resp = await client.post(
             "/api/v1/backups",
             json={"server_id": server_id, "backup_type": "full"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         backup_id = create_resp.json()["backup_id"]
-        resp = await client.delete(f"/api/v1/backups/{backup_id}", headers=auth_header)
+        resp = await client.delete(f"/api/v1/backups/{backup_id}", headers=privileged_header)
         assert resp.status_code == 204
 
     @pytest.mark.parametrize("invalid_type", ["incremental", "world_only", "FULL", ""])
@@ -452,17 +534,22 @@ class TestPlugins:
         )
         assert resp.status_code == 200
 
-    async def test_uninstall_plugin(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_uninstall_plugin(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        created_server: dict,
+    ) -> None:
         server_id = created_server["server_id"]
         install_resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins",
             json={"server_id": server_id, "name": "Dynmap", "version": "3.7.0"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         plugin_id = install_resp.json()["plugin_id"]
         resp = await client.delete(
             f"/api/v1/servers/{server_id}/plugins/{plugin_id}",
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 204
 
@@ -497,19 +584,29 @@ class TestUsers:
         assert resp.status_code == 200
         assert resp.json()["email"] == "test@test.com"
 
-    async def test_update_user(self, client: AsyncClient, auth_header: dict[str, str], created_user: dict) -> None:
+    async def test_update_user(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        created_user: dict,
+    ) -> None:
         user_id = created_user["user_id"]
         resp = await client.patch(
             f"/api/v1/users/{user_id}",
             json={"display_name": "Updated Name"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 200
         assert resp.json()["display_name"] == "Updated Name"
 
-    async def test_delete_user(self, client: AsyncClient, auth_header: dict[str, str], created_user: dict) -> None:
+    async def test_delete_user(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        created_user: dict,
+    ) -> None:
         user_id = created_user["user_id"]
-        resp = await client.delete(f"/api/v1/users/{user_id}", headers=auth_header)
+        resp = await client.delete(f"/api/v1/users/{user_id}", headers=privileged_header)
         assert resp.status_code == 204
 
 
@@ -650,3 +747,146 @@ class TestErrorHandling:
     async def test_expired_token_returns_401(self, client: AsyncClient) -> None:
         resp = await client.get("/api/v1/servers", headers={"Authorization": "Bearer invalid.token.here"})
         assert resp.status_code == 401
+
+
+class TestAuthorizationEnforcement:
+    async def test_delete_server_without_permission_denied(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.delete(f"/api/v1/servers/{server_id}", headers=auth_header)
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_delete_server_admin_allowed(
+        self, client: AsyncClient, admin_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.delete(f"/api/v1/servers/{server_id}", headers=admin_header)
+        assert resp.status_code == 204
+
+    async def test_stop_server_without_permission_denied(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.post(f"/api/v1/servers/{server_id}/stop", json={"reason": "test"}, headers=auth_header)
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_reconcile_without_permission_denied(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+        resp = await client.post("/api/v1/servers/reconcile", json={}, headers=auth_header)
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_delete_backup_without_permission_denied(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        create_resp = await client.post(
+            "/api/v1/backups",
+            json={"server_id": server_id, "backup_type": "full"},
+            headers=auth_header,
+        )
+        backup_id = create_resp.json()["backup_id"]
+        resp = await client.delete(f"/api/v1/backups/{backup_id}", headers=auth_header)
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_delete_backup_admin_allowed(
+        self, client: AsyncClient, admin_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        create_resp = await client.post(
+            "/api/v1/backups",
+            json={"server_id": server_id, "backup_type": "full"},
+            headers=admin_header,
+        )
+        backup_id = create_resp.json()["backup_id"]
+        resp = await client.delete(f"/api/v1/backups/{backup_id}", headers=admin_header)
+        assert resp.status_code == 204
+
+    async def test_restore_backup_without_permission_denied(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        create_resp = await client.post(
+            "/api/v1/backups",
+            json={"server_id": server_id, "backup_type": "full"},
+            headers=auth_header,
+        )
+        backup_id = create_resp.json()["backup_id"]
+        resp = await client.post(f"/api/v1/backups/{backup_id}/restore", headers=auth_header)
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_update_user_without_permission_denied(
+        self, client: AsyncClient, auth_header: dict[str, str], created_user: dict
+    ) -> None:
+        user_id = created_user["user_id"]
+        resp = await client.patch(
+            f"/api/v1/users/{user_id}",
+            json={"display_name": "Hacker"},
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_delete_user_without_permission_denied(
+        self, client: AsyncClient, auth_header: dict[str, str], created_user: dict
+    ) -> None:
+        user_id = created_user["user_id"]
+        resp = await client.delete(f"/api/v1/users/{user_id}", headers=auth_header)
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_create_api_key_without_permission_denied(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
+        resp = await client.post(
+            "/api/v1/auth/api-keys",
+            json={"name": "test-key"},
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_create_api_key_admin_allowed(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
+        resp = await client.post(
+            "/api/v1/auth/api-keys",
+            json={"name": "test-key"},
+            headers=admin_header,
+        )
+        assert resp.status_code == 201
+
+    async def test_uninstall_plugin_without_permission_denied(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        install_resp = await client.post(
+            f"/api/v1/servers/{server_id}/plugins",
+            json={"server_id": server_id, "name": "Dynmap", "version": "3.7.0"},
+            headers=auth_header,
+        )
+        plugin_id = install_resp.json()["plugin_id"]
+        resp = await client.delete(
+            f"/api/v1/servers/{server_id}/plugins/{plugin_id}",
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_uninstall_plugin_admin_allowed(
+        self, client: AsyncClient, admin_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        install_resp = await client.post(
+            f"/api/v1/servers/{server_id}/plugins",
+            json={"server_id": server_id, "name": "Dynmap", "version": "3.7.0"},
+            headers=admin_header,
+        )
+        plugin_id = install_resp.json()["plugin_id"]
+        resp = await client.delete(
+            f"/api/v1/servers/{server_id}/plugins/{plugin_id}",
+            headers=admin_header,
+        )
+        assert resp.status_code == 204
