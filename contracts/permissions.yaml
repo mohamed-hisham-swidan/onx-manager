@@ -1,7 +1,31 @@
 # Permission Contract
 # All permission strings and their meanings.
 
-version: 1.0
+version: 1.1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTE (DRAFT — 2026-08-02, Phase 1 §3.1 audit): this file now also carries a
+# route→permission coverage matrix (`route_permissions`), generated from a
+# runtime introspection of the LIVE FastAPI route table. It documents the
+# CURRENT real enforcement state, not an aspirational target.
+#
+# Status values:
+#   enforced              -> a `require_permission(...)` dependency is attached
+#                            to the route today.
+#   enforced-external     -> real authorization gate exists but is structurally
+#                            different from require_permission(...) (e.g. the
+#                            WebSocket handshake/subscription model).
+#   missing               -> route is auth-gated (or public) but has no
+#                            permission check; a required permission is listed.
+#   not-applicable-public -> route is intentionally public/unauthenticated.
+#
+# Permission mapping policy (2026-08-02): routes that have no dedicated
+# permission in the `permissions:` catalog are folded onto the closest existing
+# resource:action permission (e.g. per-server reads -> server:read, global
+# cron/config writes -> settings:write). No new permission names are introduced
+# in Phase 1; a finer-grained model belongs to the Phase 2 redesign. See
+# docs/PERMISSIONS_FUTURE_IDEAS.md.
+# ─────────────────────────────────────────────────────────────────────────────
 
 permissions:
   server:read:
@@ -88,3 +112,129 @@ roles:
 
   admin:
     permissions: [admin:full]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROUTE → PERMISSION COVERAGE MATRIX (DRAFT — generated 2026-08-02)
+# Live introspection: 66 effective routes (excl. HEAD/OPTIONS), FastAPI 0.139.
+#   34 mutating -> 12 enforced, 22 unprotected (3 of the 22 are
+#                  intentionally public: login, refresh, create_user)
+#   31 GET      -> 21 sensitive (permission needed, all currently auth-only),
+#                  10 public-safe
+#    1 WebSocket -> /ws, status enforced-external (real gate, non-functional
+#                  due to namespace mismatch — see entry note)
+# ─────────────────────────────────────────────────────────────────────────────
+route_permissions:
+
+  # ── Mutating routes ─────────────────────────────────────────────────────────
+  # servers
+  "POST /api/v1/servers": {permission: "server:write", status: missing}
+  "POST /api/v1/servers/scan": {permission: "server:write", status: missing}
+  "POST /api/v1/servers/import": {permission: "server:write", status: missing}
+  "PATCH /api/v1/servers/{server_id}": {permission: "server:write", status: missing}
+  "DELETE /api/v1/servers/{server_id}": {permission: "server:delete", status: enforced}
+  "POST /api/v1/servers/{server_id}/start": {permission: "server:start", status: missing}
+  "POST /api/v1/servers/{server_id}/stop": {permission: "server:stop", status: enforced}
+  "POST /api/v1/servers/{server_id}/restart": {permission: "server:stop", status: enforced}
+  "POST /api/v1/servers/{server_id}/command": {permission: "server:write", status: missing, note: "console command execution; reuse existing server:write (no new server:console)"}
+  "POST /api/v1/servers/runtime/ownership/claim": {permission: "server:write", status: enforced}
+  "POST /api/v1/servers/reconcile": {permission: "server:write", status: enforced}
+  "POST /api/v1/servers/refresh": {permission: "server:write", status: missing}
+
+  # backups
+  "POST /api/v1/backups": {permission: "backup:create", status: missing}
+  "DELETE /api/v1/backups/{backup_id}": {permission: "backup:delete", status: enforced}
+  "POST /api/v1/backups/{backup_id}/restore": {permission: "backup:restore", status: enforced}
+  "POST /api/v1/backups/{backup_id}/verify": {permission: "backup:read", status: missing, note: "integrity check; reuse existing backup:read (no new backup:verify)"}
+
+  # plugins
+  "POST /api/v1/servers/{server_id}/plugins": {permission: "plugin:install", status: missing}
+  "DELETE /api/v1/servers/{server_id}/plugins/{plugin_id}": {permission: "plugin:manage", status: enforced}
+  "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/enable": {permission: "plugin:manage", status: missing}
+  "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/disable": {permission: "plugin:manage", status: missing}
+
+  # auth
+  "POST /api/v1/auth/login": {permission: null, status: not-applicable-public}
+  "POST /api/v1/auth/refresh": {permission: null, status: not-applicable-public}
+  "POST /api/v1/auth/logout": {permission: null, status: missing, note: "self-service on own session; auth-only is sufficient, no resource permission needed"}
+  "POST /api/v1/auth/api-keys": {permission: "user:write", status: enforced}
+  "DELETE /api/v1/auth/api-keys/{api_key_id}": {permission: "user:write", status: enforced}
+
+  # users
+  "POST /api/v1/users": {permission: null, status: not-applicable-public, note: "intentionally open registration (AuthMiddleware._public_post_only, app/api/v1/middleware/auth.py:25-27). First-user bootstrap fix investigated 2026-08-02 and DEFERRED — docs/API.md:471 + docs/getting-started.md:55 rely on open registration, User.create assigns no roles (no implicit-admin mechanism exists), and tests would need broad changes. See docs/PERMISSIONS_FUTURE_IDEAS.md §5."}
+  "PATCH /api/v1/users/{user_id}": {permission: "user:write", status: enforced}
+  "DELETE /api/v1/users/{user_id}": {permission: "user:delete", status: enforced}
+
+  # monitoring
+  "POST /api/v1/monitoring/alerts": {permission: "server:write", status: missing, note: "alert rules are server-scoped; reuse existing server:write"}
+  "DELETE /api/v1/monitoring/alerts/{alert_rule_id}": {permission: "server:write", status: missing, note: "alert rules are server-scoped; reuse existing server:write"}
+
+  # health
+  "POST /api/v1/health/evaluate/{server_id}": {permission: "server:write", status: missing, note: "per-server health evaluation; reuse existing server:write"}
+
+  # schedules
+  "POST /api/v1/schedules": {permission: "settings:write", status: missing, note: "global cron jobs; reuse existing settings:write"}
+  "DELETE /api/v1/schedules/{schedule_id}": {permission: "settings:write", status: missing, note: "global cron jobs; reuse existing settings:write"}
+
+  # settings
+  "PATCH /api/v1/settings": {permission: "settings:write", status: missing}
+
+  # ── Read (GET) routes ───────────────────────────────────────────────────────
+  # Public / no permission needed
+  "GET /openapi.json": {permission: null, status: not-applicable-public}
+  "GET /docs": {permission: null, status: not-applicable-public}
+  "GET /docs/oauth2-redirect": {permission: null, status: not-applicable-public}
+  "GET /redoc": {permission: null, status: not-applicable-public}
+  "GET /.well-known/jwks.json": {permission: null, status: not-applicable-public}
+  "GET /health": {permission: null, status: not-applicable-public}
+  "GET /metrics": {permission: null, status: not-applicable-public, note: "Prometheus scrape endpoint; intentionally public but exposes operational gauges"}
+  "GET /api/v1/servers/available-port": {permission: null, status: not-applicable-public, note: "auth-only is sufficient; reveals free port only"}
+  "GET /api/v1/software": {permission: null, status: not-applicable-public, note: "static software metadata; auth-only is sufficient"}
+  "GET /api/v1/software/{software_type}/versions": {permission: null, status: not-applicable-public, note: "version list; auth-only is sufficient"}
+
+  # Sensitive reads — permission check needed (currently auth-only = missing)
+  "GET /api/v1/servers": {permission: "server:read", status: missing}
+  "GET /api/v1/servers/{server_id}": {permission: "server:read", status: missing}
+  "GET /api/v1/servers/{server_id}/console": {permission: "server:read", status: missing, note: "console log history — explicitly sensitive per roadmap §3.1"}
+  "GET /api/v1/servers/{server_id}/runtime": {permission: "server:read", status: missing}
+  "GET /api/v1/servers/runtime/ownership": {permission: "server:read", status: missing, note: "exposes host runtime/PID/tmux info"}
+  "GET /api/v1/servers/{server_id}/runtime/validate": {permission: "server:read", status: missing}
+  "GET /api/v1/backups": {permission: "backup:read", status: missing}
+  "GET /api/v1/backups/{backup_id}": {permission: "backup:read", status: missing}
+  "GET /api/v1/servers/{server_id}/plugins": {permission: "plugin:read", status: missing}
+  "GET /api/v1/servers/{server_id}/plugins/{plugin_id}": {permission: "plugin:read", status: missing}
+  "GET /api/v1/auth/me": {permission: "user:read", status: missing, note: "own profile; auth-only may be acceptable but classified sensitive"}
+  "GET /api/v1/auth/api-keys": {permission: "user:read", status: missing, note: "API-key metadata incl. permission sets"}
+  "GET /api/v1/users": {permission: "user:read", status: missing, note: "full user list — email/display names"}
+  "GET /api/v1/users/{user_id}": {permission: "user:read", status: missing}
+  "GET /api/v1/monitoring/metrics": {permission: "server:read", status: missing, note: "per-server metrics; reuse existing server:read"}
+  "GET /api/v1/monitoring/alerts": {permission: "server:read", status: missing, note: "per-server alert rules; reuse existing server:read"}
+  "GET /api/v1/health/status/{server_id}": {permission: "server:read", status: missing, note: "per-server health; reuse existing server:read"}
+  "GET /api/v1/health/timeline/{server_id}": {permission: "server:read", status: missing, note: "per-server health timeline; reuse existing server:read"}
+  "GET /api/v1/health/dashboard": {permission: "server:read", status: missing, note: "aggregate of server health; reuse existing server:read"}
+  "GET /api/v1/schedules": {permission: "settings:read", status: missing, note: "global cron jobs; reuse existing settings:read"}
+  "GET /api/v1/settings": {permission: "settings:read", status: missing}
+
+  # ── WebSocket ───────────────────────────────────────────────────────────────
+  # Status verified by code trace (2026-08-02). Evidence:
+  #   - handshake token check BEFORE accept: app/websocket/endpoint.py:51-62
+  #     (missing token -> WS_1008 "Missing token"; verify_ws_token -> signature
+  #     + exp check via app/modules/auth/infrastructure/jwt.py:203-208,177-196;
+  #     invalid -> WS_1008; accept only after, endpoint.py:64)
+  #   - per-channel gate at subscribe time: app/websocket/handlers.py:116-131
+  #     -> ChannelAuthorizer.can_subscribe, app/websocket/authorization.py:41-55
+  # Known defect (NOT a bypass — gate fails CLOSED): authorization.py:3-17
+  #   requires PLURAL permission strings (servers:read, backups:read, ...) but
+  #   real JWT/api-key claims carry SINGULAR REST permissions (server:read, ...)
+  #   built in app/modules/auth/application/commands/login.py:48-53 via
+  #   Permission.__str__ (value_objects.py:205-206). issubset() is therefore
+  #   False for every real claim set, so every subscribe returns PERMISSION_DENIED
+  #   and no channel can ever be subscribed. admin:full is not in any required
+  #   set either. Additional gaps: token expiry mid-connection only sends an
+  #   auth_expired advisory and keeps the connection/subscriptions open
+  #   (handlers.py:52-54); refresh_token accepts any unvalidated string and
+  #   extends expiry (handlers.py:144-152, authentication.py:41-47);
+  #   idle timeout defined but never invoked in the handler loop
+  #   (authentication.py:20,60-64; handlers.py:44-72). Event dispatch does not
+  #   re-check authorization per message (dispatcher.py:40-57). The namespace
+  #   fix is deferred to Phase 2 — see docs/PERMISSIONS_FUTURE_IDEAS.md.
+  "WS /ws": {permission: null, status: enforced-external, note: "real handshake + subscription-time channel gate (structurally different from require_permission) but non-functional in practice due to singular/plural permission namespace mismatch; fail-closed, see evidence above"}
