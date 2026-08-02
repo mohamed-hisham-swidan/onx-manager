@@ -138,3 +138,13 @@ openapi.yaml
 # ──────────────────────────────────────────────
 *.backup
 *.db.*
+
+# ──────────────────────────────────────────────
+# Runtime secrets / config (JWT key, encryption key)
+# ──────────────────────────────────────────────
+backend/config/
+
+# ──────────────────────────────────────────────
+# Encrypted backup artifacts (runtime data)
+# ──────────────────────────────────────────────
+backend/data/backups/
