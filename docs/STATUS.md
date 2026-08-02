@@ -5,7 +5,7 @@
 **Version:** 7.1.0  
 **License:** MIT  
 **Repository:** `server_manger/`  
-**Last updated:** 2026-08-01
+**Last updated:** 2026-08-02
 
 ---
 
@@ -372,6 +372,7 @@ server_manger/
 | Permissions stored as comma-separated Text | Not normalized in DB | ⚠️ Known |
 | Backup `save-all` completion regex unverified | `_save_world()` confirms save via console polling matching `saved the (game|world)` — written from general Minecraft-fork behavior, no confirmed Purpur log sample in repo | ⚠️ Verify against a real Purpur server |
 | Backup saga step failures lose exception detail | `job.error_message` stores only `Failed at step '<step_name>'` (e.g. `save_world`); underlying cause visible only in server-side logs | ⚠️ Known |
+| `SQLUserRepository.save()` triggers async lazy-load on `model.roles` (`MissingGreenlet`) | `repository.py:55` — `role_model not in model.roles` performs a lazy load with no active greenlet context; raises `MissingGreenlet` when saving a user that has roles. Currently unreachable (no code path assigns roles), but sits in the auth repository that Phase 1 authorization work is expanding | ⚠️ Found during 2026-08-02 WS audit — not yet triaged |
 
 ---
 
