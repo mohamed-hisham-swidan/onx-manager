@@ -1,13 +1,14 @@
 # Permission Contract
 # All permission strings and their meanings.
 
-version: 1.1
+version: 1.2
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NOTE (DRAFT — 2026-08-02, Phase 1 §3.1 audit): this file now also carries a
-# route→permission coverage matrix (`route_permissions`), generated from a
-# runtime introspection of the LIVE FastAPI route table. It documents the
-# CURRENT real enforcement state, not an aspirational target.
+# NOTE (DRAFT — generated 2026-08-02, updated 2026-08-03, Phase 1 §3.1 audit):
+# this file now also carries a route→permission coverage matrix
+# (`route_permissions`), generated from a runtime introspection of the LIVE
+# FastAPI route table. It documents the CURRENT real enforcement state, not an
+# aspirational target.
 #
 # Status values:
 #   enforced              -> a `require_permission(...)` dependency is attached
@@ -114,9 +115,9 @@ roles:
     permissions: [admin:full]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROUTE → PERMISSION COVERAGE MATRIX (DRAFT — generated 2026-08-02)
+# ROUTE → PERMISSION COVERAGE MATRIX (DRAFT — generated 2026-08-02, updated 2026-08-03)
 # Live introspection: 66 effective routes (excl. HEAD/OPTIONS), FastAPI 0.139.
-#   34 mutating -> 12 enforced, 22 unprotected (3 of the 22 are
+#   34 mutating -> 19 enforced, 15 unprotected (3 of the 15 are
 #                  intentionally public: login, refresh, create_user)
 #   31 GET      -> 21 sensitive (permission needed, all currently auth-only),
 #                  10 public-safe
@@ -127,18 +128,18 @@ route_permissions:
 
   # ── Mutating routes ─────────────────────────────────────────────────────────
   # servers
-  "POST /api/v1/servers": {permission: "server:write", status: missing}
-  "POST /api/v1/servers/scan": {permission: "server:write", status: missing}
-  "POST /api/v1/servers/import": {permission: "server:write", status: missing}
-  "PATCH /api/v1/servers/{server_id}": {permission: "server:write", status: missing}
+  "POST /api/v1/servers": {permission: "server:write", status: enforced}
+  "POST /api/v1/servers/scan": {permission: "server:write", status: enforced}
+  "POST /api/v1/servers/import": {permission: "server:write", status: enforced}
+  "PATCH /api/v1/servers/{server_id}": {permission: "server:write", status: enforced}
   "DELETE /api/v1/servers/{server_id}": {permission: "server:delete", status: enforced}
-  "POST /api/v1/servers/{server_id}/start": {permission: "server:start", status: missing}
+  "POST /api/v1/servers/{server_id}/start": {permission: "server:start", status: enforced}
   "POST /api/v1/servers/{server_id}/stop": {permission: "server:stop", status: enforced}
   "POST /api/v1/servers/{server_id}/restart": {permission: "server:stop", status: enforced}
-  "POST /api/v1/servers/{server_id}/command": {permission: "server:write", status: missing, note: "console command execution; reuse existing server:write (no new server:console)"}
+  "POST /api/v1/servers/{server_id}/command": {permission: "server:write", status: enforced, note: "console command execution; reuse existing server:write (no new server:console)"}
   "POST /api/v1/servers/runtime/ownership/claim": {permission: "server:write", status: enforced}
   "POST /api/v1/servers/reconcile": {permission: "server:write", status: enforced}
-  "POST /api/v1/servers/refresh": {permission: "server:write", status: missing}
+  "POST /api/v1/servers/refresh": {permission: "server:write", status: enforced}
 
   # backups
   "POST /api/v1/backups": {permission: "backup:create", status: missing}
