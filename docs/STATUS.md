@@ -449,4 +449,14 @@ server_manger/
 
 **Verification:** full backend suite from the repo root — 997 tests (995 passing, 2 pre-existing env failures — `test_start_server` startup guard, `test_metrics_task_requires_collector` graceful handler), 148 frontend. `contracts/permissions.yaml` re-diffed against the live route table: 0 gaps, 0 stale entries. `backend/config/` (real, gitignored) confirmed byte-identical after the run — no stray root-level `config/` or `mcs.db` artifacts.
 
+### Batch 10 — Authorization Coverage: Batch 2 (backups module) — 2 commits (2026-08-03)
+
+| Commit | Step | What changed |
+|--------|------|-------------|
+| `*(this commit)*` | Batch 2 | `require_permission(...)` enforced on 2 previously-unprotected mutating routes in `backups.py`, replacing bare `Depends(get_current_user)`: `POST /api/v1/backups` (backup:create), `POST /api/v1/backups/{backup_id}/verify` (backup:read). `DELETE /api/v1/backups/{backup_id}` (backup:delete) and `POST /api/v1/backups/{backup_id}/restore` (backup:restore) were already enforced and are unchanged. |
+| `*(this commit)*` | Test fix | `privileged_header` fixture gains `backup:create`, `backup:read` (additive, nothing removed). 10 tests swapped `auth_header` → `privileged_header` (they perform the now-gated actions). `test_delete_backup_without_permission_denied` and `test_restore_backup_without_permission_denied` restructured: the backup is created with `privileged_header` (setup), and only the denied action itself is attempted with `auth_header` (zero perms) so the `403 PERMISSION_DENIED` assertion still proves what it claims. No new test functions added — backend total unchanged at 997. |
+| `*(this commit)*` | Docs | Flip the 2 Batch 2 routes to `status: enforced` in `contracts/permissions.yaml` (v1.2 → v1.3; summary header counts updated, 19 → 21 enforced, 15 → 13 unprotected). |
+
+**Verification:** full backend suite — 997 tests (995 passing, 2 pre-existing env failures — `test_start_server` startup guard, `test_metrics_task_requires_collector` graceful handler), 148 frontend; **unchanged from Batch 1** (no new test functions). `contracts/permissions.yaml` re-diffed against the live route table: 0 gaps, 0 stale entries (66/66). Note: FastAPI 0.139 defers router inclusion via lazy `_IncludedRouter`, so the live-table diff requires forcing materialization via `app.openapi()` before iterating routes — unlike Batch 1's simpler introspection; direct dependency-closure inspection confirmed all 4 backups mutating routes bind the correct permission string (`backup:create`/`backup:read`/`backup:delete`/`backup:restore`).
+
 *Generated: 2026-08-01 · Project: MCS Manager v4.0 (7.1.0) · Batch 8 — Backup Pipeline*
