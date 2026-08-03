@@ -44,9 +44,9 @@ export function SettingsPage() {
 
   if (error) {
     return (
-      <p className="text-red-600 dark:text-red-400">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
         {error instanceof Error ? error.message : "Failed to load settings"}
-      </p>
+      </div>
     );
   }
 

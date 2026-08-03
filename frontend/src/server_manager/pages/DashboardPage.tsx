@@ -1,9 +1,16 @@
-import { useServersList } from "@/server_manager/hooks/useServers";
-import { STATUS_MAP } from "@/server_manager/types";
 import { Link } from "react-router-dom";
+import { useServersList } from "@/server_manager/hooks/useServers";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { EmptyState } from "@/components/EmptyState";
+import { Skeleton } from "@/components/Skeleton";
+import { StatusOverviewCards } from "@/server_manager/components/StatusOverviewCards";
+import { DashboardServerList } from "@/server_manager/components/DashboardServerList";
+import { RecentActivity } from "@/server_manager/components/RecentActivity";
+import { useActivityStore } from "@/stores/activityStore";
 
 export function DashboardPage() {
-  const { data: servers, isLoading } = useServersList();
+  const { data: servers, isLoading, error } = useServersList();
+  const activityCount = useActivityStore((s) => s.events.length);
 
   const counts = (servers ?? []).reduce<Record<string, number>>((acc, s) => {
     const status = s.status || "unknown";
@@ -11,61 +18,98 @@ export function DashboardPage() {
     return acc;
   }, {});
 
+  const serverNames = (servers ?? []).reduce<Record<string, string>>((acc, s) => {
+    acc[s.server_id] = s.name;
+    return acc;
+  }, {});
+
   return (
     <div>
-      <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6">Dashboard</h2>
+      <PageHeader
+        title="Dashboard"
+        description="Overview of your Minecraft servers"
+        icon="dashboard"
+        actions={
+          <Link
+            to="/servers/create"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+          >
+            + New Server
+          </Link>
+        }
+      />
 
       {isLoading ? (
-        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            {Object.entries(STATUS_MAP).map(([status, { label }]) => (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {Array.from({ length: 6 }).map((_, i) => (
               <div
-                key={status}
-                className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4"
+                key={i}
+                className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
               >
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">{label}</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                  {counts[status] ?? 0}
-                </p>
+                <Skeleton className="h-9 w-9 mb-3" />
+                <Skeleton className="h-7 w-10 mb-2" />
+                <Skeleton className="h-3 w-14" />
               </div>
             ))}
           </div>
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+            <Skeleton className="h-5 w-32 mb-4" />
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full mb-2" />
+            ))}
+          </div>
+        </div>
+      ) : error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
+          {error instanceof Error ? error.message : "Failed to load servers"}
+        </div>
+      ) : servers && servers.length > 0 ? (
+        <>
+          <StatusOverviewCards counts={counts} />
 
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100">Servers</h3>
-              <Link
-                to="/servers"
-                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                View all
-              </Link>
-            </div>
-            {servers && servers.length > 0 ? (
-              <div className="space-y-2">
-                {servers.slice(0, 5).map((s) => (
-                  <div
-                    key={s.server_id}
-                    className="flex items-center justify-between py-1.5"
-                  >
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{s.name}</span>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        STATUS_MAP[s.status]?.color ?? "bg-gray-100 text-gray-600"
-                      }`}
-                    >
-                      {STATUS_MAP[s.status]?.label ?? s.status}
-                    </span>
-                  </div>
-                ))}
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
+            <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800 lg:col-span-3">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Servers</h2>
+                <Link
+                  to="/servers"
+                  className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  View all
+                </Link>
               </div>
-            ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No servers yet.</p>
-            )}
+              <DashboardServerList servers={servers.slice(0, 5)} />
+            </section>
+
+            <section className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800 lg:col-span-2">
+              <h2 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Recent Activity</h2>
+              {activityCount > 0 ? (
+                <RecentActivity serverNames={serverNames} />
+              ) : (
+                <EmptyState
+                  icon="activity"
+                  title="No activity yet"
+                  description="Server events will appear here as they happen."
+                />
+              )}
+            </section>
           </div>
         </>
+      ) : (
+        <EmptyState
+          icon="server"
+          title="No servers yet"
+          description="Create your first Minecraft server to get started."
+          action={
+            <Link
+              to="/servers/create"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              + New Server
+            </Link>
+          }
+        />
       )}
     </div>
   );

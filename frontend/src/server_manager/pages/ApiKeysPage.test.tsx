@@ -82,7 +82,7 @@ describe("ApiKeysPage", () => {
   it("toggles create form", async () => {
     const user = userEvent.setup();
     renderPage();
-    await user.click(screen.getByText("+ Create API Key"));
+    await user.click(screen.getByRole("button", { name: "Create API Key" }));
     expect(screen.getByText("Create API Key")).toBeInTheDocument();
   });
 });

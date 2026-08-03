@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardPage } from "./DashboardPage";
+import { useActivityStore } from "@/stores/activityStore";
 import type { ServerResponse } from "@/server_manager/types";
 
 const mockServers: ServerResponse[] = [
@@ -13,6 +14,9 @@ const mockServers: ServerResponse[] = [
 
 vi.mock("@/server_manager/hooks/useServers", () => ({
   useServersList: vi.fn(),
+  useStartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useStopServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useRestartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
 import { useServersList } from "@/server_manager/hooks/useServers";
@@ -31,32 +35,39 @@ function renderPage() {
 
 describe("DashboardPage", () => {
   beforeEach(() => {
-    vi.mocked(useServersList).mockReturnValue({ data: mockServers, isLoading: false } as any);
+    vi.mocked(useServersList).mockReturnValue({ data: mockServers, isLoading: false } as unknown as ReturnType<typeof useServersList>);
+    useActivityStore.getState().clear();
   });
 
-  it("renders dashboard title", () => {
+  it("renders page header", () => {
     renderPage();
-    expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 
-  it("renders status count cards", () => {
+  it("renders status count cards with correct labels", () => {
     renderPage();
-    const statuses = ["Online", "Offline", "Starting", "Stopping", "Crashed", "Not Started"];
-    for (const s of statuses) {
-      expect(screen.getAllByText(s).length).toBeGreaterThanOrEqual(1);
-    }
+    expect(screen.getByRole("link", { name: "1 Online" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "1 Offline" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "0 Starting" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "0 Stopping" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "1 Crashed" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "0 Not Started" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "3 Total" })).toBeInTheDocument();
   });
 
-  it("shows correct counts", () => {
+  it("shows real counts from the servers list", () => {
     renderPage();
-    const onlineCards = screen.getAllByText("1");
-    expect(onlineCards.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("link", { name: "1 Online" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "1 Crashed" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "3 Total" })).toBeInTheDocument();
   });
 
-  it("renders recent servers list", () => {
+  it("renders the compact servers list with names and badges", () => {
     renderPage();
-    expect(screen.getByText("Online Server")).toBeInTheDocument();
-    expect(screen.getByText("Stopped Server")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Online Server" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Stopped Server" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Crashed Server" })).toBeInTheDocument();
+    expect(screen.getAllByText("Online").length).toBeGreaterThanOrEqual(2);
   });
 
   it("renders view all link", () => {
@@ -64,15 +75,40 @@ describe("DashboardPage", () => {
     expect(screen.getByText("View all")).toBeInTheDocument();
   });
 
-  it("shows loading state", () => {
-    vi.mocked(useServersList).mockReturnValue({ data: undefined, isLoading: true } as any);
+  it("renders recent activity placeholder when no events", () => {
     renderPage();
-    expect(screen.getByText("Loading...")).toBeInTheDocument();
+    expect(screen.getByText("No activity yet")).toBeInTheDocument();
+  });
+
+  it("renders recent activity events when present", () => {
+    useActivityStore.getState().addEvent({
+      event_type: "ServerStartedEvent",
+      server_id: "srv-1",
+      name: "Online Server",
+      timestamp: Date.now() / 1000,
+    });
+    renderPage();
+    expect(screen.queryByText("No activity yet")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Online Server").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("started")).toBeInTheDocument();
+  });
+
+  it("shows loading state", () => {
+    vi.mocked(useServersList).mockReturnValue({ data: undefined, isLoading: true } as unknown as ReturnType<typeof useServersList>);
+    renderPage();
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 
   it("shows empty state when no servers", () => {
-    vi.mocked(useServersList).mockReturnValue({ data: [], isLoading: false } as any);
+    vi.mocked(useServersList).mockReturnValue({ data: [], isLoading: false } as unknown as ReturnType<typeof useServersList>);
     renderPage();
-    expect(screen.getByText("No servers yet.")).toBeInTheDocument();
+    expect(screen.getByText("No servers yet")).toBeInTheDocument();
+    expect(screen.getByText("Create your first Minecraft server to get started.")).toBeInTheDocument();
+  });
+
+  it("shows error state", () => {
+    vi.mocked(useServersList).mockReturnValue({ data: undefined, isLoading: false, error: new Error("boom") } as unknown as ReturnType<typeof useServersList>);
+    renderPage();
+    expect(screen.getByText("boom")).toBeInTheDocument();
   });
 });

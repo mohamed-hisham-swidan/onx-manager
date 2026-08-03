@@ -5,7 +5,6 @@ import type {
   CreateAlertRuleRequest,
   CreateBackupRequest,
   CreateUserRequest,
-  ErrorResponse,
   HealthResponse,
   InstallPluginRequest,
   LoginRequest,

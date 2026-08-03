@@ -20,10 +20,13 @@ function applyTheme(theme: Theme) {
 interface UIState {
   theme: Theme;
   sidebarOpen: boolean;
+  mobileSidebarOpen: boolean;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
+  setMobileSidebarOpen: (open: boolean) => void;
+  toggleMobileSidebar: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => {
@@ -33,6 +36,7 @@ export const useUIStore = create<UIState>((set) => {
   return {
     theme: initialTheme,
     sidebarOpen: true,
+    mobileSidebarOpen: false,
 
     setTheme: (theme) => {
       localStorage.setItem(THEME_KEY, theme);
@@ -51,5 +55,9 @@ export const useUIStore = create<UIState>((set) => {
     setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
 
     toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+
+    setMobileSidebarOpen: (mobileSidebarOpen) => set({ mobileSidebarOpen }),
+
+    toggleMobileSidebar: () => set((state) => ({ mobileSidebarOpen: !state.mobileSidebarOpen })),
   };
 });

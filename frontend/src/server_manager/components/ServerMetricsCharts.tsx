@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createAuthenticatedApi, type MetricsSnapshot } from "@/services/api";
+import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
 import { Sparkline } from "./Sparkline";
 

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
-import type { CreateBackupRequest, BackupResponse } from "@/types";
+import type { CreateBackupRequest } from "@/types";
 
 function useApi() {
   return createAuthenticatedApi();

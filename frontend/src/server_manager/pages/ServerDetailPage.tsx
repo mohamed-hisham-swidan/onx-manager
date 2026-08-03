@@ -1,11 +1,45 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer } from "@/server_manager/hooks/useServers";
-import { STATUS_MAP } from "@/server_manager/types";
 import { Skeleton } from "@/components/Skeleton";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Icon } from "@/components/ui/Icon";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
 import { ServerConfigEditor } from "@/server_manager/components/ServerConfigEditor";
 import { ServerConsole } from "@/server_manager/components/ServerConsole";
 import { ServerMetricsCharts } from "@/server_manager/components/ServerMetricsCharts";
+import { toast } from "@/stores/toastStore";
+import type { ServerDetailResponse } from "@/server_manager/types";
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Action failed";
+}
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-2.5">
+      <dt className="shrink-0 text-sm text-gray-500 dark:text-gray-400">{label}</dt>
+      <dd className="text-right text-sm font-medium text-gray-900 dark:text-gray-100">{children}</dd>
+    </div>
+  );
+}
+
+function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="p-5 sm:p-6">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+        {title}
+      </h3>
+      <dl className="divide-y divide-gray-100 dark:divide-gray-700/50">{children}</dl>
+    </section>
+  );
+}
+
+function renderMotd(motd: string | undefined): string {
+  const cleaned = stripMinecraftFormatting(motd ?? "");
+  return cleaned || "—";
+}
 
 export function ServerDetailPage() {
   const { serverId } = useParams<{ serverId: string }>();
@@ -16,9 +50,14 @@ export function ServerDetailPage() {
   const restartServer = useRestartServer();
   const deleteServer = useDeleteServer();
   const [activeTab, setActiveTab] = useState<"info" | "config" | "console" | "metrics">("info");
+  const [showDelete, setShowDelete] = useState(false);
 
   if (!serverId) {
-    return <p className="text-red-600 dark:text-red-400">No server ID specified.</p>;
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
+        No server ID specified.
+      </div>
+    );
   }
 
   if (isLoading) {
@@ -40,15 +79,77 @@ export function ServerDetailPage() {
 
   if (error) {
     return (
-      <p className="text-red-600 dark:text-red-400">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
         {error instanceof Error ? error.message : "Failed to load server details"}
-      </p>
+      </div>
     );
   }
 
   if (!server) {
-    return <p className="text-gray-500 dark:text-gray-400">Server not found.</p>;
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
+        Server not found.
+      </div>
+    );
   }
+
+  const actions = (s: ServerDetailResponse) => (
+    <>
+      {["stopped", "created", "crashed"].includes(s.status) && (
+        <button
+          onClick={() =>
+            startServer.mutate(serverId, {
+              onSuccess: () => toast("success", "Server started", `"${s.name}" is starting.`),
+              onError: (err) => toast("error", "Start failed", errorMessage(err)),
+            })
+          }
+          disabled={startServer.isPending}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
+        >
+          <Icon name="play" size={14} />
+          {startServer.isPending ? "Starting..." : "Start"}
+        </button>
+      )}
+      {s.status === "running" && (
+        <>
+          <button
+            onClick={() =>
+              stopServer.mutate(serverId, {
+                onSuccess: () => toast("success", "Server stopped", `"${s.name}" is stopping.`),
+                onError: (err) => toast("error", "Stop failed", errorMessage(err)),
+              })
+            }
+            disabled={stopServer.isPending}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
+          >
+            <Icon name="stop" size={14} />
+            {stopServer.isPending ? "Stopping..." : "Stop"}
+          </button>
+          <button
+            onClick={() =>
+              restartServer.mutate(serverId, {
+                onSuccess: () => toast("success", "Server restarting", `"${s.name}" is restarting.`),
+                onError: (err) => toast("error", "Restart failed", errorMessage(err)),
+              })
+            }
+            disabled={restartServer.isPending}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-yellow-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-yellow-700 disabled:opacity-50"
+          >
+            <Icon name="restart" size={14} />
+            {restartServer.isPending ? "Restarting..." : "Restart"}
+          </button>
+        </>
+      )}
+      <button
+        onClick={() => setShowDelete(true)}
+        disabled={deleteServer.isPending}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20"
+      >
+        <Icon name="trash" size={14} />
+        Delete
+      </button>
+    </>
+  );
 
   const tabs = [
     { key: "info" as const, label: "Information" },
@@ -59,62 +160,35 @@ export function ServerDetailPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate("/servers")}
-            className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            &larr; Back
-          </button>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{server.name}</h2>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_MAP[server.status]?.color ?? "bg-gray-100 text-gray-600"}`}>
-            {STATUS_MAP[server.status]?.label ?? server.status}
-          </span>
+      <Link
+        to="/servers"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 transition-colors hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+      >
+        <Icon name="chevron-left" size={16} />
+        Servers
+      </Link>
+
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+            <Icon name="server" size={24} />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-xl font-semibold text-gray-900 dark:text-gray-100">
+                {server.name}
+              </h2>
+              <StatusBadge status={server.status} />
+            </div>
+            <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+              {server.server_type} · {server.minecraft_version} · port {server.port}
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          {["stopped", "created", "crashed"].includes(server.status) ? (
-            <button
-              onClick={() => startServer.mutate(serverId)}
-              disabled={startServer.isPending}
-              className="px-3 py-1.5 text-xs rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 disabled:opacity-50 font-medium"
-            >
-              {startServer.isPending ? "Starting..." : "Start"}
-            </button>
-          ) : null}
-          {server.status === "running" ? (
-            <>
-              <button
-                onClick={() => stopServer.mutate(serverId)}
-                disabled={stopServer.isPending}
-                className="px-3 py-1.5 text-xs rounded bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 disabled:opacity-50 font-medium"
-              >
-                {stopServer.isPending ? "Stopping..." : "Stop"}
-              </button>
-              <button
-                onClick={() => restartServer.mutate(serverId)}
-                disabled={restartServer.isPending}
-                className="px-3 py-1.5 text-xs rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 hover:bg-yellow-200 dark:hover:bg-yellow-900/50 disabled:opacity-50 font-medium"
-              >
-                {restartServer.isPending ? "Restarting..." : "Restart"}
-              </button>
-            </>
-          ) : null}
-          <button
-            onClick={() => {
-              if (confirm(`Delete ${server.name}?`)) {
-                deleteServer.mutate(serverId, { onSuccess: () => navigate("/servers") });
-              }
-            }}
-            disabled={deleteServer.isPending}
-            className="px-3 py-1.5 text-xs rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 disabled:opacity-50 font-medium"
-          >
-            Delete
-          </button>
-        </div>
+        <div className="flex flex-wrap items-center gap-2">{actions(server)}</div>
       </div>
 
-      <div className="flex gap-1 mb-6 border-b border-gray-200 dark:border-gray-700">
+      <div className="mb-6 flex gap-1 border-b border-gray-200 dark:border-gray-700">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -131,103 +205,109 @@ export function ServerDetailPage() {
       </div>
 
       {activeTab === "info" && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Minecraft Version</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.minecraft_version}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Port</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.port}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Max Players</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.max_players}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Gamemode</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100 capitalize">{server.gamemode}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Difficulty</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100 capitalize">{server.difficulty}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">PVP</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.pvp ? "Enabled" : "Disabled"}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Whitelist</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.whitelist ? "Enabled" : "Disabled"}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Online Mode</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.online_mode ? "Yes" : "No"}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">View Distance</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.view_distance} chunks</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Simulation Distance</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.simulation_distance} chunks</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Memory</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.min_memory_mb} MB / {server.max_memory_mb} MB</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Java Args</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{server.java_args}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">MOTD</p>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{server.motd}</p>
-            </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+            <DetailSection title="General">
+              <DetailRow label="Minecraft Version">{server.minecraft_version}</DetailRow>
+              <DetailRow label="Server Type">{server.server_type}</DetailRow>
+              <DetailRow label="Gamemode">
+                <span className="capitalize">{server.gamemode}</span>
+              </DetailRow>
+              <DetailRow label="Difficulty">
+                <span className="capitalize">{server.difficulty}</span>
+              </DetailRow>
+            </DetailSection>
+            <div className="border-t border-gray-100 dark:border-gray-700/50" />
+            <DetailSection title="Network">
+              <DetailRow label="Port">{server.port}</DetailRow>
+              <DetailRow label="Max Players">{server.max_players}</DetailRow>
+              <DetailRow label="MOTD">
+                <span className="block max-w-xs text-right">{renderMotd(server.motd)}</span>
+              </DetailRow>
+            </DetailSection>
           </div>
-          {server.deployment_host && (
-            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Deployment</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Provider</p>
-                  <p className="text-sm text-gray-900 dark:text-gray-100">{server.provider ?? "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Host</p>
-                  <p className="text-sm text-gray-900 dark:text-gray-100">{server.deployment_host}:{server.deployment_port}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">PID</p>
-                  <p className="text-sm text-gray-900 dark:text-gray-100">{server.deployment_pid ?? "—"}</p>
-                </div>
-              </div>
-            </div>
-          )}
+
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+            <DetailSection title="Gameplay">
+              <DetailRow label="PVP">{server.pvp ? "Enabled" : "Disabled"}</DetailRow>
+              <DetailRow label="Whitelist">{server.whitelist ? "Enabled" : "Disabled"}</DetailRow>
+              <DetailRow label="Online Mode">{server.online_mode ? "Yes" : "No"}</DetailRow>
+              <DetailRow label="Command Blocks">{server.enable_command_block ? "Enabled" : "Disabled"}</DetailRow>
+              <DetailRow label="Spawn Protection">{server.spawn_protection} blocks</DetailRow>
+            </DetailSection>
+            <div className="border-t border-gray-100 dark:border-gray-700/50" />
+            <DetailSection title="Performance">
+              <DetailRow label="View Distance">{server.view_distance} chunks</DetailRow>
+              <DetailRow label="Simulation Distance">{server.simulation_distance} chunks</DetailRow>
+              <DetailRow label="Memory">
+                {server.min_memory_mb} MB / {server.max_memory_mb} MB
+              </DetailRow>
+              <DetailRow label="Java Args">
+                <span className="block max-w-xs truncate font-mono text-xs" title={server.java_args}>
+                  {server.java_args}
+                </span>
+              </DetailRow>
+            </DetailSection>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 lg:col-span-2">
+            <DetailSection title="Deployment">
+              <DetailRow label="Provider">{server.provider ?? "—"}</DetailRow>
+              <DetailRow label="Host">
+                {server.deployment_host ? `${server.deployment_host}:${server.deployment_port ?? "—"}` : "—"}
+              </DetailRow>
+              <DetailRow label="PID">{server.deployment_pid ?? "—"}</DetailRow>
+              <DetailRow label="Root Path">
+                <span className="block max-w-xs truncate font-mono text-xs" title={server.root_path ?? undefined}>
+                  {server.root_path ?? "—"}
+                </span>
+              </DetailRow>
+              <DetailRow label="Startup Jar">
+                <span className="block max-w-xs truncate font-mono text-xs" title={server.startup_jar ?? undefined}>
+                  {server.startup_jar ?? "—"}
+                </span>
+              </DetailRow>
+            </DetailSection>
+          </div>
         </div>
       )}
 
       {activeTab === "config" && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Server Configuration</h3>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+          <h3 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Server Configuration</h3>
           <ServerConfigEditor serverId={serverId} server={server} />
         </div>
       )}
 
       {activeTab === "console" && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Server Console</h3>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+          <h3 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Server Console</h3>
           <ServerConsole serverId={serverId} />
         </div>
       )}
 
       {activeTab === "metrics" && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Server Metrics</h3>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+          <h3 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Server Metrics</h3>
           <ServerMetricsCharts serverId={serverId} />
         </div>
       )}
+
+      <ConfirmDialog
+        open={showDelete}
+        title="Delete server?"
+        description={`This permanently deletes "${server.name}" and its data. This action cannot be undone.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={() =>
+          deleteServer.mutate(serverId, {
+            onSuccess: () => navigate("/servers"),
+            onError: (err) => toast("error", "Delete failed", errorMessage(err)),
+            onSettled: () => setShowDelete(false),
+          })
+        }
+        onCancel={() => setShowDelete(false)}
+      />
     </div>
   );
 }

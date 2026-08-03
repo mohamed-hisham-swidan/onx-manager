@@ -1,19 +1,19 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { TopNav } from "./TopNav";
+import { TopBar } from "./TopBar";
 import { useAuthStore } from "@/stores/authStore";
 import { useUIStore } from "@/stores/uiStore";
 
-function renderTopNav() {
+function renderTopBar() {
   return render(
     <MemoryRouter>
-      <TopNav />
+      <TopBar />
     </MemoryRouter>,
   );
 }
 
-describe("TopNav", () => {
+describe("TopBar", () => {
   beforeEach(() => {
     useAuthStore.setState({
       isAuthenticated: false,
@@ -21,11 +21,11 @@ describe("TopNav", () => {
       refreshToken: null,
       getAccessToken: () => null,
     });
-    useUIStore.setState({ sidebarOpen: true, theme: "light" });
+    useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false, theme: "light" });
   });
 
   it("renders app title", () => {
-    renderTopNav();
+    renderTopBar();
     expect(screen.getByText("MC Server Manager")).toBeInTheDocument();
   });
 
@@ -36,13 +36,13 @@ describe("TopNav", () => {
       refreshToken: "rtok",
       getAccessToken: () => "tok",
     });
-    renderTopNav();
+    renderTopBar();
     expect(screen.getByLabelText("Close sidebar")).toBeInTheDocument();
     expect(screen.getByText("Logout")).toBeInTheDocument();
   });
 
   it("hides hamburger and logout when not authenticated", () => {
-    renderTopNav();
+    renderTopBar();
     expect(screen.queryByLabelText("Close sidebar")).not.toBeInTheDocument();
     expect(screen.queryByText("Logout")).not.toBeInTheDocument();
   });
@@ -54,7 +54,7 @@ describe("TopNav", () => {
       refreshToken: "rtok",
       getAccessToken: () => "tok",
     });
-    renderTopNav();
+    renderTopBar();
     const btn = screen.getByText("Logout");
     expect(btn.tagName).toBe("BUTTON");
   });

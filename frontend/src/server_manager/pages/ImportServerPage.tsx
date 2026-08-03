@@ -1,13 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createAuthenticatedApi } from "@/services/api";
-import { useCreateServer } from "@/server_manager/hooks/useServers";
 import type { ScanResult } from "@/server_manager/types";
 
 export function ImportServerPage() {
   const navigate = useNavigate();
   const api = createAuthenticatedApi();
-  const createServer = useCreateServer();
 
   const [path, setPath] = useState("");
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);

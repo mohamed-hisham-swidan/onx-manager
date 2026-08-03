@@ -14,7 +14,7 @@ function renderSidebar() {
 
 describe("Sidebar", () => {
   beforeEach(() => {
-    useUIStore.setState({ sidebarOpen: true, theme: "light" });
+    useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false, theme: "light" });
   });
 
   it("renders all navigation items", () => {
@@ -33,17 +33,13 @@ describe("Sidebar", () => {
     expect(screen.getByText("Backups").closest("a")).toHaveAttribute("href", "/backups");
   });
 
-  it("hides labels when sidebar is closed", () => {
-    useUIStore.setState({ sidebarOpen: false });
+  it("shows backdrop and closes drawer on navigation when mobile is open", () => {
+    useUIStore.setState({ mobileSidebarOpen: true });
     renderSidebar();
-    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
-    expect(screen.queryByText("Servers")).not.toBeInTheDocument();
-  });
-
-  it("shows icons when sidebar is closed", () => {
-    useUIStore.setState({ sidebarOpen: false });
-    renderSidebar();
-    expect(screen.getByText("◆")).toBeInTheDocument();
-    expect(screen.getByText("⚡")).toBeInTheDocument();
+    expect(screen.getByText("Servers")).toBeInTheDocument();
+    const backdrop = document.querySelector(".fixed.inset-0.z-30");
+    expect(backdrop).toBeInTheDocument();
+    backdrop!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
   });
 });

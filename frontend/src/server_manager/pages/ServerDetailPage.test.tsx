@@ -31,6 +31,8 @@ const mockServer = {
   deployment_host: null,
   deployment_port: null,
   deployment_pid: null,
+  root_path: null,
+  startup_jar: null,
   created_at: "2024-01-01T00:00:00Z",
   updated_at: "2024-01-01T00:00:00Z",
 };
@@ -90,9 +92,9 @@ describe("ServerDetailPage", () => {
     expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
-  it("shows server name and status", () => {
+  it("shows server name and status in header", () => {
     renderPage();
-    expect(screen.getByText("Test Server")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Test Server" })).toBeInTheDocument();
     expect(screen.getByText("Online")).toBeInTheDocument();
   });
 
@@ -108,10 +110,25 @@ describe("ServerDetailPage", () => {
     expect(screen.getByText("Server not found.")).toBeInTheDocument();
   });
 
-  it("shows info tab by default", () => {
+  it("shows info tab by default with grouped fields", () => {
     renderPage();
     expect(screen.getByText("1.20.4")).toBeInTheDocument();
     expect(screen.getByText("25565")).toBeInTheDocument();
+    expect(screen.getByText("General")).toBeInTheDocument();
+    expect(screen.getByText("Network")).toBeInTheDocument();
+  });
+
+  it("renders a cleaned MOTD", () => {
+    mockData = { ...mockServer, motd: "\u00a7bWelcome\u00a7r &6to &ethe server" };
+    renderPage();
+    expect(screen.getByText("Welcome to the server")).toBeInTheDocument();
+  });
+
+  it("shows a placeholder MOTD when empty", () => {
+    mockData = { ...mockServer, motd: "" };
+    renderPage();
+    const motdRow = screen.getByText("MOTD").parentElement!;
+    expect(motdRow.querySelector("dd")!.textContent).toBe("—");
   });
 
   it("switches tabs on click", async () => {
@@ -125,5 +142,19 @@ describe("ServerDetailPage", () => {
     mockData = { ...mockServer, status: "stopped" };
     renderPage();
     expect(screen.getByText("Start")).toBeInTheDocument();
+  });
+
+  it("shows Stop and Restart buttons when running", () => {
+    renderPage();
+    expect(screen.getByText("Stop")).toBeInTheDocument();
+    expect(screen.getByText("Restart")).toBeInTheDocument();
+  });
+
+  it("opens delete confirmation dialog", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByText("Delete"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Delete server?")).toBeInTheDocument();
   });
 });

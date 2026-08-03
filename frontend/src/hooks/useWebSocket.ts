@@ -8,10 +8,12 @@ import { useWSStore } from "@/stores/wsStore";
 interface UseWebSocketOptions {
   url: string;
   onCacheUpdate?: CacheUpdater;
+  onEvent?: (event: Record<string, unknown>) => void;
+  onStateSync?: (events: Array<Record<string, unknown>>) => void;
   autoConnect?: boolean;
 }
 
-export function useWebSocket({ url, onCacheUpdate, autoConnect = true }: UseWebSocketOptions) {
+export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoConnect = true }: UseWebSocketOptions) {
   const accessToken = useAuthStore((s) => s.accessToken);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const setConnectionState = useWSStore((s) => s.setConnectionState);
@@ -22,7 +24,7 @@ export function useWebSocket({ url, onCacheUpdate, autoConnect = true }: UseWebS
   useEffect(() => {
     if (!autoConnect || !isAuthenticated || !accessToken) return;
 
-    const handler = new WSHandler({ onCacheUpdate });
+    const handler = new WSHandler({ onCacheUpdate, onEvent, onStateSync });
     handlerRef.current = handler;
 
     const client = new WSClient(
@@ -40,7 +42,7 @@ export function useWebSocket({ url, onCacheUpdate, autoConnect = true }: UseWebS
       clientRef.current = null;
       handlerRef.current = null;
     };
-  }, [url, accessToken, isAuthenticated, autoConnect, onCacheUpdate, setConnectionState]);
+  }, [url, accessToken, isAuthenticated, autoConnect, onCacheUpdate, onEvent, onStateSync, setConnectionState]);
 
   const subscribe = useCallback((channels: string[]) => {
     clientRef.current?.subscribe(channels);
