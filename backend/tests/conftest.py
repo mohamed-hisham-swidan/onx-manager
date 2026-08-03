@@ -1,6 +1,7 @@
 import asyncio
 import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,6 +12,12 @@ from app.core.event_bus import EventBus
 from app.core.exceptions import MCSError
 from app.core.idempotency import InMemoryIdempotencyStore
 from app.core.query_bus import QueryBus
+
+
+@pytest.fixture(autouse=True)
+def _sandbox_cwd(monkeypatch: pytest.MonkeyPatch) -> None:
+    backend_dir = Path(__file__).resolve().parents[1]
+    monkeypatch.chdir(backend_dir)
 
 
 @pytest.fixture(autouse=True)
