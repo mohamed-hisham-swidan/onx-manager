@@ -151,6 +151,8 @@ async def privileged_header(client: AsyncClient, created_user: dict) -> dict[str
             "server:stop",
             "server:start",
             "server:write",
+            "backup:create",
+            "backup:read",
             "backup:delete",
             "backup:restore",
             "plugin:manage",
@@ -394,36 +396,36 @@ class TestBackups:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    async def test_create_backup(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_create_backup(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         resp = await client.post(
             "/api/v1/backups",
             json={"server_id": server_id, "backup_type": "full"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 201
         assert "backup_id" in resp.json()
 
-    async def test_create_and_get_backup(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_create_and_get_backup(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         create_resp = await client.post(
             "/api/v1/backups",
             json={"server_id": server_id, "backup_type": "full"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         backup_id = create_resp.json()["backup_id"]
-        get_resp = await client.get(f"/api/v1/backups/{backup_id}", headers=auth_header)
+        get_resp = await client.get(f"/api/v1/backups/{backup_id}", headers=privileged_header)
         assert get_resp.status_code == 200
 
-    async def test_verify_backup(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_verify_backup(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         create_resp = await client.post(
             "/api/v1/backups",
             json={"server_id": server_id, "backup_type": "full"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         backup_id = create_resp.json()["backup_id"]
-        verify_resp = await client.post(f"/api/v1/backups/{backup_id}/verify", headers=auth_header)
+        verify_resp = await client.post(f"/api/v1/backups/{backup_id}/verify", headers=privileged_header)
         assert verify_resp.status_code == 200
         data = verify_resp.json()
         assert "valid" in data
@@ -448,7 +450,7 @@ class TestBackups:
     async def test_create_backup_rejects_invalid_type_with_422(
         self,
         client: AsyncClient,
-        auth_header: dict[str, str],
+        privileged_header: dict[str, str],
         created_server: dict,
         invalid_type: str,
     ) -> None:
@@ -456,7 +458,7 @@ class TestBackups:
         resp = await client.post(
             "/api/v1/backups",
             json={"server_id": server_id, "backup_type": invalid_type},
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 422
 
@@ -464,7 +466,7 @@ class TestBackups:
     async def test_create_backup_accepts_valid_types(
         self,
         client: AsyncClient,
-        auth_header: dict[str, str],
+        privileged_header: dict[str, str],
         created_server: dict,
         valid_type: str,
     ) -> None:
@@ -472,7 +474,7 @@ class TestBackups:
         resp = await client.post(
             "/api/v1/backups",
             json={"server_id": server_id, "backup_type": valid_type},
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 201
 
@@ -780,15 +782,17 @@ class TestAuthorizationEnforcement:
         assert resp.json()["error_code"] == "PERMISSION_DENIED"
 
     async def test_delete_backup_without_permission_denied(
-        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+        self, client: AsyncClient, auth_header: dict[str, str], privileged_header: dict[str, str], created_server: dict
     ) -> None:
         server_id = created_server["server_id"]
+        # setup with privileges: create the backup
         create_resp = await client.post(
             "/api/v1/backups",
             json={"server_id": server_id, "backup_type": "full"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         backup_id = create_resp.json()["backup_id"]
+        # attempt with zero perms: delete must be denied
         resp = await client.delete(f"/api/v1/backups/{backup_id}", headers=auth_header)
         assert resp.status_code == 403
         assert resp.json()["error_code"] == "PERMISSION_DENIED"
@@ -807,15 +811,17 @@ class TestAuthorizationEnforcement:
         assert resp.status_code == 204
 
     async def test_restore_backup_without_permission_denied(
-        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+        self, client: AsyncClient, auth_header: dict[str, str], privileged_header: dict[str, str], created_server: dict
     ) -> None:
         server_id = created_server["server_id"]
+        # setup with privileges: create the backup
         create_resp = await client.post(
             "/api/v1/backups",
             json={"server_id": server_id, "backup_type": "full"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         backup_id = create_resp.json()["backup_id"]
+        # attempt with zero perms: restore must be denied
         resp = await client.post(f"/api/v1/backups/{backup_id}/restore", headers=auth_header)
         assert resp.status_code == 403
         assert resp.json()["error_code"] == "PERMISSION_DENIED"
