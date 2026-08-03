@@ -5,7 +5,7 @@
 **Version:** 7.1.0  
 **License:** MIT  
 **Repository:** `server_manger/`  
-**Last updated:** 2026-08-02
+**Last updated:** 2026-08-03
 
 ---
 
@@ -279,7 +279,7 @@ server_manger/
 
 ## Tests & Coverage
 
-### Backend — 984 total (982 passing, 2 pre-existing test environment failures)
+### Backend — 997 total (995 passing, 2 pre-existing test environment failures)
 
 | Test File | Tests | Group |
 |-----------|-------|-------|
@@ -353,7 +353,15 @@ server_manger/
 | Services | 10 |
 | Hooks | 8 |
 
-**Total: 1132 tests** (984 backend + 148 frontend)
+**Total: 1145 tests** (997 backend + 148 frontend)
+
+> The backend count here (984 in the prior revision, corrected to 997 now) was
+> already stale before this session began: the earlier enforcement work in
+> commit `33336e0` evidently added tests that were never reflected in this
+> document's total. This session added **no new test functions** — the
+> `conftest.py` change added a fixture, and the `servers.py` route changes
+> swapped a dependency — so the 13-test correction (984 → 997) is catching up
+> the baseline, not counting new tests from this session.
 
 ---
 
@@ -429,5 +437,15 @@ server_manger/
 | `0195589` | Fix 3 | `_save_world()` on a running server sends `save-all` and polls provider console output (up to 30s) for `saved the (game|world)` before backing up; timeout marks the job FAILED. Stopped server → no-op. |
 
 **Verification:** 984 backend tests (982 passing, 2 pre-existing env failures — `test_start_server` startup guard, `test_metrics_task_requires_collector` graceful handler), 148 frontend tests. Two broken historical rows (`19089a12…`, `85b82fbe…`) are known stale test artifacts with NULL `storage_path`, not an open bug.
+
+### Batch 9 — Authorization Coverage: Batch 1 (servers module) — 3 commits (2026-08-03)
+
+| Commit | Step | What changed |
+|--------|------|-------------|
+| `5c58ea9` | Batch 1 | `require_permission(...)` enforced on 7 previously-unprotected mutating routes in `servers.py`, replacing bare `Depends(get_current_user)`: `POST /api/v1/servers` (server:write), `POST /api/v1/servers/scan` (server:write), `POST /api/v1/servers/import` (server:write), `PATCH /api/v1/servers/{server_id}` (server:write), `POST /api/v1/servers/{server_id}/start` (server:start), `POST /api/v1/servers/{server_id}/command` (server:write), `POST /api/v1/servers/refresh` (server:write). Tests updated to use `privileged_header` (no assertion changes). |
+| `4a9d8eb` | Test fix | Pin test process cwd to `backend/` (`_sandbox_cwd` autouse fixture) so CWD-relative key defaults in `encryption.py`/`jwt.py` never write a stray root-level `config/` when the suite runs from the repo root. Test-only; production code untouched. |
+| `04305b2` | Docs | Flip the 7 Batch 1 routes to `status: enforced` in `contracts/permissions.yaml` (summary header counts updated, 12 → 19 enforced). |
+
+**Verification:** full backend suite from the repo root — 997 tests (995 passing, 2 pre-existing env failures — `test_start_server` startup guard, `test_metrics_task_requires_collector` graceful handler), 148 frontend. `contracts/permissions.yaml` re-diffed against the live route table: 0 gaps, 0 stale entries. `backend/config/` (real, gitignored) confirmed byte-identical after the run — no stray root-level `config/` or `mcs.db` artifacts.
 
 *Generated: 2026-08-01 · Project: MCS Manager v4.0 (7.1.0) · Batch 8 — Backup Pipeline*
