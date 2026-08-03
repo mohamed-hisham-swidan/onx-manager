@@ -70,3 +70,32 @@ class MockHandler:
         if self.raise_error:
             raise self.raise_error("mock error")
         return {"handled": True}
+
+
+@pytest.fixture(autouse=True)
+def _init_stub_task_queue() -> None:
+    """Ensure get_task_queue() is always available in tests.
+
+    Production initializes a real InProcessQueue at startup; the test
+    environment does not, so the backup create handler would raise
+    'TaskQueue not initialized'. A no-op stub keeps the success path green.
+    """
+    from app.tasks.base import TaskQueue, TaskStatus
+    from app.tasks.queue import init_task_queue
+
+    class StubTaskQueue(TaskQueue):
+        async def enqueue(self, name: str, params: dict | None = None, delay: int = 0) -> str:
+            return "stub-task-id"
+
+        async def cancel(self, task_id: str) -> bool:
+            return True
+
+        async def get_status(self, task_id: str) -> TaskStatus:
+            return TaskStatus.PENDING
+
+        async def get_result(self, task_id: str) -> object:
+            return None
+
+    init_task_queue(StubTaskQueue())
+    yield
+    init_task_queue(StubTaskQueue())

@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -111,3 +111,111 @@ async def test_interface_contract() -> None:
     assert await queue.cancel("x")
     assert await queue.get_status("x") == TaskStatus.PENDING
     assert await queue.get_result("x") is None
+
+
+class ReclaimSession:
+    """Fake session that persists TaskModel mutations and reports rowcount on updates."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, TaskModel] = {}
+        self._update_rowcount: int = 0
+
+    def seed(self, model: TaskModel) -> None:
+        self._store[model.task_id] = model
+
+    async def get(self, _model_class: type, pk: object) -> object | None:
+        return self._store.get(pk)
+
+    async def execute(self, stmt: object) -> MagicMock:
+        result = MagicMock()
+        if hasattr(stmt, "values"):
+            result.rowcount = self._update_rowcount
+        else:
+            result.scalars.return_value.all.return_value = [
+                m for m in self._store.values() if m.status == TaskStatus.PENDING
+            ]
+        return result
+
+    def set_update_rowcount(self, count: int) -> None:
+        self._update_rowcount = count
+
+    async def commit(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+    async def __aenter__(self) -> "ReclaimSession":
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        pass
+
+
+def _task(
+    task_id: str,
+    name: str,
+    status: TaskStatus,
+    started_at: datetime | None = None,
+) -> TaskModel:
+    return TaskModel(
+        task_id=task_id,
+        name=name,
+        params_json="{}",
+        status=status,
+        started_at=started_at,
+        created_at=datetime.now(UTC),
+    )
+
+
+@pytest.mark.asyncio
+async def test_reclaim_pending_reports_unregistered_and_skips_claim_failure() -> None:
+    session = ReclaimSession()
+    session.seed(_task("t-registered", "registered_task", TaskStatus.PENDING))
+    session.seed(_task("t-unregistered", "unknown_task", TaskStatus.PENDING))
+    session.set_update_rowcount(0)  # claim never succeeds -> nothing dispatched
+
+    async def factory() -> ReclaimSession:
+        return session
+
+    queue = InProcessQueue(factory)
+    queue.register("registered_task", AsyncMock(return_value={"ok": True}))
+
+    result = await queue.reclaim_pending()
+
+    assert result["reclaimed"] == 0
+    assert result["skipped_unregistered"] == 1
+    assert result["errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_reclaim_pending_dispatches_registered_task() -> None:
+    session = ReclaimSession()
+    session.seed(_task("t-registered-2", "registered_task", TaskStatus.PENDING))
+    session.set_update_rowcount(1)  # claim succeeds for the single PENDING row
+
+    async def factory() -> ReclaimSession:
+        return session
+
+    queue = InProcessQueue(factory)
+    queue.register("registered_task", AsyncMock(return_value={"ok": True}))
+
+    result = await queue.reclaim_pending()
+    await asyncio.sleep(0.05)  # let the dispatched _execute complete
+    assert result["reclaimed"] == 1
+    assert result["skipped_unregistered"] == 0
+    assert result["errors"] == 0
+    assert session._store["t-registered-2"].status == TaskStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_mark_stale_running_failed_returns_rowcount() -> None:
+    session = ReclaimSession()
+    session.set_update_rowcount(2)
+
+    async def factory() -> ReclaimSession:
+        return session
+
+    queue = InProcessQueue(factory)
+    count = await queue.mark_stale_running_failed(max_age_minutes=30)
+    assert count == 2

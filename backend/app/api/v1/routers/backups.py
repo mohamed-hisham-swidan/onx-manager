@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 
 from app.api.deps import (
     get_command_bus,
@@ -76,9 +77,11 @@ async def restore_backup(
     backup_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
     current_user: dict = Depends(require_permission("backup:restore")),
-) -> dict:
+) -> JSONResponse:
     cmd = RestoreBackupCommand(backup_id=backup_id)
     result = await command_bus.send(cmd)
+    if result.success and result.data and result.data.get("deferred"):
+        return JSONResponse(status_code=202, content=result.data)
     return check_command_result(result)
 
 

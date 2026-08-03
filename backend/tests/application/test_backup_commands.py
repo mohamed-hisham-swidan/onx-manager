@@ -1,5 +1,5 @@
 import hashlib
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -26,6 +26,7 @@ from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
 from app.modules.storage.base import StorageBackend, StorageResult
 from app.core.persistence.db import database
+from app.tasks.queue import get_task_queue
 
 
 class FakeStorage(StorageBackend):
@@ -87,6 +88,30 @@ class TestCreateBackupHandler:
         result = await bus.send(cmd)
         assert result.success is False
 
+    @pytest.mark.asyncio
+    async def test_create_backup_enqueue_failure_marks_job_failed(
+        self, event_bus: EventBus
+    ) -> None:
+        failing_queue = get_task_queue()
+        failing_queue.enqueue = AsyncMock(side_effect=RuntimeError("queue down"))
+
+        handler = CreateBackupHandler(event_bus)
+        cmd = CreateBackupCommand(server_id="srv-1", backup_type="full")
+
+        result = await handler.handle(cmd)
+
+        assert result.success is False
+        assert result.error_code == "BACKUP_ENQUEUE_FAILED"
+        assert "queue down" in (result.error or "")
+
+        async with database.session_factory() as session:
+            repo = SQLBackupRepository(session)
+            jobs = await repo.list_jobs()
+            assert jobs, "expected at least one backup job"
+            job = jobs[0]
+            assert job.status.value == "failed"
+            assert "enqueue failed" in (job.error_message or "")
+
 
 @pytest.mark.usefixtures("init_test_db")
 class TestDeleteBackupHandler:
@@ -117,22 +142,188 @@ class TestDeleteBackupHandler:
 
 @pytest.mark.usefixtures("init_test_db")
 class TestRestoreBackupHandler:
-    @pytest.mark.asyncio
-    async def test_restore_backup(self, event_bus: EventBus) -> None:
+    async def _create_server(self, server_id: str, status: str = "created", with_deployment: bool = True) -> None:
+        from app.modules.server.domain.aggregate import Server
+        from app.modules.server.domain.value_objects import (
+            JavaArguments,
+            LocationType,
+            MemoryAllocation,
+            PortNumber,
+            ServerDeployment,
+            ServerProperties,
+            ServerType,
+        )
+        from app.modules.server.infrastructure.repository import SQLServerRepository
+        from app.modules.shared.value_objects import MinecraftVersion
+
+        deployment = None
+        if with_deployment:
+            deployment = ServerDeployment(
+                location_type=LocationType.LOCAL,
+                root_path=f"/tmp/mcs-test/{server_id}",
+                working_directory=".",
+            )
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = Server.create(
+                server_id=ServerId(server_id),
+                name=f"Server {server_id}",
+                server_type=ServerType.VANILLA,
+                minecraft_version=MinecraftVersion.parse("1.21"),
+                memory=MemoryAllocation(1024, 2048),
+                java_args=JavaArguments(),
+                properties=ServerProperties(port=PortNumber(25565)),
+                deployment=deployment,
+            )
+            if status == "running":
+                server.start()
+                server.mark_running(pid=100, port=25565)
+            elif status == "crashed":
+                server.start()
+                server.crash(exit_code=-1, last_log_lines=["boom"])
+            elif status == "stopped":
+                server.start()
+                server.mark_running(pid=100, port=25565)
+                server.stop(reason="test")
+                server.mark_stopped()
+            server.collect_events()
+            await repo.save(server)
+            await session.commit()
+
+    async def _create_job(self, backup_id: str, server_id: str, storage_path: str = "bak.tar.gz.enc") -> None:
         async with database.session_factory() as session:
             repo = SQLBackupRepository(session)
             job = BackupJob.create(
-                backup_id=BackupJobId("res-bak-1"),
-                server_id=ServerId("srv-1"),
+                backup_id=BackupJobId(backup_id),
+                server_id=ServerId(server_id),
             )
-            job.mark_completed(size_bytes=1000, checksum="abc123")
+            job.mark_completed(size_bytes=1000, checksum="abc123", storage_path=storage_path)
             await repo.save_job(job)
             await session.commit()
 
-        handler = RestoreBackupHandler(event_bus)
-        result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-1"))
+    async def _pending(self, server_id: str) -> tuple[str, object] | None:
+        async with database.session_factory() as session:
+            repo = SQLBackupRepository(session)
+            return await repo.get_pending_restore(ServerId(server_id))
+
+    @pytest.mark.asyncio
+    async def test_restore_deferred_when_server_running(self, event_bus: EventBus) -> None:
+        await self._create_server("res-srv-running", status="running")
+        await self._create_job("res-bak-deferred", "res-srv-running")
+
+        with patch(
+            "app.modules.backup.application.commands.restore_backup.perform_safe_restore",
+            AsyncMock(return_value=["world"]),
+        ) as mock_restore:
+            handler = RestoreBackupHandler(event_bus)
+            result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-deferred"))
 
         assert result.success is True
+        assert result.data["deferred"] is True
+        assert result.data["server_id"] == "res-srv-running"
+        mock_restore.assert_not_awaited()
+        pending = await self._pending("res-srv-running")
+        assert pending is not None
+        assert pending[0] == "res-bak-deferred"
+
+    @pytest.mark.asyncio
+    async def test_restore_deferred_when_server_crashed(self, event_bus: EventBus) -> None:
+        await self._create_server("res-srv-crashed", status="crashed")
+        await self._create_job("res-bak-crashed", "res-srv-crashed")
+
+        handler = RestoreBackupHandler(event_bus)
+        result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-crashed"))
+
+        assert result.success is True
+        assert result.data["deferred"] is True
+        pending = await self._pending("res-srv-crashed")
+        assert pending is not None
+
+    @pytest.mark.asyncio
+    async def test_restore_immediate_when_server_stopped(self, event_bus: EventBus) -> None:
+        await self._create_server("res-srv-stopped", status="stopped")
+        await self._create_job("res-bak-immediate", "res-srv-stopped")
+
+        with patch(
+            "app.modules.backup.application.commands.restore_backup.perform_safe_restore",
+            AsyncMock(return_value=["world", "world_nether"]),
+        ):
+            handler = RestoreBackupHandler(event_bus)
+            result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-immediate"))
+
+        assert result.success is True
+        assert result.data["deferred"] is False
+        assert result.data["restored_dimensions"] == ["world", "world_nether"]
+        assert await self._pending("res-srv-stopped") is None
+
+    @pytest.mark.asyncio
+    async def test_restore_immediate_when_server_created(self, event_bus: EventBus) -> None:
+        await self._create_server("res-srv-created", status="created")
+        await self._create_job("res-bak-created", "res-srv-created")
+
+        with patch(
+            "app.modules.backup.application.commands.restore_backup.perform_safe_restore",
+            AsyncMock(return_value=["world"]),
+        ):
+            handler = RestoreBackupHandler(event_bus)
+            result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-created"))
+
+        assert result.success is True
+        assert result.data["deferred"] is False
+
+    @pytest.mark.asyncio
+    async def test_restore_failure_reported(self, event_bus: EventBus) -> None:
+        from app.modules.backup.application.restore_service import RestoreError
+
+        await self._create_server("res-srv-fail", status="stopped")
+        await self._create_job("res-bak-fail", "res-srv-fail")
+
+        with patch(
+            "app.modules.backup.application.commands.restore_backup.perform_safe_restore",
+            AsyncMock(side_effect=RestoreError("checksum mismatch")),
+        ):
+            handler = RestoreBackupHandler(event_bus)
+            result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-fail"))
+
+        assert result.success is False
+        assert result.error_code == "RESTORE_FAILED"
+        assert "checksum mismatch" in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_restore_missing_artifact_rejected(self, event_bus: EventBus) -> None:
+        await self._create_server("res-srv-noart", status="stopped")
+
+        async with database.session_factory() as session:
+            repo = SQLBackupRepository(session)
+            job = BackupJob.create(
+                backup_id=BackupJobId("res-bak-noart"),
+                server_id=ServerId("res-srv-noart"),
+            )
+            job.mark_completed(size_bytes=1000, checksum="abc123", storage_path="")
+            await repo.save_job(job)
+            await session.commit()
+
+        with patch(
+            "app.modules.backup.application.commands.restore_backup.perform_safe_restore",
+            AsyncMock(return_value=["world"]),
+        ) as mock_restore:
+            handler = RestoreBackupHandler(event_bus)
+            result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-noart"))
+
+        assert result.success is False
+        assert result.error_code == "BACKUP_STORAGE_MISSING"
+        mock_restore.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_restore_without_deployment_rejected(self, event_bus: EventBus) -> None:
+        await self._create_server("res-srv-nodeploy", status="stopped", with_deployment=False)
+        await self._create_job("res-bak-nodeploy", "res-srv-nodeploy")
+
+        handler = RestoreBackupHandler(event_bus)
+        result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-nodeploy"))
+
+        assert result.success is False
+        assert result.error_code == "NO_DEPLOYMENT"
 
     @pytest.mark.asyncio
     async def test_restore_nonexistent(self, event_bus: EventBus) -> None:

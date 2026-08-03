@@ -29,3 +29,11 @@ class BackupPolicyModel(Base, TimestampMixin):
     encryption_enabled = Column(Boolean, nullable=False, default=True)
     max_backups = Column(Integer, nullable=False, default=50)
     enabled = Column(Boolean, nullable=False, default=True)
+
+
+class PendingRestoreModel(Base, TimestampMixin):
+    __tablename__ = "pending_restores"
+
+    server_id = Column(String(36), primary_key=True)
+    backup_id = Column(String(36), nullable=False)
+    requested_at = Column(DateTime(timezone=True), nullable=False)

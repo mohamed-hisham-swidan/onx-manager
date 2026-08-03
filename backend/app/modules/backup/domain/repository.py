@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy
 from app.modules.shared.value_objects import BackupJobId, ServerId
@@ -33,4 +34,21 @@ class BackupRepository(ABC):
 
     @abstractmethod
     async def delete_policy(self, server_id: ServerId) -> None:
+        ...
+
+    @abstractmethod
+    async def get_pending_restore(self, server_id: ServerId) -> tuple[str, datetime] | None:
+        ...
+
+    @abstractmethod
+    async def upsert_pending_restore(
+        self,
+        server_id: ServerId,
+        backup_id: BackupJobId,
+        requested_at: datetime,
+    ) -> None:
+        ...
+
+    @abstractmethod
+    async def delete_pending_restore(self, server_id: ServerId) -> None:
         ...

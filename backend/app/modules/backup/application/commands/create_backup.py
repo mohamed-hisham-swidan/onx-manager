@@ -49,7 +49,20 @@ class CreateBackupHandler(CommandHandler[CreateBackupCommand]):
                     "backup_type": backup_type.value,
                 },
             )
-        except Exception:
+        except Exception as e:
             logger.exception("Failed to enqueue backup task for backup %s", backup_id)
+            async with UnitOfWork(self._event_bus) as uow:
+                repo: BackupRepository = SQLBackupRepository(uow.session)
+                job = await repo.get_job(backup_id)
+                job.mark_failed(f"enqueue failed: {type(e).__name__}: {e}")
+                await repo.save_job(job)
+                for event in job.collect_events():
+                    uow.add_event(event)
+                await uow.commit()
+            return CommandResult(
+                success=False,
+                error=f"Failed to enqueue backup task: {type(e).__name__}: {e}",
+                error_code="BACKUP_ENQUEUE_FAILED",
+            )
 
         return CommandResult(success=True, data={"backup_id": str(backup_id)})

@@ -31,6 +31,11 @@ CONFIG_FILES: tuple[str, ...] = (
     "banned-ips.json",
 )
 
+# Suffixes appended to the deployment's primary_world to form each dimension
+# folder name. The base (no suffix) world folder is always required; nether and
+# the_end are archived only when present on disk.
+DIMENSION_SUFFIXES: tuple[str, ...] = ("", "_nether", "_the_end")
+
 # Timeout for a save-all on a running server to be confirmed via console
 # output. A normal world save completes in a few seconds even on a loaded
 # world; 30s is an order of magnitude beyond that but still well inside the
@@ -165,10 +170,10 @@ class BackupSaga:
 
     def _compress(self, backup_id: BackupJobId, server_id: ServerId):
         async def fn() -> None:
-            server_dir = await self._resolve_server_dir(server_id)
+            server_dir, primary_world = await self._resolve_server_dir(server_id)
             self._temp_dir = tempfile.mkdtemp(prefix=f"mcs-backup-{str(backup_id)[:8]}-")
             self._tar_path = os.path.join(self._temp_dir, f"{backup_id}.tar.gz")
-            self._write_tar(self._tar_path, server_dir)
+            self._write_tar(self._tar_path, server_dir, primary_world)
             logger.info(
                 "Backup compressed: %s (%d bytes)",
                 backup_id, os.path.getsize(self._tar_path),
@@ -290,24 +295,29 @@ class BackupSaga:
             shutil.rmtree(self._temp_dir, ignore_errors=True)
             self._temp_dir = None
 
-    def _write_tar(self, tar_path: str, server_dir: str) -> None:
-        world_dir = Path(server_dir) / "world"
-        if not world_dir.is_dir():
-            raise FileNotFoundError(f"World directory not found: {world_dir}")
+    def _write_tar(self, tar_path: str, server_dir: str, primary_world: str = "world") -> None:
+        base_world = Path(server_dir) / primary_world
+        if not base_world.is_dir():
+            raise FileNotFoundError(f"World directory not found: {base_world}")
         with tarfile.open(tar_path, "w:gz") as tar:
-            tar.add(str(world_dir), arcname="world")
+            for suffix in DIMENSION_SUFFIXES:
+                dim_name = f"{primary_world}{suffix}"
+                candidate = Path(server_dir) / dim_name
+                if candidate.is_dir():
+                    tar.add(str(candidate), arcname=dim_name)
             for name in CONFIG_FILES:
                 candidate = Path(server_dir) / name
                 if candidate.is_file():
                     tar.add(str(candidate), arcname=name)
 
-    async def _resolve_server_dir(self, server_id: ServerId) -> str:
+    async def _resolve_server_dir(self, server_id: ServerId) -> tuple[str, str]:
         async with UnitOfWork() as uow:
             repo = SQLServerRepository(uow.session)
             server = await repo.get(server_id)
             if server.deployment is None or not server.deployment.root_path:
                 raise ValueError(f"Server {server_id} has no deployment root path — cannot back up")
-            return server.deployment.server_directory()
+            primary_world = server.deployment.primary_world or "world"
+            return server.deployment.server_directory(), primary_world
 
     async def _server_is_running(self, server_id: ServerId) -> bool:
         async with UnitOfWork() as uow:

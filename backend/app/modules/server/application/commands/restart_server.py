@@ -13,6 +13,7 @@ from app.modules.server.application.logging_utils import (
     shutdown_timeline,
     startup_timeline,
 )
+from app.modules.backup.application.restore_service import RestoreError, consume_pending_restore
 from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.repository import ServerRepository
@@ -117,6 +118,31 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                 'Server "%s" restart stop phase had %d issues — server_id=%s',
                 server_name, len(stop_errors), sid,
             )
+
+        # A restore deferred while the server was running must be applied now
+        # that the process is confirmed down, before the new process spawns.
+        if server.deployment is not None and server.deployment.root_path:
+            try:
+                restored_backup_id = await consume_pending_restore(
+                    sid,
+                    server.deployment.server_directory(),
+                    base_world=server.deployment.primary_world or "world",
+                )
+            except RestoreError as exc:
+                logger.error(
+                    'Pending restore failed during restart — server="%s" server_id=%s error=%s',
+                    server_name, sid, exc,
+                )
+                return CommandResult(
+                    success=False,
+                    error=f"Pending restore failed: {exc}",
+                    error_code="RESTORE_FAILED",
+                )
+            if restored_backup_id:
+                logger.info(
+                    'Pending restore %s applied before restart — server="%s" server_id=%s',
+                    restored_backup_id, server_name, sid,
+                )
 
         async with UnitOfWork(self._event_bus) as uow:
             repo = SQLServerRepository(uow.session)

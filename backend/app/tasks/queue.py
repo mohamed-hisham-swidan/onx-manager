@@ -5,10 +5,10 @@ import json
 import time
 import uuid
 from collections.abc import Callable, Coroutine
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import Column, DateTime, Integer, String, Text, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistence.base import Base
@@ -131,6 +131,78 @@ class InProcessQueue(TaskQueue):
                 model.error = f"{type(e).__name__}: {e}"
                 model.completed_at = datetime.now(timezone.utc)
                 await session.commit()
+
+    async def reclaim_pending(self) -> dict[str, int]:
+        """Re-run PENDING tasks whose handler is registered; report unregistered ones.
+
+        Only PENDING (status=0) rows are touched. Registered tasks are transitioned
+        to RUNNING and dispatched through the same ``_execute`` path, reusing the
+        existing task_id (no duplicate row). Unregistered tasks are left untouched
+        and returned in ``skipped_unregistered`` for the caller to triage.
+        """
+        async with await self._session_factory() as session:
+            stmt = select(TaskModel).where(TaskModel.status == TaskStatus.PENDING)
+            result = await session.execute(stmt)
+            pending = list(result.scalars().all())
+
+        reclaimed = 0
+        skipped_unregistered = 0
+        errors = 0
+        for model in pending:
+            if model.name not in self._handlers:
+                skipped_unregistered += 1
+                continue
+            params = json.loads(model.params_json) if model.params_json else {}
+            # Guard against double-run: only claim the row if it is still PENDING.
+            async with await self._session_factory() as session:
+                stmt = (
+                    update(TaskModel)
+                    .where(
+                        TaskModel.task_id == model.task_id,
+                        TaskModel.status == TaskStatus.PENDING,
+                    )
+                    .values(status=TaskStatus.RUNNING, started_at=datetime.now(timezone.utc))
+                )
+                claimed = await session.execute(stmt)
+                await session.commit()
+            if claimed.rowcount != 1:
+                continue
+            asyncio.ensure_future(self._execute(model.task_id, model.name, params))
+            reclaimed += 1
+
+        return {
+            "reclaimed": reclaimed,
+            "skipped_unregistered": skipped_unregistered,
+            "errors": errors,
+        }
+
+    async def mark_stale_running_failed(self, max_age_minutes: int = 30) -> int:
+        """Mark RUNNING tasks that appear orphaned as FAILED.
+
+        A RUNNING row is stale if it has no started_at (inconsistent) or if it
+        started more than ``max_age_minutes`` ago. Only these rows are touched;
+        healthy short-running tasks are never affected.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+        async with await self._session_factory() as session:
+            stmt = (
+                update(TaskModel)
+                .where(
+                    TaskModel.status == TaskStatus.RUNNING,
+                    or_(
+                        TaskModel.started_at.is_(None),
+                        TaskModel.started_at < cutoff,
+                    ),
+                )
+                .values(
+                    status=TaskStatus.FAILED,
+                    error="interrupted by process restart",
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+        return result.rowcount or 0
 
 
 _task_queue: TaskQueue | None = None

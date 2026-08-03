@@ -150,6 +150,18 @@ async def lifespan(app: FastAPI):
     task_queue.register("run_backup_task", run_backup_task)
     init_task_queue(task_queue)
 
+    # Reclaim PENDING tasks orphaned by a previous process restart, and fail
+    # RUNNING rows that are stale (started before this boot or without started_at).
+    try:
+        reclaim_result = await task_queue.reclaim_pending()
+        if reclaim_result["reclaimed"] or reclaim_result["skipped_unregistered"]:
+            logger.info("Task queue reclaim: %s", reclaim_result)
+        stale = await task_queue.mark_stale_running_failed()
+        if stale:
+            logger.warning("Task queue: marked %d stale RUNNING task(s) as FAILED", stale)
+    except Exception:
+        logger.exception("Task queue reclaim failed")
+
     # MetricsCollector — collects real-time data from running servers
     metrics_collector = MetricsCollector(event_bus=event_bus)
     init_metrics_collector(metrics_collector)

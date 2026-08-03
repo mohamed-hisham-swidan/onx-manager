@@ -8,6 +8,7 @@ from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
 from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.backup.application.restore_service import RestoreError, consume_pending_restore
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
     format_event,
@@ -151,6 +152,39 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                 'Port %d is free for server "%s" — server_id=%s',
                 port, server_name, sid,
             )
+
+        # A restore deferred while the server was running must be applied now
+        # that the process is confirmed down, before the new process spawns.
+        if server.deployment is not None and server.deployment.root_path:
+            try:
+                restored_backup_id = await consume_pending_restore(
+                    sid,
+                    server.deployment.server_directory(),
+                    base_world=server.deployment.primary_world or "world",
+                )
+            except RestoreError as exc:
+                logger.error(
+                    'Pending restore failed during start — server="%s" server_id=%s error=%s',
+                    server_name, sid, exc,
+                )
+                async with UnitOfWork(self._event_bus) as uow:
+                    repo = SQLServerRepository(uow.session)
+                    server = await repo.get(server_id)
+                    server.crash(exit_code=-1, last_log_lines=[f"Pending restore failed: {exc}"])
+                    await repo.save(server)
+                    for event in server.collect_events():
+                        uow.add_event(event)
+                    await uow.commit()
+                return CommandResult(
+                    success=False,
+                    error=f"Pending restore failed: {exc}",
+                    error_code="RESTORE_FAILED",
+                )
+            if restored_backup_id:
+                logger.info(
+                    'Pending restore %s applied before start — server="%s" server_id=%s',
+                    restored_backup_id, server_name, sid,
+                )
 
         with startup_timeline(server_name, sid):
             add_timeline_milestone(None, "Pre-flight started", server_name, sid)

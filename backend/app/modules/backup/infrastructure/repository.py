@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy, BackupStatus, BackupType
 from app.modules.backup.domain.repository import BackupRepository
-from app.modules.backup.infrastructure.models import BackupJobModel, BackupPolicyModel
+from app.modules.backup.infrastructure.models import (
+    BackupJobModel,
+    BackupPolicyModel,
+    PendingRestoreModel,
+)
 from app.modules.shared.value_objects import BackupJobId, CronExpression, ServerId
 
 
@@ -79,6 +85,32 @@ class SQLBackupRepository(BackupRepository):
 
     async def delete_policy(self, server_id: ServerId) -> None:
         model = await self._session.get(BackupPolicyModel, str(server_id))
+        if model:
+            await self._session.delete(model)
+            await self._session.flush()
+
+    async def get_pending_restore(self, server_id: ServerId) -> tuple[str, datetime] | None:
+        model = await self._session.get(PendingRestoreModel, str(server_id))
+        if model is None:
+            return None
+        return model.backup_id, model.requested_at
+
+    async def upsert_pending_restore(
+        self,
+        server_id: ServerId,
+        backup_id: BackupJobId,
+        requested_at: datetime,
+    ) -> None:
+        model = await self._session.get(PendingRestoreModel, str(server_id))
+        if model is None:
+            model = PendingRestoreModel(server_id=str(server_id))
+            self._session.add(model)
+        model.backup_id = str(backup_id)
+        model.requested_at = requested_at
+        await self._session.flush()
+
+    async def delete_pending_restore(self, server_id: ServerId) -> None:
+        model = await self._session.get(PendingRestoreModel, str(server_id))
         if model:
             await self._session.delete(model)
             await self._session.flush()
