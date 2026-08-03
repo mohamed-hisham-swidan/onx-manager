@@ -90,7 +90,7 @@ async def list_servers(
 async def create_server(
     body: ServerCreateRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:write")),
 ) -> dict:
     cmd = CreateServerCommand(
         name=body.name,
@@ -121,7 +121,7 @@ async def create_server(
 @router.post("/scan", response_model=ScanResult)
 async def scan_directory(
     body: ScanDirectoryRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:write")),
 ) -> ScanResult:
     try:
         result = scan_server_directory(body.path)
@@ -136,7 +136,7 @@ async def scan_directory(
 async def import_server(
     body: ImportServerRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:write")),
 ) -> dict:
     cmd = ImportServerCommand(
         source_path=body.source_path,
@@ -177,7 +177,7 @@ async def update_server(
     server_id: str,
     body: ServerUpdateRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:write")),
 ) -> dict:
     cmd = UpdateServerConfigCommand(
         server_id=server_id,
@@ -203,7 +203,7 @@ async def delete_server(
 async def start_server(
     server_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:start")),
 ) -> dict:
     result = await command_bus.send(StartServerCommand(server_id=server_id))
     return check_command_result(result)
@@ -291,7 +291,7 @@ async def send_server_command(
     body: CommandRequest,
     command_bus: CommandBus = Depends(get_command_bus),
     event_bus: EventBus = Depends(get_event_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:write")),
 ) -> dict:
     impl = _SendConsoleCommandImpl(event_bus)
     result = await impl.handle(server_id=server_id, command=body.command)
@@ -409,7 +409,7 @@ async def reconcile_runtimes(
 @router.post("/refresh", response_model=ReconciliationResultResponse)
 async def refresh_servers(
     dry_run: bool = Query(default=False, description="Preview changes without applying them"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:write")),
 ) -> ReconciliationResultResponse:
     from app.modules.server.application.services.filesystem_reconciliation import FilesystemReconciliationService
     from app.modules.server.infrastructure.repository import SQLServerRepository

@@ -149,6 +149,7 @@ async def privileged_header(client: AsyncClient, created_user: dict) -> dict[str
         [
             "server:delete",
             "server:stop",
+            "server:start",
             "server:write",
             "backup:delete",
             "backup:restore",
@@ -165,7 +166,7 @@ async def admin_header(client: AsyncClient, created_user: dict) -> dict[str, str
 
 
 @pytest.fixture
-async def created_server(client: AsyncClient, auth_header: dict[str, str]) -> dict:
+async def created_server(client: AsyncClient, privileged_header: dict[str, str]) -> dict:
     payload = {
         "name": "API Test Server",
         "minecraft_version": "1.21",
@@ -175,7 +176,7 @@ async def created_server(client: AsyncClient, auth_header: dict[str, str]) -> di
         "gamemode": "survival",
         "difficulty": "easy",
     }
-    resp = await client.post("/api/v1/servers", json=payload, headers=auth_header)
+    resp = await client.post("/api/v1/servers", json=payload, headers=privileged_header)
     assert resp.status_code == 201
     return resp.json()
 
@@ -264,7 +265,7 @@ class TestServers:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    async def test_create_server(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_create_server(self, client: AsyncClient, privileged_header: dict[str, str]) -> None:
         payload = {
             "name": "My Server",
             "minecraft_version": "1.21",
@@ -274,12 +275,12 @@ class TestServers:
             "gamemode": "survival",
             "difficulty": "easy",
         }
-        resp = await client.post("/api/v1/servers", json=payload, headers=auth_header)
+        resp = await client.post("/api/v1/servers", json=payload, headers=privileged_header)
         assert resp.status_code == 201
         data = resp.json()
         assert "server_id" in data
 
-    async def test_create_and_get_server(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_create_and_get_server(self, client: AsyncClient, privileged_header: dict[str, str]) -> None:
         payload = {
             "name": "Get Test",
             "minecraft_version": "1.21",
@@ -289,27 +290,27 @@ class TestServers:
             "gamemode": "survival",
             "difficulty": "easy",
         }
-        create_resp = await client.post("/api/v1/servers", json=payload, headers=auth_header)
+        create_resp = await client.post("/api/v1/servers", json=payload, headers=privileged_header)
         server_id = create_resp.json()["server_id"]
-        get_resp = await client.get(f"/api/v1/servers/{server_id}", headers=auth_header)
+        get_resp = await client.get(f"/api/v1/servers/{server_id}", headers=privileged_header)
         assert get_resp.status_code == 200
         data = get_resp.json()
         assert data["name"] == "Get Test"
         assert data["status"] == "created"
 
-    async def test_update_server(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_update_server(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         resp = await client.patch(
             f"/api/v1/servers/{server_id}",
             json={"properties": {"motd": "Updated MOTD"}, "min_memory_mb": 2048},
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 200
-        get_resp = await client.get(f"/api/v1/servers/{server_id}", headers=auth_header)
+        get_resp = await client.get(f"/api/v1/servers/{server_id}", headers=privileged_header)
         data = get_resp.json()
         assert data["min_memory_mb"] == 2048
 
-    async def test_start_server(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_start_server(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         from app.modules.server.infrastructure.providers.base import (
             DeploymentResult,
             ServerRuntimeStatus,
@@ -326,7 +327,7 @@ class TestServers:
 
         server_id = created_server["server_id"]
         with patch("app.modules.server.application.commands.start_server.provider_factory.get", return_value=mock_provider):
-            resp = await client.post(f"/api/v1/servers/{server_id}/start", headers=auth_header)
+            resp = await client.post(f"/api/v1/servers/{server_id}/start", headers=privileged_header)
         assert resp.status_code == 200
         data = resp.json()
         assert data["server_id"] == server_id
@@ -359,7 +360,7 @@ class TestServers:
         mock_provider.stop.return_value = None
 
         with patch("app.modules.server.application.commands.start_server.provider_factory.get", return_value=mock_provider):
-            await client.post(f"/api/v1/servers/{server_id}/start", headers=auth_header)
+            await client.post(f"/api/v1/servers/{server_id}/start", headers=privileged_header)
         async with database._session_factory() as session:
             await session.execute(text("UPDATE servers SET status = 'running' WHERE id = :id"), {"id": server_id})
             await session.commit()
@@ -668,12 +669,12 @@ class TestEdgeCases:
         resp = await client.get("/api/v1/schedules")
         assert resp.status_code == 401
 
-    async def test_send_command(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_send_command(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         resp = await client.post(
             f"/api/v1/servers/{server_id}/command",
             json={"command": "say hello"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 400
 
