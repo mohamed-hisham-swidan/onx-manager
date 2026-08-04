@@ -10,10 +10,6 @@ from app.modules.plugin.application.commands.enable_plugin import (
     EnablePluginCommand,
     EnablePluginHandler,
 )
-from app.modules.plugin.application.commands.install_plugin import (
-    InstallPluginCommand,
-    InstallPluginHandler,
-)
 from app.modules.plugin.application.commands.uninstall_plugin import (
     UninstallPluginCommand,
     UninstallPluginHandler,
@@ -29,47 +25,9 @@ def _bus(event_bus: EventBus) -> CommandBus:
 
 
 @pytest.mark.usefixtures("init_test_db")
-class TestInstallPluginHandler:
-    @pytest.mark.asyncio
-    async def test_install_plugin(self, event_bus: EventBus) -> None:
-        handler = InstallPluginHandler(event_bus)
-        cmd = InstallPluginCommand(
-            server_id="srv-1",
-            name="EssentialsX",
-            version="2.21.0",
-            description="Essential commands",
-            author="Essentials Team",
-        )
-
-        result = await handler.handle(cmd)
-
-        assert result.success is True
-        assert "plugin_id" in result.data
-
-        async with database.session_factory() as session:
-            repo = SQLPluginRepository(session)
-            plugin = await repo.get(PluginId(result.data["plugin_id"]))
-            assert plugin.name == "EssentialsX"
-            assert str(plugin.version) == "2.21.0"
-
-    @pytest.mark.asyncio
-    async def test_install_invalid_version(self, event_bus: EventBus) -> None:
-        bus = _bus(event_bus)
-        bus.register(InstallPluginCommand, InstallPluginHandler(event_bus))
-        cmd = InstallPluginCommand(
-            server_id="srv-1",
-            name="BadPlugin",
-            version="not-a-version",
-        )
-
-        result = await bus.send(cmd)
-        assert result.success is False
-
-
-@pytest.mark.usefixtures("init_test_db")
 class TestUninstallPluginHandler:
     @pytest.mark.asyncio
-    async def test_uninstall_plugin(self, event_bus: EventBus) -> None:
+    async def test_uninstall_marks_pending_deletion(self, event_bus: EventBus) -> None:
         async with database.session_factory() as session:
             repo = SQLPluginRepository(session)
             plugin = Plugin.install(
@@ -77,6 +35,7 @@ class TestUninstallPluginHandler:
                 server_id=ServerId("srv-1"),
                 name="ToUninstall",
                 version=PluginVersion.parse("1.0.0"),
+                filename="ToUninstall.jar",
             )
             plugin.collect_events()
             await repo.save(plugin)
@@ -86,6 +45,14 @@ class TestUninstallPluginHandler:
         result = await handler.handle(UninstallPluginCommand(plugin_id="uninst-1"))
 
         assert result.success is True
+        assert result.data["pending_deletion"] is True
+
+        async with database.session_factory() as session:
+            repo = SQLPluginRepository(session)
+            plugin = await repo.get(PluginId("uninst-1"))
+            assert plugin.pending_deletion is True
+            assert plugin.pending_deletion_requested_at is not None
+            assert plugin.filename == "ToUninstall.jar"
 
     @pytest.mark.asyncio
     async def test_uninstall_nonexistent(self, event_bus: EventBus) -> None:

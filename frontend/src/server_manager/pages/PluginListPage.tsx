@@ -14,6 +14,29 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
 }
 
+function SourceBadge({ plugin }: { plugin: PluginResponse }) {
+  if (plugin.source === "modrinth") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+        <Icon name="external" size={12} />
+        Marketplace
+      </span>
+    );
+  }
+  if (plugin.source === "detected") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+        Detected on disk
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+      Manual
+    </span>
+  );
+}
+
 export function PluginListPage() {
   const navigate = useNavigate();
   const { data: servers } = useServersList();
@@ -32,8 +55,8 @@ export function PluginListPage() {
   function handleConfirmUninstall() {
     if (!uninstallTarget) return;
     uninstallPlugin.mutate(uninstallTarget.plugin_id, {
-      onSuccess: () => toast("success", "Plugin uninstalled", `"${uninstallTarget.name}" was removed.`),
-      onError: (err) => toast("error", "Uninstall failed", errorMessage(err)),
+      onSuccess: () => toast("success", "Removal requested", `"${uninstallTarget.name}" will be removed on the next server restart.`),
+      onError: (err) => toast("error", "Remove failed", errorMessage(err)),
       onSettled: () => setUninstallTarget(null),
     });
   }
@@ -107,14 +130,28 @@ export function PluginListPage() {
                   className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
                 >
                   <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900 dark:text-gray-100">{p.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-gray-900 dark:text-gray-100">{p.name}</p>
+                      <SourceBadge plugin={p} />
+                    </div>
                     {p.description && (
                       <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400" title={p.description}>
                         {p.description}
                       </p>
                     )}
+                    {p.filename && (
+                      <p className="mt-0.5 truncate font-mono text-xs text-gray-400 dark:text-gray-500" title={p.filename}>
+                        {p.filename}
+                      </p>
+                    )}
                   </td>
-                  <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">{p.version}</td>
+                  <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">
+                    {p.version === "unknown" ? (
+                      <span className="text-gray-400 dark:text-gray-500">{p.version}</span>
+                    ) : (
+                      p.version
+                    )}
+                  </td>
                   <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">{p.author}</td>
                   <td className="px-4 py-3">
                     <span
@@ -181,7 +218,7 @@ export function PluginListPage() {
         <EmptyState
           icon="plugin"
           title="No plugins installed"
-          description="Install a plugin to add functionality to your server."
+          description="Install a plugin from the marketplace, or drop a .jar file directly into the server's plugins/ folder — it will appear here automatically."
           action={
             <button
               onClick={handleInstall}
@@ -198,7 +235,9 @@ export function PluginListPage() {
         open={uninstallTarget !== null}
         title="Uninstall plugin?"
         description={
-          uninstallTarget ? `This removes "${uninstallTarget.name}" from the server.` : undefined
+          uninstallTarget
+            ? `This removes "${uninstallTarget.name}" from the list now. The ${uninstallTarget.filename ? `file ${uninstallTarget.filename} ` : "file "}will be deleted from disk the next time this server restarts.`
+            : undefined
         }
         confirmLabel="Uninstall"
         cancelLabel="Cancel"

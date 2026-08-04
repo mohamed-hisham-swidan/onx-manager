@@ -6,6 +6,12 @@ import logging
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.persistence.db import database
+from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.backup.application.restore_service import RestoreError, consume_pending_restore
+from app.modules.plugin.application.services.plugin_deletion_service import (
+    consume_pending_plugin_deletions,
+)
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
     format_event,
@@ -13,7 +19,6 @@ from app.modules.server.application.logging_utils import (
     shutdown_timeline,
     startup_timeline,
 )
-from app.modules.backup.application.restore_service import RestoreError, consume_pending_restore
 from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.repository import ServerRepository
@@ -21,8 +26,6 @@ from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle, ServerRuntimeStatus
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.db import database
-from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger("mcs.commands.restart_server")
 
@@ -93,7 +96,10 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
 
                 try:
                     server_port = server.properties.port.value if hasattr(server.properties, "port") else 25565
-                    from app.modules.server.application.runtime_ownership import _port_is_listening, _wait_for_port_free
+                    from app.modules.server.application.runtime_ownership import (
+                        _port_is_listening,
+                        _wait_for_port_free,
+                    )
                     if _port_is_listening(server_port):
                         released = _wait_for_port_free(server_port, timeout=5.0)
                         if released:
@@ -142,6 +148,22 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                 logger.info(
                     'Pending restore %s applied before restart — server="%s" server_id=%s',
                     restored_backup_id, server_name, sid,
+                )
+
+            # Deferred plugin deletions are applied the same way: the process is
+            # confirmed down, so a running JVM can no longer hold the .jar open.
+            # Unlike restore, a failure here must never block startup — log and
+            # continue; the pending row is preserved for the next restart.
+            try:
+                await consume_pending_plugin_deletions(
+                    sid,
+                    server.deployment.server_directory(),
+                )
+            except Exception as exc:
+                logger.warning(
+                    'Pending plugin deletions failed during restart — server="%s" '
+                    'server_id=%s error=%s',
+                    server_name, sid, exc,
                 )
 
         async with UnitOfWork(self._event_bus) as uow:
@@ -291,8 +313,8 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
 
 
 async def sql_get_server(sid: ServerId) -> Server:
-    from app.modules.server.infrastructure.repository import SQLServerRepository
     from app.core.persistence.db import database
+    from app.modules.server.infrastructure.repository import SQLServerRepository
 
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
@@ -300,8 +322,8 @@ async def sql_get_server(sid: ServerId) -> Server:
 
 
 async def sql_save_server(server: Server, event_bus: EventBus) -> None:
-    from app.modules.server.infrastructure.repository import SQLServerRepository
     from app.core.persistence.unit_of_work import UnitOfWork
+    from app.modules.server.infrastructure.repository import SQLServerRepository
 
     async with UnitOfWork(event_bus) as uow:
         repo = SQLServerRepository(uow.session)

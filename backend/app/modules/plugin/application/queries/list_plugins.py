@@ -23,6 +23,9 @@ class PluginReadModel:
         installed_at: datetime,
         updated_at: datetime,
         source: str = "manual",
+        filename: str | None = None,
+        pending_deletion: bool = False,
+        pending_deletion_requested_at: datetime | None = None,
         external_project_id: str | None = None,
         external_version_id: str | None = None,
         external_url: str | None = None,
@@ -39,6 +42,9 @@ class PluginReadModel:
         self.installed_at = installed_at
         self.updated_at = updated_at
         self.source = source
+        self.filename = filename
+        self.pending_deletion = pending_deletion
+        self.pending_deletion_requested_at = pending_deletion_requested_at
         self.external_project_id = external_project_id
         self.external_version_id = external_version_id
         self.external_url = external_url
@@ -58,6 +64,9 @@ class PluginReadModel:
             installed_at=plugin.installed_at,
             updated_at=plugin.updated_at,
             source=plugin.source,
+            filename=plugin.filename,
+            pending_deletion=plugin.pending_deletion,
+            pending_deletion_requested_at=plugin.pending_deletion_requested_at,
             external_project_id=plugin.external_project_id,
             external_version_id=plugin.external_version_id,
             external_url=plugin.external_url,

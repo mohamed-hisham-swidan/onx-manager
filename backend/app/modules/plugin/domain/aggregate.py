@@ -44,6 +44,9 @@ class Plugin(AggregateRoot):
         dependencies: list[str] | None = None,
         status: PluginStatus = PluginStatus.INSTALLED,
         source: str = "manual",
+        filename: str | None = None,
+        pending_deletion: bool = False,
+        pending_deletion_requested_at: datetime | None = None,
         external_project_id: str | None = None,
         external_version_id: str | None = None,
         external_url: str | None = None,
@@ -64,6 +67,9 @@ class Plugin(AggregateRoot):
         self._dependencies = dependencies or []
         self._status = status
         self._source = source
+        self._filename = filename
+        self._pending_deletion = pending_deletion
+        self._pending_deletion_requested_at = pending_deletion_requested_at
         self._external_project_id = external_project_id
         self._external_version_id = external_version_id
         self._external_url = external_url
@@ -95,6 +101,18 @@ class Plugin(AggregateRoot):
     @property
     def source(self) -> str:
         return self._source
+
+    @property
+    def filename(self) -> str | None:
+        return self._filename
+
+    @property
+    def pending_deletion(self) -> bool:
+        return self._pending_deletion
+
+    @property
+    def pending_deletion_requested_at(self) -> datetime | None:
+        return self._pending_deletion_requested_at
 
     @property
     def external_project_id(self) -> str | None:
@@ -152,6 +170,7 @@ class Plugin(AggregateRoot):
         website: str = "",
         dependencies: list[str] | None = None,
         source: str = "manual",
+        filename: str | None = None,
         external_project_id: str | None = None,
         external_version_id: str | None = None,
         external_url: str | None = None,
@@ -168,6 +187,7 @@ class Plugin(AggregateRoot):
             website=website,
             dependencies=dependencies,
             source=source,
+            filename=filename,
             external_project_id=external_project_id,
             external_version_id=external_version_id,
             external_url=external_url,
@@ -220,6 +240,20 @@ class Plugin(AggregateRoot):
         )
 
     def mark_uninstalled(self) -> None:
+        self._add_event(
+            PluginUninstalledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id)),
+        )
+
+    def request_deletion(self) -> None:
+        """Mark this plugin as pending deletion.
+
+        The DB row is kept and flagged; the actual file is only removed from
+        disk on the next server start/restart by the deferred-deletion flow,
+        so a running JVM never has its .jar removed out from under it.
+        """
+        self._pending_deletion = True
+        self._pending_deletion_requested_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(timezone.utc)
         self._add_event(
             PluginUninstalledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id)),
         )

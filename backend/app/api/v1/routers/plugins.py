@@ -10,7 +10,6 @@ from app.api.errors import check_command_result
 from app.api.v1.schemas.plugin import (
     InstallModrinthPluginRequest,
     InstallModrinthPluginResponse,
-    InstallPluginRequest,
     PluginResponse,
     PluginSearchResultResponse,
     PluginVersionsResponse,
@@ -23,8 +22,8 @@ from app.modules.plugin.application import (
     EnablePluginCommand,
     GetPluginQuery,
     InstallModrinthPluginCommand,
-    InstallPluginCommand,
     ListPluginsQuery,
+    ReconcilePluginsCommand,
     UninstallPluginCommand,
 )
 from app.modules.plugin.application.services.version_selector import select_best_version
@@ -39,32 +38,14 @@ __all__ = ["router"]
 @router.get("", response_model=list[PluginResponse])
 async def list_plugins(
     server_id: str,
+    command_bus: CommandBus = Depends(get_command_bus),
     query_bus: QueryBus = Depends(get_query_bus),
     current_user: dict = Depends(get_current_user),
 ) -> list[PluginResponse]:
+    await command_bus.send(ReconcilePluginsCommand(server_id=server_id))
     q = ListPluginsQuery(server_id=server_id)
     plugins = await query_bus.ask(q)
     return [PluginResponse(**p.__dict__) for p in plugins]
-
-
-@router.post("", response_model=dict, status_code=201)
-async def install_plugin(
-    server_id: str,
-    body: InstallPluginRequest,
-    command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("plugin:manage")),
-) -> dict:
-    cmd = InstallPluginCommand(
-        server_id=server_id,
-        name=body.name,
-        version=body.version,
-        description=body.description,
-        author=body.author,
-        website=body.website,
-        dependencies=body.dependencies,
-    )
-    result = await command_bus.send(cmd)
-    return check_command_result(result)
 
 
 @router.get("/marketplace/search", response_model=list[PluginSearchResultResponse])

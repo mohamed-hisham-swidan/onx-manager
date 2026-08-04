@@ -16,6 +16,14 @@ class PluginRepository(ABC):
         ...
 
     @abstractmethod
+    async def list_all_by_server(self, server_id: ServerId) -> list[Plugin]:
+        ...
+
+    @abstractmethod
+    async def list_pending_deletions(self, server_id: ServerId) -> list[Plugin]:
+        ...
+
+    @abstractmethod
     async def save(self, plugin: Plugin) -> None:
         ...
 

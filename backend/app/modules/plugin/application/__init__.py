@@ -10,9 +10,9 @@ from app.modules.plugin.application.commands.install_modrinth_plugin import (
     InstallModrinthPluginCommand,
     InstallModrinthPluginHandler,
 )
-from app.modules.plugin.application.commands.install_plugin import (
-    InstallPluginCommand,
-    InstallPluginHandler,
+from app.modules.plugin.application.commands.reconcile_plugins import (
+    ReconcilePluginsCommand,
+    ReconcilePluginsHandler,
 )
 from app.modules.plugin.application.commands.uninstall_plugin import (
     UninstallPluginCommand,
@@ -29,10 +29,10 @@ from app.modules.plugin.application.queries.list_plugins import (
 )
 
 __all__ = [
-    "InstallPluginCommand",
-    "InstallPluginHandler",
     "InstallModrinthPluginCommand",
     "InstallModrinthPluginHandler",
+    "ReconcilePluginsCommand",
+    "ReconcilePluginsHandler",
     "UninstallPluginCommand",
     "UninstallPluginHandler",
     "EnablePluginCommand",

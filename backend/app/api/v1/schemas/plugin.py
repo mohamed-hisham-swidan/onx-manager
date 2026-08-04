@@ -3,16 +3,6 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-class InstallPluginRequest(BaseModel):
-    server_id: str
-    name: str = Field(..., min_length=1)
-    version: str = Field(..., min_length=1)
-    description: str = ""
-    author: str = ""
-    website: str = ""
-    dependencies: list[str] = []
-
-
 class PluginResponse(BaseModel):
     plugin_id: str
     server_id: str
@@ -25,6 +15,9 @@ class PluginResponse(BaseModel):
     installed_at: datetime
     updated_at: datetime
     source: str = "manual"
+    filename: str | None = None
+    pending_deletion: bool = False
+    pending_deletion_requested_at: datetime | None = None
     external_project_id: str | None = None
     external_version_id: str | None = None
     external_url: str | None = None

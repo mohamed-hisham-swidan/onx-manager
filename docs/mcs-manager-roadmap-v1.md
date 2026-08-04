@@ -34,6 +34,16 @@ closing, as a deliberate documented exception to the phase-gating rule above.
 This is an intentional exception, not an accidental scope leak. Phase 1's exit
 criteria remain open and are unaffected by this decision.
 
+**Extension (same date, same exception — filesystem as source of truth):**
+On 2026-08-04, still under the same documented exception and the same feature
+area, the plugin system was extended so the filesystem — not the database — is
+the source of truth for which plugins exist. This added per-row `filename`
+tracking, reconciliation of on-disk `.jar` files against the DB (creating
+`detected` rows for files dropped in outside the UI, and pruning rows whose
+file was removed directly from disk), and deferred plugin deletion
+(pending-deletion flags consumed on the next server start/restart). This is a
+direct continuation of the marketplace work — not a new exception.
+
 ---
 
 ## 2. Current state — Phase 0: Foundation ✅

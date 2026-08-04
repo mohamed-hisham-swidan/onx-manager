@@ -252,6 +252,41 @@ class TestStartServerHandler:
             assert loaded.runtime.pid is not None
             assert loaded.runtime.port is not None
 
+    @pytest.mark.asyncio
+    async def test_start_applies_pending_plugin_deletions(self, event_bus: EventBus) -> None:
+        await _create_test_server("test-start-pdel-1", with_deployment=True)
+
+        from app.modules.server.infrastructure.providers.base import (
+            DeploymentResult,
+            ServerRuntimeStatus,
+        )
+        mock_provider = AsyncMock()
+        mock_provider.provider_type = "local"
+        mock_provider.start.return_value = DeploymentResult(
+            status=ServerRuntimeStatus.RUNNING,
+            address="127.0.0.1",
+            port=25565,
+            pid=12345,
+            metadata={"session_name": "mcs-test-start-pdel-1"},
+        )
+
+        mock_consume = AsyncMock(return_value=[])
+        handler = StartServerHandler(event_bus)
+        with (
+            patch("app.modules.server.application.commands.start_server.provider_factory.get", return_value=mock_provider),
+            patch(
+                "app.modules.server.application.commands.start_server.consume_pending_plugin_deletions",
+                mock_consume,
+            ),
+        ):
+            result = await handler.handle(StartServerCommand(server_id="test-start-pdel-1"))
+
+        assert result.success is True
+        mock_consume.assert_awaited_once()
+        args, _kwargs = mock_consume.await_args
+        assert args[0] == "test-start-pdel-1"
+        assert args[1].endswith("test-start-pdel-1")
+
 
 @pytest.mark.usefixtures("init_test_db")
 class TestStopServerHandler:
@@ -307,6 +342,42 @@ class TestRestartServerHandler:
         assert result.success is True
         loaded = await _get_server("test-restart-deploy-1")
         assert loaded.status.value == "running"
+
+    @pytest.mark.asyncio
+    async def test_restart_applies_pending_plugin_deletions(self, event_bus: EventBus) -> None:
+        await _create_test_server("test-restart-pdel-1", make_running=True, with_deployment=True)
+
+        from app.modules.server.infrastructure.providers.base import (
+            DeploymentResult,
+            ServerRuntimeStatus,
+        )
+        mock_provider = AsyncMock()
+        mock_provider.provider_type = "local"
+        mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
+        mock_provider.start.return_value = DeploymentResult(
+            status=ServerRuntimeStatus.RUNNING,
+            address="127.0.0.1",
+            port=25565,
+            pid=12345,
+            metadata={"session_name": "mcs-test-restart-pdel-1"},
+        )
+
+        mock_consume = AsyncMock(return_value=[])
+        handler = RestartServerHandler(event_bus)
+        with (
+            patch("app.modules.server.application.commands.restart_server.provider_factory.get", return_value=mock_provider),
+            patch(
+                "app.modules.server.application.commands.restart_server.consume_pending_plugin_deletions",
+                mock_consume,
+            ),
+        ):
+            result = await handler.handle(RestartServerCommand(server_id="test-restart-pdel-1"))
+
+        assert result.success is True
+        mock_consume.assert_awaited_once()
+        args, _kwargs = mock_consume.await_args
+        assert args[0] == "test-restart-pdel-1"
+        assert args[1].endswith("test-restart-pdel-1")
 
 
 @pytest.mark.usefixtures("init_test_db")

@@ -186,8 +186,11 @@ backend/app/modules/plugin/application/
   │   ├── __init__.py
   │   ├── disable_plugin.py
   │   ├── enable_plugin.py
-  │   ├── install_plugin.py
+  │   ├── install_modrinth_plugin.py
+  │   ├── reconcile_plugins.py
   │   └── uninstall_plugin.py
+  ├── services/
+  │   └── plugin_deletion_service.py
   └── queries/
       ├── __init__.py
       ├── get_plugin.py

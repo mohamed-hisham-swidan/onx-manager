@@ -54,6 +54,14 @@ roadmap phase for UI/UX feature work.
 exception to phase-gating (see roadmap note) — original investigation findings
 below remain accurate reference material.**
 
+**Status update (2026-08-04, continued): the plugin system was also extended
+so the filesystem is the source of truth for which plugins exist — on-disk
+`.jar` files are reconciled into the DB on every list (`source="detected"`),
+rows whose file was removed directly from disk are pruned, and plugin deletion
+is deferred (pending-deletion flags consumed on the next server start/restart
+so a running JVM never has its `.jar` removed out from under it). Same
+documented exception, same feature area.**
+
 Browsing, searching, and installing server plugins directly from MCS Manager,
 sourcing them from the Modrinth catalog (`api.modrinth.com`) and potentially
 other providers later.

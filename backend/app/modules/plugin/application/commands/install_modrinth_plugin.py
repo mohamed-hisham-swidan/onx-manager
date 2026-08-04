@@ -150,6 +150,7 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 author="",
                 website="",
                 source="modrinth",
+                filename=plugin_file.filename,
                 external_project_id=command.project_id,
                 external_version_id=version.version_id,
                 external_url=plugin_file.url,

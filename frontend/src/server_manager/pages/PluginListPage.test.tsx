@@ -26,6 +26,9 @@ const mockPlugins = [
     dependencies: [],
     installed_at: "2024-01-01T00:00:00Z",
     updated_at: "2024-01-01T00:00:00Z",
+    source: "modrinth",
+    filename: "Essentials-2.0.0.jar",
+    external_url: "https://modrinth.com/plugin/essentials",
   },
   {
     plugin_id: "plg-2",
@@ -38,6 +41,22 @@ const mockPlugins = [
     dependencies: [],
     installed_at: "2024-01-01T00:00:00Z",
     updated_at: "2024-01-01T00:00:00Z",
+    source: "detected",
+    filename: "WorldGuard-1.0.0.jar",
+  },
+  {
+    plugin_id: "plg-3",
+    server_id: "srv-1",
+    name: "ManualPlugin",
+    version: "3.1.0",
+    description: "",
+    author: "",
+    status: "installed",
+    dependencies: [],
+    installed_at: "2024-01-01T00:00:00Z",
+    updated_at: "2024-01-01T00:00:00Z",
+    source: "manual",
+    filename: null,
   },
 ];
 
@@ -110,12 +129,33 @@ describe("PluginListPage", () => {
     expect(screen.getAllByText("disabled").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("renders filename and marketplace badge for modrinth plugins", () => {
+    renderPage();
+    selectServer();
+    expect(screen.getByText("Essentials-2.0.0.jar")).toBeInTheDocument();
+    expect(screen.getByText("Marketplace")).toBeInTheDocument();
+  });
+
+  it("renders detected badge and filename for on-disk plugins", () => {
+    renderPage();
+    selectServer();
+    expect(screen.getByText("Detected on disk")).toBeInTheDocument();
+    expect(screen.getByText("WorldGuard-1.0.0.jar")).toBeInTheDocument();
+  });
+
+  it("renders manual badge for legacy manual rows", () => {
+    renderPage();
+    selectServer();
+    expect(screen.getByText("ManualPlugin")).toBeInTheDocument();
+    expect(screen.getByText("Manual")).toBeInTheDocument();
+  });
+
   it("shows enable/disable and uninstall actions", () => {
     renderPage();
     selectServer();
     expect(screen.getByLabelText("Disable Essentials")).toBeInTheDocument();
     expect(screen.getByLabelText("Enable WorldGuard")).toBeInTheDocument();
-    expect(screen.getAllByLabelText(/Uninstall/)).toHaveLength(2);
+    expect(screen.getAllByLabelText(/Uninstall/)).toHaveLength(3);
   });
 
   it("shows loading state", () => {
@@ -139,12 +179,13 @@ describe("PluginListPage", () => {
     expect(screen.getByText("No plugins installed")).toBeInTheDocument();
   });
 
-  it("opens uninstall confirmation dialog", () => {
+  it("opens uninstall confirmation dialog with deferred-deletion copy", () => {
     renderPage();
     selectServer();
     fireEvent.click(screen.getByLabelText("Uninstall Essentials"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Uninstall plugin?")).toBeInTheDocument();
+    expect(screen.getByText(/will be deleted from disk the next time this server restarts/)).toBeInTheDocument();
   });
 
   it("navigates to the marketplace when install is clicked", () => {

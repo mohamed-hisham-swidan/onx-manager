@@ -141,6 +141,45 @@ async def _seed_api_key_header(
     return {"Authorization": f"Bearer {raw_key}"}
 
 
+async def _seed_plugin(
+    server_id: str,
+    name: str,
+    *,
+    version: str = "1.0.0",
+    source: str = "detected",
+    filename: str | None = None,
+    status: str = "installed",
+) -> str:
+    import uuid
+    from datetime import datetime, timezone
+
+    from app.core.persistence.db import database
+    from app.modules.plugin.infrastructure.models import PluginModel
+
+    plugin_id = "plg-" + uuid.uuid4().hex[:12]
+    now = datetime.now(timezone.utc)
+    async with database._session_factory() as session:
+        session.add(
+            PluginModel(
+                id=plugin_id,
+                server_id=server_id,
+                name=name,
+                version=version,
+                description="",
+                author="",
+                website="",
+                dependencies="",
+                status=status,
+                source=source,
+                filename=filename,
+                installed_at=now,
+                updated_at=now,
+            )
+        )
+        await session.commit()
+    return plugin_id
+
+
 @pytest.fixture
 async def privileged_header(client: AsyncClient, created_user: dict) -> dict[str, str]:
     return await _seed_api_key_header(
@@ -489,37 +528,45 @@ class TestPlugins:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    async def test_install_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_list_plugins_returns_seeded_detected_row(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
+        import os
+
+        from app.core.persistence.db import database
+        from app.modules.server.infrastructure.repository import SQLServerRepository
+        from app.modules.shared.value_objects import ServerId
+
         server_id = created_server["server_id"]
-        payload = {"server_id": server_id, "name": "EssentialsX", "version": "2.21.0"}
-        resp = await client.post(
-            f"/api/v1/servers/{server_id}/plugins",
-            json=payload,
-            headers=privileged_header,
-        )
-        assert resp.status_code == 201
-        assert "plugin_id" in resp.json()
+        async with database.session_factory() as session:
+            server = await SQLServerRepository(session).get(ServerId(server_id))
+            server_dir = server.deployment.root_path
+
+        plugins_dir = os.path.join(server_dir, "plugins")
+        os.makedirs(plugins_dir, exist_ok=True)
+        jar_path = os.path.join(plugins_dir, "EssentialsX.jar")
+        with open(jar_path, "wb") as f:
+            f.write(b"PK\x03\x04fake-jar")
+
+        resp = await client.get(f"/api/v1/servers/{server_id}/plugins", headers=privileged_header)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["name"] == "EssentialsX"
+        assert body[0]["filename"] == "EssentialsX.jar"
+        assert body[0]["source"] == "detected"
+        assert body[0]["pending_deletion"] is False
 
     async def test_get_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
-        install_resp = await client.post(
-            f"/api/v1/servers/{server_id}/plugins",
-            json={"server_id": server_id, "name": "WorldEdit", "version": "7.3.0"},
-            headers=privileged_header,
-        )
-        plugin_id = install_resp.json()["plugin_id"]
+        plugin_id = await _seed_plugin(server_id, "WorldEdit")
         resp = await client.get(f"/api/v1/servers/{server_id}/plugins/{plugin_id}", headers=privileged_header)
         assert resp.status_code == 200
         assert resp.json()["name"] == "WorldEdit"
 
     async def test_enable_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
-        install_resp = await client.post(
-            f"/api/v1/servers/{server_id}/plugins",
-            json={"server_id": server_id, "name": "LuckPerms", "version": "5.4.0"},
-            headers=privileged_header,
-        )
-        plugin_id = install_resp.json()["plugin_id"]
+        plugin_id = await _seed_plugin(server_id, "LuckPerms")
         resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins/{plugin_id}/enable",
             headers=privileged_header,
@@ -528,36 +575,29 @@ class TestPlugins:
 
     async def test_disable_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
-        install_resp = await client.post(
-            f"/api/v1/servers/{server_id}/plugins",
-            json={"server_id": server_id, "name": "Vault", "version": "1.7.3"},
-            headers=privileged_header,
-        )
-        plugin_id = install_resp.json()["plugin_id"]
+        plugin_id = await _seed_plugin(server_id, "Vault")
         resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins/{plugin_id}/disable",
             headers=privileged_header,
         )
         assert resp.status_code == 200
 
-    async def test_uninstall_plugin(
+    async def test_uninstall_plugin_marks_pending_and_hides_from_list(
         self,
         client: AsyncClient,
         privileged_header: dict[str, str],
         created_server: dict,
     ) -> None:
         server_id = created_server["server_id"]
-        install_resp = await client.post(
-            f"/api/v1/servers/{server_id}/plugins",
-            json={"server_id": server_id, "name": "Dynmap", "version": "3.7.0"},
-            headers=privileged_header,
-        )
-        plugin_id = install_resp.json()["plugin_id"]
+        plugin_id = await _seed_plugin(server_id, "Dynmap", filename="Dynmap.jar")
         resp = await client.delete(
             f"/api/v1/servers/{server_id}/plugins/{plugin_id}",
             headers=privileged_header,
         )
         assert resp.status_code == 204
+        list_resp = await client.get(f"/api/v1/servers/{server_id}/plugins", headers=privileged_header)
+        assert list_resp.status_code == 200
+        assert list_resp.json() == []
 
 
 class TestPluginMarketplace:
@@ -905,12 +945,7 @@ class TestAuthorizationEnforcement:
         self, client: AsyncClient, privileged_header: dict[str, str], auth_header: dict[str, str], created_server: dict
     ) -> None:
         server_id = created_server["server_id"]
-        install_resp = await client.post(
-            f"/api/v1/servers/{server_id}/plugins",
-            json={"server_id": server_id, "name": "Dynmap", "version": "3.7.0"},
-            headers=privileged_header,
-        )
-        plugin_id = install_resp.json()["plugin_id"]
+        plugin_id = await _seed_plugin(server_id, "Dynmap")
         resp = await client.delete(
             f"/api/v1/servers/{server_id}/plugins/{plugin_id}",
             headers=auth_header,
@@ -922,12 +957,7 @@ class TestAuthorizationEnforcement:
         self, client: AsyncClient, admin_header: dict[str, str], created_server: dict
     ) -> None:
         server_id = created_server["server_id"]
-        install_resp = await client.post(
-            f"/api/v1/servers/{server_id}/plugins",
-            json={"server_id": server_id, "name": "Dynmap", "version": "3.7.0"},
-            headers=admin_header,
-        )
-        plugin_id = install_resp.json()["plugin_id"]
+        plugin_id = await _seed_plugin(server_id, "Dynmap")
         resp = await client.delete(
             f"/api/v1/servers/{server_id}/plugins/{plugin_id}",
             headers=admin_header,

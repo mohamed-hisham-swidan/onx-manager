@@ -26,6 +26,26 @@ class SQLPluginRepository(PluginRepository):
         stmt = (
             select(PluginModel)
             .where(PluginModel.server_id == str(server_id))
+            .where(PluginModel.pending_deletion.is_(False))
+            .order_by(PluginModel.name)
+        )
+        result = await self._session.execute(stmt)
+        return [self._model_to_domain(m) for m in result.scalars().all()]
+
+    async def list_all_by_server(self, server_id: ServerId) -> list[Plugin]:
+        stmt = (
+            select(PluginModel)
+            .where(PluginModel.server_id == str(server_id))
+            .order_by(PluginModel.name)
+        )
+        result = await self._session.execute(stmt)
+        return [self._model_to_domain(m) for m in result.scalars().all()]
+
+    async def list_pending_deletions(self, server_id: ServerId) -> list[Plugin]:
+        stmt = (
+            select(PluginModel)
+            .where(PluginModel.server_id == str(server_id))
+            .where(PluginModel.pending_deletion.is_(True))
             .order_by(PluginModel.name)
         )
         result = await self._session.execute(stmt)
@@ -46,6 +66,9 @@ class SQLPluginRepository(PluginRepository):
         model.dependencies = ",".join(plugin.dependencies)
         model.status = plugin.status.value
         model.source = plugin.source
+        model.filename = plugin.filename
+        model.pending_deletion = plugin.pending_deletion
+        model.pending_deletion_requested_at = plugin.pending_deletion_requested_at
         model.external_project_id = plugin.external_project_id
         model.external_version_id = plugin.external_version_id
         model.external_url = plugin.external_url
@@ -81,6 +104,9 @@ class SQLPluginRepository(PluginRepository):
             dependencies=deps,
             status=PluginStatus(model.status),
             source=model.source,
+            filename=model.filename,
+            pending_deletion=model.pending_deletion,
+            pending_deletion_requested_at=model.pending_deletion_requested_at,
             external_project_id=model.external_project_id,
             external_version_id=model.external_version_id,
             external_url=model.external_url,

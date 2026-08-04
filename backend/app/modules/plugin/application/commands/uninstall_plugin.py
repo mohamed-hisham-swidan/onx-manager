@@ -1,10 +1,10 @@
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.plugin.domain.repository import PluginRepository
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
 from app.modules.shared.value_objects import PluginId
-from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class UninstallPluginCommand(Command):
@@ -22,10 +22,13 @@ class UninstallPluginHandler(CommandHandler[UninstallPluginCommand]):
         async with UnitOfWork(self._event_bus) as uow:
             repo: PluginRepository = SQLPluginRepository(uow.session)
             plugin = await repo.get(plugin_id)
-            plugin.mark_uninstalled()
-            await repo.delete(plugin_id)
+            plugin.request_deletion()
+            await repo.save(plugin)
             for event in plugin.collect_events():
                 uow.add_event(event)
             await uow.commit()
 
-        return CommandResult(success=True, data={"plugin_id": command.plugin_id})
+        return CommandResult(
+            success=True,
+            data={"plugin_id": command.plugin_id, "pending_deletion": True},
+        )

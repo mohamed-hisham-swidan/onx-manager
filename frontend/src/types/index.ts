@@ -22,6 +22,8 @@ export interface VerifyBackupResponse {
   size_valid: boolean;
 }
 
+export type PluginSource = "manual" | "modrinth" | "detected";
+
 export interface PluginResponse {
   plugin_id: string;
   server_id: string;
@@ -33,21 +35,14 @@ export interface PluginResponse {
   dependencies: string[];
   installed_at: string;
   updated_at: string;
-  source?: string;
+  source?: PluginSource;
+  filename?: string | null;
+  pending_deletion?: boolean;
+  pending_deletion_requested_at?: string | null;
   external_project_id?: string | null;
   external_version_id?: string | null;
   external_url?: string | null;
   checksum?: string | null;
-}
-
-export interface InstallPluginRequest {
-  server_id: string;
-  name: string;
-  version: string;
-  description?: string;
-  author?: string;
-  website?: string;
-  dependencies?: string[];
 }
 
 export interface PluginSearchResultResponse {

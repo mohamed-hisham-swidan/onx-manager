@@ -9,6 +9,9 @@ from app.core.idempotency import IdempotencyKey
 from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.backup.application.restore_service import RestoreError, consume_pending_restore
+from app.modules.plugin.application.services.plugin_deletion_service import (
+    consume_pending_plugin_deletions,
+)
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
     format_event,
@@ -184,6 +187,22 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                 logger.info(
                     'Pending restore %s applied before start — server="%s" server_id=%s',
                     restored_backup_id, server_name, sid,
+                )
+
+            # Deferred plugin deletions are applied the same way: the process is
+            # confirmed down, so a running JVM can no longer hold the .jar open.
+            # Unlike restore, a failure here must never block startup — log and
+            # continue; the pending row is preserved for the next restart.
+            try:
+                await consume_pending_plugin_deletions(
+                    sid,
+                    server.deployment.server_directory(),
+                )
+            except Exception as exc:
+                logger.warning(
+                    'Pending plugin deletions failed during start — server="%s" '
+                    'server_id=%s error=%s',
+                    server_name, sid, exc,
                 )
 
         with startup_timeline(server_name, sid):

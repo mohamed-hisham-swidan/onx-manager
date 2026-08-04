@@ -8,7 +8,6 @@ import type {
   HealthResponse,
   InstallModrinthPluginRequest,
   InstallModrinthPluginResponse,
-  InstallPluginRequest,
   LoginRequest,
   LoginResponse,
   PluginResponse,
@@ -247,8 +246,6 @@ export function createApiClient(
     // Plugins
     listPlugins: (serverId: string) =>
       request<PluginResponse[]>(`/api/v1/servers/${serverId}/plugins`),
-    installPlugin: (serverId: string, body: InstallPluginRequest) =>
-      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins`, { method: "POST", body }),
     getPlugin: (serverId: string, pluginId: string) =>
       request<PluginResponse>(`/api/v1/servers/${serverId}/plugins/${pluginId}`),
     uninstallPlugin: (serverId: string, pluginId: string) =>

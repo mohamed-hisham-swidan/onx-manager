@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, String, Text
+from sqlalchemy import Boolean, Column, DateTime, String, Text
 
 from app.core.persistence.base import Base, TimestampMixin
 
@@ -18,6 +18,9 @@ class PluginModel(Base, TimestampMixin):
     dependencies = Column(Text, nullable=False, default="")
     status = Column(String(16), nullable=False, default="installed")
     source = Column(String(16), nullable=False, default="manual")
+    filename = Column(String(255), nullable=True)
+    pending_deletion = Column(Boolean, nullable=False, default=False)
+    pending_deletion_requested_at = Column(DateTime(timezone=True), nullable=True)
     external_project_id = Column(String(64), nullable=True)
     external_version_id = Column(String(64), nullable=True)
     external_url = Column(String(512), nullable=True)
