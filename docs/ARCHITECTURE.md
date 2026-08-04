@@ -415,3 +415,4 @@ Test isolation: sandbox database + sandbox server directory, set via `MCS_DATABA
 | 0009 | 2026-07-27 | Pydantic Field Validators for Domain Value-Object Inputs |
 | 0010 | 2026-07-27 | Commit-per-Step Discipline for Structural Changes |
 | 0011 | 2026-07-27 | Orphan Reconciliation with Ownership Verification |
+| 0012 | 2026-08-04 | Same-Filesystem Staging for Atomic File Swaps |

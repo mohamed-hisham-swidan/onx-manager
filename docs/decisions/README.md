@@ -15,6 +15,7 @@ This directory captures significant architectural decisions made during the proj
 | 0009 | [Pydantic Field Validators for Domain Value-Object Inputs](0009-pydantic-field-validator-for-domain-values.md) | 2026-07-27 | Accepted | Schema-level `@field_validator`s enforce domain value-object invariants at the API boundary. |
 | 0010 | [Commit-per-Step Discipline for Structural Changes](0010-commit-per-step-discipline.md) | 2026-07-27 | Accepted | One concern per commit during refactors so each step stays reviewable and revertible. |
 | 0011 | [Orphan Reconciliation — Ownership Verification](0011-orphan-reconciliation-ownership-verification.md) | 2026-07-27 | Accepted | Orphan cleanup verifies a process truly belongs to the managed server set (MCS marker / cwd / start-time) before killing, with project-owned vs system-wide scopes. |
+| 0012 | [Same-Filesystem Staging for Atomic File Swaps](0012-same-filesystem-staging-for-atomic-swaps.md) | 2026-08-04 | Accepted | Files staged for atomic swap onto live data must live on the same filesystem as the target — never the OS default temp dir (/tmp). |
 
 ## New ADRs
 

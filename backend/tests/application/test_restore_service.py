@@ -1,6 +1,7 @@
 import io
 import os
 import tarfile
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -126,6 +127,52 @@ class TestPerformSafeRestore:
         assert (server_dir / "world_nether" / "DIM1.dat").read_text() == "new-nether"
         assert (server_dir / "plugins" / "p.jar").read_text() == "keep-me"
         assert not (server_dir / "world.mcs-old").exists()
+
+    @pytest.mark.asyncio
+    async def test_stages_extraction_on_same_filesystem_as_server(self, tmp_path) -> None:
+        """Regression: extraction must be staged under server_dir's parent.
+
+        Directory restore failed in production with OSError [Errno 18] EXDEV because
+        the extract temp dir defaulted to /tmp (tmpfs) while the live server dir sits
+        on a different mount — os.replace cannot rename across filesystems. The fix
+        creates the extract temp dir as a sibling of server_dir so the atomic swap
+        never crosses a mount.
+        """
+        server_dir = tmp_path / "server"
+        _write(server_dir, "world/level.dat", "old-world")
+        source = tmp_path / "src"
+        _write(source, "world/level.dat", "new-world")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source),
+            ["world"],
+        )
+        await _seed_job("res-svc-stage-fs", "srv-1", path, size, checksum)
+
+        captured_dir: list[str] = []
+        real_mkdtemp = tempfile.mkdtemp
+
+        def _mkdtemp(*args, **kwargs):
+            captured_dir.append(kwargs.get("dir") or "")
+            return real_mkdtemp(*args, **kwargs)
+
+        with patch(
+            "app.modules.backup.application.restore_service.tempfile.mkdtemp",
+            side_effect=_mkdtemp,
+        ):
+            restored = await perform_safe_restore(
+                BackupJobId("res-svc-stage-fs"),
+                str(server_dir),
+                storage=storage,
+                encryption=encryption,
+            )
+
+        assert restored == ["world"]
+        assert (server_dir / "world" / "level.dat").read_text() == "new-world"
+
+        assert captured_dir == [os.path.dirname(os.path.abspath(str(server_dir)))]
+        assert os.stat(captured_dir[0]).st_dev == os.stat(str(server_dir)).st_dev
+        assert not list(tmp_path.glob("mcs-restore-*"))
 
     @pytest.mark.asyncio
     async def test_custom_primary_world(self, tmp_path) -> None:

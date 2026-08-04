@@ -74,7 +74,14 @@ async def perform_safe_restore(
 
     plaintext = encryption.decrypt(encrypted)
 
-    temp_dir = tempfile.mkdtemp(prefix="mcs-restore-")
+    # Stage the extraction under server_dir's parent so the atomic directory swap
+    # (os.replace inside _atomic_replace_dir) never crosses a mount boundary. The
+    # OS temp dir (/tmp) is frequently a different filesystem (e.g. tmpfs) than
+    # the server dir, and a cross-device rename fails with OSError EXDEV. A
+    # sibling of server_dir is guaranteed to share its filesystem.
+    staging_parent = os.path.dirname(os.path.abspath(server_dir))
+    os.makedirs(staging_parent, exist_ok=True)
+    temp_dir = tempfile.mkdtemp(prefix="mcs-restore-", dir=staging_parent)
     try:
         extract_dir = os.path.join(temp_dir, "extract")
         os.makedirs(extract_dir, exist_ok=True)
