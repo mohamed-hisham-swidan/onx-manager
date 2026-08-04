@@ -213,6 +213,158 @@ class TestPerformSafeRestore:
                 encryption=encryption,
             )
 
+    @pytest.mark.asyncio
+    async def test_swaps_plugins_folder_and_leaves_it_when_absent(self, tmp_path) -> None:
+        server_dir = tmp_path / "server"
+        _write(server_dir, "plugins/old.jar", "old-plugin")
+        _write(server_dir, "world/level.dat", "keep-world")
+
+        source = tmp_path / "src"
+        _write(source, "plugins/new.jar", "new-plugin")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source),
+            ["plugins"],
+        )
+        await _seed_job("res-svc-plugins", "srv-1", path, size, checksum)
+
+        restored = await perform_safe_restore(
+            BackupJobId("res-svc-plugins"),
+            str(server_dir),
+            storage=storage,
+            encryption=encryption,
+        )
+
+        assert restored == ["plugins"]
+        assert (server_dir / "plugins" / "new.jar").read_text() == "new-plugin"
+        assert not (server_dir / "plugins" / "old.jar").exists()
+        assert (server_dir / "world" / "level.dat").read_text() == "keep-world"
+
+    @pytest.mark.asyncio
+    async def test_swaps_config_files_at_file_level(self, tmp_path) -> None:
+        server_dir = tmp_path / "server"
+        _write(server_dir, "server.properties", "old-motd")
+        _write(server_dir, "eula.txt", "old-eula")
+        _write(server_dir, "world/level.dat", "keep-world")
+
+        source = tmp_path / "src"
+        _write(source, "server.properties", "new-motd")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source),
+            ["server.properties"],
+        )
+        await _seed_job("res-svc-config", "srv-1", path, size, checksum)
+
+        restored = await perform_safe_restore(
+            BackupJobId("res-svc-config"),
+            str(server_dir),
+            storage=storage,
+            encryption=encryption,
+        )
+
+        assert restored == ["server.properties"]
+        assert (server_dir / "server.properties").read_text() == "new-motd"
+        assert (server_dir / "eula.txt").read_text() == "old-eula"
+        assert (server_dir / "world" / "level.dat").read_text() == "keep-world"
+
+    @pytest.mark.asyncio
+    async def test_playerdata_namespace_swaps_only_nested_subfolder(self, tmp_path) -> None:
+        server_dir = tmp_path / "server"
+        _write(server_dir, "world/level.dat", "old-level")
+        _write(server_dir, "world/playerdata/abc.dat", "old-pd")
+        _write(server_dir, "world_nether/DIM-1/region.dat", "old-nether")
+
+        source = tmp_path / "src"
+        _write(source, "mcs_playerdata/world/playerdata/abc.dat", "new-pd")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source),
+            ["mcs_playerdata/world/playerdata"],
+        )
+        await _seed_job("res-svc-pd", "srv-1", path, size, checksum)
+
+        restored = await perform_safe_restore(
+            BackupJobId("res-svc-pd"),
+            str(server_dir),
+            storage=storage,
+            encryption=encryption,
+        )
+
+        assert restored == ["playerdata:world"]
+        assert (server_dir / "world" / "playerdata" / "abc.dat").read_text() == "new-pd"
+        assert (server_dir / "world" / "level.dat").read_text() == "old-level"
+        assert (server_dir / "world_nether" / "DIM-1" / "region.dat").read_text() == "old-nether"
+
+    @pytest.mark.asyncio
+    async def test_playerdata_namespace_skips_when_live_dimension_absent(self, tmp_path) -> None:
+        server_dir = tmp_path / "server"
+        _write(server_dir, "world/level.dat", "keep-level")
+
+        source = tmp_path / "src"
+        _write(source, "mcs_playerdata/world_nether/playerdata/abc.dat", "orphan-pd")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source),
+            ["mcs_playerdata/world_nether/playerdata"],
+        )
+        await _seed_job("res-svc-pd-skip", "srv-1", path, size, checksum)
+
+        restored = await perform_safe_restore(
+            BackupJobId("res-svc-pd-skip"),
+            str(server_dir),
+            storage=storage,
+            encryption=encryption,
+        )
+
+        assert restored == []
+        assert not (server_dir / "world_nether").exists()
+
+    @pytest.mark.asyncio
+    async def test_full_archive_restores_dims_plugins_config_together(self, tmp_path) -> None:
+        server_dir = tmp_path / "server"
+        _write(server_dir, "world/level.dat", "old-level")
+        _write(server_dir, "world_nether/DIM-1/region.dat", "old-nether")
+        _write(server_dir, "world_the_end/DIM1/region.dat", "old-end")
+        _write(server_dir, "plugins/old.jar", "old-plugin")
+        _write(server_dir, "server.properties", "old-motd")
+
+        source = tmp_path / "src"
+        _write(source, "world/level.dat", "new-level")
+        _write(source, "world_nether/DIM-1/region.dat", "new-nether")
+        _write(source, "world_the_end/DIM1/region.dat", "new-end")
+        _write(source, "plugins/new.jar", "new-plugin")
+        _write(source, "server.properties", "new-motd")
+        _write(source, "eula.txt", "new-eula")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source),
+            ["world", "world_nether", "world_the_end", "plugins", "server.properties", "eula.txt"],
+        )
+        await _seed_job("res-svc-full", "srv-1", path, size, checksum)
+
+        restored = await perform_safe_restore(
+            BackupJobId("res-svc-full"),
+            str(server_dir),
+            storage=storage,
+            encryption=encryption,
+        )
+
+        assert set(restored) == {
+            "world",
+            "world_nether",
+            "world_the_end",
+            "plugins",
+            "server.properties",
+            "eula.txt",
+        }
+        assert (server_dir / "world" / "level.dat").read_text() == "new-level"
+        assert (server_dir / "world_nether" / "DIM-1" / "region.dat").read_text() == "new-nether"
+        assert (server_dir / "world_the_end" / "DIM1" / "region.dat").read_text() == "new-end"
+        assert (server_dir / "plugins" / "new.jar").read_text() == "new-plugin"
+        assert (server_dir / "server.properties").read_text() == "new-motd"
+        assert (server_dir / "eula.txt").read_text() == "new-eula"
+
 
 @pytest.mark.usefixtures("init_test_db")
 class TestConsumePendingRestore:

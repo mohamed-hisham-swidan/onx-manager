@@ -45,8 +45,12 @@ export function CreateBackupDialog({ onDone }: CreateBackupDialogProps) {
           className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="full">Full Backup</option>
-          <option value="world">World Only</option>
-          <option value="plugins">Plugins Only</option>
+          <option value="worlds">Worlds</option>
+          <option value="world">World</option>
+          <option value="nether">Nether</option>
+          <option value="end">End</option>
+          <option value="plugins">Plugins</option>
+          <option value="config">Config</option>
         </select>
       </div>
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

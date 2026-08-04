@@ -462,7 +462,10 @@ class TestBackups:
         )
         assert resp.status_code == 422
 
-    @pytest.mark.parametrize("valid_type", ["full", "world", "plugins"])
+    @pytest.mark.parametrize(
+        "valid_type",
+        ["full", "worlds", "world", "nether", "end", "plugins", "config"],
+    )
     async def test_create_backup_accepts_valid_types(
         self,
         client: AsyncClient,

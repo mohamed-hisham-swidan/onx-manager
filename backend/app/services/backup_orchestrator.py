@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from app.core.saga import SagaOrchestrator, SagaStep
-from app.modules.backup.domain.aggregate import BackupStatus
+from app.modules.backup.domain.aggregate import BackupStatus, BackupType
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.server.infrastructure.providers.base import ServerHandle
@@ -35,6 +35,19 @@ CONFIG_FILES: tuple[str, ...] = (
 # folder name. The base (no suffix) world folder is always required; nether and
 # the_end are archived only when present on disk.
 DIMENSION_SUFFIXES: tuple[str, ...] = ("", "_nether", "_the_end")
+
+# Which dimension suffixes each backup type archives as whole folders. The base
+# world (suffix "") is required for every dimension type; nether and the_end are
+# archived only when present on disk. plugins/config types archive no dimension.
+_BACKUP_TYPE_DIMS: dict[BackupType, tuple[str, ...]] = {
+    BackupType.FULL: DIMENSION_SUFFIXES,
+    BackupType.WORLDS: DIMENSION_SUFFIXES,
+    BackupType.WORLD: ("",),
+    BackupType.NETHER: ("_nether",),
+    BackupType.END: ("_the_end",),
+    BackupType.PLUGINS: (),
+    BackupType.CONFIG: (),
+}
 
 # Timeout for a save-all on a running server to be confirmed via console
 # output. A normal world save completes in a few seconds even on a loaded
@@ -71,6 +84,7 @@ class BackupSaga:
         server_id: ServerId,
         storage: StorageBackend,
         encryption: BackupEncryption | None = None,
+        backup_type: BackupType = BackupType.FULL,
     ) -> None:
         steps = [
             SagaStep(
@@ -80,7 +94,7 @@ class BackupSaga:
             ),
             SagaStep(
                 name="compress_backup",
-                forward=self._compress(backup_id, server_id),
+                forward=self._compress(backup_id, server_id, backup_type),
                 compensate=self._cleanup_compressed(),
             ),
             SagaStep(
@@ -168,12 +182,17 @@ class BackupSaga:
                 )
             await asyncio.sleep(SAVE_ALL_POLL_INTERVAL_S)
 
-    def _compress(self, backup_id: BackupJobId, server_id: ServerId):
+    def _compress(
+        self,
+        backup_id: BackupJobId,
+        server_id: ServerId,
+        backup_type: BackupType = BackupType.FULL,
+    ):
         async def fn() -> None:
             server_dir, primary_world = await self._resolve_server_dir(server_id)
             self._temp_dir = tempfile.mkdtemp(prefix=f"mcs-backup-{str(backup_id)[:8]}-")
             self._tar_path = os.path.join(self._temp_dir, f"{backup_id}.tar.gz")
-            self._write_tar(self._tar_path, server_dir, primary_world)
+            self._write_tar(self._tar_path, server_dir, primary_world, backup_type)
             logger.info(
                 "Backup compressed: %s (%d bytes)",
                 backup_id, os.path.getsize(self._tar_path),
@@ -295,20 +314,65 @@ class BackupSaga:
             shutil.rmtree(self._temp_dir, ignore_errors=True)
             self._temp_dir = None
 
-    def _write_tar(self, tar_path: str, server_dir: str, primary_world: str = "world") -> None:
-        base_world = Path(server_dir) / primary_world
-        if not base_world.is_dir():
-            raise FileNotFoundError(f"World directory not found: {base_world}")
+    def _write_tar(
+        self,
+        tar_path: str,
+        server_dir: str,
+        primary_world: str = "world",
+        backup_type: BackupType = BackupType.FULL,
+    ) -> None:
+        dim_names: dict[str, str] = {s: f"{primary_world}{s}" for s in DIMENSION_SUFFIXES}
+        dim_suffixes = _BACKUP_TYPE_DIMS[backup_type]
+        include_plugins = backup_type in (BackupType.FULL, BackupType.PLUGINS)
+        include_config = backup_type in (BackupType.FULL, BackupType.CONFIG)
+
+        required_suffix = {
+            BackupType.FULL: "",
+            BackupType.WORLDS: "",
+            BackupType.WORLD: "",
+            BackupType.NETHER: "_nether",
+            BackupType.END: "_the_end",
+        }.get(backup_type)
+        if required_suffix is not None:
+            required_dir = Path(server_dir) / dim_names[required_suffix]
+            if not required_dir.is_dir():
+                raise FileNotFoundError(f"World directory not found: {required_dir}")
+
         with tarfile.open(tar_path, "w:gz") as tar:
-            for suffix in DIMENSION_SUFFIXES:
-                dim_name = f"{primary_world}{suffix}"
+            for suffix in dim_suffixes:
+                dim_name = dim_names[suffix]
                 candidate = Path(server_dir) / dim_name
                 if candidate.is_dir():
                     tar.add(str(candidate), arcname=dim_name)
-            for name in CONFIG_FILES:
-                candidate = Path(server_dir) / name
-                if candidate.is_file():
-                    tar.add(str(candidate), arcname=name)
+
+            # playerdata/ from dimensions NOT archived whole above is pulled into a
+            # separate namespace so restore never mistakes a partial dimension for a
+            # whole one. Only applies to dimension-bearing types.
+            if backup_type in (
+                BackupType.FULL,
+                BackupType.WORLDS,
+                BackupType.WORLD,
+                BackupType.NETHER,
+                BackupType.END,
+            ):
+                for suffix, dim_name in dim_names.items():
+                    if suffix in dim_suffixes:
+                        continue
+                    playerdata_dir = Path(server_dir) / dim_name / "playerdata"
+                    if playerdata_dir.is_dir():
+                        arcname = f"mcs_playerdata/{dim_name}/playerdata"
+                        tar.add(str(playerdata_dir), arcname=arcname)
+
+            if include_plugins:
+                plugins_dir = Path(server_dir) / "plugins"
+                if plugins_dir.is_dir():
+                    tar.add(str(plugins_dir), arcname="plugins")
+
+            if include_config:
+                for name in CONFIG_FILES:
+                    candidate = Path(server_dir) / name
+                    if candidate.is_file():
+                        tar.add(str(candidate), arcname=name)
 
     async def _resolve_server_dir(self, server_id: ServerId) -> tuple[str, str]:
         async with UnitOfWork() as uow:

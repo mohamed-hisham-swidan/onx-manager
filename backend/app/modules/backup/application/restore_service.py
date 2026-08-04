@@ -13,6 +13,7 @@ from app.core.config import ConfigFactory
 from app.core.persistence.db import database
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
+from app.services.backup_orchestrator import CONFIG_FILES
 
 if TYPE_CHECKING:
     from app.modules.storage.base import StorageBackend
@@ -45,13 +46,15 @@ async def perform_safe_restore(
     storage: StorageBackend | None = None,
     encryption: BackupEncryption | None = None,
 ) -> list[str]:
-    """Decrypt, verify and atomically apply dimension folders present in a backup archive.
+    """Decrypt, verify and atomically apply the top-level entries present in a backup archive.
 
     The archive is decrypted and fully extracted to a temp directory (never the live
-    server dir). For each top-level dimension folder that exists in the extract, the
-    corresponding live folder is atomically swapped in. Live dimension folders that are
-    absent from the archive are left completely untouched. Returns the names of the
-    dimension folders that were replaced.
+    server dir). For each dimension folder / plugins folder that exists in the extract,
+    the corresponding live folder is atomically swapped in. Config files present in the
+    extract are replaced at the file level. Playerdata pulled into the
+    ``mcs_playerdata/<dim>/playerdata`` namespace is swapped onto only the live
+    ``<dim>/playerdata`` subfolder. Live paths absent from the archive are left
+    completely untouched. Returns the names of the replaced items.
     """
     settings = ConfigFactory.global_settings()
     storage = storage or build_storage_backend(settings)
@@ -78,16 +81,55 @@ async def perform_safe_restore(
         with tarfile.open(fileobj=BytesIO(plaintext), mode="r:gz") as tar:
             tar.extractall(extract_dir)
 
-        restored_dims: list[str] = []
-        for dim in _dimension_names(base_world):
-            src = os.path.join(extract_dir, dim)
+        restored_items: list[str] = []
+
+        # 1. Whole dimension folders + plugins folder (same atomic dir swap).
+        top_level_dirs = list(_dimension_names(base_world)) + ["plugins"]
+        for name in top_level_dirs:
+            src = os.path.join(extract_dir, name)
             if not os.path.isdir(src):
                 continue
-            _atomic_replace_dir(src, os.path.join(server_dir, dim))
-            restored_dims.append(dim)
-        return restored_dims
+            _atomic_replace_dir(src, os.path.join(server_dir, name))
+            restored_items.append(name)
+
+        # 2. Config files at the file level (same-dir temp write + os.replace).
+        for name in CONFIG_FILES:
+            src = os.path.join(extract_dir, name)
+            if not os.path.isfile(src):
+                continue
+            _atomic_replace_file(src, os.path.join(server_dir, name))
+            restored_items.append(name)
+
+        # 3. Playerdata namespace: swap only the live <dim>/playerdata subfolder.
+        for dim in _dimension_names(base_world):
+            src = os.path.join(extract_dir, "mcs_playerdata", dim, "playerdata")
+            if not os.path.isdir(src):
+                continue
+            live_dim = os.path.join(server_dir, dim)
+            if not os.path.isdir(live_dim):
+                continue
+            _atomic_replace_dir(src, os.path.join(live_dim, "playerdata"))
+            restored_items.append(f"playerdata:{dim}")
+        return restored_items
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _atomic_replace_file(src: str, dst: str) -> None:
+    """Replace a single file atomically without crossing filesystem boundaries.
+
+    The extracted bytes are written to a temp file inside dst's directory (guaranteed
+    same filesystem), then os.replace()d onto the target. Avoids the EXDEV risk of
+    renaming directly across mounts (e.g. /tmp extract dir -> server dir).
+    """
+    parent = os.path.dirname(dst)
+    os.makedirs(parent, exist_ok=True)
+    tmp_path = os.path.join(parent, f".{os.path.basename(dst)}.mcs-tmp")
+    with open(src, "rb") as f:
+        data = f.read()
+    with open(tmp_path, "wb") as f:
+        f.write(data)
+    os.replace(tmp_path, dst)
 
 
 def _atomic_replace_dir(src: str, dst: str) -> None:

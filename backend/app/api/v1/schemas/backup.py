@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-BackupTypeValue = Literal["full", "world", "plugins"]
+BackupTypeValue = Literal["full", "worlds", "world", "nether", "end", "plugins", "config"]
 
 
 class CreateBackupRequest(BaseModel):

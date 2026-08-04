@@ -253,7 +253,7 @@ class TestRestoreBackupHandler:
 
         assert result.success is True
         assert result.data["deferred"] is False
-        assert result.data["restored_dimensions"] == ["world", "world_nether"]
+        assert result.data["restored_items"] == ["world", "world_nether"]
         assert await self._pending("res-srv-stopped") is None
 
     @pytest.mark.asyncio

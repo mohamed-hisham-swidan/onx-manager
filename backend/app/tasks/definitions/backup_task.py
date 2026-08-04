@@ -31,6 +31,7 @@ async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
             server_id=server_id,
             storage=storage,
             encryption=encryption,
+            backup_type=backup_type,
         )
     except Exception:
         logger.exception("Backup task failed: %s for server %s", backup_id, server_id)

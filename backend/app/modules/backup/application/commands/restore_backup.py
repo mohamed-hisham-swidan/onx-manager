@@ -82,7 +82,9 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
                 )
 
         try:
-            restored_dims = await perform_safe_restore(backup_id, server_dir, base_world=base_world)
+            restored_items = await perform_safe_restore(
+                backup_id, server_dir, base_world=base_world,
+            )
         except RestoreError as exc:
             logger.error(
                 "Restore failed — server_id=%s backup_id=%s error=%s",
@@ -100,8 +102,8 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
             await uow.commit()
 
         logger.info(
-            "Restore applied — server_id=%s backup_id=%s dimensions=%s",
-            server_id, command.backup_id, restored_dims,
+            "Restore applied — server_id=%s backup_id=%s items=%s",
+            server_id, command.backup_id, restored_items,
         )
         return CommandResult(
             success=True,
@@ -109,6 +111,6 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
                 "server_id": server_id,
                 "backup_id": command.backup_id,
                 "deferred": False,
-                "restored_dimensions": restored_dims,
+                "restored_items": restored_items,
             },
         )

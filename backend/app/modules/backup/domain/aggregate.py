@@ -16,8 +16,12 @@ from app.modules.shared.value_objects import BackupJobId, CronExpression, Server
 
 class BackupType(Enum):
     FULL = "full"
+    WORLDS = "worlds"
     WORLD = "world"
+    NETHER = "nether"
+    END = "end"
     PLUGINS = "plugins"
+    CONFIG = "config"
 
 
 class BackupStatus(Enum):

@@ -44,4 +44,20 @@ describe("CreateBackupDialog", () => {
     renderDialog();
     expect(screen.getByRole("button", { name: "Create Backup" })).toBeInTheDocument();
   });
+
+  it("renders all seven backup type options", () => {
+    renderDialog();
+    const select = document.querySelector<HTMLSelectElement>('select[name="backup_type"]');
+    expect(select).not.toBeNull();
+    const options = Array.from(select!.options).map((o) => ({ value: o.value, label: o.text }));
+    expect(options).toEqual([
+      { value: "full", label: "Full Backup" },
+      { value: "worlds", label: "Worlds" },
+      { value: "world", label: "World" },
+      { value: "nether", label: "Nether" },
+      { value: "end", label: "End" },
+      { value: "plugins", label: "Plugins" },
+      { value: "config", label: "Config" },
+    ]);
+  });
 });
