@@ -4,7 +4,7 @@
 **Purpose:** Captures feature ideas Mohamed has raised and decisions explicitly
 deferred to a later roadmap phase. This is **not** a spec and nothing here is
 committed work.
-**Last updated:** 2026-08-03
+**Last updated:** 2026-08-04
 
 ---
 
@@ -43,3 +43,66 @@ workflow (quick access to world files, logs, backups on disk).
 
 **Suggested target phase:** **Phase 4 (Frontend Redesign & Parity)** — the
 roadmap phase for UI/UX feature work.
+
+---
+
+## 2. Plugin marketplace — browse / search / install plugins from Modrinth
+
+**Requested:** 2026-08-04
+
+**Status update (2026-08-04): active implementation started, as a documented
+exception to phase-gating (see roadmap note) — original investigation findings
+below remain accurate reference material.**
+
+Browsing, searching, and installing server plugins directly from MCS Manager,
+sourcing them from the Modrinth catalog (`api.modrinth.com`) and potentially
+other providers later.
+
+**Why deferred (originally):**
+
+- This is **new feature work**, and the project is currently in **Phase 1
+  (Security & Stability Hardening)** per `docs/mcs-manager-roadmap-v1.md`, which
+  explicitly blocks new capability until Phase 1's exit criteria close.
+- The investigation confirmed the feature is feasible with minimal new
+  foundations — nothing about it depends on a Phase 1 decision, so it is gated
+  purely by roadmap sequencing, not by design risk.
+
+**Key findings from the investigation (2026-08-04):**
+
+- **HTTP client:** `aiohttp` is already a runtime dependency (`pyproject.toml`,
+  `requirements.txt`) — no new HTTP library is needed.
+- **Download pattern to follow:** `app/modules/server/application/services/jar_service.py`
+  already implements download + typed timeouts + retry with exponential backoff
+  + atomic write (`write_binary_atomic`) for server jars — a close template for
+  downloading a `.jar` into a server's `plugins/` folder.
+- **Provider-abstraction convention:** `app/modules/storage/base.py`'s abstract
+  `StorageBackend` ABC (with `LocalStorageBackend` / `S3StorageBackend` behind a
+  factory) is the established pattern for interchangeable backends — a future
+  `ModrinthProvider` should follow it, and the same ABC + factory pattern should
+  be preferred over building a multi-provider abstraction upfront.
+- **Modrinth API reachable:** `api.modrinth.com` returned HTTP 200; no API key
+  required for search/browse; rate limit 300 requests/window
+  (`x-ratelimit-limit` header).
+- **API quirk to design around:** plugin search hits report
+  `project_type: "mod"` even for actual plugins — filtering/display must rely on
+  `all_project_types` or category facets (bukkit/paper/spigot), not the
+  top-level `project_type` field.
+- **Current plugin system is DB-metadata only:** the `plugins` table is empty;
+  `InstallPluginCommand` only writes a DB row (no real `.jar` placement); the
+  frontend Install button is a stub ("Install coming soon").
+
+**Gaps to close before implementing:**
+
+1. **Shared outbound HTTP client** — no centralized session/timeout/retry policy
+   exists for app-level outbound calls; `jar_service.py`'s pattern is per-call,
+   not pooled.
+2. **Download-integrity verification** — no sha1/sha512 verification exists
+   anywhere yet, even though Modrinth provides both hashes per version file.
+
+**Suggested implementation start:** single provider (Modrinth only), matching
+the existing `StorageBackend`-style ABC + factory pattern, rather than a
+multi-provider abstraction built upfront.
+
+**Suggested target phase:** **Phase 7 (Container Plugin Isolation)** — the
+roadmap's plugin-system phase. The marketplace is not part of any currently
+defined Phase 2–9 scope.

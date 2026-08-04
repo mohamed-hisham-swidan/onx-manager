@@ -33,6 +33,11 @@ export interface PluginResponse {
   dependencies: string[];
   installed_at: string;
   updated_at: string;
+  source?: string;
+  external_project_id?: string | null;
+  external_version_id?: string | null;
+  external_url?: string | null;
+  checksum?: string | null;
 }
 
 export interface InstallPluginRequest {
@@ -43,6 +48,63 @@ export interface InstallPluginRequest {
   author?: string;
   website?: string;
   dependencies?: string[];
+}
+
+export interface PluginSearchResultResponse {
+  project_id: string;
+  slug: string;
+  title: string;
+  description: string;
+  author: string;
+  project_types: string[];
+  downloads: number;
+  follows: number;
+  icon_url: string;
+  latest_version_id: string;
+}
+
+export interface PluginFileResponse {
+  url: string;
+  filename: string;
+  size_bytes: number;
+  sha1: string;
+  sha512: string;
+  primary: boolean;
+}
+
+export interface PluginVersionResponse {
+  version_id: string;
+  project_id: string;
+  name: string;
+  version_number: string;
+  game_versions: string[];
+  loaders: string[];
+  files: PluginFileResponse[];
+  dependencies: string[];
+  date_published: string;
+}
+
+export interface PluginVersionsResponse {
+  project_id: string;
+  versions: PluginVersionResponse[];
+  selected: PluginVersionResponse | null;
+  notice: string;
+  notice_kind: string;
+}
+
+export interface InstallModrinthPluginRequest {
+  project_id: string;
+  version_id?: string | null;
+  minecraft_version?: string | null;
+}
+
+export interface InstallModrinthPluginResponse {
+  plugin_id: string;
+  version: string;
+  filename: string;
+  source: string;
+  notice: string;
+  notice_kind: string;
 }
 
 export interface LoginRequest {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import { usePluginsList, useEnablePlugin, useDisablePlugin, useUninstallPlugin } from "@/server_manager/hooks/usePlugins";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -14,6 +15,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function PluginListPage() {
+  const navigate = useNavigate();
   const { data: servers } = useServersList();
   const [selectedServerId, setSelectedServerId] = useState("");
   const [uninstallTarget, setUninstallTarget] = useState<PluginResponse | null>(null);
@@ -24,7 +26,7 @@ export function PluginListPage() {
   const uninstallPlugin = useUninstallPlugin(selectedServerId);
 
   function handleInstall() {
-    toast("info", "Install coming soon", "Plugin installation will be available in a future release.");
+    navigate(`/plugins/marketplace?server=${encodeURIComponent(selectedServerId)}`);
   }
 
   function handleConfirmUninstall() {

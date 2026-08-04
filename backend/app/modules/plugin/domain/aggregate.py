@@ -43,6 +43,12 @@ class Plugin(AggregateRoot):
         website: str = "",
         dependencies: list[str] | None = None,
         status: PluginStatus = PluginStatus.INSTALLED,
+        source: str = "manual",
+        external_project_id: str | None = None,
+        external_version_id: str | None = None,
+        external_url: str | None = None,
+        checksum: str | None = None,
+        version_raw: str | None = None,
         installed_at: datetime | None = None,
         updated_at: datetime | None = None,
     ) -> None:
@@ -51,11 +57,17 @@ class Plugin(AggregateRoot):
         self._server_id = server_id
         self._name = name
         self._version = version
+        self._version_raw = version_raw
         self._description = description
         self._author = author
         self._website = website
         self._dependencies = dependencies or []
         self._status = status
+        self._source = source
+        self._external_project_id = external_project_id
+        self._external_version_id = external_version_id
+        self._external_url = external_url
+        self._checksum = checksum
         now = datetime.now(timezone.utc)
         self._installed_at = installed_at or now
         self._updated_at = updated_at or now
@@ -75,6 +87,30 @@ class Plugin(AggregateRoot):
     @property
     def version(self) -> PluginVersion:
         return self._version
+
+    @property
+    def display_version(self) -> str:
+        return self._version_raw or str(self._version)
+
+    @property
+    def source(self) -> str:
+        return self._source
+
+    @property
+    def external_project_id(self) -> str | None:
+        return self._external_project_id
+
+    @property
+    def external_version_id(self) -> str | None:
+        return self._external_version_id
+
+    @property
+    def external_url(self) -> str | None:
+        return self._external_url
+
+    @property
+    def checksum(self) -> str | None:
+        return self._checksum
 
     @property
     def description(self) -> str:
@@ -115,6 +151,12 @@ class Plugin(AggregateRoot):
         author: str = "",
         website: str = "",
         dependencies: list[str] | None = None,
+        source: str = "manual",
+        external_project_id: str | None = None,
+        external_version_id: str | None = None,
+        external_url: str | None = None,
+        checksum: str | None = None,
+        version_raw: str | None = None,
     ) -> Plugin:
         plugin = cls(
             plugin_id=plugin_id,
@@ -125,6 +167,12 @@ class Plugin(AggregateRoot):
             author=author,
             website=website,
             dependencies=dependencies,
+            source=source,
+            external_project_id=external_project_id,
+            external_version_id=external_version_id,
+            external_url=external_url,
+            checksum=checksum,
+            version_raw=version_raw,
         )
         plugin._add_event(
             PluginInstalledEvent(
@@ -157,9 +205,10 @@ class Plugin(AggregateRoot):
     def mark_error(self) -> None:
         self._transition_to(PluginStatus.ERROR)
 
-    def update_version(self, new_version: PluginVersion) -> None:
+    def update_version(self, new_version: PluginVersion, version_raw: str | None = None) -> None:
         old = self._version
         self._version = new_version
+        self._version_raw = version_raw
         self._updated_at = datetime.now(timezone.utc)
         self._add_event(
             PluginUpdatedEvent(

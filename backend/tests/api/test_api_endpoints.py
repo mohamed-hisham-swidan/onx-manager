@@ -489,54 +489,54 @@ class TestPlugins:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    async def test_install_plugin(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_install_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         payload = {"server_id": server_id, "name": "EssentialsX", "version": "2.21.0"}
         resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins",
             json=payload,
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 201
         assert "plugin_id" in resp.json()
 
-    async def test_get_plugin(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_get_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         install_resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins",
             json={"server_id": server_id, "name": "WorldEdit", "version": "7.3.0"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         plugin_id = install_resp.json()["plugin_id"]
-        resp = await client.get(f"/api/v1/servers/{server_id}/plugins/{plugin_id}", headers=auth_header)
+        resp = await client.get(f"/api/v1/servers/{server_id}/plugins/{plugin_id}", headers=privileged_header)
         assert resp.status_code == 200
         assert resp.json()["name"] == "WorldEdit"
 
-    async def test_enable_plugin(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_enable_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         install_resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins",
             json={"server_id": server_id, "name": "LuckPerms", "version": "5.4.0"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         plugin_id = install_resp.json()["plugin_id"]
         resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins/{plugin_id}/enable",
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 200
 
-    async def test_disable_plugin(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_disable_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         install_resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins",
             json={"server_id": server_id, "name": "Vault", "version": "1.7.3"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         plugin_id = install_resp.json()["plugin_id"]
         resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins/{plugin_id}/disable",
-            headers=auth_header,
+            headers=privileged_header,
         )
         assert resp.status_code == 200
 
@@ -558,6 +558,39 @@ class TestPlugins:
             headers=privileged_header,
         )
         assert resp.status_code == 204
+
+
+class TestPluginMarketplace:
+    async def test_marketplace_search(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.get(
+            f"/api/v1/servers/{server_id}/plugins/marketplace/search",
+            params={"query": "essentials"},
+            headers=privileged_header,
+        )
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    async def test_marketplace_search_requires_permission(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.get(
+            f"/api/v1/servers/{server_id}/plugins/marketplace/search",
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
+
+    async def test_install_from_marketplace_requires_permission(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.post(
+            f"/api/v1/servers/{server_id}/plugins/marketplace/install",
+            json={"project_id": "essentialsx"},
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
 
 
 class TestUsers:
@@ -869,13 +902,13 @@ class TestAuthorizationEnforcement:
         assert resp.status_code == 201
 
     async def test_uninstall_plugin_without_permission_denied(
-        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+        self, client: AsyncClient, privileged_header: dict[str, str], auth_header: dict[str, str], created_server: dict
     ) -> None:
         server_id = created_server["server_id"]
         install_resp = await client.post(
             f"/api/v1/servers/{server_id}/plugins",
             json={"server_id": server_id, "name": "Dynmap", "version": "3.7.0"},
-            headers=auth_header,
+            headers=privileged_header,
         )
         plugin_id = install_resp.json()["plugin_id"]
         resp = await client.delete(

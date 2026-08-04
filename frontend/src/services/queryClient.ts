@@ -25,6 +25,10 @@ export const queryKeys = {
     all: ["plugins"] as const,
     list: (serverId: string) => ["plugins", "list", serverId] as const,
     detail: (serverId: string, pluginId: string) => ["plugins", "detail", serverId, pluginId] as const,
+    marketplace: {
+      search: (serverId: string, query: string) => ["plugins", "marketplace", "search", serverId, query] as const,
+      versions: (serverId: string, projectId: string) => ["plugins", "marketplace", "versions", serverId, projectId] as const,
+    },
   },
   auth: {
     me: ["auth", "me"] as const,

@@ -6,6 +6,10 @@ from app.modules.plugin.application.commands.enable_plugin import (
     EnablePluginCommand,
     EnablePluginHandler,
 )
+from app.modules.plugin.application.commands.install_modrinth_plugin import (
+    InstallModrinthPluginCommand,
+    InstallModrinthPluginHandler,
+)
 from app.modules.plugin.application.commands.install_plugin import (
     InstallPluginCommand,
     InstallPluginHandler,
@@ -27,6 +31,8 @@ from app.modules.plugin.application.queries.list_plugins import (
 __all__ = [
     "InstallPluginCommand",
     "InstallPluginHandler",
+    "InstallModrinthPluginCommand",
+    "InstallModrinthPluginHandler",
     "UninstallPluginCommand",
     "UninstallPluginHandler",
     "EnablePluginCommand",

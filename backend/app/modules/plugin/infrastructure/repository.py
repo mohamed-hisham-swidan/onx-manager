@@ -39,12 +39,17 @@ class SQLPluginRepository(PluginRepository):
 
         model.server_id = str(plugin.server_id)
         model.name = plugin.name
-        model.version = str(plugin.version)
+        model.version = plugin.display_version
         model.description = plugin.description
         model.author = plugin.author
         model.website = plugin.website
         model.dependencies = ",".join(plugin.dependencies)
         model.status = plugin.status.value
+        model.source = plugin.source
+        model.external_project_id = plugin.external_project_id
+        model.external_version_id = plugin.external_version_id
+        model.external_url = plugin.external_url
+        model.checksum = plugin.checksum
         model.installed_at = plugin.installed_at
         model.updated_at = datetime.now(timezone.utc)
         await self._session.flush()
@@ -58,16 +63,29 @@ class SQLPluginRepository(PluginRepository):
     def _model_to_domain(self, model: PluginModel) -> Plugin:
         deps = [d.strip() for d in model.dependencies.split(",") if d.strip()]
 
+        version_raw: str | None = None
+        try:
+            version = PluginVersion.parse(model.version)
+        except ValueError:
+            version_raw = model.version
+            version = PluginVersion(0, 0, 0)
+
         plugin = Plugin(
             plugin_id=PluginId(model.id),
             server_id=ServerId(model.server_id),
             name=model.name,
-            version=PluginVersion.parse(model.version),
+            version=version,
             description=model.description,
             author=model.author,
             website=model.website,
             dependencies=deps,
             status=PluginStatus(model.status),
+            source=model.source,
+            external_project_id=model.external_project_id,
+            external_version_id=model.external_version_id,
+            external_url=model.external_url,
+            checksum=model.checksum,
+            version_raw=version_raw,
             installed_at=model.installed_at,
             updated_at=model.updated_at,
         )

@@ -14,6 +14,7 @@ import { ImportServerPage } from "@/server_manager/pages/ImportServerPage";
 import { ServerDetailPage } from "@/server_manager/pages/ServerDetailPage";
 import { BackupListPage } from "@/server_manager/pages/BackupListPage";
 import { PluginListPage } from "@/server_manager/pages/PluginListPage";
+import { PluginMarketplacePage } from "@/server_manager/pages/PluginMarketplacePage";
 import { SettingsPage } from "@/server_manager/pages/SettingsPage";
 import { ApiKeysPage } from "@/server_manager/pages/ApiKeysPage";
 import { WebSocketManager } from "@/components/WebSocketManager";
@@ -36,6 +37,7 @@ export default function App() {
               <Route path="servers/:serverId" element={<ServerDetailPage />} />
               <Route path="backups" element={<BackupListPage />} />
               <Route path="plugins" element={<PluginListPage />} />
+              <Route path="plugins/marketplace" element={<PluginMarketplacePage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="settings/api-keys" element={<ApiKeysPage />} />
               <Route path="*" element={<NotFoundPage />} />

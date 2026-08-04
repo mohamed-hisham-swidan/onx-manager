@@ -6,10 +6,14 @@ import type {
   CreateBackupRequest,
   CreateUserRequest,
   HealthResponse,
+  InstallModrinthPluginRequest,
+  InstallModrinthPluginResponse,
   InstallPluginRequest,
   LoginRequest,
   LoginResponse,
   PluginResponse,
+  PluginSearchResultResponse,
+  PluginVersionsResponse,
   RefreshTokenRequest,
   SettingsResponse,
   UpdateUserRequest,
@@ -253,6 +257,19 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/enable`, { method: "POST" }),
     disablePlugin: (serverId: string, pluginId: string) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/disable`, { method: "POST" }),
+
+    // Plugin marketplace
+    searchMarketplace: (serverId: string, query: string, limit?: number, offset?: number) =>
+      request<PluginSearchResultResponse[]>(`/api/v1/servers/${serverId}/plugins/marketplace/search`, {
+        params: { query, limit: limit?.toString(), offset: offset?.toString() },
+      }),
+    getProjectVersions: (serverId: string, projectId: string) =>
+      request<PluginVersionsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/projects/${projectId}/versions`),
+    installFromMarketplace: (serverId: string, body: InstallModrinthPluginRequest) =>
+      request<InstallModrinthPluginResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/install`, {
+        method: "POST",
+        body,
+      }),
 
     // Monitoring
     getMetrics: (serverId: string, limit?: number) =>

@@ -22,6 +22,11 @@ class PluginReadModel:
         dependencies: list[str],
         installed_at: datetime,
         updated_at: datetime,
+        source: str = "manual",
+        external_project_id: str | None = None,
+        external_version_id: str | None = None,
+        external_url: str | None = None,
+        checksum: str | None = None,
     ) -> None:
         self.plugin_id = plugin_id
         self.server_id = server_id
@@ -33,6 +38,11 @@ class PluginReadModel:
         self.dependencies = dependencies
         self.installed_at = installed_at
         self.updated_at = updated_at
+        self.source = source
+        self.external_project_id = external_project_id
+        self.external_version_id = external_version_id
+        self.external_url = external_url
+        self.checksum = checksum
 
     @classmethod
     def from_domain(cls, plugin: object) -> PluginReadModel:
@@ -40,13 +50,18 @@ class PluginReadModel:
             plugin_id=str(plugin.plugin_id),
             server_id=str(plugin.server_id),
             name=plugin.name,
-            version=str(plugin.version),
+            version=plugin.display_version,
             description=plugin.description,
             author=plugin.author,
             status=plugin.status.value,
             dependencies=plugin.dependencies,
             installed_at=plugin.installed_at,
             updated_at=plugin.updated_at,
+            source=plugin.source,
+            external_project_id=plugin.external_project_id,
+            external_version_id=plugin.external_version_id,
+            external_url=plugin.external_url,
+            checksum=plugin.checksum,
         )
 
 

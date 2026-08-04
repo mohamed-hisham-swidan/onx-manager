@@ -4,6 +4,16 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PluginListPage } from "./PluginListPage";
 
+const mockNavigate = vi.fn();
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
+
 const mockPlugins = [
   {
     plugin_id: "plg-1",
@@ -137,10 +147,11 @@ describe("PluginListPage", () => {
     expect(screen.getByText("Uninstall plugin?")).toBeInTheDocument();
   });
 
-  it("shows a placeholder toast when install is clicked", () => {
+  it("navigates to the marketplace when install is clicked", () => {
     renderPage();
     selectServer();
+    mockNavigate.mockReset();
     fireEvent.click(screen.getByText("Install Plugin"));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith("/plugins/marketplace?server=srv-1");
   });
 });

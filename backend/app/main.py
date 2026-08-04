@@ -18,6 +18,7 @@ from app.api.v1.routers import auth, backups, health, monitoring, plugins, sched
 from app.core.command_bus import CommandBus
 from app.core.config import AppSettings, ConfigFactory
 from app.core.event_bus import EventBus
+from app.core.http_client import close_http_client, init_http_client
 from app.core.query_bus import QueryBus
 from app.modules.auth.infrastructure.jwt import init_jwt_from_settings
 from app.registration import register_handlers
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
     register_handlers(command_bus, query_bus, event_bus)
     init_buses(command_bus, query_bus, event_bus)
     init_storage(settings)
+    init_http_client()
     init_websocket(event_bus)
 
     async with database.session_factory() as session:
@@ -205,6 +207,7 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ────────────────────────────────────────────────────────
     await scheduler.stop()
+    await close_http_client()
 
 
 def create_app() -> FastAPI:

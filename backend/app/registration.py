@@ -60,6 +60,8 @@ from app.modules.plugin.application import (
     EnablePluginHandler,
     GetPluginHandler,
     GetPluginQuery,
+    InstallModrinthPluginCommand,
+    InstallModrinthPluginHandler,
     InstallPluginCommand,
     InstallPluginHandler,
     ListPluginsHandler,
@@ -124,6 +126,7 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(VerifyBackupCommand, VerifyBackupHandler(event_bus))
 
     command_bus.register(InstallPluginCommand, InstallPluginHandler(event_bus))
+    command_bus.register(InstallModrinthPluginCommand, InstallModrinthPluginHandler(event_bus))
     command_bus.register(UninstallPluginCommand, UninstallPluginHandler(event_bus))
     command_bus.register(EnablePluginCommand, EnablePluginHandler(event_bus))
     command_bus.register(DisablePluginCommand, DisablePluginHandler(event_bus))

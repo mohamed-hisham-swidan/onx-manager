@@ -1,0 +1,232 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import logging
+
+from app.core.exceptions import CorruptedDownloadError, DownloadError, DownloadTimeoutError
+from app.core.http_client import get_http_client
+from app.modules.plugin.infrastructure.providers.base import (
+    PluginCatalogProvider,
+    PluginFile,
+    PluginProject,
+    PluginSearchResult,
+    PluginVersionInfo,
+)
+
+logger = logging.getLogger(__name__)
+
+MODRINTH_API_BASE = "https://api.modrinth.com/v2"
+
+MODRINTH_TIMEOUT_SECONDS: int = 30
+MODRINTH_MAX_RETRIES: int = 2
+
+_PLUGIN_CATEGORIES = ("bukkit", "paper", "purpur", "spigot", "folia")
+_PLUGIN_FACET = '["project_type:plugin"]'
+_PLUGIN_LOADER_FACETS = (
+    '["categories:bukkit","categories:paper","categories:purpur","categories:spigot",'
+    '"categories:folia"]'
+)
+
+
+class ModrinthProvider(PluginCatalogProvider):
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[PluginSearchResult]:
+        params = {
+            "query": query,
+            "limit": str(limit),
+            "offset": str(offset),
+            # Plugin hits report project_type "mod"; real plugins carry
+            # all_project_types=["plugin"] and a bukkit-family loader category.
+            "facets": f'[{_PLUGIN_FACET},{_PLUGIN_LOADER_FACETS}]',
+        }
+        data = await self._get_json("/search", params=params)
+        hits = data.get("hits") or []
+        results: list[PluginSearchResult] = []
+        for hit in hits:
+            project_types = hit.get("all_project_types") or [hit.get("project_type", "")]
+            if "plugin" not in project_types:
+                continue
+            results.append(
+                PluginSearchResult(
+                    project_id=hit.get("project_id", ""),
+                    slug=hit.get("slug", ""),
+                    title=hit.get("title", ""),
+                    description=hit.get("description", ""),
+                    author=hit.get("author", ""),
+                    project_types=[t for t in project_types if t],
+                    downloads=hit.get("downloads", 0),
+                    follows=hit.get("follows", 0),
+                    icon_url=hit.get("icon_url", ""),
+                    latest_version_id=hit.get("latest_version", ""),
+                ),
+            )
+        return results
+
+    async def get_project(self, project_id: str) -> PluginProject:
+        data = await self._get_json(f"/project/{project_id}")
+        return PluginProject(
+            project_id=data.get("id", project_id),
+            slug=data.get("slug", ""),
+            title=data.get("title", ""),
+            description=data.get("description", ""),
+            author=data.get("author", ""),
+            project_types=data.get("all_project_types") or [data.get("project_type", "")],
+            loaders=data.get("loaders") or [],
+            game_versions=data.get("game_versions") or [],
+            downloads=data.get("downloads", 0),
+            follows=data.get("follows", 0),
+            icon_url=data.get("icon_url", ""),
+            wiki_url=data.get("wiki_url", ""),
+            source_url=data.get("source_url", ""),
+        )
+
+    async def get_project_versions(self, project_id: str) -> list[PluginVersionInfo]:
+        data = await self._get_json(f"/project/{project_id}/version")
+        return [self._parse_version(v) for v in data]
+
+    async def get_version(self, version_id: str) -> PluginVersionInfo:
+        data = await self._get_json(f"/version/{version_id}")
+        return self._parse_version(data)
+
+    async def download(
+        self,
+        url: str,
+        expected_sha1: str | None = None,
+        expected_sha512: str | None = None,
+    ) -> bytes:
+        client = get_http_client()
+        last_exception: Exception | None = None
+        for attempt in range(MODRINTH_MAX_RETRIES + 1):
+            try:
+                content = await self._do_download(client, url)
+                break
+            except (DownloadError, DownloadTimeoutError) as e:
+                last_exception = e
+                if attempt < MODRINTH_MAX_RETRIES:
+                    wait = 1.0 * (2**attempt)
+                    logger.warning(
+                        "Modrinth download attempt %d failed for %s, retrying in %.1fs",
+                        attempt + 1, url, wait,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+        else:
+            raise last_exception  # type: ignore[misc]
+
+        self._verify_checksum(url, content, expected_sha1, expected_sha512)
+        return content
+
+    @staticmethod
+    async def _do_download(client, url: str) -> bytes:
+        try:
+            async with client.get(url) as resp:
+                if resp.status != 200:
+                    raise DownloadError(url, resp.status)
+                buffer = bytearray()
+                while True:
+                    chunk = await resp.content.read(8192)
+                    if not chunk:
+                        break
+                    buffer.extend(chunk)
+                return bytes(buffer)
+        except TimeoutError as e:
+            raise DownloadTimeoutError(url, MODRINTH_TIMEOUT_SECONDS) from e
+        except (DownloadError, DownloadTimeoutError):
+            raise
+        except Exception as e:
+            raise DownloadError(url, 0, str(e)) from e
+
+    @staticmethod
+    def _verify_checksum(
+        url: str,
+        content: bytes,
+        expected_sha1: str | None,
+        expected_sha512: str | None,
+    ) -> None:
+        if expected_sha1:
+            actual = hashlib.sha1(content).hexdigest()
+            if actual.lower() != expected_sha1.lower():
+                raise CorruptedDownloadError(
+                    url,
+                    f"sha1 mismatch: expected {expected_sha1}, got {actual}",
+                )
+        if expected_sha512:
+            actual = hashlib.sha512(content).hexdigest()
+            if actual.lower() != expected_sha512.lower():
+                raise CorruptedDownloadError(
+                    url,
+                    f"sha512 mismatch: expected {expected_sha512}, got {actual}",
+                )
+
+    async def _get_json(self, path: str, params: dict | None = None) -> dict:
+        client = get_http_client()
+        url = f"{MODRINTH_API_BASE}{path}"
+        last_exception: Exception | None = None
+        for attempt in range(MODRINTH_MAX_RETRIES + 1):
+            try:
+                return await self._do_get_json(client, url, params)
+            except (DownloadError, DownloadTimeoutError) as e:
+                last_exception = e
+                if attempt < MODRINTH_MAX_RETRIES:
+                    wait = 1.0 * (2**attempt)
+                    logger.warning(
+                        "Modrinth API attempt %d failed for %s, retrying in %.1fs",
+                        attempt + 1, url, wait,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+        raise last_exception  # type: ignore[misc]
+
+    @staticmethod
+    async def _do_get_json(client, url: str, params: dict | None) -> dict:
+        try:
+            async with client.get(url, params=params) as resp:
+                if resp.status != 200:
+                    raise DownloadError(url, resp.status)
+                return await resp.json()
+        except TimeoutError as e:
+            raise DownloadTimeoutError(url, MODRINTH_TIMEOUT_SECONDS) from e
+        except (DownloadError, DownloadTimeoutError):
+            raise
+        except Exception as e:
+            raise DownloadError(url, 0, str(e)) from e
+
+    @staticmethod
+    def _parse_version(data: dict) -> PluginVersionInfo:
+        files: list[PluginFile] = []
+        for f in data.get("files") or []:
+            hashes = f.get("hashes") or {}
+            files.append(
+                PluginFile(
+                    url=f.get("url", ""),
+                    filename=f.get("filename", ""),
+                    size_bytes=f.get("size", 0),
+                    sha1=hashes.get("sha1", ""),
+                    sha512=hashes.get("sha512", ""),
+                    primary=bool(f.get("primary", False)),
+                ),
+            )
+        deps = [
+            d.get("project_id", "")
+            for d in (data.get("dependencies") or [])
+            if d.get("project_id")
+        ]
+        return PluginVersionInfo(
+            version_id=data.get("id", ""),
+            project_id=data.get("project_id", ""),
+            name=data.get("name", ""),
+            version_number=data.get("version_number", ""),
+            game_versions=data.get("game_versions") or [],
+            loaders=data.get("loaders") or [],
+            files=files,
+            dependencies=deps,
+            date_published=data.get("date_published", ""),
+        )

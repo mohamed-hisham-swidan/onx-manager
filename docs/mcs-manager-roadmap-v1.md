@@ -2,7 +2,7 @@
 
 **Status:** Living planning document — engineering-owned
 **Version:** 2.0 (supersedes personal working draft, rev. 2)
-**Last updated:** 2026-08-02
+**Last updated:** 2026-08-04
 **Baseline:** `STATUS.md`, through Batch 8 (2026-08-01)
 
 ---
@@ -24,6 +24,15 @@ This roadmap sequences the work required to take MCS Manager from its current st
 ### Governing principle
 
 **Security and stability come before new capability.** Every phase from Phase 2 onward is explicitly blocked on Phase 1 closing. This is not a scheduling preference — it reflects that identity and authorization are the actual bottleneck: building RBAC, remote access, or an AI agent layer on top of an incomplete permission model means re-doing that work later under worse conditions (migrations, live users, larger blast radius).
+
+### Documented exception — 2026-08-04
+
+On 2026-08-04, Mohamed made a conscious, explicit decision to begin the plugin
+marketplace feature (browse / search / install plugins from Modrinth,
+previously logged as deferred in `docs/FEATURE_IDEAS.md` §2) ahead of Phase 1
+closing, as a deliberate documented exception to the phase-gating rule above.
+This is an intentional exception, not an accidental scope leak. Phase 1's exit
+criteria remain open and are unaffected by this decision.
 
 ---
 
