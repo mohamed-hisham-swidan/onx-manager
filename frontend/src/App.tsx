@@ -38,6 +38,7 @@ export default function App() {
               <Route path="backups" element={<BackupListPage />} />
               <Route path="plugins" element={<PluginListPage />} />
               <Route path="plugins/marketplace" element={<PluginMarketplacePage />} />
+              <Route path="marketplace" element={<PluginMarketplacePage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="settings/api-keys" element={<ApiKeysPage />} />
               <Route path="*" element={<NotFoundPage />} />

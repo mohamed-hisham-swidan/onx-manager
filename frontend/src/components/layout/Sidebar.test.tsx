@@ -23,6 +23,7 @@ describe("Sidebar", () => {
     expect(screen.getByText("Servers")).toBeInTheDocument();
     expect(screen.getByText("Backups")).toBeInTheDocument();
     expect(screen.getByText("Plugins")).toBeInTheDocument();
+    expect(screen.getByText("Marketplace")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 
@@ -31,6 +32,7 @@ describe("Sidebar", () => {
     expect(screen.getByText("Dashboard").closest("a")).toHaveAttribute("href", "/");
     expect(screen.getByText("Servers").closest("a")).toHaveAttribute("href", "/servers");
     expect(screen.getByText("Backups").closest("a")).toHaveAttribute("href", "/backups");
+    expect(screen.getByText("Marketplace").closest("a")).toHaveAttribute("href", "/marketplace");
   });
 
   it("shows backdrop and closes drawer on navigation when mobile is open", () => {

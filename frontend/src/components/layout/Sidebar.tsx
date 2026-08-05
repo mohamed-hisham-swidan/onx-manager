@@ -7,6 +7,7 @@ const NAV_ITEMS: { to: string; label: string; icon: IconName; end?: boolean }[] 
   { to: "/servers", label: "Servers", icon: "server" },
   { to: "/backups", label: "Backups", icon: "backup" },
   { to: "/plugins", label: "Plugins", icon: "plugin" },
+  { to: "/marketplace", label: "Marketplace", icon: "store" },
   { to: "/settings", label: "Settings", icon: "settings" },
 ];
 
