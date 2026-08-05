@@ -14,7 +14,19 @@ from app.api.v1.middleware.audit import AuditMiddleware
 from app.api.v1.middleware.auth import AuthMiddleware
 from app.api.v1.middleware.rate_limit import RateLimitMiddleware
 from app.api.v1.middleware.request_id import RequestIDMiddleware
-from app.api.v1.routers import auth, backups, health, monitoring, plugins, schedules, servers, settings, software, users
+from app.api.v1.routers import (
+    auth,
+    backups,
+    health,
+    marketplace,
+    monitoring,
+    plugins,
+    schedules,
+    servers,
+    settings,
+    software,
+    users,
+)
 from app.core.command_bus import CommandBus
 from app.core.config import AppSettings, ConfigFactory
 from app.core.event_bus import EventBus
@@ -243,6 +255,7 @@ def create_app() -> FastAPI:
     app.include_router(servers.router)
     app.include_router(backups.router)
     app.include_router(plugins.router)
+    app.include_router(marketplace.router)
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(monitoring.router)

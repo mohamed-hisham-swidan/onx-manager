@@ -637,6 +637,64 @@ class TestPluginMarketplace:
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
+    async def test_global_marketplace_search(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        from app.modules.plugin.infrastructure.providers.base import PluginSearchResult
+
+        class _FakeProvider:
+            async def search(
+                self, _query: str, **kwargs: object  # noqa: ARG002
+            ) -> list[PluginSearchResult]:
+                return [
+                    PluginSearchResult(
+                        project_id="proj1",
+                        slug="essentialsx",
+                        title="EssentialsX",
+                        description="Essential commands",
+                        author="Essentials",
+                        project_types=["plugin"],
+                        downloads=1000,
+                        follows=10,
+                        icon_url="",
+                        latest_version_id="v1",
+                    )
+                ]
+
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/search",
+                params={"query": "essentials"},
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        assert resp.json() == [
+            {
+                "project_id": "proj1",
+                "slug": "essentialsx",
+                "title": "EssentialsX",
+                "description": "Essential commands",
+                "author": "Essentials",
+                "project_types": ["plugin"],
+                "downloads": 1000,
+                "follows": 10,
+                "icon_url": "",
+                "latest_version_id": "v1",
+            }
+        ]
+
+    async def test_global_marketplace_search_requires_permission(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
+        resp = await client.get(
+            "/api/v1/marketplace/search",
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
+
     async def test_marketplace_search_requires_permission(
         self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
     ) -> None:
