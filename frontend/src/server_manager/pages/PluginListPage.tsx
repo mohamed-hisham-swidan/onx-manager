@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
+import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import type { PluginResponse } from "@/types";
 
 function errorMessage(error: unknown): string {
@@ -40,16 +41,29 @@ function SourceBadge({ plugin }: { plugin: PluginResponse }) {
 export function PluginListPage() {
   const navigate = useNavigate();
   const { data: servers } = useServersList();
+  const lastUsedServerId = useLastUsedServerStore((s) => s.lastUsedServerId);
+  const [touched, setTouched] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState("");
   const [uninstallTarget, setUninstallTarget] = useState<PluginResponse | null>(null);
 
-  const { data: plugins, isLoading, error } = usePluginsList(selectedServerId);
-  const enablePlugin = useEnablePlugin(selectedServerId);
-  const disablePlugin = useDisablePlugin(selectedServerId);
-  const uninstallPlugin = useUninstallPlugin(selectedServerId);
+  const effectiveServerId = touched
+    ? selectedServerId
+    : lastUsedServerId && servers?.some((s) => s.server_id === lastUsedServerId)
+      ? lastUsedServerId
+      : selectedServerId;
+
+  const { data: plugins, isLoading, error } = usePluginsList(effectiveServerId);
+  const enablePlugin = useEnablePlugin(effectiveServerId);
+  const disablePlugin = useDisablePlugin(effectiveServerId);
+  const uninstallPlugin = useUninstallPlugin(effectiveServerId);
+
+  function handleServerChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    setTouched(true);
+    setSelectedServerId(e.target.value);
+  }
 
   function handleInstall() {
-    navigate(`/plugins/marketplace?server=${encodeURIComponent(selectedServerId)}`);
+    navigate(`/marketplace?server=${encodeURIComponent(effectiveServerId)}`);
   }
 
   function handleConfirmUninstall() {
@@ -68,7 +82,7 @@ export function PluginListPage() {
         description="Manage plugins for your servers"
         icon="plugin"
         actions={
-          selectedServerId ? (
+          effectiveServerId ? (
             <button
               onClick={handleInstall}
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
@@ -86,8 +100,8 @@ export function PluginListPage() {
         </label>
         <select
           id="plugin-server-select"
-          value={selectedServerId}
-          onChange={(e) => setSelectedServerId(e.target.value)}
+          value={effectiveServerId}
+          onChange={handleServerChange}
           className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
         >
           <option value="">Select a server...</option>
@@ -99,7 +113,7 @@ export function PluginListPage() {
         </select>
       </div>
 
-      {!selectedServerId ? (
+      {!effectiveServerId ? (
         <EmptyState
           icon="plugin"
           title="Select a server"

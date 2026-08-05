@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import {
   useMarketplaceSearch,
+  useMarketplaceSearchGlobal,
   useProjectVersions,
   useInstallFromMarketplace,
 } from "@/server_manager/hooks/usePlugins";
@@ -12,7 +13,9 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
+import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import { formatBytes } from "@/server_manager/utils/format";
+import type { ServerResponse } from "@/server_manager/types";
 import type {
   PluginSearchResultResponse,
   PluginVersionResponse,
@@ -29,39 +32,60 @@ function fmtDownloads(n: number): string {
   return String(n);
 }
 
-function noticeKindLabel(kind: string): string {
-  switch (kind) {
-    case "loader_fallback":
-      return "Compatibility note";
-    case "version_mismatch":
-      return "Version mismatch";
-    case "incompatible":
-      return "Incompatible";
-    default:
-      return "Notice";
-  }
+function serverMatchesVersion(server: ServerResponse, version: PluginVersionResponse): boolean {
+  const loaderMatch = version.loaders.some(
+    (loader) => loader.toLowerCase() === server.server_type.toLowerCase(),
+  );
+  const mcMatch = version.game_versions.includes(server.minecraft_version);
+  return loaderMatch && mcMatch;
 }
 
 export function PluginMarketplacePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const serverId = searchParams.get("server") ?? "";
+  const urlServerId = searchParams.get("server") ?? "";
+
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [selectedProject, setSelectedProject] = useState<PluginSearchResultResponse | null>(null);
-  const [installTarget, setInstallTarget] = useState<{
+  const [chosenVersion, setChosenVersion] = useState<PluginVersionResponse | null>(null);
+  const [targetServerId, setTargetServerId] = useState("");
+  const [pendingInstall, setPendingInstall] = useState<{
     project: PluginSearchResultResponse;
     version: PluginVersionResponse;
   } | null>(null);
 
   const { data: servers } = useServersList();
-  const search = useMarketplaceSearch(serverId, submitted);
-  const versions = useProjectVersions(serverId, selectedProject?.project_id ?? "");
-  const install = useInstallFromMarketplace(serverId);
+  const lastUsedServerId = useLastUsedServerStore((s) => s.lastUsedServerId);
+  const setLastUsedServer = useLastUsedServerStore((s) => s.setLastUsedServer);
 
-  const serverName = useMemo(
-    () => servers?.find((s) => s.server_id === serverId)?.name ?? "",
-    [servers, serverId],
+  const serverId = urlServerId;
+
+  const globalQuery = serverId ? "" : submitted;
+  const searchGlobal = useMarketplaceSearchGlobal(globalQuery);
+  const searchScoped = useMarketplaceSearch(serverId, submitted);
+  const search = serverId ? searchScoped : searchGlobal;
+
+  const contextServerId = useMemo(() => {
+    if (serverId && servers?.some((s) => s.server_id === serverId)) return serverId;
+    if (lastUsedServerId && servers?.some((s) => s.server_id === lastUsedServerId)) return lastUsedServerId;
+    return servers?.[0]?.server_id ?? "";
+  }, [serverId, lastUsedServerId, servers]);
+
+  const versions = useProjectVersions(contextServerId, selectedProject?.project_id ?? "");
+  const install = useInstallFromMarketplace(targetServerId);
+
+  const compatibleServers = useMemo(() => {
+    if (!chosenVersion || !servers) return [];
+    return [...servers].sort(
+      (a, b) =>
+        Number(serverMatchesVersion(b, chosenVersion)) - Number(serverMatchesVersion(a, chosenVersion)),
+    );
+  }, [servers, chosenVersion]);
+
+  const targetServer = useMemo(
+    () => servers?.find((s) => s.server_id === targetServerId),
+    [servers, targetServerId],
   );
 
   function handleSearch(e: React.FormEvent) {
@@ -71,25 +95,55 @@ export function PluginMarketplacePage() {
 
   function handleCloseVersions() {
     setSelectedProject(null);
+    setChosenVersion(null);
+    setTargetServerId("");
+    setPendingInstall(null);
     install.reset();
   }
 
-  function handleInstallSelected() {
-    if (!installTarget) return;
+  function handleChooseVersion(version: PluginVersionResponse) {
+    setChosenVersion(version);
+    const deepLinkServer =
+      urlServerId && servers?.some((s) => s.server_id === urlServerId) ? urlServerId : undefined;
+    const lastUsedValid =
+      lastUsedServerId && servers?.some((s) => s.server_id === lastUsedServerId)
+        ? lastUsedServerId
+        : undefined;
+    const firstCompatible = servers?.find((s) => serverMatchesVersion(s, version));
+    setTargetServerId(
+      deepLinkServer || lastUsedValid || firstCompatible?.server_id || servers?.[0]?.server_id || "",
+    );
+  }
+
+  function handleBackToVersions() {
+    setChosenVersion(null);
+    setPendingInstall(null);
+  }
+
+  function handleContinue() {
+    if (!selectedProject || !chosenVersion || !targetServerId) return;
+    setPendingInstall({ project: selectedProject, version: chosenVersion });
+  }
+
+  function handleConfirmInstall() {
+    if (!pendingInstall || !targetServerId) return;
     install.mutate(
       {
-        project_id: installTarget.project.project_id,
-        version_id: installTarget.version.version_id,
+        project_id: pendingInstall.project.project_id,
+        version_id: pendingInstall.version.version_id,
       },
       {
         onSuccess: (result) => {
+          setLastUsedServer(targetServerId);
           toast(
             "success",
             "Plugin installed",
-            `"${installTarget.project.title}" ${result.version} installed.`,
+            `"${pendingInstall.project.title}" ${result.version} installed into ${targetServer?.name ?? "this server"}.`,
           );
-          setInstallTarget(null);
+          setPendingInstall(null);
+          setChosenVersion(null);
           setSelectedProject(null);
+          setTargetServerId("");
         },
         onError: (err) => toast("error", "Install failed", errorMessage(err)),
       },
@@ -97,6 +151,7 @@ export function PluginMarketplacePage() {
   }
 
   const selectedVersionResponse: PluginVersionsResponse | undefined = versions.data;
+  const hasServers = !!(servers && servers.length > 0);
 
   return (
     <div>
@@ -123,14 +178,13 @@ export function PluginMarketplacePage() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={serverId ? `Search plugins for ${serverName || "this server"}...` : "Select a server to search plugins..."}
-            disabled={!serverId}
+            placeholder={serverId ? "Search plugins for this server..." : "Search the global marketplace..."}
             aria-label="Search plugins"
-            className="w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+            className="w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
           />
           <button
             type="submit"
-            disabled={!serverId || !query.trim()}
+            disabled={!query.trim()}
             className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
           >
             <Icon name="search" size={16} />
@@ -139,7 +193,7 @@ export function PluginMarketplacePage() {
         </div>
         {!serverId && (
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Open this page from a server's plugins tab to install into that server.
+            Browse the global marketplace without a server — you'll pick a destination when installing.
           </p>
         )}
       </form>
@@ -226,7 +280,7 @@ export function PluginMarketplacePage() {
             description="Find plugins by name, like EssentialsX or WorldEdit."
           />
         )
-      ) : (
+      ) : !chosenVersion ? (
         <div className="space-y-4">
           <button
             onClick={handleCloseVersions}
@@ -244,12 +298,6 @@ export function PluginMarketplacePage() {
             </div>
           ) : selectedVersionResponse && selectedVersionResponse.versions.length > 0 ? (
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-              {selectedVersionResponse.notice && (
-                <div className="border-b border-gray-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-gray-700 dark:bg-blue-900/20 dark:text-blue-300">
-                  <span className="mr-1.5 font-medium">{noticeKindLabel(selectedVersionResponse.notice_kind)}:</span>
-                  {selectedVersionResponse.notice}
-                </div>
-              )}
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
@@ -263,24 +311,13 @@ export function PluginMarketplacePage() {
                 <tbody>
                   {selectedVersionResponse.versions.map((v) => {
                     const primary = v.files.find((f) => f.primary) ?? v.files[0];
-                    const isRecommended =
-                      selectedVersionResponse.selected?.version_id === v.version_id;
                     return (
                       <tr
                         key={v.version_id}
-                        className={`border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30 ${
-                          isRecommended ? "bg-green-50/50 dark:bg-green-900/10" : ""
-                        }`}
+                        className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
                       >
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-gray-900 dark:text-gray-100">{v.version_number}</p>
-                            {isRecommended && (
-                              <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                                Recommended
-                              </span>
-                            )}
-                          </div>
+                          <p className="font-medium text-gray-900 dark:text-gray-100">{v.version_number}</p>
                         </td>
                         <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">
                           {v.game_versions.slice(0, 3).join(", ")}
@@ -295,9 +332,8 @@ export function PluginMarketplacePage() {
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1">
                             <button
-                              onClick={() => setInstallTarget({ project: selectedProject, version: v })}
-                              disabled={install.isPending}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
+                              onClick={() => handleChooseVersion(v)}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
                             >
                               <Icon name="plus" size={14} />
                               Install
@@ -318,20 +354,115 @@ export function PluginMarketplacePage() {
             />
           )}
         </div>
+      ) : (
+        <div className="space-y-4">
+          <button
+            onClick={handleBackToVersions}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            <Icon name="chevron-left" size={14} />
+            Back to versions
+          </button>
+
+          <div>
+            <h3 className="mb-1 text-base font-semibold text-gray-900 dark:text-gray-100">
+              Choose a target server
+            </h3>
+            <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+              Installing "{selectedProject.title}" {chosenVersion.version_number} — targeting{" "}
+              {chosenVersion.loaders.join(" / ")} on Minecraft {chosenVersion.game_versions.join(", ")}.
+            </p>
+          </div>
+
+          {!hasServers ? (
+            <EmptyState
+              icon="server"
+              title="No servers available"
+              description="You need a server to install this plugin into. Create one to continue."
+              action={
+                <button
+                  onClick={() => navigate("/servers/create")}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                >
+                  <Icon name="plus" size={16} />
+                  Create a server
+                </button>
+              }
+            />
+          ) : (
+            <div className="space-y-2">
+              {compatibleServers.map((s) => {
+                const matches = serverMatchesVersion(s, chosenVersion);
+                return (
+                  <label
+                    key={s.server_id}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
+                      targetServerId === s.server_id
+                        ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20"
+                        : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="install-server"
+                      value={s.server_id}
+                      checked={targetServerId === s.server_id}
+                      onChange={() => setTargetServerId(s.server_id)}
+                      className="mt-1 accent-blue-600"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-gray-900 dark:text-gray-100">{s.name}</p>
+                        {matches ? (
+                          <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                            Compatible
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                            May not work
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                        {s.server_type} / {s.minecraft_version}
+                      </p>
+                      {!matches && (
+                        <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                          This server runs {s.server_type} {s.minecraft_version} — this plugin targets{" "}
+                          {chosenVersion.loaders.join("/")} on Minecraft {chosenVersion.game_versions.join(", ")} and may not work.
+                        </p>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button
+              onClick={handleContinue}
+              disabled={!hasServers || !targetServerId}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
       )}
 
       <ConfirmDialog
-        open={installTarget !== null}
+        open={pendingInstall !== null}
         title="Install plugin?"
         description={
-          installTarget
-            ? `Install "${installTarget.project.title}" ${installTarget.version.version_number} into ${serverName || "this server"}?`
+          pendingInstall
+            ? `Install "${pendingInstall.project.title}" ${pendingInstall.version.version_number} into ${targetServer?.name ?? "this server"}?`
             : undefined
         }
         confirmLabel="Install"
         cancelLabel="Cancel"
-        onConfirm={handleInstallSelected}
-        onCancel={() => setInstallTarget(null)}
+        onConfirm={handleConfirmInstall}
+        onCancel={() => setPendingInstall(null)}
       />
     </div>
   );

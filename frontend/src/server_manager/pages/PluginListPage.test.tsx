@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PluginListPage } from "./PluginListPage";
+import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 
 const mockNavigate = vi.fn();
 
@@ -101,6 +102,8 @@ describe("PluginListPage", () => {
     mockPluginsData = mockPlugins;
     mockIsLoading = false;
     mockError = null;
+    useLastUsedServerStore.setState({ lastUsedServerId: "" });
+    localStorage.removeItem("mcs_last_used_server");
   });
 
   it("renders page header", () => {
@@ -193,6 +196,19 @@ describe("PluginListPage", () => {
     selectServer();
     mockNavigate.mockReset();
     fireEvent.click(screen.getByText("Install Plugin"));
-    expect(mockNavigate).toHaveBeenCalledWith("/plugins/marketplace?server=srv-1");
+    expect(mockNavigate).toHaveBeenCalledWith("/marketplace?server=srv-1");
+  });
+
+  it("starts empty when there is no last used server saved yet", () => {
+    renderPage();
+    expect(screen.getByLabelText("Choose a server")).toHaveValue("");
+    expect(screen.getByText("Select a server")).toBeInTheDocument();
+  });
+
+  it("pre-fills the server select from the last used server", () => {
+    useLastUsedServerStore.setState({ lastUsedServerId: "srv-1" });
+    renderPage();
+    expect(screen.getByLabelText("Choose a server")).toHaveValue("srv-1");
+    expect(screen.getByText("Essentials")).toBeInTheDocument();
   });
 });
