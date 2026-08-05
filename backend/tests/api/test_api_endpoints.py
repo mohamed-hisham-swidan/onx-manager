@@ -275,9 +275,35 @@ class TestAuth:
         resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": "invalid-token"})
         assert resp.status_code == 401
 
-    async def test_logout(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
-        resp = await client.post("/api/v1/auth/logout", headers=auth_header)
+    async def test_logout(self, client: AsyncClient, created_user: dict) -> None:
+        login_resp = await client.post("/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"})
+        assert login_resp.status_code == 200
+        login_data = login_resp.json()
+        headers = {"Authorization": f"Bearer {login_data['access_token']}"}
+        resp = await client.post(
+            "/api/v1/auth/logout",
+            headers=headers,
+            json={"refresh_token": login_data["refresh_token"]},
+        )
         assert resp.status_code == 200
+
+    async def test_logout_requires_refresh_token(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+        resp = await client.post("/api/v1/auth/logout", headers=auth_header)
+        assert resp.status_code == 422
+
+    async def test_logout_revokes_refresh_token(self, client: AsyncClient, created_user: dict) -> None:
+        login_resp = await client.post("/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"})
+        assert login_resp.status_code == 200
+        login_data = login_resp.json()
+        headers = {"Authorization": f"Bearer {login_data['access_token']}"}
+        resp = await client.post(
+            "/api/v1/auth/logout",
+            headers=headers,
+            json={"refresh_token": login_data["refresh_token"]},
+        )
+        assert resp.status_code == 200
+        refresh_resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": login_data["refresh_token"]})
+        assert refresh_resp.status_code == 401
 
     async def test_list_api_keys(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
         resp = await client.get("/api/v1/auth/api-keys", headers=auth_header)

@@ -68,11 +68,11 @@ async def refresh_token(
 
 @router.post("/logout", response_model=dict)
 async def logout(
+    body: LogoutRequest,
     current_user: dict = Depends(get_current_user),
     command_bus: CommandBus = Depends(get_command_bus),
-    body: LogoutRequest | None = None,
 ) -> dict:
-    refresh_token = body.refresh_token if body else ""
+    refresh_token = body.refresh_token
     result = await command_bus.send(
         LogoutCommand(user_id=current_user["user_id"], refresh_token=refresh_token)
     )

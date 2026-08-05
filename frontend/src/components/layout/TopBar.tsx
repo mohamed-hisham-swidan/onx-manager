@@ -21,8 +21,6 @@ export function TopBar() {
     const api = createAuthenticatedApi();
     if (refreshToken) {
       api.logout({ refresh_token: refreshToken }).catch(() => {});
-    } else {
-      api.logout().catch(() => {});
     }
     logout();
     navigate("/login");

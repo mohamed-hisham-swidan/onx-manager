@@ -219,8 +219,8 @@ The same behavior is described (and matches the implementation) in [`docs/API.md
 
 | Mechanism | Scope | Method |
 |---|---|---|
-| User logout | Current session | Deletes refresh token by hash lookup |
-| Admin force logout | All sessions for a user | Deletes all refresh tokens for that user |
+| User logout | Current session | Revokes refresh token by hash lookup |
+| Admin force logout | All sessions for a user | Revokes all refresh tokens for that user |
 | Token rotation | Single refresh | Old token hash replaced by new token hash |
 
 ### Inactive Session Cleanup

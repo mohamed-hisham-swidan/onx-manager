@@ -184,7 +184,7 @@ export function createApiClient(
       request<LoginResponse>("/api/v1/auth/login", { method: "POST", body }),
     refreshToken: (body: RefreshTokenRequest) =>
       request<LoginResponse>("/api/v1/auth/refresh", { method: "POST", body }),
-    logout: (body?: { refresh_token?: string }) =>
+    logout: (body: { refresh_token: string }) =>
       request<Record<string, unknown>>("/api/v1/auth/logout", { method: "POST", body }),
     getMe: () =>
       request<Record<string, unknown>>("/api/v1/auth/me"),
