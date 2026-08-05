@@ -158,7 +158,7 @@ async def enable_plugin(
     server_id: str,
     plugin_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> dict:
     cmd = EnablePluginCommand(plugin_id=plugin_id)
     result = await command_bus.send(cmd)
@@ -170,7 +170,7 @@ async def disable_plugin(
     server_id: str,
     plugin_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> dict:
     cmd = DisablePluginCommand(plugin_id=plugin_id)
     result = await command_bus.send(cmd)

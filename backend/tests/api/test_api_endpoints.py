@@ -1007,6 +1007,30 @@ class TestAuthorizationEnforcement:
         assert resp.status_code == 403
         assert resp.json()["error_code"] == "PERMISSION_DENIED"
 
+    async def test_enable_plugin_without_permission_denied(
+        self, client: AsyncClient, privileged_header: dict[str, str], auth_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        plugin_id = await _seed_plugin(server_id, "LuckPerms")
+        resp = await client.post(
+            f"/api/v1/servers/{server_id}/plugins/{plugin_id}/enable",
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+    async def test_disable_plugin_without_permission_denied(
+        self, client: AsyncClient, privileged_header: dict[str, str], auth_header: dict[str, str], created_server: dict
+    ) -> None:
+        server_id = created_server["server_id"]
+        plugin_id = await _seed_plugin(server_id, "Vault")
+        resp = await client.post(
+            f"/api/v1/servers/{server_id}/plugins/{plugin_id}/disable",
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
     async def test_uninstall_plugin_admin_allowed(
         self, client: AsyncClient, admin_header: dict[str, str], created_server: dict
     ) -> None:
