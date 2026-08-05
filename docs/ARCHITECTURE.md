@@ -56,7 +56,7 @@ backend/app/
 │   ├── config.py              # Configuration (AppSettings)
 │   ├── exceptions.py          # MCSError hierarchy
 │   └── logging.py             # Structured logging
-├── modules/                   # 8 DDD modules
+├── modules/                   # 9 DDD modules
 │   ├── server/                # Minecraft server domain
 │   ├── backup/                # Backup/restore domain
 │   ├── auth/                  # User & auth domain
@@ -64,6 +64,7 @@ backend/app/
 │   ├── plugin/                # Plugin system domain
 │   ├── monitoring/            # Health & metrics domain
 │   ├── event_store/           # Event store module
+│   ├── shared/                # Shared value objects (IDs, permissions, versions)
 │   └── storage/               # File storage backends (S3/local)
 ├── services/                  # Cross-module orchestration
 ├── tasks/                     # Task queue + scheduling
@@ -174,7 +175,7 @@ Both must be set together when running test/development backends. Because `setsi
 | Language | Python 3.14+ |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (13 revisions) |
+| Migrations | Alembic (16 revisions) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
 | Message Queue | InProcessQueue (only implementation in use; Arq/Redis exists as unused code) |
@@ -392,7 +393,7 @@ isn't reachable until root_path is fixed.
 ## Testing
 
 ```bash
-pytest                          # All tests (984 passing)
+pytest                          # All tests (1068 passing; 1070 collected, 2 pre-existing env failures)
 pytest tests/ -x -q             # Quick run, stop on first failure
 ```
 

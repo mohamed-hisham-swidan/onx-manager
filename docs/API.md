@@ -84,19 +84,37 @@ Every other route requires a valid Bearer token.
 > **Currently enforced** (raise `PermissionDenied` → 403 when the caller
 > lacks the permission; `admin:full` always passes):
 >
-> - `DELETE /servers/{server_id}` → `server:delete`
-> - `POST /servers/{server_id}/stop` and `/restart` → `server:stop`
-> - `POST /servers/reconcile` and `/runtime/ownership/claim` → `server:write`
-> - `DELETE /backups/{backup_id}` → `backup:delete`
-> - `POST /backups/{backup_id}/restore` → `backup:restore`
-> - `PATCH /users/{user_id}` → `user:write`; `DELETE /users/{user_id}` → `user:delete`
-> - `POST /auth/api-keys` and `DELETE /auth/api-keys/{id}` → `user:write`
-> - `DELETE /servers/{server_id}/plugins/{plugin_id}` → `plugin:manage`
+> **servers** — `POST /servers` → `server:write`; `POST /servers/scan` →
+> `server:write`; `POST /servers/import` → `server:write`;
+> `PATCH /servers/{server_id}` → `server:write`; `DELETE /servers/{server_id}`
+> → `server:delete`; `POST /servers/{server_id}/start` → `server:start`;
+> `POST /servers/{server_id}/stop` and `/restart` → `server:stop`;
+> `POST /servers/{server_id}/command` → `server:write`;
+> `POST /servers/reconcile` → `server:write`;
+> `POST /servers/runtime/ownership/claim` → `server:write`;
+> `POST /servers/refresh` → `server:write`.
+>
+> **backups** — `POST /backups` → `backup:create`; `DELETE /backups/{backup_id}`
+> → `backup:delete`; `POST /backups/{backup_id}/restore` → `backup:restore`;
+> `POST /backups/{backup_id}/verify` → `backup:read`.
+>
+> **plugins** — `DELETE /servers/{server_id}/plugins/{plugin_id}` →
+> `plugin:manage`;
+> `GET /servers/{server_id}/plugins/marketplace/search`,
+> `GET /servers/{server_id}/plugins/marketplace/projects/{id}/versions`,
+> `POST /servers/{server_id}/plugins/marketplace/install` → `plugin:manage`.
+>
+> **users / auth** — `PATCH /users/{user_id}` → `user:write`;
+> `DELETE /users/{user_id}` → `user:delete`;
+> `POST /auth/api-keys` and `DELETE /auth/api-keys/{id}` → `user:write`.
 >
 > **Practical consequence: any authenticated user (any valid Bearer token,
-> any role) can still call every other endpoint in the system.** The
-> remaining routes are a known security gap in the current implementation,
-> not an intentional design choice, and still need a dedicated fix.
+> any role) can still call every other endpoint in the system** — including
+> plugin enable/disable (K4), `PATCH /settings`, the alert-rule routes, the
+> health-evaluate route, the schedule routes, and all reads (list/detail/
+> console/runtime/metrics/users/settings). The remaining routes are a known
+> security gap in the current implementation, not an intentional design choice,
+> and are tracked in `docs/mcs-manager-roadmap-v2.md` Phase 4 §6.1.
 
 ### 401 vs 403
 
@@ -433,20 +451,43 @@ Prefix `/api/v1/backups`. All routes require a Bearer token.
 
 Prefix `/api/v1/servers/{server_id}/plugins`. All routes require a Bearer token.
 
-| Method | Path | Request body | Response | Notes |
-|---|---|---|---|---|
-| `GET` | `/api/v1/servers/{server_id}/plugins` | — | `200 list[PluginResponse]` | |
-| `POST` | `/api/v1/servers/{server_id}/plugins` | `InstallPluginRequest` | `201 dict` | Registers a plugin (metadata) |
-| `GET` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | — | `200 PluginResponse` | |
-| `DELETE` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | — | `204` | Uninstall |
-| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/enable` | — | `200 dict` | |
-| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/disable` | — | `200 dict` | |
+| Method | Path | Auth | Request body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/v1/servers/{server_id}/plugins` | Bearer | — | `200 list[PluginResponse]` | **Triggers filesystem reconciliation first** — on-disk `.jar` files become `detected` rows, deleted files are pruned |
+| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/search` | `plugin:manage` | — | `200 list[PluginSearchResultResponse]` | Modrinth catalog search (`query`, `limit`, `offset` query params) |
+| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions` | `plugin:manage` | — | `200 PluginVersionsResponse` | Versions + best-version selection for the server (with `selected`, `notice`, `notice_kind`) |
+| `POST` | `/api/v1/servers/{server_id}/plugins/marketplace/install` | `plugin:manage` | `InstallModrinthPluginRequest` | `201 InstallModrinthPluginResponse` | Downloads the `.jar` (SHA-1/SHA-512 verified) into the server's `plugins/` folder |
+| `GET` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | Bearer | — | `200 PluginResponse` | |
+| `DELETE` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | `plugin:manage` | — | `204` | Uninstall — sets `pending_deletion`; file removed on next server start/restart |
+| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/enable` | Bearer | — | `200 dict` | ⚠️ Auth-only; no `require_permission` (K4) |
+| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/disable` | Bearer | — | `200 dict` | ⚠️ Auth-only; no `require_permission` (K4) |
+
+> **Note:** the marketplace routes carry `require_permission("plugin:manage")`
+> while the plain list/get/enable/disable routes use `Depends(get_current_user)`
+> only. Closing the enable/disable gap is tracked as K4 in
+> `docs/mcs-manager-roadmap-v2.md` Phase 4 §6.1. See `docs/plugins-and-marketplace.md`.
 
 ### Schemas
 
-`InstallPluginRequest`: `server_id`, `name` (required), `version` (required),
-`description` (`""`), `author` (`""`), `website` (`""`),
-`dependencies` (list[string], `[]`).
+`InstallModrinthPluginRequest`: `server_id`, `project_id` (required),
+`version_id` (optional), `minecraft_version` (optional).
+
+`InstallModrinthPluginResponse`: `plugin_id`, `version`, `filename`, `source`,
+`notice`, `notice_kind`.
+
+`PluginSearchResultResponse`: `project_id`, `slug`, `title`, `description`,
+`author`, `project_types`, `downloads`, `follows`, `icon_url`,
+`latest_version_id`.
+
+`PluginVersionsResponse`: `project_id`, `versions` (list of `PluginVersionResponse`),
+`selected` (nullable `PluginVersionResponse`), `notice`, `notice_kind`.
+
+`PluginVersionResponse`: `version_id`, `project_id`, `name`, `version_number`,
+`game_versions`, `loaders`, `files` (list of `PluginFileResponse`),
+`dependencies`, `date_published`.
+
+`PluginFileResponse`: `url`, `filename`, `size_bytes`, `sha1`, `sha512`,
+`primary`.
 
 `PluginResponse`:
 ```json
@@ -458,6 +499,8 @@ Prefix `/api/v1/servers/{server_id}/plugins`. All routes require a Bearer token.
   "description": "",
   "author": "",
   "status": "installed",
+  "source": "modrinth",
+  "filename": "essentialsx.jar",
   "dependencies": [],
   "installed_at": "2026-08-01T12:00:00",
   "updated_at": "2026-08-01T12:00:00"
@@ -659,8 +702,16 @@ Unknown message types and invalid payloads produce an `error` message
 
 ### Channels
 
-Channel authorization is permission-based. A subscription is accepted only if
-the token's `permissions` cover the channel. Wildcards end in `:*`.
+Channel authorization is permission-based at subscribe time. **The channel gate
+currently fails closed for every real client** — `CHANNEL_PATTERNS` requires
+plural permission strings (`servers:read`, …) while JWT/api-key claims carry
+singular REST permissions (`server:read`, …), so every `subscribe` returns
+`PERMISSION_DENIED` and no channel can be subscribed. Additionally, the
+`EventDispatcher`/`MetricsBatcher` are never instantiated, so even a valid
+subscription would never receive pushed events. See
+`docs/PERMISSIONS_FUTURE_IDEAS.md` §4 (traced 2026-08-02) and roadmap v2 K1/K2.
+
+The channel table below documents the **intended** mapping:
 
 | Channel | Required permission |
 |---|---|

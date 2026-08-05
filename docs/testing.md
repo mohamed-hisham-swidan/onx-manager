@@ -4,8 +4,10 @@
 
 | Layer | Framework | Test Count | Location |
 |---|---|---|---|
-| Backend (unit + integration) | pytest + pytest-asyncio | 984 | `backend/tests/` |
-| Frontend (component + unit) | Vitest + jsdom | 148 | `frontend/src/**/*.test.*` |
+| Backend (unit + integration) | pytest + pytest-asyncio | 1070 collected / 1068 passing (2 pre-existing env failures) | `backend/tests/` |
+| Frontend (component + unit) | Vitest + jsdom | 236 | `frontend/src/**/*.test.*` |
+
+> Measured 2026-08-04. The 2 backend failures are environment issues, not regressions: `test_api_endpoints.py::TestServers::test_start_server` (closed-DB rollback) and `tests/tasks/test_metrics_collector.py::test_metrics_task_requires_collector` (stale expectation vs the graceful warning handler). See `docs/current-state.md` §4.
 
 ---
 

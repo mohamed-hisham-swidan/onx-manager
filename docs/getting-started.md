@@ -6,7 +6,7 @@ A 5-minute quickstart for running the Minecraft Server Manager on your local mac
 
 - **Python** 3.12+ (3.14+ recommended)
 - **Node.js** 20+
-- **Docker** (optional — needed for production Redis and PostgreSQL; development uses SQLite and in-process queue by default)
+- **Docker** (optional — the app runs standalone on SQLite with an in-process task queue; Docker/PostgreSQL is an alternative production deployment)
 - **Git**
 
 ## Quick Start
@@ -67,7 +67,7 @@ Navigate to `http://localhost:5173`. You will see the login page. Register an ac
 | REST API reference | [API Documentation](API.md) |
 | Frontend architecture | [Frontend](FRONTEND.md) |
 | Running tests | [Testing Guide](testing.md) |
-| Project roadmap | [Roadmap](roadmap.md) |
+| Project roadmap | [Roadmap](mcs-manager-roadmap-v2.md) |
 
 ## Troubleshooting
 

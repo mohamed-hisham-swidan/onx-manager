@@ -5,10 +5,15 @@
 | Component | Choice |
 |---|---|
 | Primary database | PostgreSQL 16 |
-| Cache | Redis 7 (sessions, rate limits, WebSocket presence) |
+| Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic |
+| Migrations | Alembic (16 revisions) |
 | Embedded mode | SQLite 3 (fallback via config) |
+
+> **Redis note:** Redis appears in the documented stack but the running system
+> never uses it. The task queue is in-process (`InProcessQueue`); the Arq/Redis
+> queue is defined in code but not wired up or instantiated. There is no Redis
+> cache, pub/sub, or presence store. See `docs/ARCHITECTURE.md`.
 
 Connection pooling: 20 pool size, 10 max overflow, `pool_pre_ping=True` for PostgreSQL. SQLite mode skips pooling. See `backend/app/core/persistence/db.py`.
 
@@ -86,8 +91,8 @@ Supporting tables:
 
 - **`roles`** — RBAC roles with permission text field
 - **`user_roles`** — many-to-many join table
-- **`api_keys`** — machine credentials; `key_hash` stored as Argon2id hash; prefix for display
-- **`refresh_tokens`** — JWT refresh token tracking; `token_hash` stored; revocable
+- **`api_keys`** — machine credentials; `key_hash` stored as **SHA-256** via `hash_api_key()` (`backend/app/core/security.py:44`) — unsalted; prefix (`mcs_`) for display
+- **`refresh_tokens`** — JWT refresh token tracking; `token_hash` stored as SHA-256; revocable
 
 ### Audit Log / Event Store
 
@@ -127,6 +132,14 @@ Integrity is verified by replaying the hash chain. Retention: 1 year (partitione
 | `name`, `version`, `author` | varied | Manifest fields |
 | `dependencies` | `Text` | JSON list of dependent plugin IDs |
 | `status` | `String(16)` | installed, enabled, disabled, error |
+| `filename` | `String(255)` | On-disk `.jar` filename (filesystem reconciliation key) |
+| `source` | `String(16)` | `detected` (found on disk) or `modrinth` (marketplace) |
+| `external_project_id`, `external_version_id`, `external_url`, `checksum` | varied | Modrinth provenance for marketplace-installed plugins |
+| `pending_deletion` | `Boolean` | Deferred deletion — file removed on next server start/restart |
+
+> The `filename`/`source`/`pending_deletion` and Modrinth-provenance columns were
+> added by migrations `3a42d373bb05` and `c4d5e6f7a8b9` (2026-08-04, plugin
+> filesystem-tracking + marketplace work). See `docs/plugins-and-marketplace.md`.
 
 ### Monitoring
 
@@ -188,6 +201,9 @@ alembic downgrade -1
 | `a1b2c3d4e5f6` | `876be46160d4` | missing_since on servers |
 | `a2b2c3d4e5f7` | `a1b2c3d4e5f6` | updated_at on alert_rules |
 | `a3b2c3d4e5f6` | `a2b2c3d4e5f7` | deployment_start_time on servers (ownership verification) |
+| `b5c6d7e8f9a0` | `a3b2c3d4e5f6` | pending_restores table |
+| `3a42d373bb05` | `b5c6d7e8f9a0` | Modrinth source columns on plugins (external ids, url, checksum) |
+| `c4d5e6f7a8b9` | `3a42d373bb05` | Plugin filesystem-tracking columns (filename, source, pending_deletion) |
 
 ## Audit Log Implementation
 
@@ -269,6 +285,9 @@ alembic upgrade head
 | `a1b2c3d4e5f6` | `missing_since` on `servers` |
 | `a2b2c3d4e5f7` | `updated_at` on `alert_rules` |
 | `a3b2c3d4e5f6` | `deployment_start_time` on `servers` |
+| `b5c6d7e8f9a0` | `pending_restores` table |
+| `3a42d373bb05` | Modrinth source columns on `plugins` |
+| `c4d5e6f7a8b9` | Plugin filesystem-tracking columns on `plugins` |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.
@@ -307,8 +326,17 @@ backup — final schema matches production column-for-column).
 ### Current dev database state
 
 - **File**: `backend/mcs.db`
-- **Alembic version**: `a3b2c3d4e5f6` (head)
+- **Alembic version**: `c4d5e6f7a8b9` (head)
 - **Tables**: 27 (including `alembic_version`)
+
+### Current production database state
+
+- **File**: `backend/data/servers/mcs.db`
+- **Alembic version**: `a3b2c3d4e5f6` — 3 revisions behind head (`b5c6d7e8f9a0`, `3a42d373bb05`, `c4d5e6f7a8b9` pending)
+- **Servers**: 0
+- **Tables**: 27 (including `alembic_version`)
+
+> Verified 2026-08-04. Production is intentionally not upgraded to head.
 
 ## Cross-References
 

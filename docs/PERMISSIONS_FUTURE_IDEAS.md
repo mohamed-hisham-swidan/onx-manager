@@ -2,15 +2,17 @@
 
 **Status:** Not started — backlog / parking-lot document.
 **Purpose:** Captures permission-model ideas and decisions explicitly deferred
-to Phase 2 (Identity & Authorization Redesign, roadmap §4.1) or later. This is
+to Roadmap Phase 4 (Authorization / security cleanup, roadmap §6) or later. This is
 **not** a spec and nothing here is committed work.
-**Last updated:** 2026-08-02
+**Last updated:** 2026-08-04
 
 ---
 
 ## 1. Why the Phase 1 catalog was left as-is
 
-During the Phase 1 §3.1 authorization coverage audit (2026-08-02), the decision
+During the Phase 1 §3.1 authorization coverage audit (2026-08-02, under the
+previous roadmap's numbering — equivalent to Phase 4 §6.1 in the restructured
+`docs/mcs-manager-roadmap-v2.md`), the decision
 was made to **keep the existing `permissions:` / `roles:` catalog untouched** and
 fold every currently-unprotected route onto the closest existing `resource:action`
 permission (e.g. per-server reads → `server:read`, global cron/config writes →
@@ -24,24 +26,24 @@ Rationale:
   a concrete existing permission and a status (`enforced` / `missing` /
   `enforced-external` / `not-applicable-public`).
 
-A full redesign of the permission model belongs to **Phase 2**, per the roadmap's
-explicit gating (nothing in Phase 2 starts until Phase 1's exit criteria close).
+A full redesign of the permission model belongs to **Phase 4** (Authorization /
+security cleanup, roadmap §6), per the roadmap's explicit gating.
 
 ---
 
-## 2. Proposal to evaluate in Phase 2 — broader permission tiers
+## 2. Proposal to evaluate in Phase 4 — broader permission tiers
 
 Originally proposed during the audit: simplify the whole permission model toward
 broader **tiers** (e.g. `reader` / `owner` / `admin`) instead of fine-grained
 `resource:action` strings.
 
-This is recorded **as a proposal to evaluate during the Phase 2 RBAC/ABAC
-redesign (§4.1)**, not a decision made now. Points to weigh when it's on the
+This is recorded **as a proposal to evaluate during the Phase 4 RBAC/ABAC
+cleanup (§6)**, not a decision made now. Points to weigh when it's on the
 table:
 
 - Fewer distinct permissions means fewer places to get a coverage gap, but loses
   expressiveness (e.g. "can start but not delete a server").
-- The roadmap's recommended direction (§4.1) is namespaced `resource:action` with
+- The roadmap's recommended direction (§6) is namespaced `resource:action` with
   wildcards (`server:*`), plus RBAC for coarse checks and ABAC predicates layered
   on top for ownership. A three-tier model is an alternative that trades
   expressiveness for simplicity.
@@ -61,7 +63,7 @@ exposes operational gauges (TPS, players, RAM, CPU).
 - Locking it down risks breaking any existing external Prometheus scraping setup
   (scrapers usually cannot present a JWT/api-key without extra exporter config).
 - The safe design depends on how the app is exposed — revisit alongside
-  **Phase 3** (public/remote exposure, roadmap §5.3), where per-client rate
+  **Phase 7** (Network Access, roadmap §9.4), where per-client rate
   limiting and hardened session defaults are already mandatory.
 
 Options to evaluate then: keep public behind per-client rate limiting; add a
@@ -113,12 +115,12 @@ in practice:
     subscription. So even after the namespace reconciliation above, events would
     still never reach connected clients until this wiring is added.
 
-**Deferred to Phase 2**: the fix is a namespace reconciliation (and ideally a
+**Deferred to Phase 3/4**: the fix is a namespace reconciliation (and ideally a
 shared permission-checking path rather than a second, divergent one) **plus
 wiring the `EventDispatcher`/`MetricsBatcher` into the app lifespan**, which are
 currently never instantiated. It is currently safe because it fails closed and
-nothing is dispatched, but the WS layer must be brought into the Phase 2
-permission model.
+nothing is dispatched, but the WS layer must be brought into the Phase 4
+permission model (WS delivery work is Phase 3 §5.1).
 
 ---
 
@@ -149,8 +151,9 @@ improvised fix risky:
   (e.g. `backend/tests/api/test_api_endpoints.py` `test_create_duplicate_user`,
   the `created_user` fixture, `test_create_user_and_login`).
 
-**Options to re-evaluate in Phase 2:** a true first-run bootstrap wizard that seeds
-an admin (aligns with the Phase 3 installer flow in roadmap §5.1); or keep open
+**Options to re-evaluate in Phase 4:** a true first-run bootstrap wizard that seeds
+an admin (aligns with the Phase 7 installer flow in
+`docs/network-access-design.md` §4); or keep open
 registration but add an explicit admin-invite/approval flow. Until then,
 `POST /api/v1/users` stays public and the risk is documented in
 `contracts/permissions.yaml` (`route_permissions` entry).

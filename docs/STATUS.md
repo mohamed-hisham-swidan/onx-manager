@@ -2,10 +2,18 @@
 
 **Project:** Minecraft Server Manager v4.0  
 **Code Name:** MCS Manager  
-**Version:** 7.1.0  
+**Version:** 4.0.0 (authoritative — the version reported by the app; planning
+docs that once said "7.1.0" are stale)  
 **License:** MIT  
 **Repository:** `server_manger/`  
-**Last updated:** 2026-08-03
+**Last updated:** 2026-08-04
+
+> **Factual baseline:** This document is the **historical narrative** (batch
+> history, session changelog, known-limitations log). It is **not** the source
+> of truth for current counts. For verified, current numbers (version, tests,
+> DB state, routers/migrations/ADRs/contracts, known issues) see
+> **[`docs/current-state.md`](current-state.md)**, which was verified
+> 2026-08-04 and supersedes any conflicting number in this file.
 
 ---
 
@@ -124,8 +132,8 @@ server_manger/
 │   │   │   ├── errors.py         # Global exception handlers
 │   │   │   └── v1/
 │   │   │       ├── middleware/   # Auth, audit, rate-limit, request-id
-│   │   │       ├── routers/      # 9 REST endpoint groups
-│   │   │       └── schemas/      # 8 Pydantic schema modules
+│   │   │       ├── routers/      # 10 REST endpoint groups
+│   │   │       └── schemas/      # Pydantic schema modules
 │   │   ├── core/                 # Shared infrastructure
 │   │   │   ├── command_bus.py    # Command bus (CQRS)
 │   │   │   ├── query_bus.py      # Query bus
@@ -142,7 +150,7 @@ server_manger/
 │   │   │       ├── base.py       # DeclarativeBase, BaseRepository
 │   │   │       ├── db.py         # DatabaseEngine, get_db
 │   │   │       └── unit_of_work.py  # UnitOfWork
-│   │   ├── modules/              # 8 DDD modules
+│   │   ├── modules/              # 9 DDD modules
 │   │   │   ├── server/           # Minecraft server domain
 │   │   │   ├── backup/           # Backup/restore domain
 │   │   │   ├── auth/             # User & auth domain
@@ -150,11 +158,12 @@ server_manger/
 │   │   │   ├── plugin/           # Plugin system domain
 │   │   │   ├── monitoring/       # Health & metrics domain
 │   │   │   ├── event_store/      # Event store module
+│   │   │   ├── shared/           # Shared value objects
 │   │   │   └── storage/          # File storage backends
 │   │   ├── services/             # Cross-module orchestration
 │   │   ├── tasks/                # Task queue & scheduling
 │   │   └── websocket/            # WebSocket layer
-│   ├── alembic/ + alembic.ini    # Database migrations (9 revisions)
+│   ├── alembic/ + alembic.ini    # Database migrations (16 revisions)
 │   ├── config/                   # Runtime config files
 │   ├── data/                     # Server data (see data/ below)
 │   ├── plugins/                  # Plugin SDK
@@ -162,13 +171,13 @@ server_manger/
 │   ├── pyproject.toml
 │   ├── requirements.txt
 │   └── Dockerfile
-├── contracts/                    # Shared contract schemas (5 files)
+├── contracts/                    # Shared contract schemas (6 files)
 ├── data/                         # Runtime data
-│   └── servers/                  # Production server files (2 servers)
+│   └── servers/                  # Production server files (0 servers currently)
 ├── docs/                         # Professional documentation
 │   ├── README.md                 # Documentation index
-│   ├── STATUS.md                 # THIS FILE
-│   ├── ARCHITECTURE.md           # System architecture (10 ADRs)
+│   ├── STATUS.md                 # THIS FILE (historical narrative; see current-state.md for facts)
+│   ├── ARCHITECTURE.md           # System architecture (12 ADRs)
 │   ├── API.md                    # REST API reference
 │   ├── DATABASE.md               # Database schema + migration guide
 │   ├── FRONTEND.md               # Frontend architecture
@@ -178,9 +187,9 @@ server_manger/
 │   ├── PROVISIONING.md           # Server provisioning
 │   ├── DEPLOYMENT.md             # Production deployment guide
 │   ├── getting-started.md        # 5-minute quickstart
-│   ├── roadmap.md                # Past & future roadmap
+│   ├── roadmap.md                # LEGACY roadmap v0 (superseded)
 │   ├── testing.md                # Testing guide
-│   ├── decisions/                # 10 Architecture Decision Records
+│   ├── decisions/                # 12 Architecture Decision Records
 │   ├── runtime/                  # Runtime subsystem (7 docs)
 │   └── reference/                # Reference maps (5 docs)
 ├── events/                       # Domain event catalog
@@ -200,7 +209,7 @@ server_manger/
 
 ## Architecture Summary
 
-### Architecture Decisions (10 ADRs)
+### Architecture Decisions (12 ADRs)
 
 | ADR | Date | Title |
 |-----|------|-------|
@@ -214,18 +223,21 @@ server_manger/
 | 0008 | 2026-07-27 | Environment-Variable-Driven Sandbox Isolation |
 | 0009 | 2026-07-27 | Pydantic Field Validators for Domain Value-Object Inputs |
 | 0010 | 2026-07-27 | Commit-per-Step Discipline for Structural Changes |
+| 0011 | 2026-07-27 | Orphan Reconciliation — Ownership Verification |
+| 0012 | 2026-08-04 | Same-Filesystem Staging for Atomic File Swaps |
 
-### Bounded Contexts (8 Modules)
+### Bounded Contexts (9 Modules)
 
 | Context | Module | Responsibility |
 |---------|--------|----------------|
 | Server Management | `server/` | Lifecycle, config, deployment, runtime supervision |
 | Backup/Restore | `backup/` | World backup, restore, verification |
-| Plugin System | `plugin/` | Install, isolated subprocess execution, SDK |
+| Plugin System | `plugin/` | Install, registry, marketplace, isolated subprocess execution, SDK |
 | User & Auth | `auth/` | JWT RS256 auth, RBAC/ABAC, audit chain |
 | Health | `health/` | Health monitoring, crash diagnostics, integrity validation, health timeline |
 | Monitoring | `monitoring/` | Health checks, metrics, alert rules |
 | Event Store | `event_store/` | Append-only event log with cryptographic chain |
+| Shared | `shared/` | Shared value objects (IDs, permissions, versions) |
 | File Storage | `storage/` | S3/local file storage backends for backups |
 
 ### Tech Stack
@@ -244,8 +256,8 @@ server_manger/
 | Build | Vite | — |
 | Styling | TailwindCSS | 4 |
 | State | TanStack Query + Zustand | — |
-| Testing (BE) | pytest (984 tests) | — |
-| Testing (FE) | Vitest (148 tests) | — |
+| Testing (BE) | pytest (1070 collected; 1068 passing, 2 pre-existing env failures) | — |
+| Testing (FE) | Vitest (236 tests) | — |
 | Linting | Ruff | — |
 | Container | Docker | — |
 
@@ -266,20 +278,33 @@ server_manger/
 
 ## Current Production Database State
 
-- **File**: `backend/data/servers/mcs.db`
-- **Alembic version**: `fcc7545db19e` (1 revision behind head — `902b076bfa36` and `876be46160d3` pending)
-- **Servers**: 2
-- **Tables**: 23 (including `alembic_version`)
-- **Production server directories**: `be193e92...` (OneBlock Reborn), `fc52c760...` (MINE)
+> Verified 2026-08-04. This supersedes the earlier state recorded below in the
+> batch history (production was intentionally not upgraded to head at the time
+> those entries were written).
 
-> Production is intentionally not upgraded to head. When ready, run:
+- **File**: `backend/data/servers/mcs.db`
+- **Alembic version**: `a3b2c3d4e5f6` (3 revisions behind head — `b5c6d7e8f9a0`, `3a42d373bb05`, `c4d5e6f7a8b9` pending)
+- **Servers**: 0
+- **Tables**: 27 (including `alembic_version`)
+- **Head revision**: `c4d5e6f7a8b9` (the dev DB `backend/mcs.db` is at head)
+
+> The 3 pending migrations are the pending_restores table plus the Modrinth /
+> filesystem-tracking plugin columns. Production is intentionally not upgraded
+> to head. When ready, run:
 > `MCS_DATABASE_URL="sqlite+aiosqlite:///data/servers/mcs.db" alembic upgrade head`
 
 ---
 
 ## Tests & Coverage
 
-### Backend — 997 total (995 passing, 2 pre-existing test environment failures)
+> **Verified 2026-08-04:** `python -m pytest tests/` from `backend/` collects
+> **1070** tests — **1068 passing, 2 pre-existing environment failures**
+> (`test_start_server` closed-database rollback; `test_metrics_task_requires_collector`
+> stale expectation vs graceful handler). Frontend: **236 passing across 41 files**.
+> The file-by-file table below reflects the historical layout from Batch 10 and
+> is retained for reference; the authoritative counts are above.
+
+### Backend — 1070 collected (1068 passing, 2 pre-existing test environment failures)
 
 | Test File | Tests | Group |
 |-----------|-------|-------|
@@ -341,7 +366,7 @@ server_manger/
 | `tests/event_store/test_dead_letter.py` | 8 | Event Store |
 | `tests/plugin/test_plugin_runner.py` | 12 | Plugin |
 
-### Frontend — 148 passing
+### Frontend — 236 passing
 
 | Area | Tests |
 |------|-------|
@@ -353,15 +378,16 @@ server_manger/
 | Services | 10 |
 | Hooks | 8 |
 
-**Total: 1145 tests** (997 backend + 148 frontend)
+> The area breakdown above is historical (from Batch 10). The verified total is
+> **236 tests across 41 files** (measured 2026-08-04). The earlier 148-test
+> count and the "1145 total" figure are stale.
 
-> The backend count here (984 in the prior revision, corrected to 997 now) was
-> already stale before this session began: the earlier enforcement work in
-> commit `33336e0` evidently added tests that were never reflected in this
-> document's total. This session added **no new test functions** — the
-> `conftest.py` change added a fixture, and the `servers.py` route changes
-> swapped a dependency — so the 13-test correction (984 → 997) is catching up
-> the baseline, not counting new tests from this session.
+> The backend count here (984 in the prior revision, corrected to 997 in the
+> original Batch 10 update) was stale before the reconciliation session began:
+> earlier enforcement work in commit `33336e0` and subsequent batches added
+> tests that were never reflected in this document's total. This reconciliation
+> session added **no new test functions** — the verified count is 1070
+> collected, from the actual test run.
 
 ---
 
@@ -373,15 +399,20 @@ server_manger/
 | ArqQueue.get_status/get_result return stubs | Cannot query task progress in prod | ⚠️ Known |
 | Metrics retention rollups not implemented | Raw metrics only (no 1m/1h/1d aggregation) | 🔶 Future |
 | ContainerPluginRunner is a stub | Plugins can't run in Docker isolation yet | 🔶 Future |
-| Production DB is 1 revision behind head | alembic upgrade head runs 2 pending migrations | ⚠️ Documented |
+| Production DB is 3 revisions behind head | alembic upgrade head runs 3 pending migrations | ⚠️ Documented (verified 2026-08-04) |
 | ~~`reconcile_filesystem()` uses raw UUID vs slug+uuid dirname~~ | ~~Every production server directory falsely flagged as orphan~~ | ✅ Fixed in 415c3a3 + this batch |
 | `server_dir()` vs `server_dir_name()` in jar_service.py | Inconsistent UUID-only vs slug+uuid naming | ⚠️ Architecture debt — no runtime impact; fallbacks only |
 | JWT keys auto-generated in-process | Keys lost on restart unless PEM set explicitly | ⚠️ Documented |
 | Permissions stored as comma-separated Text | Not normalized in DB | ⚠️ Known |
 | Backup `save-all` completion regex unverified | `_save_world()` confirms save via console polling matching `saved the (game|world)` — written from general Minecraft-fork behavior, no confirmed Purpur log sample in repo | ⚠️ Verify against a real Purpur server |
 | Backup saga step failures lose exception detail | `job.error_message` stores only `Failed at step '<step_name>'` (e.g. `save_world`); underlying cause visible only in server-side logs | ⚠️ Known |
-| `SQLUserRepository.save()` triggers async lazy-load on `model.roles` (`MissingGreenlet`) | `repository.py:55` — `role_model not in model.roles` performs a lazy load with no active greenlet context; raises `MissingGreenlet` when saving a user that has roles. Currently unreachable (no code path assigns roles), but sits in the auth repository that Phase 1 authorization work is expanding | ⚠️ Found during 2026-08-02 WS audit — not yet triaged |
+| `SQLUserRepository.save()` triggers async lazy-load on `model.roles` (`MissingGreenlet`) | `repository.py:55` — `role_model not in model.roles` performs a lazy load with no active greenlet context; raises `MissingGreenlet` when saving a user that has roles. Currently unreachable (no code path assigns roles), but sits in the auth repository that Phase 4 authorization work is expanding | ⚠️ Found during 2026-08-02 WS audit — not yet triaged |
 | Repo-root `data/` directory (gitignored, unused) | `data/` + `data/servers/` predate the `backend/` restructure (born 2026-07-26); `data/backups/` born 2026-08-03 from an init_storage repro run at repo root; stray `data/servers/mcs.db` was residue from a manual repo-root-relative alembic run (11:37:48, since removed). Live backend never touches it — no open fd, no writes; all real data lives under `backend/data/servers/`. Does NOT indicate stale DB rows: the two servers shown in the frontend are real and confirmed present under `backend/data/servers/` via dry-run reconcile | ⚠️ Found during 2026-08-03 investigation — awaiting Mohamed's decision on removal |
+| WebSocket channel auth always denies (plural `servers:read` patterns vs singular `server:read` claims) | Every `subscribe` fails closed — no channel can ever be subscribed; server-push events never delivered (`EventDispatcher` never wired) | ⚠️ Verified 2026-08-02 — deferred to Phases 3–4 (see `PERMISSIONS_FUTURE_IDEAS.md` §4); tracked as K1/K2 in roadmap v2 (Phase 3) |
+| `PATCH /api/v1/settings` is a stub | Returns `{"success": true, "message": "Settings updated (stub)"}`; nothing persists | ⚠️ K3 in roadmap v2 Phase 3 |
+| Plugin `enable`/`disable` routes have no `require_permission` | Auth-only; only `uninstall` + marketplace routes gate on `plugin:manage` | ⚠️ K4 in roadmap v2 Phase 4 |
+| Marketplace not a first-class frontend section | No sidebar entry; reachable only from Plugins page Install button | ⚠️ K5 in roadmap v2 Phase 1 |
+| No backend CI workflow | Only `.github/workflows/frontend-ci.yml` exists; route-coverage not CI-enforced | ⚠️ K6 in roadmap v2 Phase 4 |
 
 ---
 
@@ -459,4 +490,10 @@ server_manger/
 
 **Verification:** full backend suite — 997 tests (995 passing, 2 pre-existing env failures — `test_start_server` startup guard, `test_metrics_task_requires_collector` graceful handler), 148 frontend; **unchanged from Batch 1** (no new test functions). `contracts/permissions.yaml` re-diffed against the live route table: 0 gaps, 0 stale entries (66/66). Note: FastAPI 0.139 defers router inclusion via lazy `_IncludedRouter`, so the live-table diff requires forcing materialization via `app.openapi()` before iterating routes — unlike Batch 1's simpler introspection; direct dependency-closure inspection confirmed all 4 backups mutating routes bind the correct permission string (`backup:create`/`backup:read`/`backup:delete`/`backup:restore`).
 
-*Generated: 2026-08-01 · Project: MCS Manager v4.0 (7.1.0) · Batch 8 — Backup Pipeline*
+*Generated: 2026-08-01 · Project: MCS Manager v4.0 (4.0.0) · Batch 8 — Backup Pipeline*
+
+> **2026-08-04 reconciliation:** this document is the historical narrative.
+> Verified current facts (version `4.0.0`, test counts, DB state, router /
+> migration / ADR / contract counts, known issues) live in
+> [`docs/current-state.md`](current-state.md). The governing roadmap is
+> [`docs/mcs-manager-roadmap-v2.md`](mcs-manager-roadmap-v2.md).

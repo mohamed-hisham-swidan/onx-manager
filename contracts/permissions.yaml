@@ -1,10 +1,10 @@
 # Permission Contract
 # All permission strings and their meanings.
 
-version: 1.3
+version: 1.4
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NOTE (DRAFT — generated 2026-08-02, updated 2026-08-03, Phase 1 §3.1 audit):
+# NOTE (generated 2026-08-02, updated 2026-08-04, Phase 1 §3.1 audit):
 # this file now also carries a route→permission coverage matrix
 # (`route_permissions`), generated from a runtime introspection of the LIVE
 # FastAPI route table. It documents the CURRENT real enforcement state, not an
@@ -152,6 +152,11 @@ route_permissions:
   "DELETE /api/v1/servers/{server_id}/plugins/{plugin_id}": {permission: "plugin:manage", status: enforced}
   "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/enable": {permission: "plugin:manage", status: missing}
   "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/disable": {permission: "plugin:manage", status: missing}
+
+  # plugins — Modrinth marketplace (verified enforced against plugins.py:73,85,120)
+  "GET /api/v1/servers/{server_id}/plugins/marketplace/search": {permission: "plugin:manage", status: enforced}
+  "GET /api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions": {permission: "plugin:manage", status: enforced}
+  "POST /api/v1/servers/{server_id}/plugins/marketplace/install": {permission: "plugin:manage", status: enforced}
 
   # auth
   "POST /api/v1/auth/login": {permission: null, status: not-applicable-public}

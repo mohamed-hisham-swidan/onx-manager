@@ -5,7 +5,7 @@
 - Python 3.12+
 - Node.js 20+
 - PostgreSQL 16+ (or SQLite for embedded mode)
-- Redis 7+ (cache, WebSocket pub/sub, production message queue)
+- Redis 7+ (optional — currently **not used** by the running system; the task queue is in-process and there is no Redis cache/pub-sub deployment)
 
 ## Quick Start
 
@@ -165,7 +165,7 @@ See [Database docs](DATABASE.md) for full schema reference.
 
 ```bash
 cd backend
-python -m pytest tests/ -q          # All tests (984 passing)
+python -m pytest tests/ -q          # All tests (1070 collected, 1068 passing)
 python -m pytest tests/ -x -q       # Stop on first failure
 ```
 
@@ -200,7 +200,7 @@ cd frontend && npm test            # All frontend tests
 cd frontend && npm run test:watch  # Watch mode
 ```
 
-148 frontend tests across 27 files. Vitest with jsdom environment.
+236 frontend tests across 41 files (measured 2026-08-04). Vitest with jsdom environment.
 
 ## Docker Development
 

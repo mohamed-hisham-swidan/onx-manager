@@ -1,13 +1,13 @@
 # Minecraft Server Manager
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-984%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-1068%20passing-brightgreen.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](#)
 [![TypeScript](https://img.shields.io/badge/typescript-5%2B-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](#)
 [![Status](https://img.shields.io/badge/status-production%20ready-darkgreen.svg)](#)
 
-A professional-grade Minecraft server management platform. Manage any number of servers across local, Docker, or remote providers from a single web dashboard. Ships with a plugin system, automated backups, real-time WebSocket console, RBAC+ABAC auth, and full monitoring — all self-hosted.
+A professional-grade Minecraft server management platform. Manage any number of servers across local, Docker, or remote providers from a single web dashboard. Ships with a plugin system, automated backups, RBAC+ABAC auth, and full monitoring — all self-hosted. (WebSocket live-console push and full authorization breadth are roadmap gaps — Phases 3 and 4 — not yet functional end-to-end.)
 
 ---
 
@@ -15,17 +15,18 @@ A professional-grade Minecraft server management platform. Manage any number of 
 
 - **Server Lifecycle** — Create, start, stop, restart, and configure Minecraft servers (vanilla, Paper, Forge, Fabric, etc.). Full provisioning with JAR validation and type-specific URL resolution.
 - **Backup & Restore** — Automatic scheduled backups with AES-256-GCM encryption, integrity verification, and point-in-time restoration. Idempotent sagas with compensation rollbacks.
-- **WebSocket Live Console** — Real-time server console streaming with channel-based subscriptions, offline message buffering, auto-reconnect with exponential backoff, and state sync on recovery.
+- **WebSocket Live Console** — Real-time server console streaming with channel-based subscriptions, offline message buffering, auto-reconnect with exponential backoff, and state sync on recovery. *(Note: WebSocket channel delivery is currently non-functional backend-side — every subscribe is denied until plan-phase gap K1/K2 is fixed.)*
 - **Plugin System** — Subprocess-isolated plugins with JSON-RPC over stdin/stdout. Filesystem and network sandboxing. Recursive dependency resolution. Full SDK with event hooks, command execution, and scoped HTTP client.
 - **Auth & RBAC/ABAC** — JWT RS256 authentication with 900s access tokens and rotated refresh tokens. Role-based access with attribute-based policy evaluation. API key authentication (`mcs_`-prefixed, SHA-256 hashed).
-- **Monitoring** — Prometheus metrics (TPS, players, RAM, CPU). Health check registry covering DB, Redis, disk, and provider backends. Configurable alert rules with Discord/Telegram/Email delivery.
-- **REST API** — Auto-generated OpenAPI spec. Full CRUD for servers, backups, plugins, users, and settings. Rate-limited, audited, and permission-checked.
+- **Monitoring** — Prometheus metrics (TPS, players, RAM, CPU). Health check registry covering DB, disk, and provider backends. Configurable alert rules with Discord/Telegram/Email delivery.
+- **Marketplace** — Browse and install Minecraft plugins from Modrinth, with filesystem-as-truth reconciliation between the database and the `plugins/` directory.
+- **REST API** — Auto-generated OpenAPI spec. Full CRUD for servers, backups, plugins, users, and settings. Rate-limited, audited, and permission-checked *(on the highest-risk mutating routes; most reads and some writes remain auth-only — see roadmap Phase 4)*.
 
 ## Architecture
 
 ```
 Browser ──► FastAPI (Backend) ──► PostgreSQL / SQLite
-CLI     ──►                     ──► Redis (Cache + WS Pub/Sub)
+CLI     ──►                     ──► In-process task queue
 Plugins ──►  Command / Query / Event Buses ──► Subprocess Plugins
 ```
 
@@ -58,7 +59,7 @@ Then open `http://localhost:8000` — the first-run wizard creates your admin ac
 | Security | [docs/SECURITY.md](docs/SECURITY.md) |
 | Frontend | [docs/FRONTEND.md](docs/FRONTEND.md) |
 | Development Guide | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
-| Roadmap | [docs/roadmap.md](docs/roadmap.md) |
+| Roadmap | [docs/mcs-manager-roadmap-v2.md](docs/mcs-manager-roadmap-v2.md) |
 
 ## Project Structure
 
@@ -79,9 +80,9 @@ Implementation/     Project state tracking, module map, roadmap, vision
 | Layer | Technology |
 |---|---|
 | **Backend** | Python 3.12+, FastAPI, SQLAlchemy 2.0 (async), Alembic, Pydantic v2, structlog |
-| **Frontend** | TypeScript 5+, React 19, Vite, TailwindCSS 4+, shadcn/ui, TanStack Query, Zustand |
-| **Databases** | PostgreSQL 16 (production), SQLite 3 (embedded/desktop), Redis (cache + WS + queue) |
-| **Infrastructure** | Docker (optional provider), Prometheus (metrics), Arq/Redis (production task queue) |
+| **Frontend** | TypeScript 5+, React 19, Vite, TailwindCSS 4+, TanStack Query, Zustand |
+| **Databases** | PostgreSQL 16 (production), SQLite 3 (embedded/desktop) |
+| **Infrastructure** | Docker (optional provider), Prometheus (metrics), in-process task queue (Arq/Redis available but unused) |
 
 ## Development
 
@@ -103,4 +104,4 @@ MIT — see LICENSE for details.
 
 ## Status
 
-**Production-ready.** 9 of 10 implementation batches complete (82% overall). Backend core, API, WebSocket, plugin system, auth, monitoring, and task scheduling are fully implemented and tested. Frontend (Batch 10) is the remaining scope. 280+ tests passing across all completed batches.
+**Production-ready core.** Backend, API, WebSocket, plugin system, auth, monitoring, task scheduling, and the frontend are implemented and tested. Measured 2026-08-04: **1068 backend tests passing** (1070 collected; 2 pre-existing environment failures) and **236 frontend tests passing**. Known gaps (authorization breadth → Phase 4, WebSocket delivery → Phase 3, settings persistence → Phase 3) are tracked in `docs/mcs-manager-roadmap-v2.md`.

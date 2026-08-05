@@ -1,5 +1,9 @@
 # Roadmap
 
+> ⏸️ **LEGACY / SUPERSEDED.** This document is preserved for history only. The
+> single authoritative roadmap is **`docs/mcs-manager-roadmap-v2.md`** (4-phase:
+> 1 = Stabilization & Completion, 2 = Identity & Auth, 3 = Network Access, 4 = AI).
+
 ## What Has Been Delivered
 
 All 10 original implementation batches are complete, plus the health-engine and backup-pipeline batches that followed:
@@ -15,9 +19,9 @@ All 10 original implementation batches are complete, plus the health-engine and 
 | 07 | Plugin System | Delivered | Plugin lifecycle, subprocess sandbox, manifest parser, dependency resolver, JSON-RPC protocol (60 tests) |
 | 08 | User & Auth System | Delivered | JWT RS256 auth, refresh token rotation, RBAC+ABAC permissions, audit hash chain, API keys (37 auth tests) |
 | 09 | Monitoring & Tasks | Delivered | TaskQueue dual impl, event store hash chain, metrics collection, DLQ, rollup pipeline (48 tests) |
-| 10 | Frontend UI | Delivered | React 19 app, TanStack Query, Zustand, WebSocket bridge, 11 pages, 148 frontend tests |
+| 10 | Frontend UI | Delivered | React 19 app, TanStack Query, Zustand, WebSocket bridge, 11 pages, 236 frontend tests |
 
-**Total test count**: 984 backend (pytest) + 148 frontend (vitest) = 1132 tests.
+**Total test count**: 1068 backend passing (pytest; 1070 collected) + 236 frontend (vitest) = 1304 tests passing (2026-08-04).
 
 ## Current State
 

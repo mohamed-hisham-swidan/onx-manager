@@ -1,5 +1,10 @@
 # MCS Manager — Roadmap to v1.0
 
+> ⏸️ **LEGACY / SUPERSEDED.** This document is preserved for history only. The
+> single authoritative roadmap is **`docs/mcs-manager-roadmap-v2.md`** (4-phase:
+> 1 = Stabilization & Completion, 2 = Identity & Auth, 3 = Network Access, 4 = AI).
+> Do not use this file as the source of truth for status or sequencing.
+
 **Status:** Living planning document — engineering-owned
 **Version:** 2.0 (supersedes personal working draft, rev. 2)
 **Last updated:** 2026-08-04
@@ -87,6 +92,9 @@ Phase 0 is the accepted baseline for everything below. No further detail is need
 ### 3.2 Rate limiter
 
 **Problem (discovered this session):** `RateLimitMiddleware` tracks a single process-global counter. One client's traffic consumes the budget for every other client on the same endpoint — functionally, any user can rate-limit every other user.
+
+> ⚠️ **Correction (2026-08-04):** this problem statement is **incorrect** — the
+> limiter is keyed per `client_ip:path` (`backend/app/api/v1/middleware/rate_limit.py:41-42`, 60 req/min), so it is already per-client. See `docs/current-state.md` §4.
 
 **Recommended solution**
 1. **Key the bucket per client, not globally.** Bucket key = API key if the request is authenticated, otherwise client IP, with session ID as a fallback for browser-based sessions behind shared IPs (e.g., NAT).

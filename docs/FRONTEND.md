@@ -47,6 +47,7 @@ frontend/src/
 │       ├── ServerDetailPage.tsx
 │       ├── BackupListPage.tsx
 │       ├── PluginListPage.tsx
+│       ├── PluginMarketplacePage.tsx   # Modrinth marketplace (2026-08-04)
 │       ├── SettingsPage.tsx
 │       └── ApiKeysPage.tsx
 ├── pages/
@@ -117,7 +118,8 @@ All forms use native React controlled components through TanStack Query mutation
 | `/servers/import` | `ImportServerPage` | Import existing server from filesystem |
 | `/servers/:serverId` | `ServerDetailPage` | Console, metrics, actions, config editor |
 | `/backups` | `BackupListPage` | Backup table, create/restore/schedule |
-| `/plugins` | `PluginListPage` | Plugin table, install/enable/disable |
+| `/plugins` | `PluginListPage` | Plugin table, install/enable/disable; Install → marketplace |
+| `/plugins/marketplace` | `PluginMarketplacePage` | Modrinth catalog: search, versions, install (reached with `?server=<id>`) |
 | `/settings` | `SettingsPage` | Global application settings |
 | `/settings/api-keys` | `ApiKeysPage` | API key management |
 
@@ -134,6 +136,13 @@ All authenticated routes are wrapped in `AuthGuard` (`frontend/src/components/gu
 - **Theme**: Dark/light toggle persisted in localStorage, respects system preference
 
 ## WebSocket Integration
+
+> ⚠️ **Backend status note:** the frontend WebSocket client is fully
+> implemented, but the backend currently rejects every channel subscription
+> (plural/singular permission mismatch) and never dispatches events
+> (`EventDispatcher` not wired). The client connects, pings, and keepalives,
+> but will not receive server-push data until backend gaps K1/K2 are closed
+> (see `docs/mcs-manager-roadmap-v2.md` Phase 3 §5.1).
 
 ### Architecture
 
@@ -234,7 +243,7 @@ Production builds use `window.location.host` for API and WS URLs.
 
 ## Testing
 
-148 frontend tests across 27 files. Test infrastructure:
+236 frontend tests across 41 files (measured 2026-08-04). Test infrastructure:
 - `vitest.config.ts` — jsdom environment, `@/` path alias, globals enabled
 - `test-setup.ts` — jsdom, localStorage mock, matchMedia mock
 - Testing libraries: `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`

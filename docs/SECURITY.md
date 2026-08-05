@@ -25,7 +25,7 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 | Token | TTL | Storage | Notes |
 |---|---|---|---|
 | Access token | 15 minutes | Persisted in the frontend `authStore` (localStorage key `mcs_auth`) | Short-lived, stateless |
-| Refresh token | 7 days | httpOnly cookie + DB (SHA-256 hash) | Individually revocable, rotated on use |
+| Refresh token | 7 days | Returned in the login body and stored in the same frontend `authStore`; DB keeps only the SHA-256 hash | Individually revocable, rotated on use |
 
 ### Refresh Token Rotation
 
@@ -48,9 +48,9 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 2. Server validates credentials (Argon2id password verification)
 3. Server generates access token (RS256, 15 min TTL)
 4. Server generates opaque refresh token, stores SHA-256 hash in DB
-5. Returns access token in body, refresh token in httpOnly cookie
+5. Returns access + refresh tokens in the response body; client persists both in `authStore` (localStorage) — **no httpOnly cookie is used**
 6. Client uses access token for API calls (Authorization: Bearer <token>)
-7. On expiration, client calls /auth/refresh with httpOnly cookie
+7. On expiration, client calls /auth/refresh sending the refresh token in the JSON body
 8. Server rotates refresh token, issues new access token
 ```
 
@@ -69,7 +69,15 @@ What exists today:
 3. The evaluator is only called at **login/refresh** to build the token's claims — it is **not** invoked by any command/query handler, router, or middleware to gate a request
 4. **Only a small set of destructive API endpoints checks permissions before executing** (via the `require_permission` dependency — see the callout below); every other endpoint does not
 
-> **Known gap — authorization is only partially enforced.** `PermissionDenied` is defined and mapped to HTTP 403 in `backend/app/api/errors.py`, and since the "enforce authorization on highest-risk destructive endpoints" fix a `require_permission` dependency gates `server:delete`, `server:stop`, `server:write`, `backup:delete`, `backup:restore`, `user:write`, `user:delete`, and `plugin:manage` on their respective routes. The vast majority of routes still do not check permissions (`request.state.permissions` is written by `AuthMiddleware` but never read outside those routes). This is a real security gap that needs a dedicated fix, not an intentional design choice.
+> **Known gap — authorization is only partially enforced.** `PermissionDenied` is defined and mapped to HTTP 403 in `backend/app/api/errors.py`. A `require_permission` dependency gates the following 24 routes today (22 mutating + 2 read-only marketplace; verified 2026-08-04, `contracts/permissions.yaml` v1.4):
+>
+> - **servers:** `POST /servers`, `POST /servers/scan`, `POST /servers/import`, `PATCH /servers/{server_id}`, `DELETE /servers/{server_id}` (`server:write`/`server:delete`), `POST /servers/{id}/start` (`server:start`), `POST /servers/{id}/stop` + `/restart` (`server:stop`), `POST /servers/{id}/command`, `POST /servers/reconcile`, `POST /servers/runtime/ownership/claim`, `POST /servers/refresh` (`server:write`)
+> - **backups:** `POST /backups` (`backup:create`), `DELETE /backups/{id}` (`backup:delete`), `POST /backups/{id}/restore` (`backup:restore`), `POST /backups/{id}/verify` (`backup:read`)
+> - **plugins:** `DELETE /servers/{server_id}/plugins/{id}` + the three `/servers/{server_id}/plugins/marketplace/*` routes (`plugin:manage`) — but **not** `enable`/`disable` (K4)
+> - **users:** `PATCH /users/{id}` (`user:write`), `DELETE /users/{id}` (`user:delete`)
+> - **auth:** `POST /auth/api-keys`, `DELETE /auth/api-keys/{id}` (`user:write`)
+>
+> The vast majority of routes — including plugin enable/disable, `PATCH /settings`, the alert-rule routes, health-evaluate, the schedule routes, and all reads (list/detail/console/runtime/metrics/users/settings) — still do not check permissions (`request.state.permissions` is written by `AuthMiddleware` but never read outside the gated routes). This is a real security gap that needs a dedicated fix, not an intentional design choice. Tracked as Phase 4 §6.1 in `docs/mcs-manager-roadmap-v2.md`.
 
 ### Permission Strings
 
@@ -112,6 +120,10 @@ The ABAC extension (as implemented in `PermissionEvaluator.evaluate_abac()`) def
 - **Scope enforcement**: Server-scoped permissions (`server_id`) only apply to specific server resources; global-scoped permissions apply system-wide
 
 These rules are **not enforced** — `evaluate_abac()` exists but is never called in any request path (see the known-gap callout above). The permission strings above *are* enforced on the small set of destructive routes gated by `require_permission`; the ABAC ownership/scope rules are not. Together they describe the intended model, not current behavior.
+
+### WebSocket channel authorization
+
+The WebSocket handshake validates the JWT **before** `accept()` (`backend/app/websocket/endpoint.py:51-62`), and per-channel authorization is checked at subscribe time (`ChannelAuthorizer.can_subscribe`). **However, the channel gate currently fails closed for every real client:** `CHANNEL_PATTERNS` (`backend/app/websocket/authorization.py:3-17`) requires **plural** permission strings (`servers:read`, `backups:read`, …) while JWT/api-key claims carry **singular** REST permissions (`server:read`, …) built at login. Every `subscribe` therefore returns `PERMISSION_DENIED` and no channel can be subscribed. Separately, `EventDispatcher`/`MetricsBatcher` are never instantiated, so no server-push events reach connected clients. This is safe (fail-closed) but non-functional; full trace in `docs/PERMISSIONS_FUTURE_IDEAS.md` §4, tracked as K1/K2 in `docs/mcs-manager-roadmap-v2.md`.
 
 ---
 
@@ -181,7 +193,7 @@ All communications use TLS 1.3. Protocol downgrade is rejected at the reverse pr
 
 ### Architecture
 
-Rate limiting is a single global `RateLimitMiddleware`:
+Rate limiting is a single `RateLimitMiddleware` keyed per `client_ip:path`:
 
 | Layer | Scope | Mechanism |
 |---|---|---|

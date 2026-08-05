@@ -20,8 +20,8 @@ workflow (quick access to world files, logs, backups on disk).
 **Why deferred (not implemented now):**
 
 - This is **new feature work**, and the project is currently in **Phase 1
-  (Security & Stability Hardening)** per `docs/mcs-manager-roadmap-v1.md`, which
-  explicitly blocks new capability until Phase 1's exit criteria close.
+  (Plugins / Marketplace separation)** per `docs/mcs-manager-roadmap-v2.md`, which
+  gates new capability behind its exit criteria.
 - It also carries real security surface: opening a filesystem path from a web UI
   typically means the backend either shells out to something like
   `xdg-open` / `explorer`, or returns a path for a client-side file-manager
@@ -50,17 +50,15 @@ roadmap phase for UI/UX feature work.
 
 **Requested:** 2026-08-04
 
-**Status update (2026-08-04): active implementation started, as a documented
-exception to phase-gating (see roadmap note) — original investigation findings
-below remain accurate reference material.**
-
-**Status update (2026-08-04, continued): the plugin system was also extended
-so the filesystem is the source of truth for which plugins exist — on-disk
-`.jar` files are reconciled into the DB on every list (`source="detected"`),
-rows whose file was removed directly from disk are pruned, and plugin deletion
-is deferred (pending-deletion flags consumed on the next server start/restart
-so a running JVM never has its `.jar` removed out from under it). Same
-documented exception, same feature area.**
+> ✅ **IMPLEMENTED (2026-08-04).** This feature is now delivered and marked
+> **IMPLEMENTED** in `docs/README.md`. Implementation summary:
+>
+> - Backend: `GET /api/v1/servers/{server_id}/plugins/marketplace/search`, `GET /api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions`, `POST /api/v1/servers/{server_id}/plugins/marketplace/install` — Modrinth provider (`app/modules/plugin/infrastructure/providers/modrinth.py`), version selection ranking (`select_best_version`), install flow downloading the `.jar` into the server's `plugins/` directory.
+> - Filesystem reconciliation: the filesystem is the source of truth — on-disk `.jar` files are reconciled into the DB on every list (`source="detected"`), rows whose file was removed directly from disk are pruned, deletion is deferred via `pending_deletion`.
+> - Frontend: `PluginMarketplacePage` at route `/plugins/marketplace` (search, version picker, install) — **no sidebar entry yet** (known gap K5).
+> - Docs: full detail in `docs/plugins-and-marketplace.md`.
+>
+> The investigation findings below remain accurate reference material.
 
 Browsing, searching, and installing server plugins directly from MCS Manager,
 sourcing them from the Modrinth catalog (`api.modrinth.com`) and potentially
@@ -69,11 +67,11 @@ other providers later.
 **Why deferred (originally):**
 
 - This is **new feature work**, and the project is currently in **Phase 1
-  (Security & Stability Hardening)** per `docs/mcs-manager-roadmap-v1.md`, which
-  explicitly blocks new capability until Phase 1's exit criteria close.
+  (Plugins / Marketplace separation)** per `docs/mcs-manager-roadmap-v2.md`, which
+  gates new capability behind its exit criteria.
 - The investigation confirmed the feature is feasible with minimal new
-  foundations — nothing about it depends on a Phase 1 decision, so it is gated
-  purely by roadmap sequencing, not by design risk.
+  foundations — nothing about it depends on a Phase 1 decision, so it was
+  gated purely by roadmap sequencing, not by design risk.
 
 **Key findings from the investigation (2026-08-04):**
 
@@ -99,6 +97,14 @@ other providers later.
   `InstallPluginCommand` only writes a DB row (no real `.jar` placement); the
   frontend Install button is a stub ("Install coming soon").
 
+> ⚠️ **Note (2026-08-04):** the two findings above predate the marketplace
+> implementation and are now **stale**. The plugin system was extended so the
+> filesystem is the source of truth for plugin existence (on-disk `.jar` files
+> reconciled into the DB on every list, `source="detected"`), and marketplace
+> installs place real `.jar` files with **download-integrity verification**
+> against Modrinth's sha1/sha512 hashes (`_verify_checksum`, raising
+> `CorruptedDownloadError` on mismatch).
+
 **Gaps to close before implementing:**
 
 1. **Shared outbound HTTP client** — no centralized session/timeout/retry policy
@@ -107,10 +113,16 @@ other providers later.
 2. **Download-integrity verification** — no sha1/sha512 verification exists
    anywhere yet, even though Modrinth provides both hashes per version file.
 
+> ✅ **Note (2026-08-04):** both gaps are now **resolved** in the marketplace
+> implementation. The shared HTTP client is `get_http_client()` in
+> `backend/app/core/http_client.py`; download-integrity verification is
+> `_verify_checksum` in `backend/app/modules/plugin/infrastructure/providers/modrinth.py`.
+> See `docs/plugins-and-marketplace.md`.
+
 **Suggested implementation start:** single provider (Modrinth only), matching
 the existing `StorageBackend`-style ABC + factory pattern, rather than a
 multi-provider abstraction built upfront.
 
-**Suggested target phase:** **Phase 7 (Container Plugin Isolation)** — the
-roadmap's plugin-system phase. The marketplace is not part of any currently
-defined Phase 2–9 scope.
+**Suggested target phase:** ✅ **Implemented as of 2026-08-04** (see
+`docs/plugins-and-marketplace.md`); originally targeted the roadmap's
+plugin-system phase.

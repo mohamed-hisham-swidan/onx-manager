@@ -1,84 +1,92 @@
-# Minecraft Server Manager — Documentation
+# Documentation Index
 
-## Architecture
+This is the authoritative index for MCS Manager documentation. Documents are
+listed with their status so it is always clear what is implemented vs planned.
 
-| Document | Description |
-|---|---|
-| [Architecture Overview](ARCHITECTURE.md) | System context, modular monolith structure, bounded contexts, key patterns (CQRS, Event Bus, Saga), technology stack |
-| [API Reference](API.md) | REST endpoints, WebSocket protocol, error codes, rate limiting, pagination |
-| [Database Architecture](DATABASE.md) | Schema design, key tables, migration strategy, audit log implementation, query patterns |
-| [Security Architecture](SECURITY.md) | JWT RS256 auth, RBAC+ABAC permissions, audit hash chain, rate limiting, session management |
-| [Decisions Index](decisions/README.md) | All Architecture Decision Records (11 ADRs covering the key architectural choices) |
-| [Project Status](STATUS.md) | Complete session history, repository tree, test matrix, known limitations |
+> **State of the docs (2026-08-04):** this index and the documents it points to
+> have been reconciled against the verified codebase state in
+> `docs/current-state.md`. Older documents (`docs/roadmap.md`,
+> `docs/mcs-manager-roadmap-v1.md`) are kept for history and are labeled
+> `LEGACY`. Where any document disagrees with `docs/current-state.md`, the
+> current-state doc wins.
 
-## Backend
+---
 
-| Document | Description |
-|---|---|
-| [Development Guide](DEVELOPMENT.md) | Setup, virtual environment, migration commands, testing strategy, debugging tips |
-| [Database Architecture](DATABASE.md) | PostgreSQL/SQLite schemas, migration history, query patterns, audit log implementation |
-| [Security Architecture](SECURITY.md) | Authentication, authorization, cryptographic audit chain, rate limiting |
+## Start here
 
-## Frontend
+| Document | Status | Purpose |
+|----------|--------|---------|
+| [Current State](current-state.md) | ✅ **IMPLEMENTED** | Verified, evidence-based snapshot of the codebase (version, tests, DB, known issues). Read this first. |
+| [Roadmap v2](mcs-manager-roadmap-v2.md) | ✅ **IMPLEMENTED** | The only authoritative roadmap — 10 dependency-ordered phases. Phase 1 (Plugins/Marketplace separation, current), Phase 2 (UI stabilization), Phase 3 (bug fixing & reliability), Phase 4 (Authorization), Phase 5 (Versioning), Phase 6 (Testing/CI/docs), Phase 7 (Network Access), Phase 8 (Dynamic endpoint + DNS), Phase 9 (Final stabilization), Phase 10 (AI — last, deferred). |
+| [Versioning](VERSIONING.md) | 🟡 **PLANNED** | Single source-of-truth versioning strategy (currently `4.0.0` across code; stale `7.1.0` only in history/server data). Roadmap Phase 5. |
+| [Roadmap v1](mcs-manager-roadmap-v1.md) | ⏸️ **LEGACY** | Superseded by v2. Historical phase plan (9 phases) kept for reference. |
+| [Roadmap v0](roadmap.md) | ⏸️ **LEGACY** | Original batch-delivery roadmap. Historical only. |
 
-| Document | Description |
-|---|---|
-| [Frontend Architecture](FRONTEND.md) | React 19 app structure, TanStack Query integration, Zustand stores, WebSocket client, routing, UI conventions |
-| [API Reference](API.md) | REST endpoints consumed by the frontend, WebSocket event types |
+---
 
-## Runtime
+## Design & architecture
 
-| Document | Description |
-|---|---|
-| [Server Lifecycle](runtime/lifecycle.md) | Server state machine, transitions, provisioning flow |
-| [Server Ownership](runtime/ownership.md) | Resource ownership model, user-server relationships |
-| [Server Provisioning](runtime/providers.md) | Provider architecture, local/Docker/remote providers |
-| [Runtime Reconciliation](runtime/reconciliation.md) | State reconciliation between DB and actual process state |
-| [Runtime Supervision](runtime/supervision.md) | Process supervision, health checks, auto-restart |
-| [Runtime Recovery](runtime/recovery.md) | Crash recovery, startup validation, cleanup routines |
-| [Runtime README](runtime/README.md) | Overview of runtime subsystem |
+| Document | Status | Purpose |
+|----------|--------|---------|
+| [Architecture](ARCHITECTURE.md) | ✅ **IMPLEMENTED** | System context, module structure, CQRS/hexagonal patterns, task wiring, reconciliation. |
+| [Database](DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain (16 revisions), query patterns, migration guide. |
+| [Security](SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (with known gaps), audit chain, data protection, rate limiting, sessions. |
+| [Plugins & Marketplace](plugins-and-marketplace.md) | ✅ **IMPLEMENTED** | Plugin registry (filesystem source of truth) + Modrinth marketplace implementation. |
+| [Network Access Design](network-access-design.md) | 🟡 **PLANNED** | Phases 7–8 design reference: TunnelProvider vs DnsProvider, dynamic endpoints, game vs management exposure, Tunnel ≠ Authentication. |
+| [Frontend](FRONTEND.md) | ✅ **IMPLEMENTED** | React 19 app structure, state management, WebSocket integration, API client, testing. |
+| [Provisioning](PROVISIONING.md) | ✅ **IMPLEMENTED** | Server creation flow, JAR validation, supported server types. |
 
-## Operations
-
-| Document | Description |
-|---|---|
-| [Provisioning Guide](PROVISIONING.md) | Server creation flow, JAR validation, supported server types |
-| [Deployment Guide](DEPLOYMENT.md) | Docker setup, environment variables, production deployment |
-| [Getting Started](getting-started.md) | 5-minute quickstart — clone to first running server |
-
-## Development
-
-| Document | Description |
-|---|---|
-| [Getting Started](getting-started.md) | Quickstart for new developers |
-| [Development Guide](DEVELOPMENT.md) | Full setup, scripts, development loop, code conventions |
-| [Testing Guide](testing.md) | How to run and write tests (backend pytest + frontend Vitest) |
-| [Contributing](CONTRIBUTING.md) | Contribution workflow, code conventions, git conventions, cross-batch protocol |
-| [Roadmap](roadmap.md) | Delivered batches, current state, future directions |
+---
 
 ## Reference
 
-| Document | Description |
-|---|---|
-| [Module Map](reference/module-map.md) | All backend modules with their responsibilities and file ownership |
-| [File Ownership](reference/file-ownership.md) | Every source file and which batch owns it |
-| [Dependency Graph](reference/dependency-graph.md) | Inter-batch dependencies and interface contracts |
-| [Event Catalog](reference/event-catalog.md) | All domain events with their producers and consumers |
-| [Contract Registry](reference/contract-registry.md) | Shared interfaces and data contracts across batches |
+| Document | Status | Purpose |
+|----------|--------|---------|
+| [API](API.md) | ✅ **IMPLEMENTED** | REST endpoint reference + WebSocket protocol, verified against router code. |
+| [Testing](testing.md) | ✅ **IMPLEMENTED** | Test suites, structure, mocking strategy, quality gates. |
+| [Development](DEVELOPMENT.md) | ✅ **IMPLEMENTED** | Dev setup, sandbox isolation, scripts, debugging. |
+| [Deployment](DEPLOYMENT.md) | ✅ **IMPLEMENTED** | Docker-based deployment guide. |
+| [Getting Started](getting-started.md) | ✅ **IMPLEMENTED** | 5-minute quickstart. |
+| [Status](STATUS.md) | ✅ **IMPLEMENTED** | Full project history (Batch 1–10) and session changelog. Historical narrative; factual counts live in `current-state.md`. |
 
-## Decisions
+---
 
-| Document | Description |
-|---|---|
-| [Decisions Index](decisions/README.md) | Index of all 11 Architecture Decision Records |
-| [ADR-0001](decisions/0001-modular-monolith.md) | Modular monolith with hexagonal boundaries |
-| [ADR-0002](decisions/0002-command-query-event-buses.md) | Separate command, query, and event buses |
-| [ADR-0003](decisions/0003-plugin-subprocess-isolation.md) | All plugins run as subprocesses |
-| [ADR-0004](decisions/0004-websocket-asyncio-lock.md) | WebSocket concurrent patterns |
-| [ADR-0005](decisions/0005-jwt-rs256-auth.md) | JWT RS256 authentication and audit chain |
-| [ADR-0006](decisions/0006-task-queue-dual-impl.md) | Task queue, event store, DLQ, metrics retention |
-| [ADR-0007](decisions/0007-core-persistence-rename.md) | Rename app/storage to app/core/persistence |
-| [ADR-0008](decisions/0008-env-var-sandbox-isolation.md) | Environment-variable-driven sandbox isolation |
-| [ADR-0009](decisions/0009-pydantic-field-validator-for-domain-values.md) | Pydantic field validators for domain boundary defense |
-| [ADR-0010](decisions/0010-commit-per-step-discipline.md) | One concern per commit, no batch commits |
-| [ADR-0011](decisions/0011-orphan-reconciliation-ownership-verification.md) | Orphan reconciliation with ownership verification |
+## Planning & parking lot
+
+| Document | Status | Purpose |
+|----------|--------|---------|
+| [Feature Ideas](FEATURE_IDEAS.md) | 🟡 **BACKLOG** | Deferred feature requests and the marketplace exception record. |
+| [Permissions Future Ideas](PERMISSIONS_FUTURE_IDEAS.md) | 🟡 **BACKLOG** | Permission-model proposals and deferred decisions (WS trace, `/metrics`, registration bootstrap). |
+
+---
+
+## Sub-collections
+
+| Directory | Status | Purpose |
+|-----------|--------|---------|
+| [Decisions (ADRs)](decisions/README.md) | ✅ **IMPLEMENTED** | 12 Architecture Decision Records (ADR-0001 … ADR-0012). |
+| [Runtime](runtime/README.md) | ✅ **IMPLEMENTED** | Runtime subsystem deep-dives (reconciliation, ownership, supervision, recovery). |
+| [Reference](reference/) | ✅ **IMPLEMENTED** | Module map, dependency graph, event catalog, contract registry, file ownership. |
+
+---
+
+## Status legend
+
+| Symbol | Meaning |
+|--------|---------|
+| ✅ **IMPLEMENTED** | Describes current, verified behavior |
+| 🟡 **PLANNED** | Design reference for a future phase; nothing implemented |
+| ⏸️ **LEGACY** | Historical; superseded; kept for reference only |
+| 🟡 **BACKLOG** | Parking-lot; nothing committed |
+
+---
+
+## Cross-cutting claims (verified 2026-08-04)
+
+- **Version:** `4.0.0` (code) — planning docs that mention "7.1.0" are stale.
+- **Backend tests:** 1070 collected / 1068 passing / 2 pre-existing failures.
+- **Frontend tests:** 236 passing across 41 files.
+- **Routers:** 10 · **Migrations:** 16 · **ADRs:** 12 · **Contracts:** 6.
+- **Authorization:** 24 routes gated by `require_permission` (22 mutating + 2 read-only marketplace; `contracts/permissions.yaml` v1.4).
+- **Production DB:** `backend/data/servers/mcs.db`, 3 revisions behind head, 0 servers.
+- **CI:** frontend workflow only (no backend CI yet).
