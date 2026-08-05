@@ -411,7 +411,7 @@ server_manger/
 | WebSocket channel auth always denies (plural `servers:read` patterns vs singular `server:read` claims) | Every `subscribe` fails closed — no channel can ever be subscribed; server-push events never delivered (`EventDispatcher` never wired) | ⚠️ Verified 2026-08-02 — deferred to Phases 3–4 (see `PERMISSIONS_FUTURE_IDEAS.md` §4); tracked as K1/K2 in roadmap v2 (Phase 3) |
 | `PATCH /api/v1/settings` is a stub | Returns `{"success": true, "message": "Settings updated (stub)"}`; nothing persists | ⚠️ K3 in roadmap v2 Phase 3 |
 | Plugin `enable`/`disable` routes have no `require_permission` | Auth-only; only `uninstall` + marketplace routes gate on `plugin:manage` | ⚠️ K4 in roadmap v2 Phase 4 |
-| Marketplace not a first-class frontend section | No sidebar entry; reachable only from Plugins page Install button | ⚠️ K5 in roadmap v2 Phase 1 |
+| Marketplace not a first-class frontend section | ~~No sidebar entry; reachable only from Plugins page Install button~~ **Resolved 2026-08-06 (K5)** — own `/marketplace` route + sidebar entry + global search (`GET /api/v1/marketplace/search`) + install-time server picker | ✅ Done |
 | No backend CI workflow | Only `.github/workflows/frontend-ci.yml` exists; route-coverage not CI-enforced | ⚠️ K6 in roadmap v2 Phase 4 |
 
 ---

@@ -158,13 +158,19 @@ All under `/api/v1/servers/{server_id}/plugins` (see `docs/API.md`):
 
 ### 4.3 Routing
 
-- `App.tsx:40`: `<Route path="plugins/marketplace" element={<PluginMarketplacePage />} />`
-- Sidebar (`components/layout/Sidebar.tsx`): **no marketplace entry** — only
-  Dashboard / Servers / Backups / Plugins / Settings.
+- `App.tsx`: `<Route path="plugins/marketplace" element={<PluginMarketplacePage />} />` (kept) plus
+  top-level `<Route path="marketplace" element={<PluginMarketplacePage />} />` — the same page now
+  serves both, using the global search when not deep-linked with `?server=`.
+- Sidebar (`components/layout/Sidebar.tsx`): **Marketplace entry added (K5, 2026-08-06)** — now
+  Dashboard / Servers / Backups / Plugins / **Marketplace** / Settings, with a `store` glyph from
+  `components/ui/Icon.tsx`.
 
-**Net frontend gap (K5):** the marketplace is reachable only by going through a
-server's plugin list. It has no sidebar entry and no standalone navigation.
-Making it a first-class section is roadmap Phase 1.
+**Net frontend gap (K5): ✅ CLOSED (2026-08-06).** The marketplace is now a first-class section:
+its own sidebar entry and top-level `/marketplace` route, a global search endpoint
+(`GET /api/v1/marketplace/search`) separate from the server-scoped one, and a reworked install
+flow that lets the user pick a server at install time (pre-selecting by deep link → last-used
+server → first compatible → any server). Server-scoped `/plugins/marketplace` remains for
+installing within a specific server's context.
 
 ---
 
@@ -173,7 +179,7 @@ Making it a first-class section is roadmap Phase 1.
 | ID | Issue | Kind |
 |----|-------|------|
 | K4 | `enable`/`disable` routes use only `get_current_user`, no `require_permission` | Bug (should fix; Phase 4) |
-| K5 | Marketplace not a first-class frontend section (no sidebar, no standalone nav) | Feature (Phase 1) |
+| K5 | ~~Marketplace not a first-class frontend section (no sidebar, no standalone nav)~~ **Resolved 2026-08-06** — own `/marketplace` route + sidebar entry + global search + install-time server picker | Feature (Phase 1) |
 | K16 | Provider selection now config-driven via `MCS_PLUGIN_PROVIDERS` (K16A done 2026-08-05). Remaining: inspect configured list via API, add a second provider. | Architecture debt (Phase 1) |
 
 ---

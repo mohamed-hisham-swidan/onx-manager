@@ -161,11 +161,13 @@ At head (`c4d5e6f7a8b9`).
   (`bukkit/paper/purpur/spigot/folia`) remains inside `ModrinthProvider`.
 - Version selection: `select_best_version()` ranks exact game-version+loader →
   compatible parent loader → closest game version (never hard-blocks).
-- **Frontend status:** the marketplace exists only as `/plugins/marketplace`
-  reached from the Plugins page's Install button
-  (`?server=<id>`). It is **not** a first-class section: no sidebar entry, no
-  top-level route in `App.tsx` beyond the plugin page, no standalone nav item.
-  See `docs/plugins-and-marketplace.md`.
+- **Frontend status:** marketplace is a **first-class section (K5 done, 2026-08-06)** — own
+  top-level route (`/marketplace`, `App.tsx`) and sidebar entry with a `store` glyph
+  (`Icon.tsx`), plus a global search endpoint `GET /api/v1/marketplace/search`
+  (`useMarketplaceSearchGlobal`) distinct from the server-scoped one. The install flow reworked
+  into a global browse + server picker (pre-select: deep link → last-used server → first
+  compatible → any). The server-scoped `/plugins/marketplace` (`?server=<id>`) surface remains
+  for installs within a specific server's context. See `docs/plugins-and-marketplace.md`.
 
 ### 4.5 Task queue, monitoring, health (implemented; some stubs)
 
@@ -199,7 +201,7 @@ Classification used by `mcs-manager-roadmap-v2.md`:
 | K2 | `EventDispatcher`/`MetricsBatcher` never wired — no WS server-push | High | Bug (must fix) |
 | K3 | `PATCH /settings` stub — nothing persists | Medium | Bug (should fix) |
 | K4 | Plugin enable/disable routes use only `get_current_user` (no `require_permission`) | Medium | Bug (should fix) |
-| K5 | Marketplace is not a first-class frontend section (no sidebar entry, no standalone nav) | Medium | Feature (Phase 1) |
+| K5 | ~~Marketplace is not a first-class frontend section (no sidebar entry, no standalone nav)~~ **Resolved 2026-08-06** — own `/marketplace` route + sidebar entry + global search + install-time server picker | ~~Medium~~ | ~~Feature (Phase 1)~~ |
 | K6 | No backend CI workflow (only `frontend-ci.yml`); the permissions route-coverage matrix is not CI-enforced | High | Process (Phase 4) |
 | K7 | 13 mutating routes + 21 sensitive GET routes lack permission enforcement (per `contracts/permissions.yaml`) | High | Bug (Phase 4) |
 | K8 | `test_start_server` + `test_metrics_task_requires_collector` fail in the suite | Low | Test debt |

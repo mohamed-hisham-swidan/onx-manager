@@ -133,12 +133,18 @@ Plugins page's Install button). The intended model treats them as two distinct p
   no standalone install route outside marketplace — the old `POST /plugins` manual-install route
   was removed in `b1b6dd8` (2026-08-04).
 - Frontend: `PluginListPage` (server-scoped) and `PluginMarketplacePage` share the `/plugins`
-  namespace. Sidebar has no Marketplace entry (K5).
+  namespace. ✅ **K5 (2026-08-06):** Marketplace now has its own top-level route and sidebar entry —
+  see Workstream 1.
 
 **Workstreams**
 1. **Frontend nav restructure (K5).** Give Marketplace its own sidebar entry and top-level route
    (e.g. `/marketplace`) with its own search, project detail, and install flow. Document how the
-   two surfaces relate.
+   two surfaces relate. ✅ **K5 (2026-08-06):** Marketplace is now a first-class section. Global
+   search (`useMarketplaceSearchGlobal` → `GET /api/v1/marketplace/search`) is distinct from the
+   server-scoped search; the new `/marketplace` route and sidebar entry (`Icon.tsx` `store` glyph)
+   were added alongside the retained `/plugins/marketplace`, and the install flow reworked with a
+   server picker (server selection happens at install time, per the marketplace model above) that
+   pre-selects by deep link → last-used server → first compatible → any server.
 2. **Route/namespace clarity.** Decide whether marketplace API routes stay under
    `/servers/{server_id}/plugins/marketplace/*` or move to a marketplace-owned namespace (D4).
 3. **Provider abstraction (K16).** Make the catalog provider list inspectable/configurable
@@ -155,10 +161,11 @@ Plugins page's Install button). The intended model treats them as two distinct p
 **Dependencies:** none — backend marketplace already shipped.
 
 **Acceptance criteria**
-- Marketplace is independently navigable (own nav entry + route).
+- Marketplace is independently navigable (own nav entry + route). ✅ **Met by K5 (2026-08-06)** — Workstream 1.
 - Installing from Marketplace places a verified `.jar` in the selected server's `plugins/`
   directory; the reconciled list reflects it.
-- Plugin management reads as server-scoped; Marketplace reads as global.
+- Plugin management reads as server-scoped; Marketplace reads as global. ✅ **Met by K5** — global
+  search is a separate endpoint (`/api/v1/marketplace/search`) from the server-scoped one.
 - Provider list is configuration-driven, Modrinth default. ✅ **Met by K16A (2026-08-05)** — see Workstream 3.
 
 **Verification:** backend + frontend suites green; manual UX walk; frontend tests for both
