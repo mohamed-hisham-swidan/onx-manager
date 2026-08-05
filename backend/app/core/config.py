@@ -32,6 +32,7 @@ class AppSettings(BaseSettings):
     backup_encryption_key_path: str = ""
     storage_backend: str = "local"
     backup_storage_path: str = "data/backups"
+    plugin_providers: str = "modrinth"
     s3_bucket: str = ""
     s3_region: str = "us-east-1"
     s3_access_key_id: str = ""

@@ -149,7 +149,7 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 description="",
                 author="",
                 website="",
-                source="modrinth",
+                source=provider.name,
                 filename=plugin_file.filename,
                 external_project_id=command.project_id,
                 external_version_id=version.version_id,
@@ -167,7 +167,7 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
             "plugin_id": str(plugin_id),
             "version": version.version_number,
             "filename": plugin_file.filename,
-            "source": "modrinth",
+            "source": provider.name,
             "notice": selection.notice,
             "notice_kind": selection.notice_kind,
         }
@@ -185,7 +185,7 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
             try:
                 version = await provider.get_version(version_id)
             except (DownloadError, DownloadTimeoutError) as e:
-                raise ProviderError("modrinth", "fetch-version", str(e)) from e
+                raise ProviderError(provider.name, "fetch-version", str(e)) from e
             if version.project_id != project_id:
                 return VersionSelection(
                     selected=None,
@@ -198,7 +198,7 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
         try:
             versions = await provider.get_project_versions(project_id)
         except (DownloadError, DownloadTimeoutError) as e:
-            raise ProviderError("modrinth", "fetch-versions", str(e)) from e
+            raise ProviderError(provider.name, "fetch-versions", str(e)) from e
 
         return select_best_version(server_type, minecraft_version, versions)
 

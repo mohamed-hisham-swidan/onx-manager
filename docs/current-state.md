@@ -150,9 +150,15 @@ At head (`c4d5e6f7a8b9`).
   - `POST /marketplace/install` → download `.jar` to the server's `plugins/`
     folder with SHA-1/SHA-512 checksum verification + atomic write
 - Provider abstraction: `PluginCatalogProvider` ABC + `ModrinthProvider`
-  (`api.modrinth.com/v2`), factory `build_plugin_catalog_provider()` hardcoded
-  default `"modrinth"`. Hardcoded loader facet list
-  (`bukkit/paper/purpur/spigot/folia`).
+  (`api.modrinth.com/v2`). Provider selection is configuration-driven via
+  `MCS_PLUGIN_PROVIDERS` (default `"modrinth"`), validated at startup by
+  `build_plugin_catalog_provider()` / `validate_plugin_providers()` — unknown,
+  empty, or multiple configured providers fail fast. **K16A accepts exactly
+  one active provider.** The variable keeps comma-separated list syntax for
+  forward compatibility with the remaining K16 work (multiple providers), but
+  configuring more than one is currently rejected. Provider identity (`name`)
+  lives on the implementation. Hardcoded loader facet list
+  (`bukkit/paper/purpur/spigot/folia`) remains inside `ModrinthProvider`.
 - Version selection: `select_best_version()` ranks exact game-version+loader →
   compatible parent loader → closest game version (never hard-blocks).
 - **Frontend status:** the marketplace exists only as `/plugins/marketplace`
@@ -204,7 +210,7 @@ Classification used by `mcs-manager-roadmap-v2.md`:
 | K13 | `ArqQueue.get_status/get_result` stubs; schedules/alerts stubs | Low | Known limitation |
 | K14 | Backup `save-all` completion regex unverified against a real Purpur server | Low | Verify |
 | K15 | Repo-root `data/` directory (gitignored, unused, awaiting cleanup decision) | Low | Housekeeping |
-| K16 | Plugin marketplace provider list hardcoded to Modrinth (facet list, factory default) | Low | Architecture debt (Phase 1) |
+| K16 | Provider selection config-driven via `MCS_PLUGIN_PROVIDERS`, validated at startup (K16A done 2026-08-05). Remaining: inspect configured list via API, add a second provider. | Low | Architecture debt (Phase 1) |
 
 ---
 

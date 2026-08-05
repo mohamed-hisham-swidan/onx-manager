@@ -30,6 +30,8 @@ _PLUGIN_LOADER_FACETS = (
 
 
 class ModrinthProvider(PluginCatalogProvider):
+    name = "modrinth"
+
     async def search(
         self,
         query: str,

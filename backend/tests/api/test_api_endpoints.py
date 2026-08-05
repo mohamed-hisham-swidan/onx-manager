@@ -664,6 +664,8 @@ class TestPluginMarketplace:
         from app.modules.plugin.infrastructure.providers.base import PluginFile, PluginVersionInfo
 
         class _FakeProvider:
+            name = "modrinth"
+
             async def get_project_versions(self, _project_id: str) -> list[PluginVersionInfo]:
                 return [
                     PluginVersionInfo(

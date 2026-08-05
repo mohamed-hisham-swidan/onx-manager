@@ -59,6 +59,8 @@ class PluginSearchResult:
 
 
 class PluginCatalogProvider(ABC):
+    name: str = ""
+
     @abstractmethod
     async def search(
         self,

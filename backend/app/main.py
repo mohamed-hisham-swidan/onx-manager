@@ -31,6 +31,7 @@ from app.modules.server.application.services.filesystem_reconciliation import Fi
 from app.modules.server.application.migrate_import_arch import migrate_old_import_arch
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.core.persistence.db import database
+from app.modules.plugin.infrastructure.providers import validate_plugin_providers
 from app.websocket.endpoint import init_websocket, router as ws_router
 
 _start_time: float = 0.0
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
     register_handlers(command_bus, query_bus, event_bus)
     init_buses(command_bus, query_bus, event_bus)
     init_storage(settings)
+    validate_plugin_providers(settings.plugin_providers)
     init_http_client()
     init_websocket(event_bus)
 

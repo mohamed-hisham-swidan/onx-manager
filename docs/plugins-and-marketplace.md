@@ -74,10 +74,15 @@ mirrors the `StorageBackend` pattern:
 | `get_version(version_id)` | Single version |
 | `download(url, expected_sha1, expected_sha512)` | Download + checksum-verify |
 
-Factory: `build_plugin_catalog_provider(name="modrinth")` — the **only**
-registered provider is `ModrinthProvider` (`api.modrinth.com/v2`). The provider
-list is **hardcoded** to Modrinth today (loader facet list + factory default);
-making it configuration-driven is Phase 1 (provider abstraction, K16) of the roadmap.
+Factory: `build_plugin_catalog_provider(name=None, settings=None)` — provider selection is
+**configuration-driven** via `MCS_PLUGIN_PROVIDERS` (default `modrinth`); a value is validated at
+startup so an unknown, empty, **or multiple** configured providers fail fast. **K16A accepts
+exactly one active provider.** The variable uses comma-separated **list syntax** intentionally —
+preserved for forward compatibility with the remaining K16 work (multiple providers) — but K16A
+enforces a single provider, so list syntax must not currently be used to configure more than one.
+The only registered provider today is `ModrinthProvider` (`api.modrinth.com/v2`). Provider
+identity (`name`) lives on each provider implementation rather than in the application layer.
+See roadmap Phase 1 (K16).
 
 ### 3.2 Modrinth quirks handled
 
@@ -169,7 +174,7 @@ Making it a first-class section is roadmap Phase 1.
 |----|-------|------|
 | K4 | `enable`/`disable` routes use only `get_current_user`, no `require_permission` | Bug (should fix; Phase 4) |
 | K5 | Marketplace not a first-class frontend section (no sidebar, no standalone nav) | Feature (Phase 1) |
-| K16 | Provider list hardcoded to Modrinth (facet list + factory default) | Architecture debt (Phase 1) |
+| K16 | Provider selection now config-driven via `MCS_PLUGIN_PROVIDERS` (K16A done 2026-08-05). Remaining: inspect configured list via API, add a second provider. | Architecture debt (Phase 1) |
 
 ---
 

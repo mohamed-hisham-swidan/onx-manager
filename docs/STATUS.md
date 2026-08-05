@@ -470,6 +470,14 @@ server_manger/
 
 **Verification:** 984 backend tests (982 passing, 2 pre-existing env failures — `test_start_server` startup guard, `test_metrics_task_requires_collector` graceful handler), 148 frontend tests. Two broken historical rows (`19089a12…`, `85b82fbe…`) are known stale test artifacts with NULL `storage_path`, not an open bug.
 
+### K16A — Plugin Catalog Provider Configuration (2026-08-05)
+
+| Commit | What changed |
+|--------|-------------|
+| *(uncommitted)* | Provider selection is now configuration-driven via `MCS_PLUGIN_PROVIDERS` (default `modrinth`), validated at startup in `main.py` lifespan (fail-fast on unknown/empty/multiple providers). **K16A accepts exactly one active provider**; the variable's comma-separated list syntax is intentionally preserved for forward compatibility with the remaining K16 work (multiple providers). Provider identity (`name`) lives on `PluginCatalogProvider`/`ModrinthProvider`; the install handler no longer hardcodes `"modrinth"` for `source`/`ProviderError`. Factory `build_plugin_catalog_provider(name=None, settings=None)` builds from the `_PROVIDERS` registry (single source of truth). New tests: `tests/infrastructure/test_plugin_catalog_providers.py` (+14). |
+
+**Verification:** full backend suite — 1084 passed, 2 pre-existing env failures (`test_start_server`, `test_metrics_task_requires_collector`), unchanged from baseline. This is the first self-contained slice (K16A) of roadmap K16; remaining K16 work: inspecting the configured list via API + a second provider.
+
 ### Batch 9 — Authorization Coverage: Batch 1 (servers module) — 3 commits (2026-08-03)
 
 | Commit | Step | What changed |

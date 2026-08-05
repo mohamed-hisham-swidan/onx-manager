@@ -123,7 +123,9 @@ Plugins page's Install button). The intended model treats them as two distinct p
 
 **Current reality**
 - Backend: one router, `/api/v1/servers/{server_id}/plugins/*`, handles both plugin management and
-  marketplace (search / versions / install). Marketplace provider hardcoded to Modrinth (K16).
+  marketplace (search / versions / install). Provider selection is configuration-driven via
+  `MCS_PLUGIN_PROVIDERS` (default `modrinth`), validated fail-fast at startup (K16A done;
+  single-active-provider slice of K16).
 - Live route table (verified 2026-08-05): `GET /plugins`, `GET /plugins/{plugin_id}`,
   `DELETE /plugins/{plugin_id}`, `POST /plugins/{plugin_id}/enable`,
   `POST /plugins/{plugin_id}/disable`, `GET /plugins/marketplace/search`,
@@ -140,7 +142,13 @@ Plugins page's Install button). The intended model treats them as two distinct p
 2. **Route/namespace clarity.** Decide whether marketplace API routes stay under
    `/servers/{server_id}/plugins/marketplace/*` or move to a marketplace-owned namespace (D4).
 3. **Provider abstraction (K16).** Make the catalog provider list inspectable/configurable
-   (`MCS_PLUGIN_PROVIDERS`); Modrinth stays the default.
+   (`MCS_PLUGIN_PROVIDERS`); Modrinth stays the default. ✅ **K16A (2026-08-05):** provider
+   selection is configuration-driven and validated at startup; provider identity lives on the
+   provider implementation. **K16A accepts exactly one active provider** — the variable's
+   comma-separated **list syntax is intentionally preserved** for forward compatibility with the
+   remaining K16 work (multiple providers), but configuring more than one provider currently fails
+   fast at startup. Remaining under K16: inspecting the configured list via the API and adding a
+   second provider.
 4. **Foundation for future catalog features.** Checksums, version metadata, and dependency info
    already exist in the version-selection model — reuse them.
 
@@ -151,7 +159,7 @@ Plugins page's Install button). The intended model treats them as two distinct p
 - Installing from Marketplace places a verified `.jar` in the selected server's `plugins/`
   directory; the reconciled list reflects it.
 - Plugin management reads as server-scoped; Marketplace reads as global.
-- Provider list is configuration-driven, Modrinth default.
+- Provider list is configuration-driven, Modrinth default. ✅ **Met by K16A (2026-08-05)** — see Workstream 3.
 
 **Verification:** backend + frontend suites green; manual UX walk; frontend tests for both
 navigation surfaces.

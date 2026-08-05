@@ -44,6 +44,8 @@ def _version(version_number: str = "2.21.0") -> PluginVersionInfo:
 
 
 class _FakeProvider:
+    name = "modrinth"
+
     def __init__(self, version: PluginVersionInfo | None = None) -> None:
         self._version = version
         self.downloaded_url: str | None = None
