@@ -10,10 +10,11 @@ from app.api.errors import check_command_result
 from app.api.v1.schemas.plugin import (
     InstallModrinthPluginRequest,
     InstallModrinthPluginResponse,
+    PluginFileResponse,
     PluginResponse,
     PluginSearchResultResponse,
-    PluginVersionsResponse,
     PluginVersionResponse,
+    PluginVersionsResponse,
 )
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
@@ -28,11 +29,26 @@ from app.modules.plugin.application import (
 )
 from app.modules.plugin.application.services.version_selector import select_best_version
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
+from app.modules.plugin.infrastructure.providers.base import PluginVersionInfo
 from app.modules.server.application.queries.get_server import GetServerQuery
 
 router = APIRouter(prefix="/api/v1/servers/{server_id}/plugins", tags=["plugins"])
 
 __all__ = ["router"]
+
+
+def _to_version_response(v: PluginVersionInfo) -> PluginVersionResponse:
+    return PluginVersionResponse(
+        version_id=v.version_id,
+        project_id=v.project_id,
+        name=v.name,
+        version_number=v.version_number,
+        game_versions=v.game_versions,
+        loaders=v.loaders,
+        files=[PluginFileResponse(**f.__dict__) for f in v.files],
+        dependencies=v.dependencies,
+        date_published=v.date_published,
+    )
 
 
 @router.get("", response_model=list[PluginResponse])
@@ -71,7 +87,7 @@ async def get_project_versions(
     server = await query_bus.ask(GetServerQuery(server_id=server_id))
     provider = build_plugin_catalog_provider()
     versions = await provider.get_project_versions(project_id)
-    versions_response = [PluginVersionResponse(**v.__dict__) for v in versions]
+    versions_response = [_to_version_response(v) for v in versions]
 
     selected = None
     notice = ""
@@ -83,7 +99,7 @@ async def get_project_versions(
             versions=versions,
         )
         if selection.selected is not None:
-            selected = PluginVersionResponse(**selection.selected.__dict__)
+            selected = _to_version_response(selection.selected)
         notice = selection.notice
         notice_kind = selection.notice_kind
 

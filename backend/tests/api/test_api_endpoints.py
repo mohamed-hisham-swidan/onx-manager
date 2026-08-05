@@ -632,6 +632,60 @@ class TestPluginMarketplace:
         )
         assert resp.status_code == 403
 
+    async def test_marketplace_versions_returns_files(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
+        from app.modules.plugin.infrastructure.providers.base import PluginFile, PluginVersionInfo
+
+        class _FakeProvider:
+            async def get_project_versions(self, _project_id: str) -> list[PluginVersionInfo]:
+                return [
+                    PluginVersionInfo(
+                        version_id="v1",
+                        project_id="proj1",
+                        name="Build 1",
+                        version_number="1.0.0",
+                        game_versions=["1.21"],
+                        loaders=["paper"],
+                        files=[
+                            PluginFile(
+                                url="https://example.com/plug.jar",
+                                filename="plug.jar",
+                                size_bytes=10,
+                                sha1="a" * 40,
+                                primary=True,
+                            )
+                        ],
+                        dependencies=["dep"],
+                        date_published="2024-01-01T00:00:00Z",
+                    )
+                ]
+
+        server_id = created_server["server_id"]
+        with patch(
+            "app.api.v1.routers.plugins.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                f"/api/v1/servers/{server_id}/plugins/marketplace/projects/proj1/versions",
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["versions"]) == 1
+        version = data["versions"][0]
+        assert version["version_id"] == "v1"
+        assert version["files"] == [
+            {
+                "url": "https://example.com/plug.jar",
+                "filename": "plug.jar",
+                "size_bytes": 10,
+                "sha1": "a" * 40,
+                "sha512": "",
+                "primary": True,
+            }
+        ]
+
 
 class TestUsers:
     async def test_list_users(self, client: AsyncClient, auth_header: dict[str, str], created_user: dict) -> None:
