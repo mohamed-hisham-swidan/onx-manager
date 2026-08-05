@@ -260,6 +260,11 @@ export function createApiClient(
       request<PluginSearchResultResponse[]>(`/api/v1/servers/${serverId}/plugins/marketplace/search`, {
         params: { query, limit: limit?.toString(), offset: offset?.toString() },
       }),
+    // Global variant: server-independent marketplace search (no server_id in the path).
+    searchMarketplaceGlobal: (query: string, limit?: number, offset?: number) =>
+      request<PluginSearchResultResponse[]>(`/api/v1/marketplace/search`, {
+        params: { query, limit: limit?.toString(), offset: offset?.toString() },
+      }),
     getProjectVersions: (serverId: string, projectId: string) =>
       request<PluginVersionsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/projects/${projectId}/versions`),
     installFromMarketplace: (serverId: string, body: InstallModrinthPluginRequest) =>

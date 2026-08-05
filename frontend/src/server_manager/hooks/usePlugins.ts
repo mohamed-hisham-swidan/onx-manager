@@ -25,6 +25,15 @@ export function useMarketplaceSearch(serverId: string, query: string) {
   });
 }
 
+export function useMarketplaceSearchGlobal(query: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.plugins.marketplace.global(query),
+    queryFn: () => api.searchMarketplaceGlobal(query),
+    enabled: query.trim().length > 0,
+  });
+}
+
 export function useProjectVersions(serverId: string, projectId: string) {
   const api = useApi();
   return useQuery({

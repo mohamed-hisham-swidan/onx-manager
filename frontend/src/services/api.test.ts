@@ -79,6 +79,19 @@ describe("createApiClient", () => {
     expect(url).toContain("status=running");
   });
 
+  it("searchMarketplaceGlobal hits global endpoint with query params", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([{ project_id: "p1", title: "Test" }]));
+    const result = await api.searchMarketplaceGlobal("essentials", 10, 20);
+
+    const url = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(url).toContain("/api/v1/marketplace/search");
+    expect(url).toContain("query=essentials");
+    expect(url).toContain("limit=10");
+    expect(url).toContain("offset=20");
+    expect(result).toHaveLength(1);
+    expect(result[0].project_id).toBe("p1");
+  });
+
   it("throws ApiError on 4xx", async () => {
     const errBody = { error: "Not found", error_code: "NOT_FOUND", detail: null, timestamp: null };
     vi.mocked(fetch).mockImplementation(mockFetch(errBody, 404));
