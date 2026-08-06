@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 PACKET_LOGIN = 3
 PACKET_COMMAND = 2
+PACKET_AUTH_RESPONSE = 2
 PACKET_RESPONSE = 0
 
 
@@ -45,8 +46,8 @@ class AsyncRCONClient:
         self._request_id += 1
         req_id = self._request_id
         await self._send_packet(req_id, PACKET_LOGIN, self._password)
-        _, ptype, body = await self._read_packet()
-        if ptype == PACKET_RESPONSE and body == "":
+        resp_id, ptype, _ = await self._read_packet()
+        if ptype == PACKET_AUTH_RESPONSE and resp_id == req_id and resp_id != -1:
             return
         raise AuthenticationError("RCON authentication failed")
 
