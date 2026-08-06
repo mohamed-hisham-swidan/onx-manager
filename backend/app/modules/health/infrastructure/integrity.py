@@ -16,7 +16,11 @@ def _default_data_dir() -> Path:
     return Path(AppSettings().servers_data_dir)
 
 
-def _resolve_path(server_id: str) -> Path | None:
+def _resolve_path(server_id: str, root_path: str | None = None) -> Path | None:
+    if root_path:
+        p = Path(root_path)
+        if p.is_dir():
+            return p
     raw = resolve_server_dir(server_id)
     if raw:
         p = Path(raw)
@@ -32,9 +36,14 @@ def _resolve_path(server_id: str) -> Path | None:
 
 
 class FilesystemIntegrityChecker(IntegrityChecker):
-    async def check(self, server_id: str, scope: str = "full") -> IntegrityReport:
+    async def check(
+        self,
+        server_id: str,
+        scope: str = "full",
+        root_path: str | None = None,
+    ) -> IntegrityReport:
         checks: list[IntegrityCheck] = []
-        srvd = _resolve_path(server_id)
+        srvd = _resolve_path(server_id, root_path)
 
         if srvd is None:
             checks.append(IntegrityCheck(

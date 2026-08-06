@@ -6,6 +6,7 @@ import logging
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.exceptions import ServerNotRunningError
 from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.backup.application.restore_service import RestoreError, consume_pending_restore
@@ -21,6 +22,7 @@ from app.modules.server.application.logging_utils import (
 )
 from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
 from app.modules.server.application.supervisor import RuntimeSupervisor
+from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle, ServerRuntimeStatus
@@ -47,6 +49,8 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             repo: ServerRepository = SQLServerRepository(uow.session)
             server = await repo.get(server_id)
             server_name = server.name
+            if server.status not in (ServerStatus.RUNNING, ServerStatus.STARTING):
+                raise ServerNotRunningError(sid)
             server.stop(reason="restart")
             server.mark_stopped()
             await repo.save(server)

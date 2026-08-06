@@ -72,7 +72,10 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     server.name, server.runtime.external_id, sid,
                 )
 
-            guard_result = await check_startup_readiness(sid)
+            guard_result = await check_startup_readiness(
+                sid,
+                root_path=server.deployment.server_directory() if server.deployment else None,
+            )
             if not guard_result.allowed:
                 logger.warning(
                     'Startup guard blocked server="%s" — %s server_id=%s',

@@ -78,6 +78,36 @@ class LocalLinuxProvider(ServerProvider):
                 pids.append(int(pid_str))
         return pids
 
+    async def _find_jvms_by_cwd(self, server_dir: str) -> list[int]:
+        """Find Java processes whose working directory is ``server_dir``.
+
+        ``ps`` matching on the command line misses JVMs launched from a ``cd``
+        wrapper whose ``ps args`` no longer contain the directory path. Match
+        the real ``/proc/<pid>/cwd`` instead so a stray JVM holding the world
+        ``session.lock`` is found and cleaned up before a fresh start.
+        """
+        cwd = os.path.realpath(os.path.abspath(server_dir))
+        try:
+            returncode, stdout = await self._run_command_with_output(
+                "ps -e -o pid=,comm= | grep -i java | awk '{{print $1}}'",
+            )
+        except Exception:
+            return []
+        if returncode != 0 or not stdout.strip():
+            return []
+        found: list[int] = []
+        for line in stdout.strip().splitlines():
+            line = line.strip()
+            if not line.isdigit():
+                continue
+            pid = int(line)
+            try:
+                if os.path.realpath(f"/proc/{pid}/cwd") == cwd:
+                    found.append(pid)
+            except (OSError, FileNotFoundError):
+                continue
+        return found
+
     async def _kill_processes(self, pids: list[int]) -> None:
         for pid in pids:
             try:
@@ -146,6 +176,8 @@ class LocalLinuxProvider(ServerProvider):
         )
         await self._cleanup_stale_tmux(session_name)
         orphan_pids = await self._find_java_processes(server_dir)
+        orphan_pids.extend(await self._find_jvms_by_cwd(server_dir))
+        orphan_pids = list(dict.fromkeys(orphan_pids))
         if orphan_pids:
             logger.info(
                 "Phase 1/4: Cleaning %d orphan Java processes — server=%s dir=%s phase=cleanup",

@@ -30,7 +30,12 @@ class HealthCalculatorService(ABC):
 
 class IntegrityChecker(ABC):
     @abstractmethod
-    async def check(self, server_id: str, scope: str = "full") -> IntegrityReport:
+    async def check(
+        self,
+        server_id: str,
+        scope: str = "full",
+        root_path: str | None = None,
+    ) -> IntegrityReport:
         ...
 
 

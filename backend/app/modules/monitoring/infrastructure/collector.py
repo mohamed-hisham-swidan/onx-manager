@@ -107,7 +107,9 @@ def _collect_process_metrics(
     try:
         mem = proc.memory_info()
         ram_mb = mem.rss / (1024 * 1024)
-        cpu = proc.cpu_percent(interval=0.1) if fresh else proc.cpu_percent(interval=0)
+        raw_cpu = proc.cpu_percent(interval=0.1) if fresh else proc.cpu_percent(interval=0)
+        core_count = _psutil.cpu_count() or 1
+        cpu = raw_cpu / core_count
     except _PSUTIL_PROC_ERRORS:
         pass
     return ram_mb, cpu

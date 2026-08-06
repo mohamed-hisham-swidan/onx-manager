@@ -46,7 +46,7 @@ class TestFilesystemIntegrityChecker:
             with pytest.MonkeyPatch.context() as mp:
                 mp.setattr(
                     "app.modules.health.infrastructure.integrity._resolve_path",
-                    lambda _: srvd,
+                    lambda _, root_path=None: srvd,
                 )
                 report = await checker.check("srv-healthy")
 
@@ -62,7 +62,7 @@ class TestFilesystemIntegrityChecker:
             with pytest.MonkeyPatch.context() as mp:
                 mp.setattr(
                     "app.modules.health.infrastructure.integrity._resolve_path",
-                    lambda _: srvd,
+                    lambda _, root_path=None: srvd,
                 )
                 report = await checker.check("srv-nojar")
 
@@ -83,7 +83,7 @@ class TestFilesystemIntegrityChecker:
             with pytest.MonkeyPatch.context() as mp:
                 mp.setattr(
                     "app.modules.health.infrastructure.integrity._resolve_path",
-                    lambda _: srvd,
+                    lambda _, root_path=None: srvd,
                 )
                 report = await checker.check("srv-quick", scope="quick")
 

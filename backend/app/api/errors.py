@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _ERROR_STATUS_MAP: dict[str, int] = {
     "NOT_FOUND": 404,
+    "SERVER_NOT_RUNNING": 404,
     "CONFLICT": 409,
     "VALIDATION_ERROR": 422,
     "AUTHENTICATION_ERROR": 401,

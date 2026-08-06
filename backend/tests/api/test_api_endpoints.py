@@ -894,7 +894,7 @@ class TestEdgeCases:
             json={"command": "say hello"},
             headers=privileged_header,
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
     async def test_metrics_endpoint(self, client: AsyncClient) -> None:
         resp = await client.get("/metrics")

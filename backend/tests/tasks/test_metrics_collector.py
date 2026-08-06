@@ -31,12 +31,15 @@ def test_collect_process_metrics_fresh_pid_takes_real_cpu_sample() -> None:
     fake_proc.cpu_percent.return_value = 42.0
 
     with patch.object(mod, "_HAS_PSUTIL", True), \
-         patch.object(mod, "_psutil", MagicMock(Process=lambda _pid: fake_proc)):
+         patch.object(mod, "_psutil", MagicMock(
+             Process=lambda _pid: fake_proc,
+             cpu_count=lambda: 2,
+         )):
         cache: dict[int, tuple[float, object]] = {}
         ram_mb, cpu = mod._collect_process_metrics(777, cache)
 
     assert ram_mb == 300.0
-    assert cpu == 42.0
+    assert cpu == 21.0
     assert fake_proc.cpu_percent.call_args.kwargs == {"interval": 0.1}
     assert 777 in cache
 
@@ -50,12 +53,13 @@ def test_collect_process_metrics_cached_pid_uses_instant_baseline() -> None:
     fake_proc.memory_info.return_value = MagicMock(rss=1024 * 1024 * 300)
     fake_proc.cpu_percent.return_value = 7.0
 
-    with patch.object(mod, "_HAS_PSUTIL", True):
+    with patch.object(mod, "_HAS_PSUTIL", True), \
+         patch.object(mod, "_psutil", MagicMock(cpu_count=lambda: 2)):
         cache: dict[int, tuple[float, object]] = {777: (123.0, fake_proc)}
         ram_mb, cpu = mod._collect_process_metrics(777, cache)
 
     assert ram_mb == 300.0
-    assert cpu == 7.0
+    assert cpu == 3.5
     assert fake_proc.cpu_percent.call_args.kwargs == {"interval": 0}
 
 
@@ -71,12 +75,15 @@ def test_collect_process_metrics_stale_pid_refreshes_and_resamples() -> None:
     new_proc.cpu_percent.return_value = 12.0
 
     with patch.object(mod, "_HAS_PSUTIL", True), \
-         patch.object(mod, "_psutil", MagicMock(Process=lambda _pid: new_proc)):
+         patch.object(mod, "_psutil", MagicMock(
+             Process=lambda _pid: new_proc,
+             cpu_count=lambda: 2,
+         )):
         cache: dict[int, tuple[float, object]] = {777: (100.0, old_proc)}
         ram_mb, cpu = mod._collect_process_metrics(777, cache)
 
     assert ram_mb == 0.0
-    assert cpu == 12.0
+    assert cpu == 6.0
     assert new_proc.cpu_percent.call_args.kwargs == {"interval": 0.1}
 
 

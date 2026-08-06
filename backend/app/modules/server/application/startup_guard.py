@@ -13,7 +13,10 @@ class StartupGuardResult:
     warnings: list[str] = field(default_factory=list)
 
 
-async def check_startup_readiness(server_id: str) -> StartupGuardResult:
+async def check_startup_readiness(
+    server_id: str,
+    root_path: str | None = None,
+) -> StartupGuardResult:
     from app.modules.health.infrastructure.integrity import FilesystemIntegrityChecker
     from app.modules.health.infrastructure.environment import HostEnvironmentScanner
 
@@ -22,7 +25,7 @@ async def check_startup_readiness(server_id: str) -> StartupGuardResult:
 
     checker = FilesystemIntegrityChecker()
     try:
-        report = await checker.check(server_id, scope="quick")
+        report = await checker.check(server_id, scope="quick", root_path=root_path)
         if report.has_failures:
             for c in report.checks:
                 if c.status in ("fail", "error") and c.severity == "critical":

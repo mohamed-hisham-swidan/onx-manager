@@ -6,6 +6,7 @@ import logging
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.exceptions import ServerNotRunningError
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
     format_event,
@@ -14,6 +15,7 @@ from app.modules.server.application.logging_utils import (
 )
 from app.modules.server.application.runtime_ownership import _port_is_listening, _wait_for_port_free
 from app.modules.server.application.supervisor import RuntimeSupervisor
+from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle, ServerRuntimeStatus
@@ -42,6 +44,8 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
             repo: ServerRepository = SQLServerRepository(uow.session)
             server = await repo.get(server_id)
             server_name = server.name
+            if server.status not in (ServerStatus.RUNNING, ServerStatus.STARTING):
+                raise ServerNotRunningError(sid)
             server.stop(reason=command.reason)
             await repo.save(server)
             for event in server.collect_events():
