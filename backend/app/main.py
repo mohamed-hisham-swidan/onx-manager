@@ -221,6 +221,7 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ────────────────────────────────────────────────────────
     await scheduler.stop()
+    await metrics_collector.close()
     await close_http_client()
 
 

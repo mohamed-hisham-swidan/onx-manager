@@ -27,7 +27,9 @@ export function ServerMetricsCharts({ serverId }: ServerMetricsChartsProps) {
   const ramData = (metrics ?? []).map((m) => m.ram_used_mb);
   const cpuData = (metrics ?? []).map((m) => m.cpu_percent);
 
-  const current = metrics?.[metrics.length - 1];
+  const current = metrics?.length
+    ? metrics.reduce((latest, m) => (m.timestamp > latest.timestamp ? m : latest))
+    : undefined;
 
   const metricCards = [
     { label: "TPS", value: current?.tps?.toFixed(1) ?? "—", data: tpsData, color: "#22c55e", fillColor: "rgba(34, 197, 94, 0.1)" },

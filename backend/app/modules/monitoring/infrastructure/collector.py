@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from app.core.event_bus import DomainEvent, EventBus
 from app.core.persistence.db import database
 from app.modules.monitoring.domain.aggregate import MetricPoint
 from app.modules.monitoring.infrastructure.rcon_client import (
-    AsyncRCONClient,
+    PersistentRCONClient,
     parse_player_count,
     parse_tps,
 )
@@ -25,8 +27,13 @@ try:
     import psutil as _psutil
 
     _HAS_PSUTIL = True
+    _PSUTIL_PROC_ERRORS: tuple[type[BaseException], ...] = (
+        _psutil.NoSuchProcess,
+        _psutil.AccessDenied,
+        OSError,
+    )
 except ImportError:
-    pass
+    _PSUTIL_PROC_ERRORS = (OSError,)
 
 
 @dataclass
@@ -71,29 +78,47 @@ def _read_server_properties(properties_path: str) -> dict[str, str]:
     return result
 
 
-def _collect_process_metrics(pid: int) -> tuple[float, float]:
+def _collect_process_metrics(
+    pid: int, proc_cache: dict[int, tuple[float, Any]]
+) -> tuple[float, float]:
     ram_mb = 0.0
     cpu = 0.0
     if not _HAS_PSUTIL:
         return ram_mb, cpu
+    entry = proc_cache.get(pid)
+    proc: Any = None
+    fresh = False
+    if entry is not None:
+        cached_create_time, cached_proc = entry
+        try:
+            if cached_proc.is_running() and cached_proc.create_time() == cached_create_time:
+                proc = cached_proc
+            else:
+                proc_cache.pop(pid, None)
+        except _PSUTIL_PROC_ERRORS:
+            proc_cache.pop(pid, None)
+    if proc is None:
+        try:
+            proc = _psutil.Process(pid)
+            proc_cache[pid] = (proc.create_time(), proc)
+            fresh = True
+        except _PSUTIL_PROC_ERRORS:
+            return ram_mb, cpu
     try:
-        proc = _psutil.Process(pid)
         mem = proc.memory_info()
         ram_mb = mem.rss / (1024 * 1024)
-        cpu = proc.cpu_percent(interval=0)
-    except (_psutil.NoSuchProcess, _psutil.AccessDenied, OSError):
+        cpu = proc.cpu_percent(interval=0.1) if fresh else proc.cpu_percent(interval=0)
+    except _PSUTIL_PROC_ERRORS:
         pass
     return ram_mb, cpu
 
 
 async def _collect_rcon_metrics(
-    host: str, port: int, password: str
+    client: PersistentRCONClient,
 ) -> tuple[float, int]:
     tps = 20.0
     players = 0
-    client = AsyncRCONClient(host, port, password)
     try:
-        await client.connect()
         tps_response = await client.send_command("tps")
         parsed = parse_tps(tps_response)
         if parsed is not None:
@@ -101,9 +126,7 @@ async def _collect_rcon_metrics(
         list_response = await client.send_command("list")
         players = parse_player_count(list_response)
     except Exception as exc:
-        logger.debug("RCON metrics failed for %s:%d: %s", host, port, exc)
-    finally:
-        await client.close()
+        logger.debug("RCON metrics failed: %s", exc)
     return tps, players
 
 
@@ -111,6 +134,14 @@ class MetricsCollector:
     def __init__(self, event_bus: EventBus | None = None, known_servers: list[str] | None = None) -> None:
         self._event_bus = event_bus
         self._known_servers = known_servers or []
+        self._proc_cache: dict[int, tuple[float, Any]] = {}
+        self._rcon_clients: dict[str, PersistentRCONClient] = {}
+
+    async def close(self) -> None:
+        for client in self._rcon_clients.values():
+            with contextlib.suppress(Exception):
+                await client.close()
+        self._rcon_clients.clear()
 
     def set_known_servers(self, server_ids: list[str]) -> None:
         self._known_servers = list(server_ids)
@@ -130,7 +161,7 @@ class MetricsCollector:
                     pid = server.runtime.pid
 
                     if pid is not None:
-                        ram_used_mb, cpu_percent = _collect_process_metrics(pid)
+                        ram_used_mb, cpu_percent = _collect_process_metrics(pid, self._proc_cache)
 
                     rcon_host = server.runtime.host or "127.0.0.1"
                     rcon_port = 25575
@@ -147,9 +178,11 @@ class MetricsCollector:
                             rcon_password = props.get("rcon.password", "")
 
                     if rcon_password:
-                        rcon_tps, rcon_players = await _collect_rcon_metrics(
-                            rcon_host, rcon_port, rcon_password
-                        )
+                        client = self._rcon_clients.get(server_id)
+                        if client is None:
+                            client = PersistentRCONClient(rcon_host, rcon_port, rcon_password)
+                            self._rcon_clients[server_id] = client
+                        rcon_tps, rcon_players = await _collect_rcon_metrics(client)
                         tps = rcon_tps
                         players = rcon_players
 

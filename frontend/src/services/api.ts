@@ -69,6 +69,7 @@ interface RequestConfig {
   method?: string;
   body?: unknown;
   params?: Record<string, string | undefined>;
+  cache?: RequestCache;
 }
 
 function buildUrl(base: string, path: string, params?: Record<string, string | undefined>): string {
@@ -119,6 +120,7 @@ export function createApiClient(
         method: config.method ?? "GET",
         headers,
         body: config.body ? JSON.stringify(config.body) : undefined,
+        cache: config.cache ?? "no-store",
       });
     } catch {
       throw new ApiError(0, "NETWORK_ERROR", "Unable to reach server. Check your connection.");
@@ -135,6 +137,7 @@ export function createApiClient(
               method: config.method ?? "GET",
               headers,
               body: config.body ? JSON.stringify(config.body) : undefined,
+              cache: config.cache ?? "no-store",
             });
           } catch {
             throw new ApiError(0, "NETWORK_ERROR", "Unable to reach server. Check your connection.");

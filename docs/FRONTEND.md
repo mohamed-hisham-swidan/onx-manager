@@ -220,6 +220,21 @@ Invalidation events are derived from domain event types: `ServerCreated`/`Server
 - Structured error handling: `ApiError` with status, code, message, detail
 - Covers 35+ endpoints across auth, servers, backups, plugins, monitoring, users, settings, software catalog, and schedules
 
+### Metrics snapshot ordering contract
+
+`GET /api/v1/monitoring/metrics?server_id=...` (`getMetrics`) returns points in
+**newest-first** order — the backend query orders by `recorded_at DESC`
+(`backend/app/modules/monitoring/infrastructure/repository.py:get_series`).
+
+Consumers MUST NOT assume a fixed index (e.g. `[length - 1]`). The "current"
+value shown in the metric cards is derived in
+`ServerMetricsCharts.tsx` by selecting the point with the greatest `timestamp`
+via `reduce`, which is robust to either ordering. A past bug read
+`metrics[metrics.length - 1]` and displayed the *oldest* point in the window
+(all-zero defaults) instead of the newest live values.
+
+Regression coverage: `frontend/src/server_manager/components/ServerMetricsCharts.test.tsx`.
+
 ## Build Commands
 
 ```bash

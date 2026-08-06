@@ -179,7 +179,7 @@ class LocalLinuxProvider(ServerProvider):
 
         await asyncio.sleep(1)
 
-        pid = await self._get_tmux_pid(session_name)
+        pid = await self._resolve_server_pid(session_name)
 
         if pid is None:
             await self._run_command(f"tmux kill-session -t {session_name}")
@@ -374,6 +374,51 @@ class LocalLinuxProvider(ServerProvider):
             )
             return False
 
+    async def _resolve_server_pid(self, session_name: str) -> int | None:
+        """Return the PID of the actual JVM (java) process for a session.
+
+        ``tmux pane_pid`` is the wrapper shell (e.g. ``fish``/``bash``) that
+        launches the server. The Minecraft server itself runs as a descendant
+        ``java`` process. Find the nearest ``java`` descendant so recorded
+        PIDs (deployment_pid, metrics sampling) point at the real JVM rather
+        than the wrapper shell, which would otherwise report ~0 RAM/CPU.
+        """
+        pane_pid = await self._get_tmux_pid(session_name)
+        if pane_pid is None:
+            return None
+        descendants = await self._find_java_descendants(pane_pid)
+        if descendants:
+            return descendants[0]
+        return pane_pid
+
+    async def _find_java_descendants(self, root_pid: int, depth: int = 4) -> list[int]:
+        found: list[int] = []
+        seen: set[int] = set()
+        current = [root_pid]
+        for _ in range(depth):
+            children: list[int] = []
+            for pid in current:
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                returncode, stdout = await self._run_command_with_output(
+                    f"ps -o pid=,ppid=,comm= --ppid {pid} 2>/dev/null",
+                )
+                if returncode != 0 or not stdout.strip():
+                    continue
+                for line in stdout.strip().splitlines():
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue
+                    child_pid, comm = int(parts[0]), parts[-1]
+                    children.append(child_pid)
+                    if comm == "java":
+                        found.append(child_pid)
+            current = children
+            if not current:
+                break
+        return found
+
     async def _run_command(self, cmd: str) -> int:
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -459,7 +504,7 @@ class LocalLinuxProvider(ServerProvider):
         return False
 
     async def get_runtime_pid(self, handle: ServerHandle) -> int | None:
-        return await self._get_tmux_pid(handle.external_id)
+        return await self._resolve_server_pid(handle.external_id)
 
     async def verify_process(self, handle: ServerHandle) -> bool:
         session_name = handle.external_id

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 import struct
 
 logger = logging.getLogger(__name__)
@@ -87,28 +88,111 @@ class AsyncRCONClient:
             self._reader = None
 
 
+class PersistentRCONClient:
+    """Long-lived RCON connection reused across collection ticks.
+
+    The Minecraft server opens a fresh RCON session for every TCP connection
+    (logging "Thread RCON Client started / shutting down" each time). Keeping
+    one connection open avoids that reconnect churn and the small cost of
+    authenticating every poll. The connection is transparently re-established
+    if the server restarts or drops it.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        password: str,
+        timeout: float = 5.0,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+    ) -> None:
+        self._host = host
+        self._port = port
+        self._password = password
+        self._timeout = timeout
+        self._max_retries = max_retries
+        self._retry_delay = retry_delay
+        self._lock = asyncio.Lock()
+        self._client: AsyncRCONClient | None = None
+
+    @property
+    def is_connected(self) -> bool:
+        return self._client is not None and self._client._writer is not None
+
+    async def ensure_connected(self) -> AsyncRCONClient:
+        if self._client is not None and self._client._writer is not None:
+            return self._client
+        self._client = AsyncRCONClient(self._host, self._port, self._password, self._timeout)
+        try:
+            await self._client.connect()
+        except Exception:
+            self._client = None
+            raise
+        return self._client
+
+    async def send_command(self, command: str) -> str:
+        async with self._lock:
+            last_error: Exception | None = None
+            for attempt in range(self._max_retries):
+                try:
+                    client = await self.ensure_connected()
+                    return await client.send_command(command)
+                except Exception as exc:
+                    last_error = exc
+                    await self._close_unlocked()
+                    if attempt < self._max_retries - 1:
+                        await asyncio.sleep(self._retry_delay)
+            raise last_error if last_error is not None else RCONError("RCON send failed")
+
+    async def _close_unlocked(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+
+    async def close(self) -> None:
+        async with self._lock:
+            await self._close_unlocked()
+
+
+def _strip_mc_color_codes(text: str) -> str:
+    """Remove Minecraft color/format codes (``§`` + one hex/letter char)."""
+    return re.sub(r"\u00a7[0-9a-fk-or]", "", text)
+
+
+def _first_number(text: str) -> float | None:
+    match = re.search(r"\d+\.?\d*", text)
+    if match:
+        try:
+            return float(match.group(0))
+        except ValueError:
+            return None
+    return None
+
+
 def parse_tps(response: str) -> float | None:
-    for line in response.splitlines():
+    text = _strip_mc_color_codes(response)
+    for line in text.splitlines():
         line = line.strip()
         if line.startswith("TPS from last"):
-            parts = line.split(", ")
-            if parts:
-                last = parts[-1].strip()
-                try:
-                    return float(last)
-                except ValueError:
-                    pass
-        elif "Overall TPS" in line or "§e" in line:
-            import re
-            match = re.search(r"(\d+\.?\d*)", line.replace("§e", "").replace("§6", ""))
-            if match:
-                try:
-                    return float(match.group(1))
-                except ValueError:
-                    pass
+            # e.g. "TPS from last 5s, 1m, 5m, 15m: 20.0, 20.0, 20.0, 20.0"
+            # first value after the colon is the "last 5s" TPS.
+            after = line.split(":", 1)[1] if ":" in line else line
+            value = _first_number(after)
+            if value is not None:
+                return value
+            continue
+        if "Overall TPS" in line:
+            for sep in ("=", ":"):
+                if sep in line:
+                    value = _first_number(line.split(sep, 1)[1])
+                    if value is not None:
+                        return value
+            value = _first_number(line)
+            if value is not None:
+                return value
 
-    import re
-    match = re.search(r"avg\s*[=:]\s*([\d.]+)", response)
+    match = re.search(r"(?:avg|average)\s*[=:]\s*([\d.]+)", text, re.IGNORECASE)
     if match:
         try:
             return float(match.group(1))

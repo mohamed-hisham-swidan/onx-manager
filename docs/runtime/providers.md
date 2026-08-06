@@ -72,6 +72,47 @@ A module-level singleton `provider_factory` is created in `base.py` and populate
 - `collect_diagnostics()`: fetches last 300 log lines, runs `detect_failure()` from `patterns.py`.
 - Platform check: `is_linux()` returns `True` only on POSIX Linux.
 
+#### JVM PID resolution
+
+tmux's pane PID (`tmux display-message -p '#{pane_pid}'`) is the **wrapper shell**
+(`fish`/`bash`) spawned by the session, not the Minecraft Java process. Recording
+the pane PID as `deployment_pid` yields an almost-empty process (a few MB of RSS)
+and near-zero CPU/RAM in metrics, even though the server itself is healthy.
+
+To report the real runtime, `LocalLinuxProvider` resolves the actual JVM PID:
+
+- `_resolve_server_pid(session_name)` — reads the tmux pane PID, then walks the
+  child process tree (up to 4 levels deep via `ps -o pid=,ppid=,comm= --ppid`)
+  and returns the first descendant whose command name is `java`.
+- Falls back to the pane PID if no `java` descendant is found (e.g. a wrapper
+  or non-Java launcher).
+- `start()` waits ~1s for the JVM to spawn, then records the resolved PID in
+  `DeploymentResult.pid`.
+- `get_runtime_pid()` resolves the JVM PID the same way, so
+  `runtime_reconciliation` liveness checks (`kill(pid, 0)`) test the real process.
+
+Unit tests mock `_get_tmux_pid` with fake PIDs that do not exist as live
+processes, so the fallback path keeps them green while the real ps-walk is
+covered by live verification.
+
+## Process CPU sampling
+
+`MetricsCollector` caches `psutil.Process` objects keyed by PID so
+`cpu_percent()` deltas are computed against the previous sample. Two pitfalls
+are handled:
+
+- **Fresh PID** (a server just restarted, so a new JVM PID appears in the
+  cache): `psutil.cpu_percent(interval=0)` would return `0.0` for the first
+  tick because there is no baseline yet. The first sample instead uses
+  `interval=0.1` to block briefly and return a real reading, so the UI never
+  shows a misleading 0% right after a restart.
+- **Stale cache entry** (PID was reused or the process died): the entry is
+  validated via `is_running()` + `create_time()` equality, popped, and
+  re-created as a fresh sample.
+
+If `psutil` is unavailable (`_HAS_PSUTIL = False`), process metrics return
+zeros and RCON-based metrics continue to work.
+
 ### LocalWindowsProvider (`provider_type = "local_windows"`)
 
 - Uses PowerShell background jobs (`Start-Job` / `Stop-Job`).

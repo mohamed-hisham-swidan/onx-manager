@@ -326,6 +326,33 @@ This means `metric_points` rows can contain **functionally default values**
 even though the pipeline runs correctly — the data source (PID, RCON) may
 simply not be reachable for a given server.
 
+### Persistent RCON connections
+
+Every RCON TCP session makes the Minecraft server spawn a thread ("Thread RCON
+Client started / shutting down" in the console). The original
+`AsyncRCONClient` was created, authenticated, and closed on **every**
+collection tick, producing one connect/disconnect cycle per minute per server.
+
+`PersistentRCONClient` (`backend/app/modules/monitoring/infrastructure/rcon_client.py`)
+reuses a single long-lived TCP session instead:
+
+- `MetricsCollector` keeps a `dict[server_id, PersistentRCONClient]` and reuses
+  the client across ticks; the pool is torn down in `close()` on shutdown.
+- `ensure_connected()` returns the live client or transparently reconnects
+  (creating a fresh `AsyncRCONClient`, clearing it on auth failure).
+- `send_command()` serializes requests under an `asyncio.Lock`, retries up to
+  `max_retries` with backoff, and re-establishes the connection between
+  retries so a server restart or dropped socket self-heals without waiting for
+  the next tick.
+- `close()` and `_close_unlocked()` both release the socket exactly once.
+  `send_command` uses the unlocked variant to avoid re-acquiring the lock it
+  already holds — re-acquiring there caused a permanent deadlock (every cron
+  tick enqueued a task with `started_at` set but never completing).
+
+Connection state is intentionally short-lived in scope: the persistent client
+only survives the lifetime of the worker process (uvicorn reload drops it),
+which matches the single-worker deployment.
+
 ---
 
 ## Orphan Reconciliation Ownership Verification
