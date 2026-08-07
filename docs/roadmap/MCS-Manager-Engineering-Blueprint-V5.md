@@ -1809,7 +1809,7 @@ explicitly because it is exactly the failure mode that produced v2 → v3 → V4
 
 ---
 
-## 2. Phase 1 — Plugins / Marketplace Separation 🔄 NEARING CLOSE
+## 2. Phase 1 — Plugins / Marketplace Separation ✅ CLOSED — 2026-08-07
 
 ### 2.1 Objective
 
@@ -1863,10 +1863,10 @@ None — backend marketplace already shipped before this phase started.
 | Criterion | Status |
 |---|---|
 | Marketplace independently navigable (own nav entry + route) | ✅ Met per K5 (2026-08-06) |
-| Installing from Marketplace places a verified `.jar` in the selected server's `plugins/`; reconciled list reflects it | 🔶 Not explicitly confirmed — verify in §2.6 |
+| Installing from Marketplace places a verified `.jar` in the selected server's `plugins/`; reconciled list reflects it | ✅ Met — verified via install_modrinth_plugin.py + test_install_modrinth_plugin.py, 2026-08-07 |
 | Plugin management reads server-scoped; Marketplace reads global | ✅ Met per K5 — separate search endpoints |
 | Provider list configuration-driven, Modrinth default | ✅ Met per K16A (2026-08-05) |
-| D4 (route namespace) resolved | 🔶 Open |
+| D4 (route namespace) resolved | ✅ Resolved — marketplace.py registered under /api/v1/marketplace prefix |
 
 ### 2.6 What's actually left before this phase can close
 
@@ -1898,7 +1898,7 @@ frontend tests for both server-scoped and global marketplace search paths.
 
 ---
 
-## 3. Phase 2 — Product Foundation & UI Stabilization 🔶
+## 3. Phase 2 — Product Foundation & UI Stabilization 🔄 IN PROGRESS — workstreams 1/2/3/4/6 complete, workstream 5 (WebSocket surface honesty) next
 
 ### 3.1 Objective
 
