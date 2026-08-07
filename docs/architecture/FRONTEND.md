@@ -120,10 +120,31 @@ All forms use native React controlled components through TanStack Query mutation
 | `/backups` | `BackupListPage` | Backup table, create/restore/schedule |
 | `/plugins` | `PluginListPage` | Plugin table, install/enable/disable; Install → marketplace |
 | `/plugins/marketplace` | `PluginMarketplacePage` | Modrinth catalog: search, versions, install (reached with `?server=<id>`) |
+| `/marketplace` | `PluginMarketplacePage` | Alias for `/plugins/marketplace` (added for K5); renders the same catalog |
 | `/settings` | `SettingsPage` | Global application settings |
 | `/settings/api-keys` | `ApiKeysPage` | API key management |
 
 All authenticated routes are wrapped in `AuthGuard` (`frontend/src/components/guards/AuthGuard.tsx`) which redirects to `/login` if `isAuthenticated` is false. Each page is wrapped in `ErrorBoundary` for isolated error handling.
+
+### Route-by-Route State Matrix
+
+| Route | Loading | Error | Empty | Stale/Refetch | Notes |
+|---|---|---|---|---|---|
+| `/login` | N/A — inline "Signing in..." button state | Inline red div (form submit) | N/A — static form | N/A | Inline error is an in-form submit error, not a full-page fetch error — intentional, not ErrorState |
+| `/register` | N/A — inline "Creating account..." button | Inline red div (form submit) | N/A — static form | N/A | Same intentional in-form pattern as `/login` |
+| `/` (index) | `Skeleton` header + dashboard cards | `ErrorState` | `EmptyState` (no servers) | Polls/refetches on navigation | Recent Activity section uses `EmptyState` when no events |
+| `/servers` | `TableSkeleton` (inside body, after PageHeader) | `ErrorState` | `EmptyState` (no servers yet) | TanStack Query refetch | PageHeader rendered unconditionally (reference pattern) |
+| `/servers/create` | Inline "Loading versions..." text for version step | `ErrorState` (failed to load versions) | "No versions available." inline text | N/A — wizard state | Multi-step wizard; loading/empty for versions step use inline text, not skeletons |
+| `/servers/import` | Inline "Scanning..."/"Importing..." button text | Inline red div (scan/import submit) | N/A — static form | N/A | Console-style form; inline errors only, no ErrorState/EmptyState |
+| `/servers/:serverId` | `Skeleton` header + detail cards | `ErrorState` (non-404) | Inline "Server not found" block (404) | Refetch on tab switch | 404 distinguishes a missing record from a backend failure; no EmptyState used |
+| `/backups` | `TableSkeleton` (after PageHeader) | `ErrorState` | `EmptyState` (no backups) | TanStack Query refetch | Filter that matches nothing also falls back to `EmptyState` |
+| `/plugins` | `TableSkeleton` (after server selected) | `ErrorState` | Two `EmptyState` variants: no server selected / no plugins installed | Refetch on server change | Server-gated; empty before a server is chosen |
+| `/plugins/marketplace` | `TableSkeleton` (search + versions) | `ErrorState` (search / versions) | Multiple `EmptyState` (search prompt, zero results, no versions, no servers) | Manual search submit | Multi-stage catalog (search → versions → target server) |
+| `/marketplace` | Same as `/plugins/marketplace` | Same as `/plugins/marketplace` | Same as `/plugins/marketplace` | Same as `/plugins/marketplace` | K5 alias; identical component and behavior |
+| `/settings` | `Skeleton` header + cards | `ErrorState` | `ErrorState` for `!settings` (post-fix `9c4e934`) | TanStack Query refetch | Missing/null payload now renders `ErrorState` — no legitimate empty state for a singleton config |
+| `/settings/api-keys` | `TableSkeleton` (inside body, after PageHeader) | `ErrorState` | `EmptyState` (no API keys) | TanStack Query refetch | PageHeader kept visible during loading (post-fix `564fc0a`) |
+
+All 13 routes (12 original + the `/marketplace` alias) are covered above. Nine routes use the shared `ErrorState`/`EmptyState`/`TableSkeleton`/`Skeleton` primitives for their fetch-driven states (`/`, `/servers`, `/servers/:serverId`, `/backups`, `/plugins`, `/plugins/marketplace`, `/marketplace`, `/settings`, `/settings/api-keys`), with `/servers/:serverId` additionally using a bespoke 404 block for missing records. The four routes that rely on custom inline patterns instead are the auth flows (`/login`, `/register` — in-form submit errors) and the wizard/console-style flows (`/servers/create`, `/servers/import` — inline loading/empty/error text). This split — 9 primitive-based routes vs. 4 intentionally inline form routes — informs workstream 2 (shared primitives) but is recorded here as an observation only, not a backlog item.
 
 ### UI Conventions
 
