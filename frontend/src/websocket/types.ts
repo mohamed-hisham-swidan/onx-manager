@@ -110,6 +110,26 @@ export interface WSChannelSubscription {
 }
 
 // ---------------------------------------------------------------------------
+// Per-Channel Subscription State
+// ---------------------------------------------------------------------------
+
+export enum ChannelStatus {
+  UNSUBSCRIBED = "unsubscribed",
+  SUBSCRIBING = "subscribing",
+  SUBSCRIBED = "subscribed",
+  REJECTED = "rejected",
+  RETRYING = "retrying",
+}
+
+export interface ChannelState {
+  channel: string;
+  status: ChannelStatus;
+  authorized: boolean;
+  error?: string;
+  retryCount: number;
+}
+
+// ---------------------------------------------------------------------------
 // Event Handlers
 // ---------------------------------------------------------------------------
 
