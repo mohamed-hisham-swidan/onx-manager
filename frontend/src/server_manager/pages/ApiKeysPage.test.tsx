@@ -61,6 +61,12 @@ describe("ApiKeysPage", () => {
     expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
+  it("keeps the PageHeader visible during loading", () => {
+    mockIsLoading = true;
+    renderPage();
+    expect(screen.getByText("API Keys")).toBeInTheDocument();
+  });
+
   it("shows error on failure", () => {
     mockError = new Error("Keys failed");
     renderPage();

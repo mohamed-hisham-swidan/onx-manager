@@ -44,8 +44,6 @@ export function ApiKeysPage() {
     setRevokeTarget(null);
   };
 
-  if (isLoading) return <TableSkeleton rows={4} cols={4} />;
-
   return (
     <div>
       <PageHeader
@@ -63,6 +61,10 @@ export function ApiKeysPage() {
         }
       />
 
+      {isLoading ? (
+        <TableSkeleton rows={4} cols={4} />
+      ) : (
+        <>
       {error && (
         <ErrorState className="mb-6" message={error instanceof Error ? error.message : "Failed to load API keys"} />
       )}
@@ -169,6 +171,8 @@ export function ApiKeysPage() {
             }
           />
         )
+      )}
+      </>
       )}
 
       <ConfirmDialog
