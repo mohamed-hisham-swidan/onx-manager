@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ApiError } from "@/services/api";
 import { ServerDetailPage } from "./ServerDetailPage";
 
 const mockServer = {
@@ -98,16 +99,24 @@ describe("ServerDetailPage", () => {
     expect(screen.getByText("Online")).toBeInTheDocument();
   });
 
-  it("shows error message on error", () => {
+  it("shows error message on transient error", () => {
     mockError = new Error("Failed to load");
     renderPage();
     expect(screen.getByText("Failed to load")).toBeInTheDocument();
   });
 
-  it("shows not found when no data", () => {
+  it("shows not-found state with a link back to servers when data is empty", () => {
     mockData = null;
     renderPage();
-    expect(screen.getByText("Server not found.")).toBeInTheDocument();
+    expect(screen.getByText("Server not found")).toBeInTheDocument();
+    expect(screen.getByText("Back to Servers")).toBeInTheDocument();
+  });
+
+  it("shows not-found state (not a generic error) on a 404 response", () => {
+    mockError = new ApiError(404, "NOT_FOUND", "Request failed with status 404");
+    renderPage();
+    expect(screen.getByText("Server not found")).toBeInTheDocument();
+    expect(screen.queryByText("Request failed with status 404")).not.toBeInTheDocument();
   });
 
   it("shows info tab by default with grouped fields", () => {

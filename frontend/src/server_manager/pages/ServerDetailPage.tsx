@@ -10,6 +10,7 @@ import { ServerConfigEditor } from "@/server_manager/components/ServerConfigEdit
 import { ServerConsole } from "@/server_manager/components/ServerConsole";
 import { ServerMetricsCharts } from "@/server_manager/components/ServerMetricsCharts";
 import { toast } from "@/stores/toastStore";
+import { ApiError } from "@/services/api";
 import type { ServerDetailResponse } from "@/server_manager/types";
 
 function errorMessage(error: unknown): string {
@@ -77,7 +78,9 @@ export function ServerDetailPage() {
     );
   }
 
-  if (error) {
+  const isNotFound = error instanceof ApiError && error.status === 404;
+
+  if (error && !isNotFound) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
         {error instanceof Error ? error.message : "Failed to load server details"}
@@ -85,10 +88,20 @@ export function ServerDetailPage() {
     );
   }
 
-  if (!server) {
+  if (isNotFound || !server) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
-        Server not found.
+      <div className="rounded-xl border border-gray-200 bg-white p-6 text-center dark:border-gray-700 dark:bg-gray-800">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Server not found</h2>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+          This server does not exist or may have been deleted.
+        </p>
+        <Link
+          to="/servers"
+          className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+        >
+          <Icon name="chevron-left" size={16} />
+          Back to Servers
+        </Link>
       </div>
     );
   }
