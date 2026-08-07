@@ -27,7 +27,6 @@ vi.mock("@/server_manager/hooks/useSettings", () => ({
     isLoading: mockIsLoading,
     error: mockError,
   })),
-  useUpdateSettings: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
 }));
 
 function renderPage() {
@@ -73,8 +72,33 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Event Bus & Sagas")).toBeInTheDocument();
   });
 
-  it("renders save button", () => {
+  it("shows a read-only banner and no false save success", () => {
     renderPage();
-    expect(screen.getByText("Save Settings")).toBeInTheDocument();
+    expect(
+      screen.getByText(/read-only/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/settings saved successfully\./i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Save Settings")).not.toBeInTheDocument();
+  });
+
+  it("renders the settings controls as disabled", () => {
+    const { container } = renderPage();
+    for (const name of [
+      "app_name",
+      "log_level",
+      "debug",
+      "rate_limit_per_minute",
+      "idempotency_ttl_hours",
+      "circuit_breaker_max_failures",
+      "circuit_breaker_timeout_seconds",
+      "event_bus_retry_attempts",
+      "saga_timeout_seconds",
+    ]) {
+      const el = container.querySelector(`[name="${name}"]`) as HTMLInputElement | HTMLSelectElement | null;
+      expect(el, `expected a disabled control for ${name}`).not.toBeNull();
+      expect(el?.disabled, `${name} should be disabled`).toBe(true);
+    }
   });
 });

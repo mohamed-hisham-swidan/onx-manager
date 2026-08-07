@@ -1,33 +1,8 @@
-import { useState } from "react";
-import { useSettings, useUpdateSettings } from "@/server_manager/hooks/useSettings";
+import { useSettings } from "@/server_manager/hooks/useSettings";
 import { Skeleton } from "@/components/Skeleton";
 
 export function SettingsPage() {
   const { data: settings, isLoading, error } = useSettings();
-  const updateSettings = useUpdateSettings();
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setMessage(null);
-    const form = new FormData(e.currentTarget);
-    try {
-      await updateSettings.mutateAsync({
-        app_name: form.get("app_name") as string,
-        debug: (form.get("debug") as string) === "true",
-        log_level: form.get("log_level") as string,
-        rate_limit_per_minute: Number(form.get("rate_limit_per_minute")),
-        idempotency_ttl_hours: Number(form.get("idempotency_ttl_hours")),
-        circuit_breaker_max_failures: Number(form.get("circuit_breaker_max_failures")),
-        circuit_breaker_timeout_seconds: Number(form.get("circuit_breaker_timeout_seconds")),
-        event_bus_retry_attempts: Number(form.get("event_bus_retry_attempts")),
-        saga_timeout_seconds: Number(form.get("saga_timeout_seconds")),
-      });
-      setMessage({ type: "success", text: "Settings saved successfully." });
-    } catch (err) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to save settings." });
-    }
-  };
 
   if (isLoading) {
     return (
@@ -58,7 +33,16 @@ export function SettingsPage() {
     <div>
       <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6">Settings</h2>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <div
+        role="status"
+        className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300"
+      >
+        Settings are <strong>read-only</strong> in this build — they are not persisted yet. Values
+        below are loaded from the server's current configuration. Saving edits is not available until
+        settings persistence is implemented.
+      </div>
+
+      <div className="space-y-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
           <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">General</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -66,6 +50,8 @@ export function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">App Name</label>
               <input
                 name="app_name"
+                disabled
+                title="Read-only — settings persistence is not implemented in this build"
                 defaultValue={settings.app_name}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -74,6 +60,8 @@ export function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Log Level</label>
               <select
                 name="log_level"
+                disabled
+                title="Read-only — settings persistence is not implemented in this build"
                 defaultValue={settings.log_level}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
@@ -87,6 +75,8 @@ export function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Debug Mode</label>
               <select
                 name="debug"
+                disabled
+                title="Read-only — settings persistence is not implemented in this build"
                 defaultValue={settings.debug ? "true" : "false"}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
@@ -104,6 +94,8 @@ export function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rate Limit (per minute)</label>
               <input
                 name="rate_limit_per_minute"
+                disabled
+                title="Read-only — settings persistence is not implemented in this build"
                 type="number"
                 defaultValue={settings.rate_limit_per_minute}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -113,6 +105,8 @@ export function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Idempotency TTL (hours)</label>
               <input
                 name="idempotency_ttl_hours"
+                disabled
+                title="Read-only — settings persistence is not implemented in this build"
                 type="number"
                 defaultValue={settings.idempotency_ttl_hours}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -128,6 +122,8 @@ export function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Failures</label>
               <input
                 name="circuit_breaker_max_failures"
+                disabled
+                title="Read-only — settings persistence is not implemented in this build"
                 type="number"
                 defaultValue={settings.circuit_breaker_max_failures}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -137,6 +133,8 @@ export function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Timeout (seconds)</label>
               <input
                 name="circuit_breaker_timeout_seconds"
+                disabled
+                title="Read-only — settings persistence is not implemented in this build"
                 type="number"
                 defaultValue={settings.circuit_breaker_timeout_seconds}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -152,6 +150,8 @@ export function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Event Bus Retry Attempts</label>
               <input
                 name="event_bus_retry_attempts"
+                disabled
+                title="Read-only — settings persistence is not implemented in this build"
                 type="number"
                 defaultValue={settings.event_bus_retry_attempts}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -161,6 +161,8 @@ export function SettingsPage() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Saga Timeout (seconds)</label>
               <input
                 name="saga_timeout_seconds"
+                disabled
+                title="Read-only — settings persistence is not implemented in this build"
                 type="number"
                 defaultValue={settings.saga_timeout_seconds}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -169,20 +171,7 @@ export function SettingsPage() {
           </div>
         </div>
 
-        {message && (
-          <p className={`text-sm ${message.type === "success" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-            {message.text}
-          </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={updateSettings.isPending}
-          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
-        >
-          {updateSettings.isPending ? "Saving..." : "Save Settings"}
-        </button>
-      </form>
+      </div>
     </div>
   );
 }
