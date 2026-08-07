@@ -1940,7 +1940,11 @@ features**.
 
 1. **Navigation & IA**, on Phase 1's restructure, including the post-K5 refresh in §3.2.
 2. **Shared loading/error/empty primitives**, applied repo-wide — one set of components, not
-   per-page reinvention.
+   per-page reinvention. ✅ Done per independent code audit 2026-08-07 — all 9 primitive-consuming
+   routes already import one canonical implementation each of `ErrorState`/`EmptyState`/`Skeleton`
+   (table) from `@/components/`; the 4 inline-form routes are an intentional distinct pattern (in-form
+   validation vs. full-page fetch errors), not a gap. Minor open item: `ErrorState.tsx` has no
+   dedicated unit test (covered transitively by page-level tests) — non-blocking.
 3. **API client + TanStack Query configuration audit** — one query-client config; consistent
    staleTime; cacheTime; retry policy across queries rather than ad hoc per-hook settings.
 4. **Settings page accuracy** relative to actual persistence — every control either persists or is
