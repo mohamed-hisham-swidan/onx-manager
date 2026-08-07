@@ -3009,14 +3009,14 @@ committed is new and labeled.
 
 ## 1. Networking design expansion
 
-### 1.1 The four axes (fact, from `network-access-design.md`)
+### 1.1 The four axes (fact, from `docs/architecture/network-access-design.md`)
 
 Tunnel, DNS, exposure, authentication are **four independent axes**, deliberately separated. A common
 failure is treating them as one "remote access" feature; the committed design separates them.
 
 ### 1.2 Provider selection criteria (new, `[new]`)
 
-Phase 7 requires simultaneous `TunnelProvider` and `DnsProvider` interfaces (see `network-access-design.md` §3.1
+Phase 7 requires simultaneous `TunnelProvider` and `DnsProvider` interfaces (see `docs/architecture/network-access-design.md` §3.1
 — `start()/stop()` and `ensure_record()`/`delete_record()`). The terms the system must judge:
 
 - **Stability & official-API support** only — never browser automation or scraping (committed
@@ -3026,7 +3026,7 @@ Phase 7 requires simultaneous `TunnelProvider` and `DnsProvider` interfaces (see
 - **No preselection** — evaluation + rationale recorded before wiring; switching must not change app
   code (committed boundary 6).
 
-### 1.3 Exposure matrix (fact, from `network-access-design.md`)
+### 1.3 Exposure matrix (fact, from `docs/architecture/network-access-design.md`)
 
 | Axis | What's exposed | Auth model |
 |------|----------------|------------|
@@ -3036,7 +3036,7 @@ Phase 7 requires simultaneous `TunnelProvider` and `DnsProvider` interfaces (see
 Must be **two independent toggles**, separate tunnels, separate endpoints, separate security
 defaults — never gated together, never presented as one decision (committed boundary 3).
 
-### 1.4 Tunnel ≠ Authentication (fact, `network-access-design.md` §2.1)
+### 1.4 Tunnel ≠ Authentication (fact, `docs/architecture/network-access-design.md` §2.1)
 
 Terminate the tunnel **in front of** the existing FastAPI middleware stack
 (`AuthMiddleware → AuditMiddleware → RateLimitMiddleware`), never around it. A tunnel adds **no

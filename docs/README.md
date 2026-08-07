@@ -49,6 +49,7 @@ listed with their status so it is always clear what is implemented vs planned.
 | [Deployment](DEPLOYMENT.md) | ✅ **IMPLEMENTED** | Docker-based deployment guide. |
 | [Getting Started](getting-started.md) | ✅ **IMPLEMENTED** | 5-minute quickstart. |
 | [Status & History](status/history.md) | ✅ **IMPLEMENTED** | Full project history (Batch 1–10) and session changelog. Historical narrative; factual counts live in `current-state.md`. |
+| [Contributing](CONTRIBUTING.md) | ✅ **IMPLEMENTED** | Contribution workflow, code conventions, git conventions, cross-batch protocol. |
 
 ---
 

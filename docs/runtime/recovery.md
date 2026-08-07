@@ -6,7 +6,7 @@ This document covers runtime failure scenarios and how the system recovers — b
 
 ### Server Process Crashes
 
-When `RuntimeSupervisor` detects a crash (see [Supervision](supervision.md#crash-handling)):
+When `RuntimeSupervisor` detects a crash (see [Supervision](supervision.md#crash-handling-_handle_crash)):
 
 1. **Crash diagnostics** are collected: last 300 log lines, PID, exit code, failure code/reason.
 2. **OS resources cleaned**: the tmux session is killed.
