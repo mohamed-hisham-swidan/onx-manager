@@ -25,7 +25,7 @@ export function SettingsPage() {
   }
 
   if (!settings) {
-    return <p className="text-gray-500 dark:text-gray-400">Settings not available.</p>;
+    return <ErrorState message="Settings not available" />;
   }
 
   return (

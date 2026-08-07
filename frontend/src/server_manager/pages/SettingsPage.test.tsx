@@ -17,7 +17,7 @@ const mockSettings = {
   saga_timeout_seconds: 300,
 };
 
-let mockData = mockSettings;
+let mockData: typeof mockSettings | null = mockSettings;
 let mockIsLoading = false;
 let mockError: Error | null = null;
 
@@ -62,6 +62,12 @@ describe("SettingsPage", () => {
     mockError = new Error("Settings failed");
     renderPage();
     expect(screen.getByText("Settings failed")).toBeInTheDocument();
+  });
+
+  it("shows ErrorState when settings payload is missing", () => {
+    mockData = null;
+    renderPage();
+    expect(screen.getByRole("alert")).toHaveTextContent("Settings not available");
   });
 
   it("renders setting sections", () => {
