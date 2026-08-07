@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { StatCard } from "@/components/ui/StatCard";
 import { EmptyState } from "@/components/EmptyState";
+import { ErrorState } from "@/components/ErrorState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
 import { CreateBackupDialog } from "@/server_manager/components/CreateBackupDialog";
@@ -114,9 +115,7 @@ export function BackupListPage() {
       {isLoading ? (
         <TableSkeleton rows={6} cols={6} />
       ) : error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          {error instanceof Error ? error.message : "Failed to load backups"}
-        </div>
+        <ErrorState message={error instanceof Error ? error.message : "Failed to load backups"} />
       ) : backups && backups.length === 0 ? (
         <EmptyState
           icon="backup"

@@ -5,6 +5,7 @@ import { usePluginsList, useEnablePlugin, useDisablePlugin, useUninstallPlugin }
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/EmptyState";
+import { ErrorState } from "@/components/ErrorState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
@@ -122,9 +123,7 @@ export function PluginListPage() {
       ) : isLoading ? (
         <TableSkeleton rows={4} cols={4} />
       ) : error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          {error instanceof Error ? error.message : "Failed to load plugins"}
-        </div>
+        <ErrorState message={error instanceof Error ? error.message : "Failed to load plugins"} />
       ) : plugins && plugins.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
           <table className="w-full text-sm">

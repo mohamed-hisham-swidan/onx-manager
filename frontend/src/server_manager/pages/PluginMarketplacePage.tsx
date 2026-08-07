@@ -10,6 +10,7 @@ import {
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/EmptyState";
+import { ErrorState } from "@/components/ErrorState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
@@ -199,9 +200,7 @@ export function PluginMarketplacePage() {
       </form>
 
       {search.isError && (
-        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          {search.error instanceof Error ? search.error.message : "Search failed"}
-        </div>
+        <ErrorState className="mb-6" message={search.error instanceof Error ? search.error.message : "Search failed"} />
       )}
 
       {!selectedProject ? (
@@ -293,9 +292,7 @@ export function PluginMarketplacePage() {
           {versions.isLoading ? (
             <TableSkeleton rows={3} cols={3} />
           ) : versions.isError ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-              {versions.error instanceof Error ? versions.error.message : "Failed to load versions"}
-            </div>
+            <ErrorState message={versions.error instanceof Error ? versions.error.message : "Failed to load versions"} />
           ) : selectedVersionResponse && selectedVersionResponse.versions.length > 0 ? (
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
               <table className="w-full text-sm">

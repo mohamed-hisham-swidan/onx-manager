@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { ErrorState } from "@/components/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
 import { StatusOverviewCards } from "@/server_manager/components/StatusOverviewCards";
 import { DashboardServerList } from "@/server_manager/components/DashboardServerList";
@@ -61,9 +62,7 @@ export function DashboardPage() {
           </div>
         </div>
       ) : error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          {error instanceof Error ? error.message : "Failed to load servers"}
-        </div>
+        <ErrorState message={error instanceof Error ? error.message : "Failed to load servers"} />
       ) : servers && servers.length > 0 ? (
         <>
           <StatusOverviewCards counts={counts} />

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { createAuthenticatedApi } from "@/services/api";
 import { useCreateServer } from "@/server_manager/hooks/useServers";
+import { ErrorState } from "@/components/ErrorState";
 import type { SoftwareInfo } from "@/server_manager/types";
 
 type Step = "software" | "version" | "config" | "properties" | "review" | "done";
@@ -258,9 +259,7 @@ function VersionStep({ versions, loading, error, selected, onSelect, onBack }: {
     <div>
       <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Choose Minecraft Version</h3>
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          Failed to load versions — try again. If the problem persists, check your connection and refresh the page.
-        </div>
+        <ErrorState message="Failed to load versions — try again. If the problem persists, check your connection and refresh the page." />
       ) : versions.length === 0 ? (
         <p className="text-gray-500 dark:text-gray-400">No versions available.</p>
       ) : (

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer } from "@/server_manager/hooks/useServers";
 import { Skeleton } from "@/components/Skeleton";
+import { ErrorState } from "@/components/ErrorState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -82,9 +83,7 @@ export function ServerDetailPage() {
 
   if (error && !isNotFound) {
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-        {error instanceof Error ? error.message : "Failed to load server details"}
-      </div>
+      <ErrorState message={error instanceof Error ? error.message : "Failed to load server details"} />
     );
   }
 

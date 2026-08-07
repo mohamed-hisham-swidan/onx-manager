@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/EmptyState";
+import { ErrorState } from "@/components/ErrorState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
@@ -106,9 +107,7 @@ export function ServersPage() {
       {isLoading ? (
         <TableSkeleton rows={6} cols={5} />
       ) : error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-          {error instanceof Error ? error.message : "Failed to load servers"}
-        </div>
+        <ErrorState message={error instanceof Error ? error.message : "Failed to load servers"} />
       ) : servers && servers.length === 0 ? (
         <EmptyState
           icon="server"

@@ -1,5 +1,6 @@
 import { useSettings } from "@/server_manager/hooks/useSettings";
 import { Skeleton } from "@/components/Skeleton";
+import { ErrorState } from "@/components/ErrorState";
 
 export function SettingsPage() {
   const { data: settings, isLoading, error } = useSettings();
@@ -19,9 +20,7 @@ export function SettingsPage() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
-        {error instanceof Error ? error.message : "Failed to load settings"}
-      </div>
+      <ErrorState message={error instanceof Error ? error.message : "Failed to load settings"} />
     );
   }
 
