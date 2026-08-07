@@ -1948,6 +1948,7 @@ features**.
 5. **WebSocket surface honesty** — live vs. explicitly disabled, surfaced in the UI, not hidden
    behind a client that "looks" connected while the backend fail-closes every subscription (K1).
 6. **Frontend test coverage** for the above.
+7. **Permissions UX presentation groundwork (DEFERRED)** — out of Phase 2 scope pending D2 resolution (`contracts/permissions.yaml`). Revisit if D2 resolves mid-phase per §3.3; otherwise deferred to Phase 4 alongside enforcement.
 
 ### 3.5 Dependencies
 
@@ -1973,7 +1974,7 @@ not just performed).
 
 - Fixing K1/K2 (WebSocket backend) — Phase 3.
 - Implementing settings persistence — Phase 3.
-- Enforcing permissions server-side — Phase 4.
+- Enforcing permissions server-side & permissions UX presentation groundwork — Phase 4 (tied to D2).
 - A new visual design system — out of scope entirely; apply what exists.
 
 ### 3.9 Risks
