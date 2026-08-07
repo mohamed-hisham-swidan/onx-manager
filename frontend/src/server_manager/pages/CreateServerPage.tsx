@@ -63,6 +63,7 @@ export function CreateServerPage() {
   const [softwareList, setSoftwareList] = useState<SoftwareInfo[]>([]);
   const [versions, setVersions] = useState<string[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(true);
+  const [versionsError, setVersionsError] = useState(false);
   const [error, setError] = useState("");
   const [createdId, setCreatedId] = useState("");
   const [data, setData] = useState<WizardData>(INITIAL_DATA);
@@ -73,6 +74,8 @@ export function CreateServerPage() {
 
   useEffect(() => {
     if (!data.serverType) return;
+    setVersionsLoading(true);
+    setVersionsError(false);
     api
       .listSoftwareVersions(data.serverType)
       .then((v) => {
@@ -82,8 +85,11 @@ export function CreateServerPage() {
           setData((d) => ({ ...d, minecraftVersion: v[0] }));
         }
       })
-      .catch(() => setVersions([]))
-      .finally(() => setVersionsLoading(false));
+      .catch(() => {
+        setVersions([]);
+        setVersionsError(true);
+        setVersionsLoading(false);
+      });
   }, [data.serverType]);
 
   useEffect(() => {
@@ -171,7 +177,7 @@ export function CreateServerPage() {
       )}
 
       {step === "version" && (
-        <VersionStep versions={versions} loading={versionsLoading} selected={data.minecraftVersion} onSelect={(v) => { update({ minecraftVersion: v }); setStep("config"); }} onBack={() => setStep("software")} />
+        <VersionStep versions={versions} loading={versionsLoading} error={versionsError} selected={data.minecraftVersion} onSelect={(v) => { update({ minecraftVersion: v }); setStep("config"); }} onBack={() => setStep("software")} />
       )}
 
       {step === "config" && (
@@ -237,7 +243,7 @@ function SoftwareStep({ softwareList, selected, onSelect }: { softwareList: Soft
   );
 }
 
-function VersionStep({ versions, loading, selected, onSelect, onBack }: { versions: string[]; loading: boolean; selected: string; onSelect: (v: string) => void; onBack: () => void }) {
+function VersionStep({ versions, loading, error, selected, onSelect, onBack }: { versions: string[]; loading: boolean; error: boolean; selected: string; onSelect: (v: string) => void; onBack: () => void }) {
   if (loading) {
     return (
       <div>
@@ -251,7 +257,11 @@ function VersionStep({ versions, loading, selected, onSelect, onBack }: { versio
   return (
     <div>
       <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Choose Minecraft Version</h3>
-      {versions.length === 0 ? (
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
+          Failed to load versions — try again. If the problem persists, check your connection and refresh the page.
+        </div>
+      ) : versions.length === 0 ? (
         <p className="text-gray-500 dark:text-gray-400">No versions available.</p>
       ) : (
         <div className="max-h-64 overflow-y-auto grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
