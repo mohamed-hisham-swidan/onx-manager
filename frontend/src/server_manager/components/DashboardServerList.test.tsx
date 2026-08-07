@@ -4,6 +4,8 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardServerList } from "./DashboardServerList";
 import { useToastStore } from "@/stores/toastStore";
+import { useWSStore } from "@/stores/wsStore";
+import { ConnectionState } from "@/websocket/types";
 import type { ServerResponse } from "@/server_manager/types";
 
 const servers: ServerResponse[] = [
@@ -36,6 +38,7 @@ function renderList() {
 describe("DashboardServerList", () => {
   beforeEach(() => {
     useToastStore.getState().clear();
+    useWSStore.setState({ connectionState: ConnectionState.CONNECTED, connected: true });
   });
 
   it("renders each server with a name link and status badge", () => {
@@ -71,5 +74,21 @@ describe("DashboardServerList", () => {
     fireEvent.click(screen.getByLabelText("Start Stopped"));
     expect(mutate).toHaveBeenCalledWith("srv-2", expect.anything());
     expect(useToastStore.getState().toasts.some((t) => t.title === "Server started")).toBe(true);
+  });
+
+  it.each([
+    [ConnectionState.CONNECTED, false],
+    [ConnectionState.CONNECTING, true],
+    [ConnectionState.RECONNECTING, true],
+    [ConnectionState.DISCONNECTED, true],
+  ] as const)("connectionState=%s shows the not-live note only when not connected", (state, expectNote) => {
+    useWSStore.setState({ connectionState: state, connected: state === ConnectionState.CONNECTED });
+    renderList();
+    if (expectNote) {
+      expect(screen.getByRole("status")).toBeInTheDocument();
+    } else {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole("link", { name: "Running" })).toBeInTheDocument();
   });
 });

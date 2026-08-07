@@ -2,8 +2,17 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { useUIStore } from "@/stores/uiStore";
+import { useWSStore } from "@/stores/wsStore";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
+import type { ConnectionState } from "@/websocket/types";
+
+const WS_DOT: Record<ConnectionState, { dot: string; text: string; label: string; present: boolean }> = {
+  connected: { dot: "bg-green-500", text: "text-green-600 dark:text-green-400", label: "Live", present: true },
+  connecting: { dot: "bg-gray-400", text: "text-gray-500 dark:text-gray-400", label: "Connecting…", present: true },
+  reconnecting: { dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400", label: "Reconnecting…", present: true },
+  disconnected: { dot: "bg-red-500", text: "text-red-600 dark:text-red-400", label: "Offline", present: true },
+};
 
 export function TopBar() {
   const logout = useAuthStore((s) => s.logout);
@@ -15,7 +24,10 @@ export function TopBar() {
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const toggleMobileSidebar = useUIStore((s) => s.toggleMobileSidebar);
+  const connectionState = useWSStore((s) => s.connectionState);
   const navigate = useNavigate();
+
+  const ws = WS_DOT[connectionState];
 
   const handleLogout = useCallback(() => {
     const api = createAuthenticatedApi();
@@ -56,6 +68,15 @@ export function TopBar() {
 
       {isAuthenticated && (
         <div className="flex items-center gap-1">
+          <div
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1"
+            role="status"
+            aria-label={`Socket ${connectionState}`}
+            title={`Live updates: ${connectionState === "connected" ? "connected" : connectionState}`}
+          >
+            <span className={`h-2 w-2 rounded-full ${ws.dot}`} />
+            <span className={`text-xs font-medium ${ws.text}`}>{ws.label}</span>
+          </div>
           <button
             onClick={toggleTheme}
             className="rounded-lg p-2 text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"

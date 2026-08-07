@@ -1,6 +1,8 @@
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useActivityStore } from "@/stores/activityStore";
+import { useWSStore } from "@/stores/wsStore";
 import type { ActivityEvent } from "@/stores/activityStore";
+import type { ConnectionState } from "@/websocket/types";
 
 interface RecentActivityProps {
   serverNames?: Record<string, string>;
@@ -78,12 +80,29 @@ function EventRow({ event, serverNames }: { event: ActivityEvent; serverNames?: 
 
 export function RecentActivity({ serverNames }: RecentActivityProps) {
   const events = useActivityStore((s) => s.events);
+  const connectionState = useWSStore((s) => s.connectionState);
+
+  const liveNote =
+    connectionState === "reconnecting"
+      ? { text: "Live updates paused — reconnecting…", color: "text-amber-700 dark:text-amber-400" }
+      : connectionState === "connecting"
+        ? { text: "Connecting to live updates…", color: "text-gray-500 dark:text-gray-400" }
+        : connectionState === "disconnected"
+          ? { text: "Live updates unavailable", color: "text-red-600 dark:text-red-400" }
+          : null;
 
   return (
-    <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
-      {events.slice(0, 8).map((event) => (
-        <EventRow key={event.id} event={event} serverNames={serverNames} />
-      ))}
-    </ul>
+    <>
+      {liveNote && (
+        <p role="status" className={`mb-2 px-1 text-xs font-medium ${liveNote.color}`}>
+          {liveNote.text}
+        </p>
+      )}
+      <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
+        {events.slice(0, 8).map((event) => (
+          <EventRow key={event.id} event={event} serverNames={serverNames} />
+        ))}
+      </ul>
+    </>
   );
 }

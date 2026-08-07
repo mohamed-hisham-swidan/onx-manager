@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useStartServer, useStopServer, useRestartServer } from "@/server_manager/hooks/useServers";
 import { STATUS_MAP } from "@/server_manager/types";
 import { toast } from "@/stores/toastStore";
+import { useWSStore } from "@/stores/wsStore";
 import type { ServerResponse } from "@/server_manager/types";
 
 interface DashboardServerListProps {
@@ -18,6 +19,16 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
   const startServer = useStartServer();
   const stopServer = useStopServer();
   const restartServer = useRestartServer();
+  const connectionState = useWSStore((s) => s.connectionState);
+
+  const staleNote =
+    connectionState === "reconnecting"
+      ? { text: "Status not live — reconnecting...", color: "text-amber-700 dark:text-amber-400" }
+      : connectionState === "connecting"
+        ? { text: "Connecting to live status…", color: "text-gray-500 dark:text-gray-400" }
+        : connectionState === "disconnected"
+          ? { text: "Status not live — showing last known", color: "text-red-600 dark:text-red-400" }
+          : null;
 
   const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending;
 
@@ -43,8 +54,14 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
   }
 
   return (
-    <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
-      {servers.map((server) => {
+    <>
+      {staleNote && (
+        <p role="status" className={`mb-2 px-1 text-xs font-medium ${staleNote.color}`}>
+          {staleNote.text}
+        </p>
+      )}
+      <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
+        {servers.map((server) => {
         const status = server.status || "unknown";
         const actionColor =
           STATUS_MAP[status]?.color ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400";
@@ -117,6 +134,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
           </li>
         );
       })}
-    </ul>
+      </ul>
+    </>
   );
 }
