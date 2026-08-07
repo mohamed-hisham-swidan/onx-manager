@@ -3,7 +3,8 @@
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
 2026-08-04. Every claim below was verified against source code, the database,
 and a live test run. This document supersedes the stale counts and claims in
-`STATUS.md` and is the baseline that `mcs-manager-roadmap-v2.md` is built on.
+`docs/status/history.md` (the historical narrative) and is the baseline that the
+Blueprint V5 governing plan is built on.
 
 **Last verified:** 2026-08-04
 **App version (code):** `4.0.0` (`backend/app/main.py:216`, `backend/pyproject.toml:3`)
@@ -118,7 +119,7 @@ At head (`c4d5e6f7a8b9`).
 - **Known gap:** most read routes and several mutating routes remain auth-only
   without a permission check (see `contracts/permissions.yaml`
   `route_permissions` for the full per-route matrix: 13 mutating routes
-  unprotected, 21 sensitive GETs auth-only). Full detail in `SECURITY.md`.
+  unprotected, 21 sensitive GETs auth-only). Full detail in `architecture/SECURITY.md`.
 
 ### 4.3 WebSocket (real gate, non-functional in practice)
 
@@ -167,7 +168,7 @@ At head (`c4d5e6f7a8b9`).
   (`useMarketplaceSearchGlobal`) distinct from the server-scoped one. The install flow reworked
   into a global browse + server picker (pre-select: deep link → last-used server → first
   compatible → any). The server-scoped `/plugins/marketplace` (`?server=<id>`) surface remains
-  for installs within a specific server's context. See `docs/plugins-and-marketplace.md`.
+  for installs within a specific server's context. See `docs/architecture/plugins-and-marketplace.md`.
 
 ### 4.5 Task queue, monitoring, health (implemented; some stubs)
 
@@ -193,7 +194,7 @@ was inaccurate and has been corrected in the v2 roadmap.
 
 ## 5. Known issues carried forward
 
-Classification used by `mcs-manager-roadmap-v2.md`:
+Classification used by `Blueprint V5`:
 
 | ID | Issue | Severity | Kind |
 |----|-------|----------|------|

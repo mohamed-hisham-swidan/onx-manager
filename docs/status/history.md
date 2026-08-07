@@ -12,7 +12,7 @@ docs that once said "7.1.0" are stale)
 > history, session changelog, known-limitations log). It is **not** the source
 > of truth for current counts. For verified, current numbers (version, tests,
 > DB state, routers/migrations/ADRs/contracts, known issues) see
-> **[`docs/current-state.md`](current-state.md)**, which was verified
+> **[`docs/current-state.md`](../current-state.md)**, which was verified
 > 2026-08-04 and supersedes any conflicting number in this file.
 
 ---
@@ -76,7 +76,7 @@ Initial commit. The project was already at a mature state with:
 | Commit | Step | What changed |
 |--------|------|-------------|
 | `40fd4b9` | Step 2 | Renamed `app/storage/` → `app/core/persistence/` (87 imports, 2 tests updated) |
-| `20bd07e` | Step 3 | Consolidated `backend/docs/DATABASE.md` into `docs/DATABASE.md` |
+| `20bd07e` | Step 3 | Consolidated `backend/docs/architecture/DATABASE.md` into `docs/architecture/DATABASE.md` |
 | `d4f11b8` | Step 4 | Fixed `STATUS.md` directory listing (incorrectly merged two "storage" directories) |
 
 **Verification:** 781 tests passing, app boots, frontend builds, Docker builds.
@@ -101,7 +101,7 @@ Initial commit. The project was already at a mature state with:
 | Commit | Step | What changed |
 |--------|------|-------------|
 | `9906ff8` | ADRs | Added 4 new ADRs (ADR-0007 through ADR-0010) |
-| `3dddb68` | B2 | Full rewrite of `docs/ARCHITECTURE.md` — current module structure, dependency diagram, validation strategy, sandbox isolation, ADR index |
+| `3dddb68` | B2 | Full rewrite of `docs/architecture/ARCHITECTURE.md` — current module structure, dependency diagram, validation strategy, sandbox isolation, ADR index |
 | `7a4f443` | B3 | Updated `docs/API.md` (DELETE 404), `docs/DEVELOPMENT.md` (sandbox pattern, Docker) |
 | *(this commit)* | B4 | Full rewrite of `docs/STATUS.md` — complete history, accurate tree, known limitations |
 | *(next commit)* | B5 | Updated `.ai/PROJECT_STATE.json` and `.ai/AI_RULES.md` |
@@ -503,5 +503,5 @@ server_manger/
 > **2026-08-04 reconciliation:** this document is the historical narrative.
 > Verified current facts (version `4.0.0`, test counts, DB state, router /
 > migration / ADR / contract counts, known issues) live in
-> [`docs/current-state.md`](current-state.md). The governing roadmap is
-> [`docs/mcs-manager-roadmap-v2.md`](mcs-manager-roadmap-v2.md).
+> [`docs/current-state.md`](../current-state.md). The governing roadmap is
+> [`docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`](../roadmap/MCS-Manager-Engineering-Blueprint-V5.md).

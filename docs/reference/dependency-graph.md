@@ -1,6 +1,6 @@
 # Dependency Graph
 
-> Cross-references: [Module Map](module-map.md), [Contract Registry](contract-registry.md), [Architecture](../ARCHITECTURE.md), [API](../API.md)
+> Cross-references: [Module Map](module-map.md), [Contract Registry](contract-registry.md), [Architecture](../architecture/ARCHITECTURE.md), [API](../API.md)
 
 ## Batch Dependencies
 

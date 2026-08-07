@@ -15,7 +15,7 @@ Before writing any code, read the following in order:
 5. Your batch's **`PROMPT.md`** — complete context for the work unit
 6. **`docs/reference/file-ownership.md`** — confirm which files you own
 7. **`docs/reference/dependency-graph.md`** — understand inter-batch dependencies
-8. **`docs/ARCHITECTURE.md`** — system architecture reference
+8. **`docs/architecture/ARCHITECTURE.md`** — system architecture reference
 
 Every file has exactly one owner (see [reference/file-ownership.md](reference/file-ownership.md)). A batch may only modify files it owns. Read access is unrestricted.
 
@@ -241,4 +241,4 @@ Every session ends with the following completed:
 
 ---
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for environment setup and [ARCHITECTURE.md](ARCHITECTURE.md) for system architecture.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for environment setup and [ARCHITECTURE.md](architecture/ARCHITECTURE.md) for system architecture.

@@ -1,6 +1,6 @@
 # Module Map
 
-> Cross-references: [Architecture](../ARCHITECTURE.md), [Dependency Graph](dependency-graph.md), [File Ownership](file-ownership.md)
+> Cross-references: [Architecture](../architecture/ARCHITECTURE.md), [Dependency Graph](dependency-graph.md), [File Ownership](file-ownership.md)
 
 Every backend module mapped to its purpose, path, and the batch that built it. Directories verified against the current filesystem at `backend/app/`.
 

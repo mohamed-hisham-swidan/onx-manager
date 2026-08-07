@@ -28,7 +28,7 @@ execution
 **Supersedes:** `mcs-manager-roadmap-v4.md` (2026-08-06, "Engineering Roadmap V4") and its
 companion volumes, which remain the historical baseline this blueprint was built from
 **Baseline sources:** the prior V4 roadmap (Volumes 0–8, verified through 2026-08-06),
-`docs/STATUS.md`, `docs/current-state.md`, `mcs-manager-roadmap-v3.md`
+`docs/status/history.md`, `docs/current-state.md`, `docs/history/mcs-manager-roadmap-v3.md`
 **Last updated:** 2026-08-07
 
 > **Source-material note, stated up front because the discipline below depends on it.** The prior
@@ -528,7 +528,7 @@ module structure, the CQRS buses, runtime model, storage model, and per-subsyste
 engineer should be able to make correct changes after reading this document alone.
 
 **Last updated:** 2026-08-06
-**Supersedes:** `docs/ARCHITECTURE.md` and `docs/DATABASE.md` as the primary architecture reference.
+**Supersedes:** `docs/architecture/ARCHITECTURE.md` and `docs/architecture/DATABASE.md` as the primary architecture reference.
 Those files remain in `docs/` for cross-reference; this document is the canonical description.
 
 ---
@@ -946,7 +946,7 @@ exposure of the event store is not implemented and must not be added without aut
 
 **Design.** `StorageBackend` ABC with `stream_read`/`stream_write` defaults; `LocalStorage` and
 `S3Storage` adapters. Encryption helpers (`BackupEncryption`, AES-256-GCM) live here or in backup
-infra (see `docs/DATABASE.md`); selected via `MCS_STORAGE_BACKEND` (`local` default, `s3` optional).
+infra (see `docs/architecture/DATABASE.md`); selected via `MCS_STORAGE_BACKEND` (`local` default, `s3` optional).
 
 **Failure modes.** S3 unavailability → backup upload fails with a clear error; the saga
 compensates. **Important:** this module is unrelated to the old `app/storage/` directory (renamed to
@@ -1028,7 +1028,7 @@ async with UnitOfWork(event_bus) as uow:
 
 ### 5.3 Key tables (schema highlights)
 
-See `docs/DATABASE.md` for the full column listing; the architecture-relevant subset:
+See `docs/architecture/DATABASE.md` for the full column listing; the architecture-relevant subset:
 
 | Table | Purpose | Notable columns |
 |---|---|---|
@@ -1064,7 +1064,7 @@ Alembic with async engine (`alembic/env.py:34`). 16 revisions at time of verific
 (2026-08-04), head `c4d5e6f7a8b9`. The production DB (`backend/data/servers/mcs.db`) is **3
 revisions behind head** (K9) — see Phase 3. A documented fresh-clone bug (9 ORM-only tables never
 migrated) was fixed with idempotent migrations; replay against pre-migration backup is
-column-for-column identical (see `docs/DATABASE.md` §Migration Guide).
+column-for-column identical (see `docs/architecture/DATABASE.md` §Migration Guide).
 
 ---
 
@@ -1269,7 +1269,7 @@ routes.
 
 ---
 
-## 9. Security Architecture (summary; see `docs/SECURITY.md`)
+## 9. Security Architecture (summary; see `docs/architecture/SECURITY.md`)
 
 | Concern | Mechanism | Status |
 |---|---|---|
@@ -1780,7 +1780,7 @@ phase is checked against.*
 | App version (code) | `4.0.0` everywhere | grepped; `7.1.0` appears only as an unrelated semver-range substring and in historical planning docs |
 | CI workflows | 1 (frontend only) | `.github/workflows/frontend-ci.yml` — no backend CI (K6) |
 
-**Since v3 (from `docs/STATUS.md` uncommitted batch entries, 2026-08-05 → 2026-08-06):**
+**Since v3 (from `docs/status/history.md` uncommitted batch entries, 2026-08-05 → 2026-08-06):**
 
 | Item | Change | Source |
 |---|---|---|
@@ -1966,7 +1966,7 @@ is already one batch (K5) out of date.
 ### 3.7 Verification
 
 Frontend suite green; manual walkthrough; route-by-route state review recorded in
-`docs/FRONTEND.md` (a v3-carried commitment — the review must actually get written into that file,
+`docs/architecture/FRONTEND.md` (a v3-carried commitment — the review must actually get written into that file,
 not just performed).
 
 ### 3.8 Explicit non-goals
@@ -2200,7 +2200,7 @@ routes against a contract that may change out from under the work is how the wor
 
 ### 2.9 Security docs must match reality
 
-`docs/SECURITY.md` currently documents the partial-enforcement gap; §2.3 resolves that caveat.
+`docs/architecture/SECURITY.md` currently documents the partial-enforcement gap; §2.3 resolves that caveat.
 Re-verify the whole doc afterward: `httpOnly` vs. localStorage refresh token, API-key SHA-256
 hashing, per-client rate limiting (confirmed per-`client_ip:path` in `current-state.md` §4.6), WS
 fail-closed behavior.
@@ -2448,7 +2448,7 @@ the speculative multi-node / cloud tools in Part IV cannot simply graduate into 
 separate decision process: multi-node is a different threat model, not an extension of this one. Any
 work that crosses this boundary must first clear the decision record (Part VIII).
 
-**Design reference:** `docs/network-access-design.md`.
+**Design reference:** `docs/architecture/network-access-design.md`.
 
 ### 1.3 Two user-facing modes
 
@@ -2532,7 +2532,7 @@ architected as the follow-on that makes Phase 7's dynamic endpoints stable to th
 
 ### 3.1 Objective
 
-Systematic close-out before AI: a full security review against `docs/SECURITY.md`, performance and
+Systematic close-out before AI: a full security review against `docs/architecture/SECURITY.md`, performance and
 diagnostic passes, production upgrade verification, and resolution of remaining should-fix / optional
 items. **No new capability** — harden and verify what exists.
 
@@ -2849,7 +2849,7 @@ designs around runtime core, storage architecture, and observability.
 >
 > **Grounded, not invented:** the *facts* referenced here (module boundaries, the runtime
 > reconciliation pipeline, providers, event-store/DLQ, storage backends, monitoring rollups) are
-> verified from `docs/ARCHITECTURE.md`, `docs/runtime/*`, `docs/DATABASE.md`, and the source. The
+> verified from `docs/architecture/ARCHITECTURE.md`, `docs/runtime/*`, `docs/architecture/DATABASE.md`, and the source. The
 > *direction* — what to harden or build next on top of them — is new analysis and is labeled as such
 > (§0.1).
 
@@ -2863,7 +2863,7 @@ designs around runtime core, storage architecture, and observability.
 
 | Kind | Content | Authority |
 |---|---|---|
-| Fact (verified) | Runtime supervision, providers, reconciliation, orphan-cleanup ownership, event-store/DLQ, four-tier rollups, backup/aes-gcm | `docs/runtime/*`, `docs/ARCHITECTURE.md`, `docs/DATABASE.md` |
+| Fact (verified) | Runtime supervision, providers, reconciliation, orphan-cleanup ownership, event-store/DLQ, four-tier rollups, backup/aes-gcm | `docs/runtime/*`, `docs/architecture/ARCHITECTURE.md`, `docs/architecture/DATABASE.md` |
 | New (labeled) | Every "direction" / "the system could…" / "a future design…(designed as…)" statement | This file's own analysis |
 
 The `="…"` label and the words "designed as", "could", "candidate", "direction" mark non-committed
@@ -2991,7 +2991,7 @@ around networking (tunnels / DNS / exposure) and the AI subsystem, plus migratio
 
 **Last updated:** 2026-08-07
 **Grounded, not invented:** the networking principles here are carried from the committed design
-reference `docs/network-access-design.md` (which Phase 7 builds on). The AI subsystem is grounded in
+reference `docs/architecture/network-access-design.md` (which Phase 7 builds on). The AI subsystem is grounded in
 `07`'s non-negotiable guardrails and the product vision in `00` §1.2. The *expansion* beyond what is
 committed is new and labeled.
 
@@ -3001,7 +3001,7 @@ committed is new and labeled.
 
 | Kind | Content | Authority |
 |---|---|---|
-| Fact (committed) | Phase 7 scope, two user modes, 7 architectural boundaries, hardened defaults; Phase 8 endpoint/DNS flow | `07` §1–2; `docs/network-access-design.md` |
+| Fact (committed) | Phase 7 scope, two user modes, 7 architectural boundaries, hardened defaults; Phase 8 endpoint/DNS flow | `07` §1–2; `docs/architecture/network-access-design.md` |
 | Fact (committed) | Phase 10 guardrails (same permission layer, confirmation, audit, unified pipeline) | `07` §5.1 |
 | New (labeled) | Provider-evaluation criteria, multi-deployment topology, AI-layer refinements, migration strategy | This file |
 
@@ -3488,6 +3488,6 @@ agents: ambiguous tasks → present options, ask; uncertain commits → ask; unc
 - History is append-only (Part I §9): audit rows, event-store rows, ADRs, decision records, and
   roadmap status markers are never deleted or silently changed.
 - Roadmap status markers are authoritative for phase state; a marker is not changed without updating
-  `docs/STATUS.md`/`current-state.md` accordingly (`.ai/AI_RULES.md` — Governing Plan).
+  `docs/status/history.md`/`current-state.md` accordingly (`.ai/AI_RULES.md` — Governing Plan).
 - Historical docs (v1–v3, V4 linear volumes) are preserved and labeled as history, never silently
   deleted.

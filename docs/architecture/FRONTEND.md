@@ -142,7 +142,7 @@ All authenticated routes are wrapped in `AuthGuard` (`frontend/src/components/gu
 > (plural/singular permission mismatch) and never dispatches events
 > (`EventDispatcher` not wired). The client connects, pings, and keepalives,
 > but will not receive server-push data until backend gaps K1/K2 are closed
-> (see `docs/mcs-manager-roadmap-v2.md` Phase 3 §5.1).
+> (see `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md` Phase 3 §5.1).
 
 ### Architecture
 
@@ -267,6 +267,6 @@ Key test areas: `authStore` (9), `uiStore` (9), `api.ts` (11), `wsStore` (4), `A
 
 ## Cross-References
 
-- [Architecture](ARCHITECTURE.md) — system context, backend module map
-- [API docs](API.md) — REST endpoints and WebSocket protocol reference
-- [Development guide](DEVELOPMENT.md) — full setup instructions
+- [Architecture](../architecture/ARCHITECTURE.md) — system context, backend module map
+- [API docs](../API.md) — REST endpoints and WebSocket protocol reference
+- [Development guide](../DEVELOPMENT.md) — full setup instructions

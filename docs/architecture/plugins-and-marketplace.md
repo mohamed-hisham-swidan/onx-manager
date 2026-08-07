@@ -6,7 +6,7 @@ documented exception to phase-gating. The frontend is functional but **not yet
 a first-class section** (see §5).
 
 **Last updated:** 2026-08-04
-**Cross-references:** `docs/current-state.md` §4.4 · `docs/mcs-manager-roadmap-v2.md`
+**Cross-references:** `docs/current-state.md` §4.4 · `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`
 Phase 1 (Plugins/Marketplace separation)
 
 ---
@@ -188,6 +188,6 @@ installing within a specific server's context.
 
 The plugin marketplace was originally logged as a deferred feature in
 `docs/FEATURE_IDEAS.md` §2, then started on 2026-08-04 as a **documented
-exception** to the phase-gating rule (see `docs/mcs-manager-roadmap-v1.md`
+exception** to the phase-gating rule (see `docs/history/mcs-manager-roadmap-v1.md`
 §"Documented exception"). It is now the first workstream of the v2 roadmap's
 Phase 1 (Plugins / Marketplace separation).

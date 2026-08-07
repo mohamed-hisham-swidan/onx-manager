@@ -199,4 +199,4 @@ class FilesystemReconciliationService:
 
 - [Runtime Overview](README.md) — where reconciliation fits in the runtime system.
 - [Reconciliation](reconciliation.md) — runtime state reconciliation (processes, tmux).
-- [Provisioning](../PROVISIONING.md) — how server directories are created and managed.
+- [Provisioning](../architecture/PROVISIONING.md) — how server directories are created and managed.

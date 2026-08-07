@@ -60,7 +60,7 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 
 ### Model: RBAC + ABAC Hybrid
 
-The authorization system *defines* Role-Based Access Control as the primary model with Attribute-Based Access Control extensions for resource-level checks. **However, authorization is only partially enforced in the request path.** See the known-gap callout in [`docs/API.md`](API.md) — the practical consequence is that any authenticated user can call most endpoints regardless of their token's `permissions` or `roles`, with only a small set of destructive endpoints gated.
+The authorization system *defines* Role-Based Access Control as the primary model with Attribute-Based Access Control extensions for resource-level checks. **However, authorization is only partially enforced in the request path.** See the known-gap callout in [`docs/API.md`](../API.md) — the practical consequence is that any authenticated user can call most endpoints regardless of their token's `permissions` or `roles`, with only a small set of destructive endpoints gated.
 
 What exists today:
 
@@ -77,7 +77,7 @@ What exists today:
 > - **users:** `PATCH /users/{id}` (`user:write`), `DELETE /users/{id}` (`user:delete`)
 > - **auth:** `POST /auth/api-keys`, `DELETE /auth/api-keys/{id}` (`user:write`)
 >
-> The vast majority of routes — including plugin enable/disable, `PATCH /settings`, the alert-rule routes, health-evaluate, the schedule routes, and all reads (list/detail/console/runtime/metrics/users/settings) — still do not check permissions (`request.state.permissions` is written by `AuthMiddleware` but never read outside the gated routes). This is a real security gap that needs a dedicated fix, not an intentional design choice. Tracked as Phase 4 §6.1 in `docs/mcs-manager-roadmap-v2.md`.
+> The vast majority of routes — including plugin enable/disable, `PATCH /settings`, the alert-rule routes, health-evaluate, the schedule routes, and all reads (list/detail/console/runtime/metrics/users/settings) — still do not check permissions (`request.state.permissions` is written by `AuthMiddleware` but never read outside the gated routes). This is a real security gap that needs a dedicated fix, not an intentional design choice. Tracked as Phase 4 §6.1 in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.
 
 ### Permission Strings
 
@@ -123,7 +123,7 @@ These rules are **not enforced** — `evaluate_abac()` exists but is never calle
 
 ### WebSocket channel authorization
 
-The WebSocket handshake validates the JWT **before** `accept()` (`backend/app/websocket/endpoint.py:51-62`), and per-channel authorization is checked at subscribe time (`ChannelAuthorizer.can_subscribe`). **However, the channel gate currently fails closed for every real client:** `CHANNEL_PATTERNS` (`backend/app/websocket/authorization.py:3-17`) requires **plural** permission strings (`servers:read`, `backups:read`, …) while JWT/api-key claims carry **singular** REST permissions (`server:read`, …) built at login. Every `subscribe` therefore returns `PERMISSION_DENIED` and no channel can be subscribed. Separately, `EventDispatcher`/`MetricsBatcher` are never instantiated, so no server-push events reach connected clients. This is safe (fail-closed) but non-functional; full trace in `docs/PERMISSIONS_FUTURE_IDEAS.md` §4, tracked as K1/K2 in `docs/mcs-manager-roadmap-v2.md`.
+The WebSocket handshake validates the JWT **before** `accept()` (`backend/app/websocket/endpoint.py:51-62`), and per-channel authorization is checked at subscribe time (`ChannelAuthorizer.can_subscribe`). **However, the channel gate currently fails closed for every real client:** `CHANNEL_PATTERNS` (`backend/app/websocket/authorization.py:3-17`) requires **plural** permission strings (`servers:read`, `backups:read`, …) while JWT/api-key claims carry **singular** REST permissions (`server:read`, …) built at login. Every `subscribe` therefore returns `PERMISSION_DENIED` and no channel can be subscribed. Separately, `EventDispatcher`/`MetricsBatcher` are never instantiated, so no server-push events reach connected clients. This is safe (fail-closed) but non-functional; full trace in `docs/PERMISSIONS_FUTURE_IDEAS.md` §4, tracked as K1/K2 in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.
 
 ---
 
@@ -202,7 +202,7 @@ Rate limiting is a single `RateLimitMiddleware` keyed per `client_ip:path`:
 
 There are no `X-RateLimit-*` headers. On exceeding the limit the middleware returns `429 Too Many Requests` with a `Retry-After` header.
 
-The same behavior is described (and matches the implementation) in [`docs/API.md`](API.md) — rate limiting. Earlier per-route tiers (e.g. 10/min for `/auth/*`, 100/min for API endpoints) and a reverse-proxy/nginx token-bucket layer do **not** exist in the current implementation.
+The same behavior is described (and matches the implementation) in [`docs/API.md`](../API.md) — rate limiting. Earlier per-route tiers (e.g. 10/min for `/auth/*`, 100/min for API endpoints) and a reverse-proxy/nginx token-bucket layer do **not** exist in the current implementation.
 
 ---
 
@@ -230,4 +230,4 @@ The same behavior is described (and matches the implementation) in [`docs/API.md
 
 ---
 
-See `docs/API.md` for endpoint security details and `docs/ARCHITECTURE.md` for system-level security boundaries.
+See `docs/API.md` for endpoint security details and `docs/architecture/ARCHITECTURE.md` for system-level security boundaries.

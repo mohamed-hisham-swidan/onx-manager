@@ -30,7 +30,7 @@ CLI     ──►                     ──► In-process task queue
 Plugins ──►  Command / Query / Event Buses ──► Subprocess Plugins
 ```
 
-A **modular monolith** with hexagonal architecture. Every bounded context (Server, Backup, Plugin, Monitoring, User & Auth, etc.) defines ports in its domain layer and adapters in infrastructure. The core provides CQRS buses, Unit of Work, circuit breakers, feature flags, and saga orchestration consumed by all modules. See [Architecture Overview](docs/ARCHITECTURE.md).
+A **modular monolith** with hexagonal architecture. Every bounded context (Server, Backup, Plugin, Monitoring, User & Auth, etc.) defines ports in its domain layer and adapters in infrastructure. The core provides CQRS buses, Unit of Work, circuit breakers, feature flags, and saga orchestration consumed by all modules. See [Architecture Overview](docs/architecture/ARCHITECTURE.md).
 
 ## Quick Start
 
@@ -53,13 +53,13 @@ Then open `http://localhost:8000` — the first-run wizard creates your admin ac
 | Area | Link |
 |---|---|
 | Full Doc Index | [docs/README.md](docs/README.md) |
-| Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Architecture | [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) |
 | API Reference | [docs/API.md](docs/API.md) |
-| Database Schema | [docs/DATABASE.md](docs/DATABASE.md) |
-| Security | [docs/SECURITY.md](docs/SECURITY.md) |
-| Frontend | [docs/FRONTEND.md](docs/FRONTEND.md) |
+| Database Schema | [docs/architecture/DATABASE.md](docs/architecture/DATABASE.md) |
+| Security | [docs/architecture/SECURITY.md](docs/architecture/SECURITY.md) |
+| Frontend | [docs/architecture/FRONTEND.md](docs/architecture/FRONTEND.md) |
 | Development Guide | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
-| Roadmap | [docs/mcs-manager-roadmap-v2.md](docs/mcs-manager-roadmap-v2.md) |
+| Roadmap / Blueprint | [docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md](docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md) |
 
 ## Project Structure
 
@@ -104,4 +104,4 @@ MIT — see LICENSE for details.
 
 ## Status
 
-**Production-ready core.** Backend, API, WebSocket, plugin system, auth, monitoring, task scheduling, and the frontend are implemented and tested. Measured 2026-08-04: **1068 backend tests passing** (1070 collected; 2 pre-existing environment failures) and **236 frontend tests passing**. Known gaps (authorization breadth → Phase 4, WebSocket delivery → Phase 3, settings persistence → Phase 3) are tracked in `docs/mcs-manager-roadmap-v2.md`.
+**Production-ready core.** Backend, API, WebSocket, plugin system, auth, monitoring, task scheduling, and the frontend are implemented and tested. Measured 2026-08-04: **1068 backend tests passing** (1070 collected; 2 pre-existing environment failures) and **236 frontend tests passing**. Known gaps (authorization breadth → Phase 4, WebSocket delivery → Phase 3, settings persistence → Phase 3) are tracked in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.

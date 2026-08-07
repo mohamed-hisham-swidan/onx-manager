@@ -1,12 +1,12 @@
 # Network Access / Port Forwarding — Design
 
 **Status:** 🟡 **PLANNED** — this is a design reference for Phases 7–8 of
-`docs/mcs-manager-roadmap-v2.md`. Nothing here is implemented yet, and no
+`docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`. Nothing here is implemented yet, and no
 provider is selected. It exists so Phases 7–8 start from a shared architecture
 instead of a blank brief.
 
 **Last updated:** 2026-08-04
-**Blocked on:** Phases 1–6 of `mcs-manager-roadmap-v2.md`
+**Blocked on:** Phases 1–6 of `MCS-Manager-Engineering-Blueprint-V5.md`
 
 ---
 
@@ -277,7 +277,7 @@ here because network exposure is what makes them mandatory:
 
 ## 9. Cross-references
 
-- `docs/mcs-manager-roadmap-v2.md` §9 — Phase 7 roadmap summary
+- `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md` §9 — Phase 7 roadmap summary
 - `docs/current-state.md` §4.2 — current auth state the tunnel must preserve
-- `docs/SECURITY.md` — the stack every management-tunneled request must pass
+- `docs/architecture/SECURITY.md` — the stack every management-tunneled request must pass
 - `docs/PERMISSIONS_FUTURE_IDEAS.md` §3 — `GET /metrics` exposure decision

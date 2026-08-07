@@ -51,7 +51,7 @@ Every `StartServerHandler` calls `RuntimeOwnershipManager.claim_localhost()` bef
 2. Check the server's deployment and launch config — verify JAR path, Java version, memory settings.
 3. View the console logs via `provider.console(handle, tail=300)`.
 4. Fix the config and restart the server.
-5. If the issue persists, increase `startup_timeout` (default 120s) or check if the JAR download is corrupted (see [PROVISIONING.md](../PROVISIONING.md)).
+5. If the issue persists, increase `startup_timeout` (default 120s) or check if the JAR download is corrupted (see [PROVISIONING.md](../architecture/PROVISIONING.md)).
 
 ### Scenario: Split-Brain — Two Servers Claiming the Same Resources
 

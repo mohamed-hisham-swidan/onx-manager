@@ -1,7 +1,7 @@
 # Architecture Overview
 
 **Last updated**: 2026-08-01  
-**Cross-references**: [ADR-0001](decisions/0001-modular-monolith.md), [ADR-0002](decisions/0002-command-query-event-buses.md), [ADR-0007](decisions/0007-core-persistence-rename.md)
+**Cross-references**: [ADR-0001](../decisions/0001-modular-monolith.md), [ADR-0002](../decisions/0002-command-query-event-buses.md), [ADR-0007](../decisions/0007-core-persistence-rename.md)
 
 ---
 
@@ -280,7 +280,7 @@ Key properties:
 - **Auto-import**: new directories are imported with type/version detection
 - **Cleanup**: stale DB records are deleted when their directory is gone
 
-See [runtime/filesystem-reconciliation.md](runtime/filesystem-reconciliation.md)
+See [runtime/filesystem-reconciliation.md](../runtime/filesystem-reconciliation.md)
 for full details.
 
 ---

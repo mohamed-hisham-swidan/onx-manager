@@ -12,7 +12,7 @@ to Roadmap Phase 4 (Authorization / security cleanup, roadmap §6) or later. Thi
 
 During the Phase 1 §3.1 authorization coverage audit (2026-08-02, under the
 previous roadmap's numbering — equivalent to Phase 4 §6.1 in the restructured
-`docs/mcs-manager-roadmap-v2.md`), the decision
+`docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`), the decision
 was made to **keep the existing `permissions:` / `roles:` catalog untouched** and
 fold every currently-unprotected route onto the closest existing `resource:action`
 permission (e.g. per-server reads → `server:read`, global cron/config writes →
@@ -134,7 +134,7 @@ improvised fix risky:
 - **Documented onboarding relies on open registration:**
   `docs/API.md:471` ("`POST /api/v1/users` is public (registration)"),
   `docs/getting-started.md:55` ("Register an account — click 'Register' and create
-  your first user"), and `docs/FRONTEND.md:113` (`/register` → `RegisterPage`).
+  your first user"), and `docs/architecture/FRONTEND.md:113` (`/register` → `RegisterPage`).
   Closing registration changes documented user behavior.
 - **No implicit-admin mechanism exists.** `User.create`
   (`app/modules/auth/domain/aggregate.py:187-196`) assigns **no roles**, and there
@@ -153,7 +153,7 @@ improvised fix risky:
 
 **Options to re-evaluate in Phase 4:** a true first-run bootstrap wizard that seeds
 an admin (aligns with the Phase 7 installer flow in
-`docs/network-access-design.md` §4); or keep open
+`docs/architecture/network-access-design.md` §4); or keep open
 registration but add an explicit admin-invite/approval flow. Until then,
 `POST /api/v1/users` stays public and the risk is documented in
 `contracts/permissions.yaml` (`route_permissions` entry).

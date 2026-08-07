@@ -5,10 +5,10 @@ listed with their status so it is always clear what is implemented vs planned.
 
 > **State of the docs (2026-08-04):** this index and the documents it points to
 > have been reconciled against the verified codebase state in
-> `docs/current-state.md`. Older documents (`docs/roadmap.md`,
-> `docs/mcs-manager-roadmap-v1.md`) are kept for history and are labeled
-> `LEGACY`. Where any document disagrees with `docs/current-state.md`, the
-> current-state doc wins.
+> `docs/current-state.md`. Older documents (superseded roadmaps in `docs/history/`,
+> the archived Blueprint v4 split set in `docs/history/blueprint-v4/`) are kept for
+> history and are labeled `LEGACY`. Where any document disagrees with
+> `docs/current-state.md`, the current-state doc wins.
 
 ---
 
@@ -17,10 +17,11 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |----------|--------|---------|
 | [Current State](current-state.md) | ✅ **IMPLEMENTED** | Verified, evidence-based snapshot of the codebase (version, tests, DB, known issues). Read this first. |
-| [Roadmap v2](mcs-manager-roadmap-v2.md) | ✅ **IMPLEMENTED** | The only authoritative roadmap — 10 dependency-ordered phases. Phase 1 (Plugins/Marketplace separation, current), Phase 2 (UI stabilization), Phase 3 (bug fixing & reliability), Phase 4 (Authorization), Phase 5 (Versioning), Phase 6 (Testing/CI/docs), Phase 7 (Network Access), Phase 8 (Dynamic endpoint + DNS), Phase 9 (Final stabilization), Phase 10 (AI — last, deferred). |
+| [Roadmap (Blueprint V5)](roadmap/MCS-Manager-Engineering-Blueprint-V5.md) | ✅ **IMPLEMENTED** | The only authoritative roadmap — 10 dependency-ordered phases. Phase 1 (Plugins/Marketplace separation, current), Phase 2 (UI stabilization), Phase 3 (bug fixing & reliability), Phase 4 (Authorization), Phase 5 (Versioning), Phase 6 (Testing/CI/docs), Phase 7 (Network Access), Phase 8 (Dynamic endpoint + DNS), Phase 9 (Final stabilization), Phase 10 (AI — last, deferred). |
+| [Roadmap v2](history/mcs-manager-roadmap-v2.md) | ⏸️ **LEGACY** | Superseded by Blueprint v5. Historical phase plan kept in `history/`. |
 | [Versioning](VERSIONING.md) | 🟡 **PLANNED** | Single source-of-truth versioning strategy (currently `4.0.0` across code; stale `7.1.0` only in history/server data). Roadmap Phase 5. |
-| [Roadmap v1](mcs-manager-roadmap-v1.md) | ⏸️ **LEGACY** | Superseded by v2. Historical phase plan (9 phases) kept for reference. |
-| [Roadmap v0](roadmap.md) | ⏸️ **LEGACY** | Original batch-delivery roadmap. Historical only. |
+| [Roadmap v1](history/mcs-manager-roadmap-v1.md) | ⏸️ **LEGACY** | Superseded by v2. Historical phase plan (9 phases) kept for reference. |
+| [Blueprint v4 (split set)](history/blueprint-v4/00-index-and-vision.md) | ⏸️ **LEGACY** | Superseded by Blueprint v5. Archived in `history/blueprint-v4/`. |
 
 ---
 
@@ -28,13 +29,13 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |----------|--------|---------|
-| [Architecture](ARCHITECTURE.md) | ✅ **IMPLEMENTED** | System context, module structure, CQRS/hexagonal patterns, task wiring, reconciliation. |
-| [Database](DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain (16 revisions), query patterns, migration guide. |
-| [Security](SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (with known gaps), audit chain, data protection, rate limiting, sessions. |
-| [Plugins & Marketplace](plugins-and-marketplace.md) | ✅ **IMPLEMENTED** | Plugin registry (filesystem source of truth) + Modrinth marketplace implementation. |
-| [Network Access Design](network-access-design.md) | 🟡 **PLANNED** | Phases 7–8 design reference: TunnelProvider vs DnsProvider, dynamic endpoints, game vs management exposure, Tunnel ≠ Authentication. |
-| [Frontend](FRONTEND.md) | ✅ **IMPLEMENTED** | React 19 app structure, state management, WebSocket integration, API client, testing. |
-| [Provisioning](PROVISIONING.md) | ✅ **IMPLEMENTED** | Server creation flow, JAR validation, supported server types. |
+| [Architecture](architecture/ARCHITECTURE.md) | ✅ **IMPLEMENTED** | System context, module structure, CQRS/hexagonal patterns, task wiring, reconciliation. |
+| [Database](architecture/DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain (16 revisions), query patterns, migration guide. |
+| [Security](architecture/SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (with known gaps), audit chain, data protection, rate limiting, sessions. |
+| [Plugins & Marketplace](architecture/plugins-and-marketplace.md) | ✅ **IMPLEMENTED** | Plugin registry (filesystem source of truth) + Modrinth marketplace implementation. |
+| [Network Access Design](architecture/network-access-design.md) | 🟡 **PLANNED** | Phases 7–8 design reference: TunnelProvider vs DnsProvider, dynamic endpoints, game vs management exposure, Tunnel ≠ Authentication. |
+| [Frontend](architecture/FRONTEND.md) | ✅ **IMPLEMENTED** | React 19 app structure, state management, WebSocket integration, API client, testing. |
+| [Provisioning](architecture/PROVISIONING.md) | ✅ **IMPLEMENTED** | Server creation flow, JAR validation, supported server types. |
 
 ---
 
@@ -47,7 +48,7 @@ listed with their status so it is always clear what is implemented vs planned.
 | [Development](DEVELOPMENT.md) | ✅ **IMPLEMENTED** | Dev setup, sandbox isolation, scripts, debugging. |
 | [Deployment](DEPLOYMENT.md) | ✅ **IMPLEMENTED** | Docker-based deployment guide. |
 | [Getting Started](getting-started.md) | ✅ **IMPLEMENTED** | 5-minute quickstart. |
-| [Status](STATUS.md) | ✅ **IMPLEMENTED** | Full project history (Batch 1–10) and session changelog. Historical narrative; factual counts live in `current-state.md`. |
+| [Status & History](status/history.md) | ✅ **IMPLEMENTED** | Full project history (Batch 1–10) and session changelog. Historical narrative; factual counts live in `current-state.md`. |
 
 ---
 
@@ -66,7 +67,9 @@ listed with their status so it is always clear what is implemented vs planned.
 |-----------|--------|---------|
 | [Decisions (ADRs)](decisions/README.md) | ✅ **IMPLEMENTED** | 12 Architecture Decision Records (ADR-0001 … ADR-0012). |
 | [Runtime](runtime/README.md) | ✅ **IMPLEMENTED** | Runtime subsystem deep-dives (reconciliation, ownership, supervision, recovery). |
-| [Reference](reference/) | ✅ **IMPLEMENTED** | Module map, dependency graph, event catalog, contract registry, file ownership. |
+| [Reference](reference/README.md) | ✅ **IMPLEMENTED** | Module map, dependency graph, event catalog, contract registry, file ownership. |
+| [Status & History](status/history.md) | ✅ **IMPLEMENTED** | Project history, batch/session changelog, known-limitations log. |
+| [Architecture](architecture/README.md) | ✅ **IMPLEMENTED** | Architecture design deep-dives (design docs migrated from `docs/`). |
 
 ---
 

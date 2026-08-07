@@ -4,7 +4,7 @@
 **Content-Type:** `application/json` (responses and mutating requests)
 **Auth:** `Authorization: Bearer <jwt>` or `Authorization: Bearer <api_key>` — see [Authentication](#authentication)
 
-> Cross-references: [Architecture](ARCHITECTURE.md), [Security](SECURITY.md), [Frontend](FRONTEND.md)
+> Cross-references: [Architecture](architecture/ARCHITECTURE.md), [Security](architecture/SECURITY.md), [Frontend](architecture/FRONTEND.md)
 >
 > This document is generated from the router code (`backend/app/api/v1/routers/`).
 > Every endpoint below was verified directly against its router function.
@@ -47,7 +47,7 @@ short-lived (15 minutes, `exp` in payload); claims include `sub`, `roles`,
 `permissions`, and `scope`. Public keys are published at
 `GET /.well-known/jwks.json`. The RSA keypair is auto-generated in-process on
 first run unless `MCS_JWT_PRIVATE_KEY` / `MCS_JWT_PRIVATE_KEY_PATH` are set
-(see [Environment Variables](ARCHITECTURE.md#environment-variables-production)).
+(see [Environment Variables](architecture/ARCHITECTURE.md#environment-variables-production)).
 
 **API keys** are long-lived credentials beginning with `mcs_`. A token that
 starts with `mcs_` is resolved against the stored (hashed) API keys table
@@ -114,7 +114,7 @@ Every other route requires a valid Bearer token.
 > health-evaluate route, the schedule routes, and all reads (list/detail/
 > console/runtime/metrics/users/settings). The remaining routes are a known
 > security gap in the current implementation, not an intentional design choice,
-> and are tracked in `docs/mcs-manager-roadmap-v2.md` Phase 4 §6.1.
+> and are tracked in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md` Phase 4 §6.1.
 
 ### 401 vs 403
 
@@ -465,7 +465,7 @@ Prefix `/api/v1/servers/{server_id}/plugins`. All routes require a Bearer token.
 > **Note:** the marketplace routes carry `require_permission("plugin:manage")`
 > while the plain list/get/enable/disable routes use `Depends(get_current_user)`
 > only. Closing the enable/disable gap is tracked as K4 in
-> `docs/mcs-manager-roadmap-v2.md` Phase 4 §6.1. See `docs/plugins-and-marketplace.md`.
+> `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md` Phase 4 §6.1. See `docs/architecture/plugins-and-marketplace.md`.
 
 ### Schemas
 

@@ -157,7 +157,7 @@ alembic downgrade -1
 alembic history
 ```
 
-See [Database docs](DATABASE.md) for full schema reference.
+See [Database docs](architecture/DATABASE.md) for full schema reference.
 
 ## Testing Strategy
 
@@ -249,7 +249,7 @@ backend/
 
 Each module follows: `domain/` → aggregates, value objects, interfaces; `application/` → command/query handlers, sagas; `infrastructure/` → repository implementations, adapters.
 
-See [Architecture docs](ARCHITECTURE.md) for the full system design.
+See [Architecture docs](architecture/ARCHITECTURE.md) for the full system design.
 
 ## Debugging Tips
 
@@ -262,8 +262,8 @@ See [Architecture docs](ARCHITECTURE.md) for the full system design.
 
 ## Cross-References
 
-- [Architecture](ARCHITECTURE.md) — system context, core patterns, bounded contexts
-- [Database](DATABASE.md) — schema design, migrations, query patterns
-- [Frontend](FRONTEND.md) — React app structure, state management, WS integration
+- [Architecture](architecture/ARCHITECTURE.md) — system context, core patterns, bounded contexts
+- [Database](architecture/DATABASE.md) — schema design, migrations, query patterns
+- [Frontend](architecture/FRONTEND.md) — React app structure, state management, WS integration
 - [API docs](API.md) — REST endpoints, WebSocket protocol, error codes
-- [Provisioning](PROVISIONING.md) — server creation flow, JAR validation, supported types
+- [Provisioning](architecture/PROVISIONING.md) — server creation flow, JAR validation, supported types

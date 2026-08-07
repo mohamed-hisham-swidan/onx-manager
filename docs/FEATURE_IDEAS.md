@@ -20,7 +20,7 @@ workflow (quick access to world files, logs, backups on disk).
 **Why deferred (not implemented now):**
 
 - This is **new feature work**, and the project is currently in **Phase 1
-  (Plugins / Marketplace separation)** per `docs/mcs-manager-roadmap-v2.md`, which
+  (Plugins / Marketplace separation)** per `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`, which
   gates new capability behind its exit criteria.
 - It also carries real security surface: opening a filesystem path from a web UI
   typically means the backend either shells out to something like
@@ -56,7 +56,7 @@ roadmap phase for UI/UX feature work.
 > - Backend: `GET /api/v1/servers/{server_id}/plugins/marketplace/search`, `GET /api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions`, `POST /api/v1/servers/{server_id}/plugins/marketplace/install` — Modrinth provider (`app/modules/plugin/infrastructure/providers/modrinth.py`), version selection ranking (`select_best_version`), install flow downloading the `.jar` into the server's `plugins/` directory.
 > - Filesystem reconciliation: the filesystem is the source of truth — on-disk `.jar` files are reconciled into the DB on every list (`source="detected"`), rows whose file was removed directly from disk are pruned, deletion is deferred via `pending_deletion`.
 > - Frontend: `PluginMarketplacePage` at route `/plugins/marketplace` (search, version picker, install) — **no sidebar entry yet** (known gap K5).
-> - Docs: full detail in `docs/plugins-and-marketplace.md`.
+> - Docs: full detail in `docs/architecture/plugins-and-marketplace.md`.
 >
 > The investigation findings below remain accurate reference material.
 
@@ -67,7 +67,7 @@ other providers later.
 **Why deferred (originally):**
 
 - This is **new feature work**, and the project is currently in **Phase 1
-  (Plugins / Marketplace separation)** per `docs/mcs-manager-roadmap-v2.md`, which
+  (Plugins / Marketplace separation)** per `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`, which
   gates new capability behind its exit criteria.
 - The investigation confirmed the feature is feasible with minimal new
   foundations — nothing about it depends on a Phase 1 decision, so it was
@@ -117,12 +117,12 @@ other providers later.
 > implementation. The shared HTTP client is `get_http_client()` in
 > `backend/app/core/http_client.py`; download-integrity verification is
 > `_verify_checksum` in `backend/app/modules/plugin/infrastructure/providers/modrinth.py`.
-> See `docs/plugins-and-marketplace.md`.
+> See `docs/architecture/plugins-and-marketplace.md`.
 
 **Suggested implementation start:** single provider (Modrinth only), matching
 the existing `StorageBackend`-style ABC + factory pattern, rather than a
 multi-provider abstraction built upfront.
 
 **Suggested target phase:** ✅ **Implemented as of 2026-08-04** (see
-`docs/plugins-and-marketplace.md`); originally targeted the roadmap's
+`docs/architecture/plugins-and-marketplace.md`); originally targeted the roadmap's
 plugin-system phase.

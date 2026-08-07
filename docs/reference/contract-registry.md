@@ -1,6 +1,6 @@
 # Contract Registry
 
-> Cross-references: [Dependency Graph](dependency-graph.md), [Event Catalog](event-catalog.md), [Module Map](module-map.md), [Architecture](../ARCHITECTURE.md)
+> Cross-references: [Dependency Graph](dependency-graph.md), [Event Catalog](event-catalog.md), [Module Map](module-map.md), [Architecture](../architecture/ARCHITECTURE.md)
 
 Source: `contracts/`
 

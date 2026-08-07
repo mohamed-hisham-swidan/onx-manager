@@ -63,11 +63,11 @@ Navigate to `http://localhost:5173`. You will see the login page. Register an ac
 | Topic | Document |
 |---|---|
 | Detailed setup & development loop | [Development Guide](DEVELOPMENT.md) |
-| Architecture overview | [Architecture](ARCHITECTURE.md) |
+| Architecture overview | [Architecture](architecture/ARCHITECTURE.md) |
 | REST API reference | [API Documentation](API.md) |
-| Frontend architecture | [Frontend](FRONTEND.md) |
+| Frontend architecture | [Frontend](architecture/FRONTEND.md) |
 | Running tests | [Testing Guide](testing.md) |
-| Project roadmap | [Roadmap](mcs-manager-roadmap-v2.md) |
+| Project roadmap | [Roadmap](roadmap/MCS-Manager-Engineering-Blueprint-V5.md) |
 
 ## Troubleshooting
 

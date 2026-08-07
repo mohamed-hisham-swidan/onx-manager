@@ -113,7 +113,7 @@ Because state lives in SQLite/Postgres behind Alembic, define:
 ## 5. Roadmap placement
 
 Versioning is **Roadmap Phase 5 (Versioning & State Consistency)** in
-`docs/mcs-manager-roadmap-v2.md`. It is deliberately scheduled after the
+`docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`. It is deliberately scheduled after the
 Plugins/Marketplace restructure, the UI stabilization, and the bug-fixing
 phases, so the versioning change lands on a stable baseline.
 

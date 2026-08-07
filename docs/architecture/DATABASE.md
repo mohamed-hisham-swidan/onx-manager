@@ -13,7 +13,7 @@
 > **Redis note:** Redis appears in the documented stack but the running system
 > never uses it. The task queue is in-process (`InProcessQueue`); the Arq/Redis
 > queue is defined in code but not wired up or instantiated. There is no Redis
-> cache, pub/sub, or presence store. See `docs/ARCHITECTURE.md`.
+> cache, pub/sub, or presence store. See `docs/architecture/ARCHITECTURE.md`.
 
 Connection pooling: 20 pool size, 10 max overflow, `pool_pre_ping=True` for PostgreSQL. SQLite mode skips pooling. See `backend/app/core/persistence/db.py`.
 
@@ -139,7 +139,7 @@ Integrity is verified by replaying the hash chain. Retention: 1 year (partitione
 
 > The `filename`/`source`/`pending_deletion` and Modrinth-provenance columns were
 > added by migrations `3a42d373bb05` and `c4d5e6f7a8b9` (2026-08-04, plugin
-> filesystem-tracking + marketplace work). See `docs/plugins-and-marketplace.md`.
+> filesystem-tracking + marketplace work). See `docs/architecture/plugins-and-marketplace.md`.
 
 ### Monitoring
 
@@ -340,6 +340,6 @@ backup — final schema matches production column-for-column).
 
 ## Cross-References
 
-- [Architecture](ARCHITECTURE.md) — system context, CQRS, Event Bus, Saga orchestration
-- [Architecture](ARCHITECTURE.md) — module structure, core infrastructure patterns
-- [Development guide](DEVELOPMENT.md) — setup, migration commands, testing
+- [Architecture](../architecture/ARCHITECTURE.md) — system context, CQRS, Event Bus, Saga orchestration
+- [Architecture](../architecture/ARCHITECTURE.md) — module structure, core infrastructure patterns
+- [Development guide](../DEVELOPMENT.md) — setup, migration commands, testing
