@@ -857,15 +857,19 @@ class TestMonitoring:
 
 
 class TestSettings:
-    async def test_get_settings(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
-        resp = await client.get("/api/v1/settings", headers=auth_header)
+    async def test_get_settings(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
+        resp = await client.get("/api/v1/settings", headers=admin_header)
         assert resp.status_code == 200
         data = resp.json()
         assert data["app_name"] == "mcs-manager"
+        assert "requires_restart" in data
 
-    async def test_update_settings(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
-        resp = await client.patch("/api/v1/settings", headers=auth_header)
+    async def test_update_settings(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
+        resp = await client.patch("/api/v1/settings", json={"rate_limit_per_minute": 100}, headers=admin_header)
         assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["settings"]["rate_limit_per_minute"] == 100
 
 
 class TestSchedules:

@@ -25,10 +25,17 @@ async def run_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
             counts["logs_deleted"] = result.rowcount if result.rowcount != -1 else 0
 
         if params.get("cleanup_idempotency", True):
-            from app.core.idempotency import IdempotencyModel
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=params.get("idempotency_ttl_hours", 24))
+            ttl_hours = params.get("idempotency_ttl_hours")
+            if ttl_hours is None:
+                try:
+                    from app.core.settings_store import get_live_settings
+                    ttl_hours = get_live_settings().idempotency_ttl_hours
+                except RuntimeError:
+                    ttl_hours = 24
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=ttl_hours)
             result = await session.execute(
-                delete(IdempotencyModel).where(IdempotencyModel.created_at < cutoff),
+                text("DELETE FROM idempotency_keys WHERE created_at < :cutoff"),
+                {"cutoff": cutoff},
             )
             counts["idempotency_keys_deleted"] = result.rowcount if result.rowcount != -1 else 0
 

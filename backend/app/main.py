@@ -46,6 +46,8 @@ from app.core.persistence.db import database
 from app.modules.plugin.infrastructure.providers import validate_plugin_providers
 from app.websocket.endpoint import init_websocket, router as ws_router, start_websocket_services, stop_websocket_services
 
+from app.core.settings_store import init_settings_store
+
 _start_time: float = 0.0
 
 
@@ -54,6 +56,7 @@ async def lifespan(app: FastAPI):
     global _start_time
     _start_time = time.time()
     settings = ConfigFactory.global_settings()
+    init_settings_store()
     database.init(settings)
     init_jwt_from_settings(settings)
     command_bus = CommandBus()

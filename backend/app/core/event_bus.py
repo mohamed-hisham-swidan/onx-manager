@@ -54,7 +54,7 @@ class EventBus:
     def __init__(self) -> None:
         self._subscribers: dict[str, list[Subscription]] = {}
         self._dead_letter_queue: list[DeadLetterEntry] = []
-        self._retry_attempts: int = 3
+        self._retry_attempts: int | None = None
         self._subscriber_timeout: float = 10.0
 
     def subscribe(
@@ -76,6 +76,20 @@ class EventBus:
     @property
     def dead_letter_count(self) -> int:
         return len(self._dead_letter_queue)
+
+    @property
+    def retry_attempts(self) -> int:
+        if self._retry_attempts is not None:
+            return self._retry_attempts
+        try:
+            from app.core.settings_store import get_live_settings
+            return get_live_settings().event_bus_retry_attempts
+        except RuntimeError:
+            return 3
+
+    @retry_attempts.setter
+    def retry_attempts(self, value: int | None) -> None:
+        self._retry_attempts = value
 
     async def publish(self, event: DomainEvent) -> None:
         if not event.event_type:
@@ -101,7 +115,8 @@ class EventBus:
         subscription: Subscription,
     ) -> None:
         last_error: Exception | None = None
-        for attempt in range(self._retry_attempts):
+        max_attempts = self.retry_attempts
+        for attempt in range(max_attempts):
             try:
                 async with asyncio.timeout(self._subscriber_timeout):
                     await subscription.handler.handle(event)
@@ -122,7 +137,7 @@ class EventBus:
                     str(e),
                 )
 
-            if attempt < self._retry_attempts - 1:
+            if attempt < max_attempts - 1:
                 await asyncio.sleep(2**attempt)
 
         self._dead_letter_queue.append(

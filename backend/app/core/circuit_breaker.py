@@ -28,8 +28,8 @@ class CircuitBreaker:
     def __init__(
         self,
         name: str = "default",
-        max_failures: int = 5,
-        timeout_seconds: float = 30.0,
+        max_failures: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> None:
         self._name = name
         self._max_failures = max_failures
@@ -45,9 +45,29 @@ class CircuitBreaker:
         return self._name
 
     @property
+    def max_failures(self) -> int:
+        if self._max_failures is not None:
+            return self._max_failures
+        try:
+            from app.core.settings_store import get_live_settings
+            return get_live_settings().circuit_breaker_max_failures
+        except RuntimeError:
+            return 5
+
+    @property
+    def timeout_seconds(self) -> float:
+        if self._timeout is not None:
+            return self._timeout
+        try:
+            from app.core.settings_store import get_live_settings
+            return float(get_live_settings().circuit_breaker_timeout_seconds)
+        except RuntimeError:
+            return 30.0
+
+    @property
     def state(self) -> CircuitState:
         if self._state == CircuitState.OPEN:
-            if time.time() - self._last_failure_time >= self._timeout:
+            if time.time() - self._last_failure_time >= self.timeout_seconds:
                 self._transition_to(CircuitState.HALF_OPEN)
         return self._state
 
@@ -96,7 +116,7 @@ class CircuitBreaker:
     def _on_failure(self) -> None:
         self._failure_count += 1
         self._last_failure_time = time.time()
-        if self._failure_count >= self._max_failures:
+        if self._failure_count >= self.max_failures:
             self._transition_to(CircuitState.OPEN)
 
     def _transition_to(self, new_state: CircuitState) -> None:

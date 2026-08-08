@@ -181,7 +181,7 @@ route_permissions:
   "DELETE /api/v1/schedules/{schedule_id}": {permission: "settings:write", status: missing, note: "global cron jobs; reuse existing settings:write"}
 
   # settings
-  "PATCH /api/v1/settings": {permission: "settings:write", status: missing}
+  "PATCH /api/v1/settings": {permission: "settings:write", status: enforced}
 
   # ── Read (GET) routes ───────────────────────────────────────────────────────
   # Public / no permission needed
@@ -217,7 +217,7 @@ route_permissions:
   "GET /api/v1/health/timeline/{server_id}": {permission: "server:read", status: missing, note: "per-server health timeline; reuse existing server:read"}
   "GET /api/v1/health/dashboard": {permission: "server:read", status: missing, note: "aggregate of server health; reuse existing server:read"}
   "GET /api/v1/schedules": {permission: "settings:read", status: missing, note: "global cron jobs; reuse existing settings:read"}
-  "GET /api/v1/settings": {permission: "settings:read", status: missing}
+  "GET /api/v1/settings": {permission: "settings:read", status: enforced}
 
   # ── WebSocket ───────────────────────────────────────────────────────────────
   # Status verified by code trace (2026-08-02). Evidence:

@@ -106,8 +106,15 @@ class SagaOrchestrator:
         self,
         saga_type: str,
         steps: list[SagaStep],
-        timeout_seconds: float = 300.0,
+        timeout_seconds: float | None = None,
     ) -> SagaInstance:
+        if timeout_seconds is None:
+            try:
+                from app.core.settings_store import get_live_settings
+                timeout_seconds = float(get_live_settings().saga_timeout_seconds)
+            except RuntimeError:
+                timeout_seconds = 300.0
+
         instance = SagaInstance(
             saga_id=uuid.uuid4().hex,
             saga_type=saga_type,

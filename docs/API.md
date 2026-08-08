@@ -618,22 +618,23 @@ Prefix `/api/v1/settings`. All routes require a Bearer token.
 
 | Method | Path | Response | Notes |
 |---|---|---|---|
-| `GET` | `/api/v1/settings` | `200 dict` | Read-only settings snapshot |
-| `PATCH` | `/api/v1/settings` | `200 dict` | **Stub** — returns `{"success": true, "message": "Settings updated (stub)"}` |
+| `GET` | `/api/v1/settings` | `200 dict` | Current live settings and `requires_restart` field list. Requires `settings:read`. |
+| `PATCH` | `/api/v1/settings` | `200 dict` | Persists updates to `config/settings.yaml`, updates live in-memory store, and hot-reloads running consumers. Requires `settings:write`. |
 
 `GET /api/v1/settings` returns:
 ```json
 {
-  "app_name": "MCS Manager",
+  "app_name": "mcs-manager",
   "version": "4.0.0",
   "debug": false,
-  "log_level": "info",
+  "log_level": "INFO",
   "rate_limit_per_minute": 60,
   "idempotency_ttl_hours": 24,
   "circuit_breaker_max_failures": 5,
   "circuit_breaker_timeout_seconds": 30,
   "event_bus_retry_attempts": 3,
-  "saga_timeout_seconds": 60
+  "saga_timeout_seconds": 300,
+  "requires_restart": ["app_name", "debug", "log_level"]
 }
 ```
 
