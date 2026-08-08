@@ -25,7 +25,7 @@ export interface WSMetricsMessage {
 export interface WSMetricsBatchMessage {
   type: "metrics_batch";
   server_id: string;
-  samples: Array<{ ts: number; tps: number; players: number }>;
+  samples: Array<{ ts: number; tps: number; players: number; ram_mb: number; cpu: number }>;
 }
 
 export interface WSStateSyncMessage {

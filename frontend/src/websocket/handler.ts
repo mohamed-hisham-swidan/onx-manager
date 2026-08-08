@@ -16,7 +16,7 @@ import type {
 export interface CacheUpdate {
   key: string;
   data: unknown;
-  action: "set" | "update" | "invalidate";
+  action: "set" | "update" | "invalidate" | "merge";
 }
 
 export type CacheUpdater = (update: CacheUpdate) => void;
@@ -103,8 +103,8 @@ export class WSHandler {
     this._config.onMetricsBatch?.(message.server_id, message.samples);
     this._config.onCacheUpdate?.({
       key: `metrics_batch:${message.server_id}`,
-      data: message.samples,
-      action: "set",
+      data: { samples: message.samples },
+      action: "merge",
     });
   }
 

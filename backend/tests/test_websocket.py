@@ -561,3 +561,70 @@ class _MockWebSocket:
 
 class _WebSocketDisconnected(Exception):
     pass
+
+
+class TestMetricsBridgeHandler:
+    @pytest.mark.asyncio
+    async def test_bridge_maps_event_fields_correctly(self) -> None:
+        from app.modules.monitoring.infrastructure.collector import MetricCollectedEvent
+        from app.websocket.endpoint import MetricsBridgeHandler
+
+        reg = ConnectionRegistry()
+        batcher = MetricsBatcher(reg)
+        bridge = MetricsBridgeHandler(batcher)
+
+        event = MetricCollectedEvent(
+            server_id="s01",
+            tps=19.5,
+            players=3,
+            ram_mb=2048.0,
+            cpu=45.0,
+        )
+        await bridge.handle(event)
+
+        assert "s01" in batcher._samples
+        assert len(batcher._samples["s01"]) == 1
+        sample = batcher._samples["s01"][0]
+        assert sample["tps"] == 19.5
+        assert sample["players"] == 3
+        assert sample["ram_mb"] == 2048.0
+        assert sample["cpu"] == 45.0
+        assert "ts" in sample
+        assert isinstance(sample["ts"], float)
+
+    @pytest.mark.asyncio
+    async def test_bridge_integration_event_bus_to_broadcast(self) -> None:
+        from app.modules.monitoring.infrastructure.collector import MetricCollectedEvent
+        from app.websocket.endpoint import MetricsBridgeHandler
+
+        eb = EventBus()
+        reg = ConnectionRegistry()
+        batcher = MetricsBatcher(reg)
+        bridge = MetricsBridgeHandler(batcher)
+
+        eb.subscribe("MetricCollectedEvent", bridge)
+
+        mock_ws = _MockWebSocket()
+        await reg.register("c1", mock_ws)
+        await reg.subscribe("c1", "metrics:s01")
+
+        event = MetricCollectedEvent(
+            server_id="s01",
+            tps=20.0,
+            players=5,
+            ram_mb=3072.0,
+            cpu=60.0,
+        )
+        await eb.publish(event)
+        await asyncio.sleep(0.05)
+        await batcher._flush()
+
+        assert len(mock_ws.sent_bytes) > 0
+        import json
+        payload = json.loads(mock_ws.sent_bytes[0])
+        assert payload["type"] == "metrics_batch"
+        assert payload["server_id"] == "s01"
+        assert len(payload["samples"]) == 1
+        assert payload["samples"][0]["tps"] == 20.0
+        assert payload["samples"][0]["ram_mb"] == 3072.0
+

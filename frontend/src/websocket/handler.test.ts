@@ -62,8 +62,9 @@ describe("WSHandler", () => {
 
   it("handles metrics_batch messages", () => {
     const onMetricsBatch = vi.fn();
-    const samples = [{ ts: 1000, tps: 19.5, players: 3 }];
-    const handler = new WSHandler({ onMetricsBatch });
+    const onCacheUpdate = vi.fn();
+    const samples = [{ ts: 1000, tps: 19.5, players: 3, ram_mb: 2048, cpu: 45.0 }];
+    const handler = new WSHandler({ onMetricsBatch, onCacheUpdate });
 
     handler["_route"]({
       type: "metrics_batch",
@@ -72,6 +73,11 @@ describe("WSHandler", () => {
     });
 
     expect(onMetricsBatch).toHaveBeenCalledWith("s01", samples);
+    expect(onCacheUpdate).toHaveBeenCalledWith({
+      key: "metrics_batch:s01",
+      data: { samples },
+      action: "merge",
+    });
   });
 
   it("handles event messages", () => {

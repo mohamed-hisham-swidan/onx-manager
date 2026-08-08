@@ -6,11 +6,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 
 from app.api.deps import get_event_bus
-from app.core.event_bus import EventBus
+from app.core.event_bus import DomainEvent, EventBus, EventHandler
 from app.modules.auth.infrastructure.jwt import verify_ws_token
 from app.websocket.authentication import WSAuthenticator
 from app.websocket.authorization import ChannelAuthorizer
 from app.websocket.buffer import OfflineMessageBuffer
+from app.websocket.dispatcher import MetricsBatcher
 from app.websocket.handlers import WSConnectionHandler
 from app.websocket.manager import ConnectionRegistry
 from app.websocket.rate_limiter import WSRateLimiter
@@ -26,6 +27,27 @@ _buffer: OfflineMessageBuffer | None = None
 _rate_limiter: WSRateLimiter | None = None
 _handler: WSConnectionHandler | None = None
 _event_bus: EventBus | None = None
+_batcher: MetricsBatcher | None = None
+_bridge: "MetricsBridgeHandler | None" = None
+
+
+class MetricsBridgeHandler(EventHandler):
+    """Subscribes to MetricCollectedEvent and feeds samples into MetricsBatcher."""
+
+    def __init__(self, batcher: MetricsBatcher) -> None:
+        self._batcher = batcher
+
+    async def handle(self, event: DomainEvent) -> None:
+        await self._batcher.add_sample(
+            event.server_id,  # type: ignore[attr-defined]
+            {
+                "ts": event.timestamp,
+                "tps": event.tps,  # type: ignore[attr-defined]
+                "players": event.players,  # type: ignore[attr-defined]
+                "ram_mb": event.ram_mb,  # type: ignore[attr-defined]
+                "cpu": event.cpu,  # type: ignore[attr-defined]
+            },
+        )
 
 
 def init_websocket(event_bus: EventBus) -> None:
@@ -37,6 +59,26 @@ def init_websocket(event_bus: EventBus) -> None:
     _rate_limiter = WSRateLimiter()
     _handler = WSConnectionHandler(_registry, _authenticator, _authorizer, _buffer, _rate_limiter)
     _event_bus = event_bus
+
+
+async def start_websocket_services() -> None:
+    """Start MetricsBatcher and subscribe its bridge to MetricCollectedEvent."""
+    global _batcher, _bridge
+    if _registry is None or _event_bus is None:
+        logger.warning("start_websocket_services called before init_websocket")
+        return
+    _batcher = MetricsBatcher(_registry)
+    _bridge = MetricsBridgeHandler(_batcher)
+    _event_bus.subscribe("MetricCollectedEvent", _bridge)
+    await _batcher.start()
+    logger.info("WebSocket metrics push services started")
+
+
+async def stop_websocket_services() -> None:
+    """Stop MetricsBatcher gracefully."""
+    if _batcher is not None:
+        await _batcher.stop()
+        logger.info("WebSocket metrics push services stopped")
 
 
 @router.websocket("/ws")

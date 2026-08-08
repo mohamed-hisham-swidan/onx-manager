@@ -3,6 +3,8 @@ import { queryClient } from "@/services/queryClient";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/stores/authStore";
 import { useActivityStore, toActivityEvent } from "@/stores/activityStore";
+import type { MetricsSnapshot } from "@/services/api";
+import { MAX_POINTS } from "@/server_manager/components/ServerMetricsCharts";
 
 const WS_KEY_MAP: Record<string, string[]> = {
   "servers:list": ["servers", "list"],
@@ -27,10 +29,24 @@ export function WebSocketManager() {
   const setEvents = useActivityStore((s) => s.setEvents);
 
   const onCacheUpdate = useCallback(
-    (update: { key: string; data: unknown; action: "set" | "update" | "invalidate" }) => {
+    (update: { key: string; data: unknown; action: "set" | "update" | "invalidate" | "merge" }) => {
       const queryKey = toQueryKey(update.key);
       if (update.action === "invalidate") {
         queryClient.invalidateQueries({ queryKey });
+      } else if (update.action === "merge") {
+        const { samples } = update.data as { samples: Array<{ ts: number; tps: number; players: number; ram_mb: number; cpu: number }> };
+        const existing = queryClient.getQueryData<MetricsSnapshot[]>(queryKey) ?? [];
+        const mapped: MetricsSnapshot[] = samples.map((s) => ({
+          tps: s.tps,
+          players: s.players,
+          ram_used_mb: s.ram_mb,
+          cpu_percent: s.cpu,
+          timestamp: new Date(s.ts * 1000).toISOString(),
+        }));
+        const merged = [...existing, ...mapped]
+          .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+          .slice(-MAX_POINTS);
+        queryClient.setQueryData(queryKey, merged);
       } else {
         queryClient.setQueryData(queryKey, update.data);
       }

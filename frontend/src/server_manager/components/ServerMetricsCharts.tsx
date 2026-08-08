@@ -8,7 +8,7 @@ function useApi() {
   return createAuthenticatedApi();
 }
 
-const MAX_POINTS = 120;
+export const MAX_POINTS = 120;
 
 interface ServerMetricsChartsProps {
   serverId: string;

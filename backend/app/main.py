@@ -44,7 +44,7 @@ from app.modules.server.application.migrate_import_arch import migrate_old_impor
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.core.persistence.db import database
 from app.modules.plugin.infrastructure.providers import validate_plugin_providers
-from app.websocket.endpoint import init_websocket, router as ws_router
+from app.websocket.endpoint import init_websocket, router as ws_router, start_websocket_services, stop_websocket_services
 
 _start_time: float = 0.0
 
@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
     validate_plugin_providers(settings.plugin_providers)
     init_http_client()
     init_websocket(event_bus)
+    await start_websocket_services()
 
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
@@ -220,6 +221,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────────
+    await stop_websocket_services()
     await scheduler.stop()
     await metrics_collector.close()
     await close_http_client()
