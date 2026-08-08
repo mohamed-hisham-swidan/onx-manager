@@ -260,7 +260,7 @@ class TestWSAuthenticator:
 class TestChannelAuthorizer:
     def test_set_and_get_permissions(self) -> None:
         ca = ChannelAuthorizer()
-        perms = {"servers:read", "servers:write"}
+        perms = {"server:read", "server:write"}
         ca.set_permissions("user1", perms)
         assert ca.get_permissions("user1") == perms
 
@@ -270,22 +270,61 @@ class TestChannelAuthorizer:
 
     def test_can_subscribe_wildcard_with_permissions(self) -> None:
         ca = ChannelAuthorizer()
-        ca.set_permissions("user1", {"servers:read", "servers:write"})
+        ca.set_permissions("user1", {"server:read", "server:write"})
         assert ca.can_subscribe("user1", "server:*")
 
     def test_can_subscribe_wildcard_without_permissions(self) -> None:
         ca = ChannelAuthorizer()
-        ca.set_permissions("user1", {"backups:read"})
+        ca.set_permissions("user1", {"backup:read"})
         assert not ca.can_subscribe("user1", "server:*")
 
     def test_can_subscribe_specific_server(self) -> None:
         ca = ChannelAuthorizer()
-        ca.set_permissions("user1", {"servers:read"})
+        ca.set_permissions("user1", {"server:read"})
         assert ca.can_subscribe("user1", "server:s01")
 
     def test_can_subscribe_no_permissions(self) -> None:
         ca = ChannelAuthorizer()
         assert not ca.can_subscribe("nobody", "server:*")
+
+    def test_singular_permission_grants_where_plural_failed(self) -> None:
+        ca = ChannelAuthorizer()
+        ca.set_permissions("user1", {"server:read"})
+        assert ca.can_subscribe("user1", "server:s01")
+
+    def test_admin_full_bypasses_channel_requirements(self) -> None:
+        ca = ChannelAuthorizer()
+        ca.set_permissions("user1", {"admin:full"})
+        assert ca.can_subscribe("user1", "server:*")
+        assert ca.can_subscribe("user1", "server:s01")
+        assert ca.can_subscribe("user1", "server:s01:console")
+        assert ca.can_subscribe("user1", "backup:*")
+        assert ca.can_subscribe("user1", "plugin:*")
+        assert ca.can_subscribe("user1", "monitoring:s01")
+        assert ca.can_subscribe("user1", "metrics:*")
+        assert ca.can_subscribe("user1", "auth:*")
+        assert ca.can_subscribe("user1", "user:u01")
+
+    def test_missing_required_permission_denied(self) -> None:
+        ca = ChannelAuthorizer()
+        ca.set_permissions("user1", {"backup:create"})
+        assert not ca.can_subscribe("user1", "server:s01")
+        assert not ca.can_subscribe("user1", "plugin:*")
+        assert not ca.can_subscribe("user1", "user:u01")
+
+    def test_console_channel_requires_read_and_write(self) -> None:
+        ca = ChannelAuthorizer()
+        ca.set_permissions("user1", {"server:read"})
+        assert not ca.can_subscribe("user1", "server:s01:console")
+        ca.set_permissions("user1", {"server:write"})
+        assert not ca.can_subscribe("user1", "server:s01:console")
+        ca.set_permissions("user1", {"server:read", "server:write"})
+        assert ca.can_subscribe("user1", "server:s01:console")
+
+    def test_pattern_requires_existing_singular_permission(self) -> None:
+        ca = ChannelAuthorizer()
+        ca.set_permissions("user1", {"monitoring:read"})
+        assert not ca.can_subscribe("user1", "monitoring:s01")
 
     def test_is_wildcard(self) -> None:
         assert ChannelAuthorizer.is_wildcard("server:*")
@@ -295,15 +334,20 @@ class TestChannelAuthorizer:
     def test_validate_channel(self) -> None:
         assert ChannelAuthorizer.validate_channel("server:s01")
         assert ChannelAuthorizer.validate_channel("monitoring:*")
+        assert ChannelAuthorizer.validate_channel("server:s01:console")
         assert not ChannelAuthorizer.validate_channel("invalid")
         assert not ChannelAuthorizer.validate_channel("")
         assert not ChannelAuthorizer.validate_channel("unknown:test")
         assert not ChannelAuthorizer.validate_channel("a:b:c")
+        assert not ChannelAuthorizer.validate_channel("monitoring:s01:other")
+        assert not ChannelAuthorizer.validate_channel("server:s01:console:extra")
 
     def test_channel_pattern_match(self) -> None:
         assert ChannelAuthorizer._match_pattern("server:s01", "server:{server_id}")
         assert not ChannelAuthorizer._match_pattern("server:s01", "server:s02")
         assert ChannelAuthorizer._match_pattern("monitoring:s01", "monitoring:{server_id}")
+        assert ChannelAuthorizer._match_pattern("server:s01:console", "server:{server_id}:console")
+        assert not ChannelAuthorizer._match_pattern("server:s01", "server:{server_id}:console")
 
     def test_max_channels_constant(self) -> None:
         from app.websocket.authorization import MAX_CHANNELS_PER_CONNECTION
