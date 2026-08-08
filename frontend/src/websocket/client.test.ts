@@ -322,4 +322,47 @@ describe("WSClient", () => {
     );
     vi.useRealTimers();
   });
+
+  it("emits SUBSCRIBED channel state on subscribe", () => {
+    const client = new WSClient({ url: "ws://test", token: "test-token" });
+    const channelSpy = vi.fn();
+    client.setChannelStateChangeHandler(channelSpy);
+    client.connect();
+    mockWs.trigger("open");
+    client.subscribe(["server:s01"]);
+    expect(channelSpy).toHaveBeenCalledWith(
+      "server:s01",
+      expect.objectContaining({ channel: "server:s01", status: ChannelStatus.SUBSCRIBED }),
+    );
+  });
+
+  it("emits REJECTED channel state on PERMISSION_DENIED", () => {
+    const client = new WSClient({ url: "ws://test", token: "test-token" });
+    const channelSpy = vi.fn();
+    client.setChannelStateChangeHandler(channelSpy);
+    client.connect();
+    mockWs.trigger("open");
+    client.subscribe(["server:s01"]);
+    channelSpy.mockClear();
+
+    mockWs.trigger("message", {
+      data: JSON.stringify({ type: "error", code: "PERMISSION_DENIED", message: "Not authorized for channel: server:s01" }),
+    });
+
+    expect(channelSpy).toHaveBeenCalledWith(
+      "server:s01",
+      expect.objectContaining({ channel: "server:s01", status: ChannelStatus.REJECTED }),
+    );
+  });
+
+  it("emits null channel state on unsubscribe", () => {
+    const client = new WSClient({ url: "ws://test", token: "test-token" });
+    const channelSpy = vi.fn();
+    client.setChannelStateChangeHandler(channelSpy);
+    client.connect();
+    mockWs.trigger("open");
+    client.subscribe(["server:s01"]);
+    client.unsubscribe(["server:s01"]);
+    expect(channelSpy).toHaveBeenCalledWith("server:s01", null);
+  });
 });

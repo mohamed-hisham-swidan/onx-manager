@@ -4,6 +4,7 @@
 
 import { ChannelManager, extractChannelFromErrorMessage } from "./channels";
 import type {
+  ChannelState,
   ClientMessage,
   ErrorHandler,
   MessageHandler,
@@ -37,6 +38,7 @@ export class WSClient {
   private _onStateChange: ((state: CS) => void) | null = null;
   private _onError: ErrorHandler | null = null;
   private _onUnattributedRejection: (() => void) | null = null;
+  private _onChannelStateChange: ((channel: string, state: ChannelState | null) => void) | null = null;
 
   private _channelRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -54,6 +56,7 @@ export class WSClient {
       this._onMessage = handlers.onMessage ?? null;
       this._onStateChange = handlers.onStateChange ?? null;
       this._onError = handlers.onError ?? null;
+      this._onChannelStateChange = handlers.onChannelStateChange ?? null;
     }
   }
 
@@ -139,6 +142,10 @@ export class WSClient {
     });
     if (valid.length > 0) {
       this.send({ type: "subscribe", channels: valid });
+      for (const ch of valid) {
+        const state = this.channels.getChannelState(ch);
+        if (state) this._emitChannelState(ch, state);
+      }
     }
   }
 
@@ -146,6 +153,7 @@ export class WSClient {
     channels.forEach((ch) => {
       this.channels.remove(ch);
       this._clearChannelRetry(ch);
+      this._emitChannelState(ch, null);
     });
     this.send({ type: "unsubscribe", channels });
   }
@@ -172,10 +180,15 @@ export class WSClient {
     if (handlers.onMessage) this._onMessage = handlers.onMessage;
     if (handlers.onStateChange) this._onStateChange = handlers.onStateChange;
     if (handlers.onError) this._onError = handlers.onError;
+    if (handlers.onChannelStateChange) this._onChannelStateChange = handlers.onChannelStateChange;
   }
 
   setUnattributedRejectionHandler(handler: (() => void) | null): void {
     this._onUnattributedRejection = handler;
+  }
+
+  setChannelStateChangeHandler(handler: ((channel: string, state: ChannelState | null) => void) | null): void {
+    this._onChannelStateChange = handler;
   }
 
   private _handleServerMessage(message: ServerMessage): void {
@@ -207,7 +220,12 @@ export class WSClient {
       return;
     }
     this.channels.markRejected(channel, message.message);
+    this._emitChannelState(channel, this.channels.getChannelState(channel) ?? null);
     this._scheduleChannelRetry(channel);
+  }
+
+  private _emitChannelState(channel: string, state: ChannelState | null): void {
+    this._onChannelStateChange?.(channel, state);
   }
 
   /**

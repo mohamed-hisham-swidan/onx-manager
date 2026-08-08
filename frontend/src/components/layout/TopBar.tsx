@@ -12,6 +12,7 @@ const WS_DOT: Record<ConnectionState, { dot: string; text: string; label: string
   connecting: { dot: "bg-gray-400", text: "text-gray-500 dark:text-gray-400", label: "Connecting…", present: true },
   reconnecting: { dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400", label: "Reconnecting…", present: true },
   disconnected: { dot: "bg-red-500", text: "text-red-600 dark:text-red-400", label: "Offline", present: true },
+  degraded: { dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400", label: "Degraded", present: true },
 };
 
 export function TopBar() {

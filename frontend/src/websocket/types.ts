@@ -93,6 +93,11 @@ export enum ConnectionState {
   CONNECTING = "connecting",
   CONNECTED = "connected",
   RECONNECTING = "reconnecting",
+  // Transport is connected but at least one subscription is unhealthy
+  // (REJECTED/RETRYING channel, or an unattributed rejection whose fate is
+  // unknown). Computed as a derived state — the raw transport connectionState
+  // field is never mutated to this value (see wsStore.computeEffectiveConnectionState).
+  DEGRADED = "degraded",
 }
 
 export interface WSConnectionConfig {
@@ -137,8 +142,16 @@ export type MessageHandler = (message: ServerMessage) => void;
 export type ConnectionStateHandler = (state: ConnectionState) => void;
 export type ErrorHandler = (error: Error) => void;
 
+/**
+ * Reports a change to a channel's subscription state so consumers (e.g. the
+ * WS store) can mirror it. `state` is null when the channel was removed
+ * (unsubscribed) and its entry should be dropped.
+ */
+export type ChannelStateChangeHandler = (channel: string, state: ChannelState | null) => void;
+
 export interface WSEventHandlers {
   onMessage?: MessageHandler;
   onStateChange?: ConnectionStateHandler;
   onError?: ErrorHandler;
+  onChannelStateChange?: ChannelStateChangeHandler;
 }
