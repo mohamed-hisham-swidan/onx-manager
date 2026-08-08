@@ -2,7 +2,7 @@
 // WebSocket Client with Auto-Reconnect & Exponential Backoff
 // ---------------------------------------------------------------------------
 
-import { ChannelManager } from "./channels";
+import { ChannelManager, extractChannelFromErrorMessage } from "./channels";
 import type {
   ClientMessage,
   ErrorHandler,
@@ -10,12 +10,18 @@ import type {
   ServerMessage,
   WSConnectionConfig,
   WSEventHandlers,
+  WSErrorMessage,
 } from "./types";
-import { ConnectionState as CS } from "./types";
+import { ChannelStatus as CH, ConnectionState as CS } from "./types";
 
 const DEFAULT_BASE_DELAY = 1000;
 const DEFAULT_MAX_DELAY = 30000;
 const DEFAULT_MAX_RETRIES = 10;
+
+// Per-channel rejected resubscribe backoff (distinct from transport reconnect).
+const CHANNEL_RETRY_MAX = 3;
+const CHANNEL_RETRY_BASE_DELAY = 2000;
+const CHANNEL_RETRY_MAX_DELAY = 10000;
 
 export class WSClient {
   private _ws: WebSocket | null = null;
@@ -30,6 +36,9 @@ export class WSClient {
   private _onMessage: MessageHandler | null = null;
   private _onStateChange: ((state: CS) => void) | null = null;
   private _onError: ErrorHandler | null = null;
+  private _onUnattributedRejection: (() => void) | null = null;
+
+  private _channelRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   readonly channels = new ChannelManager();
 
@@ -105,6 +114,7 @@ export class WSClient {
     this._destroyed = true;
     this._stopPing();
     this._clearRetry();
+    this._clearAllChannelRetries();
     if (this._ws) {
       this._ws.onclose = null;
       this._ws.close(1000, "Client disconnect");
@@ -133,13 +143,25 @@ export class WSClient {
   }
 
   unsubscribe(channels: string[]): void {
-    channels.forEach((ch) => this.channels.remove(ch));
+    channels.forEach((ch) => {
+      this.channels.remove(ch);
+      this._clearChannelRetry(ch);
+    });
     this.send({ type: "unsubscribe", channels });
   }
 
   refreshToken(token: string, sub: string): void {
     this._config.token = token;
     this.send({ type: "refresh_token", token, sub });
+    // New credentials give previously-rejected channels a fresh chance:
+    // reset their retry counts and re-request each subscription.
+    for (const state of Object.values(this.channels.getAllChannelStates())) {
+      if (state.status === CH.REJECTED) {
+        this.channels.resetRetryCount(state.channel);
+        this._clearChannelRetry(state.channel);
+        this.send({ type: "subscribe", channels: [state.channel] });
+      }
+    }
   }
 
   ping(): void {
@@ -152,13 +174,86 @@ export class WSClient {
     if (handlers.onError) this._onError = handlers.onError;
   }
 
+  setUnattributedRejectionHandler(handler: (() => void) | null): void {
+    this._onUnattributedRejection = handler;
+  }
+
   private _handleServerMessage(message: ServerMessage): void {
     if (message.type === "auth_expired") {
       this._onStateChange?.(CS.DISCONNECTED);
       this.disconnect();
       return;
     }
+    if (message.type === "error" && message.code === "PERMISSION_DENIED") {
+      this._handlePermissionDenied(message as WSErrorMessage);
+      return;
+    }
     this._onMessage?.(message);
+  }
+
+  /**
+   * Handles a per-channel permission rejection. This is a subscription-level
+   * problem, not a transport one: we record the rejection and (boundedly)
+   * resubscribe, but never touch transport ConnectionState (unlike
+   * auth_expired, which correctly disconnects).
+   */
+  private _handlePermissionDenied(message: WSErrorMessage): void {
+    const channel = extractChannelFromErrorMessage(message.message);
+    if (channel === null) {
+      // Parse failure: channel name embedded in free-text message could not
+      // be recovered. Do NOT silently drop it — surface it so the caller can
+      // trigger a global-degraded fallback rather than mis-attributing it.
+      this._onUnattributedRejection?.();
+      return;
+    }
+    this.channels.markRejected(channel, message.message);
+    this._scheduleChannelRetry(channel);
+  }
+
+  /**
+   * Schedules a bounded resubscribe attempt for a single rejected channel.
+   * Independent per channel: rejecting channel A never affects channel B's
+   * timer or retry count. After CHANNEL_RETRY_MAX rejections the channel
+   * settles as REJECTED permanently (until refreshToken resets it).
+   */
+  private _scheduleChannelRetry(channel: string): void {
+    const state = this.channels.getChannelState(channel);
+    if (!state) return;
+    if (state.retryCount > CHANNEL_RETRY_MAX) {
+      return;
+    }
+    this._clearChannelRetry(channel);
+
+    // Exponential backoff within CHANNEL_RETRY_BASE/MAX_DELAY bounds:
+    // 2000ms, then 4000ms, then 8000ms (capped at 10000ms).
+    const delay = Math.min(
+      CHANNEL_RETRY_BASE_DELAY * Math.pow(2, state.retryCount - 1),
+      CHANNEL_RETRY_MAX_DELAY,
+    );
+    this._channelRetryTimers.set(
+      channel,
+      setTimeout(() => {
+        this._channelRetryTimers.delete(channel);
+        if (this._destroyed) return;
+        if (!this.channels.has(channel)) return;
+        this.send({ type: "subscribe", channels: [channel] });
+      }, delay),
+    );
+  }
+
+  private _clearChannelRetry(channel: string): void {
+    const timer = this._channelRetryTimers.get(channel);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this._channelRetryTimers.delete(channel);
+    }
+  }
+
+  private _clearAllChannelRetries(): void {
+    for (const timer of this._channelRetryTimers.values()) {
+      clearTimeout(timer);
+    }
+    this._channelRetryTimers.clear();
   }
 
   private _setState(state: CS): void {
