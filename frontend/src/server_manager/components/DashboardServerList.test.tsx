@@ -5,8 +5,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardServerList } from "./DashboardServerList";
 import { useToastStore } from "@/stores/toastStore";
 import { useWSStore } from "@/stores/wsStore";
-import { ConnectionState } from "@/websocket/types";
+import { ConnectionState, ChannelStatus } from "@/websocket/types";
+import type { ChannelState } from "@/websocket/types";
 import type { ServerResponse } from "@/server_manager/types";
+
+function rejectedChannelState(channel: string): ChannelState {
+  return {
+    channel,
+    status: ChannelStatus.REJECTED,
+    authorized: false,
+    error: `Not authorized for channel: ${channel}`,
+    retryCount: 3,
+  };
+}
 
 const servers: ServerResponse[] = [
   { server_id: "srv-1", name: "Running", server_type: "vanilla", minecraft_version: "1.21", status: "running", group_id: "default", port: 25565, motd: "", max_players: 20, gamemode: "survival", difficulty: "easy", created_at: "", updated_at: "" },
@@ -38,7 +49,12 @@ function renderList() {
 describe("DashboardServerList", () => {
   beforeEach(() => {
     useToastStore.getState().clear();
-    useWSStore.setState({ connectionState: ConnectionState.CONNECTED, connected: true });
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: {},
+      unattributedRejection: false,
+    });
   });
 
   it("renders each server with a name link and status badge", () => {
@@ -90,5 +106,26 @@ describe("DashboardServerList", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     }
     expect(screen.getByRole("link", { name: "Running" })).toBeInTheDocument();
+  });
+
+  it("shows the subscription-rejected note when transport is connected but a server channel is rejected (K1)", () => {
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: { "server:s01": rejectedChannelState("server:s01") },
+    });
+    renderList();
+    expect(screen.getByRole("status")).toHaveTextContent("Status not live — subscription rejected");
+    expect(screen.getByRole("link", { name: "Running" })).toBeInTheDocument();
+  });
+
+  it("does not show the note when an unrelated channel is rejected", () => {
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: { "metrics:s99": rejectedChannelState("metrics:s99") },
+    });
+    renderList();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

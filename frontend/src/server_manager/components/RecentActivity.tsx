@@ -1,8 +1,7 @@
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useActivityStore } from "@/stores/activityStore";
-import { useWSStore } from "@/stores/wsStore";
+import { useEffectiveConnectionState, useIsChannelDegraded } from "@/stores/wsStore";
 import type { ActivityEvent } from "@/stores/activityStore";
-import type { ConnectionState } from "@/websocket/types";
 
 interface RecentActivityProps {
   serverNames?: Record<string, string>;
@@ -80,7 +79,8 @@ function EventRow({ event, serverNames }: { event: ActivityEvent; serverNames?: 
 
 export function RecentActivity({ serverNames }: RecentActivityProps) {
   const events = useActivityStore((s) => s.events);
-  const connectionState = useWSStore((s) => s.connectionState);
+  const connectionState = useEffectiveConnectionState();
+  const serverChannelDegraded = useIsChannelDegraded("server:*");
 
   const liveNote =
     connectionState === "reconnecting"
@@ -89,7 +89,9 @@ export function RecentActivity({ serverNames }: RecentActivityProps) {
         ? { text: "Connecting to live updates…", color: "text-gray-500 dark:text-gray-400" }
         : connectionState === "disconnected"
           ? { text: "Live updates unavailable", color: "text-red-600 dark:text-red-400" }
-          : null;
+          : serverChannelDegraded
+            ? { text: "Live updates unavailable — subscription rejected", color: "text-amber-700 dark:text-amber-400" }
+            : null;
 
   return (
     <>

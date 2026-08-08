@@ -2,10 +2,10 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { useUIStore } from "@/stores/uiStore";
-import { useWSStore } from "@/stores/wsStore";
+import { useEffectiveConnectionState } from "@/stores/wsStore";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
-import type { ConnectionState } from "@/websocket/types";
+import { ConnectionState } from "@/websocket/types";
 
 const WS_DOT: Record<ConnectionState, { dot: string; text: string; label: string; present: boolean }> = {
   connected: { dot: "bg-green-500", text: "text-green-600 dark:text-green-400", label: "Live", present: true },
@@ -25,7 +25,7 @@ export function TopBar() {
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const toggleMobileSidebar = useUIStore((s) => s.toggleMobileSidebar);
-  const connectionState = useWSStore((s) => s.connectionState);
+  const connectionState = useEffectiveConnectionState();
   const navigate = useNavigate();
 
   const ws = WS_DOT[connectionState];
@@ -73,7 +73,11 @@ export function TopBar() {
             className="flex items-center gap-1.5 rounded-lg px-2 py-1"
             role="status"
             aria-label={`Socket ${connectionState}`}
-            title={`Live updates: ${connectionState === "connected" ? "connected" : connectionState}`}
+            title={
+              connectionState === ConnectionState.DEGRADED
+                ? "WebSocket connected, but 1 or more subscriptions were rejected"
+                : `Live updates: ${connectionState === "connected" ? "connected" : connectionState}`
+            }
           >
             <span className={`h-2 w-2 rounded-full ${ws.dot}`} />
             <span className={`text-xs font-medium ${ws.text}`}>{ws.label}</span>

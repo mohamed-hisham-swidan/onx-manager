@@ -3,8 +3,19 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ServerMetricsCharts } from "./ServerMetricsCharts";
 import { useWSStore } from "@/stores/wsStore";
-import { ConnectionState } from "@/websocket/types";
+import { ConnectionState, ChannelStatus } from "@/websocket/types";
+import type { ChannelState } from "@/websocket/types";
 import type { MetricsSnapshot } from "@/services/api";
+
+function rejectedChannelState(channel: string): ChannelState {
+  return {
+    channel,
+    status: ChannelStatus.REJECTED,
+    authorized: false,
+    error: `Not authorized for channel: ${channel}`,
+    retryCount: 3,
+  };
+}
 
 const getMetricsMock = vi.fn();
 
@@ -34,7 +45,12 @@ describe("ServerMetricsCharts", () => {
   beforeEach(() => {
     getMetricsMock.mockReset();
     getMetricsMock.mockResolvedValue([]);
-    useWSStore.setState({ connectionState: ConnectionState.CONNECTED, connected: true });
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: {},
+      unattributedRejection: false,
+    });
   });
 
   it("renders the newest metric snapshot as current, not the oldest", async () => {
@@ -70,5 +86,28 @@ describe("ServerMetricsCharts", () => {
     } else {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     }
+  });
+
+  it("shows the subscription-rejected note when transport is connected but this server's metrics channel is rejected (K1)", async () => {
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: { "metrics:srv-1": rejectedChannelState("metrics:srv-1") },
+    });
+    renderCharts();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Metrics not live — subscription rejected",
+    );
+  });
+
+  it("does not show the note when another server's metrics channel is rejected", async () => {
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: { "metrics:other": rejectedChannelState("metrics:other") },
+    });
+    renderCharts();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(await screen.findAllByText("—")).toHaveLength(4);
   });
 });

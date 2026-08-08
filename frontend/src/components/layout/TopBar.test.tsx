@@ -5,7 +5,18 @@ import { TopBar } from "./TopBar";
 import { useAuthStore } from "@/stores/authStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useWSStore } from "@/stores/wsStore";
-import { ConnectionState } from "@/websocket/types";
+import { ConnectionState, ChannelStatus } from "@/websocket/types";
+import type { ChannelState } from "@/websocket/types";
+
+function rejectedChannelState(channel: string): ChannelState {
+  return {
+    channel,
+    status: ChannelStatus.REJECTED,
+    authorized: false,
+    error: `Not authorized for channel: ${channel}`,
+    retryCount: 3,
+  };
+}
 
 function renderTopBar() {
   return render(
@@ -33,7 +44,12 @@ describe("TopBar", () => {
       getAccessToken: () => null,
     });
     useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false, theme: "light" });
-    useWSStore.setState({ connectionState: ConnectionState.DISCONNECTED, connected: false });
+    useWSStore.setState({
+      connectionState: ConnectionState.DISCONNECTED,
+      connected: false,
+      channelStates: {},
+      unattributedRejection: false,
+    });
   });
 
   it("renders app title", () => {
@@ -75,5 +91,29 @@ describe("TopBar", () => {
     renderTopBar();
     expect(screen.getByRole("status", { name: `Socket ${state}` })).toBeInTheDocument();
     expect(screen.getByText(label)).toBeInTheDocument();
+  });
+
+  it("shows Degraded state when transport is connected but a subscription is rejected", () => {
+    setAuth();
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: { "server:s01": rejectedChannelState("server:s01") },
+    });
+    renderTopBar();
+    expect(screen.getByRole("status", { name: "Socket degraded" })).toBeInTheDocument();
+    expect(screen.getByText("Degraded")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveAttribute(
+      "title",
+      "WebSocket connected, but 1 or more subscriptions were rejected",
+    );
+  });
+
+  it("shows Degraded state when an unattributed rejection is set", () => {
+    setAuth();
+    useWSStore.setState({ connectionState: ConnectionState.CONNECTED, connected: true, unattributedRejection: true });
+    renderTopBar();
+    expect(screen.getByRole("status", { name: "Socket degraded" })).toBeInTheDocument();
+    expect(screen.getByText("Degraded")).toBeInTheDocument();
   });
 });

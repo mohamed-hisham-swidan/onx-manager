@@ -4,7 +4,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useStartServer, useStopServer, useRestartServer } from "@/server_manager/hooks/useServers";
 import { STATUS_MAP } from "@/server_manager/types";
 import { toast } from "@/stores/toastStore";
-import { useWSStore } from "@/stores/wsStore";
+import { useEffectiveConnectionState, useIsChannelDegraded } from "@/stores/wsStore";
 import type { ServerResponse } from "@/server_manager/types";
 
 interface DashboardServerListProps {
@@ -19,7 +19,8 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
   const startServer = useStartServer();
   const stopServer = useStopServer();
   const restartServer = useRestartServer();
-  const connectionState = useWSStore((s) => s.connectionState);
+  const connectionState = useEffectiveConnectionState();
+  const serverChannelDegraded = useIsChannelDegraded("server:*");
 
   const staleNote =
     connectionState === "reconnecting"
@@ -28,7 +29,9 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
         ? { text: "Connecting to live status…", color: "text-gray-500 dark:text-gray-400" }
         : connectionState === "disconnected"
           ? { text: "Status not live — showing last known", color: "text-red-600 dark:text-red-400" }
-          : null;
+          : serverChannelDegraded
+            ? { text: "Status not live — subscription rejected", color: "text-amber-700 dark:text-amber-400" }
+            : null;
 
   const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending;
 

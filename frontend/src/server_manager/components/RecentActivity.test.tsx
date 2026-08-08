@@ -3,7 +3,18 @@ import { render, screen } from "@testing-library/react";
 import { RecentActivity } from "./RecentActivity";
 import { useActivityStore } from "@/stores/activityStore";
 import { useWSStore } from "@/stores/wsStore";
-import { ConnectionState } from "@/websocket/types";
+import { ConnectionState, ChannelStatus } from "@/websocket/types";
+import type { ChannelState } from "@/websocket/types";
+
+function rejectedChannelState(channel: string): ChannelState {
+  return {
+    channel,
+    status: ChannelStatus.REJECTED,
+    authorized: false,
+    error: `Not authorized for channel: ${channel}`,
+    retryCount: 3,
+  };
+}
 
 function seedEvent(event_type: string, name = "Server A", minutesAgo = 0) {
   useActivityStore.getState().addEvent({
@@ -17,7 +28,12 @@ function seedEvent(event_type: string, name = "Server A", minutesAgo = 0) {
 describe("RecentActivity", () => {
   beforeEach(() => {
     useActivityStore.getState().clear();
-    useWSStore.setState({ connectionState: ConnectionState.CONNECTED, connected: true });
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: {},
+      unattributedRejection: false,
+    });
   });
 
   it("renders nothing when there are no events", () => {
@@ -87,5 +103,30 @@ describe("RecentActivity", () => {
     useWSStore.setState({ connectionState: ConnectionState.DISCONNECTED, connected: false });
     render(<RecentActivity />);
     expect(screen.getByText("Live updates unavailable")).toBeInTheDocument();
+  });
+
+  it("shows the subscription-rejected note when transport is connected but a server channel is rejected (K1)", () => {
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: { "server:s01": rejectedChannelState("server:s01") },
+    });
+    seedEvent("ServerStartedEvent");
+    render(<RecentActivity />);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Live updates unavailable — subscription rejected",
+    );
+    expect(screen.getByText("Server A")).toBeInTheDocument();
+  });
+
+  it("does not show the note when an unrelated channel is rejected", () => {
+    useWSStore.setState({
+      connectionState: ConnectionState.CONNECTED,
+      connected: true,
+      channelStates: { "metrics:s99": rejectedChannelState("metrics:s99") },
+    });
+    seedEvent("ServerStartedEvent");
+    render(<RecentActivity />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

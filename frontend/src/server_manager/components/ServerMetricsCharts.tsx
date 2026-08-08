@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
-import { useWSStore } from "@/stores/wsStore";
+import { useEffectiveConnectionState, useIsChannelDegraded } from "@/stores/wsStore";
 import { Sparkline } from "./Sparkline";
 
 function useApi() {
@@ -32,7 +32,8 @@ export function ServerMetricsCharts({ serverId }: ServerMetricsChartsProps) {
     ? metrics.reduce((latest, m) => (m.timestamp > latest.timestamp ? m : latest))
     : undefined;
 
-  const connectionState = useWSStore((s) => s.connectionState);
+  const connectionState = useEffectiveConnectionState();
+  const metricsChannelDegraded = useIsChannelDegraded(`metrics:${serverId}`);
   const staleNote =
     connectionState === "reconnecting"
       ? { text: "Metrics not live — reconnecting...", color: "text-amber-700 dark:text-amber-400" }
@@ -40,7 +41,9 @@ export function ServerMetricsCharts({ serverId }: ServerMetricsChartsProps) {
         ? { text: "Connecting to live metrics…", color: "text-gray-500 dark:text-gray-400" }
         : connectionState === "disconnected"
           ? { text: "Metrics not live — showing last known", color: "text-red-600 dark:text-red-400" }
-          : null;
+          : metricsChannelDegraded
+            ? { text: "Metrics not live — subscription rejected", color: "text-amber-700 dark:text-amber-400" }
+            : null;
 
   const metricCards = [
     { label: "TPS", value: current?.tps?.toFixed(1) ?? "—", data: tpsData, color: "#22c55e", fillColor: "rgba(34, 197, 94, 0.1)" },
