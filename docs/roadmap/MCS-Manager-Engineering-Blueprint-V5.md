@@ -1951,6 +1951,15 @@ features**.
    visibly disabled/labeled non-functional. No control silently no-ops.
 5. **WebSocket surface honesty** — live vs. explicitly disabled, surfaced in the UI, not hidden
    behind a client that "looks" connected while the backend fail-closes every subscription (K1).
+
+   **Known limitation (flagged 2026-08-07):** the UI-honesty fix in
+   workstream 5 is a correct, tested foundation, but the frontend does
+   not yet actively call `subscribe()` for the channels it covers
+   (`server:*`, `metrics:<serverId>`) anywhere in current code. The
+   DEGRADED state will only surface in practice once those subscribe
+   calls are wired in — tracked for Phase 3 alongside K1/K2 backend
+   fixes (§3.8), since that's when live subscriptions are expected to
+   actually be dispatched.
 6. **Frontend test coverage** for the above.
 7. **Permissions UX presentation groundwork (DEFERRED)** — out of Phase 2 scope pending D2 resolution (`contracts/permissions.yaml`). Revisit if D2 resolves mid-phase per §3.3; otherwise deferred to Phase 4 alongside enforcement.
 
