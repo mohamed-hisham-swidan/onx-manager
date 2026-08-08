@@ -1,10 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "@/services/api";
 import { ServerDetailPage } from "./ServerDetailPage";
+
+function NavigateButton({ to, label }: { to: string; label: string }) {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate(to)}>{label}</button>;
+}
+
+const { subscribeChannelsMock, unsubscribeChannelsMock } = vi.hoisted(() => ({
+  subscribeChannelsMock: vi.fn(),
+  unsubscribeChannelsMock: vi.fn(),
+}));
+
+vi.mock("@/hooks/useWebSocket", () => ({
+  subscribeChannels: subscribeChannelsMock,
+  unsubscribeChannels: unsubscribeChannelsMock,
+}));
 
 const mockServer = {
   server_id: "srv-1",
@@ -85,6 +100,8 @@ describe("ServerDetailPage", () => {
     mockData = mockServer;
     mockIsLoading = false;
     mockError = null;
+    subscribeChannelsMock.mockClear();
+    unsubscribeChannelsMock.mockClear();
   });
 
   it("shows loading skeletons", () => {
@@ -165,5 +182,35 @@ describe("ServerDetailPage", () => {
     await user.click(screen.getByText("Delete"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Delete server?")).toBeInTheDocument();
+  });
+
+  it("subscribes to metrics:<serverId> on mount", () => {
+    renderPage("srv-1");
+    expect(subscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-1"]);
+  });
+
+  it("unsubscribes metrics:<serverId> on unmount", () => {
+    const { unmount } = renderPage("srv-1");
+    unmount();
+    expect(unsubscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-1"]);
+  });
+
+  it("unsubscribes old and subscribes new metrics:<serverId> when the route param changes", async () => {
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={["/servers/srv-1"]}>
+          <Routes>
+            <Route path="/servers/:serverId" element={<ServerDetailPage />} />
+          </Routes>
+          <NavigateButton to="/servers/srv-2" label="go srv-2" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(subscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-1"]);
+
+    await user.click(screen.getByText("go srv-2"));
+    expect(unsubscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-1"]);
+    expect(subscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-2"]);
   });
 });

@@ -14,6 +14,27 @@ interface UseWebSocketOptions {
   autoConnect?: boolean;
 }
 
+/**
+ * Module-level bridge to the single active WSClient.
+ *
+ * WebSocketManager owns the one and only WSClient (it must be a singleton —
+ * two clients would open two connections). Other components (e.g.
+ * ServerDetailPage) need to subscribe/unsubscribe scoped channels
+ * (metrics:<serverId>) without creating a second connection, so they route
+ * through these helpers, which delegate to whatever client useWebSocket has
+ * registered. No-op until a client is registered.
+ */
+let activeSubscribe: ((channels: string[]) => void) | null = null;
+let activeUnsubscribe: ((channels: string[]) => void) | null = null;
+
+export function subscribeChannels(channels: string[]): void {
+  activeSubscribe?.(channels);
+}
+
+export function unsubscribeChannels(channels: string[]): void {
+  activeUnsubscribe?.(channels);
+}
+
 export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoConnect = true }: UseWebSocketOptions) {
   const accessToken = useAuthStore((s) => s.accessToken);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -56,10 +77,14 @@ export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoCon
     );
     client.setUnattributedRejectionHandler(() => setUnattributedRejection(true));
     handler.attach(client);
+    activeSubscribe = (channels) => client.subscribe(channels);
+    activeUnsubscribe = (channels) => client.unsubscribe(channels);
     client.connect();
     clientRef.current = client;
 
     return () => {
+      activeSubscribe = null;
+      activeUnsubscribe = null;
       client.disconnect();
       clientRef.current = null;
       handlerRef.current = null;

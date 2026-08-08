@@ -38,7 +38,17 @@ let mockWs: ReturnType<typeof createMockWebSocket>;
 describe("WSClient", () => {
   beforeEach(() => {
     mockWs = createMockWebSocket();
-    vi.stubGlobal("WebSocket", vi.fn(() => mockWs));
+    const wsMock = vi.fn(() => mockWs);
+    // The stubbed global WebSocket must carry the standard readyState
+    // constants; WSClient compares mockWs.readyState against WebSocket.OPEN /
+    // WebSocket.CONNECTING to decide whether to (re)connect.
+    Object.assign(wsMock, {
+      CONNECTING: 0,
+      OPEN: 1,
+      CLOSING: 2,
+      CLOSED: 3,
+    });
+    vi.stubGlobal("WebSocket", wsMock);
   });
 
   afterEach(() => {
@@ -278,6 +288,36 @@ describe("WSClient", () => {
     vi.advanceTimersByTime(2000);
     expect(mockWs.send).toHaveBeenCalledTimes(1);
     expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "subscribe", channels: ["server:s01"] }));
+    vi.useRealTimers();
+  });
+
+  it("resubscribes all active channels after a transport reconnect", () => {
+    vi.useFakeTimers();
+    const client = new WSClient({
+      url: "ws://test",
+      token: "test-token",
+      autoReconnect: true,
+      baseDelay: 50,
+      maxRetries: 5,
+    });
+    client.connect();
+    mockWs.trigger("open");
+    client.subscribe(["server:*", "metrics:s01"]);
+    mockWs.send.mockClear();
+
+    // Simulate a transport drop: close fires onclose -> _scheduleReconnect.
+    mockWs.trigger("close");
+    vi.advanceTimersByTime(50);
+
+    // A fresh WebSocket should have been created for the reconnect attempt.
+    expect(WebSocket).toHaveBeenCalledTimes(2);
+
+    // The new connection re-establishes every channel that was active when
+    // the transport dropped (both the global server:* and the scoped metrics).
+    mockWs.trigger("open");
+    expect(mockWs.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: "subscribe", channels: ["server:*", "metrics:s01"] }),
+    );
     vi.useRealTimers();
   });
 

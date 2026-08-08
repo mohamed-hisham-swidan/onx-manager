@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer } from "@/server_manager/hooks/useServers";
+import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -53,6 +54,13 @@ export function ServerDetailPage() {
   const deleteServer = useDeleteServer();
   const [activeTab, setActiveTab] = useState<"info" | "config" | "console" | "metrics">("info");
   const [showDelete, setShowDelete] = useState(false);
+
+  useEffect(() => {
+    if (!serverId) return;
+    const channel = `metrics:${serverId}`;
+    subscribeChannels([channel]);
+    return () => unsubscribeChannels([channel]);
+  }, [serverId]);
 
   if (!serverId) {
     return (

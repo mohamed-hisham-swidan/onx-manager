@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { queryClient } from "@/services/queryClient";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/stores/authStore";
@@ -52,13 +52,18 @@ export function WebSocketManager() {
     [setEvents],
   );
 
-  useWebSocket({
+  const { subscribe } = useWebSocket({
     url: `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`,
     onCacheUpdate,
     onEvent,
     onStateSync,
     autoConnect: isAuthenticated,
   });
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    subscribe(["server:*"]);
+  }, [isAuthenticated, subscribe]);
 
   return null;
 }
