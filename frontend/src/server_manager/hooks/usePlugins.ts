@@ -21,7 +21,7 @@ export function useMarketplaceSearch(serverId: string, query: string) {
   return useQuery({
     queryKey: queryKeys.plugins.marketplace.search(serverId, query),
     queryFn: () => api.searchMarketplace(serverId, query),
-    enabled: !!serverId && query.trim().length > 0,
+    enabled: !!serverId,
   });
 }
 
@@ -30,7 +30,6 @@ export function useMarketplaceSearchGlobal(query: string) {
   return useQuery({
     queryKey: queryKeys.plugins.marketplace.global(query),
     queryFn: () => api.searchMarketplaceGlobal(query),
-    enabled: query.trim().length > 0,
   });
 }
 

@@ -185,7 +185,6 @@ export function PluginMarketplacePage() {
           />
           <button
             type="submit"
-            disabled={!query.trim()}
             className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
           >
             <Icon name="search" size={16} />
@@ -206,13 +205,7 @@ export function PluginMarketplacePage() {
       {!selectedProject ? (
         search.isLoading ? (
           <TableSkeleton rows={4} cols={4} />
-        ) : submitted && search.data && search.data.length === 0 ? (
-          <EmptyState
-            icon="search"
-            title="No plugins found"
-            description={`No results for "${submitted}". Try a different search term.`}
-          />
-        ) : search.data && search.data.length > 0 ? (
+        ) : search.isError ? null : search.data && search.data.length > 0 ? (
           <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
             <table className="w-full text-sm">
               <thead>
@@ -275,8 +268,12 @@ export function PluginMarketplacePage() {
         ) : (
           <EmptyState
             icon="search"
-            title="Search the marketplace"
-            description="Find plugins by name, like EssentialsX or WorldEdit."
+            title="No plugins found"
+            description={
+              submitted.trim()
+                ? `No results for "${submitted}". Try a different search term.`
+                : "No plugins available in the marketplace right now."
+            }
           />
         )
       ) : !chosenVersion ? (
