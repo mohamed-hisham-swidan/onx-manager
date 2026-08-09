@@ -74,3 +74,72 @@ class TestBuildPluginCatalogProvider:
             build_plugin_catalog_provider(
                 settings=AppSettings(plugin_providers="modrinth,modrinth")
             )
+
+
+class TestModrinthProviderSearch:
+    @pytest.mark.asyncio
+    async def test_search_plugin_facets_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = ModrinthProvider()
+        captured_params = {}
+
+        async def mock_get_json(path: str, params: dict | None = None) -> dict:
+            nonlocal captured_params
+            captured_params = params or {}
+            return {
+                "hits": [
+                    {
+                        "project_id": "proj-1",
+                        "slug": "paper-plugin",
+                        "title": "Paper Plugin",
+                        "all_project_types": ["plugin"],
+                    },
+                    {
+                        "project_id": "proj-2",
+                        "slug": "fabric-mod",
+                        "title": "Fabric Mod",
+                        "all_project_types": ["mod"],
+                    },
+                ]
+            }
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        results = await provider.search("worldedit")
+        assert len(results) == 1
+        assert results[0].project_id == "proj-1"
+        assert "project_type:plugin" in captured_params.get("facets", "")
+        assert "categories:paper" in captured_params.get("facets", "")
+
+    @pytest.mark.asyncio
+    async def test_search_mod_facets(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = ModrinthProvider()
+        captured_params = {}
+
+        async def mock_get_json(path: str, params: dict | None = None) -> dict:
+            nonlocal captured_params
+            captured_params = params or {}
+            return {
+                "hits": [
+                    {
+                        "project_id": "proj-1",
+                        "slug": "paper-plugin",
+                        "title": "Paper Plugin",
+                        "all_project_types": ["plugin"],
+                    },
+                    {
+                        "project_id": "proj-2",
+                        "slug": "fabric-mod",
+                        "title": "Fabric Mod",
+                        "all_project_types": ["mod"],
+                    },
+                ]
+            }
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        results = await provider.search("sodium", project_type="mod")
+        assert len(results) == 1
+        assert results[0].project_id == "proj-2"
+        assert "project_type:mod" in captured_params.get("facets", "")
+        assert "categories:fabric" in captured_params.get("facets", "")
+

@@ -28,6 +28,12 @@ _PLUGIN_LOADER_FACETS = (
     '"categories:folia"]'
 )
 
+_MOD_CATEGORIES = ("fabric", "forge", "neoforge", "quilt")
+_MOD_FACET = '["project_type:mod"]'
+_MOD_LOADER_FACETS = (
+    '["categories:fabric","categories:forge","categories:neoforge","categories:quilt"]'
+)
+
 
 class ModrinthProvider(PluginCatalogProvider):
     name = "modrinth"
@@ -36,23 +42,32 @@ class ModrinthProvider(PluginCatalogProvider):
         self,
         query: str,
         *,
+        project_type: str = "plugin",
         limit: int = 20,
         offset: int = 0,
     ) -> list[PluginSearchResult]:
+        pt = (project_type or "").strip().lower()
+        if pt == "mod":
+            facet_type = _MOD_FACET
+            facet_loaders = _MOD_LOADER_FACETS
+            target_type = "mod"
+        else:
+            facet_type = _PLUGIN_FACET
+            facet_loaders = _PLUGIN_LOADER_FACETS
+            target_type = "plugin"
+
         params = {
             "query": query,
             "limit": str(limit),
             "offset": str(offset),
-            # Plugin hits report project_type "mod"; real plugins carry
-            # all_project_types=["plugin"] and a bukkit-family loader category.
-            "facets": f'[{_PLUGIN_FACET},{_PLUGIN_LOADER_FACETS}]',
+            "facets": f'[{facet_type},{facet_loaders}]',
         }
         data = await self._get_json("/search", params=params)
         hits = data.get("hits") or []
         results: list[PluginSearchResult] = []
         for hit in hits:
             project_types = hit.get("all_project_types") or [hit.get("project_type", "")]
-            if "plugin" not in project_types:
+            if target_type not in project_types:
                 continue
             results.append(
                 PluginSearchResult(

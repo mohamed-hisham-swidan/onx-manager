@@ -66,6 +66,7 @@ class PluginCatalogProvider(ABC):
         self,
         query: str,
         *,
+        project_type: str = "plugin",
         limit: int = 20,
         offset: int = 0,
     ) -> list[PluginSearchResult]:
