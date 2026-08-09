@@ -74,12 +74,45 @@ describe("ServersPage", () => {
     expect(screen.queryByText("Beta Plot")).not.toBeInTheDocument();
   });
 
-  it("filters by status", () => {
+  it("opens popover, filters by status, and sorts by status", () => {
     renderPage();
-    const filter = screen.getByLabelText("Filter by status");
-    fireEvent.change(filter, { target: { value: "running" } });
+    const filterBtn = screen.getByRole("button", { name: "Filter and sort" });
+    expect(screen.queryByRole("dialog", { name: "Filter and sort options" })).not.toBeInTheDocument();
+
+    // Open popover
+    fireEvent.click(filterBtn);
+    expect(screen.getByRole("dialog", { name: "Filter and sort options" })).toBeInTheDocument();
+
+    // Select status filter
+    const filterSelect = screen.getByLabelText("Filter by status");
+    fireEvent.change(filterSelect, { target: { value: "running" } });
     expect(screen.getByText("Alpha World")).toBeInTheDocument();
     expect(screen.queryByText("Beta Plot")).not.toBeInTheDocument();
+
+    // Select sort option
+    const sortSelect = screen.getByLabelText("Sort by");
+    fireEvent.change(sortSelect, { target: { value: "status" } });
+  });
+
+  it("closes filter popover on Escape key and click outside", () => {
+    renderPage();
+    const filterBtn = screen.getByRole("button", { name: "Filter and sort" });
+
+    // Open
+    fireEvent.click(filterBtn);
+    expect(screen.getByRole("dialog", { name: "Filter and sort options" })).toBeInTheDocument();
+
+    // Close via Escape key
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Filter and sort options" })).not.toBeInTheDocument();
+
+    // Open again
+    fireEvent.click(filterBtn);
+    expect(screen.getByRole("dialog", { name: "Filter and sort options" })).toBeInTheDocument();
+
+    // Close via click outside
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("dialog", { name: "Filter and sort options" })).not.toBeInTheDocument();
   });
 
   it("sorts by name", () => {

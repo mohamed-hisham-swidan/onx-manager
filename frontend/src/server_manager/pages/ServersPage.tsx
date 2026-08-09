@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useServersList, useStartServer, useStopServer, useRestartServer, useDeleteServer } from "@/server_manager/hooks/useServers";
 import { STATUS_MAP } from "@/server_manager/types";
@@ -31,8 +31,28 @@ export function ServersPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [deleteTarget, setDeleteTarget] = useState<ServerResponse | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
 
   const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending;
+
+  useEffect(() => {
+    if (!isFilterOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setIsFilterOpen(false);
+    }
+    function handleClickOutside(e: MouseEvent) {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setIsFilterOpen(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isFilterOpen]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -141,35 +161,69 @@ export function ServersPage() {
                 className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <label className="sr-only" htmlFor="status-filter">
-                Filter by status
-              </label>
-              <select
-                id="status-filter"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+            <div className="relative" ref={filterRef}>
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen((prev) => !prev)}
+                aria-expanded={isFilterOpen}
+                aria-label="Filter and sort"
+                title="Filter and sort"
+                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                  statusFilter !== "all" || sortKey !== "name"
+                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-900/30 dark:text-blue-300"
+                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                }`}
               >
-                {STATUS_FILTERS.map((s) => (
-                  <option key={s} value={s}>
-                    {s === "all" ? "All statuses" : STATUS_MAP[s]?.label ?? s}
-                  </option>
-                ))}
-              </select>
-              <label className="sr-only" htmlFor="sort-key">
-                Sort by
-              </label>
-              <select
-                id="sort-key"
-                value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
-              >
-                <option value="name">Sort by name</option>
-                <option value="status">Sort by status</option>
-                <option value="version">Sort by version</option>
-              </select>
+                <Icon name="filter" size={16} />
+                <span>Filters</span>
+                {(statusFilter !== "all" || sortKey !== "name") && (
+                  <span className="h-2 w-2 rounded-full bg-blue-600 dark:bg-blue-400" />
+                )}
+              </button>
+
+              {isFilterOpen && (
+                <div
+                  role="dialog"
+                  aria-label="Filter and sort options"
+                  className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-4 shadow-lg dark:border-gray-700 dark:bg-gray-800"
+                >
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="status-filter" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        Filter by status
+                      </label>
+                      <select
+                        id="status-filter"
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      >
+                        {STATUS_FILTERS.map((s) => (
+                          <option key={s} value={s}>
+                            {s === "all" ? "All statuses" : STATUS_MAP[s]?.label ?? s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="border-t border-gray-100 pt-3 dark:border-gray-700/60">
+                      <label htmlFor="sort-key" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        Sort by
+                      </label>
+                      <select
+                        id="sort-key"
+                        value={sortKey}
+                        onChange={(e) => setSortKey(e.target.value as SortKey)}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      >
+                        <option value="name">Sort by name</option>
+                        <option value="status">Sort by status</option>
+                        <option value="version">Sort by version</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

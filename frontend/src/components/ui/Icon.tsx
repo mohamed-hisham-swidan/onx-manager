@@ -26,6 +26,7 @@ export type IconName =
   | "info"
   | "external"
   | "x"
+  | "filter"
   | "modrinth"
   | "curseforge";
 
@@ -139,6 +140,7 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   x: <path d="M18 6L6 18M6 6l12 12" />,
+  filter: <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />,
   modrinth: (
     <path
       fill="currentColor"
