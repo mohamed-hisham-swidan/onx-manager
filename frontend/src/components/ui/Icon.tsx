@@ -19,6 +19,7 @@ export type IconName =
   | "trash"
   | "chevron-left"
   | "chevron-right"
+  | "chevron-down"
   | "activity"
   | "check"
   | "alert"
@@ -116,6 +117,7 @@ const PATHS: Record<IconName, JSX.Element> = {
   ),
   "chevron-left": <path d="M15 18l-6-6 6-6" />,
   "chevron-right": <path d="M9 18l6-6-6-6" />,
+  "chevron-down": <path d="M6 9l6 6 6-6" />,
   activity: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
   check: <path d="M20 6L9 17l-5-5" />,
   alert: (

@@ -78,10 +78,10 @@ const { useMarketplaceSearch, useMarketplaceSearchGlobal } = vi.hoisted(() => {
   const empty: SearchMock = { data: null, isLoading: false, isError: false, error: null };
   return {
     useMarketplaceSearch: vi.fn<
-      (serverId: string, query: string, options?: { enabled?: boolean }) => SearchMock
+      (serverId: string, query: string, options?: { enabled?: boolean; projectType?: string }) => SearchMock
     >(() => empty),
     useMarketplaceSearchGlobal: vi.fn<
-      (query: string, options?: { enabled?: boolean }) => SearchMock
+      (query: string, options?: { enabled?: boolean; projectType?: string }) => SearchMock
     >(() => empty),
   };
 });
@@ -163,16 +163,30 @@ describe("PluginMarketplacePage", () => {
 
   it("switches to CurseForge source and renders coming soon state with disabled fetches", () => {
     renderPage();
-    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true });
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true, projectType: "plugin" });
 
     fireEvent.click(screen.getByRole("button", { name: /CurseForge/i }));
     expect(useMarketplaceSourceStore.getState().source).toBe("curseforge");
     expect(screen.getByText("CurseForge Integration Coming Soon")).toBeInTheDocument();
-    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: false });
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: false, projectType: "plugin" });
 
     fireEvent.click(screen.getByRole("button", { name: /Switch to Modrinth/i }));
     expect(useMarketplaceSourceStore.getState().source).toBe("modrinth");
-    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true });
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true, projectType: "plugin" });
+  });
+
+  it("changes Discover dropdown from Plugins to Mods and passes projectType to search hook", () => {
+    renderPage();
+    expect(screen.getByRole("combobox", { name: /discover type/i })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: /discover type/i }), {
+      target: { value: "mod" },
+    });
+
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", {
+      enabled: true,
+      projectType: "mod",
+    });
   });
 
   it("searches the global marketplace with no server in the URL", () => {
@@ -180,7 +194,7 @@ describe("PluginMarketplacePage", () => {
     renderPage("/marketplace");
     fireEvent.change(screen.getByLabelText("Search plugins"), { target: { value: "essentials" } });
     fireEvent.click(screen.getByText("Search"));
-    expect(useMarketplaceSearchGlobal).toHaveBeenCalledWith("essentials", { enabled: true });
+    expect(useMarketplaceSearchGlobal).toHaveBeenCalledWith("essentials", { enabled: true, projectType: "plugin" });
     expect(screen.getByText("EssentialsX")).toBeInTheDocument();
   });
 
@@ -189,7 +203,7 @@ describe("PluginMarketplacePage", () => {
     renderPage("/marketplace?server=srv-1");
     fireEvent.change(screen.getByLabelText("Search plugins"), { target: { value: "essentials" } });
     fireEvent.click(screen.getByText("Search"));
-    expect(useMarketplaceSearch).toHaveBeenCalledWith("srv-1", "essentials", { enabled: true });
+    expect(useMarketplaceSearch).toHaveBeenCalledWith("srv-1", "essentials", { enabled: true, projectType: "plugin" });
     expect(screen.getByText("EssentialsX")).toBeInTheDocument();
   });
 

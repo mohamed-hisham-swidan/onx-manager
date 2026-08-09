@@ -18,6 +18,7 @@ export function usePluginsList(serverId: string) {
 
 export interface MarketplaceSearchOptions {
   enabled?: boolean;
+  projectType?: string;
 }
 
 export function useMarketplaceSearch(
@@ -26,9 +27,10 @@ export function useMarketplaceSearch(
   options?: MarketplaceSearchOptions,
 ) {
   const api = useApi();
+  const projectType = options?.projectType;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.search(serverId, query),
-    queryFn: () => api.searchMarketplace(serverId, query),
+    queryKey: queryKeys.plugins.marketplace.search(serverId, query, projectType),
+    queryFn: () => api.searchMarketplace(serverId, query, projectType),
     enabled: (options?.enabled ?? true) && !!serverId,
   });
 }
@@ -38,9 +40,10 @@ export function useMarketplaceSearchGlobal(
   options?: MarketplaceSearchOptions,
 ) {
   const api = useApi();
+  const projectType = options?.projectType;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.global(query),
-    queryFn: () => api.searchMarketplaceGlobal(query),
+    queryKey: queryKeys.plugins.marketplace.global(query, projectType),
+    queryFn: () => api.searchMarketplaceGlobal(query, projectType),
     enabled: options?.enabled ?? true,
   });
 }

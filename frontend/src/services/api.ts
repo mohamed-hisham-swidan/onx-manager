@@ -262,14 +262,14 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/disable`, { method: "POST" }),
 
     // Plugin marketplace
-    searchMarketplace: (serverId: string, query: string, limit?: number, offset?: number) =>
+    searchMarketplace: (serverId: string, query: string, projectType?: string, limit?: number, offset?: number) =>
       request<PluginSearchResultResponse[]>(`/api/v1/servers/${serverId}/plugins/marketplace/search`, {
-        params: { query, limit: limit?.toString(), offset: offset?.toString() },
+        params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString() },
       }),
     // Global variant: server-independent marketplace search (no server_id in the path).
-    searchMarketplaceGlobal: (query: string, limit?: number, offset?: number) =>
+    searchMarketplaceGlobal: (query: string, projectType?: string, limit?: number, offset?: number) =>
       request<PluginSearchResultResponse[]>(`/api/v1/marketplace/search`, {
-        params: { query, limit: limit?.toString(), offset: offset?.toString() },
+        params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString() },
       }),
     getProjectVersions: (serverId: string, projectId: string) =>
       request<PluginVersionsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/projects/${projectId}/versions`),

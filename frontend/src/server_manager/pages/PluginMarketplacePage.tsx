@@ -18,6 +18,7 @@ import { toast } from "@/stores/toastStore";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { formatBytes } from "@/server_manager/utils/format";
+import { VersionList } from "@/server_manager/components/VersionList";
 import type { ServerResponse } from "@/server_manager/types";
 import type {
   PluginSearchResultResponse,
@@ -50,6 +51,7 @@ export function PluginMarketplacePage() {
 
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
+  const [projectType, setProjectType] = useState<"plugin" | "mod">("plugin");
   const [selectedProject, setSelectedProject] = useState<PluginSearchResultResponse | null>(null);
   const [chosenVersion, setChosenVersion] = useState<PluginVersionResponse | null>(null);
   const [targetServerId, setTargetServerId] = useState("");
@@ -68,8 +70,14 @@ export function PluginMarketplacePage() {
   const isModrinth = source === "modrinth";
 
   const globalQuery = serverId ? "" : submitted;
-  const searchGlobal = useMarketplaceSearchGlobal(globalQuery, { enabled: isModrinth });
-  const searchScoped = useMarketplaceSearch(serverId, submitted, { enabled: isModrinth });
+  const searchGlobal = useMarketplaceSearchGlobal(globalQuery, {
+    enabled: isModrinth,
+    projectType,
+  });
+  const searchScoped = useMarketplaceSearch(serverId, submitted, {
+    enabled: isModrinth,
+    projectType,
+  });
   const search = serverId ? searchScoped : searchGlobal;
 
   const contextServerId = useMemo(() => {
@@ -234,30 +242,57 @@ export function PluginMarketplacePage() {
         />
       ) : (
         <>
-          <form onSubmit={handleSearch} className="mb-6">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={serverId ? "Search plugins for this server..." : "Search the global marketplace..."}
-                aria-label="Search plugins"
-                className="w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
-              />
-              <button
-                type="submit"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
-              >
-                <Icon name="search" size={16} />
-                Search
-              </button>
+          <div className="mb-6 flex flex-wrap items-center gap-3">
+            <div className="relative inline-flex items-center">
+              <label htmlFor="discover-select" className="sr-only">
+                Discover
+              </label>
+              <div className="relative">
+                <select
+                  id="discover-select"
+                  aria-label="Discover type"
+                  value={projectType}
+                  onChange={(e) => setProjectType(e.target.value as "plugin" | "mod")}
+                  className="appearance-none rounded-lg border border-gray-300 bg-white py-2 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                >
+                  <option value="plugin">Plugins</option>
+                  <option value="mod">Mods</option>
+                </select>
+                <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
+                  <Icon name="chevron-down" size={14} />
+                </div>
+              </div>
             </div>
-            {!serverId && (
-              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                Browse the global marketplace without a server — you'll pick a destination when installing.
-              </p>
-            )}
-          </form>
+
+            <form onSubmit={handleSearch} className="flex-1">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={
+                    serverId
+                      ? `Search ${projectType === "mod" ? "mods" : "plugins"} for this server...`
+                      : `Search ${projectType === "mod" ? "mods" : "plugins"} in the global marketplace...`
+                  }
+                  aria-label="Search plugins"
+                  className="w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                />
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
+                >
+                  <Icon name="search" size={16} />
+                  Search
+                </button>
+              </div>
+            </form>
+          </div>
+          {!serverId && (
+            <p className="-mt-4 mb-6 text-sm text-gray-500 dark:text-gray-400">
+              Browse the global marketplace without a server — you'll pick a destination when installing.
+            </p>
+          )}
 
           {search.isError && (
             <ErrorState className="mb-6" message={search.error instanceof Error ? search.error.message : "Search failed"} />
@@ -352,55 +387,13 @@ export function PluginMarketplacePage() {
               ) : versions.isError ? (
                 <ErrorState message={versions.error instanceof Error ? versions.error.message : "Failed to load versions"} />
               ) : selectedVersionResponse && selectedVersionResponse.versions.length > 0 ? (
-                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
-                        <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Version</th>
-                        <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 sm:table-cell">Game versions</th>
-                        <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 md:table-cell">Loaders</th>
-                        <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 lg:table-cell">Size</th>
-                        <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedVersionResponse.versions.map((v) => {
-                        const primary = v.files.find((f) => f.primary) ?? v.files[0];
-                        return (
-                          <tr
-                            key={v.version_id}
-                            className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
-                          >
-                            <td className="px-4 py-3">
-                              <p className="font-medium text-gray-900 dark:text-gray-100">{v.version_number}</p>
-                            </td>
-                            <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">
-                              {v.game_versions.slice(0, 3).join(", ")}
-                              {v.game_versions.length > 3 ? ` +${v.game_versions.length - 3}` : ""}
-                            </td>
-                            <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">
-                              {v.loaders.join(", ")}
-                            </td>
-                            <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 lg:table-cell">
-                              {primary ? formatBytes(primary.size_bytes) : "-"}
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center justify-end gap-1">
-                                <button
-                                  onClick={() => handleChooseVersion(v)}
-                                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
-                                >
-                                  <Icon name="plus" size={14} />
-                                  Install
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <VersionList
+                  versions={selectedVersionResponse.versions}
+                  selectedVersion={selectedVersionResponse.selected}
+                  notice={selectedVersionResponse.notice}
+                  noticeKind={selectedVersionResponse.notice_kind}
+                  onSelectVersion={handleChooseVersion}
+                />
               ) : (
                 <EmptyState
                   icon="plugin"

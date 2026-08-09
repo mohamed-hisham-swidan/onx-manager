@@ -81,11 +81,12 @@ describe("createApiClient", () => {
 
   it("searchMarketplaceGlobal hits global endpoint with query params", async () => {
     vi.mocked(fetch).mockImplementationOnce(mockFetch([{ project_id: "p1", title: "Test" }]));
-    const result = await api.searchMarketplaceGlobal("essentials", 10, 20);
+    const result = await api.searchMarketplaceGlobal("essentials", "mod", 10, 20);
 
     const url = vi.mocked(fetch).mock.calls[0][0] as string;
     expect(url).toContain("/api/v1/marketplace/search");
     expect(url).toContain("query=essentials");
+    expect(url).toContain("project_type=mod");
     expect(url).toContain("limit=10");
     expect(url).toContain("offset=20");
     expect(result).toHaveLength(1);

@@ -686,6 +686,33 @@ class TestPluginMarketplace:
             }
         ]
 
+    async def test_global_marketplace_search_project_type(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        from app.modules.plugin.infrastructure.providers.base import PluginSearchResult
+
+        passed_kwargs = {}
+
+        class _FakeProvider:
+            async def search(
+                self, _query: str, **kwargs: object
+            ) -> list[PluginSearchResult]:
+                nonlocal passed_kwargs
+                passed_kwargs = kwargs
+                return []
+
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/search",
+                params={"query": "sodium", "project_type": "mod"},
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        assert passed_kwargs.get("project_type") == "mod"
+
     async def test_global_marketplace_search_requires_permission(
         self, client: AsyncClient, auth_header: dict[str, str]
     ) -> None:
