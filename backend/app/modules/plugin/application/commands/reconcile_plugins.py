@@ -9,6 +9,7 @@ from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.plugin.domain.aggregate import Plugin
 from app.modules.plugin.domain.repository import PluginRepository
+from app.modules.plugin.infrastructure.jar_metadata_parser import parse_jar_version
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.fs import FileSystem, local_fs
@@ -64,20 +65,48 @@ class ReconcilePluginsHandler(CommandHandler[ReconcilePluginsCommand]):
 
             added: list[str] = []
             for filename in sorted(disk_files):
+                jar_path = os.path.join(plugin_dir, filename)
                 if filename in existing_by_filename:
+                    existing_plugin = existing_by_filename[filename]
+                    if existing_plugin.display_version == "unknown":
+                        parsed_raw = parse_jar_version(jar_path)
+                        if parsed_raw:
+                            try:
+                                parsed_ver = PluginVersion.parse(parsed_raw)
+                                ver_raw = None
+                            except ValueError:
+                                parsed_ver = PluginVersion(0, 0, 0)
+                                ver_raw = parsed_raw
+                            existing_plugin.update_version(parsed_ver, version_raw=ver_raw)
+                            await repo.save(existing_plugin)
+                            for event in existing_plugin.collect_events():
+                                uow.add_event(event)
                     continue
+
+                parsed_raw = parse_jar_version(jar_path)
+                if parsed_raw:
+                    try:
+                        parsed_ver = PluginVersion.parse(parsed_raw)
+                        ver_raw = None
+                    except ValueError:
+                        parsed_ver = PluginVersion(0, 0, 0)
+                        ver_raw = parsed_raw
+                else:
+                    parsed_ver = PluginVersion(0, 0, 0)
+                    ver_raw = "unknown"
+
                 plugin_id = PluginId()
                 plugin = Plugin.install(
                     plugin_id=plugin_id,
                     server_id=server_id,
                     name=filename.rsplit(".", 1)[0],
-                    version=PluginVersion(0, 0, 0),
+                    version=parsed_ver,
                     description="",
                     author="",
                     website="",
                     source="detected",
                     filename=filename,
-                    version_raw="unknown",
+                    version_raw=ver_raw,
                 )
                 await repo.save(plugin)
                 for event in plugin.collect_events():

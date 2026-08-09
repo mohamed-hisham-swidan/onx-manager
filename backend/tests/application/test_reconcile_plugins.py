@@ -53,6 +53,17 @@ async def _drop_jar(server_dir: str, filename: str) -> None:
         f.write(b"PK\x03\x04fake-jar")
 
 
+async def _drop_real_jar(server_dir: str, filename: str, version: str) -> None:
+    import os
+    import zipfile
+
+    plugins_dir = os.path.join(server_dir, "plugins")
+    os.makedirs(plugins_dir, exist_ok=True)
+    jar_path = os.path.join(plugins_dir, filename)
+    with zipfile.ZipFile(jar_path, "w") as zf:
+        zf.writestr("plugin.yml", f"name: Test\nversion: {version}\n")
+
+
 async def _seed_plugin_row(
     plugin_id: str,
     server_id: str,
@@ -194,3 +205,75 @@ class TestReconcilePluginsHandler:
             repo = SQLPluginRepository(session)
             plugins = await repo.list_all_by_server(ServerId("rec-nofname"))
             assert len(plugins) == 1
+
+    @pytest.mark.asyncio
+    async def test_reconcile_parses_jar_version_when_available(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        server_dir = str(tmp_path / "rec-ver")
+        await _create_server("rec-ver", server_dir)
+        await _drop_real_jar(server_dir, "ParsedPlugin.jar", "1.2.3")
+
+        handler = ReconcilePluginsHandler(event_bus)
+        res = await handler.handle(ReconcilePluginsCommand(server_id="rec-ver"))
+        assert res.success is True
+        assert res.data["added"] == ["ParsedPlugin.jar"]
+
+        async with database.session_factory() as session:
+            repo = SQLPluginRepository(session)
+            plugins = await repo.list_all_by_server(ServerId("rec-ver"))
+            assert len(plugins) == 1
+            assert plugins[0].display_version == "1.2.3"
+
+    @pytest.mark.asyncio
+    async def test_self_heals_existing_unknown_version_row(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        server_dir = str(tmp_path / "rec-heal")
+        await _create_server("rec-heal", server_dir)
+        # First drop dummy jar without metadata
+        await _drop_jar(server_dir, "HealPlugin.jar")
+
+        handler = ReconcilePluginsHandler(event_bus)
+        await handler.handle(ReconcilePluginsCommand(server_id="rec-heal"))
+
+        async with database.session_factory() as session:
+            repo = SQLPluginRepository(session)
+            plugins = await repo.list_all_by_server(ServerId("rec-heal"))
+            assert len(plugins) == 1
+            assert plugins[0].display_version == "unknown"
+
+        # Replace file with valid jar containing version 2.5.0
+        await _drop_real_jar(server_dir, "HealPlugin.jar", "2.5.0")
+
+        # Run reconcile again - should self-heal existing row
+        res2 = await handler.handle(ReconcilePluginsCommand(server_id="rec-heal"))
+        assert res2.success is True
+        assert res2.data["added"] == []
+
+        async with database.session_factory() as session:
+            repo = SQLPluginRepository(session)
+            plugins = await repo.list_all_by_server(ServerId("rec-heal"))
+            assert len(plugins) == 1
+            assert plugins[0].display_version == "2.5.0"
+
+    @pytest.mark.asyncio
+    async def test_preserves_already_versioned_row(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        server_dir = str(tmp_path / "rec-known")
+        await _create_server("rec-known", server_dir)
+        await _seed_plugin_row("rec-known-1", "rec-known", "KnownPlugin.jar")
+        # Put real jar with different version on disk
+        await _drop_real_jar(server_dir, "KnownPlugin.jar", "9.9.9")
+
+        handler = ReconcilePluginsHandler(event_bus)
+        res = await handler.handle(ReconcilePluginsCommand(server_id="rec-known"))
+        assert res.success is True
+
+        async with database.session_factory() as session:
+            repo = SQLPluginRepository(session)
+            plugins = await repo.list_all_by_server(ServerId("rec-known"))
+            assert len(plugins) == 1
+            assert plugins[0].display_version == "1.0.0"
+
