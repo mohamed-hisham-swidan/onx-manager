@@ -66,6 +66,7 @@ class SQLPluginRepository(PluginRepository):
         model.dependencies = ",".join(plugin.dependencies)
         model.status = plugin.status.value
         model.source = plugin.source
+        model.project_type = plugin.project_type
         model.filename = plugin.filename
         model.pending_deletion = plugin.pending_deletion
         model.pending_deletion_requested_at = plugin.pending_deletion_requested_at
@@ -112,6 +113,7 @@ class SQLPluginRepository(PluginRepository):
             external_url=model.external_url,
             checksum=model.checksum,
             version_raw=version_raw,
+            project_type=getattr(model, "project_type", "plugin"),
             installed_at=model.installed_at,
             updated_at=model.updated_at,
         )

@@ -142,3 +142,27 @@ def test_folia_chain():
     result = select_best_version("folia", "1.21", versions)
     assert result.selected is not None
     assert result.notice_kind == ""
+
+
+def test_semver_aware_sort_1_10_after_1_9():
+    versions = [
+        _ver("1.2", game_versions=["1.21"], loaders=["paper"], date_published="2024-06-01T00:00:00Z"),
+        _ver("1.9", game_versions=["1.21"], loaders=["paper"], date_published="2024-01-01T00:00:00Z"),
+        _ver("1.10", game_versions=["1.21"], loaders=["paper"], date_published="2020-01-01T00:00:00Z"),
+    ]
+    result = select_best_version("paper", "1.21", versions)
+    assert [v.version_number for v in result.available] == ["1.10", "1.9", "1.2"]
+    assert result.selected is not None
+    assert result.selected.version_number == "1.10"
+
+
+def test_malformed_version_number_does_not_crash():
+    versions = [
+        _ver("abc", game_versions=["1.21"], loaders=["paper"]),
+        _ver("", game_versions=["1.21"], loaders=["paper"]),
+        _ver("v1.2.3-beta+build", game_versions=["1.21"], loaders=["paper"]),
+        _ver("1.11", game_versions=["1.21"], loaders=["paper"]),
+    ]
+    result = select_best_version("paper", "1.21", versions)
+    assert result.selected is not None
+    assert result.selected.version_number == "1.11"

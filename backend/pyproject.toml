@@ -12,6 +12,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     "cryptography>=42.0.0",
     "fastapi>=0.115.0",
+    "packaging>=23.0",
     "prometheus-client>=0.20.0",
     "psutil>=7.0.0",
     "pydantic>=2.5.0",

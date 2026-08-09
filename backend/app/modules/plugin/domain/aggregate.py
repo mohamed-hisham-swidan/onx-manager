@@ -54,6 +54,7 @@ class Plugin(AggregateRoot):
         version_raw: str | None = None,
         installed_at: datetime | None = None,
         updated_at: datetime | None = None,
+        project_type: str = "plugin",
     ) -> None:
         super().__init__()
         self._plugin_id = plugin_id
@@ -77,6 +78,7 @@ class Plugin(AggregateRoot):
         now = datetime.now(timezone.utc)
         self._installed_at = installed_at or now
         self._updated_at = updated_at or now
+        self._project_type = project_type
 
     @property
     def plugin_id(self) -> PluginId:
@@ -101,6 +103,10 @@ class Plugin(AggregateRoot):
     @property
     def source(self) -> str:
         return self._source
+
+    @property
+    def project_type(self) -> str:
+        return self._project_type
 
     @property
     def filename(self) -> str | None:
@@ -176,6 +182,7 @@ class Plugin(AggregateRoot):
         external_url: str | None = None,
         checksum: str | None = None,
         version_raw: str | None = None,
+        project_type: str = "plugin",
     ) -> Plugin:
         plugin = cls(
             plugin_id=plugin_id,
@@ -193,6 +200,7 @@ class Plugin(AggregateRoot):
             external_url=external_url,
             checksum=checksum,
             version_raw=version_raw,
+            project_type=project_type,
         )
         plugin._add_event(
             PluginInstalledEvent(

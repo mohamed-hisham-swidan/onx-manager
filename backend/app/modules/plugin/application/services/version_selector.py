@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from dataclasses import dataclass, field
 
 from app.modules.plugin.infrastructure.providers.base import PluginVersionInfo
@@ -59,9 +60,18 @@ def _published_at(version: PluginVersionInfo) -> str:
     return version.date_published or _EMPTY_DATE
 
 
+def _version_sort_key(version: PluginVersionInfo) -> tuple[int, Any, str, str]:
+    v_str = version.version_number or ""
+    try:
+        from packaging.version import parse as parse_version
+        return (1, parse_version(v_str), "", _published_at(version))
+    except Exception:
+        return (0, "", v_str, _published_at(version))
+
+
 def _best_in(group: list[PluginVersionInfo]) -> PluginVersionInfo:
-    """Pick the newest published version; tie-break on version_number."""
-    return max(group, key=lambda v: (_published_at(v), v.version_number or ""))
+    """Pick the highest version; tie-break on published date."""
+    return max(group, key=_version_sort_key)
 
 
 def select_best_version(
@@ -88,7 +98,7 @@ def select_best_version(
         )
 
     available = tuple(
-        sorted(versions, key=lambda v: (_published_at(v), v.version_number or ""), reverse=True)
+        sorted(versions, key=_version_sort_key, reverse=True)
     )
     server_type = (server_type or "").strip().lower()
     chain = LOADER_COMPATIBILITY.get(server_type, (server_type,))
@@ -127,12 +137,11 @@ def select_best_version(
     # game version on a compatible loader. Never hard-block (J4).
     compatible = [v for v in versions if any(loader_matches(v, loader) for loader in chain)]
     if compatible:
+        # Sort compatible descending by version first so `min` (which is stable) picks the highest version in case of a tie in distance
+        compatible_sorted = sorted(compatible, key=_version_sort_key, reverse=True)
         selected = min(
-            compatible,
-            key=lambda v: (
-                min(_mc_distance(server_version, gv) for gv in v.game_versions),
-                _published_at(v),
-            ),
+            compatible_sorted,
+            key=lambda v: min(_mc_distance(server_version, gv) for gv in v.game_versions),
         )
         return VersionSelection(
             selected=selected,

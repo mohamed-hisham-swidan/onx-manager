@@ -18,6 +18,7 @@ class PluginModel(Base, TimestampMixin):
     dependencies = Column(Text, nullable=False, default="")
     status = Column(String(16), nullable=False, default="installed")
     source = Column(String(16), nullable=False, default="manual")
+    project_type = Column(String(16), nullable=False, default="plugin")
     filename = Column(String(255), nullable=True)
     pending_deletion = Column(Boolean, nullable=False, default=False)
     pending_deletion_requested_at = Column(DateTime(timezone=True), nullable=True)
