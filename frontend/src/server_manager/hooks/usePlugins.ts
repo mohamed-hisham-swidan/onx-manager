@@ -16,29 +16,45 @@ export function usePluginsList(serverId: string) {
   });
 }
 
-export function useMarketplaceSearch(serverId: string, query: string) {
+export interface MarketplaceSearchOptions {
+  enabled?: boolean;
+}
+
+export function useMarketplaceSearch(
+  serverId: string,
+  query: string,
+  options?: MarketplaceSearchOptions,
+) {
   const api = useApi();
   return useQuery({
     queryKey: queryKeys.plugins.marketplace.search(serverId, query),
     queryFn: () => api.searchMarketplace(serverId, query),
-    enabled: !!serverId,
+    enabled: (options?.enabled ?? true) && !!serverId,
   });
 }
 
-export function useMarketplaceSearchGlobal(query: string) {
+export function useMarketplaceSearchGlobal(
+  query: string,
+  options?: MarketplaceSearchOptions,
+) {
   const api = useApi();
   return useQuery({
     queryKey: queryKeys.plugins.marketplace.global(query),
     queryFn: () => api.searchMarketplaceGlobal(query),
+    enabled: options?.enabled ?? true,
   });
 }
 
-export function useProjectVersions(serverId: string, projectId: string) {
+export function useProjectVersions(
+  serverId: string,
+  projectId: string,
+  options?: MarketplaceSearchOptions,
+) {
   const api = useApi();
   return useQuery({
     queryKey: queryKeys.plugins.marketplace.versions(serverId, projectId),
     queryFn: () => api.getProjectVersions(serverId, projectId),
-    enabled: !!serverId && !!projectId,
+    enabled: (options?.enabled ?? true) && !!serverId && !!projectId,
   });
 }
 

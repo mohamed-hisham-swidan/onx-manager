@@ -77,8 +77,12 @@ interface SearchMock {
 const { useMarketplaceSearch, useMarketplaceSearchGlobal } = vi.hoisted(() => {
   const empty: SearchMock = { data: null, isLoading: false, isError: false, error: null };
   return {
-    useMarketplaceSearch: vi.fn<(serverId: string, query: string) => SearchMock>(() => empty),
-    useMarketplaceSearchGlobal: vi.fn<(query: string) => SearchMock>(() => empty),
+    useMarketplaceSearch: vi.fn<
+      (serverId: string, query: string, options?: { enabled?: boolean }) => SearchMock
+    >(() => empty),
+    useMarketplaceSearchGlobal: vi.fn<
+      (query: string, options?: { enabled?: boolean }) => SearchMock
+    >(() => empty),
   };
 });
 
@@ -133,6 +137,8 @@ function serverFixture(overrides: Record<string, string>) {
   };
 }
 
+import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
+
 describe("PluginMarketplacePage", () => {
   beforeEach(() => {
     mockNavigate.mockReset();
@@ -145,7 +151,9 @@ describe("PluginMarketplacePage", () => {
       serverFixture({ server_id: "srv-2", name: "Fabric Server", server_type: "fabric", minecraft_version: "1.20.4" }),
     ];
     useLastUsedServerStore.setState({ lastUsedServerId: "" });
+    useMarketplaceSourceStore.setState({ source: "modrinth" });
     localStorage.removeItem("mcs_last_used_server");
+    localStorage.removeItem("mcs_marketplace_source");
   });
 
   it("renders page header", () => {
@@ -153,12 +161,26 @@ describe("PluginMarketplacePage", () => {
     expect(screen.getByRole("heading", { name: "Plugin Marketplace" })).toBeInTheDocument();
   });
 
+  it("switches to CurseForge source and renders coming soon state with disabled fetches", () => {
+    renderPage();
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true });
+
+    fireEvent.click(screen.getByRole("button", { name: /CurseForge/i }));
+    expect(useMarketplaceSourceStore.getState().source).toBe("curseforge");
+    expect(screen.getByText("CurseForge Integration Coming Soon")).toBeInTheDocument();
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: false });
+
+    fireEvent.click(screen.getByRole("button", { name: /Switch to Modrinth/i }));
+    expect(useMarketplaceSourceStore.getState().source).toBe("modrinth");
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true });
+  });
+
   it("searches the global marketplace with no server in the URL", () => {
     useMarketplaceSearchGlobal.mockReturnValue({ data: mockResults, isLoading: false, isError: false, error: null });
     renderPage("/marketplace");
     fireEvent.change(screen.getByLabelText("Search plugins"), { target: { value: "essentials" } });
     fireEvent.click(screen.getByText("Search"));
-    expect(useMarketplaceSearchGlobal).toHaveBeenCalledWith("essentials");
+    expect(useMarketplaceSearchGlobal).toHaveBeenCalledWith("essentials", { enabled: true });
     expect(screen.getByText("EssentialsX")).toBeInTheDocument();
   });
 
@@ -167,7 +189,7 @@ describe("PluginMarketplacePage", () => {
     renderPage("/marketplace?server=srv-1");
     fireEvent.change(screen.getByLabelText("Search plugins"), { target: { value: "essentials" } });
     fireEvent.click(screen.getByText("Search"));
-    expect(useMarketplaceSearch).toHaveBeenCalledWith("srv-1", "essentials");
+    expect(useMarketplaceSearch).toHaveBeenCalledWith("srv-1", "essentials", { enabled: true });
     expect(screen.getByText("EssentialsX")).toBeInTheDocument();
   });
 

@@ -11,10 +11,12 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
+import { ComingSoonState } from "@/components/ComingSoonState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
+import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { formatBytes } from "@/server_manager/utils/format";
 import type { ServerResponse } from "@/server_manager/types";
 import type {
@@ -59,12 +61,15 @@ export function PluginMarketplacePage() {
   const { data: servers } = useServersList();
   const lastUsedServerId = useLastUsedServerStore((s) => s.lastUsedServerId);
   const setLastUsedServer = useLastUsedServerStore((s) => s.setLastUsedServer);
+  const source = useMarketplaceSourceStore((s) => s.source);
+  const setSource = useMarketplaceSourceStore((s) => s.setSource);
 
   const serverId = urlServerId;
+  const isModrinth = source === "modrinth";
 
   const globalQuery = serverId ? "" : submitted;
-  const searchGlobal = useMarketplaceSearchGlobal(globalQuery);
-  const searchScoped = useMarketplaceSearch(serverId, submitted);
+  const searchGlobal = useMarketplaceSearchGlobal(globalQuery, { enabled: isModrinth });
+  const searchScoped = useMarketplaceSearch(serverId, submitted, { enabled: isModrinth });
   const search = serverId ? searchScoped : searchGlobal;
 
   const contextServerId = useMemo(() => {
@@ -73,7 +78,9 @@ export function PluginMarketplacePage() {
     return servers?.[0]?.server_id ?? "";
   }, [serverId, lastUsedServerId, servers]);
 
-  const versions = useProjectVersions(contextServerId, selectedProject?.project_id ?? "");
+  const versions = useProjectVersions(contextServerId, selectedProject?.project_id ?? "", {
+    enabled: isModrinth,
+  });
   const install = useInstallFromMarketplace(targetServerId);
 
   const compatibleServers = useMemo(() => {
@@ -158,175 +165,155 @@ export function PluginMarketplacePage() {
     <div>
       <PageHeader
         title="Plugin Marketplace"
-        description="Browse and install plugins from Modrinth"
+        description={
+          source === "curseforge"
+            ? "Browse projects from CurseForge"
+            : "Browse and install plugins from Modrinth"
+        }
         icon="plugin"
         actions={
-          serverId ? (
-            <button
-              onClick={() => navigate("/plugins")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-            >
-              <Icon name="chevron-left" size={16} />
-              Back to Plugins
-            </button>
-          ) : undefined
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-800/80">
+              <button
+                type="button"
+                onClick={() => setSource("modrinth")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  source === "modrinth"
+                    ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100"
+                    : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                }`}
+              >
+                <Icon name="modrinth" size={14} />
+                Modrinth
+              </button>
+              <button
+                type="button"
+                onClick={() => setSource("curseforge")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  source === "curseforge"
+                    ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100"
+                    : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                }`}
+              >
+                <Icon name="curseforge" size={14} />
+                CurseForge
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                  Soon
+                </span>
+              </button>
+            </div>
+            {serverId && (
+              <button
+                onClick={() => navigate("/plugins")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                <Icon name="chevron-left" size={16} />
+                Back to Plugins
+              </button>
+            )}
+          </div>
         }
       />
 
-      <form onSubmit={handleSearch} className="mb-6">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={serverId ? "Search plugins for this server..." : "Search the global marketplace..."}
-            aria-label="Search plugins"
-            className="w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
-          />
-          <button
-            type="submit"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
-          >
-            <Icon name="search" size={16} />
-            Search
-          </button>
-        </div>
-        {!serverId && (
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Browse the global marketplace without a server — you'll pick a destination when installing.
-          </p>
-        )}
-      </form>
+      {source === "curseforge" ? (
+        <ComingSoonState
+          icon="curseforge"
+          title="CurseForge Integration Coming Soon"
+          description="Backend support for discovering and installing projects from CurseForge is planned for a future update. Select Modrinth to browse available plugins."
+          badge="Coming Soon"
+          action={
+            <button
+              type="button"
+              onClick={() => setSource("modrinth")}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              <Icon name="modrinth" size={16} />
+              Switch to Modrinth
+            </button>
+          }
+        />
+      ) : (
+        <>
+          <form onSubmit={handleSearch} className="mb-6">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={serverId ? "Search plugins for this server..." : "Search the global marketplace..."}
+                aria-label="Search plugins"
+                className="w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
+              >
+                <Icon name="search" size={16} />
+                Search
+              </button>
+            </div>
+            {!serverId && (
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                Browse the global marketplace without a server — you'll pick a destination when installing.
+              </p>
+            )}
+          </form>
 
-      {search.isError && (
-        <ErrorState className="mb-6" message={search.error instanceof Error ? search.error.message : "Search failed"} />
-      )}
+          {search.isError && (
+            <ErrorState className="mb-6" message={search.error instanceof Error ? search.error.message : "Search failed"} />
+          )}
 
-      {!selectedProject ? (
-        search.isLoading ? (
-          <TableSkeleton rows={4} cols={4} />
-        ) : search.isError ? null : search.data && search.data.length > 0 ? (
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
-                  <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Plugin</th>
-                  <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 sm:table-cell">Author</th>
-                  <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 md:table-cell">Downloads</th>
-                  <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {search.data.map((p) => (
-                  <tr
-                    key={p.project_id}
-                    className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        {p.icon_url ? (
-                          <img
-                            src={p.icon_url}
-                            alt=""
-                            className="h-9 w-9 shrink-0 rounded-lg object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700">
-                            <Icon name="plugin" size={18} />
-                          </div>
-                        )}
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-gray-100">{p.title}</p>
-                          {p.description && (
-                            <p className="mt-0.5 max-w-md truncate text-xs text-gray-500 dark:text-gray-400" title={p.description}>
-                              {p.description}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">{p.author}</td>
-                    <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">
-                      {fmtDownloads(p.downloads)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setSelectedProject(p)}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
-                        >
-                          <Icon name="plus" size={14} />
-                          Install
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState
-            icon="search"
-            title="No plugins found"
-            description={
-              submitted.trim()
-                ? `No results for "${submitted}". Try a different search term.`
-                : "No plugins available in the marketplace right now."
-            }
-          />
-        )
-      ) : !chosenVersion ? (
-        <div className="space-y-4">
-          <button
-            onClick={handleCloseVersions}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            <Icon name="chevron-left" size={14} />
-            Back to results
-          </button>
-
-          {versions.isLoading ? (
-            <TableSkeleton rows={3} cols={3} />
-          ) : versions.isError ? (
-            <ErrorState message={versions.error instanceof Error ? versions.error.message : "Failed to load versions"} />
-          ) : selectedVersionResponse && selectedVersionResponse.versions.length > 0 ? (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
-                    <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Version</th>
-                    <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 sm:table-cell">Game versions</th>
-                    <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 md:table-cell">Loaders</th>
-                    <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 lg:table-cell">Size</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedVersionResponse.versions.map((v) => {
-                    const primary = v.files.find((f) => f.primary) ?? v.files[0];
-                    return (
+          {!selectedProject ? (
+            search.isLoading ? (
+              <TableSkeleton rows={4} cols={4} />
+            ) : search.isError ? null : search.data && search.data.length > 0 ? (
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
+                      <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Plugin</th>
+                      <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 sm:table-cell">Author</th>
+                      <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 md:table-cell">Downloads</th>
+                      <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {search.data.map((p) => (
                       <tr
-                        key={v.version_id}
+                        key={p.project_id}
                         className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
                       >
                         <td className="px-4 py-3">
-                          <p className="font-medium text-gray-900 dark:text-gray-100">{v.version_number}</p>
+                          <div className="flex items-center gap-3">
+                            {p.icon_url ? (
+                              <img
+                                src={p.icon_url}
+                                alt=""
+                                className="h-9 w-9 shrink-0 rounded-lg object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700">
+                                <Icon name="plugin" size={18} />
+                              </div>
+                            )}
+                            <div>
+                              <p className="font-medium text-gray-900 dark:text-gray-100">{p.title}</p>
+                              {p.description && (
+                                <p className="mt-0.5 max-w-md truncate text-xs text-gray-500 dark:text-gray-400" title={p.description}>
+                                  {p.description}
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         </td>
-                        <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">
-                          {v.game_versions.slice(0, 3).join(", ")}
-                          {v.game_versions.length > 3 ? ` +${v.game_versions.length - 3}` : ""}
-                        </td>
+                        <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">{p.author}</td>
                         <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">
-                          {v.loaders.join(", ")}
-                        </td>
-                        <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 lg:table-cell">
-                          {primary ? formatBytes(primary.size_bytes) : "-"}
+                          {fmtDownloads(p.downloads)}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1">
                             <button
-                              onClick={() => handleChooseVersion(v)}
+                              onClick={() => setSelectedProject(p)}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
                             >
                               <Icon name="plus" size={14} />
@@ -335,114 +322,190 @@ export function PluginMarketplacePage() {
                           </div>
                         </td>
                       </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState
+                icon="search"
+                title="No plugins found"
+                description={
+                  submitted.trim()
+                    ? `No results for "${submitted}". Try a different search term.`
+                    : "No plugins available in the marketplace right now."
+                }
+              />
+            )
+          ) : !chosenVersion ? (
+            <div className="space-y-4">
+              <button
+                onClick={handleCloseVersions}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                <Icon name="chevron-left" size={14} />
+                Back to results
+              </button>
+
+              {versions.isLoading ? (
+                <TableSkeleton rows={3} cols={3} />
+              ) : versions.isError ? (
+                <ErrorState message={versions.error instanceof Error ? versions.error.message : "Failed to load versions"} />
+              ) : selectedVersionResponse && selectedVersionResponse.versions.length > 0 ? (
+                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
+                        <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Version</th>
+                        <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 sm:table-cell">Game versions</th>
+                        <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 md:table-cell">Loaders</th>
+                        <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 lg:table-cell">Size</th>
+                        <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedVersionResponse.versions.map((v) => {
+                        const primary = v.files.find((f) => f.primary) ?? v.files[0];
+                        return (
+                          <tr
+                            key={v.version_id}
+                            className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
+                          >
+                            <td className="px-4 py-3">
+                              <p className="font-medium text-gray-900 dark:text-gray-100">{v.version_number}</p>
+                            </td>
+                            <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">
+                              {v.game_versions.slice(0, 3).join(", ")}
+                              {v.game_versions.length > 3 ? ` +${v.game_versions.length - 3}` : ""}
+                            </td>
+                            <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">
+                              {v.loaders.join(", ")}
+                            </td>
+                            <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 lg:table-cell">
+                              {primary ? formatBytes(primary.size_bytes) : "-"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => handleChooseVersion(v)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+                                >
+                                  <Icon name="plus" size={14} />
+                                  Install
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyState
+                  icon="plugin"
+                  title="No versions available"
+                  description="This project has no downloadable versions."
+                />
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <button
+                onClick={handleBackToVersions}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                <Icon name="chevron-left" size={14} />
+                Back to versions
+              </button>
+
+              <div>
+                <h3 className="mb-1 text-base font-semibold text-gray-900 dark:text-gray-100">
+                  Choose a target server
+                </h3>
+                <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+                  Installing "{selectedProject.title}" {chosenVersion.version_number} — targeting{" "}
+                  {chosenVersion.loaders.join(" / ")} on Minecraft {chosenVersion.game_versions.join(", ")}.
+                </p>
+              </div>
+
+              {!hasServers ? (
+                <EmptyState
+                  icon="server"
+                  title="No servers available"
+                  description="You need a server to install this plugin into. Create one to continue."
+                  action={
+                    <button
+                      onClick={() => navigate("/servers/create")}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                    >
+                      <Icon name="plus" size={16} />
+                      Create a server
+                    </button>
+                  }
+                />
+              ) : (
+                <div className="space-y-2">
+                  {compatibleServers.map((s) => {
+                    const matches = serverMatchesVersion(s, chosenVersion);
+                    return (
+                      <label
+                        key={s.server_id}
+                        className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
+                          targetServerId === s.server_id
+                            ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20"
+                            : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="install-server"
+                          value={s.server_id}
+                          checked={targetServerId === s.server_id}
+                          onChange={() => setTargetServerId(s.server_id)}
+                          className="mt-1 accent-blue-600"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-gray-900 dark:text-gray-100">{s.name}</p>
+                            {matches ? (
+                              <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                Compatible
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                May not work
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                            {s.server_type} / {s.minecraft_version}
+                          </p>
+                          {!matches && (
+                            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                              This server runs {s.server_type} {s.minecraft_version} — this plugin targets{" "}
+                              {chosenVersion.loaders.join("/")} on Minecraft {chosenVersion.game_versions.join(", ")} and may not work.
+                            </p>
+                          )}
+                        </div>
+                      </label>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <EmptyState
-              icon="plugin"
-              title="No versions available"
-              description="This project has no downloadable versions."
-            />
-          )}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <button
-            onClick={handleBackToVersions}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            <Icon name="chevron-left" size={14} />
-            Back to versions
-          </button>
+                </div>
+              )}
 
-          <div>
-            <h3 className="mb-1 text-base font-semibold text-gray-900 dark:text-gray-100">
-              Choose a target server
-            </h3>
-            <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-              Installing "{selectedProject.title}" {chosenVersion.version_number} — targeting{" "}
-              {chosenVersion.loaders.join(" / ")} on Minecraft {chosenVersion.game_versions.join(", ")}.
-            </p>
-          </div>
-
-          {!hasServers ? (
-            <EmptyState
-              icon="server"
-              title="No servers available"
-              description="You need a server to install this plugin into. Create one to continue."
-              action={
+              <div className="flex justify-end">
                 <button
-                  onClick={() => navigate("/servers/create")}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                  onClick={handleContinue}
+                  disabled={!hasServers || !targetServerId}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
                 >
-                  <Icon name="plus" size={16} />
-                  Create a server
+                  Continue
                 </button>
-              }
-            />
-          ) : (
-            <div className="space-y-2">
-              {compatibleServers.map((s) => {
-                const matches = serverMatchesVersion(s, chosenVersion);
-                return (
-                  <label
-                    key={s.server_id}
-                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
-                      targetServerId === s.server_id
-                        ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20"
-                        : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="install-server"
-                      value={s.server_id}
-                      checked={targetServerId === s.server_id}
-                      onChange={() => setTargetServerId(s.server_id)}
-                      className="mt-1 accent-blue-600"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-gray-900 dark:text-gray-100">{s.name}</p>
-                        {matches ? (
-                          <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                            Compatible
-                          </span>
-                        ) : (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                            May not work
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                        {s.server_type} / {s.minecraft_version}
-                      </p>
-                      {!matches && (
-                        <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                          This server runs {s.server_type} {s.minecraft_version} — this plugin targets{" "}
-                          {chosenVersion.loaders.join("/")} on Minecraft {chosenVersion.game_versions.join(", ")} and may not work.
-                        </p>
-                      )}
-                    </div>
-                  </label>
-                );
-              })}
+              </div>
             </div>
           )}
-
-          <div className="flex justify-end">
-            <button
-              onClick={handleContinue}
-              disabled={!hasServers || !targetServerId}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
+        </>
       )}
 
       <ConfirmDialog

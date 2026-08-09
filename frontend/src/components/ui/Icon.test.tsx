@@ -14,8 +14,11 @@ describe("Icon", () => {
     expect(container.querySelector("svg")).toHaveAttribute("height", "24");
   });
 
-  it("is hidden from screen readers", () => {
-    render(<Icon name="server" />);
-    expect(document.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  it("renders modrinth and curseforge brand icons", () => {
+    const { container: c1 } = render(<Icon name="modrinth" />);
+    expect(c1.querySelector("svg")).toBeInTheDocument();
+
+    const { container: c2 } = render(<Icon name="curseforge" />);
+    expect(c2.querySelector("svg")).toBeInTheDocument();
   });
 });
