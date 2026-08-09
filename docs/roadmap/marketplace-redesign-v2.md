@@ -1,11 +1,11 @@
 # Marketplace Redesign v2 — Architecture & Decisions (2026-08-09)
 
-Status: DESIGN CONFIRMED, RECON COMPLETE, NOT YET BATCHED. This
+Status: COMPLETE (2026-08-09). This
 document supersedes standalone Issues #2 (version recommendation
 unused), #3 (inverted install flow), and the Modrinth half of #4 (no
-mods support) from `docs/roadmap/marketplace-ux-findings.md`. Those
-three issues are no longer separate patches — they are one combined
-redesign. CurseForge backend integration (the other half of #4) is
+mods support) from `docs/history/marketplace-ux-findings.md`. Those
+three issues are no longer separate patches — they were built as one combined
+redesign across Batches A–F. CurseForge backend integration (the other half of #4) is
 explicitly deferred to a future phase and is NOT part of this
 document's scope beyond a UI placeholder.
 
@@ -154,23 +154,27 @@ Two source icons in the sidebar: **Modrinth** and **CurseForge**.
     mentioned in project history for K5 marketplace work) already
     cover it? Needs its own RECON before batching the install modal.
 
-## Batching guidance (not yet executed)
+## Batching status (COMPLETE)
 
-This is a multi-batch effort. Suggested logical groupings (order and
-assignment not yet decided — needs orchestrator sign-off before any
-BUILD prompt is written):
-- Batch A (backend, foundational): version_number sort-key change
-  (gap 10-11), project_type field + migration (gap 9).
-- Batch B (backend): ModrinthProvider mod/plugin parameterization
-  (gap 8).
-- Batch C (frontend, foundational): source switcher + brand icons +
-  coming-soon pattern (gaps 1-3).
-- Batch D (frontend): Discover dropdown + simple ordered version list
-  UI (gaps 4, 7).
-- Batch E (frontend): product detail view + route (gap 5).
-- Batch F (frontend, most complex): install modal with hidden
-  auto-server-select (gap 6) — depends on gap 12 being resolved first.
+All planned batches A–F have been implemented, reviewed, and committed:
+- **Batch A (backend, foundational):** `e26c38b` — version_number sort-key change (gaps 10-11), project_type field + migration (gap 9).
+- **Batch B (backend):** `a192656` — ModrinthProvider mod/plugin parameterization (gap 8).
+- **Batch C (frontend, foundational):** `a5c3917` — source switcher + brand icons + coming-soon pattern (gaps 1-3).
+- **Batch D (frontend):** `14c2f96` — Discover dropdown + simple ordered version list UI (gaps 4, 7).
+- **Batch E (frontend):** `9de865a8492f8234635a4e61983ec54be4da698e` — product detail view + route (gap 5).
+- **Batch F (frontend, final):** `5a207a9ef14a5568efce40313d6f2c1886d4f1ef` — install modal with hidden auto-server-select (gap 6, 12).
 
-Do not start implementing any batch without explicit go-ahead and the
-same RECON → design decision → build → review → commit cycle used for
-Issues #1 and #5.
+## Known deviations from plan
+
+During the reconciliation audit of Batches A–D, two minor deviations were identified in Batch C's implementation:
+1. **Source Switcher Placement:** The approved design specified placing the source selection control in the sidebar. Batch C implemented it in both the `PluginMarketplacePage` header and the sidebar.
+2. **Fetch-Gating Scope:** Batch C added React Query fetch-gating logic based on the selected marketplace source.
+
+Both deviations were reviewed, audited, and accepted as-is without requiring rework.
+
+## Post-completion incident
+
+- **Incident:** Following completion of Batch F, a 500 error occurred on `GET /api/v1/servers/{id}/plugins` due to `sqlite3.OperationalError: no such column: plugins.project_type`.
+- **Root Cause:** Migration file `784b5ba72077` (added in Batch A) existed in the codebase but had not been executed against the development SQLite database (`mcs.db`).
+- **Resolution:** Executed `alembic upgrade head` on the development database. No code or migration file changes were necessary.
+- **Process Lesson:** Verifying that a migration file exists and is correct during RECON/BUILD is insufficient; future migration tasks must include an explicit `alembic current` / database migration execution step as part of environmental verification.
