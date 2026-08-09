@@ -15,6 +15,9 @@ import type {
   PluginVersionsResponse,
   RefreshTokenRequest,
   SettingsResponse,
+  SettingsUpdateRequest,
+  SettingsUpdateResponse,
+
   UpdateUserRequest,
   UserResponse,
   VerifyBackupResponse,
@@ -313,8 +316,8 @@ export function createApiClient(
     // Settings
     getSettings: () =>
       request<SettingsResponse>("/api/v1/settings"),
-    updateSettings: (body: Record<string, unknown>) =>
-      request<Record<string, unknown>>("/api/v1/settings", { method: "PATCH", body }),
+    updateSettings: (body: SettingsUpdateRequest) =>
+      request<SettingsUpdateResponse>("/api/v1/settings", { method: "PATCH", body }),
   };
 }
 

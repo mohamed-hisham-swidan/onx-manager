@@ -190,6 +190,27 @@ export interface SettingsResponse {
   circuit_breaker_timeout_seconds: number;
   event_bus_retry_attempts: number;
   saga_timeout_seconds: number;
+  requires_restart?: string[];
 }
+
+export interface SettingsUpdateRequest {
+  app_name?: string;
+  debug?: boolean;
+  log_level?: string;
+  rate_limit_per_minute?: number;
+  idempotency_ttl_hours?: number;
+  circuit_breaker_max_failures?: number;
+  circuit_breaker_timeout_seconds?: number;
+  event_bus_retry_attempts?: number;
+  saga_timeout_seconds?: number;
+}
+
+export interface SettingsUpdateResponse {
+  success: boolean;
+  message: string;
+  requires_restart: string[];
+  settings: SettingsResponse;
+}
+
 
 
