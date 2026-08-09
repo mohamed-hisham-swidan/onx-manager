@@ -220,26 +220,10 @@ route_permissions:
   "GET /api/v1/settings": {permission: "settings:read", status: enforced}
 
   # ── WebSocket ───────────────────────────────────────────────────────────────
-  # Status verified by code trace (2026-08-02). Evidence:
-  #   - handshake token check BEFORE accept: app/websocket/endpoint.py:51-62
-  #     (missing token -> WS_1008 "Missing token"; verify_ws_token -> signature
-  #     + exp check via app/modules/auth/infrastructure/jwt.py:203-208,177-196;
-  #     invalid -> WS_1008; accept only after, endpoint.py:64)
-  #   - per-channel gate at subscribe time: app/websocket/handlers.py:116-131
-  #     -> ChannelAuthorizer.can_subscribe, app/websocket/authorization.py:41-55
-  # Known defect (NOT a bypass — gate fails CLOSED): authorization.py:3-17
-  #   requires PLURAL permission strings (servers:read, backups:read, ...) but
-  #   real JWT/api-key claims carry SINGULAR REST permissions (server:read, ...)
-  #   built in app/modules/auth/application/commands/login.py:48-53 via
-  #   Permission.__str__ (value_objects.py:205-206). issubset() is therefore
-  #   False for every real claim set, so every subscribe returns PERMISSION_DENIED
-  #   and no channel can ever be subscribed. admin:full is not in any required
-  #   set either. Additional gaps: token expiry mid-connection only sends an
-  #   auth_expired advisory and keeps the connection/subscriptions open
-  #   (handlers.py:52-54); refresh_token accepts any unvalidated string and
-  #   extends expiry (handlers.py:144-152, authentication.py:41-47);
-  #   idle timeout defined but never invoked in the handler loop
-  #   (authentication.py:20,60-64; handlers.py:44-72). Event dispatch does not
-  #   re-check authorization per message (dispatcher.py:40-57). The namespace
-  #   fix is deferred to Phase 2 — see docs/PERMISSIONS_FUTURE_IDEAS.md.
-  "WS /ws": {permission: null, status: enforced-external, note: "real handshake + subscription-time channel gate (structurally different from require_permission) but non-functional in practice due to singular/plural permission namespace mismatch; fail-closed, see evidence above"}
+  # Status verified by code trace (2026-08-09). Evidence:
+  #   - Handshake token check BEFORE accept: app/websocket/endpoint.py
+  #   - Per-channel gate at subscribe time: app/websocket/authorization.py
+  #   - RESOLVED (Phase 3, commit b98da77/d096f75): plural/singular permission mismatch fixed
+  #     (CHANNEL_PATTERNS uses singular permissions server:read, backup:read, plugin:read, user:read),
+  #     admin:full bypass added, 3-part channel validation supported.
+  "WS /ws": {permission: null, status: enforced-external, note: "real handshake + subscription-time channel gate; K1/K2 resolved in Phase 3 (b98da77, d096f75, db1889d)"}

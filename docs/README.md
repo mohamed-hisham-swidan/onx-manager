@@ -3,7 +3,7 @@
 This is the authoritative index for MCS Manager documentation. Documents are
 listed with their status so it is always clear what is implemented vs planned.
 
-> **State of the docs (2026-08-04):** this index and the documents it points to
+> **State of the docs (2026-08-09):** this index and the documents it points to
 > have been reconciled against the verified codebase state in
 > `docs/current-state.md`. Older documents (superseded roadmaps in `docs/history/`,
 > the archived Blueprint v4 split set in `docs/history/blueprint-v4/`) are kept for
@@ -17,7 +17,7 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |----------|--------|---------|
 | [Current State](current-state.md) | ✅ **IMPLEMENTED** | Verified, evidence-based snapshot of the codebase (version, tests, DB, known issues). Read this first. |
-| [Roadmap (Blueprint V5)](roadmap/MCS-Manager-Engineering-Blueprint-V5.md) | ✅ **IMPLEMENTED** | The only authoritative roadmap — 10 dependency-ordered phases. Phase 1 (Plugins/Marketplace separation, current), Phase 2 (UI stabilization), Phase 3 (bug fixing & reliability), Phase 4 (Authorization), Phase 5 (Versioning), Phase 6 (Testing/CI/docs), Phase 7 (Network Access), Phase 8 (Dynamic endpoint + DNS), Phase 9 (Final stabilization), Phase 10 (AI — last, deferred). |
+| [Roadmap (Blueprint V5)](roadmap/MCS-Manager-Engineering-Blueprint-V5.md) | ✅ **IMPLEMENTED** | The only authoritative roadmap — 10 dependency-ordered phases. Phase 1 (CLOSED), Phase 2 (CLOSED), Phase 3 (CLOSED), Phase 4 (Authorization, current), Phase 5 (Versioning), Phase 6 (Testing/CI/docs), Phase 7 (Network Access), Phase 8 (Dynamic endpoint + DNS), Phase 9 (Final stabilization), Phase 10 (AI — last, deferred). |
 | [Roadmap v2](history/mcs-manager-roadmap-v2.md) | ⏸️ **LEGACY** | Superseded by Blueprint v5. Historical phase plan kept in `history/`. |
 | [Versioning](VERSIONING.md) | 🟡 **PLANNED** | Single source-of-truth versioning strategy (currently `4.0.0` across code; stale `7.1.0` only in history/server data). Roadmap Phase 5. |
 | [Roadmap v1](history/mcs-manager-roadmap-v1.md) | ⏸️ **LEGACY** | Superseded by v2. Historical phase plan (9 phases) kept for reference. |
@@ -85,12 +85,13 @@ listed with their status so it is always clear what is implemented vs planned.
 
 ---
 
-## Cross-cutting claims (verified 2026-08-04)
+## Cross-cutting claims (verified 2026-08-09)
 
 - **Version:** `4.0.0` (code) — planning docs that mention "7.1.0" are stale.
-- **Backend tests:** 1070 collected / 1068 passing / 2 pre-existing failures.
-- **Frontend tests:** 236 passing across 41 files.
+- **Backend tests:** 1115 passed (100% pass rate).
+- **Frontend tests:** 332 passed across 44 files.
 - **Routers:** 10 · **Migrations:** 16 · **ADRs:** 12 · **Contracts:** 6.
 - **Authorization:** 24 routes gated by `require_permission` (22 mutating + 2 read-only marketplace; `contracts/permissions.yaml` v1.4).
 - **Production DB:** `backend/data/servers/mcs.db`, 3 revisions behind head, 0 servers.
 - **CI:** frontend workflow only (no backend CI yet).
+

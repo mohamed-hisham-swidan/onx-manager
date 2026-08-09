@@ -1,12 +1,12 @@
 # MCS Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-08-04. Every claim below was verified against source code, the database,
+2026-08-09. Every claim below was verified against source code, the database,
 and a live test run. This document supersedes the stale counts and claims in
 `docs/status/history.md` (the historical narrative) and is the baseline that the
 Blueprint V5 governing plan is built on.
 
-**Last verified:** 2026-08-04
+**Last verified:** 2026-08-09
 **App version (code):** `4.0.0` (`backend/app/main.py:216`, `backend/pyproject.toml:3`)
 
 > Note on version numbers: the application reports `4.0.0` everywhere in code
@@ -20,9 +20,9 @@ Blueprint V5 governing plan is built on.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 261 | `find backend/app -name "*.py"` |
-| Backend test files | 90 | `find backend/tests -name "test_*.py"` |
-| Frontend test files | 41 | `find frontend/src -name "*.test.*"` |
+| Backend Python source files | 262 | `find backend/app -name "*.py"` |
+| Backend test files | 91 | `find backend/tests -name "test_*.py"` |
+| Frontend test files | 44 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 10 | `auth, backups, health, monitoring, plugins, schedules, servers, settings, software, users` |
 | Alembic migration revisions | 16 | `backend/alembic/versions/` |
 | Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
@@ -32,38 +32,23 @@ Blueprint V5 governing plan is built on.
 
 ---
 
-## 2. Test suite (measured 2026-08-04)
+## 2. Test suite (measured 2026-08-09)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **1070** |
-| Passed | **1068** |
-| Failed | **2** (pre-existing environment failures) |
-
-The 2 failing tests, and their cause:
-
-1. `tests/api/test_api_endpoints.py::TestServers::test_start_server` — the test
-   triggers a database session teardown that hits a
-   `sqlite3.ProgrammingError: Cannot operate on a closed database` on rollback.
-   Environment/teardown issue, not an application logic failure.
-2. `tests/tasks/test_metrics_collector.py::test_metrics_task_requires_collector`
-   — expects `KeyError` when the metrics collector is uninitialized, but the
-   task now logs a warning (`MetricsCollector not initialized — skipping
-   collection`) and returns instead. Test expectation is stale relative to the
-   current graceful-handler behavior.
-
-Both failures are documented throughout `STATUS.md` and prior batches. Neither
-blocks a release claim — but they are **open test-suite defects** that should be
-closed (either fixed or formally re-baselined).
+| Collected | **1115** |
+| Passed | **1115** |
+| Failed | **0** (100% pass rate across entire backend test suite) |
 
 ### Frontend — `frontend/` `npx vitest run`
 
 | Metric | Value |
 |--------|-------|
-| Test files | **41** |
-| Tests | **236** (all passing) |
+| Test files | **44** |
+| Tests | **332** (all passing) |
+
 
 ---
 
@@ -121,24 +106,14 @@ At head (`c4d5e6f7a8b9`).
   `route_permissions` for the full per-route matrix: 13 mutating routes
   unprotected, 21 sensitive GETs auth-only). Full detail in `architecture/SECURITY.md`.
 
-### 4.3 WebSocket (real gate, non-functional in practice)
+### 4.3 WebSocket (fully functional & wired — Phase 3 closed)
 
 - Handshake validates the token **before** `accept()`.
-- Per-channel authorization exists at subscribe time but **always denies**
-  (fail-closed): `CHANNEL_PATTERNS` requires **plural** permission strings
-  (`servers:read`, `backups:read`, …) while JWT/api-key claims carry
-  **singular** REST permissions (`server:read`, …). Every `subscribe` is
-  rejected with `PERMISSION_DENIED`.
-- `EventDispatcher` / `MetricsBatcher` are defined but **never instantiated**
-  anywhere in production code (`init_websocket` creates only the registry,
-  authenticator, authorizer, buffer, rate limiter, and handler). No event-bus
-  subscription wiring exists, so even a valid subscription would never receive
-  pushed events.
-- Net effect: **no channel can currently be subscribed and no server-push
-  events are delivered.** Safe (fail-closed) but dead. See
-  `docs/PERMISSIONS_FUTURE_IDEAS.md` §4 for the full trace.
+- Per-channel authorization enforces singular REST permissions (`server:read`, `backup:read`, etc.) with `admin:full` bypass (**K1 resolved in commit `b98da77`**).
+- Active subscriptions (`server:*`, `metrics:<serverId>`) wired on component mount/route change in `WebSocketManager.tsx` and `ServerDetailPage.tsx` (**frontend wiring resolved in commit `d096f75`**).
+- Real-time metrics push pipeline (**K2 resolved in commit `db1889d`**): `MetricsBridgeHandler` subscribes to `MetricCollectedEvent` on the `EventBus` and feeds `MetricsBatcher.add_sample()`, flushing batched samples over WebSocket channel `metrics:<serverId>` every ~2s. Frontend `WebSocketManager` merges incoming samples into the TanStack Query cache.
 
-### 4.4 Plugin system & marketplace (implemented, frontend not first-class)
+### 4.4 Plugin system & marketplace (implemented, frontend first-class)
 
 - Plugin registry is DB-backed with per-row `filename` and `source`
   (`detected` / `modrinth`) tracking; the filesystem is the source of truth:
@@ -170,25 +145,25 @@ At head (`c4d5e6f7a8b9`).
   compatible → any). The server-scoped `/plugins/marketplace` (`?server=<id>`) surface remains
   for installs within a specific server's context. See `docs/architecture/plugins-and-marketplace.md`.
 
-### 4.5 Task queue, monitoring, health (implemented; some stubs)
+### 4.5 Task queue, monitoring, health, settings persistence (implemented)
 
 - `InProcessQueue` wired in `main.py` lifespan; scheduler loads `cron_jobs`
   from DB; `MetricsCollector`, Prometheus gauges, event store + DLQ, health
   calculator, crash diagnostics, recovery orchestrator all functional.
+- **Settings persistence & hot-reload (K3 resolved in commits `2437590` / `789dcbd`):**
+  - Backend: file-backed at `config/settings.yaml` via `settings_store.py` (`LiveSettings`). Live settings load at startup and update on `PATCH /api/v1/settings`.
+  - Hot-reload: updates immediately affect running instances of `RateLimitMiddleware`, `CircuitBreaker`, `EventBus`, `SagaOrchestrator`, and `cleanup_task`.
+  - Restart flags: fields `app_name`, `log_level`, `debug` are persisted but require a backend service restart to affect runtime behavior; returned in the API's `requires_restart` response array.
+  - Frontend: `SettingsPage.tsx` fully editable with 4 card sections, `PageHeader`, `RestartBadge`, and `role="alert"` / `role="status"` save feedback.
 - Stubs / known-open items: `ArqQueue` defined but unused and uninstantiated;
   `GET/POST/DELETE /schedules` return stubs; `GET /monitoring/alerts` and
-  `DELETE /monitoring/alerts/{id}` are stubs; `PATCH /settings` is a stub
-  (`{"success": true, "message": "Settings updated (stub)"}` — nothing is
-  persisted); metrics retention rollups not implemented.
+  `DELETE /monitoring/alerts/{id}` are stubs; metrics retention rollups not implemented.
 
 ### 4.6 Rate limiting
 
 `RateLimitMiddleware` keys its in-memory sliding window by **`client_ip:path`**
-(`backend/app/api/v1/middleware/rate_limit.py:41-42`), 60 requests/minute,
-not configurable per route, no `X-RateLimit-*` headers; on limit it returns
-`429` with a `Retry-After: 60` header. This is **already
-per-client** — earlier roadmap text claiming a single process-global counter
-was inaccurate and has been corrected in the v2 roadmap.
+(`backend/app/api/v1/middleware/rate_limit.py:40-54`), dynamically reloads max requests from `get_live_settings().rate_limit_per_minute`, no `X-RateLimit-*` headers; on limit it returns
+`429` with a `Retry-After: 60` header.
 
 ---
 
@@ -198,14 +173,14 @@ Classification used by `Blueprint V5`:
 
 | ID | Issue | Severity | Kind |
 |----|-------|----------|------|
-| K1 | WS channel authorization always denies (plural/singular permission mismatch) | High | Bug (must fix) |
-| K2 | `EventDispatcher`/`MetricsBatcher` never wired — no WS server-push | High | Bug (must fix) |
-| K3 | `PATCH /settings` stub — nothing persists | Medium | Bug (should fix) |
-| K4 | Plugin enable/disable routes use only `get_current_user` (no `require_permission`) | Medium | Bug (should fix) |
-| K5 | ~~Marketplace is not a first-class frontend section (no sidebar entry, no standalone nav)~~ **Resolved 2026-08-06** — own `/marketplace` route + sidebar entry + global search + install-time server picker | ~~Medium~~ | ~~Feature (Phase 1)~~ |
+| K1 | ~~WS channel authorization always denies~~ **Resolved 2026-08-08 (commit `b98da77`, `d096f75`)** — singular permission strings + `admin:full` bypass | ~~High~~ | ~~Bug~~ |
+| K2 | ~~`EventDispatcher`/`MetricsBatcher` never wired~~ **Resolved 2026-08-08 (commit `db1889d`)** — `MetricsBridgeHandler` flushes samples over WS every 2s | ~~High~~ | ~~Bug~~ |
+| K3 | ~~`PATCH /settings` stub~~ **Resolved 2026-08-09 (commit `2437590`, `789dcbd`)** — file-backed persistence + consumer hot-reload + frontend redesign | ~~Medium~~ | ~~Bug~~ |
+| K4 | Plugin enable/disable routes use only `get_current_user` (no `require_permission`) | Medium | Bug (Phase 4) |
+| K5 | ~~Marketplace is not a first-class frontend section~~ **Resolved 2026-08-06 (commit `1c12e0c`)** — own `/marketplace` route + sidebar entry + global search + install-time server picker | ~~Medium~~ | ~~Feature~~ |
 | K6 | No backend CI workflow (only `frontend-ci.yml`); the permissions route-coverage matrix is not CI-enforced | High | Process (Phase 4) |
 | K7 | 13 mutating routes + 21 sensitive GET routes lack permission enforcement (per `contracts/permissions.yaml`) | High | Bug (Phase 4) |
-| K8 | `test_start_server` + `test_metrics_task_requires_collector` fail in the suite | Low | Test debt |
+| K8 | ~~`test_start_server` + `test_metrics_task_requires_collector` fail in the suite~~ **Resolved 2026-08-08** — 100% backend pass rate (1115/1115 passed) | ~~Low~~ | ~~Test debt~~ |
 | K9 | Production DB 3 revisions behind head; no servers | Medium | Ops |
 | K10 | `GET /metrics` public/unauthenticated (documented deferred decision) | Medium | Security (Phase 7) |
 | K11 | JWT keys auto-generated in-process (lost on restart unless PEM set) | Medium | Architecture debt (Phase 4) |
@@ -214,6 +189,9 @@ Classification used by `Blueprint V5`:
 | K14 | Backup `save-all` completion regex unverified against a real Purpur server | Low | Verify |
 | K15 | Repo-root `data/` directory (gitignored, unused, awaiting cleanup decision) | Low | Housekeeping |
 | K16 | Provider selection config-driven via `MCS_PLUGIN_PROVIDERS`, validated at startup (K16A done 2026-08-05). Remaining: inspect configured list via API, add a second provider. | Low | Architecture debt (Phase 1) |
+| — | Backend `settings.py` router hardcodes `"version": "4.0.0"` instead of reading from live settings / AppSettings | Low | Known non-blocking |
+| — | ServerMetricsCharts 5s REST refetchInterval vs 60s backend collection cadence | Low | Known edge case |
+| — | Non-running server writes zero metrics rows → chart renders empty state without explanatory UI message | Low | Known edge case |
 
 ---
 

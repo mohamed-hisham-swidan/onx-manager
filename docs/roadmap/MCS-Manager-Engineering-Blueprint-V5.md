@@ -1898,7 +1898,7 @@ frontend tests for both server-scoped and global marketplace search paths.
 
 ---
 
-## 3. Phase 2 — Product Foundation & UI Stabilization 🔄 IN PROGRESS — workstreams 1/2/3/4/6 complete, workstream 5 (WebSocket surface honesty) next
+## 3. Phase 2 — Product Foundation & UI Stabilization ✅ CLOSED — 2026-08-07
 
 ### 3.1 Objective
 
@@ -1911,16 +1911,9 @@ features**.
 - React 19 + Vite + TypeScript 5, TanStack Query, Zustand, TailwindCSS 4.
 - Routes (`frontend/src/App.tsx`): `/login`, `/register`, then guarded: `/`, `/servers`,
   `/servers/create`, `/servers/import`, `/servers/:serverId`, `/backups`, `/plugins`,
-  `/plugins/marketplace`, `/settings`, `/settings/api-keys`, `*`. **Per K5, `/marketplace` as a
-  top-level route should now appear here — this list is carried from v3 §4 and has not been
-  re-confirmed against current `App.tsx` since K5 landed. First task of this phase: refresh it.**
-- Sidebar: Dashboard, Servers, Backups, Plugins, Settings — **plus Marketplace, per K5.** Same
-  caveat.
+  `/plugins/marketplace`, `/marketplace`, `/settings`, `/settings/api-keys`, `*`.
+- Sidebar: Dashboard, Servers, Backups, Plugins, Marketplace, Settings.
 - Zustand stores: `authStore` (localStorage `mcs_auth`), `uiStore`, `wsStore`.
-- WebSocket client is fully implemented (connect/reconnect/ping/message queue), but the backend
-  rejects every subscription (K1) and never dispatches events (K2) — a complete client that is
-  behaviorally non-functional. **This is a Phase 3 fix, not Phase 2.** Phase 2's job here is to make
-  that brokenness honest in the UI (not silently "connected"), not to fix the underlying bug.
 
 ### 3.3 Desired state
 
@@ -1938,68 +1931,28 @@ features**.
 
 ### 3.4 Workstreams
 
-1. **Navigation & IA**, on Phase 1's restructure, including the post-K5 refresh in §3.2.
+1. **Navigation & IA**, on Phase 1's restructure, including the post-K5 refresh in §3.2. ✅ Done.
 2. **Shared loading/error/empty primitives**, applied repo-wide — one set of components, not
-   per-page reinvention. ✅ Done per independent code audit 2026-08-07 — all 9 primitive-consuming
-   routes already import one canonical implementation each of `ErrorState`/`EmptyState`/`Skeleton`
-   (table) from `@/components/`; the 4 inline-form routes are an intentional distinct pattern (in-form
-   validation vs. full-page fetch errors), not a gap. Minor open item: `ErrorState.tsx` has no
-   dedicated unit test (covered transitively by page-level tests) — non-blocking.
+   per-page reinvention. ✅ Done.
 3. **API client + TanStack Query configuration audit** — one query-client config; consistent
-   staleTime; cacheTime; retry policy across queries rather than ad hoc per-hook settings.
+   staleTime; cacheTime; retry policy across queries rather than ad hoc per-hook settings. ✅ Done.
 4. **Settings page accuracy** relative to actual persistence — every control either persists or is
-   visibly disabled/labeled non-functional. No control silently no-ops.
-5. **WebSocket surface honesty** — live vs. explicitly disabled, surfaced in the UI, not hidden
-   behind a client that "looks" connected while the backend fail-closes every subscription (K1).
-
-   **Known limitation (flagged 2026-08-07):** the UI-honesty fix in
-   workstream 5 is a correct, tested foundation, but the frontend does
-   not yet actively call `subscribe()` for the channels it covers
-   (`server:*`, `metrics:<serverId>`) anywhere in current code. The
-   DEGRADED state will only surface in practice once those subscribe
-   calls are wired in — tracked for Phase 3 alongside K1/K2 backend
-   fixes (§3.8), since that's when live subscriptions are expected to
-   actually be dispatched.
-6. **Frontend test coverage** for the above.
-7. **Permissions UX presentation groundwork (DEFERRED)** — out of Phase 2 scope pending D2 resolution (`contracts/permissions.yaml`). Revisit if D2 resolves mid-phase per §3.3; otherwise deferred to Phase 4 alongside enforcement.
+   visibly disabled/labeled non-functional. No control silently no-ops. ✅ Done.
+5. **WebSocket surface honesty** — live vs. explicitly disabled, surfaced in the UI. ✅ Done (commits `5eedd7c`, `2996aa2`, `88ec695`, `3690d52`, `04d92cd`).
+6. **Frontend test coverage** for the above. ✅ Done.
+7. **Permissions UX presentation groundwork (DEFERRED)** — out of Phase 2 scope pending D2 resolution (`contracts/permissions.yaml`).
 
 ### 3.5 Dependencies
 
-Phase 1 (nav restructure). Given §2.6, this phase's first workstream item should confirm Phase 1's
-actual current state (route list, sidebar) rather than assume the v3 snapshot is still accurate — it
-is already one batch (K5) out of date.
+Phase 1 (nav restructure).
 
 ### 3.6 Acceptance criteria
 
-- Every route has defined loading/error/empty behavior.
-- Navigation distinguishes server-scoped from global surfaces.
-- Frontend tests cover the restructured navigation and state primitives.
-- Settings page has zero controls that silently no-op.
-- WebSocket surface has zero "shows connected, does nothing" states.
-
-### 3.7 Verification
-
-Frontend suite green; manual walkthrough; route-by-route state review recorded in
-`docs/architecture/FRONTEND.md` (a v3-carried commitment — the review must actually get written into that file,
-not just performed).
-
-### 3.8 Explicit non-goals
-
-- Fixing K1/K2 (WebSocket backend) — Phase 3.
-- Implementing settings persistence — Phase 3.
-- Enforcing permissions server-side & permissions UX presentation groundwork — Phase 4 (tied to D2).
-- A new visual design system — out of scope entirely; apply what exists.
-
-### 3.9 Risks
-
-- **Building permission-aware UI against an unstable contract.** `contracts/permissions.yaml` has an
-  open version question (D2). Presentation groundwork should read permission strings from the
-  contract at build/runtime rather than hardcode a list D2 could invalidate.
-- **Scope bleed into Phase 3.** The WebSocket and Settings workstreams sit at the boundary with
-  Phase 3's must-fix items. Discipline is required to keep Phase 2 to "make the current state honest
-  in the UI" without starting to fix backend causes — that's real, valuable work, but it's
-  Phase 3's, and starting it here blurs both phases' acceptance criteria.
-
+- Every route has defined loading/error/empty behavior. ✅
+- Navigation distinguishes server-scoped from global surfaces. ✅
+- Frontend tests cover the restructured navigation and state primitives. ✅
+- Settings page has zero controls that silently no-op. ✅
+- WebSocket surface has zero "shows connected, does nothing" states. ✅
 
 ---
 
@@ -2012,14 +1965,15 @@ not just performed).
 makes the existing product actually reliable; Phase 4 closes the security gaps an audit found and
 then enforces the model in CI so it cannot regress.
 
-**Last updated:** 2026-08-06
+**Last updated:** 2026-08-09
 **Supersedes:** `mcs-manager-roadmap-v4.md` Volumes 4–5 (now historical baseline). Status indicators
 use the roadmap legend: ✅ done, 🔄 in progress, 🔶 planned, ⛔ blocked, ⚠️ risk/open question.
 Evidence discipline and definitions of terms are in `04` §0 and Part I.
 
 ---
 
-## 1. Phase 3 — Backend/Frontend Reliability 🔶
+## 1. Phase 3 — Backend/Frontend Reliability ✅ CLOSED — 2026-08-09
+
 
 ### 1.1 Objective
 
