@@ -11,6 +11,7 @@ import type {
   LoginRequest,
   LoginResponse,
   PluginResponse,
+  PluginProjectResponse,
   PluginSearchResultResponse,
   PluginVersionsResponse,
   RefreshTokenRequest,
@@ -271,6 +272,8 @@ export function createApiClient(
       request<PluginSearchResultResponse[]>(`/api/v1/marketplace/search`, {
         params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString() },
       }),
+    getMarketplaceProject: (projectId: string) =>
+      request<PluginProjectResponse>(`/api/v1/marketplace/projects/${projectId}`),
     getProjectVersions: (serverId: string, projectId: string) =>
       request<PluginVersionsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/projects/${projectId}/versions`),
     installFromMarketplace: (serverId: string, body: InstallModrinthPluginRequest) =>

@@ -33,6 +33,7 @@ class PluginProject:
     slug: str
     title: str
     description: str = ""
+    body: str = ""
     author: str = ""
     project_types: list[str] = field(default_factory=list)
     loaders: list[str] = field(default_factory=list)

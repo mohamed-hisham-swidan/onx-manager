@@ -37,6 +37,23 @@ class PluginSearchResultResponse(BaseModel):
     latest_version_id: str = ""
 
 
+class PluginProjectResponse(BaseModel):
+    project_id: str
+    slug: str
+    title: str
+    description: str = ""
+    body: str = ""
+    author: str = ""
+    project_types: list[str] = []
+    loaders: list[str] = []
+    game_versions: list[str] = []
+    downloads: int = 0
+    follows: int = 0
+    icon_url: str = ""
+    wiki_url: str = ""
+    source_url: str = ""
+
+
 class PluginFileResponse(BaseModel):
     url: str
     filename: str

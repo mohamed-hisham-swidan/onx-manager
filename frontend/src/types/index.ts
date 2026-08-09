@@ -58,6 +58,23 @@ export interface PluginSearchResultResponse {
   latest_version_id: string;
 }
 
+export interface PluginProjectResponse {
+  project_id: string;
+  slug: string;
+  title: string;
+  description: string;
+  body: string;
+  author: string;
+  project_types: string[];
+  loaders: string[];
+  game_versions: string[];
+  downloads: number;
+  follows: number;
+  icon_url: string;
+  wiki_url: string;
+  source_url: string;
+}
+
 export interface PluginFileResponse {
   url: string;
   filename: string;

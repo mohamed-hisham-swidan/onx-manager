@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import require_permission
-from app.api.v1.schemas.plugin import PluginSearchResultResponse
+from app.api.v1.schemas.plugin import PluginProjectResponse, PluginSearchResultResponse
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
 
 router = APIRouter(prefix="/api/v1/marketplace", tags=["marketplace"])
@@ -20,3 +20,13 @@ async def search_marketplace(
     provider = build_plugin_catalog_provider()
     results = await provider.search(query, limit=limit, offset=offset, project_type=project_type)
     return [PluginSearchResultResponse(**r.__dict__) for r in results]
+
+
+@router.get("/projects/{project_id}", response_model=PluginProjectResponse)
+async def get_marketplace_project(
+    project_id: str,
+    current_user: dict = Depends(require_permission("plugin:manage")),
+) -> PluginProjectResponse:
+    provider = build_plugin_catalog_provider()
+    project = await provider.get_project(project_id)
+    return PluginProjectResponse(**project.__dict__)

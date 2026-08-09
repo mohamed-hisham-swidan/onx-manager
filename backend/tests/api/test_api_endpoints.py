@@ -713,6 +713,56 @@ class TestPluginMarketplace:
         assert resp.status_code == 200
         assert passed_kwargs.get("project_type") == "mod"
 
+    async def test_get_marketplace_project(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        from app.modules.plugin.infrastructure.providers.base import PluginProject
+
+        class _FakeProvider:
+            name = "modrinth"
+
+            async def get_project(self, project_id: str) -> PluginProject:
+                return PluginProject(
+                    project_id=project_id,
+                    slug="essentialsx",
+                    title="EssentialsX",
+                    description="Essential commands",
+                    body="# EssentialsX\nFull description here",
+                    author="Essentials Team",
+                    project_types=["plugin"],
+                    loaders=["paper", "spigot"],
+                    game_versions=["1.21"],
+                    downloads=1000,
+                    follows=50,
+                    icon_url="https://example.com/icon.png",
+                    wiki_url="https://example.com/wiki",
+                    source_url="https://example.com/source",
+                )
+
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/projects/essentialsx",
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["project_id"] == "essentialsx"
+        assert data["title"] == "EssentialsX"
+        assert data["body"] == "# EssentialsX\nFull description here"
+        assert data["wiki_url"] == "https://example.com/wiki"
+
+    async def test_get_marketplace_project_requires_permission(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
+        resp = await client.get(
+            "/api/v1/marketplace/projects/essentialsx",
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
+
     async def test_global_marketplace_search_requires_permission(
         self, client: AsyncClient, auth_header: dict[str, str]
     ) -> None:

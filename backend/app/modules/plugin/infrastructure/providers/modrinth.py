@@ -92,6 +92,7 @@ class ModrinthProvider(PluginCatalogProvider):
             slug=data.get("slug", ""),
             title=data.get("title", ""),
             description=data.get("description", ""),
+            body=data.get("body", ""),
             author=data.get("author", ""),
             project_types=data.get("all_project_types") or [data.get("project_type", "")],
             loaders=data.get("loaders") or [],

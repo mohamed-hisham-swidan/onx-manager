@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import {
   useMarketplaceSearch,
@@ -17,7 +17,6 @@ import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
-import { formatBytes } from "@/server_manager/utils/format";
 import { VersionList } from "@/server_manager/components/VersionList";
 import type { ServerResponse } from "@/server_manager/types";
 import type {
@@ -46,13 +45,30 @@ function serverMatchesVersion(server: ServerResponse, version: PluginVersionResp
 
 export function PluginMarketplacePage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const urlServerId = searchParams.get("server") ?? "";
+  const urlQuery = searchParams.get("q") ?? "";
+  const urlProjectType = (searchParams.get("type") as "plugin" | "mod") || "plugin";
 
-  const [query, setQuery] = useState("");
-  const [submitted, setSubmitted] = useState("");
-  const [projectType, setProjectType] = useState<"plugin" | "mod">("plugin");
-  const [selectedProject, setSelectedProject] = useState<PluginSearchResultResponse | null>(null);
+  const [query, setQuery] = useState(urlQuery);
+  const [prevUrlQuery, setPrevUrlQuery] = useState(urlQuery);
+  if (urlQuery !== prevUrlQuery) {
+    setPrevUrlQuery(urlQuery);
+    setQuery(urlQuery);
+  }
+
+  const submitted = urlQuery;
+  const projectType = urlProjectType;
+
+  const stateProject = (location.state as { selectedProject?: PluginSearchResultResponse })?.selectedProject;
+  const [selectedProject, setSelectedProject] = useState<PluginSearchResultResponse | null>(stateProject ?? null);
+  const [prevProjectState, setPrevProjectState] = useState(stateProject);
+  if (stateProject && stateProject !== prevProjectState) {
+    setPrevProjectState(stateProject);
+    setSelectedProject(stateProject);
+  }
+
   const [chosenVersion, setChosenVersion] = useState<PluginVersionResponse | null>(null);
   const [targetServerId, setTargetServerId] = useState("");
   const [pendingInstall, setPendingInstall] = useState<{
@@ -106,7 +122,24 @@ export function PluginMarketplacePage() {
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    setSubmitted(query.trim());
+    const newParams = new URLSearchParams(searchParams);
+    const trimmed = query.trim();
+    if (trimmed) {
+      newParams.set("q", trimmed);
+    } else {
+      newParams.delete("q");
+    }
+    setSearchParams(newParams);
+  }
+
+  function handleProjectTypeChange(newType: "plugin" | "mod") {
+    const newParams = new URLSearchParams(searchParams);
+    if (newType === "plugin") {
+      newParams.delete("type");
+    } else {
+      newParams.set("type", newType);
+    }
+    setSearchParams(newParams);
   }
 
   function handleCloseVersions() {
@@ -252,7 +285,7 @@ export function PluginMarketplacePage() {
                   id="discover-select"
                   aria-label="Discover type"
                   value={projectType}
-                  onChange={(e) => setProjectType(e.target.value as "plugin" | "mod")}
+                  onChange={(e) => handleProjectTypeChange(e.target.value as "plugin" | "mod")}
                   className="appearance-none rounded-lg border border-gray-300 bg-white py-2 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
                 >
                   <option value="plugin">Plugins</option>
@@ -319,7 +352,10 @@ export function PluginMarketplacePage() {
                         className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
                       >
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
+                          <Link
+                            to={`/marketplace/${p.project_id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`}
+                            className="flex items-center gap-3 group"
+                          >
                             {p.icon_url ? (
                               <img
                                 src={p.icon_url}
@@ -332,14 +368,16 @@ export function PluginMarketplacePage() {
                               </div>
                             )}
                             <div>
-                              <p className="font-medium text-gray-900 dark:text-gray-100">{p.title}</p>
+                              <p className="font-medium text-gray-900 group-hover:text-blue-600 group-hover:underline dark:text-gray-100 dark:group-hover:text-blue-400">
+                                {p.title}
+                              </p>
                               {p.description && (
                                 <p className="mt-0.5 max-w-md truncate text-xs text-gray-500 dark:text-gray-400" title={p.description}>
                                   {p.description}
                                 </p>
                               )}
                             </div>
-                          </div>
+                          </Link>
                         </td>
                         <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">{p.author}</td>
                         <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">

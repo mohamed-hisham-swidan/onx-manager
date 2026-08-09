@@ -48,6 +48,18 @@ export function useMarketplaceSearchGlobal(
   });
 }
 
+export function useMarketplaceProject(
+  projectId: string,
+  options?: MarketplaceSearchOptions,
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.plugins.marketplace.project(projectId),
+    queryFn: () => api.getMarketplaceProject(projectId),
+    enabled: (options?.enabled ?? true) && !!projectId,
+  });
+}
+
 export function useProjectVersions(
   serverId: string,
   projectId: string,

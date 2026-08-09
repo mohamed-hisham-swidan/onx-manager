@@ -31,6 +31,7 @@ export const queryKeys = {
       // Global (no server_id) marketplace search — distinct from the server-scoped `search` key to avoid cache collisions.
       global: (query: string, projectType?: string) =>
         ["plugins", "marketplace", "global", query, projectType ?? "plugin"] as const,
+      project: (projectId: string) => ["plugins", "marketplace", "project", projectId] as const,
       versions: (serverId: string, projectId: string) => ["plugins", "marketplace", "versions", serverId, projectId] as const,
     },
   },
