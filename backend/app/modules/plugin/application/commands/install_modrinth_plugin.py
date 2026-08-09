@@ -140,6 +140,13 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 parsed_version = PluginVersion(0, 0, 0)
                 version_raw = version.version_number
 
+            icon_url = None
+            try:
+                project_info = await provider.get_project(command.project_id)
+                icon_url = project_info.icon_url or None
+            except Exception as e:
+                logger.warning("Failed to fetch project info to get icon_url: %s", e)
+
             plugin_id = PluginId()
             plugin = Plugin.install(
                 plugin_id=plugin_id,
@@ -156,6 +163,7 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 external_url=plugin_file.url,
                 checksum=plugin_file.sha1 or plugin_file.sha512 or None,
                 version_raw=version_raw,
+                icon_url=icon_url,
             )
             repo: PluginRepository = SQLPluginRepository(uow.session)
             await repo.save(plugin)

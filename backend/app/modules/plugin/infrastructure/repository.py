@@ -74,6 +74,7 @@ class SQLPluginRepository(PluginRepository):
         model.external_version_id = plugin.external_version_id
         model.external_url = plugin.external_url
         model.checksum = plugin.checksum
+        model.icon_url = plugin.icon_url
         model.installed_at = plugin.installed_at
         model.updated_at = datetime.now(timezone.utc)
         await self._session.flush()
@@ -114,6 +115,7 @@ class SQLPluginRepository(PluginRepository):
             checksum=model.checksum,
             version_raw=version_raw,
             project_type=getattr(model, "project_type", "plugin"),
+            icon_url=getattr(model, "icon_url", None),
             installed_at=model.installed_at,
             updated_at=model.updated_at,
         )

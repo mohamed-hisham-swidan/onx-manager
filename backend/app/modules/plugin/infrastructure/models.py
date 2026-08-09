@@ -26,5 +26,6 @@ class PluginModel(Base, TimestampMixin):
     external_version_id = Column(String(64), nullable=True)
     external_url = Column(String(512), nullable=True)
     checksum = Column(String(128), nullable=True)
+    icon_url = Column(String(512), nullable=True)
     installed_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)

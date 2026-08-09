@@ -252,7 +252,7 @@ export function PluginMarketplacePage() {
                               className="h-9 w-9 shrink-0 rounded-lg object-cover"
                             />
                           ) : (
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500">
                               <Icon name="plugin" size={18} />
                             </div>
                           )}

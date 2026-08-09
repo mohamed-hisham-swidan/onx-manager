@@ -43,6 +43,7 @@ export interface PluginResponse {
   external_version_id?: string | null;
   external_url?: string | null;
   checksum?: string | null;
+  icon_url?: string | null;
 }
 
 export interface PluginSearchResultResponse {
@@ -54,7 +55,7 @@ export interface PluginSearchResultResponse {
   project_types: string[];
   downloads: number;
   follows: number;
-  icon_url: string;
+  icon_url: string | null;
   latest_version_id: string;
 }
 
@@ -70,7 +71,7 @@ export interface PluginProjectResponse {
   game_versions: string[];
   downloads: number;
   follows: number;
-  icon_url: string;
+  icon_url: string | null;
   wiki_url: string;
   source_url: string;
 }

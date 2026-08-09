@@ -30,6 +30,7 @@ class PluginReadModel:
         external_version_id: str | None = None,
         external_url: str | None = None,
         checksum: str | None = None,
+        icon_url: str | None = None,
     ) -> None:
         self.plugin_id = plugin_id
         self.server_id = server_id
@@ -49,6 +50,7 @@ class PluginReadModel:
         self.external_version_id = external_version_id
         self.external_url = external_url
         self.checksum = checksum
+        self.icon_url = icon_url
 
     @classmethod
     def from_domain(cls, plugin: object) -> PluginReadModel:
@@ -71,6 +73,7 @@ class PluginReadModel:
             external_version_id=plugin.external_version_id,
             external_url=plugin.external_url,
             checksum=plugin.checksum,
+            icon_url=plugin.icon_url,
         )
 
 

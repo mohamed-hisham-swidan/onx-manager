@@ -55,6 +55,7 @@ class Plugin(AggregateRoot):
         installed_at: datetime | None = None,
         updated_at: datetime | None = None,
         project_type: str = "plugin",
+        icon_url: str | None = None,
     ) -> None:
         super().__init__()
         self._plugin_id = plugin_id
@@ -79,6 +80,7 @@ class Plugin(AggregateRoot):
         self._installed_at = installed_at or now
         self._updated_at = updated_at or now
         self._project_type = project_type
+        self._icon_url = icon_url
 
     @property
     def plugin_id(self) -> PluginId:
@@ -137,6 +139,10 @@ class Plugin(AggregateRoot):
         return self._checksum
 
     @property
+    def icon_url(self) -> str | None:
+        return self._icon_url
+
+    @property
     def description(self) -> str:
         return self._description
 
@@ -183,6 +189,7 @@ class Plugin(AggregateRoot):
         checksum: str | None = None,
         version_raw: str | None = None,
         project_type: str = "plugin",
+        icon_url: str | None = None,
     ) -> Plugin:
         plugin = cls(
             plugin_id=plugin_id,
@@ -201,6 +208,7 @@ class Plugin(AggregateRoot):
             checksum=checksum,
             version_raw=version_raw,
             project_type=project_type,
+            icon_url=icon_url,
         )
         plugin._add_event(
             PluginInstalledEvent(

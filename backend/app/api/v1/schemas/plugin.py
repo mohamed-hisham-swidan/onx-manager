@@ -22,6 +22,7 @@ class PluginResponse(BaseModel):
     external_version_id: str | None = None
     external_url: str | None = None
     checksum: str | None = None
+    icon_url: str | None = None
 
 
 class PluginSearchResultResponse(BaseModel):
@@ -33,7 +34,7 @@ class PluginSearchResultResponse(BaseModel):
     project_types: list[str] = []
     downloads: int = 0
     follows: int = 0
-    icon_url: str = ""
+    icon_url: str | None = None
     latest_version_id: str = ""
 
 
@@ -49,7 +50,7 @@ class PluginProjectResponse(BaseModel):
     game_versions: list[str] = []
     downloads: int = 0
     follows: int = 0
-    icon_url: str = ""
+    icon_url: str | None = None
     wiki_url: str = ""
     source_url: str = ""
 

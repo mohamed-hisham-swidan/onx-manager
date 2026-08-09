@@ -149,7 +149,7 @@ export function InstallModal({ project, projectType, onClose }: InstallModalProp
                 className="h-12 w-12 shrink-0 rounded-xl object-cover border border-gray-200 dark:border-gray-700"
               />
             ) : (
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500 border border-gray-200 dark:border-gray-600">
                 <Icon name="plugin" size={24} />
               </div>
             )}

@@ -143,12 +143,25 @@ export function PluginListPage() {
                   className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
                 >
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-gray-900 dark:text-gray-100">{p.name}</p>
-                      <SourceBadge plugin={p} />
-                    </div>
-                    {p.description && (
-                      <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400" title={p.description}>
+                    <div className="flex items-start gap-3">
+                      {p.icon_url ? (
+                        <img
+                          src={p.icon_url}
+                          alt={`${p.name} icon`}
+                          className="h-10 w-10 shrink-0 rounded-md bg-gray-100 object-cover dark:bg-gray-800"
+                        />
+                      ) : (
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500">
+                          <Icon name="plugin" size={24} />
+                        </div>
+                      )}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-900 dark:text-gray-100">{p.name}</p>
+                          <SourceBadge plugin={p} />
+                        </div>
+                        {p.description && (
+                          <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400" title={p.description}>
                         {p.description}
                       </p>
                     )}
@@ -156,7 +169,9 @@ export function PluginListPage() {
                       <p className="mt-0.5 truncate font-mono text-xs text-gray-400 dark:text-gray-500" title={p.filename}>
                         {p.filename}
                       </p>
-                    )}
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">
                     {p.version === "unknown" ? (
