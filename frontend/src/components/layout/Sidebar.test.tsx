@@ -22,7 +22,6 @@ describe("Sidebar", () => {
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(screen.getByText("Servers")).toBeInTheDocument();
     expect(screen.getByText("Backups")).toBeInTheDocument();
-    expect(screen.getByText("Plugins")).toBeInTheDocument();
     expect(screen.getByText("Marketplace")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
