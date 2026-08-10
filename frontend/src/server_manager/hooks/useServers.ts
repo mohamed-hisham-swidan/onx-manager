@@ -66,6 +66,16 @@ export function useServerDetail(serverId: string) {
   });
 }
 
+export function useServerRuntime(serverId: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [...queryKeys.servers.detail(serverId), "runtime"],
+    queryFn: () => api.getServerRuntime(serverId),
+    enabled: !!serverId,
+    refetchInterval: 10000,
+  });
+}
+
 export function useRestartServer() {
   const api = useApi();
   const qc = useQueryClient();

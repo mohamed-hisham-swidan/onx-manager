@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer } from "@/server_manager/hooks/useServers";
+import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer, useServerRuntime } from "@/server_manager/hooks/useServers";
 import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
+import { ComingSoonState } from "@/components/ComingSoonState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
 import { ServerConfigEditor } from "@/server_manager/components/ServerConfigEditor";
 import { ServerConsole } from "@/server_manager/components/ServerConsole";
-import { ServerMetricsCharts } from "@/server_manager/components/ServerMetricsCharts";
+import { Sparkline } from "@/server_manager/components/Sparkline";
+import { useServerMetrics } from "@/server_manager/hooks/useServerMetrics";
+import { useClipboard } from "@/hooks/useClipboard";
 import { toast } from "@/stores/toastStore";
 import { ApiError } from "@/services/api";
 import type { ServerDetailResponse } from "@/server_manager/types";
@@ -30,13 +33,25 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 
 function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="p-5 sm:p-6">
+    <section className="p-5 sm:p-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
         {title}
       </h3>
       <dl className="divide-y divide-gray-100 dark:divide-gray-700/50">{children}</dl>
     </section>
   );
+}
+
+function formatUptime(seconds: number): string {
+  if (!seconds) return "—";
+  const d = Math.floor(seconds / (3600 * 24));
+  const h = Math.floor((seconds % (3600 * 24)) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const parts = [];
+  if (d > 0) parts.push(`${d}d`);
+  if (h > 0) parts.push(`${h}h`);
+  parts.push(`${m}m`);
+  return parts.join(" ");
 }
 
 function renderMotd(motd: string | undefined): string {
@@ -48,12 +63,16 @@ export function ServerDetailPage() {
   const { serverId } = useParams<{ serverId: string }>();
   const navigate = useNavigate();
   const { data: server, isLoading, error } = useServerDetail(serverId ?? "");
+  const { data: runtime } = useServerRuntime(serverId ?? "");
+  const { data: metrics } = useServerMetrics(serverId ?? "");
   const startServer = useStartServer();
   const stopServer = useStopServer();
   const restartServer = useRestartServer();
   const deleteServer = useDeleteServer();
-  const [activeTab, setActiveTab] = useState<"info" | "config" | "console" | "metrics">("info");
+  const { copy } = useClipboard();
+
   const [showDelete, setShowDelete] = useState(false);
+  const [infoExpanded, setInfoExpanded] = useState(false);
 
   useEffect(() => {
     if (!serverId) return;
@@ -102,13 +121,6 @@ export function ServerDetailPage() {
         <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
           This server does not exist or may have been deleted.
         </p>
-        <Link
-          to="/servers"
-          className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-        >
-          <Icon name="chevron-left" size={16} />
-          Back to Servers
-        </Link>
       </div>
     );
   }
@@ -171,24 +183,21 @@ export function ServerDetailPage() {
     </>
   );
 
-  const tabs = [
-    { key: "info" as const, label: "Information" },
-    { key: "config" as const, label: "Configuration" },
-    { key: "console" as const, label: "Console" },
-    { key: "metrics" as const, label: "Metrics" },
-  ];
+  const currentMetric = metrics?.length
+    ? metrics.reduce((latest, m) => (m.timestamp > latest.timestamp ? m : latest))
+    : undefined;
+
+  const tpsData = (metrics ?? []).map((m) => m.tps);
+  const playersData = (metrics ?? []).map((m) => m.players);
+  const ramData = (metrics ?? []).map((m) => m.ram_used_mb);
+  const cpuData = (metrics ?? []).map((m) => m.cpu_percent);
+
+  const address = server.deployment_host ? `${server.deployment_host}:${server.deployment_port ?? server.port}` : "—";
 
   return (
-    <div>
-      <Link
-        to="/servers"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 transition-colors hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
-      >
-        <Icon name="chevron-left" size={16} />
-        Servers
-      </Link>
-
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-6">
+      {/* Top Bar */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
             <Icon name="server" size={24} />
@@ -200,123 +209,181 @@ export function ServerDetailPage() {
               </h2>
               <StatusBadge status={server.status} />
             </div>
-            <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-              {server.server_type} · {server.minecraft_version} · port {server.port}
+            <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
+              <span>{server.server_type} · {server.minecraft_version}</span>
+              {currentMetric && (
+                <span className="flex items-center gap-2 border-l border-gray-300 dark:border-gray-600 pl-2">
+                  <span title="TPS"><Icon name="activity" size={12} className="inline mr-1" />{currentMetric.tps.toFixed(1)}</span>
+                  <span title="Players"><Icon name="users" size={12} className="inline mr-1" />{currentMetric.players}</span>
+                </span>
+              )}
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">{actions(server)}</div>
       </div>
 
-      <div className="mb-6 flex gap-1 border-b border-gray-200 dark:border-gray-700">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === t.key
-                ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-                : "border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {/* Main Column */}
+        <div className="lg:col-span-2 xl:col-span-3 flex flex-col gap-6">
+          {/* Console */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+            <ServerConsole serverId={serverId} />
+          </div>
+
+          {/* Usage Graphs */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+              <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">CPU Usage</h3>
+              <Sparkline data={cpuData} color="#ef4444" fillColor="rgba(239, 68, 68, 0.1)" />
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+              <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">RAM Usage</h3>
+              <Sparkline data={ramData} color="#eab308" fillColor="rgba(234, 179, 8, 0.1)" />
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 flex flex-col">
+              <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Network Usage</h3>
+              <div className="flex-1 flex items-center justify-center">
+                <ComingSoonState title="Network Usage" description="Coming soon" icon="activity" />
+              </div>
+            </div>
+          </div>
+
+          {/* Warnings/Alerts */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+            <h3 className="mb-4 text-sm font-semibold text-gray-900 dark:text-gray-100">Alerts & Warnings</h3>
+            <ComingSoonState title="Server Alerts" description="Coming soon" icon="bell" />
+          </div>
+
+          {/* Collapsible Info Section */}
+          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
+            <button
+              onClick={() => setInfoExpanded(!infoExpanded)}
+              className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+            >
+              <span className="font-semibold text-gray-900 dark:text-gray-100">Server Info & Configuration</span>
+              <Icon name={infoExpanded ? "chevron-up" : "chevron-down"} size={16} />
+            </button>
+            {infoExpanded && (
+              <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="mb-6">
+                  <h4 className="mb-4 text-sm font-semibold text-gray-900 dark:text-gray-100">Core Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <DetailSection title="General">
+                      <DetailRow label="Minecraft Version">{server.minecraft_version}</DetailRow>
+                      <DetailRow label="Server Type">{server.server_type}</DetailRow>
+                      <DetailRow label="Gamemode">
+                        <span className="capitalize">{server.gamemode}</span>
+                      </DetailRow>
+                      <DetailRow label="Difficulty">
+                        <span className="capitalize">{server.difficulty}</span>
+                      </DetailRow>
+                    </DetailSection>
+                    <DetailSection title="Gameplay">
+                      <DetailRow label="PVP">{server.pvp ? "Enabled" : "Disabled"}</DetailRow>
+                      <DetailRow label="Whitelist">{server.whitelist ? "Enabled" : "Disabled"}</DetailRow>
+                      <DetailRow label="Online Mode">{server.online_mode ? "Yes" : "No"}</DetailRow>
+                      <DetailRow label="Command Blocks">{server.enable_command_block ? "Enabled" : "Disabled"}</DetailRow>
+                      <DetailRow label="Spawn Protection">{server.spawn_protection} blocks</DetailRow>
+                    </DetailSection>
+                    <DetailSection title="Performance">
+                      <DetailRow label="View Distance">{server.view_distance} chunks</DetailRow>
+                      <DetailRow label="Simulation Distance">{server.simulation_distance} chunks</DetailRow>
+                      <DetailRow label="Memory">
+                        {server.min_memory_mb} MB / {server.max_memory_mb} MB
+                      </DetailRow>
+                      <DetailRow label="Java Args">
+                        <span className="block max-w-xs truncate font-mono text-xs" title={server.java_args}>
+                          {server.java_args}
+                        </span>
+                      </DetailRow>
+                    </DetailSection>
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
+                  <h4 className="mb-4 text-sm font-semibold text-gray-900 dark:text-gray-100">Network & Deployment</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <DetailSection title="Network">
+                      <DetailRow label="Port">{server.port}</DetailRow>
+                      <DetailRow label="Max Players">{server.max_players}</DetailRow>
+                      <DetailRow label="MOTD">
+                        <span className="block max-w-xs text-right">{renderMotd(server.motd)}</span>
+                      </DetailRow>
+                    </DetailSection>
+                    <DetailSection title="Deployment">
+                      <DetailRow label="Provider">{server.provider ?? "—"}</DetailRow>
+                      <DetailRow label="Host">
+                        {server.deployment_host ? `${server.deployment_host}:${server.deployment_port ?? "—"}` : "—"}
+                      </DetailRow>
+                      <DetailRow label="PID">{server.deployment_pid ?? "—"}</DetailRow>
+                      <DetailRow label="Root Path">
+                        <span className="block max-w-xs truncate font-mono text-xs" title={server.root_path ?? undefined}>
+                          {server.root_path ?? "—"}
+                        </span>
+                      </DetailRow>
+                      <DetailRow label="Startup Jar">
+                        <span className="block max-w-xs truncate font-mono text-xs" title={server.startup_jar ?? undefined}>
+                          {server.startup_jar ?? "—"}
+                        </span>
+                      </DetailRow>
+                    </DetailSection>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Side Column */}
+        <div className="flex flex-col gap-4">
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Address</h3>
+            <div className="flex items-center justify-between">
+              <span className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate pr-2">{address}</span>
+              {address !== "—" && (
+                <button
+                  onClick={() => copy(address, "Address copied to clipboard")}
+                  className="shrink-0 p-1.5 rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  title="Copy address"
+                >
+                  <Icon name="copy" size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Uptime</h3>
+            <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+              {runtime?.uptime_seconds ? formatUptime(runtime.uptime_seconds) : "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">CPU Usage</h3>
+            <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+              {currentMetric ? `${currentMetric.cpu_percent.toFixed(1)}%` : "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">RAM Usage</h3>
+            <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+              {currentMetric ? `${(currentMetric.ram_used_mb / 1024).toFixed(1)} GB` : "—"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 min-h-[100px] flex items-center justify-center">
+            <ComingSoonState title="Storage Usage" description="Coming soon" icon="database" />
+          </div>
+        </div>
       </div>
-
-      {activeTab === "info" && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-            <DetailSection title="General">
-              <DetailRow label="Minecraft Version">{server.minecraft_version}</DetailRow>
-              <DetailRow label="Server Type">{server.server_type}</DetailRow>
-              <DetailRow label="Gamemode">
-                <span className="capitalize">{server.gamemode}</span>
-              </DetailRow>
-              <DetailRow label="Difficulty">
-                <span className="capitalize">{server.difficulty}</span>
-              </DetailRow>
-            </DetailSection>
-            <div className="border-t border-gray-100 dark:border-gray-700/50" />
-            <DetailSection title="Network">
-              <DetailRow label="Port">{server.port}</DetailRow>
-              <DetailRow label="Max Players">{server.max_players}</DetailRow>
-              <DetailRow label="MOTD">
-                <span className="block max-w-xs text-right">{renderMotd(server.motd)}</span>
-              </DetailRow>
-            </DetailSection>
-          </div>
-
-          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-            <DetailSection title="Gameplay">
-              <DetailRow label="PVP">{server.pvp ? "Enabled" : "Disabled"}</DetailRow>
-              <DetailRow label="Whitelist">{server.whitelist ? "Enabled" : "Disabled"}</DetailRow>
-              <DetailRow label="Online Mode">{server.online_mode ? "Yes" : "No"}</DetailRow>
-              <DetailRow label="Command Blocks">{server.enable_command_block ? "Enabled" : "Disabled"}</DetailRow>
-              <DetailRow label="Spawn Protection">{server.spawn_protection} blocks</DetailRow>
-            </DetailSection>
-            <div className="border-t border-gray-100 dark:border-gray-700/50" />
-            <DetailSection title="Performance">
-              <DetailRow label="View Distance">{server.view_distance} chunks</DetailRow>
-              <DetailRow label="Simulation Distance">{server.simulation_distance} chunks</DetailRow>
-              <DetailRow label="Memory">
-                {server.min_memory_mb} MB / {server.max_memory_mb} MB
-              </DetailRow>
-              <DetailRow label="Java Args">
-                <span className="block max-w-xs truncate font-mono text-xs" title={server.java_args}>
-                  {server.java_args}
-                </span>
-              </DetailRow>
-            </DetailSection>
-          </div>
-
-          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 lg:col-span-2">
-            <DetailSection title="Deployment">
-              <DetailRow label="Provider">{server.provider ?? "—"}</DetailRow>
-              <DetailRow label="Host">
-                {server.deployment_host ? `${server.deployment_host}:${server.deployment_port ?? "—"}` : "—"}
-              </DetailRow>
-              <DetailRow label="PID">{server.deployment_pid ?? "—"}</DetailRow>
-              <DetailRow label="Root Path">
-                <span className="block max-w-xs truncate font-mono text-xs" title={server.root_path ?? undefined}>
-                  {server.root_path ?? "—"}
-                </span>
-              </DetailRow>
-              <DetailRow label="Startup Jar">
-                <span className="block max-w-xs truncate font-mono text-xs" title={server.startup_jar ?? undefined}>
-                  {server.startup_jar ?? "—"}
-                </span>
-              </DetailRow>
-            </DetailSection>
-          </div>
-        </div>
-      )}
-
-      {activeTab === "config" && (
-        <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
-          <h3 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Server Configuration</h3>
-          <ServerConfigEditor serverId={serverId} server={server} />
-        </div>
-      )}
-
-      {activeTab === "console" && (
-        <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
-          <h3 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Server Console</h3>
-          <ServerConsole serverId={serverId} />
-        </div>
-      )}
-
-      {activeTab === "metrics" && (
-        <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
-          <h3 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Server Metrics</h3>
-          <ServerMetricsCharts serverId={serverId} />
-        </div>
-      )}
 
       <ConfirmDialog
         open={showDelete}
         title="Delete server?"
-        description={`This permanently deletes "${server.name}" and its data. This action cannot be undone.`}
+        description={`This permanently deletes "${server?.name}" and its data. This action cannot be undone.`}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         onConfirm={() =>

@@ -57,16 +57,28 @@ let mockData: typeof mockServer | null = mockServer;
 let mockIsLoading = false;
 let mockError: Error | null = null;
 
+let mockRuntimeData: any = null;
+let mockMetricsData: any = null;
+
 vi.mock("@/server_manager/hooks/useServers", () => ({
   useServerDetail: vi.fn(() => ({
     data: mockData,
     isLoading: mockIsLoading,
     error: mockError,
   })),
+  useServerRuntime: vi.fn(() => ({
+    data: mockRuntimeData,
+  })),
   useStartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useStopServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useRestartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useDeleteServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+}));
+
+vi.mock("@/server_manager/hooks/useServerMetrics", () => ({
+  useServerMetrics: vi.fn(() => ({
+    data: mockMetricsData,
+  })),
 }));
 
 vi.mock("@/server_manager/components/ServerConfigEditor", () => ({
@@ -77,8 +89,12 @@ vi.mock("@/server_manager/components/ServerConsole", () => ({
   ServerConsole: () => <div data-testid="server-console">Console</div>,
 }));
 
-vi.mock("@/server_manager/components/ServerMetricsCharts", () => ({
-  ServerMetricsCharts: () => <div data-testid="metrics-charts">Metrics</div>,
+vi.mock("@/server_manager/components/Sparkline", () => ({
+  Sparkline: () => <div data-testid="sparkline">Sparkline</div>,
+}));
+
+vi.mock("@/hooks/useClipboard", () => ({
+  useClipboard: () => ({ copy: vi.fn() }),
 }));
 
 function renderPage(serverId = "srv-1") {
@@ -100,6 +116,8 @@ describe("ServerDetailPage", () => {
     mockData = mockServer;
     mockIsLoading = false;
     mockError = null;
+    mockRuntimeData = null;
+    mockMetricsData = null;
     subscribeChannelsMock.mockClear();
     unsubscribeChannelsMock.mockClear();
   });
@@ -122,11 +140,10 @@ describe("ServerDetailPage", () => {
     expect(screen.getByText("Failed to load")).toBeInTheDocument();
   });
 
-  it("shows not-found state with a link back to servers when data is empty", () => {
+  it("shows not-found state when data is empty", () => {
     mockData = null;
     renderPage();
     expect(screen.getByText("Server not found")).toBeInTheDocument();
-    expect(screen.getByText("Back to Servers")).toBeInTheDocument();
   });
 
   it("shows not-found state (not a generic error) on a 404 response", () => {
@@ -136,32 +153,32 @@ describe("ServerDetailPage", () => {
     expect(screen.queryByText("Request failed with status 404")).not.toBeInTheDocument();
   });
 
-  it("shows info tab by default with grouped fields", () => {
+  it("shows all info fields correctly in the collapsible section", async () => {
+    const user = userEvent.setup();
     renderPage();
+    const expandBtn = screen.getByText("Server Info & Configuration");
+    await user.click(expandBtn);
     expect(screen.getByText("1.20.4")).toBeInTheDocument();
     expect(screen.getByText("25565")).toBeInTheDocument();
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Network")).toBeInTheDocument();
   });
 
-  it("renders a cleaned MOTD", () => {
+  it("renders a cleaned MOTD", async () => {
+    const user = userEvent.setup();
     mockData = { ...mockServer, motd: "\u00a7bWelcome\u00a7r &6to &ethe server" };
     renderPage();
+    await user.click(screen.getByText("Server Info & Configuration"));
     expect(screen.getByText("Welcome to the server")).toBeInTheDocument();
   });
 
-  it("shows a placeholder MOTD when empty", () => {
+  it("shows a placeholder MOTD when empty", async () => {
+    const user = userEvent.setup();
     mockData = { ...mockServer, motd: "" };
     renderPage();
+    await user.click(screen.getByText("Server Info & Configuration"));
     const motdRow = screen.getByText("MOTD").parentElement!;
     expect(motdRow.querySelector("dd")!.textContent).toBe("—");
-  });
-
-  it("switches tabs on click", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await user.click(screen.getByText("Console"));
-    expect(screen.getByTestId("server-console")).toBeInTheDocument();
   });
 
   it("shows Start button when stopped", () => {

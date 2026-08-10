@@ -225,6 +225,8 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}`, { method: "PATCH", body }),
     deleteServer: (serverId: string) =>
       request<void>(`/api/v1/servers/${serverId}`, { method: "DELETE" }),
+    getServerRuntime: (serverId: string) =>
+      request<import("@/server_manager/types").RuntimeDiagnosticsResponse>(`/api/v1/servers/${serverId}/runtime`),
     startServer: (serverId: string) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/start`, { method: "POST" }),
     stopServer: (serverId: string, reason?: string) =>

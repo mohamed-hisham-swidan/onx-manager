@@ -152,3 +152,31 @@ export const STATUS_MAP: Record<string, StatusBadge> = {
   stopping: { label: "Stopping", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
   crashed: { label: "Crashed", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
 };
+
+export interface RuntimeDiagnosticsResponse {
+  server_id: string;
+  server_name: string;
+  status: string;
+  alive: boolean;
+  pid: number | null;
+  provider: string | null;
+  uptime_seconds: number;
+  heartbeat_age_seconds: number | null;
+  startup_duration_seconds: number | null;
+  restart_count: number;
+  failure_code: string | null;
+  failure_reason: string | null;
+  last_logs: string[] | null;
+  last_exception: string | null;
+  last_verification_timestamp: number | null;
+  supervised: boolean;
+  runtime_handle: string | null;
+  provider_status: string | null;
+  last_crash_time: number | null;
+  port: number | null;
+  port_owner: string | null;
+  tmux_session: string | null;
+  jvm_command: string | null;
+  owner_conflicts: Record<string, unknown>[];
+  validation_chain: string[];
+}

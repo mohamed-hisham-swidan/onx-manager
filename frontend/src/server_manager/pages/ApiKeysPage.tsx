@@ -6,11 +6,13 @@ import { ErrorState } from "@/components/ErrorState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useClipboard } from "@/hooks/useClipboard";
 
 export function ApiKeysPage() {
   const { data: apiKeys, isLoading, error } = useApiKeys();
   const createApiKey = useCreateApiKey();
   const revokeApiKey = useRevokeApiKey();
+  const { copy } = useClipboard();
   const [showCreate, setShowCreate] = useState(false);
   const [newKeyValue, setNewKeyValue] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -30,12 +32,6 @@ export function ApiKeysPage() {
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to create API key");
     }
-  };
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch { /* clipboard not available */ }
   };
 
   const handleRevoke = () => {
@@ -99,7 +95,7 @@ export function ApiKeysPage() {
               {newKeyValue}
             </code>
             <button
-              onClick={() => copyToClipboard(newKeyValue)}
+              onClick={() => copy(newKeyValue, "API key copied to clipboard")}
               className="px-3 py-2 rounded bg-yellow-100 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-200 text-sm font-medium hover:bg-yellow-200 dark:hover:bg-yellow-700 transition-colors"
             >
               Copy
