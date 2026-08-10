@@ -22,7 +22,7 @@ cd mcs-manager
 
 The bootstrap script runs:
 1. Creates a Python virtual environment in `backend/.venv`
-2. Installs backend dependencies
+2. Installs backend dependencies (including `python-multipart` for form/file endpoints)
 3. Installs frontend dependencies
 4. Runs database migrations
 
@@ -30,6 +30,7 @@ The bootstrap script runs:
 
 ```bash
 source backend/.venv/bin/activate
+pip install python-multipart # Note: required for FastAPI file upload & form endpoints
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -55,8 +56,9 @@ Navigate to `http://localhost:5173`. You will see the login page. Register an ac
 1. **Register an account** — click "Register" and create your first user
 2. **Create a server** — navigate to Servers → Create Server; choose a name, type (e.g. Vanilla), and version
 3. **Start the server** — click the play button on the server row; the server status will update in real-time via WebSocket
-4. **View the console** — click the server name to open the detail page with live console output and metrics
-5. **Stop the server** — click the stop button; the server will shut down gracefully
+4. **View the console** — click the server name to open the Blade Hosting-style detail page with live console output and metrics
+5. **Manage server files** — click Files in the server sidebar to view, edit, upload, or create server configuration files
+6. **Stop the server** — click the stop button; the server will shut down gracefully
 
 ## What's Next
 

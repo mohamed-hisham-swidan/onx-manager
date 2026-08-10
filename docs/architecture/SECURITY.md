@@ -74,10 +74,10 @@ What exists today:
 > - **servers:** `POST /servers`, `POST /servers/scan`, `POST /servers/import`, `PATCH /servers/{server_id}`, `DELETE /servers/{server_id}` (`server:write`/`server:delete`), `POST /servers/{id}/start` (`server:start`), `POST /servers/{id}/stop` + `/restart` (`server:stop`), `POST /servers/{id}/command`, `POST /servers/reconcile`, `POST /servers/runtime/ownership/claim`, `POST /servers/refresh` (`server:write`)
 > - **backups:** `POST /backups` (`backup:create`), `DELETE /backups/{id}` (`backup:delete`), `POST /backups/{id}/restore` (`backup:restore`), `POST /backups/{id}/verify` (`backup:read`)
 > - **plugins:** `DELETE /servers/{server_id}/plugins/{id}` + the three `/servers/{server_id}/plugins/marketplace/*` routes (`plugin:manage`) — but **not** `enable`/`disable` (K4)
-> - **users:** `PATCH /users/{id}` (`user:write`), `DELETE /users/{id}` (`user:delete`)
-> - **auth:** `POST /auth/api-keys`, `DELETE /auth/api-keys/{id}` (`user:write`)
+> - **users / auth:** `PATCH /users/{id}` (`user:write`), `DELETE /users/{id}` (`user:delete`), `POST /auth/api-keys`, `DELETE /auth/api-keys/{id}` (`user:write`)
+> - **files:** `PUT /servers/{id}/files/content` (`server:write`), `DELETE /servers/{id}/files` (`server:delete`), `POST /servers/{id}/files/upload` (`server:write`), `POST /servers/{id}/files/mkdir` (`server:write`)
 >
-> The vast majority of routes — including plugin enable/disable, `PATCH /settings`, the alert-rule routes, health-evaluate, the schedule routes, and all reads (list/detail/console/runtime/metrics/users/settings) — still do not check permissions (`request.state.permissions` is written by `AuthMiddleware` but never read outside the gated routes). This is a real security gap that needs a dedicated fix, not an intentional design choice. Tracked as Phase 4 §6.1 in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.
+> The vast majority of routes — including plugin enable/disable, `PATCH /settings`, the alert-rule routes, health-evaluate, the schedule routes, all reads (list/detail/console/runtime/metrics/users/settings), and **Files API read/download endpoints** (`GET /servers/{id}/files`, `GET /servers/{id}/files/content`, `GET /servers/{id}/files/download`) — still do not check per-server permissions. The Files API read endpoints check authentication (`get_current_user`) but do NOT verify per-server authorization, introducing an **IDOR (Insecure Direct Object Reference)** gap (deferred / open item). This is a real security gap that needs a dedicated fix, not an intentional design choice. Tracked as Phase 4 §6.1 in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.
 
 ### Permission Strings
 
@@ -123,7 +123,7 @@ These rules are **not enforced** — `evaluate_abac()` exists but is never calle
 
 ### WebSocket channel authorization
 
-The WebSocket handshake validates the JWT **before** `accept()` (`backend/app/websocket/endpoint.py:51-62`), and per-channel authorization is checked at subscribe time (`ChannelAuthorizer.can_subscribe`). **However, the channel gate currently fails closed for every real client:** `CHANNEL_PATTERNS` (`backend/app/websocket/authorization.py:3-17`) requires **plural** permission strings (`servers:read`, `backups:read`, …) while JWT/api-key claims carry **singular** REST permissions (`server:read`, …) built at login. Every `subscribe` therefore returns `PERMISSION_DENIED` and no channel can be subscribed. Separately, `EventDispatcher`/`MetricsBatcher` are never instantiated, so no server-push events reach connected clients. This is safe (fail-closed) but non-functional; full trace in `docs/PERMISSIONS_FUTURE_IDEAS.md` §4, tracked as K1/K2 in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.
+The WebSocket handshake validates the JWT **before** `accept()` (`backend/app/websocket/endpoint.py:51-62`), and per-channel authorization is checked at subscribe time (`ChannelAuthorizer.can_subscribe`). **WebSocket channel delivery is fully functional (Phase 3 resolved):** per-channel authorization enforces singular REST permissions (`server:read`, `backup:read`, etc.) with `admin:full` bypass (fixed in commit `b98da77`). Frontend `WebSocketManager` handles active channel subscriptions on route change (commit `d096f75`), and `MetricsBridgeHandler` flushes real-time metrics push events every ~2s over WebSocket (commit `db1889d`).
 
 ---
 

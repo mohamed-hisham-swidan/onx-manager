@@ -28,8 +28,9 @@
 13. [Schedules](#schedules)
 14. [Settings](#settings)
 15. [Software](#software)
-16. [App-level endpoints](#app-level-endpoints)
-17. [WebSocket protocol](#websocket-protocol)
+16. [Files](#files)
+17. [App-level endpoints](#app-level-endpoints)
+18. [WebSocket protocol](#websocket-protocol)
 
 ---
 
@@ -108,12 +109,21 @@ Every other route requires a valid Bearer token.
 > `DELETE /users/{user_id}` → `user:delete`;
 > `POST /auth/api-keys` and `DELETE /auth/api-keys/{id}` → `user:write`.
 >
+> **files** — `PUT /servers/{server_id}/files/content` → `server:write`;
+> `DELETE /servers/{server_id}/files` → `server:delete`;
+> `POST /servers/{server_id}/files/upload` → `server:write`;
+> `POST /servers/{server_id}/files/mkdir` → `server:write`.
+>
 > **Practical consequence: any authenticated user (any valid Bearer token,
 > any role) can still call every other endpoint in the system** — including
 > plugin enable/disable (K4), `PATCH /settings`, the alert-rule routes, the
-> health-evaluate route, the schedule routes, and all reads (list/detail/
-> console/runtime/metrics/users/settings). The remaining routes are a known
-> security gap in the current implementation, not an intentional design choice,
+> health-evaluate route, the schedule routes, all reads (list/detail/
+> console/runtime/metrics/users/settings), and **Files API read/download endpoints**
+> (`GET /servers/{server_id}/files`, `GET /servers/{server_id}/files/content`,
+> `GET /servers/{server_id}/files/download`). The Files API read endpoints check
+> authentication (`get_current_user`) but do NOT check per-server permissions or scoping,
+> presenting a known **IDOR (Insecure Direct Object Reference)** gap. The remaining routes
+> are a known security gap in the current implementation, not an intentional design choice,
 > and are tracked in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md` Phase 4 §6.1.
 
 ### 401 vs 403
@@ -651,6 +661,46 @@ Prefix `/api/v1/software`. All routes require a Bearer token.
 
 ---
 
+## Files
+
+Prefix `/api/v1/servers/{server_id}/files`. All routes require a Bearer token.
+
+| Method | Path | Auth | Request body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/v1/servers/{server_id}/files` | Bearer | — | `200 list[FileEntryResponse]` | List directory contents (`path` query param, default `""`); 403 on path traversal attempt |
+| `GET` | `/api/v1/servers/{server_id}/files/content` | Bearer | — | `200 FileContentResponse` | Read text file content (`path` query param required) — ⚠️ Auth-only; no per-server scope check (IDOR open item) |
+| `PUT` | `/api/v1/servers/{server_id}/files/content` | `server:write` | `WriteFileContentRequest` | `200 FileContentResponse` | Write text file content (`path` query param required) — uses atomic write |
+| `DELETE` | `/api/v1/servers/{server_id}/files` | `server:delete` | — | `204` | Delete file or directory (`path` query param required); cannot delete server root |
+| `POST` | `/api/v1/servers/{server_id}/files/upload` | `server:write` | `multipart/form-data` | `201 FileEntryResponse` | Upload file (`file` form parameter, `path` query param default `""`) |
+| `GET` | `/api/v1/servers/{server_id}/files/download` | Bearer | — | `200 FileResponse` | Download file as `application/octet-stream` (`path` query param required) — ⚠️ Auth-only (IDOR open item) |
+| `POST` | `/api/v1/servers/{server_id}/files/mkdir` | `server:write` | — | `201 FileEntryResponse` | Create directory (`path` query param required) |
+
+### Schemas
+
+`FileEntryResponse`:
+```json
+{
+  "name": "server.properties",
+  "path": "server.properties",
+  "is_dir": false,
+  "size": 1024
+}
+```
+
+`FileContentResponse`:
+```json
+{
+  "path": "server.properties",
+  "content": "motd=A Minecraft Server\n..."
+}
+```
+
+`WriteFileContentRequest`: `content` (string, required).
+
+---
+
+---
+
 ## App-level endpoints
 
 These are defined directly on the app in `backend/app/main.py` and are all public:
@@ -703,16 +753,9 @@ Unknown message types and invalid payloads produce an `error` message
 
 ### Channels
 
-Channel authorization is permission-based at subscribe time. **The channel gate
-currently fails closed for every real client** — `CHANNEL_PATTERNS` requires
-plural permission strings (`servers:read`, …) while JWT/api-key claims carry
-singular REST permissions (`server:read`, …), so every `subscribe` returns
-`PERMISSION_DENIED` and no channel can be subscribed. Additionally, the
-`EventDispatcher`/`MetricsBatcher` are never instantiated, so even a valid
-subscription would never receive pushed events. See
-`docs/PERMISSIONS_FUTURE_IDEAS.md` §4 (traced 2026-08-02) and roadmap v2 K1/K2.
+Channel authorization is permission-based at subscribe time. **WebSocket channel delivery is fully functional (Phase 3 resolved)** — per-channel authorization enforces singular REST permissions (`server:read`, `backup:read`, etc.) with `admin:full` bypass (fixed in commit `b98da77`). Frontend `WebSocketManager` handles active channel subscriptions on route change (commit `d096f75`). `MetricsBridgeHandler` subscribes to domain events and flushes batched metrics over `metrics:<serverId>` channel every ~2s (commit `db1889d`).
 
-The channel table below documents the **intended** mapping:
+The channel mapping:
 
 | Channel | Required permission |
 |---|---|

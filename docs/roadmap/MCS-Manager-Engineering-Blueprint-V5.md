@@ -1939,8 +1939,9 @@ features**.
 4. **Settings page accuracy** relative to actual persistence — every control either persists or is
    visibly disabled/labeled non-functional. No control silently no-ops. ✅ Done.
 5. **WebSocket surface honesty** — live vs. explicitly disabled, surfaced in the UI. ✅ Done (commits `5eedd7c`, `2996aa2`, `88ec695`, `3690d52`, `04d92cd`).
-6. **Frontend test coverage** for the above. ✅ Done.
-7. **Permissions UX presentation groundwork (DEFERRED)** — out of Phase 2 scope pending D2 resolution (`contracts/permissions.yaml`).
+6. **Dashboard & Server Detail Redesign (Part A & Part B)** — Blade Hosting-style server detail layout, contextual in-server navigation, File Manager UI (`/servers/:serverId/files`), Files REST API, and server-type-aware Mods/Plugins UI. ✅ Done (commits `bdbb877`, `b6a47fc`, `54428ad`, `adbf556`, `72e8c1c`, `ae6848d`, `e96f902`, `7226e6c`, `79d18d7`).
+7. **Frontend test coverage** for the above. ✅ Done (362 tests / 50 files).
+8. **Permissions UX presentation groundwork (DEFERRED)** — out of Phase 2 scope pending D2 resolution (`contracts/permissions.yaml`).
 
 ### 3.5 Dependencies
 
@@ -2088,10 +2089,10 @@ requires the corrected singular permission namespace from Phase 3 §1.3 (K1).
 
 **Live-verified state (2026-08-05, from v3, superseding v2 §6.1 and `current-state.md` K7):**
 
-- **24 routes are gated** by `require_permission` — unchanged from earlier: 22 mutating (servers 7,
-  backups 4, plugins-delete + marketplace-install 3, users 2, auth/API-keys 2) + 2 read-only
-  marketplace GET routes. (Per-module breakdown pending a fresh per-file grep tally; the 22 total is
-  a direct count from the live route table.)
+- **28 routes are gated** by `require_permission` — 26 mutating (servers 12,
+  backups 4, plugins-delete + marketplace-install 3, users 2, auth/API-keys 2, files 4) + 2 read-only
+  marketplace GET routes.
+- **Files API IDOR Gap (NEW open security item):** `GET /servers/{id}/files`, `GET /servers/{id}/files/content`, and `GET /servers/{id}/files/download` endpoints check authentication (`get_current_user`) but do NOT enforce per-server permissions. This presents an IDOR vulnerability that must be resolved prior to Phase 7 network exposure.
 - **12 mutating routes are unprotected, not 13** — corrected from earlier, since `b1b6dd8` removed
   the legacy manual-install route:
   `POST /auth/login`, `POST /auth/logout`, `POST /auth/refresh`,

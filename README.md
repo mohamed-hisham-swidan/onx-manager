@@ -1,7 +1,7 @@
 # Minecraft Server Manager
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-1115%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-1144%20passing-brightgreen.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](#)
 [![TypeScript](https://img.shields.io/badge/typescript-5%2B-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](#)
@@ -14,13 +14,14 @@ A professional-grade Minecraft server management platform. Manage any number of 
 ## Features
 
 - **Server Lifecycle** — Create, start, stop, restart, and configure Minecraft servers (vanilla, Paper, Forge, Fabric, etc.). Full provisioning with JAR validation and type-specific URL resolution.
+- **File Manager** — In-browser file explorer and text editor for server directories. Path-sandboxed REST API supporting file read/write, uploads, downloads, and directory creation.
 - **Backup & Restore** — Automatic scheduled backups with AES-256-GCM encryption, integrity verification, and point-in-time restoration. Idempotent sagas with compensation rollbacks.
 - **WebSocket Live Console** — Real-time server console and metrics streaming over WebSocket with channel-based subscriptions, auto-reconnect with exponential backoff, and state sync on recovery.
 - **Plugin System** — Subprocess-isolated plugins with JSON-RPC over stdin/stdout. Filesystem and network sandboxing. Recursive dependency resolution. Full SDK with event hooks, command execution, and scoped HTTP client.
 - **Auth & RBAC/ABAC** — JWT RS256 authentication with 900s access tokens and rotated refresh tokens. Role-based access with attribute-based policy evaluation. API key authentication (`mcs_`-prefixed, SHA-256 hashed).
 - **Monitoring** — Prometheus metrics (TPS, players, RAM, CPU). Real-time WebSocket metrics push every ~2s. Health check registry covering DB, disk, and provider backends. Configurable alert rules with Discord/Telegram/Email delivery.
 - **Marketplace** — Browse and install Minecraft plugins from Modrinth, with filesystem-as-truth reconciliation between the database and the `plugins/` directory. First-class global `/marketplace` route with server picker.
-- **REST API** — Auto-generated OpenAPI spec. Full CRUD for servers, backups, plugins, users, and settings. File-backed settings persistence (`config/settings.yaml`) with consumer hot-reload. Rate-limited, audited, and permission-checked.
+- **REST API** — Auto-generated OpenAPI spec. Full CRUD for servers, backups, plugins, files, users, and settings. File-backed settings persistence (`config/settings.yaml`) with consumer hot-reload. Rate-limited, audited, and permission-checked.
 
 ## Architecture
 
@@ -104,4 +105,4 @@ MIT — see LICENSE for details.
 
 ## Status
 
-**Production-ready core.** Backend, API, WebSocket, plugin system, auth, monitoring, task scheduling, and the frontend are implemented and tested. Re-measured 2026-08-09: **1115 backend tests passing** (100% pass rate) and **332 frontend tests passing** across 44 test files. WebSocket authorization/delivery and settings persistence gaps are resolved (Phase 3 closed). Remaining authorization breadth cleanup is in progress (Phase 4), tracked in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.
+**Production-ready core.** Backend, API, WebSocket, plugin system, auth, monitoring, task scheduling, File Manager, and the frontend are implemented and tested. Re-measured 2026-08-10: **1144 backend tests passing** (100% pass rate) and **362 frontend tests passing** across 50 test files. WebSocket authorization/delivery, settings persistence, and server redesign gaps are resolved (Phase 3 and Part B closed). Remaining authorization breadth cleanup is in progress (Phase 4), tracked in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.

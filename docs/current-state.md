@@ -22,8 +22,8 @@ Blueprint V5 governing plan is built on.
 |------|-------|----------|
 | Backend Python source files | 262 | `find backend/app -name "*.py"` |
 | Backend test files | 91 | `find backend/tests -name "test_*.py"` |
-| Frontend test files | 44 | `find frontend/src -name "*.test.*"` |
-| REST routers (`api/v1/routers/`) | 10 | `auth, backups, health, monitoring, plugins, schedules, servers, settings, software, users` |
+| Frontend test files | 50 | `find frontend/src -name "*.test.*"` |
+| REST routers (`api/v1/routers/`) | 11 | `auth, backups, files, health, monitoring, plugins, schedules, servers, settings, software, users` |
 | Alembic migration revisions | 16 | `backend/alembic/versions/` |
 | Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
@@ -32,22 +32,22 @@ Blueprint V5 governing plan is built on.
 
 ---
 
-## 2. Test suite (measured 2026-08-09)
+## 2. Test suite (measured 2026-08-10)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **1115** |
-| Passed | **1115** |
-| Failed | **0** (100% pass rate across entire backend test suite) |
+| Collected | **1144** |
+| Passed | **1144** |
+| Failed | **0** (100% pass rate across backend test suite) |
 
 ### Frontend — `frontend/` `npx vitest run`
 
 | Metric | Value |
 |--------|-------|
-| Test files | **44** |
-| Tests | **332** (all passing) |
+| Test files | **50** |
+| Tests | **362** (all passing) |
 
 
 ---
@@ -165,6 +165,14 @@ At head (`c4d5e6f7a8b9`).
 (`backend/app/api/v1/middleware/rate_limit.py:40-54`), dynamically reloads max requests from `get_live_settings().rate_limit_per_minute`, no `X-RateLimit-*` headers; on limit it returns
 `429` with a `Retry-After: 60` header.
 
+### 4.7 Server Redesign & File Manager (Part B completed)
+
+- **In-Server Contextual Navigation Shell (Batch 1, commit `adbf556`):** Dedicated sidebar context for server management with back-navigation.
+- **Blade Hosting-Style Server Detail Page (Batch 2, commit `72e8c1c` & Batch 5, commit `79d18d7`):** Two-column layout with live console, stat cards (Address click-to-copy, Uptime, CPU, RAM, Storage), Zone ID placeholder, CPU/RAM/Network usage trend graphs, and explicit "Coming Soon" badges for Storage & Network I/O metrics.
+- **Files REST API (Batch 3, commit `ae6848d`):** `/api/v1/servers/{server_id}/files` endpoint providing directory listing, text read/write (atomic), file/dir delete, upload, download, and mkdir with path-traversal sandboxing (`_resolve_server_file_path`).
+- **File Manager UI (Batch 4, commit `e96f902`):** First-class `/servers/:serverId/files` File Manager view with directory breadcrumbs, inline text editor, file upload, download, creation, and deletion modal.
+- **Server-Type-Aware Mods/Plugins UI (commit `7226e6c`):** Contextual navigation and Install Modal showing "Mods" or "Plugins" based on server type (`fabric`/`forge` vs `paper`/`purpur`).
+
 ---
 
 ## 5. Known issues carried forward
@@ -180,7 +188,7 @@ Classification used by `Blueprint V5`:
 | K5 | ~~Marketplace is not a first-class frontend section~~ **Resolved 2026-08-06 (commit `1c12e0c`)** — own `/marketplace` route + sidebar entry + global search + install-time server picker | ~~Medium~~ | ~~Feature~~ |
 | K6 | No backend CI workflow (only `frontend-ci.yml`); the permissions route-coverage matrix is not CI-enforced | High | Process (Phase 4) |
 | K7 | 13 mutating routes + 21 sensitive GET routes lack permission enforcement (per `contracts/permissions.yaml`) | High | Bug (Phase 4) |
-| K8 | ~~`test_start_server` + `test_metrics_task_requires_collector` fail in the suite~~ **Resolved 2026-08-08** — 100% backend pass rate (1115/1115 passed) | ~~Low~~ | ~~Test debt~~ |
+| K8 | ~~`test_start_server` + `test_metrics_task_requires_collector` fail in the suite~~ **Resolved 2026-08-08** — 100% backend pass rate (1144/1144 passed) | ~~Low~~ | ~~Test debt~~ |
 | K9 | Production DB 3 revisions behind head; no servers | Medium | Ops |
 | K10 | `GET /metrics` public/unauthenticated (documented deferred decision) | Medium | Security (Phase 7) |
 | K11 | JWT keys auto-generated in-process (lost on restart unless PEM set) | Medium | Architecture debt (Phase 4) |
@@ -189,6 +197,7 @@ Classification used by `Blueprint V5`:
 | K14 | Backup `save-all` completion regex unverified against a real Purpur server | Low | Verify |
 | K15 | Repo-root `data/` directory (gitignored, unused, awaiting cleanup decision) | Low | Housekeeping |
 | K16 | Provider selection config-driven via `MCS_PLUGIN_PROVIDERS`, validated at startup (K16A done 2026-08-05). Remaining: inspect configured list via API, add a second provider. | Low | Architecture debt (Phase 1) |
+| — | **Files API IDOR Gap:** `GET /files`, `GET /files/content`, `GET /files/download` endpoints check login (`get_current_user`) but lack per-server permission enforcement | High | Security (Phase 4) |
 | — | Backend `settings.py` router hardcodes `"version": "4.0.0"` instead of reading from live settings / AppSettings | Low | Known non-blocking |
 | — | ServerMetricsCharts 5s REST refetchInterval vs 60s backend collection cadence | Low | Known edge case |
 | — | Non-running server writes zero metrics rows → chart renders empty state without explanatory UI message | Low | Known edge case |
