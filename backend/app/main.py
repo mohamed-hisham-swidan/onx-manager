@@ -192,24 +192,35 @@ async def lifespan(app: FastAPI):
     scheduler.set_task_queue(task_queue)
     await scheduler.start()
 
-    # Register the metrics collection cron job (every 60 seconds)
+    # Register the metrics collection cron job (every 1 second)
     try:
         async with await _session_factory() as sess:
             from app.tasks.scheduler import CronJobModel
             from sqlalchemy import select
+            
+            # Remove old 5s job if it exists
+            existing_old = await sess.execute(
+                select(CronJobModel).where(CronJobModel.name == "metrics_collect_every_5s")
+            )
+            old_job = existing_old.scalar_one_or_none()
+            if old_job:
+                await scheduler.remove_job(old_job.id)
+                logger.info("Scheduler: Removed old metrics_collect_every_5s job")
+
+            # Register new 1s job
             existing = await sess.execute(
-                select(CronJobModel).where(CronJobModel.name == "metrics_collect_every_60s")
+                select(CronJobModel).where(CronJobModel.name == "metrics_collect_every_1s")
             )
             if existing.scalar_one_or_none() is None:
                 await scheduler.add_job(
-                    name="metrics_collect_every_60s",
-                    cron_expression="*/1 * * * *",
+                    name="metrics_collect_every_1s",
+                    cron_expression="* * * * * *",
                     task_name="run_metrics_collection",
                     params={},
                 )
-                logger.info("Scheduler: metrics_collect_every_60s registered")
+                logger.info("Scheduler: metrics_collect_every_1s registered")
             else:
-                logger.info("Scheduler: metrics_collect_every_60s already registered, skipping")
+                logger.info("Scheduler: metrics_collect_every_1s already registered, skipping")
     except Exception:
         logger.exception("Failed to register metrics collection cron job")
 

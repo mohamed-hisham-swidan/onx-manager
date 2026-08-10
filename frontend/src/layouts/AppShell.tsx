@@ -26,7 +26,7 @@ export function AppShell() {
           sidebarOpen ? "lg:pl-56" : "lg:pl-0"
         }`}
       >
-        <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+        <div className="mx-auto max-w-7xl p-3.5 sm:p-5 lg:px-6 lg:py-4">
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>

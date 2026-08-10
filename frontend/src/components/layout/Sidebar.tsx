@@ -13,6 +13,7 @@ const NAV_ITEMS: { to: string; label: string; icon: IconName; end?: boolean }[] 
 
 export function Sidebar() {
   const location = useLocation();
+  const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
   const source = useMarketplaceSourceStore((s) => s.source);
@@ -43,7 +44,7 @@ export function Sidebar() {
       <aside
         className={`fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] flex-col border-r border-gray-200 bg-white transition-all duration-200 dark:border-gray-700 dark:bg-gray-800 ${
           mobileSidebarOpen ? "w-64 translate-x-0" : "w-64 -translate-x-full"
-        } lg:w-56 lg:translate-x-0`}
+        } lg:w-56 ${sidebarOpen ? "lg:translate-x-0" : "lg:-translate-x-full"}`}
       >
         <nav className="flex flex-col gap-1 p-2">
           {NAV_ITEMS.map(({ to, label, icon, end }) => {

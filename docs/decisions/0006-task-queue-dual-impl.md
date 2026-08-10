@@ -26,7 +26,7 @@ Both share the same interface; the active implementation is selected via configu
 defined in Batch 09 but **never wired into production**. They were only
 instantiated in test fixtures. The `lifespan()` function in `main.py` did
 not create or start them, meaning:
-- `integrity_scan_hourly` and `metrics_collect_every_60s` cron jobs never fired
+- `integrity_scan_hourly` and `metrics_collect_every_1s` cron jobs never fired
 - `run_metrics_collection_task` was never called
 - No rows were ever written to `metric_points`
 

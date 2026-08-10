@@ -52,7 +52,7 @@ export function ServerShell() {
       <aside
         className={`fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] flex-col border-r border-gray-200 bg-white transition-all duration-200 dark:border-gray-700 dark:bg-gray-800 ${
           mobileSidebarOpen ? "w-64 translate-x-0" : "w-64 -translate-x-full"
-        } lg:w-56 lg:translate-x-0`}
+        } lg:w-56 ${sidebarOpen ? "lg:translate-x-0" : "lg:-translate-x-full"}`}
       >
         <div className="border-b border-gray-200 p-3 dark:border-gray-700">
           <Link
@@ -104,7 +104,7 @@ export function ServerShell() {
           sidebarOpen ? "lg:pl-56" : "lg:pl-0"
         }`}
       >
-        <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+        <div className="mx-auto max-w-7xl p-3.5 sm:p-5 lg:px-6 lg:py-4">
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>

@@ -43,4 +43,11 @@ describe("Sidebar", () => {
     backdrop!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
   });
+
+  it("hides desktop sidebar when sidebarOpen is false", () => {
+    useUIStore.setState({ sidebarOpen: false });
+    renderSidebar();
+    const aside = document.querySelector("aside");
+    expect(aside).toHaveClass("lg:-translate-x-full");
+  });
 });

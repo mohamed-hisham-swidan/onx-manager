@@ -192,24 +192,29 @@ export function ServerDetailPage() {
   const ramData = (metrics ?? []).map((m) => m.ram_used_mb);
   const cpuData = (metrics ?? []).map((m) => m.cpu_percent);
 
+  const ramPercent =
+    currentMetric && server?.max_memory_mb && server.max_memory_mb > 0
+      ? (currentMetric.ram_used_mb / server.max_memory_mb) * 100
+      : null;
+
   const address = server.deployment_host ? `${server.deployment_host}:${server.deployment_port ?? server.port}` : "—";
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       {/* Top Bar */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-            <Icon name="server" size={24} />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+            <Icon name="server" size={20} />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-xl font-semibold text-gray-900 dark:text-gray-100">
+              <h2 className="truncate text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {server.name}
               </h2>
               <StatusBadge status={server.status} />
             </div>
-            <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
               <span>{server.server_type} · {server.minecraft_version}</span>
               {currentMetric && (
                 <span className="flex items-center gap-2 border-l border-gray-300 dark:border-gray-600 pl-2">
@@ -223,35 +228,52 @@ export function ServerDetailPage() {
         <div className="flex flex-wrap items-center gap-2">{actions(server)}</div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {/* Main Column */}
-        <div className="lg:col-span-2 xl:col-span-3 flex flex-col gap-6">
+        <div className="lg:col-span-2 xl:col-span-3 flex flex-col gap-4">
           {/* Console */}
-          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
             <ServerConsole serverId={serverId} />
           </div>
 
           {/* Usage Graphs */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-              <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">CPU Usage</h3>
-              <Sparkline data={cpuData} color="#ef4444" fillColor="rgba(239, 68, 68, 0.1)" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-gray-200 bg-white p-2.5 px-3 dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">CPU Usage</h3>
+                <span className="text-xs font-bold text-red-600 dark:text-red-400">
+                  {currentMetric ? `${currentMetric.cpu_percent.toFixed(1)}%` : "—"}
+                </span>
+              </div>
+              <Sparkline data={cpuData} color="#ef4444" fillColor="rgba(239, 68, 68, 0.1)" height={20} />
             </div>
-            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-              <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">RAM Usage</h3>
-              <Sparkline data={ramData} color="#eab308" fillColor="rgba(234, 179, 8, 0.1)" />
+            <div className="rounded-xl border border-gray-200 bg-white p-2.5 px-3 dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">RAM Usage</h3>
+                <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                  {currentMetric
+                    ? ramPercent !== null
+                      ? `${(currentMetric.ram_used_mb / 1024).toFixed(1)} GB (${ramPercent.toFixed(1)}%)`
+                      : `${(currentMetric.ram_used_mb / 1024).toFixed(1)} GB`
+                    : "—"}
+                </span>
+              </div>
+              <Sparkline data={ramData} color="#eab308" fillColor="rgba(234, 179, 8, 0.1)" height={20} />
             </div>
-            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 flex flex-col">
-              <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Network Usage</h3>
-              <div className="flex-1 flex items-center justify-center">
-                <ComingSoonState title="Network Usage" description="Coming soon" icon="activity" />
+            <div className="rounded-xl border border-gray-200 bg-white p-2.5 px-3 dark:border-gray-700 dark:bg-gray-800 flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Network Usage</h3>
+                <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500">Coming soon</span>
+              </div>
+              <div className="h-5 flex items-center">
+                <div className="w-full border-t border-dashed border-gray-200 dark:border-gray-700" />
               </div>
             </div>
           </div>
 
           {/* Warnings/Alerts */}
-          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="mb-4 text-sm font-semibold text-gray-900 dark:text-gray-100">Alerts & Warnings</h3>
+          <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
+            <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Alerts & Warnings</h3>
             <ComingSoonState title="Server Alerts" description="Coming soon" icon="bell" />
           </div>
 
@@ -259,7 +281,7 @@ export function ServerDetailPage() {
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
             <button
               onClick={() => setInfoExpanded(!infoExpanded)}
-              className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+              className="w-full flex items-center justify-between p-3.5 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
             >
               <span className="font-semibold text-gray-900 dark:text-gray-100">Server Info & Configuration</span>
               <Icon name={infoExpanded ? "chevron-up" : "chevron-down"} size={16} />
@@ -342,46 +364,56 @@ export function ServerDetailPage() {
         </div>
 
         {/* Right Side Column */}
-        <div className="flex flex-col gap-4">
-          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex flex-col gap-3">
+          <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Address</h3>
             <div className="flex items-center justify-between">
-              <span className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate pr-2">{address}</span>
+              <span className="text-base font-bold text-gray-900 dark:text-gray-100 truncate pr-2">{address}</span>
               {address !== "—" && (
                 <button
                   onClick={() => copy(address, "Address copied to clipboard")}
-                  className="shrink-0 p-1.5 rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  className="shrink-0 p-1 rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                   title="Copy address"
                 >
-                  <Icon name="copy" size={16} />
+                  <Icon name="copy" size={14} />
                 </button>
               )}
             </div>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Uptime</h3>
-            <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+            <p className="text-base font-bold text-gray-900 dark:text-gray-100">
               {runtime?.uptime_seconds ? formatUptime(runtime.uptime_seconds) : "—"}
             </p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">CPU Usage</h3>
-            <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+            <p className="text-base font-bold text-gray-900 dark:text-gray-100">
               {currentMetric ? `${currentMetric.cpu_percent.toFixed(1)}%` : "—"}
             </p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">RAM Usage</h3>
-            <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-              {currentMetric ? `${(currentMetric.ram_used_mb / 1024).toFixed(1)} GB` : "—"}
+            <p className="text-base font-bold text-gray-900 dark:text-gray-100">
+              {currentMetric
+                ? ramPercent !== null
+                  ? `${(currentMetric.ram_used_mb / 1024).toFixed(1)} GB (${ramPercent.toFixed(1)}%)`
+                  : `${(currentMetric.ram_used_mb / 1024).toFixed(1)} GB`
+                : "—"}
             </p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 min-h-[100px] flex items-center justify-center">
-            <ComingSoonState title="Storage Usage" description="Coming soon" icon="database" />
+          <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Storage Usage</h3>
+              <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500">Coming Soon</span>
+            </div>
+            <p className="text-base font-bold text-gray-400 dark:text-gray-500">
+              —
+            </p>
           </div>
         </div>
       </div>

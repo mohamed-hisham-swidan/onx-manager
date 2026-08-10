@@ -54,7 +54,7 @@ export function ServerConsole({ serverId }: ServerConsoleProps) {
   return (
     <div>
       <div className="bg-gray-950 text-green-400 font-mono text-xs rounded-xl border border-gray-700 overflow-hidden mb-3">
-        <div ref={containerRef} className="h-64 overflow-y-auto p-3 space-y-0.5">
+        <div ref={containerRef} className="h-[420px] overflow-y-auto p-3 space-y-0.5">
           {allLines.length === 0 ? (
             <p className="text-gray-500">No console output yet.</p>
           ) : (

@@ -219,7 +219,23 @@ async def created_server(client: AsyncClient, privileged_header: dict[str, str])
     }
     resp = await client.post("/api/v1/servers", json=payload, headers=privileged_header)
     assert resp.status_code == 201
-    return resp.json()
+    data = resp.json()
+
+    import os
+    from app.core.persistence.db import database
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+    from app.modules.shared.value_objects import ServerId
+
+    server_id = data["server_id"]
+    async with database.session_factory() as session:
+        server = await SQLServerRepository(session).get(ServerId(server_id))
+        if server and server.deployment and server.deployment.root_path:
+            server_dir = server.deployment.root_path
+            os.makedirs(server_dir, exist_ok=True)
+            with open(os.path.join(server_dir, "server.jar"), "wb") as f:
+                f.write(b"PK\x03\x04fake-jar")
+
+    return data
 
 
 class TestHealth:
