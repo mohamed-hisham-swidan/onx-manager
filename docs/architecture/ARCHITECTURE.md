@@ -304,7 +304,7 @@ Scheduler                 ← instantiated, given queue, started
 
 ### What breaks if this wiring is removed
 
-- No cron jobs fire (including `metrics_collect_every_1s` and
+- No cron jobs fire (including `metrics_collect_every_0.5s` and
   `integrity_scan_hourly`)
 - `run_metrics_collection_task` is never called → no rows in `metric_points`
 - The Prometheus metrics registry (`/monitor/metrics`) never updates

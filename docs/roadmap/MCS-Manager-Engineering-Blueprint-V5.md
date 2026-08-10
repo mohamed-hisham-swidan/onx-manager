@@ -1149,7 +1149,7 @@ Minecraft server (ADR-0011).
 - Wired **only** in `main.py` lifespan: queue → registered handlers → `init_task_queue` →
   `reclaim_pending()` (reclaims tasks orphaned by restart) → `mark_stale_running_failed()` →
   `MetricsCollector` → `scheduler.start()` → idempotent cron registration
-  (`metrics_collect_every_1s`).
+  (`metrics_collect_every_0.5s`).
 - **Vulnerability:** this wiring is the only place these systems are created. Removing it silently
   kills metrics and scheduling (ADR-0006 post-hoc finding). Phase 6 must make this resilient.
 

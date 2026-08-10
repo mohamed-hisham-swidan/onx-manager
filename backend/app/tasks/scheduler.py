@@ -117,7 +117,15 @@ class Scheduler:
             return
 
         params = json.loads(model.params_json) if model.params_json else {}
-        trigger_args = self._parse_cron(model.cron_expression)
+        
+        if model.cron_expression.startswith("interval:"):
+            secs_str = model.cron_expression.split(":")[1].rstrip("s")
+            secs = float(secs_str)
+            trigger_type = "interval"
+            trigger_kwargs = {"seconds": secs}
+        else:
+            trigger_type = "cron"
+            trigger_kwargs = self._parse_cron(model.cron_expression)
 
         async def run_job() -> None:
             if self._task_queue:
@@ -131,8 +139,8 @@ class Scheduler:
 
         self._aps.add_job(
             run_job,
-            trigger="cron",
+            trigger=trigger_type,
             id=model.id,
             replace_existing=True,
-            **trigger_args,
+            **trigger_kwargs,
         )
