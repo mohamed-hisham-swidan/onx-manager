@@ -180,3 +180,10 @@ export interface RuntimeDiagnosticsResponse {
   owner_conflicts: Record<string, unknown>[];
   validation_chain: string[];
 }
+
+export interface FileItem {
+  name: string;
+  is_dir: boolean;
+  size: number;
+  path: string;
+}

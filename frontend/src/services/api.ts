@@ -74,6 +74,8 @@ interface RequestConfig {
   body?: unknown;
   params?: Record<string, string | undefined>;
   cache?: RequestCache;
+  responseType?: "json" | "blob" | "text";
+  headers?: Record<string, string>;
 }
 
 function buildUrl(base: string, path: string, params?: Record<string, string | undefined>): string {
@@ -112,8 +114,11 @@ export function createApiClient(
   async function request<T>(path: string, config: RequestConfig = {}): Promise<T> {
     const token = getToken();
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
+      ...config.headers,
     };
+    if (!headers["Content-Type"] && !(config.body instanceof FormData)) {
+      headers["Content-Type"] = "application/json";
+    }
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
     const url = buildUrl(baseUrl, path, config.params);
@@ -123,7 +128,7 @@ export function createApiClient(
       response = await fetch(url, {
         method: config.method ?? "GET",
         headers,
-        body: config.body ? JSON.stringify(config.body) : undefined,
+        body: config.body instanceof FormData ? config.body : (typeof config.body === "string" ? config.body : (config.body ? JSON.stringify(config.body) : undefined)),
         cache: config.cache ?? "no-store",
       });
     } catch {
@@ -140,7 +145,7 @@ export function createApiClient(
             response = await fetch(url, {
               method: config.method ?? "GET",
               headers,
-              body: config.body ? JSON.stringify(config.body) : undefined,
+              body: config.body instanceof FormData ? config.body : (typeof config.body === "string" ? config.body : (config.body ? JSON.stringify(config.body) : undefined)),
               cache: config.cache ?? "no-store",
             });
           } catch {
@@ -156,7 +161,13 @@ export function createApiClient(
 
     let data: unknown;
     try {
-      data = await response.json();
+      if (config.responseType === "blob") {
+        data = await response.blob();
+      } else if (config.responseType === "text") {
+        data = await response.text();
+      } else {
+        data = await response.json();
+      }
     } catch {
       if (!response.ok) {
         throw new ApiError(response.status, "UNKNOWN", `Request failed with status ${response.status}`);
@@ -323,6 +334,25 @@ export function createApiClient(
       request<SettingsResponse>("/api/v1/settings"),
     updateSettings: (body: SettingsUpdateRequest) =>
       request<SettingsUpdateResponse>("/api/v1/settings", { method: "PATCH", body }),
+
+    // Files
+    listServerFiles: (serverId: string, path?: string) =>
+      request<import("@/server_manager/types").FileItem[]>(`/api/v1/servers/${serverId}/files/`, { params: { path } }),
+    readServerFileContent: (serverId: string, path: string) =>
+      request<string>(`/api/v1/servers/${serverId}/files/content`, { params: { path }, responseType: "text" }),
+    writeServerFileContent: (serverId: string, path: string, content: string) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/content`, { method: "POST", params: { path }, body: { content } }),
+    deleteServerFile: (serverId: string, path: string) =>
+      request<void>(`/api/v1/servers/${serverId}/files/`, { method: "DELETE", params: { path } }),
+    uploadServerFile: (serverId: string, path: string, file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/upload`, { method: "POST", params: { path }, body: formData });
+    },
+    downloadServerFile: (serverId: string, path: string) =>
+      request<Blob>(`/api/v1/servers/${serverId}/files/download`, { params: { path }, responseType: "blob" }),
+    mkdirServerDirectory: (serverId: string, path: string, folderName: string) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/mkdir`, { method: "POST", params: { path }, body: { folder_name: folderName } }),
   };
 }
 

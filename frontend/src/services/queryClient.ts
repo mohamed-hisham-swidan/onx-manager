@@ -53,4 +53,9 @@ export const queryKeys = {
   settings: {
     all: ["settings"] as const,
   },
+  files: {
+    all: ["files"] as const,
+    list: (serverId: string, path: string) => ["files", "list", serverId, path] as const,
+    content: (serverId: string, path: string) => ["files", "content", serverId, path] as const,
+  },
 };
