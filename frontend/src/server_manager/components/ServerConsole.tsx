@@ -13,7 +13,7 @@ interface ServerConsoleProps {
 
 export function ServerConsole({ serverId }: ServerConsoleProps) {
   const api = useApi();
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
 
@@ -27,11 +27,19 @@ export function ServerConsole({ serverId }: ServerConsoleProps) {
     mutationFn: (command: string) => api.sendServerCommand(serverId, { command }),
     onSuccess: (_data, command) => {
       setCommandHistory((prev) => [...prev, `> ${command}`]);
+      if (containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      }
     },
   });
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = containerRef.current;
+    if (!container) return;
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 60;
+    if (isNearBottom) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [history, commandHistory]);
 
   const handleSend = (e: React.FormEvent) => {
@@ -46,7 +54,7 @@ export function ServerConsole({ serverId }: ServerConsoleProps) {
   return (
     <div>
       <div className="bg-gray-950 text-green-400 font-mono text-xs rounded-xl border border-gray-700 overflow-hidden mb-3">
-        <div className="h-64 overflow-y-auto p-3 space-y-0.5">
+        <div ref={containerRef} className="h-64 overflow-y-auto p-3 space-y-0.5">
           {allLines.length === 0 ? (
             <p className="text-gray-500">No console output yet.</p>
           ) : (
@@ -56,7 +64,6 @@ export function ServerConsole({ serverId }: ServerConsoleProps) {
               </div>
             ))
           )}
-          <div ref={bottomRef} />
         </div>
       </div>
       <form onSubmit={handleSend} className="flex gap-2">
