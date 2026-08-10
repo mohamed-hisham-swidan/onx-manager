@@ -17,6 +17,7 @@ from app.api.v1.middleware.request_id import RequestIDMiddleware
 from app.api.v1.routers import (
     auth,
     backups,
+    files,
     health,
     marketplace,
     monitoring,
@@ -261,6 +262,7 @@ def create_app() -> FastAPI:
     app.include_router(servers.router)
     app.include_router(backups.router)
     app.include_router(plugins.router)
+    app.include_router(files.router)
     app.include_router(marketplace.router)
     app.include_router(auth.router)
     app.include_router(users.router)

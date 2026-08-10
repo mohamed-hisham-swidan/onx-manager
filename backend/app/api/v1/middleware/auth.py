@@ -39,10 +39,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         if request.method in ("POST", "PUT", "PATCH") and path not in self._public_routes:
             ct = request.headers.get("content-type", "")
-            if ct and "application/json" not in ct:
+            if ct and "application/json" not in ct and "multipart/form-data" not in ct:
                 return JSONResponse(
                     status_code=415,
-                    content={"error": "Content-Type must be application/json", "error_code": "VALIDATION_ERROR"},
+                    content={"error": "Content-Type must be application/json or multipart/form-data", "error_code": "VALIDATION_ERROR"},
                 )
 
         auth_header = request.headers.get("Authorization", "")
