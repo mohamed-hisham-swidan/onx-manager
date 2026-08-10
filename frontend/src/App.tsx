@@ -52,6 +52,7 @@ export default function App() {
               <Route path="console" element={<ServerDetailPage />} />
               <Route path="files" element={<ServerFilesPage />} />
               <Route path="mods" element={<ServerModsPage />} />
+              <Route path="plugins" element={<PluginListPage />} />
             </Route>
             <Route element={<AppShell />}>
               <Route path="*" element={<NotFoundPage />} />

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PluginListPage } from "./PluginListPage";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
@@ -210,5 +210,25 @@ describe("PluginListPage", () => {
     renderPage();
     expect(screen.getByLabelText("Choose a server")).toHaveValue("srv-1");
     expect(screen.getByText("Essentials")).toBeInTheDocument();
+  });
+
+  it("hides server select dropdown when route serverId is present", () => {
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/servers/srv-1/plugins"]}>
+          <Routes>
+            <Route path="/servers/:serverId/plugins" element={<PluginListPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByLabelText("Choose a server")).not.toBeInTheDocument();
+    expect(screen.getByText("Essentials")).toBeInTheDocument();
+  });
+
+  it("shows server select dropdown when route serverId is absent", () => {
+    renderPage();
+    expect(screen.getByLabelText("Choose a server")).toBeInTheDocument();
   });
 });

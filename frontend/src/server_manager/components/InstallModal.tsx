@@ -16,16 +16,18 @@ import type {
   PluginVersionsResponse,
 } from "@/types";
 
+import { getServerCapabilities } from "@/server_manager/utils/serverCapabilities";
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
 }
 
 function isServerCompatibleWithType(server: ServerResponse, projectType: string): boolean {
-  const st = server.server_type.toLowerCase();
+  const caps = getServerCapabilities(server.server_type);
   if (projectType === "mod") {
-    return ["fabric", "forge", "quilt", "neoforge"].includes(st);
+    return caps.supportsMods;
   }
-  return !["fabric", "forge", "quilt", "neoforge", "vanilla"].includes(st);
+  return caps.supportsPlugins;
 }
 
 export interface InstallModalProps {

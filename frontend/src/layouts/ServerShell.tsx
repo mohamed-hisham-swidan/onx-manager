@@ -6,6 +6,8 @@ import { Toaster } from "@/components/ui/Toaster";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Icon } from "@/components/ui/Icon";
 import { useUIStore } from "@/stores/uiStore";
+import { useServerDetail } from "@/server_manager/hooks/useServers";
+import { getServerCapabilities } from "@/server_manager/utils/serverCapabilities";
 
 export function ServerShell() {
   const { serverId } = useParams<{ serverId: string }>();
@@ -13,6 +15,9 @@ export function ServerShell() {
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
   const location = useLocation();
+
+  const { data: server } = useServerDetail(serverId!);
+  const { supportsMods, supportsPlugins } = getServerCapabilities(server?.server_type);
 
   useEffect(() => {
     setMobileSidebarOpen(false);
@@ -25,7 +30,8 @@ export function ServerShell() {
   const navItems = [
     { to: `/servers/${serverId}/console`, label: "Console", icon: "dashboard" as const },
     { to: `/servers/${serverId}/files`, label: "Files", icon: "folder" as const },
-    { to: `/servers/${serverId}/mods`, label: "Mods", icon: "plugin" as const },
+    ...(supportsMods ? [{ to: `/servers/${serverId}/mods`, label: "Mods", icon: "plugin" as const }] : []),
+    ...(supportsPlugins ? [{ to: `/servers/${serverId}/plugins`, label: "Plugins", icon: "plugin" as const }] : []),
   ];
 
   return (

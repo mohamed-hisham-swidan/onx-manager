@@ -1,9 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ServerShell } from "./ServerShell";
+import { useServerDetail } from "@/server_manager/hooks/useServers";
 
 // Mock WebSocket hooks used in ServerDetailPage
 vi.mock("@/hooks/useWebSocket", () => ({
@@ -15,7 +16,7 @@ vi.mock("@/hooks/useWebSocket", () => ({
 const mockServer = {
   server_id: "srv-123",
   name: "Test Server",
-  server_type: "vanilla",
+  server_type: "fabric",
   minecraft_version: "1.20.4",
   status: "running",
   group_id: "default",
@@ -82,6 +83,7 @@ function renderServerShell(initialPath = "/servers/srv-123/console") {
             <Route path="console" element={<div data-testid="console-page">Console Content</div>} />
             <Route path="files" element={<div data-testid="files-page">Files Content</div>} />
             <Route path="mods" element={<div data-testid="mods-page">Mods Content</div>} />
+            <Route path="plugins" element={<div data-testid="plugins-page">Plugins Content</div>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -90,7 +92,15 @@ function renderServerShell(initialPath = "/servers/srv-123/console") {
 }
 
 describe("ServerShell", () => {
-  it("renders top bar, contextual server sidebar, and active route content", () => {
+  beforeEach(() => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, server_type: "fabric" },
+      isLoading: false,
+      error: null,
+    } as any);
+  });
+
+  it("renders top bar, contextual server sidebar with Mods for fabric server", () => {
     renderServerShell("/servers/srv-123/console");
 
     expect(screen.getByText("MC Server Manager")).toBeInTheDocument();
@@ -100,8 +110,61 @@ describe("ServerShell", () => {
     expect(screen.getByRole("link", { name: "Console" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Files" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Mods" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Plugins" })).not.toBeInTheDocument();
 
     expect(screen.getByTestId("console-page")).toBeInTheDocument();
+  });
+
+  it("renders Plugins link (and not Mods) for paper server", () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, server_type: "paper" },
+      isLoading: false,
+      error: null,
+    } as any);
+
+    renderServerShell("/servers/srv-123/console");
+
+    expect(screen.getByRole("link", { name: "Plugins" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Mods" })).not.toBeInTheDocument();
+  });
+
+  it("renders both Mods and Plugins links for hybrid (mohist) server", () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, server_type: "mohist" },
+      isLoading: false,
+      error: null,
+    } as any);
+
+    renderServerShell("/servers/srv-123/console");
+
+    expect(screen.getByRole("link", { name: "Mods" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Plugins" })).toBeInTheDocument();
+  });
+
+  it("renders neither Mods nor Plugins for vanilla server", () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, server_type: "vanilla" },
+      isLoading: false,
+      error: null,
+    } as any);
+
+    renderServerShell("/servers/srv-123/console");
+
+    expect(screen.queryByRole("link", { name: "Mods" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Plugins" })).not.toBeInTheDocument();
+  });
+
+  it("defaults to rendering both Mods and Plugins for unknown server type", () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, server_type: "custom_loader" },
+      isLoading: false,
+      error: null,
+    } as any);
+
+    renderServerShell("/servers/srv-123/console");
+
+    expect(screen.getByRole("link", { name: "Mods" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Plugins" })).toBeInTheDocument();
   });
 
   it("navigates to Files when clicking Files link", async () => {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import { usePluginsList, useEnablePlugin, useDisablePlugin, useUninstallPlugin } from "@/server_manager/hooks/usePlugins";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -40,6 +40,7 @@ function SourceBadge({ plugin }: { plugin: PluginResponse }) {
 }
 
 export function PluginListPage() {
+  const { serverId: routeServerId } = useParams<{ serverId: string }>();
   const navigate = useNavigate();
   const { data: servers } = useServersList();
   const lastUsedServerId = useLastUsedServerStore((s) => s.lastUsedServerId);
@@ -47,11 +48,13 @@ export function PluginListPage() {
   const [selectedServerId, setSelectedServerId] = useState("");
   const [uninstallTarget, setUninstallTarget] = useState<PluginResponse | null>(null);
 
-  const effectiveServerId = touched
-    ? selectedServerId
-    : lastUsedServerId && servers?.some((s) => s.server_id === lastUsedServerId)
-      ? lastUsedServerId
-      : selectedServerId;
+  const effectiveServerId = routeServerId
+    ? routeServerId
+    : touched
+      ? selectedServerId
+      : lastUsedServerId && servers?.some((s) => s.server_id === lastUsedServerId)
+        ? lastUsedServerId
+        : selectedServerId;
 
   const { data: plugins, isLoading, error } = usePluginsList(effectiveServerId);
   const enablePlugin = useEnablePlugin(effectiveServerId);
@@ -95,24 +98,26 @@ export function PluginListPage() {
         }
       />
 
-      <div className="mb-4 max-w-xs">
-        <label className="sr-only" htmlFor="plugin-server-select">
-          Choose a server
-        </label>
-        <select
-          id="plugin-server-select"
-          value={effectiveServerId}
-          onChange={handleServerChange}
-          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
-        >
-          <option value="">Select a server...</option>
-          {servers?.map((s) => (
-            <option key={s.server_id} value={s.server_id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {!routeServerId && (
+        <div className="mb-4 max-w-xs">
+          <label className="sr-only" htmlFor="plugin-server-select">
+            Choose a server
+          </label>
+          <select
+            id="plugin-server-select"
+            value={effectiveServerId}
+            onChange={handleServerChange}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+          >
+            <option value="">Select a server...</option>
+            {servers?.map((s) => (
+              <option key={s.server_id} value={s.server_id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {!effectiveServerId ? (
         <EmptyState
