@@ -162,6 +162,7 @@ describe("ServerDetailPage", () => {
     expect(screen.getByText("25565")).toBeInTheDocument();
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Network")).toBeInTheDocument();
+    expect(screen.getByText("Zone ID")).toBeInTheDocument();
   });
 
   it("renders a cleaned MOTD", async () => {

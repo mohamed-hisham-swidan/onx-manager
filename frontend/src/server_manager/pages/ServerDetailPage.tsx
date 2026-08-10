@@ -317,6 +317,12 @@ export function ServerDetailPage() {
                         {server.deployment_host ? `${server.deployment_host}:${server.deployment_port ?? "—"}` : "—"}
                       </DetailRow>
                       <DetailRow label="PID">{server.deployment_pid ?? "—"}</DetailRow>
+                      <DetailRow label="Zone ID">
+                        <span className="inline-flex items-center gap-1 font-mono text-xs text-gray-400 dark:text-gray-500">
+                          <Icon name="info" size={12} />
+                          Coming Soon
+                        </span>
+                      </DetailRow>
                       <DetailRow label="Root Path">
                         <span className="block max-w-xs truncate font-mono text-xs" title={server.root_path ?? undefined}>
                           {server.root_path ?? "—"}
