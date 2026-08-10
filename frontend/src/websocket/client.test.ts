@@ -60,6 +60,25 @@ describe("WSClient", () => {
     expect(client.state).toBe(ConnectionState.DISCONNECTED);
   });
 
+  it("supports dynamic token getter function on connect and reconnect", () => {
+    vi.useFakeTimers();
+    let currentToken = "initial-token";
+    const client = new WSClient({
+      url: "ws://test",
+      token: () => currentToken,
+      autoReconnect: true,
+      baseDelay: 50,
+    });
+    client.connect();
+    expect(WebSocket).toHaveBeenLastCalledWith("ws://test?token=initial-token");
+
+    currentToken = "updated-token";
+    mockWs.trigger("close");
+    vi.advanceTimersByTime(50);
+    expect(WebSocket).toHaveBeenLastCalledWith("ws://test?token=updated-token");
+    vi.useRealTimers();
+  });
+
   it("connects and sets state to connected", () => {
     const client = new WSClient({ url: "ws://test", token: "test-token" });
     const stateSpy = vi.fn();

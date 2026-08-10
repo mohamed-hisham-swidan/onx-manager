@@ -68,15 +68,28 @@ export class WSClient {
     return this._state === CS.CONNECTED;
   }
 
+  private _getToken(): string | null {
+    if (typeof this._config.token === "function") {
+      return this._config.token();
+    }
+    return this._config.token;
+  }
+
   connect(): void {
     if (this._destroyed) return;
     if (this._ws && (this._ws.readyState === WebSocket.OPEN || this._ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
+    const token = this._getToken();
+    if (!token) {
+      this._setState(CS.DISCONNECTED);
+      return;
+    }
+
     this._setState(CS.CONNECTING);
 
-    const url = `${this._config.url}?token=${encodeURIComponent(this._config.token)}`;
+    const url = `${this._config.url}?token=${encodeURIComponent(token)}`;
     this._ws = new WebSocket(url);
     this._ws.binaryType = "arraybuffer";
 
@@ -159,7 +172,9 @@ export class WSClient {
   }
 
   refreshToken(token: string, sub: string): void {
-    this._config.token = token;
+    if (typeof this._config.token !== "function") {
+      this._config.token = token;
+    }
     this.send({ type: "refresh_token", token, sub });
     // New credentials give previously-rejected channels a fresh chance:
     // reset their retry counts and re-request each subscription.

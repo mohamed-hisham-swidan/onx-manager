@@ -53,7 +53,7 @@ export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoCon
     handlerRef.current = handler;
 
     const client = new WSClient(
-      { url, token: accessToken, autoReconnect: true },
+      { url, token: () => useAuthStore.getState().accessToken ?? accessToken, autoReconnect: true },
       {
         onStateChange: (state) => {
           setConnectionState(state);

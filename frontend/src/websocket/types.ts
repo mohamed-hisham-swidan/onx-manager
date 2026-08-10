@@ -102,7 +102,7 @@ export enum ConnectionState {
 
 export interface WSConnectionConfig {
   url: string;
-  token: string;
+  token: string | (() => string | null);
   autoReconnect?: boolean;
   maxRetries?: number;
   baseDelay?: number;
