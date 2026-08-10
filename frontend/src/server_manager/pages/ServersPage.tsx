@@ -253,7 +253,7 @@ export function ServersPage() {
                     >
                       <td className="max-w-0 px-4 py-3">
                         <Link
-                          to={`/servers/${s.server_id}`}
+                          to={`/servers/${s.server_id}/console`}
                           title={s.name}
                           className="block truncate font-medium text-blue-600 hover:underline dark:text-blue-400"
                         >

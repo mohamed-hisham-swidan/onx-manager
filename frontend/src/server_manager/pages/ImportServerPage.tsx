@@ -208,7 +208,7 @@ export function ImportServerPage() {
           </p>
           <div className="flex justify-center space-x-3">
             <button
-              onClick={() => navigate(`/servers/${createdId}`)}
+              onClick={() => navigate(`/servers/${createdId}/console`)}
               className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
             >
               Go to Server

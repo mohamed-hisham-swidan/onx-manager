@@ -27,6 +27,7 @@ export type IconName =
   | "external"
   | "x"
   | "filter"
+  | "folder"
   | "modrinth"
   | "curseforge";
 
@@ -37,6 +38,9 @@ interface IconProps {
 }
 
 const PATHS: Record<IconName, JSX.Element> = {
+  folder: (
+    <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 8 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
+  ),
   dashboard: (
     <>
       <rect x="3" y="3" width="7" height="7" rx="1.5" />

@@ -1,9 +1,10 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { queryClient } from "@/services/queryClient";
 import { AuthGuard } from "@/components/guards/AuthGuard";
 import { AppShell } from "@/layouts/AppShell";
+import { ServerShell } from "@/layouts/ServerShell";
 import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
@@ -12,6 +13,8 @@ import { ServersPage } from "@/server_manager/pages/ServersPage";
 import { CreateServerPage } from "@/server_manager/pages/CreateServerPage";
 import { ImportServerPage } from "@/server_manager/pages/ImportServerPage";
 import { ServerDetailPage } from "@/server_manager/pages/ServerDetailPage";
+import { ServerFilesPage } from "@/server_manager/pages/ServerFilesPage";
+import { ServerModsPage } from "@/server_manager/pages/ServerModsPage";
 import { BackupListPage } from "@/server_manager/pages/BackupListPage";
 import { PluginListPage } from "@/server_manager/pages/PluginListPage";
 import { PluginMarketplacePage } from "@/server_manager/pages/PluginMarketplacePage";
@@ -35,7 +38,6 @@ export default function App() {
               <Route path="servers" element={<ServersPage />} />
               <Route path="servers/create" element={<CreateServerPage />} />
               <Route path="servers/import" element={<ImportServerPage />} />
-              <Route path="servers/:serverId" element={<ServerDetailPage />} />
               <Route path="backups" element={<BackupListPage />} />
               <Route path="plugins" element={<PluginListPage />} />
               <Route path="plugins/marketplace" element={<PluginMarketplacePage />} />
@@ -44,6 +46,14 @@ export default function App() {
               <Route path="marketplace/:projectId" element={<PluginDetailPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="settings/api-keys" element={<ApiKeysPage />} />
+            </Route>
+            <Route path="servers/:serverId" element={<ServerShell />}>
+              <Route index element={<Navigate to="console" replace />} />
+              <Route path="console" element={<ServerDetailPage />} />
+              <Route path="files" element={<ServerFilesPage />} />
+              <Route path="mods" element={<ServerModsPage />} />
+            </Route>
+            <Route element={<AppShell />}>
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Route>

@@ -79,7 +79,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
 
             <div className="min-w-0 flex-1">
               <Link
-                to={`/servers/${server.server_id}`}
+                to={`/servers/${server.server_id}/console`}
                 className="block truncate text-sm font-medium text-gray-900 hover:underline dark:text-gray-100"
               >
                 {server.name}
