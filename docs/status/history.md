@@ -459,9 +459,17 @@ server_manger/
 | `2437590` | Phase 3 | Settings persistence (backend): file-backed `config/settings.yaml`, live `settings_store.py`, consumer hot-reload across 6 services, `requires_restart` response array. 1115/1115 tests passing. |
 | `789dcbd` | Phase 3 | Settings persistence (frontend): removed read-only banner, wired real `PATCH` mutation, added restart badges, 4 card sections redesign, full accessibility, 332/332 tests passing. |
 
-*Generated: 2026-08-09 · Project: MCS Manager v4.0 (4.0.0) · Phase 3 Closed*
+---
 
-> **2026-08-09 reconciliation:** this document is the historical narrative.
+### Phase 4 — Authorization & Security Cleanup — Closed (2026-08-11)
+
+| Commit | Step | What changed |
+|--------|------|-------------|
+| `a47daa8` | Phase 4 | Server-scoped authorization layer (ServerModel.owner_id + ServerMembershipModel), require_server_permission dependency with path/query/body defense-in-depth conflict checking, full Files API wiring, gating of 5 remaining mutating routes, monitoring alerts IDOR fix (/alerts/{server_id}), permissions.yaml contract and frontend client updates. 1158/1158 tests passing. |
+
+*Generated: 2026-08-11 · Project: MCS Manager v4.0 (4.0.0) · Phase 4 Closed*
+
+> **2026-08-11 reconciliation:** this document is the historical narrative.
 > Verified current facts (version `4.0.0`, test counts, DB state, router /
 > migration / ADR / contract counts, known issues) live in
 > [`docs/current-state.md`](../current-state.md). The governing roadmap is

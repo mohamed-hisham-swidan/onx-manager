@@ -1,12 +1,12 @@
 # MCS Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-08-09. Every claim below was verified against source code, the database,
+2026-08-11. Every claim below was verified against source code, the database,
 and a live test run. This document supersedes the stale counts and claims in
 `docs/status/history.md` (the historical narrative) and is the baseline that the
 Blueprint V5 governing plan is built on.
 
-**Last verified:** 2026-08-09
+**Last verified:** 2026-08-11
 **App version (code):** `4.0.0` (`backend/app/main.py:216`, `backend/pyproject.toml:3`)
 
 > Note on version numbers: the application reports `4.0.0` everywhere in code
@@ -24,7 +24,7 @@ Blueprint V5 governing plan is built on.
 | Backend test files | 91 | `find backend/tests -name "test_*.py"` |
 | Frontend test files | 50 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 11 | `auth, backups, files, health, monitoring, plugins, schedules, servers, settings, software, users` |
-| Alembic migration revisions | 16 | `backend/alembic/versions/` |
+| Alembic migration revisions | 17 | `backend/alembic/versions/` (includes `5e2962848581`) |
 | Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 9 | `auth, backup, event_store, health, monitoring, plugin, server, shared, storage` |
@@ -38,8 +38,8 @@ Blueprint V5 governing plan is built on.
 
 | Metric | Value |
 |--------|-------|
-| Collected | **1144** |
-| Passed | **1144** |
+| Collected | **1158** |
+| Passed | **1158** |
 | Failed | **0** (100% pass rate across backend test suite) |
 
 ### Frontend — `frontend/` `npx vitest run`
@@ -90,21 +90,14 @@ At head (`c4d5e6f7a8b9`).
 - Filesystem reconciliation service (`FilesystemReconciliationService`) — disk
   is the source of truth; runs at startup and via `POST /servers/refresh`.
 
-### 4.2 Auth & authorization (implemented, partially enforced)
+### 4.2 Auth & authorization (implemented & Phase 4 enforced)
 
 - JWT RS256 (15-min access tokens), refresh-token rotation (7-day opaque
   tokens, SHA-256 hash in DB), API keys (`mcs_` prefix, SHA-256 hashed),
   Argon2id password hashing.
-- `require_permission(...)` dependency enforced on **24 routes** per
-  `contracts/permissions.yaml` (v1.4, verified against code 2026-08-04): 22
-  mutating (servers 12, backups 4, plugins delete + marketplace install, users
-  2, auth/api-keys 2) + 2 read-only marketplace routes (search, versions).
-  Permission catalog: 17 `resource:action` strings; roles `viewer`,
-  `operator`, `admin`.
-- **Known gap:** most read routes and several mutating routes remain auth-only
-  without a permission check (see `contracts/permissions.yaml`
-  `route_permissions` for the full per-route matrix: 13 mutating routes
-  unprotected, 21 sensitive GETs auth-only). Full detail in `architecture/SECURITY.md`.
+- Global permission enforcement via `require_permission(...)` and live server-scoped RBAC authorization via `require_server_permission(...)` (commit `a47daa8`).
+- Server membership & ownership model: `ServerModel.owner_id` (implicit full server access) and `ServerMembershipModel` (`server_memberships` table for `admin`, `dev`, `viewer` roles).
+- Protected surfaces: Files API (all 7 endpoints gated, with viewer role allowed file download access), Health API (`POST /health/evaluate/{server_id}` gated), Schedules API (`POST`/`DELETE` gated), and Monitoring Alerts (`POST /alerts/{server_id}` refactored to path-based `server_id` to eliminate IDOR / parameter-pollution vulnerability). Defense-in-depth in `require_server_permission` returns HTTP 400 if conflicting `server_id` values appear across path/query/body.
 
 ### 4.3 WebSocket (fully functional & wired — Phase 3 closed)
 
@@ -184,10 +177,10 @@ Classification used by `Blueprint V5`:
 | K1 | ~~WS channel authorization always denies~~ **Resolved 2026-08-08 (commit `b98da77`, `d096f75`)** — singular permission strings + `admin:full` bypass | ~~High~~ | ~~Bug~~ |
 | K2 | ~~`EventDispatcher`/`MetricsBatcher` never wired~~ **Resolved 2026-08-08 (commit `db1889d`)** — `MetricsBridgeHandler` flushes samples over WS every 2s | ~~High~~ | ~~Bug~~ |
 | K3 | ~~`PATCH /settings` stub~~ **Resolved 2026-08-09 (commit `2437590`, `789dcbd`)** — file-backed persistence + consumer hot-reload + frontend redesign | ~~Medium~~ | ~~Bug~~ |
-| K4 | Plugin enable/disable routes use only `get_current_user` (no `require_permission`) | Medium | Bug (Phase 4) |
+| K4 | ~~Plugin enable/disable routes use only get_current_user~~ **Resolved 2026-08-11 (commit `a47daa8`)** — Phase 4 authorization gating | ~~Medium~~ | ~~Bug (Phase 4)~~ |
 | K5 | ~~Marketplace is not a first-class frontend section~~ **Resolved 2026-08-06 (commit `1c12e0c`)** — own `/marketplace` route + sidebar entry + global search + install-time server picker | ~~Medium~~ | ~~Feature~~ |
 | K6 | No backend CI workflow (only `frontend-ci.yml`); the permissions route-coverage matrix is not CI-enforced | High | Process (Phase 4) |
-| K7 | 13 mutating routes + 21 sensitive GET routes lack permission enforcement (per `contracts/permissions.yaml`) | High | Bug (Phase 4) |
+| K7 | ~~13 mutating routes + 21 sensitive GET routes lack permission enforcement~~ **Resolved 2026-08-11 (commit `a47daa8`)** — Protected remaining mutating routes & Files API with server-scoped RBAC | ~~High~~ | ~~Bug (Phase 4)~~ |
 | K8 | ~~`test_start_server` + `test_metrics_task_requires_collector` fail in the suite~~ **Resolved 2026-08-08** — 100% backend pass rate (1144/1144 passed) | ~~Low~~ | ~~Test debt~~ |
 | K9 | Production DB 3 revisions behind head; no servers | Medium | Ops |
 | K10 | `GET /metrics` public/unauthenticated (documented deferred decision) | Medium | Security (Phase 7) |
@@ -197,7 +190,7 @@ Classification used by `Blueprint V5`:
 | K14 | Backup `save-all` completion regex unverified against a real Purpur server | Low | Verify |
 | K15 | Repo-root `data/` directory (gitignored, unused, awaiting cleanup decision) | Low | Housekeeping |
 | K16 | Provider selection config-driven via `MCS_PLUGIN_PROVIDERS`, validated at startup (K16A done 2026-08-05). Remaining: inspect configured list via API, add a second provider. | Low | Architecture debt (Phase 1) |
-| — | **Files API IDOR Gap:** `GET /files`, `GET /files/content`, `GET /files/download` endpoints check login (`get_current_user`) but lack per-server permission enforcement | High | Security (Phase 4) |
+| — | ~~**Files API IDOR Gap:** `GET /files`, `GET /files/content`, `GET /files/download` endpoints check login (`get_current_user`) but lack per-server permission enforcement~~ **Resolved 2026-08-11 (commit `a47daa8`)** — `require_server_permission` enforced on all 7 endpoints | ~~High~~ | ~~Security (Phase 4)~~ |
 | — | Backend `settings.py` router hardcodes `"version": "4.0.0"` instead of reading from live settings / AppSettings | Low | Known non-blocking |
 | — | ServerMetricsCharts 5s REST refetchInterval vs 60s backend collection cadence | Low | Known edge case |
 | — | Non-running server writes zero metrics rows → chart renders empty state without explanatory UI message | Low | Known edge case |
