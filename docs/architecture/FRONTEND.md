@@ -30,7 +30,8 @@ frontend/src/
 │   │   ├── Sidebar.tsx          # Navigation drawer
 │   │   └── TopNav.tsx           # Top bar (theme toggle, auth)
 │   ├── guards/
-│   │   └── AuthGuard.tsx        # Route protection → /login
+│   │   ├── AuthGuard.tsx          # Route protection → /login
+│   │   └── SystemStatusGuard.tsx  # Redirects uninitialized instances → /setup, blocks guest routes
 │   ├── EmptyState.tsx           # Empty state placeholder
 │   ├── ErrorBoundary.tsx        # Error boundary with retry
 │   ├── Skeleton.tsx             # Loading skeletons + table skeleton
@@ -45,14 +46,19 @@ frontend/src/
 │       ├── CreateServerPage.tsx
 │       ├── ImportServerPage.tsx
 │       ├── ServerDetailPage.tsx
+│       ├── ServerFilesPage.tsx
+│       ├── ServerModsPage.tsx
 │       ├── BackupListPage.tsx
 │       ├── PluginListPage.tsx
 │       ├── PluginMarketplacePage.tsx   # Modrinth marketplace (2026-08-04)
+│       ├── PluginDetailPage.tsx
 │       ├── SettingsPage.tsx
 │       └── ApiKeysPage.tsx
 ├── pages/
 │   ├── LoginPage.tsx
-│   └── RegisterPage.tsx
+│   ├── RegisterPage.tsx
+│   ├── SetupPage.tsx             # First-run Owner bootstrap wizard
+│   └── InvitePage.tsx            # Token-based registration (/invite/:token)
 ├── stores/
 │   ├── authStore.ts             # JWT + refresh token persistence
 │   ├── uiStore.ts               # Theme + sidebar state
@@ -110,19 +116,30 @@ All forms use native React controlled components through TanStack Query mutation
 
 | Route | Page Component | Description |
 |---|---|---|
+| `/setup` | `SetupPage` | First-run Owner bootstrap wizard (shown while the instance is uninitialized) |
 | `/login` | `LoginPage` | Email/password + "Remember me" → redirect to `/` |
-| `/register` | `RegisterPage` | User registration |
+| `/register` | `RegisterPage` | User registration (direct open registration in `LOCAL` mode) |
+| `/invite/:token` | `InvitePage` | Invitation-token registration (required in `GLOBAL` mode) |
 | `/` (index) | `DashboardPage` | Overview cards (total/online/offline), recent servers, alerts |
 | `/servers` | `ServersPage` | Server list table, inline create, start/stop/delete |
 | `/servers/create` | `CreateServerPage` | Server creation form |
 | `/servers/import` | `ImportServerPage` | Import existing server from filesystem |
-| `/servers/:serverId` | `ServerDetailPage` | Console, metrics, actions, config editor |
+| `/servers/:serverId` | `ServerShell` → `ServerDetailPage` | Console, metrics, actions, config editor |
+| `/servers/:serverId/files` | `ServerFilesPage` | File browser (list/content/edit/delete/upload/mkdir) |
+| `/servers/:serverId/mods` | `ServerModsPage` | Mod management |
 | `/backups` | `BackupListPage` | Backup table, create/restore/schedule |
 | `/plugins` | `PluginListPage` | Plugin table, install/enable/disable; Install → marketplace |
 | `/plugins/marketplace` | `PluginMarketplacePage` | Modrinth catalog: search, versions, install (reached with `?server=<id>`) |
 | `/marketplace` | `PluginMarketplacePage` | Alias for `/plugins/marketplace` (added for K5); renders the same catalog |
-| `/settings` | `SettingsPage` | Global application settings |
+| `/settings` | `SettingsPage` | Global application settings; hosts `AccessSection` (access-mode control) and `InvitationsSection` (invite management) |
 | `/settings/api-keys` | `ApiKeysPage` | API key management |
+
+Guest routes (`/setup`, `/login`, `/register`, `/invite/:token`) are wrapped in
+`SystemStatusGuard` (`frontend/src/components/guards/SystemStatusGuard.tsx`),
+which consults `GET /api/v1/setup/status` and:
+- shows `SetupPage` while the instance is **uninitialized**;
+- directs invitations to `InvitePage` when the token is valid;
+- otherwise lets users proceed to login/register.
 
 All authenticated routes are wrapped in `AuthGuard` (`frontend/src/components/guards/AuthGuard.tsx`) which redirects to `/login` if `isAuthenticated` is false. Each page is wrapped in `ErrorBoundary` for isolated error handling.
 
@@ -144,7 +161,16 @@ All authenticated routes are wrapped in `AuthGuard` (`frontend/src/components/gu
 | `/settings` | `Skeleton` header + cards | `ErrorState` | `ErrorState` for `!settings` (post-fix `9c4e934`) | TanStack Query refetch | Missing/null payload now renders `ErrorState` — no legitimate empty state for a singleton config |
 | `/settings/api-keys` | `TableSkeleton` (inside body, after PageHeader) | `ErrorState` | `EmptyState` (no API keys) | TanStack Query refetch | PageHeader kept visible during loading (post-fix `564fc0a`) |
 
-All 13 routes (12 original + the `/marketplace` alias) are covered above. Nine routes use the shared `ErrorState`/`EmptyState`/`TableSkeleton`/`Skeleton` primitives for their fetch-driven states (`/`, `/servers`, `/servers/:serverId`, `/backups`, `/plugins`, `/plugins/marketplace`, `/marketplace`, `/settings`, `/settings/api-keys`), with `/servers/:serverId` additionally using a bespoke 404 block for missing records. The four routes that rely on custom inline patterns instead are the auth flows (`/login`, `/register` — in-form submit errors) and the wizard/console-style flows (`/servers/create`, `/servers/import` — inline loading/empty/error text). This split — 9 primitive-based routes vs. 4 intentionally inline form routes — informs workstream 2 (shared primitives) but is recorded here as an observation only, not a backlog item.
+The table above covers the primary fetch-driven routes. Guest routes
+(`/setup`, `/invite/:token`) and auth flows (`/login`, `/register`) use
+inline submit forms rather than the shared primitives, as do the
+wizard/console-style flows (`/servers/create`, `/servers/import`). The
+routes covered above that use the shared `ErrorState`/`EmptyState`/
+`TableSkeleton`/`Skeleton` primitives for their fetch-driven states are
+`/`, `/servers`, `/servers/:serverId`, `/backups`, `/plugins`,
+`/plugins/marketplace`, `/marketplace`, `/settings`, `/settings/api-keys`.
+This split informs workstream 2 (shared primitives) but is recorded here as
+an observation only, not a backlog item.
 
 ### UI Conventions
 
@@ -158,12 +184,12 @@ All 13 routes (12 original + the `/marketplace` alias) are covered above. Nine r
 
 ## WebSocket Integration
 
-> ⚠️ **Backend status note:** the frontend WebSocket client is fully
-> implemented, but the backend currently rejects every channel subscription
-> (plural/singular permission mismatch) and never dispatches events
-> (`EventDispatcher` not wired). The client connects, pings, and keepalives,
-> but will not receive server-push data until backend gaps K1/K2 are closed
-> (see `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md` Phase 3 §5.1).
+> The frontend WebSocket client and the backend delivery pipeline are both
+> **functional**. Backend gaps K1 (per-channel authorization) and K2 (event
+> dispatch / real-time metrics push) were closed in Phase 3 (commits
+> `b98da77`, `d096f75`, `db1889d`). The client connects, subscribes to active
+> channels, and receives server-push data (state updates, domain events, and
+> batched real-time metrics).
 
 ### Architecture
 
@@ -227,10 +253,10 @@ Invalidation events are derived from domain event types: `ServerCreated`/`Server
 
 ### Channel Manager (`frontend/src/websocket/channels.ts`)
 
-- Valid prefix list: `server`, `backup`, `plugin`, `monitoring`, `metrics`, `health`, `auth`, `user`
+- Valid prefix list (`VALID_CHANNEL_PREFIXES`): `server`, `backup`, `plugin`, `monitoring`, `metrics`, `auth`, `user` (matches the backend `validate_channel` set — no `health` prefix exists)
 - Max 50 simultaneous channels
 - Channel format: `<prefix>:<id>` or `<prefix>:*` for wildcard
-- Wildcard, server, backup, plugin, and monitoring helpers for type checking
+- Wildcard, server, backup, plugin, and monitoring helpers for type checking (`isMonitoringChannel` covers both `monitoring:` and `metrics:`)
 
 ## API Client
 
@@ -279,7 +305,7 @@ Production builds use `window.location.host` for API and WS URLs.
 
 ## Testing
 
-236 frontend tests across 41 files (measured 2026-08-04). Test infrastructure:
+402 frontend tests across 56 files (measured 2026-08-12). Test infrastructure:
 - `vitest.config.ts` — jsdom environment, `@/` path alias, globals enabled
 - `test-setup.ts` — jsdom, localStorage mock, matchMedia mock
 - Testing libraries: `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`

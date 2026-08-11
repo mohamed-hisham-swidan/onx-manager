@@ -7,7 +7,7 @@
 | Primary database | PostgreSQL 16 |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (16 revisions) |
+| Migrations | Alembic (20 revisions) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
 > **Redis note:** Redis appears in the documented stack but the running system
@@ -93,6 +93,9 @@ Supporting tables:
 - **`user_roles`** — many-to-many join table
 - **`api_keys`** — machine credentials; `key_hash` stored as **SHA-256** via `hash_api_key()` (`backend/app/core/security.py:44`) — unsalted; prefix (`mcs_`) for display
 - **`refresh_tokens`** — JWT refresh token tracking; `token_hash` stored as SHA-256; revocable
+- **`server_memberships`** — server-scoped RBAC membership (`server_id`, `user_id`, `role` in `admin`/`dev`/`viewer`); FK to `servers`, FK to `users`, created by migration `5e2962848581`
+- **`system_state`** — singleton instance row (`id` default `"default"`, `initialized`, `access_mode` `LOCAL`/`GLOBAL`); created by migration `a957791492a7`
+- **`invitations`** — invitation tokens: `token_hash` (SHA-256, unique, indexed), `token_prefix` (for display), `creator_id` (FK `users`, SET NULL), `email` (nullable, indexed), `global_role` (default `member`), `server_id`/`server_role` (nullable; FK `servers` CASCADE), `status` (`ACTIVE`/`USED`/`REVOKED`/`EXPIRED`, default `ACTIVE`), `max_uses` (default 1), `use_count` (default 0), `expires_at`, `used_at`; created by migration `a957791492a7`
 
 ### Audit Log / Event Store
 
@@ -169,9 +172,13 @@ servers 1──* backup_jobs
 servers 1──* plugins
 servers 1──* metric_points
 servers 1──* alert_rules
+servers 1──* server_memberships   (user_id + server_id + role)
 users   1──* api_keys
 users   1──* refresh_tokens
 users   *──* roles        (via user_roles)
+users   1──* server_memberships
+users   1──* invitations   (issued invitations; token_hash unique)
+servers 1──0..* invitations (server_id nullable, for server-scoped invites)
 ```
 
 ## Migration Strategy
@@ -204,6 +211,10 @@ alembic downgrade -1
 | `b5c6d7e8f9a0` | `a3b2c3d4e5f6` | pending_restores table |
 | `3a42d373bb05` | `b5c6d7e8f9a0` | Modrinth source columns on plugins (external ids, url, checksum) |
 | `c4d5e6f7a8b9` | `3a42d373bb05` | Plugin filesystem-tracking columns (filename, source, pending_deletion) |
+| `784b5ba72077` | `c4d5e6f7a8b9` | `project_type` on plugins |
+| `989743c08820` | `784b5ba72077` | `icon_url` on plugins |
+| `5e2962848581` | `989743c08820` | **Server ownership/memberships** — `owner_id` FK on servers; `server_memberships` table |
+| `a957791492a7` | `5e2962848581` | **System state & invitations** — `system_state`, `invitations` tables (head) |
 
 ## Audit Log Implementation
 
@@ -288,6 +299,10 @@ alembic upgrade head
 | `b5c6d7e8f9a0` | `pending_restores` table |
 | `3a42d373bb05` | Modrinth source columns on `plugins` |
 | `c4d5e6f7a8b9` | Plugin filesystem-tracking columns on `plugins` |
+| `784b5ba72077` | `project_type` on `plugins` |
+| `989743c08820` | `icon_url` on `plugins` |
+| `5e2962848581` | **Server ownership & memberships** — `servers.owner_id` FK; `server_memberships` table |
+| `a957791492a7` | **System state & invitations** — `system_state`, `invitations` tables (head) |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.
@@ -326,17 +341,21 @@ backup — final schema matches production column-for-column).
 ### Current dev database state
 
 - **File**: `backend/mcs.db`
-- **Alembic version**: `c4d5e6f7a8b9` (head)
-- **Tables**: 27 (including `alembic_version`)
+- **Alembic version**: `a957791492a7` (head)
+- **Tables**: 32 (including `alembic_version`, `system_state`, `invitations`, `server_memberships`, `test_samples`)
 
-### Current production database state
+### Secondary database state
 
 - **File**: `backend/data/servers/mcs.db`
-- **Alembic version**: `a3b2c3d4e5f6` — 3 revisions behind head (`b5c6d7e8f9a0`, `3a42d373bb05`, `c4d5e6f7a8b9` pending)
-- **Servers**: 0
-- **Tables**: 27 (including `alembic_version`)
+- **Alembic version**: `a3b2c3d4e5f6`
+- **Note**: legacy/secondary SQLite file. It has **no** `system_state`,
+  `invitations`, or `server_memberships` tables and is **not** referenced by
+  the default config (`MCS_DATABASE_URL` unset → `backend/mcs.db`). Confirm the
+  environment uses `backend/mcs.db` before release.
 
-> Verified 2026-08-04. Production is intentionally not upgraded to head.
+> Updated 2026-08-12 to match `docs/current-state.md` §3. The previous
+> production/`backend/data/servers/mcs.db` head claim (2026-08-04) described
+> the pre-Phase-4 chain (head then `c4d5e6f7a8b9`).
 
 ## Cross-References
 

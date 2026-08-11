@@ -8,7 +8,7 @@ root; this directory holds design/architecture references.
 |----------|--------|---------|
 | [Architecture](ARCHITECTURE.md) | ✅ **IMPLEMENTED** | System context, module structure, CQRS/hexagonal patterns, task wiring, reconciliation. |
 | [Database](DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain, query patterns, migration guide. |
-| [Security](SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (with known gaps), audit chain, data protection, rate limiting, sessions. |
+| [Security](SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (Phase 4 enforced: global + server-scoped RBAC), audit chain, data protection, rate limiting, sessions. |
 | [Frontend](FRONTEND.md) | ✅ **IMPLEMENTED** | React 19 app structure, state management, WebSocket integration, API client, testing. |
 | [Plugins & Marketplace](plugins-and-marketplace.md) | ✅ **IMPLEMENTED** | Plugin registry (filesystem source of truth) + Modrinth marketplace implementation. |
 | [Network Access Design](network-access-design.md) | 🟡 **PLANNED** | Phases 7–8 design reference: TunnelProvider vs DnsProvider, dynamic endpoints, tunnel ≠ auth. |

@@ -56,6 +56,46 @@ Data survives container restarts and upgrades. To wipe everything (including the
 docker compose down -v
 ```
 
+## After first start — Owner bootstrap
+
+A fresh deployment starts **uninitialized**; all protected API routes are
+blocked until an Owner is created. Two equivalent ways to bootstrap:
+
+**Via the UI (recommended):** open the frontend — the `/setup` wizard is shown
+automatically. Create the Owner account and choose the access mode.
+
+**Via the API:**
+
+```bash
+# 1. Confirm the instance is uninitialized
+curl http://localhost:8000/api/v1/setup/status
+# → {"initialized": false, "access_mode": "LOCAL", "user_count": 0, "version": "4.0.0"}
+
+# 2. Bootstrap (single-use — this must succeed exactly once)
+curl -X POST http://localhost:8000/api/v1/setup/bootstrap \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "owner@example.com",
+    "password": "a-long-password",
+    "display_name": "Instance Owner",
+    "access_mode": "GLOBAL"
+  }'
+```
+
+This creates the Owner (with the `owner` role and `admin:full`/`global.*`
+claims) and marks the instance initialized. After bootstrap:
+
+- **`LOCAL`** mode keeps open self-registration available at `/register`.
+- **`GLOBAL`** mode disables self-registration (`403` on `POST /api/v1/users`),
+  so the Owner must create invitations (UI: **Settings → Invitations**, or
+  `POST /api/v1/invites` with a Bearer token carrying `user:write`) and share
+  the invite links (`/invite/<token>`) with users.
+
+If the app is redeployed on the same database volume, **do not** run bootstrap
+again — `POST /api/v1/setup/bootstrap` returns `409 Conflict` on a second
+attempt, and `PUT /api/v1/setup/access-mode` can be used later to flip
+`LOCAL` ↔ `GLOBAL`.
+
 ## Common commands
 
 ```bash

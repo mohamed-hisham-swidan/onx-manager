@@ -58,68 +58,153 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 
 ## Authorization
 
-### Model: RBAC + ABAC Hybrid
+### Model: RBAC + ABAC Hybrid (enforced)
 
-The authorization system *defines* Role-Based Access Control as the primary model with Attribute-Based Access Control extensions for resource-level checks. **However, authorization is only partially enforced in the request path.** See the known-gap callout in [`docs/API.md`](../API.md) — the practical consequence is that any authenticated user can call most endpoints regardless of their token's `permissions` or `roles`, with only a small set of destructive endpoints gated.
+Authorization uses Role-Based Access Control over global instance permissions
+plus Attribute-Based Access Control for server-scoped resources. Since Phase 4
+(commit `a47daa8`, 2026-08-11) authorization is enforced in the request path
+through FastAPI dependencies; it is no longer a ticket-time-only model.
 
-What exists today:
+**Enforcement points** (all defined in `backend/app/api/deps.py`):
 
-1. `PermissionEvaluator` (`backend/app/modules/auth/infrastructure/permissions.py`) can evaluate role permissions (RBAC) and apply ABAC rules such as resource ownership
-2. Inactive users are rejected at evaluation time (`has_permission`/`evaluate_abac` return `False` for inactive users)
-3. The evaluator is only called at **login/refresh** to build the token's claims — it is **not** invoked by any command/query handler, router, or middleware to gate a request
-4. **Only a small set of destructive API endpoints checks permissions before executing** (via the `require_permission` dependency — see the callout below); every other endpoint does not
+1. `require_permission(...)` — checks global permission claims from the token
+   (with an `admin:full` bypass). Used for instance-wide operations:
+   `server:create`, `server:write`, `server:delete`, `server:read`
+   (host-wide runtime snapshot), `backup:*`, `plugin:manage`, `user:*`,
+   `settings:*`, `global.settings`.
+2. `require_server_permission(...)` — server-scoped RBAC. Resolves
+   `server_id` from the request (path/query/body; conflicting values return
+   `400`), verifies the server exists (`404` when the caller cannot see it),
+   then grants access to the server **owner** (`ServerModel.owner_id`), a
+   **member** whose `ServerMembershipModel` role includes the required node,
+   or any caller with a global bypass claim (`admin:full`, `global.*`,
+   `global.servers.manage`). Operates on dynamic nodes such as
+   `server.{id}.view`, `server.{id}.power`, `server.{id}.console`,
+   `server.{id}.files`, `server.{id}.settings`, `server.{id}.backup`,
+   `server.{id}.players`.
+3. `require_owner()` — Owner-only guard for access-mode changes. Satisfied
+   only by the `owner` role or a `global.*` permission claim; `admin:full`
+   alone is **not** sufficient.
 
-> **Known gap — authorization is only partially enforced.** `PermissionDenied` is defined and mapped to HTTP 403 in `backend/app/api/errors.py`. A `require_permission` dependency gates the following 24 routes today (22 mutating + 2 read-only marketplace; verified 2026-08-04, `contracts/permissions.yaml` v1.4):
->
-> - **servers:** `POST /servers`, `POST /servers/scan`, `POST /servers/import`, `PATCH /servers/{server_id}`, `DELETE /servers/{server_id}` (`server:write`/`server:delete`), `POST /servers/{id}/start` (`server:start`), `POST /servers/{id}/stop` + `/restart` (`server:stop`), `POST /servers/{id}/command`, `POST /servers/reconcile`, `POST /servers/runtime/ownership/claim`, `POST /servers/refresh` (`server:write`)
-> - **backups:** `POST /backups` (`backup:create`), `DELETE /backups/{id}` (`backup:delete`), `POST /backups/{id}/restore` (`backup:restore`), `POST /backups/{id}/verify` (`backup:read`)
-> - **plugins:** `DELETE /servers/{server_id}/plugins/{id}` + the three `/servers/{server_id}/plugins/marketplace/*` routes (`plugin:manage`) — but **not** `enable`/`disable` (K4)
-> - **users / auth:** `PATCH /users/{id}` (`user:write`), `DELETE /users/{id}` (`user:delete`), `POST /auth/api-keys`, `DELETE /auth/api-keys/{id}` (`user:write`)
-> - **files:** `PUT /servers/{id}/files/content` (`server:write`), `DELETE /servers/{id}/files` (`server:delete`), `POST /servers/{id}/files/upload` (`server:write`), `POST /servers/{id}/files/mkdir` (`server:write`)
->
-> The vast majority of routes — including plugin enable/disable, `PATCH /settings`, the alert-rule routes, health-evaluate, the schedule routes, all reads (list/detail/console/runtime/metrics/users/settings), and **Files API read/download endpoints** (`GET /servers/{id}/files`, `GET /servers/{id}/files/content`, `GET /servers/{id}/files/download`) — still do not check per-server permissions. The Files API read endpoints check authentication (`get_current_user`) but do NOT verify per-server authorization, introducing an **IDOR (Insecure Direct Object Reference)** gap (deferred / open item). This is a real security gap that needs a dedicated fix, not an intentional design choice. Tracked as Phase 4 §6.1 in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.
+`PermissionEvaluator` (`backend/app/modules/auth/infrastructure/permissions.py`)
+evaluates role permissions and ABAC ownership rules when tokens are issued
+(login/refresh), and inactive users are rejected at evaluation time. Denials
+surface as `403 PERMISSION_DENIED` via `backend/app/api/errors.py`.
+
+The live route→permission matrix is the single source of truth:
+`contracts/permissions.yaml` (v1.4, 83 effective routes), regenerated from
+runtime introspection of the route table.
+
+> **Remaining auth-only reads (no permission node).** The following endpoints
+> are authenticated (`get_current_user`) but still carry no permission check;
+> the contract marks them `missing` with a required permission listed:
+> `GET /servers`, `GET /servers/{server_id}`, `GET /auth/me`,
+> `GET /auth/api-keys`, `GET /users`, `GET /users/{user_id}`,
+> `GET /backups`, `GET /backups/{backup_id}`, `GET /plugins`,
+> `GET /plugins/{plugin_id}`, `GET /schedules`, `GET /health/status/{id}`,
+> `GET /health/timeline/{id}`, `GET /health/dashboard`,
+> `GET /monitoring/alerts`. These are the accepted residual gap of
+> Batch 7/7.1 — they do not expose secrets that Auth-only routes already
+> guarded (e.g. `GET /servers/{server_id}` was already auth-only pre-Phase-4),
+> but they are candidates for a future `server:read`/`user:read`/`backup:read`
+> pass.
+
+### Server-scoped files & the sensitive-file guard
+
+All 7 Files API routes gate on `server.{id}.files`; download additionally
+accepts `server.{id}.view` (so `viewer` server members can download but not
+list/read/write/mkdir/upload/delete). `server.properties` carries
+`rcon.password` and is **denied for everyone** — reads
+(`GET /files`, `GET /files/content`, `GET /files/download`) and writes
+(`PUT /files/content`) return `403` for it. Enforced via
+`SENSITIVE_FILENAMES` / `_assert_not_sensitive` in
+`backend/app/api/v1/routers/files.py` (case-insensitive match on the
+filename).
 
 ### Permission Strings
 
 Permission strings follow the `<resource>:<action>` format. Defined in `contracts/permissions.yaml`.
 
+Global permissions (checked by `require_permission`):
+
 | Permission | Description | Scope |
 |---|---|---|
-| `server:read` | View server details and status | `server_id` |
-| `server:write` | Modify server configuration | `server_id` |
-| `server:start` | Start a server | `server_id` |
-| `server:stop` | Stop a server | `server_id` |
-| `server:delete` | Delete a server | `server_id` |
-| `backup:read` | View backup list and details | `server_id` |
-| `backup:create` | Create backups | `server_id` |
-| `backup:restore` | Restore from backup | `server_id` |
-| `backup:delete` | Delete backups | `server_id` |
-| `plugin:read` | View installed plugins | `server_id` |
-| `plugin:install` | Install new plugins | `server_id` |
-| `plugin:manage` | Enable/disable/uninstall plugins | `server_id` |
-| `user:read` | View user list | `global` |
-| `user:write` | Create/edit users | `global` |
+| `server:read` | View server details, status, host runtime snapshot | `global` |
+| `server:write` | Create/manage servers (config, import/scan, reconcile, runtime claim) | `global` |
+| `server:delete` | Delete a server | `global` |
+| `server:create` | Create a server (creator becomes `owner_id`) | `global` |
+| `backup:create` | Create backups | `global` |
+| `backup:restore` | Restore from backup | `global` |
+| `backup:delete` | Delete backups | `global` |
+| `backup:read` | Verify a backup | `global` |
+| `plugin:manage` | Enable/disable/uninstall plugins + marketplace | `global` |
+| `user:write` | Create/update users, manage API keys, issue invitations | `global` |
 | `user:delete` | Delete users | `global` |
 | `settings:read` | View system settings | `global` |
 | `settings:write` | Modify system settings | `global` |
+| `global.settings` | Modify schedules and alert-rule stubs | `global` |
 | `admin:full` | Unrestricted access | `global` |
 
+Server-scoped permission nodes (checked by `require_server_permission`):
+
+| Node | Description |
+|---|---|
+| `server.{id}.view` | Read server detail, console, runtime diagnostics, health/metrics |
+| `server.{id}.power` | Start/stop/restart the server |
+| `server.{id}.console` | Send console commands |
+| `server.{id}.files` | List/read/write/upload/delete server files |
+| `server.{id}.settings` | Manage per-server alert rules |
+| `server.{id}.backup`, `server.{id}.players` | Reserved nodes (granted by `admin`/`dev` roles) |
+
 ### Role Definitions
+
+Global instance roles (defined in `contracts/permissions.yaml`):
 
 | Role | Permissions | Typical User |
 |---|---|---|
 | `viewer` | `server:read`, `backup:read`, `plugin:read` | Read-only monitoring |
 | `operator` | `server:read`, `server:write`, `server:start`, `server:stop`, `backup:read`, `backup:create`, `plugin:read`, `plugin:install`, `plugin:manage` | Day-to-day server management |
 | `admin` | `admin:full` (unrestricted) | System administration |
+| `owner` | `owner` role + `global.*` claims (granted at bootstrap) | The single instance Owner |
+
+Server-scoped membership roles (granted via `server_memberships` /
+invitations; `SERVER_ROLE_PERMISSIONS` in `backend/app/api/deps.py`):
+
+| Role | Permission nodes |
+|---|---|
+| `admin` | `server.{id}.*` (all) |
+| `dev` | `server.{id}.view|power|console|files|backup|players|settings` |
+| `viewer` | `server.{id}.view` |
+
+Owners bypass server-scoped checks entirely (`require_server_permission`
+short-circuits for `owner_id`, `admin:full`, `global.*`,
+`global.servers.manage`).
+
+### Access mode & invitations
+
+The instance starts **uninitialized**; protected routes are blocked until
+`POST /api/v1/setup/bootstrap` creates the Owner (single-use; `409` once
+initialized). `GET /api/v1/setup/status` reports
+`initialized` / `access_mode` / `user_count` publicly for the setup wizard.
+
+- **`LOCAL`** (default): `POST /api/v1/users` allows open self-registration
+  (new users get the `viewer` role).
+- **`GLOBAL`**: open self-registration is disabled with `403`; users register
+  through invitations — `POST /api/v1/invites/accept` with a token from
+  `POST /api/v1/invites`.
+
+The mode flips via `PUT /api/v1/setup/access-mode` (Owner/`global.*` only).
+Invitation tokens are stored as SHA-256 hashes (`invitations.token_hash`);
+lifecycle status is `ACTIVE` / `USED` / `REVOKED` / `EXPIRED`. See
+`docs/roadmap/owner-invite-system-roadmap.md` for the original design.
 
 ### ABAC Context Rules
 
-The ABAC extension (as implemented in `PermissionEvaluator.evaluate_abac()`) defines resource-specific rules:
-
-- **Resource ownership**: A user can modify a resource if they are the `resource_owner_id`
-- **Scope enforcement**: Server-scoped permissions (`server_id`) only apply to specific server resources; global-scoped permissions apply system-wide
-
-These rules are **not enforced** — `evaluate_abac()` exists but is never called in any request path (see the known-gap callout above). The permission strings above *are* enforced on the small set of destructive routes gated by `require_permission`; the ABAC ownership/scope rules are not. Together they describe the intended model, not current behavior.
+`PermissionEvaluator.evaluate_abac()` defines resource-ownership and
+scope-enforcement rules. In the current request path the server-scoped
+equivalents are enforced directly by `require_server_permission` (owner via
+`ServerModel.owner_id`, members via `ServerMembershipModel` roles) rather than
+through the generic evaluator.
 
 ### WebSocket channel authorization
 

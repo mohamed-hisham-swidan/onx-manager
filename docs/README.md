@@ -3,7 +3,7 @@
 This is the authoritative index for MCS Manager documentation. Documents are
 listed with their status so it is always clear what is implemented vs planned.
 
-> **State of the docs (2026-08-09):** this index and the documents it points to
+> **State of the docs (2026-08-12):** this index and the documents it points to
 > have been reconciled against the verified codebase state in
 > `docs/current-state.md`. Older documents (superseded roadmaps in `docs/history/`,
 > the archived Blueprint v4 split set in `docs/history/blueprint-v4/`) are kept for
@@ -17,7 +17,7 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |----------|--------|---------|
 | [Current State](current-state.md) | ✅ **IMPLEMENTED** | Verified, evidence-based snapshot of the codebase (version, tests, DB, known issues). Read this first. |
-| [Roadmap (Blueprint V5)](roadmap/MCS-Manager-Engineering-Blueprint-V5.md) | ✅ **IMPLEMENTED** | The only authoritative roadmap — 10 dependency-ordered phases. Phase 1 (CLOSED), Phase 2 (CLOSED), Phase 3 (CLOSED), Phase 4 (Authorization, current), Phase 5 (Versioning), Phase 6 (Testing/CI/docs), Phase 7 (Network Access), Phase 8 (Dynamic endpoint + DNS), Phase 9 (Final stabilization), Phase 10 (AI — last, deferred). |
+| [Roadmap (Blueprint V5)](roadmap/MCS-Manager-Engineering-Blueprint-V5.md) | ✅ **IMPLEMENTED** | The only authoritative roadmap — 10 dependency-ordered phases. Phase 1 (CLOSED), Phase 2 (CLOSED), Phase 3 (CLOSED), Phase 4 (CLOSED — server-scoped authorization, owner/access-mode/invitations), Phase 5 (Versioning), Phase 6 (Testing/CI/docs), Phase 7 (Network Access), Phase 8 (Dynamic endpoint + DNS), Phase 9 (Final stabilization), Phase 10 (AI — last, deferred). |
 | [Roadmap v2](history/mcs-manager-roadmap-v2.md) | ⏸️ **LEGACY** | Superseded by Blueprint v5. Historical phase plan kept in `history/`. |
 | [Versioning](VERSIONING.md) | 🟡 **PLANNED** | Single source-of-truth versioning strategy (currently `4.0.0` across code; stale `7.1.0` only in history/server data). Roadmap Phase 5. |
 | [Roadmap v1](history/mcs-manager-roadmap-v1.md) | ⏸️ **LEGACY** | Superseded by v2. Historical phase plan (9 phases) kept for reference. |
@@ -30,8 +30,8 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |----------|--------|---------|
 | [Architecture](architecture/ARCHITECTURE.md) | ✅ **IMPLEMENTED** | System context, module structure, CQRS/hexagonal patterns, task wiring, reconciliation. |
-| [Database](architecture/DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain (16 revisions), query patterns, migration guide. |
-| [Security](architecture/SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (with known gaps), audit chain, data protection, rate limiting, sessions. |
+| [Database](architecture/DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain (20 revisions), query patterns, migration guide. |
+| [Security](architecture/SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (Phase 4 enforced: global + server-scoped RBAC), audit chain, data protection, rate limiting, sessions. |
 | [Plugins & Marketplace](architecture/plugins-and-marketplace.md) | ✅ **IMPLEMENTED** | Plugin registry (filesystem source of truth) + Modrinth marketplace implementation. |
 | [Network Access Design](architecture/network-access-design.md) | 🟡 **PLANNED** | Phases 7–8 design reference: TunnelProvider vs DnsProvider, dynamic endpoints, game vs management exposure, Tunnel ≠ Authentication. |
 | [Frontend](architecture/FRONTEND.md) | ✅ **IMPLEMENTED** | React 19 app structure, state management, WebSocket integration, API client, testing. |
@@ -85,13 +85,13 @@ listed with their status so it is always clear what is implemented vs planned.
 
 ---
 
-## Cross-cutting claims (verified 2026-08-09)
+## Cross-cutting claims (verified 2026-08-12)
 
 - **Version:** `4.0.0` (code) — planning docs that mention "7.1.0" are stale.
-- **Backend tests:** 1115 passed (100% pass rate).
-- **Frontend tests:** 332 passed across 44 files.
-- **Routers:** 10 · **Migrations:** 16 · **ADRs:** 12 · **Contracts:** 6.
-- **Authorization:** 24 routes gated by `require_permission` (22 mutating + 2 read-only marketplace; `contracts/permissions.yaml` v1.4).
-- **Production DB:** `backend/data/servers/mcs.db`, 3 revisions behind head, 0 servers.
+- **Backend tests:** 1219 passed (100% pass rate).
+- **Frontend tests:** 402 passed across 56 files (`tsc` typecheck clean; lint has pre-existing failures).
+- **Routers:** 14 · **Migrations:** 20 (head `a957791492a7`) · **ADRs:** 12 · **Contracts:** 6.
+- **Authorization:** enforced via `require_permission` (global), `require_server_permission` (server-scoped RBAC), and `require_owner` (access mode); `contracts/permissions.yaml` v1.4 documents 83 effective routes.
+- **Production DB:** `backend/data/servers/mcs.db` is a **legacy file** at revision `a3b2c3d4e5f6`; the default configured DB is `backend/mcs.db` **at head** (`a957791492a7`, with `system_state`, `invitations`, `server_memberships`). See `current-state.md` §3.
 - **CI:** frontend workflow only (no backend CI yet).
 

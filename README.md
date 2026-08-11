@@ -1,13 +1,13 @@
 # Minecraft Server Manager
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-1144%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-1219%20passing-brightgreen.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](#)
 [![TypeScript](https://img.shields.io/badge/typescript-5%2B-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](#)
 [![Status](https://img.shields.io/badge/status-production%20ready-darkgreen.svg)](#)
 
-A professional-grade Minecraft server management platform. Manage any number of servers across local, Docker, or remote providers from a single web dashboard. Ships with a plugin system, automated backups, RBAC+ABAC auth, and full monitoring — all self-hosted. (Full authorization breadth is a Phase 4 roadmap gap — current work in progress.)
+A professional-grade Minecraft server management platform. Manage any number of servers across local, Docker, or remote providers from a single web dashboard. Ships with a plugin system, automated backups, RBAC auth, and full monitoring — all self-hosted. (Authorization is fully enforced for mutating and server-scoped routes; a small set of auth-only GET reads and Ops items are documented as residual gaps.)
 
 ---
 
@@ -105,4 +105,4 @@ MIT — see LICENSE for details.
 
 ## Status
 
-**Production-ready core.** Backend, API, WebSocket, plugin system, auth, monitoring, task scheduling, File Manager, and the frontend are implemented and tested. Re-measured 2026-08-10: **1144 backend tests passing** (100% pass rate) and **362 frontend tests passing** across 50 test files. WebSocket authorization/delivery, settings persistence, and server redesign gaps are resolved (Phase 3 and Part B closed). Remaining authorization breadth cleanup is in progress (Phase 4), tracked in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`.
+**Production-ready core.** Backend, API, WebSocket, plugin system, auth, monitoring, task scheduling, File Manager, and the frontend are implemented and tested. Re-measured 2026-08-12: **1219 backend tests passing** (100% pass rate) and **402 frontend tests passing** across 56 test files. Phase 3 (WebSocket authorization/delivery, settings persistence), the server redesign, and Phase 4 (authorization & security cleanup) are closed. Follow-on: Owner bootstrap / access-mode / invitation system and runtime-diagnostics IDOR fix completed 2026-08-12; remaining authorization breadth is tracked as residual gaps in `docs/current-state.md`.

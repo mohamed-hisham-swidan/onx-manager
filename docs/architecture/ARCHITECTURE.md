@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**Last updated**: 2026-08-01  
+**Last updated**: 2026-08-12
 **Cross-references**: [ADR-0001](../decisions/0001-modular-monolith.md), [ADR-0002](../decisions/0002-command-query-event-buses.md), [ADR-0007](../decisions/0007-core-persistence-rename.md)
 
 ---
@@ -42,7 +42,7 @@ backend/app/
 │   ├── errors.py              # Global exception handlers
 │   └── v1/
 │       ├── middleware/        # Auth, audit, rate-limit, request-id
-│       ├── routers/           # 10 endpoint groups + WebSocket
+│       ├── routers/           # 14 endpoint groups + WebSocket
 │       └── schemas/           # Pydantic request/response schemas
 ├── core/                      # Foundation layer
 │   ├── command_bus.py         # CQRS command bus
@@ -175,7 +175,7 @@ Both must be set together when running test/development backends. Because `setsi
 | Language | Python 3.14+ |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (16 revisions) |
+| Migrations | Alembic (20 revisions) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
 | Message Queue | InProcessQueue (only implementation in use; Arq/Redis exists as unused code) |
@@ -343,11 +343,21 @@ reuses a single long-lived TCP session instead:
 - `send_command()` serializes requests under an `asyncio.Lock`, retries up to
   `max_retries` with backoff, and re-establishes the connection between
   retries so a server restart or dropped socket self-heals without waiting for
-  the next tick.
+  the next tick. Each response is validated against the request-id and packet
+  type; a mismatch (a desynced connection) raises instead of returning stale
+  data. If the task is cancelled mid-command (e.g. a collector timeout), the
+  connection is dropped before propagating the cancel so the desynced socket is
+  never reused.
 - `close()` and `_close_unlocked()` both release the socket exactly once.
   `send_command` uses the unlocked variant to avoid re-acquiring the lock it
   already holds — re-acquiring there caused a permanent deadlock (every cron
   tick enqueued a task with `started_at` set but never completing).
+- The collector cache is invalidated when a server's RCON host/port/password
+  changes and evicted when RCON is disabled, so stale credentials never linger
+  on a long-lived connection.
+- `collect_all()` runs each server's collection concurrently with an
+  individual `per_server_timeout`, so one slow or broken server cannot delay
+  collection for healthy servers.
 
 Connection state is intentionally short-lived in scope: the persistent client
 only survives the lifetime of the worker process (uvicorn reload drops it),
@@ -420,7 +430,7 @@ isn't reachable until root_path is fixed.
 ## Testing
 
 ```bash
-pytest                          # All tests (1068 passing; 1070 collected, 2 pre-existing env failures)
+pytest                          # All tests (1219 collected; 1219 passing, 0 failures)
 pytest tests/ -x -q             # Quick run, stop on first failure
 ```
 

@@ -1,9 +1,40 @@
 # Owner Bootstrap, Access Mode & Invitation System — Engineering Blueprint & Roadmap
 
-**Document Status:** DRAFT / PROPOSED ROADMAP  
+**Document Status:** ✅ **IMPLEMENTED** (2026-08-12)
 **Date:** 2026-08-11  
 **Author:** MCS Manager Engineering Team  
 **Prerequisite Base Commit:** `a47daa8` (Phase 4 Authorization & Security Cleanup, alembic head `5e2962848581`)
+
+> **Implementation status:** the design in this document is **shipped**. The
+> body below is preserved as the original design intent. Where the shipped
+> implementation differs, the implementation is authoritative:
+>
+> - Router paths are `/api/v1/setup/*` and `/api/v1/invites/*` (not
+>   `/api/v1/auth/invites/*`).
+> - `POST /api/v1/users` is **not** categorically disabled: it is blocked
+>   (`403`) while the instance is uninitialized and while access mode is
+>   `GLOBAL`; in `LOCAL` mode it still allows open self-registration (the
+>   plan's "permanently disabled" rigid reading does not match the shipped
+>   gating — see `docs/API.md` §Users).
+> - `POST /api/v1/setup/bootstrap` is single-use and rejects with **`409`**
+>   (not `400`) once initialized.
+> - Access mode is toggled via `PUT /api/v1/setup/access-mode`
+>   (`require_owner()`), **not** via `PATCH /api/v1/settings`.
+> - `POST /api/v1/invites`, `GET /api/v1/invites`, and
+>   `DELETE /api/v1/invites/{id}` all gate on `require_permission("user:write")`.
+> - Frontend: `SetupPage` (`/setup`) and `InvitePage` (`/invite/:token`) are
+>   wrapped by `SystemStatusGuard`; `AccessSection` and `InvitationsSection`
+>   live in `SettingsPage` under `/settings`.
+> - Invitation raw tokens are `mcis_<secrets.token_urlsafe(24)>`; prefix is the
+>   first 10 chars (`token_prefix` column), matching the design.
+>
+> Implemented backend modules: `bootstrap_instance.py`,
+> `create_invite.py`, `accept_invite.py`, `list_invites.py`,
+> `revoke_invite.py`, `verify_invite.py`, `update_access_mode.py`,
+> `get_system_status.py` under `backend/app/modules/auth/application/`;
+> routers `setup.py` + `invites.py`; migrations `5e2962848581`
+> (`servers.owner_id`, `server_memberships`) and `a957791492a7`
+> (`system_state`, `invitations`).
 
 ---
 
@@ -289,7 +320,7 @@ Access Mode is configured during Owner Bootstrap and can be toggled in `Settings
 | BATCH 4: Verification, Security Auditing & E2E Testing                            |
 | - Integration tests for Bootstrap, Access Mode, Invite lifecycle                  |
 | - Security tests (prevent double-bootstrap, expired/revoked invite rejection)    |
-| - Full backend test suite pass (1158+ tests)                                      |
+| - Full backend test suite pass (1219+ tests)                                      |
 +-----------------------------------------------------------------------------------+
 ```
 
@@ -297,8 +328,8 @@ Access Mode is configured during Owner Bootstrap and can be toggled in `Settings
 
 ## 9. Verification & Safety Plan
 
-1. **Double-Bootstrap Prevention:** Test that `POST /api/v1/setup/bootstrap` strictly rejects secondary attempts with `400 Bad Request` once an Owner exists or `initialized == True`.
+1. **Double-Bootstrap Prevention:** Test that `POST /api/v1/setup/bootstrap` strictly rejects secondary attempts with `409 Conflict` once an Owner exists or `initialized == True`.
 2. **Invite Token Security:** Secret tokens must be hashed (`SHA-256`) before database storage; raw tokens are shown only once upon creation.
 3. **Open Registration Lockout:** Verify that unauthenticated requests to `POST /api/v1/users` are permanently blocked in favor of `/api/v1/invites/accept`.
 4. **Server Membership Automatic Wiring:** Verify that accepting an invite with `server_id` and `server_role` automatically provisions a valid `ServerMembershipModel` row.
-5. **Zero Regression:** Ensure all 1158 existing unit & API integration tests continue to pass clean.
+5. **Zero Regression:** Ensure all 1219 existing unit & API integration tests continue to pass clean.

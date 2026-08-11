@@ -4,10 +4,13 @@
 
 | Layer | Framework | Test Count | Location |
 |---|---|---|---|
-| Backend (unit + integration) | pytest + pytest-asyncio | 1070 collected / 1068 passing (2 pre-existing env failures) | `backend/tests/` |
-| Frontend (component + unit) | Vitest + jsdom | 236 | `frontend/src/**/*.test.*` |
+| Backend (unit + integration) | pytest + pytest-asyncio | **1219 collected / 1219 passing (0 failures)** | `backend/tests/` |
+| Frontend (component + unit) | Vitest + jsdom | **402 across 56 files** | `frontend/src/**/*.test.*` |
 
-> Measured 2026-08-04. The 2 backend failures are environment issues, not regressions: `test_api_endpoints.py::TestServers::test_start_server` (closed-DB rollback) and `tests/tasks/test_metrics_collector.py::test_metrics_task_requires_collector` (stale expectation vs the graceful warning handler). See `docs/current-state.md` §4.
+> Measured 2026-08-12 (see `docs/current-state.md` §2). `npm run typecheck`
+> (`tsc --noEmit`) is clean. Frontend `npm run lint` has **pre-existing
+> failures** (flagged files predate the current release; not gated for this
+> release — tracked separately, not part of the test-suite counts above).
 
 ---
 

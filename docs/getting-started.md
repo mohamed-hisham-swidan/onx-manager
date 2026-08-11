@@ -49,16 +49,29 @@ The frontend is available at `http://localhost:5173`. It proxies `/api` and `/ws
 
 ## Open the Browser
 
-Navigate to `http://localhost:5173`. You will see the login page. Register an account from the login page to get started.
+Navigate to `http://localhost:5173`.
+
+**First run:** a fresh instance starts **uninitialized**, so you'll be
+redirected to the `/setup` wizard (`SetupPage`). Create the **Owner** account
+and choose the access mode before you can log in. See "First Steps" below.
 
 ## First Steps
 
-1. **Register an account** — click "Register" and create your first user
-2. **Create a server** — navigate to Servers → Create Server; choose a name, type (e.g. Vanilla), and version
-3. **Start the server** — click the play button on the server row; the server status will update in real-time via WebSocket
-4. **View the console** — click the server name to open the Blade Hosting-style detail page with live console output and metrics
-5. **Manage server files** — click Files in the server sidebar to view, edit, upload, or create server configuration files
-6. **Stop the server** — click the stop button; the server will shut down gracefully
+1. **Create the Owner (first run only)** — on `/setup`, enter the Owner
+   email/password and choose the access mode:
+   - **`LOCAL`** (default) — home-lab/LAN. After bootstrap, open
+     self-registration stays available (`Register`), and the Owner can issue
+     invitations from **Settings → Invitations** (and flip the mode from
+     Settings → Access).
+   - **`GLOBAL`** — VPS/remote. Self-registration is disabled; new users must
+     register through an invitation link (`/invite/:token`).
+2. **Register an account** (LOCAL) or **accept an invitation** (GLOBAL) — the
+   Owner can also create additional users directly.
+3. **Create a server** — navigate to Servers → Create Server; choose a name, type (e.g. Vanilla), and version
+4. **Start the server** — click the play button on the server row; the server status will update in real-time via WebSocket
+5. **View the console** — click the server name to open the Blade Hosting-style detail page with live console output and metrics
+6. **Manage server files** — click Files in the server sidebar to view, edit, upload, or create server configuration files
+7. **Stop the server** — click the stop button; the server will shut down gracefully
 
 ## What's Next
 

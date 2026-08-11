@@ -7,7 +7,9 @@
 > Cross-references: [Architecture](architecture/ARCHITECTURE.md), [Security](architecture/SECURITY.md), [Frontend](architecture/FRONTEND.md)
 >
 > This document is generated from the router code (`backend/app/api/v1/routers/`).
-> Every endpoint below was verified directly against its router function.
+> Every endpoint below was verified directly against its router function (the
+> 14 routers: `auth, backups, files, health, invites, marketplace, monitoring,
+> plugins, schedules, servers, settings, setup, software, users`).
 
 ---
 
@@ -29,8 +31,10 @@
 14. [Settings](#settings)
 15. [Software](#software)
 16. [Files](#files)
-17. [App-level endpoints](#app-level-endpoints)
-18. [WebSocket protocol](#websocket-protocol)
+17. [Setup & access mode](#setup--access-mode)
+18. [Invites](#invites)
+19. [App-level endpoints](#app-level-endpoints)
+20. [WebSocket protocol](#websocket-protocol)
 
 ---
 
@@ -64,74 +68,56 @@ Authentication is enforced globally by an `AuthMiddleware` (plus the
 
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/refresh`
-- `POST /api/v1/users` (registration)
-- All `/api/v1/schedules/*`
-- `/health`, `/metrics`, `/docs`, `/redoc`, `/openapi.json`, `/.well-known/jwks.json`
+- `GET /api/v1/setup/status` (instance initialization state — used by the setup wizard / `SystemStatusGuard`)
+- `POST /api/v1/setup/bootstrap` (single-use, first-run Owner creation)
+- `GET /api/v1/invites/verify/{token}` (pre-registration token validity, no user data returned)
+- `POST /api/v1/invites/accept` (invite-token-based registration)
+- `GET /health`, `/metrics`, `/docs`, `/redoc`, `/openapi.json`, `/.well-known/jwks.json`
+
+`POST /api/v1/users` is **not** unconditionally public: it is rejected
+(`403`) while the instance is uninitialized and while access mode is
+`GLOBAL` (where registration must go through `POST /api/v1/invites/accept`).
+See [Users](#users) and [Setup & access mode](#setup--access-mode).
 
 Every other route requires a valid Bearer token.
 
-> **Known gap — authorization is only partially enforced.**
+### Authorization model (verified 2026-08-12)
+
+Authorization is enforced at the route dependency layer in two forms:
+
+1. **Global permissions** — `require_permission(...)` checks the caller's
+   token `permissions` claim (with an `admin:full` bypass). Used for
+   instance-wide operations: `server:create`, `server:write`, `server:delete`,
+   `server:read` (host-wide runtime snapshot), `backup:*`, `plugin:manage`,
+   `user:*`, `settings:*`, `global.settings`.
+2. **Server-scoped RBAC** — `require_server_permission(...)` reads the
+   `server_id` from path/query/body (rejecting conflicting values with `400`),
+   verifies the server exists (`404`), and grants access to the server's
+   **owner** (via `ServerModel.owner_id`), a **member** whose
+   `ServerMembershipModel` role includes the required node, or any caller with
+   a global claim (`admin:full`, `global.*`, `global.servers.manage`). Operates
+   on dynamic permission nodes such as `server.{id}.view`, `server.{id}.power`,
+   `server.{id}.console`, `server.{id}.files`, `server.{id}.settings`.
+
+> The pre-Phase-4 state described in older revisions of this document — most
+> routes auth-only, Files API reads/downloads with an open **IDOR gap**, plugin
+> enable/disable ungated — is **resolved**. All 7 Files routes are gated on
+> `server.{id}.files` (download additionally allows `server.{id}.view`), plugin
+> enable/disable gate on `plugin:manage`, settings/schedules/alerts/health
+> routes gate on their permissions, and the runtime diagnostics routes gate on
+> `server.{id}.view` / `server:read`. The complete route→permission matrix is
+> the source of truth in `contracts/permissions.yaml`.
 >
-> Authentication is enforced globally, and since the "enforce authorization
-> on highest-risk destructive endpoints" fix a small set of destructive
-> routes gate on the caller's token claims via the `require_permission`
-> dependency. But the rest of the request path is **not** gated: most
-> endpoints check neither the caller's `permissions` nor `roles`, the
-> command/query handlers do not gate operations on the caller's
-> `permissions`, and `PermissionEvaluator.has_permission()` /
-> `evaluate_abac()` are only called at login/refresh to build the token's
-> claims — never to gate a request.
->
-> **Currently enforced** (raise `PermissionDenied` → 403 when the caller
-> lacks the permission; `admin:full` always passes):
->
-> **servers** — `POST /servers` → `server:write`; `POST /servers/scan` →
-> `server:write`; `POST /servers/import` → `server:write`;
-> `PATCH /servers/{server_id}` → `server:write`; `DELETE /servers/{server_id}`
-> → `server:delete`; `POST /servers/{server_id}/start` → `server:start`;
-> `POST /servers/{server_id}/stop` and `/restart` → `server:stop`;
-> `POST /servers/{server_id}/command` → `server:write`;
-> `POST /servers/reconcile` → `server:write`;
-> `POST /servers/runtime/ownership/claim` → `server:write`;
-> `POST /servers/refresh` → `server:write`.
->
-> **backups** — `POST /backups` → `backup:create`; `DELETE /backups/{backup_id}`
-> → `backup:delete`; `POST /backups/{backup_id}/restore` → `backup:restore`;
-> `POST /backups/{backup_id}/verify` → `backup:read`.
->
-> **plugins** — `DELETE /servers/{server_id}/plugins/{plugin_id}` →
-> `plugin:manage`;
-> `GET /servers/{server_id}/plugins/marketplace/search`,
-> `GET /servers/{server_id}/plugins/marketplace/projects/{id}/versions`,
-> `POST /servers/{server_id}/plugins/marketplace/install` → `plugin:manage`.
->
-> **users / auth** — `PATCH /users/{user_id}` → `user:write`;
-> `DELETE /users/{user_id}` → `user:delete`;
-> `POST /auth/api-keys` and `DELETE /auth/api-keys/{id}` → `user:write`.
->
-> **files** — `PUT /servers/{server_id}/files/content` → `server:write`;
-> `DELETE /servers/{server_id}/files` → `server:delete`;
-> `POST /servers/{server_id}/files/upload` → `server:write`;
-> `POST /servers/{server_id}/files/mkdir` → `server:write`.
->
-> **Practical consequence: any authenticated user (any valid Bearer token,
-> any role) can still call every other endpoint in the system** — including
-> plugin enable/disable (K4), `PATCH /settings`, the alert-rule routes, the
-> health-evaluate route, the schedule routes, all reads (list/detail/
-> console/runtime/metrics/users/settings), and **Files API read/download endpoints**
-> (`GET /servers/{server_id}/files`, `GET /servers/{server_id}/files/content`,
-> `GET /servers/{server_id}/files/download`). The Files API read endpoints check
-> authentication (`get_current_user`) but do NOT check per-server permissions or scoping,
-> presenting a known **IDOR (Insecure Direct Object Reference)** gap. The remaining routes
-> are a known security gap in the current implementation, not an intentional design choice,
-> and are tracked in `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md` Phase 4 §6.1.
+> The full list of enforced routes is maintained in
+> [`contracts/permissions.yaml`](contracts/permissions.yaml) (v1.4, 83
+> effective routes), not duplicated inline here.
 
 ### 401 vs 403
 
 | Status | Meaning in this codebase |
 |---|---|
 | `401 AUTHENTICATION_ERROR` | Missing, malformed, expired, or invalid Bearer token; revoked/expired API key; deactivated account. No request reaches the route. |
-| `403 PERMISSION_DENIED` | Caller authenticated but lacks the required permission. Produced by the `require_permission` dependency on the destructive endpoints listed in the authorization known gap above. Other routes never produce it (not yet enforced). |
+| `403 PERMISSION_DENIED` | Caller authenticated but lacks the required permission. Produced by the `require_permission` / `require_server_permission` / `require_owner` dependencies and by access-mode registration blocks. |
 
 ---
 
@@ -144,7 +130,7 @@ Every other route requires a valid Bearer token.
 | `204` | Deleted / void (no body) |
 | `400` | Bad request (e.g. `POST /servers/scan` on a non-directory) |
 | `401` | Authentication failure (see above) |
-| `403` | Permission denied — raised by `require_permission` on the destructive endpoints listed in the authorization known gap above; not yet enforced on other routes |
+| `403` | Permission denied — raised by `require_permission` / `require_server_permission` / `require_owner` on all gated endpoints (see the authorization section under Authentication), and by the access-mode registration blocks |
 | `404` | Resource not found (e.g. unknown software type) |
 | `409` | Conflict (raised from command handlers) |
 | `415` | Mutating request without `Content-Type: application/json` |
@@ -200,10 +186,10 @@ Pydantic request-validation failures return FastAPI's default `422` shape
 | anything else | 400 |
 
 The `PERMISSION_DENIED` entry above is wired to a handler in
-`backend/app/api/errors.py` and is produced by the `require_permission`
-dependency on the destructive endpoints listed in the authorization known
-gap. It is still not raised for the majority of routes, which remain
-unauthorized on the enforcement path.
+`backend/app/api/errors.py` and is produced by the `require_permission`,
+`require_server_permission`, and `require_owner` dependencies on the enforced
+routes described in the [authorization model](#authorization-model-verified-2026-08-12)
+under Authentication.
 
 Domain error codes produced by command handlers (e.g. `SERVER_NOT_RUNNING`,
 `SERVER_NOT_FOUND`, `BACKUP_IN_PROGRESS`, `INVALID_CREDENTIALS`) are returned
@@ -248,9 +234,9 @@ All routes under `POST /api/v1/auth/*` except `login`/`refresh` require a Bearer
 | `POST` | `/api/v1/auth/refresh` | Public | `RefreshTokenRequest` | `200 LoginResponse` | Refresh token → new pair |
 | `POST` | `/api/v1/auth/logout` | Bearer | `LogoutRequest` (optional) | `200 dict` | Revokes refresh token |
 | `GET` | `/api/v1/auth/me` | Bearer | — | `200 dict` | Current user info; `404` if not found |
-| `GET` | `/api/v1/auth/api-keys` | Bearer | — | `200 list[ApiKeyResponse]` | Active keys for the current user (`key` is `null`) |
-| `POST` | `/api/v1/auth/api-keys` | Bearer | `ApiKeyCreateRequest` | `201 ApiKeyResponse` | **Plaintext `key` returned only here** |
-| `DELETE` | `/api/v1/auth/api-keys/{api_key_id}` | Bearer | — | `204` | Revokes an API key |
+| `GET` | `/api/v1/auth/api-keys` | `user:read` (global) | — | `200 list[ApiKeyResponse]` | Active keys for the current user (`key` is `null`) |
+| `POST` | `/api/v1/auth/api-keys` | `user:write` | `ApiKeyCreateRequest` | `201 ApiKeyResponse` | **Plaintext `key` returned only here** |
+| `DELETE` | `/api/v1/auth/api-keys/{api_key_id}` | `user:write` | — | `204` | Revokes an API key |
 
 ### Request / response schemas
 
@@ -280,7 +266,7 @@ permission strings, default `[]`).
   "name": "CI/CD Pipeline",
   "prefix": "mcs_xxxx",
   "key": null,
-  "permissions": ["servers:read", "backups:read"],
+  "permissions": ["server:read", "backup:read"],
   "expires_at": null,
   "is_revoked": false,
   "created_at": "2026-08-01T12:00:00"
@@ -291,29 +277,32 @@ permission strings, default `[]`).
 
 ## Servers
 
-Prefix `/api/v1/servers`. All routes require a Bearer token.
+Prefix `/api/v1/servers`. All routes require a Bearer token. Routes touching a
+specific server enforce server-scoped RBAC via `require_server_permission(...)`
+(owner / member-with-role / global claim); these operate on the dynamic
+`server.{id}.*` permission nodes.
 
-| Method | Path | Request body | Query params | Response | Notes |
-|---|---|---|---|---|---|
-| `GET` | `/api/v1/servers/available-port` | — | — | `200 dict` | Returns `{"port": <int>}` — first free port ≥ 25565 |
-| `GET` | `/api/v1/servers` | — | `status`, `group_id`, `name_search`, `minecraft_version` | `200 list[ServerResponse]` | Filterable list; no pagination |
-| `POST` | `/api/v1/servers` | `ServerCreateRequest` | — | `201 dict` | Creates a server |
-| `POST` | `/api/v1/servers/scan` | `ScanDirectoryRequest` | — | `200 ScanResult` | Scans a directory for an existing server; `400`/`403` on bad path/permission |
-| `POST` | `/api/v1/servers/import` | `ImportServerRequest` | — | `201 dict` | Imports an existing server dir |
-| `GET` | `/api/v1/servers/{server_id}` | — | — | `200 ServerDetailResponse` | Full server detail |
-| `PATCH` | `/api/v1/servers/{server_id}` | `ServerUpdateRequest` | — | `200 dict` | Update properties/memory |
-| `DELETE` | `/api/v1/servers/{server_id}` | — | — | `204` | Delete server |
-| `POST` | `/api/v1/servers/{server_id}/start` | — | — | `200 dict` | Start the server |
-| `POST` | `/api/v1/servers/{server_id}/stop` | `ServerActionRequest` | — | `200 dict` | Stop; body `reason` (default `""`) |
-| `POST` | `/api/v1/servers/{server_id}/restart` | — | — | `200 dict` | Restart |
-| `GET` | `/api/v1/servers/{server_id}/console` | — | `tail` (default `100`, 1–10000) | `200 ConsoleResponse` | Recent console lines |
-| `POST` | `/api/v1/servers/{server_id}/command` | `CommandRequest` | — | `200 dict` | Sends a console command (`SERVER_NOT_RUNNING` if not running) |
-| `GET` | `/api/v1/servers/{server_id}/runtime` | — | — | `200 RuntimeDiagnosticsResponse` | Live runtime diagnostics |
-| `GET` | `/api/v1/servers/runtime/ownership` | — | — | `200 RuntimeOwnershipResponse` | Orphan/conflict snapshot |
-| `POST` | `/api/v1/servers/runtime/ownership/claim` | — | `server_id` (query) | `200 ClaimLocalhostResponse` | Claim localhost ownership for a server |
-| `GET` | `/api/v1/servers/{server_id}/runtime/validate` | — | — | `200 ValidationChainResponse` | Runs the ownership validation chain |
-| `POST` | `/api/v1/servers/reconcile` | `ReconcileRequest` (optional body) | — | `200 dict` | Runtime reconciliation + orphan cleanup; `scope` defaults `project_owned` |
-| `POST` | `/api/v1/servers/refresh` | — | `dry_run` (bool, default `false`) | `200 ReconciliationResultResponse` | Filesystem reconciliation (DB ↔ disk) |
+| Method | Path | Auth | Request body | Query params | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/api/v1/servers/available-port` | Bearer | — | — | `200 dict` | Returns `{"port": <int>}` — first free port ≥ 25565 |
+| `GET` | `/api/v1/servers` | Bearer | — | `status`, `group_id`, `name_search`, `minecraft_version` | `200 list[ServerResponse]` | Filterable list; no pagination |
+| `POST` | `/api/v1/servers` | `server:create` | `ServerCreateRequest` | — | `201 dict` | Creates a server; the creator becomes `owner_id` |
+| `POST` | `/api/v1/servers/scan` | `server:write` | `ScanDirectoryRequest` | — | `200 ScanResult` | Scans a directory for an existing server; `400`/`403` on bad path/permission |
+| `POST` | `/api/v1/servers/import` | `server:write` | `ImportServerRequest` | — | `201 dict` | Imports an existing server dir |
+| `GET` | `/api/v1/servers/{server_id}` | Bearer | — | — | `200 ServerDetailResponse` | Full server detail (auth-only; no permission node) |
+| `PATCH` | `/api/v1/servers/{server_id}` | `server:write` | `ServerUpdateRequest` | — | `200 dict` | Update properties/memory |
+| `DELETE` | `/api/v1/servers/{server_id}` | `server:delete` | — | — | `204` | Delete server |
+| `POST` | `/api/v1/servers/{server_id}/start` | `server.{id}.power` | — | — | `200 dict` | Start the server |
+| `POST` | `/api/v1/servers/{server_id}/stop` | `server.{id}.power` | `ServerActionRequest` | — | `200 dict` | Stop; body `reason` (default `""`) |
+| `POST` | `/api/v1/servers/{server_id}/restart` | `server.{id}.power` | — | — | `200 dict` | Restart |
+| `GET` | `/api/v1/servers/{server_id}/console` | `server.{id}.view` | — | `tail` (default `100`, 1–10000) | `200 ConsoleResponse` | Recent console lines |
+| `POST` | `/api/v1/servers/{server_id}/command` | `server.{id}.console` | `CommandRequest` | — | `200 dict` | Sends a console command (`SERVER_NOT_RUNNING` if not running) |
+| `GET` | `/api/v1/servers/{server_id}/runtime` | `server.{id}.view` | — | — | `200 RuntimeDiagnosticsResponse` | Live runtime diagnostics |
+| `GET` | `/api/v1/servers/runtime/ownership` | `server:read` (global) | — | — | `200 RuntimeOwnershipResponse` | Orphan/conflict snapshot (host-wide PID/tmux data) |
+| `POST` | `/api/v1/servers/runtime/ownership/claim` | `server:write` | — | `server_id` (query) | `200 ClaimLocalhostResponse` | Claim localhost ownership for a server |
+| `GET` | `/api/v1/servers/{server_id}/runtime/validate` | `server.{id}.view` | — | — | `200 ValidationChainResponse` | Runs the ownership validation chain |
+| `POST` | `/api/v1/servers/reconcile` | `server:write` | `ReconcileRequest` (optional body) | — | `200 dict` | Runtime reconciliation + orphan cleanup; `scope` defaults `project_owned` |
+| `POST` | `/api/v1/servers/refresh` | `server:write` | — | `dry_run` (bool, default `false`) | `200 ReconciliationResultResponse` | Filesystem reconciliation (DB ↔ disk) |
 
 > Note: static routes (`/available-port`, `/runtime/ownership`,
 > `/reconcile`, `/refresh`) and parameterized routes (`/{server_id}`) coexist
@@ -423,14 +412,14 @@ nullable deployment fields `provider`, `deployment_host`, `deployment_port`,
 
 Prefix `/api/v1/backups`. All routes require a Bearer token.
 
-| Method | Path | Request body | Query params | Response | Notes |
-|---|---|---|---|---|---|
-| `GET` | `/api/v1/backups` | — | `server_id` (optional filter) | `200 list[BackupResponse]` | |
-| `POST` | `/api/v1/backups` | `CreateBackupRequest` | — | `201 dict` | Starts a backup job |
-| `GET` | `/api/v1/backups/{backup_id}` | — | — | `200 BackupResponse` | |
-| `DELETE` | `/api/v1/backups/{backup_id}` | — | — | `204` | |
-| `POST` | `/api/v1/backups/{backup_id}/restore` | — | — | `200 dict` | Restore from backup |
-| `POST` | `/api/v1/backups/{backup_id}/verify` | — | — | `200 VerifyBackupResponse` | Checksum/size verification |
+| Method | Path | Auth | Request body | Query params | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/api/v1/backups` | Bearer | — | `server_id` (optional filter) | `200 list[BackupResponse]` | |
+| `POST` | `/api/v1/backups` | `backup:create` | `CreateBackupRequest` | — | `201 dict` | Starts a backup job |
+| `GET` | `/api/v1/backups/{backup_id}` | Bearer | — | — | `200 BackupResponse` | |
+| `DELETE` | `/api/v1/backups/{backup_id}` | `backup:delete` | — | — | `204` | |
+| `POST` | `/api/v1/backups/{backup_id}/restore` | `backup:restore` | — | — | `200 dict` | Restore from backup (`202` when deferred) |
+| `POST` | `/api/v1/backups/{backup_id}/verify` | `backup:read` | — | — | `200 VerifyBackupResponse` | Checksum/size verification |
 
 ### Schemas
 
@@ -463,19 +452,19 @@ Prefix `/api/v1/servers/{server_id}/plugins`. All routes require a Bearer token.
 
 | Method | Path | Auth | Request body | Response | Notes |
 |---|---|---|---|---|---|
-| `GET` | `/api/v1/servers/{server_id}/plugins` | Bearer | — | `200 list[PluginResponse]` | **Triggers filesystem reconciliation first** — on-disk `.jar` files become `detected` rows, deleted files are pruned |
+| `GET` | `/api/v1/servers/{server_id}/plugins` | Bearer | — | `200 list[PluginResponse]` | **Triggers filesystem reconciliation first** — on-disk `.jar` files become `detected` rows, deleted files are pruned (auth-only) |
 | `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/search` | `plugin:manage` | — | `200 list[PluginSearchResultResponse]` | Modrinth catalog search (`query`, `limit`, `offset` query params) |
 | `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions` | `plugin:manage` | — | `200 PluginVersionsResponse` | Versions + best-version selection for the server (with `selected`, `notice`, `notice_kind`) |
 | `POST` | `/api/v1/servers/{server_id}/plugins/marketplace/install` | `plugin:manage` | `InstallModrinthPluginRequest` | `201 InstallModrinthPluginResponse` | Downloads the `.jar` (SHA-1/SHA-512 verified) into the server's `plugins/` folder |
-| `GET` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | Bearer | — | `200 PluginResponse` | |
+| `GET` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | Bearer | — | `200 PluginResponse` | Auth-only |
 | `DELETE` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | `plugin:manage` | — | `204` | Uninstall — sets `pending_deletion`; file removed on next server start/restart |
-| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/enable` | Bearer | — | `200 dict` | ⚠️ Auth-only; no `require_permission` (K4) |
-| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/disable` | Bearer | — | `200 dict` | ⚠️ Auth-only; no `require_permission` (K4) |
+| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/enable` | `plugin:manage` | — | `200 dict` | K4 resolved in Phase 4 (`a47daa8`) — now gated |
+| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/disable` | `plugin:manage` | — | `200 dict` | K4 resolved in Phase 4 (`a47daa8`) — now gated |
 
-> **Note:** the marketplace routes carry `require_permission("plugin:manage")`
-> while the plain list/get/enable/disable routes use `Depends(get_current_user)`
-> only. Closing the enable/disable gap is tracked as K4 in
-> `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md` Phase 4 §6.1. See `docs/architecture/plugins-and-marketplace.md`.
+> **Note:** plugin lifecycle and marketplace routes (enable/disable/uninstall/
+> marketplace) gate on `plugin:manage` (K4 resolved in Phase 4, commit
+> `a47daa8`). The list/get routes remain **auth-only** (`get_current_user`).
+> See `docs/architecture/plugins-and-marketplace.md`.
 
 ### Schemas
 
@@ -521,16 +510,28 @@ Prefix `/api/v1/servers/{server_id}/plugins`. All routes require a Bearer token.
 
 ## Users
 
-Prefix `/api/v1/users`. `POST /api/v1/users` is public (registration); all
-other routes require a Bearer token.
+Prefix `/api/v1/users`. Registration semantics depend on instance state and
+access mode (see [Setup & access mode](#setup--access-mode)):
+
+- While the instance is **uninitialized**, `POST /api/v1/users` is rejected
+  with `403 Forbidden ("Instance uninitialized. Complete setup bootstrap first.")`.
+- In **`GLOBAL`** access mode, `POST /api/v1/users` is rejected with
+  `403 Forbidden ("Public self-registration is disabled in GLOBAL access
+  mode. Use an invitation token to register.")` — registration happens via
+  `POST /api/v1/invites/accept`.
+- In **`LOCAL`** access mode (default), `POST /api/v1/users` accepts open
+  self-registration; the created user gets the default `viewer` role.
+
+All other routes require a Bearer token, and `PATCH`/`DELETE` gate on
+`user:write` / `user:delete`.
 
 | Method | Path | Auth | Request body | Response | Notes |
 |---|---|---|---|---|---|
 | `GET` | `/api/v1/users` | Bearer | — | `200 list[UserResponse]` | |
-| `POST` | `/api/v1/users` | Public | `CreateUserRequest` | `201 UserResponse` | Registration |
+| `POST` | `/api/v1/users` | Public* | `CreateUserRequest` | `201 UserResponse` | Registration — **public only in `LOCAL` mode on an initialized instance** (`403` otherwise) |
 | `GET` | `/api/v1/users/{user_id}` | Bearer | — | `200 UserResponse` | `404` if not found |
-| `PATCH` | `/api/v1/users/{user_id}` | Bearer | `UpdateUserRequest` | `200 UserResponse` | |
-| `DELETE` | `/api/v1/users/{user_id}` | Bearer | — | `204` | |
+| `PATCH` | `/api/v1/users/{user_id}` | Bearer (`user:write`) | `UpdateUserRequest` | `200 UserResponse` | |
+| `DELETE` | `/api/v1/users/{user_id}` | Bearer (`user:delete`) | — | `204` | |
 
 ### Schemas
 
@@ -557,14 +558,17 @@ other routes require a Bearer token.
 
 ## Health
 
-Prefix `/api/v1/health`. All routes require a Bearer token.
+Prefix `/api/v1/health`. All routes require a Bearer token. Only
+`POST /evaluate/{server_id}` enforces server-scoped RBAC via
+`require_server_permission("server.{id}.view")`; the read routes use
+`get_current_user` (auth-only, no permission node).
 
-| Method | Path | Query params | Response | Notes |
-|---|---|---|---|---|
-| `GET` | `/api/v1/health/status/{server_id}` | — | `200 HealthStatusResponse` | `status` is `"unknown"` when no record exists |
-| `POST` | `/api/v1/health/evaluate/{server_id}` | — | `200 dict` | Triggers a health evaluation |
-| `GET` | `/api/v1/health/timeline/{server_id}` | `limit` (default `100`, 1–10000) | `200 HealthTimelineResponse` | State-change history |
-| `GET` | `/api/v1/health/dashboard` | — | `200 HealthDashboardResponse` | Aggregated counts + per-server summaries |
+| Method | Path | Auth | Query params | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/v1/health/status/{server_id}` | Bearer | — | `200 HealthStatusResponse` | `status` is `"unknown"` when no record exists |
+| `POST` | `/api/v1/health/evaluate/{server_id}` | `server.{id}.view` | — | `200 dict` | Triggers a health evaluation |
+| `GET` | `/api/v1/health/timeline/{server_id}` | Bearer | `limit` (default `100`, 1–10000) | `200 HealthTimelineResponse` | State-change history |
+| `GET` | `/api/v1/health/dashboard` | Bearer | — | `200 HealthDashboardResponse` | Aggregated counts + per-server summaries |
 
 ### Schemas
 
@@ -594,14 +598,15 @@ Status values: `healthy`, `warning`, `critical`, `broken`, `unknown`, `pending`.
 
 ## Monitoring
 
-Prefix `/api/v1/monitoring`. All routes require a Bearer token.
+Prefix `/api/v1/monitoring`. All routes require a Bearer token. Per-server
+routes enforce server-scoped RBAC via `require_server_permission(...)`.
 
-| Method | Path | Request body | Query params | Response | Notes |
-|---|---|---|---|---|---|
-| `GET` | `/api/v1/monitoring/metrics` | — | `server_id` (required), `limit` (default `100`, 1–10000) | `200 list[dict]` | Metric points: `tps`, `players`, `ram_used_mb`, `cpu_percent`, `timestamp` |
-| `POST` | `/api/v1/monitoring/alerts` | `CreateAlertRuleRequest` | — | `201 dict` | Create an alert rule |
-| `GET` | `/api/v1/monitoring/alerts` | — | — | `200 list[dict]` | **Stub** — always returns `[]` |
-| `DELETE` | `/api/v1/monitoring/alerts/{alert_rule_id}` | — | — | `204` | **Stub** — no-op |
+| Method | Path | Auth | Request body | Query params | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/api/v1/monitoring/metrics` | `server.{id}.view` | — | `server_id` (required), `limit` (default `100`, 1–10000) | `200 list[dict]` | Metric points: `tps`, `players`, `ram_used_mb`, `cpu_percent`, `timestamp` |
+| `POST` | `/api/v1/monitoring/alerts/{server_id}` | `server.{id}.settings` | `CreateAlertRuleRequest` | — | `201 dict` | Create an alert rule — `server_id` **path-based** (refactored to eliminate IDOR / parameter-pollution) |
+| `GET` | `/api/v1/monitoring/alerts` | Bearer | — | — | `200 list[dict]` | **Stub** — always returns `[]` |
+| `DELETE` | `/api/v1/monitoring/alerts/{alert_rule_id}` | `global.settings` | — | — | `204` | **Stub** — no-op |
 
 `CreateAlertRuleRequest` (defined inline in the router, not in `schemas/`):
 `server_id` (string, required), `metric_name` (string, required),
@@ -612,13 +617,14 @@ Prefix `/api/v1/monitoring`. All routes require a Bearer token.
 
 ## Schedules
 
-Prefix `/api/v1/schedules`. **Public** (no auth).
+Prefix `/api/v1/schedules`. Requires a Bearer token; mutating routes gate on
+`global.settings`. All three are **stubs** (see `docs/current-state.md` §4.5).
 
-| Method | Path | Response | Notes |
-|---|---|---|---|
-| `GET` | `/api/v1/schedules` | `200 list` | **Stub** — always returns `[]` |
-| `POST` | `/api/v1/schedules` | `201 dict` | **Stub** — returns `{"success": true, "schedule_id": "stub-schedule-id"}` |
-| `DELETE` | `/api/v1/schedules/{schedule_id}` | `204` | **Stub** — no-op |
+| Method | Path | Auth | Response | Notes |
+|---|---|---|---|---|
+| `GET` | `/api/v1/schedules` | Bearer | `200 list` | **Stub** — always returns `[]` |
+| `POST` | `/api/v1/schedules` | `global.settings` | `201 dict` | **Stub** — returns `{"success": true, "schedule_id": "stub-schedule-id"}` |
+| `DELETE` | `/api/v1/schedules/{schedule_id}` | `global.settings` | `204` | **Stub** — no-op |
 
 ---
 
@@ -626,10 +632,10 @@ Prefix `/api/v1/schedules`. **Public** (no auth).
 
 Prefix `/api/v1/settings`. All routes require a Bearer token.
 
-| Method | Path | Response | Notes |
-|---|---|---|---|
-| `GET` | `/api/v1/settings` | `200 dict` | Current live settings and `requires_restart` field list. Requires `settings:read`. |
-| `PATCH` | `/api/v1/settings` | `200 dict` | Persists updates to `config/settings.yaml`, updates live in-memory store, and hot-reloads running consumers. Requires `settings:write`. |
+| Method | Path | Auth | Response | Notes |
+|---|---|---|---|---|
+| `GET` | `/api/v1/settings` | `settings:read` | `200 dict` | Current live settings and `requires_restart` field list |
+| `PATCH` | `/api/v1/settings` | `settings:write` | `200 dict` | Persists updates to `config/settings.yaml`, updates live in-memory store, and hot-reloads running consumers |
 
 `GET /api/v1/settings` returns:
 ```json
@@ -654,26 +660,37 @@ Prefix `/api/v1/settings`. All routes require a Bearer token.
 
 Prefix `/api/v1/software`. All routes require a Bearer token.
 
-| Method | Path | Response | Notes |
-|---|---|---|---|
-| `GET` | `/api/v1/software` | `200 list[dict]` | Supported software types (`type`, `name`, `description`, `url`, `supports_versions`) |
-| `GET` | `/api/v1/software/{software_type}/versions` | `200 list[string]` | Fetched versions; `404` for unknown `software_type` |
+| Method | Path | Auth | Response | Notes |
+|---|---|---|---|---|
+| `GET` | `/api/v1/software` | Bearer | `200 list[dict]` | Supported software types (`type`, `name`, `description`, `url`, `supports_versions`) |
+| `GET` | `/api/v1/software/{software_type}/versions` | Bearer | `200 list[string]` | Fetched versions; `404` for unknown `software_type` |
 
 ---
 
 ## Files
 
-Prefix `/api/v1/servers/{server_id}/files`. All routes require a Bearer token.
+Prefix `/api/v1/servers/{server_id}/files`. All routes require a Bearer token
+**and** server-scoped authorization via `require_server_permission(...)`
+(owner, a member with the required role, or a global claim). A member with
+the `viewer` server role can download files (`server.{id}.view`) but cannot
+list/read/write/delete/upload/mkdir (those need `server.{id}.files`).
+
+> **Sensitive-file guard:** `server.properties` carries `rcon.password`.
+> All access to it is denied for **everyone** — reads (`GET /files`,
+> `GET /files/content`, `GET /files/download`) and writes (`PUT /files/content`)
+> return `403` for this filename (case-insensitive). This is enforced in
+> `backend/app/api/v1/routers/files.py` (`SENSITIVE_FILENAMES` /
+> `_assert_not_sensitive`).
 
 | Method | Path | Auth | Request body | Response | Notes |
 |---|---|---|---|---|---|
-| `GET` | `/api/v1/servers/{server_id}/files` | Bearer | — | `200 list[FileEntryResponse]` | List directory contents (`path` query param, default `""`); 403 on path traversal attempt |
-| `GET` | `/api/v1/servers/{server_id}/files/content` | Bearer | — | `200 FileContentResponse` | Read text file content (`path` query param required) — ⚠️ Auth-only; no per-server scope check (IDOR open item) |
-| `PUT` | `/api/v1/servers/{server_id}/files/content` | `server:write` | `WriteFileContentRequest` | `200 FileContentResponse` | Write text file content (`path` query param required) — uses atomic write |
-| `DELETE` | `/api/v1/servers/{server_id}/files` | `server:delete` | — | `204` | Delete file or directory (`path` query param required); cannot delete server root |
-| `POST` | `/api/v1/servers/{server_id}/files/upload` | `server:write` | `multipart/form-data` | `201 FileEntryResponse` | Upload file (`file` form parameter, `path` query param default `""`) |
-| `GET` | `/api/v1/servers/{server_id}/files/download` | Bearer | — | `200 FileResponse` | Download file as `application/octet-stream` (`path` query param required) — ⚠️ Auth-only (IDOR open item) |
-| `POST` | `/api/v1/servers/{server_id}/files/mkdir` | `server:write` | — | `201 FileEntryResponse` | Create directory (`path` query param required) |
+| `GET` | `/api/v1/servers/{server_id}/files` | `server.{id}.files` | — | `200 list[FileEntryResponse]` | List directory contents (`path` query param, default `""`); 403 on path traversal or sensitive file |
+| `GET` | `/api/v1/servers/{server_id}/files/content` | `server.{id}.files` | — | `200 FileContentResponse` | Read text file content (`path` query param required) |
+| `PUT` | `/api/v1/servers/{server_id}/files/content` | `server.{id}.files` | `WriteFileContentRequest` | `200 FileContentResponse` | Write text file content (`path` query param required) — uses atomic write |
+| `DELETE` | `/api/v1/servers/{server_id}/files` | `server.{id}.files` | — | `204` | Delete file or directory (`path` query param required); cannot delete server root |
+| `POST` | `/api/v1/servers/{server_id}/files/upload` | `server.{id}.files` | `multipart/form-data` | `201 FileEntryResponse` | Upload file (`file` form parameter, `path` query param default `""`) |
+| `GET` | `/api/v1/servers/{server_id}/files/download` | `server.{id}.files` **or** `server.{id}.view` | — | `200 FileResponse` | Download file as `application/octet-stream` (`path` query param required) |
+| `POST` | `/api/v1/servers/{server_id}/files/mkdir` | `server.{id}.files` | — | `201 FileEntryResponse` | Create directory (`path` query param required) |
 
 ### Schemas
 
@@ -698,6 +715,86 @@ Prefix `/api/v1/servers/{server_id}/files`. All routes require a Bearer token.
 `WriteFileContentRequest`: `content` (string, required).
 
 ---
+
+## Setup & access mode
+
+The setup subsystem (`backend/app/api/v1/routers/setup.py`) manages instance
+initialization and the access mode. Every fresh deployment starts
+**uninitialized** — all protected routes are blocked (except the public
+setup/invite/verify/login/health paths) until the Owner is created.
+
+### Endpoints
+
+| Method | Path | Auth | Request body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/v1/setup/status` | Public | — | `200 SystemStatusResponse` | `{"initialized": bool, "access_mode": "LOCAL"/"GLOBAL", "user_count": int}` — consumed by the setup wizard and `SystemStatusGuard` |
+| `POST` | `/api/v1/setup/bootstrap` | Public | `BootstrapRequest` | `201 BootstrapResponse` | **Single-use** first-run: creates the Owner user and marks the instance initialized with the chosen access mode. Rejected `409 Conflict` once initialized. |
+| `PUT` | `/api/v1/setup/access-mode` | **Owner only** (`require_owner()`) | `AccessModeRequest` | `200 SystemStatusResponse` | Flips `LOCAL` ↔ `GLOBAL`. `admin:full` alone is **not** sufficient — the caller needs the `owner` role or a `global.*` permission claim. Rejected `400` if the instance is not initialized. |
+
+> **Owner authority:** the Owner is the bootstrap-created user who receives
+> the `owner` role plus `admin:full` / `global.*` permission claims. Only the
+> Owner (or a `global.*`-equipped claim) may change the access mode.
+
+### Registration behavior by access mode
+
+| Access mode | `POST /api/v1/users` self-registration | Invitations | Typical deployment |
+|---|---|---|---|
+| `LOCAL` (default) | ✅ Public — new users get the `viewer` role | Optional | Single-owner home-lab / LAN |
+| `GLOBAL` | ❌ `403` — registration via invite token only (`POST /api/v1/invites/accept`) | Required | VPS / remote multi-user |
+
+The access mode can be changed at any time after bootstrap via
+`PUT /api/v1/setup/access-mode`.
+
+### Schemas
+
+`BootstrapRequest`: `email`, `password` (min 8 chars), `display_name`,
+`access_mode` (default `"LOCAL"`).
+
+`AccessModeRequest`: `access_mode` (`"LOCAL"` or `"GLOBAL"`).
+
+`BootstrapResponse`: `success`, `message`, `user_id`, `access_token`,
+`refresh_token`, `token_type`, `expires_in` (900).
+
+`SystemStatusResponse`:
+```json
+{
+  "initialized": true,
+  "access_mode": "LOCAL",
+  "user_count": 1,
+  "version": "4.0.0"
+}
+```
+
+---
+
+## Invites
+
+The invitation system (`backend/app/api/v1/routers/invites.py`) is the
+registration path in `GLOBAL` access mode and the role-granting mechanism for
+both modes. Invitations are stateful: their lifecycle status is `ACTIVE`,
+`USED`, `REVOKED`, or `EXPIRED`. Acceptance atomically creates the user (and,
+when the invite carries `server_id`/`server_role`, provisions the
+`ServerMembershipModel` row).
+
+| Method | Path | Auth | Request body | Response | Notes |
+|---|---|---|---|---|---|
+| `POST` | `/api/v1/invites` | `user:write` | `CreateInviteRequest` | `201 CreateInviteResponse` | Issue an invitation (can scope a global role and/or a server membership). Handler enforces Owner/Admin privilege checks on requested roles. |
+| `GET` | `/api/v1/invites` | `user:write` | — | `200 list[...]` | List invitations (token hash never returned). |
+| `DELETE` | `/api/v1/invites/{invite_id}` | `user:write` | — | `204` | Revoke an invitation (`status → REVOKED`). |
+| `GET` | `/api/v1/invites/verify/{token}` | Public | — | `200 VerifyInviteResponse` | Pre-registration token validity check (returns the claimed role/display name so the InvitePage can render; no user account is created). |
+| `POST` | `/api/v1/invites/accept` | Public | `AcceptInviteRequest` | `201 AcceptInviteResponse` | Redeem the token to register. Rejected for unknown/expired/revoked/used tokens. |
+
+> Invite tokens are stored as **SHA-256 hashes** (`InvitationModel.token_hash`)
+> in the `invitations` table; the plaintext token is returned only at creation
+> time.
+
+### Schemas
+
+`CreateInviteRequest`: `email` (optional), `global_role` (optional default
+`"member"`), `server_id` (optional), `server_role` (optional), `max_uses`
+(default `1`).
+
+`AcceptInviteRequest`: `token`, `email`, `password`, `display_name`.
 
 ---
 
@@ -753,21 +850,33 @@ Unknown message types and invalid payloads produce an `error` message
 
 ### Channels
 
-Channel authorization is permission-based at subscribe time. **WebSocket channel delivery is fully functional (Phase 3 resolved)** — per-channel authorization enforces singular REST permissions (`server:read`, `backup:read`, etc.) with `admin:full` bypass (fixed in commit `b98da77`). Frontend `WebSocketManager` handles active channel subscriptions on route change (commit `d096f75`). `MetricsBridgeHandler` subscribes to domain events and flushes batched metrics over `metrics:<serverId>` channel every ~2s (commit `db1889d`).
+Channel authorization is permission-based at subscribe time
+(`backend/app/websocket/authorization.py`). **WebSocket channel delivery is
+fully functional (Phase 3 resolved)** — per-channel authorization enforces
+**singular** REST permissions with an `admin:full` bypass (fixed in commit
+`b98da77`). Frontend `WebSocketManager` handles active channel subscriptions
+on route change (commit `d096f75`). `MetricsBridgeHandler` subscribes to
+domain events and flushes batched metrics over `metrics:<serverId>` channel
+every ~2s (commit `db1889d`).
 
 The channel mapping:
 
 | Channel | Required permission |
 |---|---|
-| `server:*` | `servers:read`, `servers:write` |
-| `server:{server_id}` | `servers:read` |
-| `server:{server_id}:console` | `servers:console` |
-| `backup:*` / `backup:{backup_id}` | `backups:read` |
-| `plugin:*` / `plugin:{plugin_id}` | `plugins:read` |
-| `monitoring:*` / `monitoring:{server_id}` | `monitoring:read` |
-| `metrics:*` / `metrics:{server_id}` | `monitoring:read` |
-| `auth:*` | `auth:read` |
-| `user:{user_id}` | `users:read` |
+| `server:*` | `server:read`, `server:write` |
+| `server:{server_id}` | `server:read` |
+| `server:{server_id}:console` | `server:read` |
+| `backup:*` / `backup:{backup_id}` | `backup:read` |
+| `plugin:*` / `plugin:{plugin_id}` | `plugin:read` |
+| `monitoring:*` / `monitoring:{server_id}` | `server:read` |
+| `metrics:*` / `metrics:{server_id}` | `server:read` |
+| `auth:*` | `user:read` |
+| `user:{user_id}` | `user:read` |
+
+> Note: channel authorization reads the caller's **global** permission claims
+> (the `server:read`, `user:read`, etc. tokens on the account). Server-scoped
+> membership does not open a channel on its own; the account's global claims
+> gate subscription.
 
 Maximum **50 channel subscriptions** per connection. WebSocket messages are
 rate-limited per connection; exceeding the limit yields an `error`
