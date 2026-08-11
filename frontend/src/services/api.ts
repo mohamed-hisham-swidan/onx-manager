@@ -300,8 +300,8 @@ export function createApiClient(
       request<MetricsSnapshot[]>("/api/v1/monitoring/metrics", { params: { server_id: serverId, limit: limit?.toString() } }),
     listAlerts: () =>
       request<Record<string, unknown>[]>("/api/v1/monitoring/alerts"),
-    createAlertRule: (body: CreateAlertRuleRequest) =>
-      request<Record<string, unknown>>("/api/v1/monitoring/alerts", { method: "POST", body }),
+    createAlertRule: (serverId: string, body: CreateAlertRuleRequest) =>
+      request<Record<string, unknown>>(`/api/v1/monitoring/alerts/${serverId}`, { method: "POST", body }),
     deleteAlertRule: (alertRuleId: string) =>
       request<void>(`/api/v1/monitoring/alerts/${alertRuleId}`, { method: "DELETE" }),
 

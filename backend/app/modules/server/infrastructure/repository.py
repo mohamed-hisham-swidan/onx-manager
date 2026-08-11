@@ -20,7 +20,8 @@ from app.modules.server.domain.value_objects import (
     ServerProperties,
     ServerType,
 )
-from app.modules.server.infrastructure.models import ServerModel
+from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
+
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 
@@ -196,3 +197,53 @@ class SQLServerRepository(ServerRepository):
         server._status = status_map.get(model.status, ServerStatus.CREATED)
 
         return server
+
+
+class SQLServerMembershipRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add_membership(self, id: str, server_id: str, user_id: str, role: str) -> ServerMembershipModel:
+        model = ServerMembershipModel(
+            id=id,
+            server_id=server_id,
+            user_id=user_id,
+            role=role,
+        )
+        self._session.add(model)
+        await self._session.flush()
+        return model
+
+    async def get_membership(self, server_id: str, user_id: str) -> ServerMembershipModel | None:
+        stmt = select(ServerMembershipModel).where(
+            ServerMembershipModel.server_id == server_id,
+            ServerMembershipModel.user_id == user_id,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_memberships_for_server(self, server_id: str) -> list[ServerMembershipModel]:
+        stmt = select(ServerMembershipModel).where(ServerMembershipModel.server_id == server_id)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_memberships_for_user(self, user_id: str) -> list[ServerMembershipModel]:
+        stmt = select(ServerMembershipModel).where(ServerMembershipModel.user_id == user_id)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def remove_membership(self, server_id: str, user_id: str) -> bool:
+        membership = await self.get_membership(server_id, user_id)
+        if membership is None:
+            return False
+        await self._session.delete(membership)
+        await self._session.flush()
+        return True
+
+    async def update_membership_role(self, server_id: str, user_id: str, role: str) -> ServerMembershipModel | None:
+        membership = await self.get_membership(server_id, user_id)
+        if membership is None:
+            return None
+        membership.role = role
+        await self._session.flush()
+        return membership

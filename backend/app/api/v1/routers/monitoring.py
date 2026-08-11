@@ -2,7 +2,13 @@ from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_command_bus, get_current_user, get_query_bus
+from app.api.deps import (
+    get_command_bus,
+    get_current_user,
+    get_query_bus,
+    require_permission,
+    require_server_permission,
+)
 from app.api.errors import check_command_result
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
@@ -18,7 +24,6 @@ __all__ = ["router"]
 
 
 class CreateAlertRuleRequest(BaseModel):
-    server_id: str
     metric_name: str
     condition: str = "gt"
     threshold: float
@@ -47,14 +52,15 @@ async def get_metrics(
     ]
 
 
-@router.post("/alerts", response_model=dict, status_code=201)
+@router.post("/alerts/{server_id}", response_model=dict, status_code=201)
 async def create_alert_rule(
+    server_id: str,
     body: CreateAlertRuleRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_server_permission("server.{id}.settings")),
 ) -> dict:
     cmd = CreateAlertRuleCommand(
-        server_id=body.server_id,
+        server_id=server_id,
         metric_name=body.metric_name,
         condition=body.condition,
         threshold=body.threshold,
@@ -75,6 +81,7 @@ async def list_alerts(
 @router.delete("/alerts/{alert_rule_id}", status_code=204)
 async def delete_alert_rule(
     alert_rule_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("global.settings")),
 ) -> None:
     pass
+

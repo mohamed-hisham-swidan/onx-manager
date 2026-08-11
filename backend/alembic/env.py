@@ -8,6 +8,14 @@ from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.persistence.base import Base
+import app.modules.auth.infrastructure.audit  # noqa
+import app.modules.auth.infrastructure.models  # noqa
+import app.modules.backup.infrastructure.models  # noqa
+import app.modules.event_store.models  # noqa
+import app.modules.health.infrastructure.models  # noqa
+import app.modules.monitoring.infrastructure.models  # noqa
+import app.modules.plugin.infrastructure.models  # noqa
+import app.modules.server.infrastructure.models  # noqa
 
 config = context.config
 if config.config_file_name is not None:

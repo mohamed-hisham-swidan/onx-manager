@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_command_bus, get_current_user, get_event_bus, get_query_bus
+from app.api.deps import (
+    get_command_bus,
+    get_current_user,
+    get_event_bus,
+    get_query_bus,
+    require_server_permission,
+)
 from app.api.errors import check_command_result
 from app.api.v1.schemas.health import (
     HealthDashboardResponse,
@@ -49,7 +55,7 @@ async def get_health_status(
 async def evaluate_health(
     server_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_server_permission("server.{id}.view")),
 ) -> dict:
     result = await command_bus.send(EvaluateHealthCommand(server_id=server_id))
     return check_command_result(result)

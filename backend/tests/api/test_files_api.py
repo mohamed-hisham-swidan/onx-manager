@@ -7,11 +7,13 @@ from httpx import AsyncClient
 pytest_plugins = ["tests.api.test_api_endpoints"]
 
 from app.core.persistence.db import database
-from app.modules.server.infrastructure.models import ServerModel
+from app.modules.auth.infrastructure.models import UserModel
+from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
 from tests.api.test_api_endpoints import _seed_api_key_header
 
 
-async def _seed_server(server_id: str, name: str, root_path: str | None) -> None:
+
+async def _seed_server(server_id: str, name: str, root_path: str | None, owner_id: str | None = None) -> None:
     async with database._session_factory() as session:
         server = ServerModel(
             id=server_id,
@@ -26,8 +28,35 @@ async def _seed_server(server_id: str, name: str, root_path: str | None) -> None
             gamemode="survival",
             difficulty="normal",
             root_path=root_path,
+            owner_id=owner_id,
         )
         session.add(server)
+        await session.commit()
+
+
+async def _seed_membership(membership_id: str, server_id: str, user_id: str, role: str) -> None:
+    async with database._session_factory() as session:
+        mem = ServerMembershipModel(
+            id=membership_id,
+            server_id=server_id,
+            user_id=user_id,
+            role=role,
+        )
+        session.add(mem)
+        await session.commit()
+
+
+
+async def _seed_user(user_id: str, email: str, name: str) -> None:
+    async with database._session_factory() as session:
+        user = UserModel(
+            id=user_id,
+            email=email,
+            password_hash="hash",
+            display_name=name,
+            is_active=True,
+        )
+        session.add(user)
         await session.commit()
 
 
@@ -41,15 +70,17 @@ async def test_files_missing_server(client: AsyncClient, auth_header: dict[str, 
 
 
 @pytest.mark.asyncio
-async def test_files_missing_root_path(client: AsyncClient, auth_header: dict[str, str]):
+async def test_files_missing_root_path(client: AsyncClient, created_user: dict):
     server_id = "srv-no-root"
     await _seed_server(server_id, "No Root Server", root_path=None)
 
-    resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=auth_header)
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=admin_header)
     assert resp.status_code == 400
     data = resp.json()
     err_text = data.get("detail") or data.get("error") or ""
     assert "root path is not configured" in err_text
+
 
 
 @pytest.mark.asyncio
@@ -162,10 +193,12 @@ async def test_files_upload_end_to_end(client: AsyncClient, created_user: dict, 
 
 
 @pytest.mark.asyncio
-async def test_files_path_traversal_prevention(client: AsyncClient, auth_header: dict[str, str], tmp_path):
+async def test_files_path_traversal_prevention(client: AsyncClient, created_user: dict, tmp_path):
     server_id = "srv-security-test"
     server_root = tmp_path / "server_secure"
     server_root.mkdir(parents=True, exist_ok=True)
+
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
 
     # Secret outside root
     secret_dir = tmp_path / "outside_secret"
@@ -186,7 +219,7 @@ async def test_files_path_traversal_prevention(client: AsyncClient, auth_header:
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/content",
         params={"path": "../../outside_secret/passwords.txt"},
-        headers=auth_header,
+        headers=admin_header,
     )
     assert resp.status_code == 403
     data = resp.json()
@@ -197,7 +230,7 @@ async def test_files_path_traversal_prevention(client: AsyncClient, auth_header:
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/content",
         params={"path": str(secret_file)},
-        headers=auth_header,
+        headers=admin_header,
     )
     assert resp.status_code in (403, 404)
 
@@ -206,7 +239,7 @@ async def test_files_path_traversal_prevention(client: AsyncClient, auth_header:
         resp = await client.get(
             f"/api/v1/servers/{server_id}/files/content",
             params={"path": "escaped_link"},
-            headers=auth_header,
+            headers=admin_header,
         )
         assert resp.status_code == 403
         data = resp.json()
@@ -220,55 +253,67 @@ async def test_files_permissions_enforcement(client: AsyncClient, created_user: 
     server_root = tmp_path / "server_perm"
     server_root.mkdir(parents=True, exist_ok=True)
     (server_root / "test.txt").write_text("sample")
-    await _seed_server(server_id, "Perm Server", root_path=str(server_root))
 
-    user_id = created_user["user_id"]
+    owner_user_id = "u_owner_1"
+    dev_user_id = "u_dev_1"
+    viewer_user_id = "u_viewer_1"
 
-    # Key with server:read only
-    read_perm_header = await _seed_api_key_header(client, user_id, ["server:read"])
+    await _seed_user(owner_user_id, "owner@example.com", "Owner")
+    await _seed_user(dev_user_id, "dev@example.com", "Dev")
+    await _seed_user(viewer_user_id, "viewer@example.com", "Viewer")
 
-    # Key with server:write only
-    write_perm_header = await _seed_api_key_header(client, user_id, ["server:write"])
+    await _seed_server(server_id, "Perm Server", root_path=str(server_root), owner_id=owner_user_id)
+    await _seed_membership("mem_dev", server_id, dev_user_id, "dev")
+    await _seed_membership("mem_viewer", server_id, viewer_user_id, "viewer")
 
-    # Unauthenticated (no header) -> 401
+    # 1. Unauthenticated -> 401
     resp = await client.get(f"/api/v1/servers/{server_id}/files")
     assert resp.status_code == 401
 
-    # Read endpoint (GET) works for logged in / any valid key
-    resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=read_perm_header)
-    assert resp.status_code == 200
-
-    # Write endpoint (PUT content) with read-only key -> 403 Forbidden
-    resp = await client.put(
-        f"/api/v1/servers/{server_id}/files/content",
-        params={"path": "test.txt"},
-        json={"content": "new text"},
-        headers=read_perm_header,
-    )
+    # 2. Non-owner, non-member user -> 403 on all routes
+    non_member_header = await _seed_api_key_header(client, created_user["user_id"], [])
+    resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=non_member_header)
+    assert resp.status_code == 403
+    resp = await client.get(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, headers=non_member_header)
+    assert resp.status_code == 403
+    resp = await client.put(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, json={"content": "x"}, headers=non_member_header)
+    assert resp.status_code == 403
+    resp = await client.delete(f"/api/v1/servers/{server_id}/files", params={"path": "test.txt"}, headers=non_member_header)
+    assert resp.status_code == 403
+    resp = await client.get(f"/api/v1/servers/{server_id}/files/download", params={"path": "test.txt"}, headers=non_member_header)
     assert resp.status_code == 403
 
-    # Write endpoint with server:write key -> 200 OK
-    resp = await client.put(
-        f"/api/v1/servers/{server_id}/files/content",
-        params={"path": "test.txt"},
-        json={"content": "new text"},
-        headers=write_perm_header,
-    )
+    # 3. Viewer role member -> 200 on GET /files/download, 403 on other 6 routes
+    viewer_header = await _seed_api_key_header(client, viewer_user_id, [])
+    resp = await client.get(f"/api/v1/servers/{server_id}/files/download", params={"path": "test.txt"}, headers=viewer_header)
     assert resp.status_code == 200
-
-    # Delete endpoint with server:write key -> 403 Forbidden (requires server:delete)
-    resp = await client.delete(
-        f"/api/v1/servers/{server_id}/files",
-        params={"path": "test.txt"},
-        headers=write_perm_header,
-    )
+    resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=viewer_header)
+    assert resp.status_code == 403
+    resp = await client.get(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, headers=viewer_header)
+    assert resp.status_code == 403
+    resp = await client.put(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, json={"content": "x"}, headers=viewer_header)
+    assert resp.status_code == 403
+    resp = await client.delete(f"/api/v1/servers/{server_id}/files", params={"path": "test.txt"}, headers=viewer_header)
+    assert resp.status_code == 403
+    resp = await client.post(f"/api/v1/servers/{server_id}/files/mkdir", params={"path": "dir"}, headers=viewer_header)
     assert resp.status_code == 403
 
-    # Delete endpoint with server:delete key -> 204 No Content
-    delete_perm_header = await _seed_api_key_header(client, user_id, ["server:delete"])
-    resp = await client.delete(
-        f"/api/v1/servers/{server_id}/files",
-        params={"path": "test.txt"},
-        headers=delete_perm_header,
-    )
-    assert resp.status_code == 204
+
+    # 4. Dev role member -> 200/201/204 on files routes (dev has server.{id}.files)
+    dev_header = await _seed_api_key_header(client, dev_user_id, [])
+    resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=dev_header)
+    assert resp.status_code == 200
+    resp = await client.get(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, headers=dev_header)
+    assert resp.status_code == 200
+
+    # 5. Server Owner -> 200/201/204 on all routes (owner_id implicit access)
+    owner_header = await _seed_api_key_header(client, owner_user_id, [])
+    resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=owner_header)
+    assert resp.status_code == 200
+
+    # 6. Global Admin -> 200/201/204 on all routes (admin:full short-circuit)
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+    resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=admin_header)
+    assert resp.status_code == 200
+
+

@@ -189,7 +189,6 @@ export interface HealthResponse {
 }
 
 export interface CreateAlertRuleRequest {
-  server_id: string;
   metric_name: string;
   condition?: string;
   threshold: number;

@@ -933,12 +933,11 @@ class TestMonitoring:
         resp = await client.get("/api/v1/monitoring/alerts", headers=auth_header)
         assert resp.status_code == 200
 
-    async def test_create_alert_rule(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_create_alert_rule_unauthorized(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         resp = await client.post(
-            "/api/v1/monitoring/alerts",
+            f"/api/v1/monitoring/alerts/{server_id}",
             json={
-                "server_id": server_id,
                 "metric_name": "tps",
                 "condition": "gt",
                 "threshold": 10.0,
@@ -946,7 +945,28 @@ class TestMonitoring:
             },
             headers=auth_header,
         )
+        assert resp.status_code == 403
+
+    async def test_create_alert_rule_authorized(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.post(
+            f"/api/v1/monitoring/alerts/{server_id}",
+            json={
+                "metric_name": "tps",
+                "condition": "gt",
+                "threshold": 10.0,
+                "severity": "warning",
+            },
+            headers=admin_header,
+        )
         assert resp.status_code == 201
+
+    async def test_delete_alert_rule(self, client: AsyncClient, auth_header: dict[str, str], admin_header: dict[str, str]) -> None:
+        resp = await client.delete("/api/v1/monitoring/alerts/rule-1", headers=auth_header)
+        assert resp.status_code == 403
+
+        resp = await client.delete("/api/v1/monitoring/alerts/rule-1", headers=admin_header)
+        assert resp.status_code == 204
 
 
 class TestSettings:
@@ -970,13 +990,34 @@ class TestSchedules:
         resp = await client.get("/api/v1/schedules", headers=auth_header)
         assert resp.status_code == 200
 
-    async def test_create_schedule(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_create_schedule_unauthorized(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
         resp = await client.post("/api/v1/schedules", json={}, headers=auth_header)
+        assert resp.status_code == 403
+
+    async def test_create_schedule_authorized(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
+        resp = await client.post("/api/v1/schedules", json={}, headers=admin_header)
         assert resp.status_code == 201
 
-    async def test_delete_schedule(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_delete_schedule_unauthorized(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
         resp = await client.delete("/api/v1/schedules/sched-1", headers=auth_header)
+        assert resp.status_code == 403
+
+    async def test_delete_schedule_authorized(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
+        resp = await client.delete("/api/v1/schedules/sched-1", headers=admin_header)
         assert resp.status_code == 204
+
+
+class TestHealthEvaluatePermissions:
+    async def test_evaluate_health_unauthorized(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.post(f"/api/v1/health/evaluate/{server_id}", headers=auth_header)
+        assert resp.status_code == 403
+
+    async def test_evaluate_health_authorized(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
+        server_id = created_server["server_id"]
+        resp = await client.post(f"/api/v1/health/evaluate/{server_id}", headers=admin_header)
+        assert resp.status_code == 200
+
 
 
 class TestEdgeCases:

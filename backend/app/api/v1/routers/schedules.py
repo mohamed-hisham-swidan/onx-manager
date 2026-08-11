@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permission
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
 
@@ -16,7 +16,7 @@ async def list_schedules(
 
 @router.post("", response_model=dict, status_code=201)
 async def create_schedule(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("global.settings")),
 ) -> dict:
     return {"success": True, "schedule_id": "stub-schedule-id"}
 
@@ -24,6 +24,7 @@ async def create_schedule(
 @router.delete("/{schedule_id}", status_code=204)
 async def delete_schedule(
     schedule_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("global.settings")),
 ) -> None:
     pass
+

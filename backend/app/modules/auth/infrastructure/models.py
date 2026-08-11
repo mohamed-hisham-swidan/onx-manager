@@ -16,6 +16,9 @@ class UserModel(Base, TimestampMixin):
     is_active = Column(Boolean, nullable=False, default=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     roles = relationship("RoleModel", secondary="user_roles", back_populates="users", lazy="selectin")
+    owned_servers = relationship("ServerModel", foreign_keys="[ServerModel.owner_id]", back_populates="owner")
+    server_memberships = relationship("ServerMembershipModel", back_populates="user", cascade="all, delete-orphan")
+
 
 
 class RoleModel(Base, TimestampMixin):
