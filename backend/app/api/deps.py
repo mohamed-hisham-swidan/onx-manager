@@ -102,6 +102,24 @@ def require_permission(permission: str):
     return _check
 
 
+def require_owner():
+    """FastAPI dependency factory: require Owner role or global.* permission.
+
+    `admin:full` alone is NOT sufficient — the access-mode operation is
+    deliberately Owner-only. The call is satisfied only by the `owner` role
+    or a `global.*` permission claim (the Owner receives both at bootstrap).
+    """
+
+    async def _check(current_user: dict = Depends(get_current_user)) -> dict:
+        roles = current_user.get("roles", [])
+        permissions = current_user.get("permissions", [])
+        if "owner" not in roles and "global.*" not in permissions:
+            raise PermissionDenied("Only the instance Owner can perform this action")
+        return current_user
+
+    return _check
+
+
 SERVER_ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {
         "server.{id}.*",

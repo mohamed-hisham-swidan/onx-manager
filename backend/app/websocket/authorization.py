@@ -3,7 +3,7 @@ from __future__ import annotations
 CHANNEL_PATTERNS: dict[str, set[str]] = {
     "server:*": {"server:read", "server:write"},
     "server:{server_id}": {"server:read"},
-    "server:{server_id}:console": {"server:read", "server:write"},
+    "server:{server_id}:console": {"server:read"},
     "backup:*": {"backup:read"},
     "backup:{backup_id}": {"backup:read"},
     "plugin:*": {"plugin:read"},

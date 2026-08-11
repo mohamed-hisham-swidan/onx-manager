@@ -44,6 +44,21 @@ class CreateUserHandler(CommandHandler[CreateUserCommand]):
                 password_hash=hash_password(command.password),
                 display_name=command.display_name,
             )
+
+            viewer_role = await repo.get_role_by_name("viewer")
+            if viewer_role is None:
+                from app.modules.auth.domain.aggregate import Role
+                from app.modules.shared.value_objects import Permission, RoleId
+                viewer_role = Role(
+                    role_id=RoleId(uuid.uuid4().hex),
+                    name="viewer",
+                    permissions=[Permission("user", "read"), Permission("server", "read")],
+                    description="Default Viewer role",
+                )
+                await repo.save_role(viewer_role)
+
+            user.add_role(viewer_role)
+
             await repo.save(user)
             for event in user.collect_events():
                 uow.add_event(event)

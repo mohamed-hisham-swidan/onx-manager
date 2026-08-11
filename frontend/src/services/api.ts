@@ -22,6 +22,16 @@ import type {
   UpdateUserRequest,
   UserResponse,
   VerifyBackupResponse,
+  SystemStatusResponse,
+  BootstrapRequest,
+  BootstrapResponse,
+  CreateInviteRequest,
+  CreateInviteResponse,
+  VerifyInviteResponse,
+  AcceptInviteRequest,
+  AcceptInviteResponse,
+  InvitationItem,
+  CurrentUserResponse,
 } from "@/types";
 import { useAuthStore } from "@/stores/authStore";
 import type {
@@ -205,7 +215,7 @@ export function createApiClient(
     logout: (body: { refresh_token: string }) =>
       request<Record<string, unknown>>("/api/v1/auth/logout", { method: "POST", body }),
     getMe: () =>
-      request<Record<string, unknown>>("/api/v1/auth/me"),
+      request<CurrentUserResponse>("/api/v1/auth/me"),
     listApiKeys: () =>
       request<ApiKeyResponse[]>("/api/v1/auth/api-keys"),
     createApiKey: (body: ApiKeyCreateRequest) =>
@@ -353,6 +363,24 @@ export function createApiClient(
       request<Blob>(`/api/v1/servers/${serverId}/files/download`, { params: { path }, responseType: "blob" }),
     mkdirServerDirectory: (serverId: string, path: string, folderName: string) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/mkdir`, { method: "POST", params: { path }, body: { folder_name: folderName } }),
+
+    // Setup & Invites
+    getSetupStatus: () =>
+      request<SystemStatusResponse>("/api/v1/setup/status"),
+    bootstrapInstance: (body: BootstrapRequest) =>
+      request<BootstrapResponse>("/api/v1/setup/bootstrap", { method: "POST", body }),
+    updateAccessMode: (body: { access_mode: string }) =>
+      request<SystemStatusResponse>("/api/v1/setup/access-mode", { method: "PUT", body }),
+    listInvites: () =>
+      request<InvitationItem[]>("/api/v1/invites"),
+    createInvite: (body: CreateInviteRequest) =>
+      request<CreateInviteResponse>("/api/v1/invites", { method: "POST", body }),
+    revokeInvite: (inviteId: string) =>
+      request<void>(`/api/v1/invites/${inviteId}`, { method: "DELETE" }),
+    verifyInvite: (token: string) =>
+      request<VerifyInviteResponse>(`/api/v1/invites/verify/${token}`),
+    acceptInvite: (body: AcceptInviteRequest) =>
+      request<AcceptInviteResponse>("/api/v1/invites/accept", { method: "POST", body }),
   };
 }
 

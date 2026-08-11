@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { toast } from "@/stores/toastStore";
 import type { SettingsResponse, SettingsUpdateRequest } from "@/types";
+import { InvitationsSection } from "@/server_manager/components/InvitationsSection";
+import { AccessSection } from "@/server_manager/components/AccessSection";
 
 interface FormState {
   app_name: string;
@@ -20,6 +22,7 @@ interface FormState {
 }
 
 export function SettingsPage() {
+  const [activeTab, setActiveTab] = useState<"system" | "invitations" | "access">("system");
   const { data: settings, isLoading, error } = useSettings();
 
   if (isLoading) {
@@ -51,7 +54,53 @@ export function SettingsPage() {
     return <ErrorState message="Settings not available" />;
   }
 
-  return <SettingsForm settings={settings} />;
+  return (
+    <div className="space-y-6">
+      <div className="flex border-b border-gray-200 dark:border-gray-700">
+        <button
+          type="button"
+          onClick={() => setActiveTab("system")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            activeTab === "system"
+              ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+              : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          }`}
+        >
+          System Settings
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("invitations")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            activeTab === "invitations"
+              ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+              : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          }`}
+        >
+          Invitations
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("access")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            activeTab === "access"
+              ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+              : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          }`}
+        >
+          Access Control
+        </button>
+      </div>
+
+      {activeTab === "system" ? (
+        <SettingsForm settings={settings} />
+      ) : activeTab === "invitations" ? (
+        <InvitationsSection />
+      ) : (
+        <AccessSection />
+      )}
+    </div>
+  );
 }
 
 function SettingsForm({ settings }: { settings: SettingsResponse }) {

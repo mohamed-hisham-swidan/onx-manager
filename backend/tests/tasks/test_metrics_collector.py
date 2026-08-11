@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,6 +21,39 @@ async def test_metrics_task_with_collector() -> None:
         "collector": mock_collector,
     })
     assert result["server_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_metrics_task_skips_overlapping_cycles() -> None:
+    from app.tasks.definitions import metrics_collector as mod
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[int] = []
+
+    async def slow_collect_all() -> dict[str, object]:
+        calls.append(1)
+        started.set()
+        await release.wait()
+        return {}
+
+    mock_collector = MagicMock()
+    mock_collector.collect_all = slow_collect_all
+    mod._collector = mock_collector
+
+    first = asyncio.ensure_future(mod.run_metrics_collection_task({}))
+    await started.wait()
+
+    second = asyncio.ensure_future(mod.run_metrics_collection_task({}))
+    result = await second
+    assert result["skipped"] is True
+
+    release.set()
+    first_result = await first
+    assert "skipped" not in first_result
+    assert calls == [1]
+
+    mod._collector = None
 
 
 def test_collect_process_metrics_fresh_pid_takes_real_cpu_sample() -> None:
@@ -87,6 +121,49 @@ def test_collect_process_metrics_stale_pid_refreshes_and_resamples() -> None:
     assert new_proc.cpu_percent.call_args.kwargs == {"interval": 0.1}
 
 
+@pytest.mark.asyncio
+async def test_collect_all_bounds_slow_server() -> None:
+    from app.modules.monitoring.infrastructure import collector as mod
+
+    collected: list[str] = []
+
+    async def slow_collect(server_id: str) -> mod.ServerMetrics:
+        collected.append(server_id)
+        await asyncio.sleep(5)
+        return mod.ServerMetrics(server_id=server_id)
+
+    instance = mod.MetricsCollector(known_servers=["s1", "s2"], per_server_timeout=0.05)
+    instance.collect = slow_collect  # type: ignore[method-assign]
+    results = await instance.collect_all()
+
+    assert set(collected) == {"s1", "s2"}
+    assert len(results) == 2
+    assert all(isinstance(m, mod.ServerMetrics) for m in results.values())
+
+
+@pytest.mark.asyncio
+async def test_collect_all_runs_servers_concurrently() -> None:
+    """One slow/broken server must not delay collection for healthy servers."""
+    from app.modules.monitoring.infrastructure import collector as mod
+
+    completion_order: list[str] = []
+
+    async def collect(server_id: str) -> mod.ServerMetrics:
+        if server_id == "slow":
+            await asyncio.sleep(1.0)
+            completion_order.append(server_id)
+            return mod.ServerMetrics(server_id="slow")
+        completion_order.append(server_id)
+        return mod.ServerMetrics(server_id=server_id)
+
+    instance = mod.MetricsCollector(known_servers=["slow", "fast"], per_server_timeout=5.0)
+    instance.collect = collect  # type: ignore[method-assign]
+    results = await instance.collect_all()
+
+    assert set(results) == {"slow", "fast"}
+    assert completion_order[0] == "fast", "healthy server was delayed by the slow one"
+
+
 def test_collect_process_metrics_without_psutil_returns_zeros() -> None:
     from app.modules.monitoring.infrastructure import collector as mod
 
@@ -95,3 +172,99 @@ def test_collect_process_metrics_without_psutil_returns_zeros() -> None:
 
     assert ram_mb == 0.0
     assert cpu == 0.0
+
+
+@pytest.mark.asyncio
+async def test_collect_rebuilds_rcon_client_when_config_changes() -> None:
+    """Changed rcon password must rebuild the client instead of reusing a stale one."""
+    from app.modules.monitoring.infrastructure import collector as mod
+
+    instance = mod.MetricsCollector(known_servers=["s1"], per_server_timeout=5.0)
+
+    def make_client(host: str, port: int, password: str) -> MagicMock:
+        client = MagicMock()
+        client.host = host
+        client.port = port
+        client.password = password
+        client.close = AsyncMock()
+        return client
+
+    fake_server = MagicMock()
+    fake_server.runtime.pid = None
+    fake_server.runtime.host = "127.0.0.1"
+    fake_server.deployment.root_path = "/srv"
+    fake_server.deployment.properties_path.return_value = "/srv/server.properties"
+
+    session_ctx = AsyncMock()
+    session_ctx.__aenter__.return_value = session_ctx
+    repo = MagicMock()
+    repo.get = AsyncMock(return_value=fake_server)
+
+    async def run_collect(password: str) -> MagicMock:
+        props = {"enable-rcon": "true", "rcon.port": "25575", "rcon.password": password}
+        fake_db = MagicMock()
+        fake_db.session_factory = lambda: session_ctx
+        fake_repo = MagicMock()
+        fake_repo.get = AsyncMock(return_value=fake_server)
+        with patch.object(mod, "database", fake_db), \
+             patch.object(mod, "SQLServerRepository", return_value=fake_repo), \
+             patch.object(mod, "_read_server_properties", side_effect=lambda _p: props), \
+             patch.object(
+                 mod,
+                 "PersistentRCONClient",
+                 side_effect=lambda h, p, pw: make_client(h, p, pw),
+             ), \
+             patch.object(mod, "_collect_rcon_metrics", new=AsyncMock(return_value=(20.0, 0))):
+            await instance.collect("s1")
+        return instance._rcon_clients["s1"]
+
+    client1 = await run_collect("old-secret")
+    assert client1.password == "old-secret"
+
+    client2 = await run_collect("new-secret")
+    assert client2 is not client1
+    assert client2.password == "new-secret"
+    client1.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_collect_evicts_rcon_client_when_rcon_disabled() -> None:
+    """Disabling RCON must close and evict the cached client."""
+    from app.modules.monitoring.infrastructure import collector as mod
+
+    instance = mod.MetricsCollector(known_servers=["s1"], per_server_timeout=5.0)
+
+    stale = MagicMock()
+    stale.host = "127.0.0.1"
+    stale.port = 25575
+    stale.password = "secret"
+    stale.close = AsyncMock()
+    instance._rcon_clients["s1"] = stale
+
+    fake_server = MagicMock()
+    fake_server.runtime.pid = None
+    fake_server.runtime.host = "127.0.0.1"
+    fake_server.deployment.root_path = "/srv"
+    fake_server.deployment.properties_path.return_value = "/srv/server.properties"
+
+    session_ctx = AsyncMock()
+    session_ctx.__aenter__.return_value = session_ctx
+    repo = MagicMock()
+    repo.get = AsyncMock(return_value=fake_server)
+
+    def fake_props(_path: str) -> dict[str, str]:
+        return {"enable-rcon": "false"}
+
+    fake_db = MagicMock()
+    fake_db.session_factory = lambda: session_ctx
+    fake_repo = MagicMock()
+    fake_repo.get = AsyncMock(return_value=fake_server)
+    with patch.object(mod, "database", fake_db), \
+         patch.object(mod, "SQLServerRepository", return_value=fake_repo), \
+         patch.object(mod, "_read_server_properties", side_effect=fake_props), \
+         patch.object(mod, "PersistentRCONClient"), \
+         patch.object(mod, "_collect_rcon_metrics", new=AsyncMock(return_value=(20.0, 0))):
+        await instance.collect("s1")
+
+    assert "s1" not in instance._rcon_clients
+    stale.close.assert_awaited_once()

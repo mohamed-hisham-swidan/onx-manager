@@ -229,5 +229,97 @@ export interface SettingsUpdateResponse {
   settings: SettingsResponse;
 }
 
+export interface SystemStatusResponse {
+  initialized: boolean;
+  access_mode: "LOCAL" | "GLOBAL";
+  user_count: number;
+  version: string;
+}
+
+export interface BootstrapRequest {
+  email: string;
+  password: string;
+  display_name: string;
+  access_mode: "LOCAL" | "GLOBAL";
+}
+
+export interface BootstrapResponse {
+  success: boolean;
+  message: string;
+  user_id: string;
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export interface CurrentUserResponse {
+  user_id: string;
+  email: string;
+  display_name: string;
+  is_active: boolean;
+  roles: string[];
+  created_at: string;
+  last_login_at: string | null;
+}
+
+
+export interface CreateInviteRequest {
+  email?: string | null;
+  global_role?: string;
+  server_id?: string | null;
+  server_role?: string | null;
+  max_uses?: number;
+  expires_in_hours?: number | null;
+}
+
+export interface CreateInviteResponse {
+  invite_id: string;
+  token: string;
+  token_prefix: string;
+  email: string | null;
+  global_role: string;
+  server_id: string | null;
+  server_role: string | null;
+  status: string;
+  max_uses: number;
+  expires_at: string | null;
+}
+
+export interface VerifyInviteResponse {
+  valid: boolean;
+  email: string | null;
+  expires_at: string | null;
+}
+
+export interface AcceptInviteRequest {
+  token: string;
+  email: string;
+  password: string;
+  display_name: string;
+}
+
+export interface AcceptInviteResponse {
+  user_id: string;
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export interface InvitationItem {
+  invite_id: string;
+  token_prefix: string;
+  email: string | null;
+  global_role: string;
+  server_id: string | null;
+  server_role: string | null;
+  creator_id: string;
+  status: string;
+  max_uses: number;
+  use_count: number;
+  expires_at: string | null;
+  created_at: string;
+}
 
 

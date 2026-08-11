@@ -825,8 +825,8 @@ and audit.
 - 17 `resource:action` permission strings; three roles: `viewer`, `operator`, `admin`.
 - `PermissionEvaluator` (RBAC) + `evaluate_abac()` (ownership/scope rules).
 - **Known gap:** the evaluator builds token claims at login/refresh but is **not** invoked to gate
-  requests on most routes. Only 24 routes are gated by `require_permission` (as of the Phase 4
-  volume snapshot): 22 mutating + 2 read-only marketplace. 9 mutating routes + 23 sensitive GET
+  requests on most routes. Only 32 routes are gated by `require_permission` (verified 2026-08-11;
+  `contracts/permissions.yaml` documents 67 distinct API route keys, 42 enforced). 9 mutating routes + 23 sensitive GET
   routes remain auth-only. This is the central Phase 4 work (§05).
 
 **Audit log.** `audit_log` table, append-only, SHA-256 hash chain over JSON-serialized content
@@ -1277,7 +1277,7 @@ routes.
 | Access token | RS256 JWT, 15 min | Implemented (ephemeral keys — K11) |
 | Refresh token | Opaque, SHA-256 hash, rotation, revocable | Implemented |
 | API key | `mcs_` + SHA-256 (unsalted) | Implemented |
-| Authorization | RBAC+ABAC `require_permission` | **Partially enforced** (24 routes; 9 mutating + 23 GET gaps — Phase 4) |
+| Authorization | RBAC+ABAC `require_permission` | **Partially enforced** (32 routes; 9 mutating + 23 GET gaps — Phase 4) |
 | WS auth | JWT before accept + channel gate | Handshake works; channel gate always denies (K1) |
 | Audit | SHA-256 hash chain | Implemented; no scheduled verify; no query endpoint |
 | Backups at rest | AES-256-GCM | Implemented |

@@ -28,6 +28,7 @@ SERVERS_DATA_DIR: str = ""  # kept for backward compat with migrate_import_arch.
 
 class ImportServerCommand(Command):
     idempotency_key: IdempotencyKey = IdempotencyKey()
+    creator_id: str | None = None
     source_path: str
     name: str
     server_type: str = "vanilla"
@@ -123,6 +124,7 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                 ),
                 group_id=command.group_id,
                 deployment=deployment,
+                owner_id=command.creator_id,
             )
             await repo.save(server)
 

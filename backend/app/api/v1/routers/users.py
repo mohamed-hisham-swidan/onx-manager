@@ -28,11 +28,27 @@ async def list_users(
     return [UserResponse(**u) for u in users]
 
 
+from app.modules.auth.application.queries.get_system_status import GetSystemStatusQuery
+
+
 @router.post("", response_model=UserResponse, status_code=201)
 async def create_user(
     body: CreateUserRequest,
     command_bus: CommandBus = Depends(get_command_bus),
+    query_bus: QueryBus = Depends(get_query_bus),
 ) -> UserResponse:
+    status_data = await query_bus.ask(GetSystemStatusQuery())
+    if not status_data.get("initialized"):
+        raise HTTPException(
+            status_code=403,
+            detail="Instance uninitialized. Complete setup bootstrap first.",
+        )
+    if status_data.get("access_mode") == "GLOBAL":
+        raise HTTPException(
+            status_code=403,
+            detail="Public self-registration is disabled in GLOBAL access mode. Use an invitation token to register.",
+        )
+
     result = await command_bus.send(
         CreateUserCommand(email=body.email, password=body.password, display_name=body.display_name)
     )

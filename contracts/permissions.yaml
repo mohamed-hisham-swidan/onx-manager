@@ -115,12 +115,11 @@ roles:
     permissions: [admin:full]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROUTE → PERMISSION COVERAGE MATRIX (generated 2026-08-02, updated 2026-08-05)
-# Live introspection: 68 effective routes (excl. HEAD/OPTIONS), FastAPI 0.139.
-#   34 mutating -> 24 enforced, 10 unprotected (3 of the 10 are
-#                  intentionally public: login, refresh, create_user)
-#   33 GET      -> 2 enforced (marketplace), 21 sensitive (permission needed,
-#                  all currently auth-only), 10 public-safe
+# ROUTE → PERMISSION COVERAGE MATRIX (generated 2026-08-02, updated 2026-08-11)
+# Live introspection: 83 effective routes (excl. HEAD/OPTIONS), FastAPI 0.139.
+#   43 mutating -> 37 enforced, 5 intentionally public (login, refresh,
+#                  bootstrap, create_user, invites/accept), 1 missing (logout)
+#   39 GET      -> 12 enforced, 12 not-applicable-public, 15 auth-only/missing
 #    1 WebSocket -> /ws, status enforced-external (real gate, non-functional
 #                  due to namespace mismatch — see entry note)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -128,15 +127,15 @@ route_permissions:
 
   # ── Mutating routes ─────────────────────────────────────────────────────────
   # servers
-  "POST /api/v1/servers": {permission: "server:write", status: enforced}
+  "POST /api/v1/servers": {permission: "server:create", status: enforced, note: "member/users create servers and become owner_id (roadmap §2.2)"}
   "POST /api/v1/servers/scan": {permission: "server:write", status: enforced}
   "POST /api/v1/servers/import": {permission: "server:write", status: enforced}
   "PATCH /api/v1/servers/{server_id}": {permission: "server:write", status: enforced}
   "DELETE /api/v1/servers/{server_id}": {permission: "server:delete", status: enforced}
-  "POST /api/v1/servers/{server_id}/start": {permission: "server:start", status: enforced}
-  "POST /api/v1/servers/{server_id}/stop": {permission: "server:stop", status: enforced}
-  "POST /api/v1/servers/{server_id}/restart": {permission: "server:stop", status: enforced}
-  "POST /api/v1/servers/{server_id}/command": {permission: "server:write", status: enforced, note: "console command execution; reuse existing server:write (no new server:console)"}
+  "POST /api/v1/servers/{server_id}/start": {permission: "server.{id}.power", status: enforced, note: "server-scoped power control (owner/admin/dev; viewer denied)"}
+  "POST /api/v1/servers/{server_id}/stop": {permission: "server.{id}.power", status: enforced, note: "server-scoped power control (owner/admin/dev; viewer denied)"}
+  "POST /api/v1/servers/{server_id}/restart": {permission: "server.{id}.power", status: enforced, note: "server-scoped power control (owner/admin/dev; viewer denied)"}
+  "POST /api/v1/servers/{server_id}/command": {permission: "server.{id}.console", status: enforced, note: "console command execution; server-scoped via require_server_permission (server admin/dev; viewer denied)"}
   "POST /api/v1/servers/runtime/ownership/claim": {permission: "server:write", status: enforced}
   "POST /api/v1/servers/reconcile": {permission: "server:write", status: enforced}
   "POST /api/v1/servers/refresh": {permission: "server:write", status: enforced}
@@ -159,11 +158,11 @@ route_permissions:
 
   # files — server-scoped file management
   "GET /api/v1/servers/{server_id}/files": {permission: "server.{id}.files", status: enforced}
-  "GET /api/v1/servers/{server_id}/files/content": {permission: "server.{id}.files", status: enforced}
-  "PUT /api/v1/servers/{server_id}/files/content": {permission: "server.{id}.files", status: enforced}
+  "GET /api/v1/servers/{server_id}/files/content": {permission: "server.{id}.files", status: enforced, note: "server.properties read denied for all (holds rcon.password)"}
+  "PUT /api/v1/servers/{server_id}/files/content": {permission: "server.{id}.files", status: enforced, note: "server.properties write allowed (accepted boundary: files role == full server file management)"}
   "DELETE /api/v1/servers/{server_id}/files": {permission: "server.{id}.files", status: enforced}
   "POST /api/v1/servers/{server_id}/files/upload": {permission: "server.{id}.files", status: enforced}
-  "GET /api/v1/servers/{server_id}/files/download": {permission: "server.{id}.files OR server.{id}.view", status: enforced, note: "viewers allowed to download files"}
+  "GET /api/v1/servers/{server_id}/files/download": {permission: "server.{id}.files OR server.{id}.view", status: enforced, note: "viewers allowed to download files; server.properties download denied for all (holds rcon.password)"}
 
   "POST /api/v1/servers/{server_id}/files/mkdir": {permission: "server.{id}.files", status: enforced}
 
@@ -195,6 +194,15 @@ route_permissions:
   # settings
   "PATCH /api/v1/settings": {permission: "settings:write", status: enforced}
 
+  # setup (Owner bootstrap / access mode)
+  "POST /api/v1/setup/bootstrap": {permission: null, status: not-applicable-public, note: "single-use first-run wizard; rejects with 409/400 once instance initialized"}
+  "PUT /api/v1/setup/access-mode": {permission: "owner", status: enforced, note: "Owner-only via require_owner() — admin:full alone is NOT sufficient; requires owner role or global.* claim"}
+
+  # invites
+  "POST /api/v1/invites": {permission: "user:write", status: enforced, note: "invitation issuance gated; handler also enforces owner/admin/server privilege checks on requested roles"}
+  "DELETE /api/v1/invites/{invite_id}": {permission: "user:write", status: enforced, note: "revokes an invitation"}
+  "POST /api/v1/invites/accept": {permission: null, status: not-applicable-public, note: "token-based registration replacing open /users self-registration"}
+
   # ── Read (GET) routes ───────────────────────────────────────────────────────
   # Public / no permission needed
   "GET /openapi.json": {permission: null, status: not-applicable-public}
@@ -208,13 +216,20 @@ route_permissions:
   "GET /api/v1/software": {permission: null, status: not-applicable-public, note: "static software metadata; auth-only is sufficient"}
   "GET /api/v1/software/{software_type}/versions": {permission: null, status: not-applicable-public, note: "version list; auth-only is sufficient"}
 
+  # setup
+  "GET /api/v1/setup/status": {permission: null, status: not-applicable-public, note: "instance initialization state (initialized/access_mode/user_count); used by the setup wizard and SystemStatusGuard"}
+
+  # invites
+  "GET /api/v1/invites": {permission: "user:write", status: enforced}
+  "GET /api/v1/invites/verify/{token}": {permission: null, status: not-applicable-public, note: "pre-registration token validity check"}
+
   # Sensitive reads — permission check needed (currently auth-only = missing)
   "GET /api/v1/servers": {permission: "server:read", status: missing}
   "GET /api/v1/servers/{server_id}": {permission: "server:read", status: missing}
-  "GET /api/v1/servers/{server_id}/console": {permission: "server:read", status: missing, note: "console log history — explicitly sensitive per roadmap §3.1"}
-  "GET /api/v1/servers/{server_id}/runtime": {permission: "server:read", status: missing}
-  "GET /api/v1/servers/runtime/ownership": {permission: "server:read", status: missing, note: "exposes host runtime/PID/tmux info"}
-  "GET /api/v1/servers/{server_id}/runtime/validate": {permission: "server:read", status: missing}
+  "GET /api/v1/servers/{server_id}/console": {permission: "server.{id}.view", status: enforced, note: "console log history — server-scoped read via require_server_permission (viewer can read; command execution denied)"}
+  "GET /api/v1/servers/{server_id}/runtime": {permission: "server.{id}.view", status: enforced, note: "server-scoped runtime diagnostics via require_server_permission (owner/admin/dev/viewer membership; non-members denied)"}
+  "GET /api/v1/servers/runtime/ownership": {permission: "server:read", status: enforced, note: "host runtime/PID/tmux snapshot; requires global server:read (owner/admin/operator/viewer); members without server:read denied"}
+  "GET /api/v1/servers/{server_id}/runtime/validate": {permission: "server.{id}.view", status: enforced, note: "server-scoped runtime validation chain via require_server_permission"}
   "GET /api/v1/backups": {permission: "backup:read", status: missing}
   "GET /api/v1/backups/{backup_id}": {permission: "backup:read", status: missing}
   "GET /api/v1/servers/{server_id}/plugins": {permission: "plugin:read", status: missing}
@@ -223,7 +238,7 @@ route_permissions:
   "GET /api/v1/auth/api-keys": {permission: "user:read", status: missing, note: "API-key metadata incl. permission sets"}
   "GET /api/v1/users": {permission: "user:read", status: missing, note: "full user list — email/display names"}
   "GET /api/v1/users/{user_id}": {permission: "user:read", status: missing}
-  "GET /api/v1/monitoring/metrics": {permission: "server:read", status: missing, note: "per-server metrics; reuse existing server:read"}
+  "GET /api/v1/monitoring/metrics": {permission: "server.{id}.view", status: enforced, note: "per-server metrics; server-scoped read via require_server_permission"}
   "GET /api/v1/monitoring/alerts": {permission: "server:read", status: missing, note: "per-server alert rules; reuse existing server:read"}
   "GET /api/v1/health/status/{server_id}": {permission: "server:read", status: missing, note: "per-server health; reuse existing server:read"}
   "GET /api/v1/health/timeline/{server_id}": {permission: "server:read", status: missing, note: "per-server health timeline; reuse existing server:read"}

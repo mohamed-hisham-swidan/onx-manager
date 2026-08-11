@@ -6,6 +6,7 @@ from app.api.deps import (
     get_event_bus,
     get_query_bus,
     require_permission,
+    require_server_permission,
 )
 from app.api.errors import check_command_result
 from app.api.v1.schemas.import_server import (
@@ -90,9 +91,10 @@ async def list_servers(
 async def create_server(
     body: ServerCreateRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("server:write")),
+    current_user: dict = Depends(require_permission("server:create")),
 ) -> dict:
     cmd = CreateServerCommand(
+        creator_id=current_user.get("user_id"),
         name=body.name,
         server_type=body.server_type,
         minecraft_version=body.minecraft_version,
@@ -139,6 +141,7 @@ async def import_server(
     current_user: dict = Depends(require_permission("server:write")),
 ) -> dict:
     cmd = ImportServerCommand(
+        creator_id=current_user.get("user_id"),
         source_path=body.source_path,
         name=body.name,
         server_type=body.server_type,
@@ -203,7 +206,7 @@ async def delete_server(
 async def start_server(
     server_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("server:start")),
+    current_user: dict = Depends(require_server_permission("server.{id}.power")),
 ) -> dict:
     result = await command_bus.send(StartServerCommand(server_id=server_id))
     return check_command_result(result)
@@ -214,7 +217,7 @@ async def stop_server(
     server_id: str,
     body: ServerActionRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("server:stop")),
+    current_user: dict = Depends(require_server_permission("server.{id}.power")),
 ) -> dict:
     result = await command_bus.send(StopServerCommand(server_id=server_id, reason=body.reason))
     return check_command_result(result)
@@ -224,7 +227,7 @@ async def stop_server(
 async def restart_server(
     server_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("server:stop")),
+    current_user: dict = Depends(require_server_permission("server.{id}.power")),
 ) -> dict:
     result = await command_bus.send(RestartServerCommand(server_id=server_id))
     return check_command_result(result)
@@ -235,7 +238,7 @@ async def get_server_console(
     server_id: str,
     tail: int = Query(default=100, ge=1, le=10000),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_server_permission("server.{id}.view")),
 ) -> ConsoleResponse:
     result = await query_bus.ask(GetServerConsoleQuery(server_id=server_id, tail=tail))
     return ConsoleResponse(server_id=result.server_id, lines=result.lines)
@@ -245,7 +248,7 @@ async def get_server_console(
 async def get_server_runtime_diagnostics(
     server_id: str,
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_server_permission("server.{id}.view")),
 ) -> RuntimeDiagnosticsResponse:
     result = await query_bus.ask(GetServerRuntimeDiagnosticsQuery(server_id=server_id))
     return RuntimeDiagnosticsResponse(**result.data)
@@ -291,7 +294,7 @@ async def send_server_command(
     body: CommandRequest,
     command_bus: CommandBus = Depends(get_command_bus),
     event_bus: EventBus = Depends(get_event_bus),
-    current_user: dict = Depends(require_permission("server:write")),
+    current_user: dict = Depends(require_server_permission("server.{id}.console")),
 ) -> dict:
     impl = _SendConsoleCommandImpl(event_bus)
     result = await impl.handle(server_id=server_id, command=body.command)
@@ -300,7 +303,7 @@ async def send_server_command(
 
 @router.get("/runtime/ownership", response_model=RuntimeOwnershipResponse)
 async def get_runtime_ownership(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("server:read")),
 ) -> RuntimeOwnershipResponse:
     from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
     from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -354,7 +357,7 @@ async def claim_runtime_ownership(
 @router.get("/{server_id}/runtime/validate", response_model=ValidationChainResponse)
 async def validate_server_runtime(
     server_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_server_permission("server.{id}.view")),
 ) -> ValidationChainResponse:
     from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
     from app.modules.server.infrastructure.repository import SQLServerRepository

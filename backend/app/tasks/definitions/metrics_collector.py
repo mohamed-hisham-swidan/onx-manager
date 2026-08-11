@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _collector: MetricsCollector | None = None
 _prometheus: PrometheusMetricsRegistry | None = None
+_collection_lock = asyncio.Lock()
 
 
 def init_collector(
@@ -26,6 +28,15 @@ def init_collector(
 
 
 async def run_metrics_collection_task(params: dict[str, Any]) -> dict[str, Any]:
+    if _collection_lock.locked():
+        logger.warning("Metrics collection already in progress — skipping overlapping cycle")
+        return {"server_count": 0, "results": {}, "skipped": True}
+
+    async with _collection_lock:
+        return await _run_collection(params)
+
+
+async def _run_collection(params: dict[str, Any]) -> dict[str, Any]:
     collector = _collector
     if collector is None:
         logger.warning("MetricsCollector not initialized — skipping collection")

@@ -312,14 +312,15 @@ class TestChannelAuthorizer:
         assert not ca.can_subscribe("user1", "plugin:*")
         assert not ca.can_subscribe("user1", "user:u01")
 
-    def test_console_channel_requires_read_and_write(self) -> None:
+    def test_console_channel_requires_read_permission(self) -> None:
+        # Console streaming is view-level (server.{id}.view); write permission is NOT required
         ca = ChannelAuthorizer()
         ca.set_permissions("user1", {"server:read"})
-        assert not ca.can_subscribe("user1", "server:s01:console")
+        assert ca.can_subscribe("user1", "server:s01:console")
         ca.set_permissions("user1", {"server:write"})
         assert not ca.can_subscribe("user1", "server:s01:console")
-        ca.set_permissions("user1", {"server:read", "server:write"})
-        assert ca.can_subscribe("user1", "server:s01:console")
+        ca.set_permissions("user1", set())
+        assert not ca.can_subscribe("user1", "server:s01:console")
 
     def test_pattern_requires_existing_singular_permission(self) -> None:
         ca = ChannelAuthorizer()

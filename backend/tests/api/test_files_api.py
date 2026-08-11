@@ -93,7 +93,7 @@ async def test_files_happy_path_crud(client: AsyncClient, created_user: dict, tm
     admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
 
     # Pre-create a file
-    test_file = server_root / "server.properties"
+    test_file = server_root / "ops.txt"
     test_file.write_text("motd=Hello World\nport=25565")
 
     await _seed_server(server_id, "CRUD Server", root_path=str(server_root))
@@ -103,13 +103,13 @@ async def test_files_happy_path_crud(client: AsyncClient, created_user: dict, tm
     assert resp.status_code == 200
     entries = resp.json()
     assert len(entries) == 1
-    assert entries[0]["name"] == "server.properties"
+    assert entries[0]["name"] == "ops.txt"
     assert entries[0]["is_dir"] is False
 
     # 2. Read file content
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/content",
-        params={"path": "server.properties"},
+        params={"path": "ops.txt"},
         headers=admin_header,
     )
     assert resp.status_code == 200
@@ -138,11 +138,20 @@ async def test_files_happy_path_crud(client: AsyncClient, created_user: dict, tm
     # 5. Download file
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/download",
-        params={"path": "server.properties"},
+        params={"path": "ops.txt"},
         headers=admin_header,
     )
     assert resp.status_code == 200
     assert resp.content == b"motd=Hello World\nport=25565"
+
+    # 5b. Sensitive server.properties download is denied
+    (server_root / "server.properties").write_text("rcon.password=secret")
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/download",
+        params={"path": "server.properties"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 403
 
     # 6. Delete file and directory
     resp = await client.delete(
@@ -317,3 +326,209 @@ async def test_files_permissions_enforcement(client: AsyncClient, created_user: 
     assert resp.status_code == 200
 
 
+async def _seed_secrets_server(tmp_path, owner_id: str | None = None) -> tuple[str, object]:
+    """Create a server with server.properties (rcon.password) + ordinary files."""
+    server_id = "srv-secrets"
+    server_root = tmp_path / "server_secrets"
+    server_root.mkdir(parents=True, exist_ok=True)
+    (server_root / "server.properties").write_text(
+        "rcon.password=super-secret-xyz\neenable-rcon=true\n"
+    )
+    (server_root / "eula.txt").write_text("eula=true")
+    (server_root / "config").mkdir(exist_ok=True)
+    (server_root / "config" / "ops.json").write_text('[]')
+    await _seed_server(server_id, "Secrets Server", root_path=str(server_root), owner_id=owner_id)
+    return server_id, server_root
+
+
+@pytest.mark.asyncio
+async def test_server_properties_content_and_download_blocked(client, created_user, tmp_path):
+    server_id, _ = await _seed_secrets_server(tmp_path)
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "server.properties"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 403
+
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/download",
+        params={"path": "server.properties"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_server_properties_path_normalization_bypass_fails(client, created_user, tmp_path):
+    server_id, _ = await _seed_secrets_server(tmp_path)
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+
+    content_url = f"/api/v1/servers/{server_id}/files/content"
+    download_url = f"/api/v1/servers/{server_id}/files/download"
+
+    for p in ("./server.properties", "config/../server.properties", "a/b/../../server.properties"):
+        resp = await client.get(content_url, params={"path": p}, headers=admin_header)
+        assert resp.status_code == 403, f"content bypass via {p!r} succeeded"
+        resp = await client.get(download_url, params={"path": p}, headers=admin_header)
+        assert resp.status_code == 403, f"download bypass via {p!r} succeeded"
+
+
+@pytest.mark.asyncio
+async def test_server_properties_case_variation_blocked(client, created_user, tmp_path):
+    server_id, server_root = await _seed_secrets_server(tmp_path)
+    (server_root / "SERVER.PROPERTIES").write_text("rcon.password=case-secret")
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+
+    content_url = f"/api/v1/servers/{server_id}/files/content"
+
+    resp = await client.get(content_url, params={"path": "SERVER.PROPERTIES"}, headers=admin_header)
+    assert resp.status_code == 403
+
+    resp = await client.get(content_url, params={"path": "Server.Properties"}, headers=admin_header)
+    assert resp.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_server_properties_no_rename_move_route_exists() -> None:
+    from app.main import app
+
+    for path in app.openapi()["paths"]:
+        assert "/files/" not in path or not any(
+            seg in path.lower() for seg in ("/rename", "/move")
+        ), f"unexpected rename/move route: {path}"
+
+
+@pytest.mark.asyncio
+async def test_server_properties_ordinary_files_still_work(client, created_user, tmp_path):
+    server_id, _ = await _seed_secrets_server(tmp_path)
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "eula.txt"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["content"] == "eula=true"
+
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "config/ops.json"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["content"] == "[]"
+
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/download",
+        params={"path": "eula.txt"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.put(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "config/notes.txt"},
+        json={"content": "hello"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_server_properties_role_matrix_and_isolation(client, created_user, tmp_path):
+    await _seed_server("srv-secrets-other", "Other Server", root_path=str(tmp_path / "other_root"))
+
+    owner_id, dev_id, viewer_id = "u_sec_owner", "u_sec_dev", "u_sec_viewer"
+    await _seed_user(owner_id, "sec-owner@example.com", "Owner")
+    await _seed_user(dev_id, "sec-dev@example.com", "Dev")
+    await _seed_user(viewer_id, "sec-viewer@example.com", "Viewer")
+    server_id, _ = await _seed_secrets_server(tmp_path, owner_id=owner_id)
+    await _seed_membership("sec_mem_dev", server_id, dev_id, "dev")
+    await _seed_membership("sec_mem_viewer", server_id, viewer_id, "viewer")
+
+    owner_header = await _seed_api_key_header(client, owner_id, [])
+    dev_header = await _seed_api_key_header(client, dev_id, [])
+    viewer_header = await _seed_api_key_header(client, viewer_id, [])
+    outsider_header = await _seed_api_key_header(client, created_user["user_id"], [])
+
+    content_url = f"/api/v1/servers/{server_id}/files/content"
+    download_url = f"/api/v1/servers/{server_id}/files/download"
+
+    # Owner: ordinary files fine, server.properties read blocked
+    resp = await client.get(content_url, params={"path": "eula.txt"}, headers=owner_header)
+    assert resp.status_code == 200
+    resp = await client.get(content_url, params={"path": "server.properties"}, headers=owner_header)
+    assert resp.status_code == 403
+    resp = await client.get(
+        download_url, params={"path": "server.properties"}, headers=owner_header
+    )
+    assert resp.status_code == 403
+
+    # Dev: ordinary files fine, server.properties read blocked
+    resp = await client.get(content_url, params={"path": "eula.txt"}, headers=dev_header)
+    assert resp.status_code == 200
+    resp = await client.get(
+        content_url, params={"path": "server.properties"}, headers=dev_header
+    )
+    assert resp.status_code == 403
+    resp = await client.get(
+        download_url, params={"path": "server.properties"}, headers=dev_header
+    )
+    assert resp.status_code == 403
+
+    # Viewer: no file write rights (403 on content); download of ordinary file ok, props blocked
+    resp = await client.get(
+        content_url, params={"path": "eula.txt"}, headers=viewer_header
+    )
+    assert resp.status_code == 403
+    resp = await client.get(
+        download_url, params={"path": "eula.txt"}, headers=viewer_header
+    )
+    assert resp.status_code == 200
+    resp = await client.get(
+        download_url, params={"path": "server.properties"}, headers=viewer_header
+    )
+    assert resp.status_code == 403
+
+    # Outsider: unrelated server inaccessible
+    resp = await client.get(content_url, params={"path": "eula.txt"}, headers=outsider_header)
+    assert resp.status_code == 403
+    resp = await client.get(
+        "/api/v1/servers/srv-secrets-other/files/content",
+        params={"path": "eula.txt"},
+        headers=dev_header,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_server_properties_write_boundary_remains_allowed(client, created_user, tmp_path):
+    """Accepted boundary: holders of server.{id}.files may manage server.properties.
+
+    Read (content/download) is blocked for everyone, but write/upload stay available
+    to files-permission holders because every such role (admin/dev) also holds
+    server.{id}.console and arbitrary-file write in the server root — protecting the
+    write path would not raise the real security boundary. See security closure report.
+    """
+    server_id, server_root = await _seed_secrets_server(tmp_path)
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+
+    resp = await client.put(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "server.properties"},
+        json={"content": "motd=Replaced\n"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 200
+    assert (server_root / "server.properties").read_text() == "motd=Replaced\n"
+
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "server.properties"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 403

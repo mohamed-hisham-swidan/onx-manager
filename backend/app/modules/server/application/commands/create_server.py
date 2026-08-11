@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 class CreateServerCommand(Command):
     idempotency_key: IdempotencyKey = IdempotencyKey()
+    creator_id: str | None = None
     name: str
     server_type: str = "vanilla"
     minecraft_version: str
@@ -112,6 +113,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 ),
                 group_id=command.group_id,
                 deployment=deployment,
+                owner_id=command.creator_id,
             )
             await repo.save(server)
 

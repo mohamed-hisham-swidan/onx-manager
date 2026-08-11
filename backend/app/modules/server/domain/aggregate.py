@@ -66,6 +66,7 @@ class Server(AggregateRoot):
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
         missing_since: datetime | None = None,
+        owner_id: str | None = None,
     ) -> None:
         super().__init__()
         self._id = server_id
@@ -81,6 +82,7 @@ class Server(AggregateRoot):
         self._runtime = runtime or RuntimeInfo()
         self._launch_config = launch_config
         self._missing_since = missing_since
+        self._owner_id = owner_id
         now = datetime.now(timezone.utc)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
@@ -145,6 +147,10 @@ class Server(AggregateRoot):
     def missing_since(self) -> datetime | None:
         return self._missing_since
 
+    @property
+    def owner_id(self) -> str | None:
+        return self._owner_id
+
     def mark_broken(self) -> None:
         self._status = ServerStatus.BROKEN
         self._updated_at = datetime.now(timezone.utc)
@@ -173,6 +179,7 @@ class Server(AggregateRoot):
         properties: ServerProperties,
         group_id: str = "default",
         deployment: ServerDeployment | None = None,
+        owner_id: str | None = None,
     ) -> Server:
         server = cls(
             server_id=server_id,
@@ -184,6 +191,7 @@ class Server(AggregateRoot):
             properties=properties,
             group_id=group_id,
             deployment=deployment,
+            owner_id=owner_id,
         )
         server._add_event(
             ServerCreatedEvent(

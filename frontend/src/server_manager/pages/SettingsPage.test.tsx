@@ -36,6 +36,14 @@ vi.mock("@/server_manager/hooks/useSettings", () => ({
   })),
 }));
 
+vi.mock("@/services/api", () => ({
+  createAuthenticatedApi: () => ({
+    listInvites: vi.fn().mockResolvedValue([]),
+    createInvite: vi.fn(),
+    revokeInvite: vi.fn(),
+  }),
+}));
+
 vi.mock("@/stores/toastStore", () => ({
   toast: vi.fn(),
   useToastStore: vi.fn(() => ({ toasts: [], dismiss: vi.fn() })),
@@ -194,5 +202,15 @@ describe("SettingsPage", () => {
 
     fireEvent.click(discardButton);
     expect(appNameInput.value).toBe("MCS Manager");
+  });
+
+  it("switches between System Settings and Invitations tabs", async () => {
+    renderPage();
+    expect(screen.getByText("General")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Invitations/i }));
+
+    expect(await screen.findByText("Invitations Management")).toBeInTheDocument();
+    expect(screen.queryByText("General")).not.toBeInTheDocument();
   });
 });

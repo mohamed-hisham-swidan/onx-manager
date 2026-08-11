@@ -51,6 +51,11 @@ async def client() -> AsyncClient:
     database._engine = engine
     database._session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
+    async with database._session_factory() as sess:
+        from app.modules.auth.infrastructure.models import SystemStateModel
+        sess.add(SystemStateModel(id="default", initialized=True, access_mode="LOCAL"))
+        await sess.commit()
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

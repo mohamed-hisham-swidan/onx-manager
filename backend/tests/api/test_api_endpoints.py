@@ -70,6 +70,11 @@ async def client(tmp_path) -> AsyncClient:
     database._engine = engine
     database._session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
+    async with database._session_factory() as sess:
+        from app.modules.auth.infrastructure.models import SystemStateModel
+        sess.add(SystemStateModel(id="default", initialized=True, access_mode="LOCAL"))
+        await sess.commit()
+
     old_data_dir = os.environ.get("MCS_SERVERS_DATA_DIR")
     test_servers_dir = tmp_path / "test_servers"
     test_servers_dir.mkdir(parents=True, exist_ok=True)
@@ -186,6 +191,7 @@ async def privileged_header(client: AsyncClient, created_user: dict) -> dict[str
         client,
         created_user["user_id"],
         [
+            "server:create",
             "server:delete",
             "server:stop",
             "server:start",
@@ -465,9 +471,9 @@ class TestServers:
         resp = await client.get("/api/v1/servers")
         assert resp.status_code == 401
 
-    async def test_console_endpoint(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_console_endpoint(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
-        resp = await client.get(f"/api/v1/servers/{server_id}/console?tail=50", headers=auth_header)
+        resp = await client.get(f"/api/v1/servers/{server_id}/console?tail=50", headers=admin_header)
         assert resp.status_code == 404
 
 
@@ -933,7 +939,23 @@ class TestMonitoring:
         resp = await client.get("/api/v1/monitoring/alerts", headers=auth_header)
         assert resp.status_code == 200
 
-    async def test_create_alert_rule_unauthorized(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_create_alert_rule_unauthorized(self, client: AsyncClient, created_server: dict) -> None:
+        from app.core.persistence.db import database
+        from app.modules.auth.infrastructure.models import UserModel
+
+        async with database._session_factory() as session:
+            session.add(
+                UserModel(
+                    id="u_outsider_alerts",
+                    email="outsider-alerts@test.com",
+                    password_hash="hash",
+                    display_name="Outsider",
+                    is_active=True,
+                )
+            )
+            await session.commit()
+        outsider_header = await _seed_api_key_header(client, "u_outsider_alerts", [])
+
         server_id = created_server["server_id"]
         resp = await client.post(
             f"/api/v1/monitoring/alerts/{server_id}",
@@ -943,7 +965,7 @@ class TestMonitoring:
                 "threshold": 10.0,
                 "severity": "warning",
             },
-            headers=auth_header,
+            headers=outsider_header,
         )
         assert resp.status_code == 403
 
@@ -1008,9 +1030,25 @@ class TestSchedules:
 
 
 class TestHealthEvaluatePermissions:
-    async def test_evaluate_health_unauthorized(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_evaluate_health_unauthorized(self, client: AsyncClient, created_server: dict) -> None:
+        from app.core.persistence.db import database
+        from app.modules.auth.infrastructure.models import UserModel
+
+        async with database._session_factory() as session:
+            session.add(
+                UserModel(
+                    id="u_outsider_health",
+                    email="outsider-health@test.com",
+                    password_hash="hash",
+                    display_name="Outsider",
+                    is_active=True,
+                )
+            )
+            await session.commit()
+        outsider_header = await _seed_api_key_header(client, "u_outsider_health", [])
+
         server_id = created_server["server_id"]
-        resp = await client.post(f"/api/v1/health/evaluate/{server_id}", headers=auth_header)
+        resp = await client.post(f"/api/v1/health/evaluate/{server_id}", headers=outsider_header)
         assert resp.status_code == 403
 
     async def test_evaluate_health_authorized(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
@@ -1025,12 +1063,12 @@ class TestEdgeCases:
         resp = await client.get("/api/v1/schedules")
         assert resp.status_code == 401
 
-    async def test_send_command(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_send_command(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         resp = await client.post(
             f"/api/v1/servers/{server_id}/command",
             json={"command": "say hello"},
-            headers=privileged_header,
+            headers=admin_header,
         )
         assert resp.status_code == 404
 
@@ -1123,12 +1161,29 @@ class TestAuthorizationEnforcement:
         assert resp.status_code == 204
 
     async def test_stop_server_without_permission_denied(
-        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+        self, client: AsyncClient, created_server: dict
     ) -> None:
+        from app.core.persistence.db import database
+        from app.modules.auth.infrastructure.models import UserModel
+
+        async with database._session_factory() as session:
+            session.add(
+                UserModel(
+                    id="u_outsider_stop",
+                    email="outsider-stop@test.com",
+                    password_hash="hash",
+                    display_name="Outsider",
+                    is_active=True,
+                )
+            )
+            await session.commit()
+        outsider_header = await _seed_api_key_header(client, "u_outsider_stop", [])
+
         server_id = created_server["server_id"]
-        resp = await client.post(f"/api/v1/servers/{server_id}/stop", json={"reason": "test"}, headers=auth_header)
+        resp = await client.post(f"/api/v1/servers/{server_id}/stop", json={"reason": "test"}, headers=outsider_header)
         assert resp.status_code == 403
-        assert resp.json()["error_code"] == "PERMISSION_DENIED"
+        err_text = resp.json().get("detail") or resp.json().get("error") or ""
+        assert "permission" in err_text.lower()
 
     async def test_reconcile_without_permission_denied(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
         resp = await client.post("/api/v1/servers/reconcile", json={}, headers=auth_header)

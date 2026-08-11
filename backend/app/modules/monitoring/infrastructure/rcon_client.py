@@ -56,7 +56,11 @@ class AsyncRCONClient:
         self._request_id += 1
         req_id = self._request_id
         await self._send_packet(req_id, PACKET_COMMAND, command)
-        _, _, body = await self._read_packet()
+        resp_id, ptype, body = await self._read_packet()
+        if resp_id != req_id or ptype != PACKET_RESPONSE:
+            raise RCONError(
+                f"RCON response mismatch (expected request-id {req_id}, got {resp_id} type {ptype})"
+            )
         return body
 
     async def _send_packet(self, req_id: int, ptype: int, body: str) -> None:
@@ -117,6 +121,18 @@ class PersistentRCONClient:
         self._client: AsyncRCONClient | None = None
 
     @property
+    def host(self) -> str:
+        return self._host
+
+    @property
+    def port(self) -> int:
+        return self._port
+
+    @property
+    def password(self) -> str:
+        return self._password
+
+    @property
     def is_connected(self) -> bool:
         return self._client is not None and self._client._writer is not None
 
@@ -138,6 +154,13 @@ class PersistentRCONClient:
                 try:
                     client = await self.ensure_connected()
                     return await client.send_command(command)
+                except asyncio.CancelledError:
+                    # A timeout (e.g. wait_for from the collector) cancelled us
+                    # mid-command; the response for the interrupted command may
+                    # still be in flight, so the connection is desynced and must
+                    # not be reused. Close it before propagating the cancel.
+                    await self._close_unlocked()
+                    raise
                 except Exception as exc:
                     last_error = exc
                     await self._close_unlocked()

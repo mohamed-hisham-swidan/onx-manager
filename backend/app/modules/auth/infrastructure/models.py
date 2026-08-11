@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.persistence.base import Base, TimestampMixin
@@ -60,3 +60,33 @@ class RefreshTokenModel(Base, TimestampMixin):
     expires_at = Column(DateTime(timezone=True), nullable=False)
     is_revoked = Column(Boolean, nullable=False, default=False)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class SystemStateModel(Base, TimestampMixin):
+    __tablename__ = "system_state"
+
+    id = Column(String(36), primary_key=True, default="default")
+    initialized = Column(Boolean, nullable=False, default=False)
+    access_mode = Column(String(32), nullable=False, default="LOCAL")
+
+
+class InvitationModel(Base, TimestampMixin):
+    __tablename__ = "invitations"
+
+    id = Column(String(36), primary_key=True)
+    token_hash = Column(String(128), nullable=False, unique=True, index=True)
+    token_prefix = Column(String(16), nullable=False)
+    creator_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    email = Column(String(255), nullable=True, index=True)
+    global_role = Column(String(32), nullable=False, default="member")
+    server_id = Column(String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=True)
+    server_role = Column(String(32), nullable=True)
+    status = Column(String(32), nullable=False, default="ACTIVE")
+    max_uses = Column(Integer, nullable=False, default=1)
+    use_count = Column(Integer, nullable=False, default=0)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("use_count <= max_uses", name="ck_invitation_use_count"),
+    )

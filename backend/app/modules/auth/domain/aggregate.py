@@ -232,3 +232,191 @@ class User(AggregateRoot):
                 key.revoke()
                 self._add_event(ApiKeyRevokedEvent(user_id=str(self._user_id), key_name=key.name))
                 break
+
+
+class AccessMode(str, Enum):
+    LOCAL = "LOCAL"
+    GLOBAL = "GLOBAL"
+
+
+class InviteStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    USED = "USED"
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
+
+
+class SystemState(AggregateRoot):
+    def __init__(
+        self,
+        id: str = "default",
+        initialized: bool = False,
+        access_mode: AccessMode | str = AccessMode.LOCAL,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> None:
+        super().__init__()
+        self._id = id
+        self._initialized = initialized
+        self._access_mode = access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
+        self._created_at = created_at or datetime.now(timezone.utc)
+        self._updated_at = updated_at or datetime.now(timezone.utc)
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def initialized(self) -> bool:
+        return self._initialized
+
+    @property
+    def access_mode(self) -> AccessMode:
+        return self._access_mode
+
+    @property
+    def created_at(self) -> datetime:
+        return self._created_at
+
+    @property
+    def updated_at(self) -> datetime:
+        return self._updated_at
+
+    def mark_initialized(self, access_mode: AccessMode | str | None = None) -> None:
+        self._initialized = True
+        if access_mode:
+            self._access_mode = access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
+        self._updated_at = datetime.now(timezone.utc)
+
+    def set_access_mode(self, access_mode: AccessMode | str) -> None:
+        self._access_mode = access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
+        self._updated_at = datetime.now(timezone.utc)
+
+
+class Invitation(AggregateRoot):
+    def __init__(
+        self,
+        invitation_id: str,
+        token_hash: str,
+        token_prefix: str,
+        creator_id: str | None = None,
+        email: str | None = None,
+        global_role: str = "member",
+        server_id: str | None = None,
+        server_role: str | None = None,
+        status: InviteStatus | str = InviteStatus.ACTIVE,
+        max_uses: int = 1,
+        use_count: int = 0,
+        expires_at: datetime | None = None,
+        used_at: datetime | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+    ) -> None:
+        super().__init__()
+        self._invitation_id = invitation_id
+        self._token_hash = token_hash
+        self._token_prefix = token_prefix
+        self._creator_id = creator_id
+        self._email = email
+        self._global_role = global_role
+        self._server_id = server_id
+        self._server_role = server_role
+        self._status = status if isinstance(status, InviteStatus) else InviteStatus(status)
+        self._max_uses = max_uses
+        self._use_count = use_count
+        self._expires_at = expires_at
+        self._used_at = used_at
+        self._created_at = created_at or datetime.now(timezone.utc)
+        self._updated_at = updated_at or datetime.now(timezone.utc)
+
+    @property
+    def invitation_id(self) -> str:
+        return self._invitation_id
+
+    @property
+    def token_hash(self) -> str:
+        return self._token_hash
+
+    @property
+    def token_prefix(self) -> str:
+        return self._token_prefix
+
+    @property
+    def creator_id(self) -> str | None:
+        return self._creator_id
+
+    @property
+    def email(self) -> str | None:
+        return self._email
+
+    @property
+    def global_role(self) -> str:
+        return self._global_role
+
+    @property
+    def server_id(self) -> str | None:
+        return self._server_id
+
+    @property
+    def server_role(self) -> str | None:
+        return self._server_role
+
+    @property
+    def status(self) -> InviteStatus:
+        return self._status
+
+    @property
+    def max_uses(self) -> int:
+        return self._max_uses
+
+    @property
+    def use_count(self) -> int:
+        return self._use_count
+
+    @property
+    def expires_at(self) -> datetime | None:
+        return self._expires_at
+
+    @property
+    def used_at(self) -> datetime | None:
+        return self._used_at
+
+    @property
+    def created_at(self) -> datetime:
+        return self._created_at
+
+    @property
+    def updated_at(self) -> datetime:
+        return self._updated_at
+
+    @property
+    def is_expired(self) -> bool:
+        if self._expires_at is None:
+            return False
+        expires_at = self._expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) > expires_at
+
+    @property
+    def is_valid(self) -> bool:
+        if self._status != InviteStatus.ACTIVE:
+            return False
+        if self.is_expired:
+            return False
+        if self._use_count >= self._max_uses:
+            return False
+        return True
+
+    def consume(self) -> None:
+        if not self.is_valid:
+            raise InvalidValueError("invitation", self._status, "Invitation is no longer valid or active")
+        self._use_count += 1
+        self._used_at = datetime.now(timezone.utc)
+        if self._use_count >= self._max_uses:
+            self._status = InviteStatus.USED
+        self._updated_at = datetime.now(timezone.utc)
+
+    def revoke(self) -> None:
+        self._status = InviteStatus.REVOKED
+        self._updated_at = datetime.now(timezone.utc)

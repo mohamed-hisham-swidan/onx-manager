@@ -18,6 +18,20 @@ router = APIRouter(prefix="/api/v1/servers/{server_id}/files", tags=["files"])
 
 __all__ = ["router"]
 
+SENSITIVE_FILENAMES: frozenset[str] = frozenset({"server.properties"})
+
+
+def _assert_not_sensitive(target_path: Path) -> None:
+    """Deny access to files carrying server secrets (e.g. rcon.password in server.properties).
+
+    Comparison is case-insensitive so the guard also holds on case-insensitive
+    filesystems (macOS/Windows) where a differently-cased name resolves to the
+    same file. The resolved basename is used, so ./server.properties and any
+    normalized nested/.. form are covered too.
+    """
+    if target_path.name.lower() in {name.lower() for name in SENSITIVE_FILENAMES}:
+        raise HTTPException(status_code=403, detail="File access denied for sensitive server file")
+
 
 async def _resolve_server_file_path(
     server_id: str,
@@ -109,6 +123,8 @@ async def read_file_content(
     if target_path.is_dir():
         raise HTTPException(status_code=400, detail="Target path is a directory, not a file")
 
+    _assert_not_sensitive(target_path)
+
     content = local_fs.read_text(str(target_path))
     return FileContentResponse(path=rel_str, content=content)
 
@@ -192,6 +208,8 @@ async def download_file(
     )
     if target_path.is_dir():
         raise HTTPException(status_code=400, detail="Target path is a directory, not a file")
+
+    _assert_not_sensitive(target_path)
 
     return FileResponse(
         path=str(target_path),

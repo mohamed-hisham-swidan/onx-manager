@@ -6,7 +6,7 @@ and a live test run. This document supersedes the stale counts and claims in
 `docs/status/history.md` (the historical narrative) and is the baseline that the
 Blueprint V5 governing plan is built on.
 
-**Last verified:** 2026-08-11
+**Last verified:** 2026-08-12
 **App version (code):** `4.0.0` (`backend/app/main.py:216`, `backend/pyproject.toml:3`)
 
 > Note on version numbers: the application reports `4.0.0` everywhere in code
@@ -21,10 +21,10 @@ Blueprint V5 governing plan is built on.
 | Item | Count | Evidence |
 |------|-------|----------|
 | Backend Python source files | 262 | `find backend/app -name "*.py"` |
-| Backend test files | 91 | `find backend/tests -name "test_*.py"` |
-| Frontend test files | 50 | `find frontend/src -name "*.test.*"` |
-| REST routers (`api/v1/routers/`) | 11 | `auth, backups, files, health, monitoring, plugins, schedules, servers, settings, software, users` |
-| Alembic migration revisions | 17 | `backend/alembic/versions/` (includes `5e2962848581`) |
+| Backend test files | 103 | `find backend/tests -name "test_*.py"` |
+| Frontend test files | 56 | `find frontend/src -name "*.test.*"` |
+| REST routers (`api/v1/routers/`) | 14 | `auth, backups, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
+| Alembic migration revisions | 20 | `backend/alembic/versions/` (head `a957791492a7`) |
 | Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 9 | `auth, backup, event_store, health, monitoring, plugin, server, shared, storage` |
@@ -32,45 +32,44 @@ Blueprint V5 governing plan is built on.
 
 ---
 
-## 2. Test suite (measured 2026-08-10)
+## 2. Test suite (measured 2026-08-12)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **1158** |
-| Passed | **1158** |
+| Collected | **1219** |
+| Passed | **1219** |
 | Failed | **0** (100% pass rate across backend test suite) |
 
 ### Frontend — `frontend/` `npx vitest run`
 
 | Metric | Value |
 |--------|-------|
-| Test files | **50** |
-| Tests | **363** (all passing) |
+| Test files | **56** |
+| Tests | **402** (all passing) |
+
+`npm run typecheck` (`tsc --noEmit`): clean.
+Frontend `npm run lint`: **pre-existing failures** (see §5 — not gated for this release; flagged files include committed files present before this pass).
 
 
 ---
 
 ## 3. Database state
 
-### Production DB — `backend/data/servers/mcs.db`
+### Default DB — `backend/mcs.db` (used by default config `sqlite+aiosqlite:///./mcs.db`)
 
 | Property | Value |
 |----------|-------|
-| Alembic revision | `a3b2c3d4e5f6` — **3 revisions behind head** (`b5c6d7e8f9a0`, `3a42d373bb05`, `c4d5e6f7a8b9` pending) |
-| Head revision | `c4d5e6f7a8b9` (`backend/mcs.db` dev DB is at head) |
-| Servers | **0** (production currently has no servers) |
-| Tables | 27 (including `alembic_version`) |
+| Alembic revision | `a957791492a7` — **at head** |
+| Head revision | `a957791492a7` (head == current) |
+| New tables | `system_state`, `invitations`, `server_memberships` present |
 
-The 3 pending migrations: `b5c6d7e8f9a0` (pending_restores table),
-`3a42d373bb05` (Modrinth source columns on `plugins`), `c4d5e6f7a8b9` (plugin
-filesystem-tracking columns). None of these have been applied to the
-production DB.
+### Secondary DB — `backend/data/servers/mcs.db`
 
-### Dev DB — `backend/mcs.db`
-
-At head (`c4d5e6f7a8b9`).
+Legacy/secondary SQLite file at revision `a3b2c3d4e5f6` with no
+`system_state`/`invitations` tables. Not referenced by the default config;
+confirm environment uses `backend/mcs.db` before release.
 
 ---
 
@@ -98,6 +97,15 @@ At head (`c4d5e6f7a8b9`).
 - Global permission enforcement via `require_permission(...)` and live server-scoped RBAC authorization via `require_server_permission(...)` (commit `a47daa8`).
 - Server membership & ownership model: `ServerModel.owner_id` (implicit full server access) and `ServerMembershipModel` (`server_memberships` table for `admin`, `dev`, `viewer` roles).
 - Protected surfaces: Files API (all 7 endpoints gated, with viewer role allowed file download access), Health API (`POST /health/evaluate/{server_id}` gated), Schedules API (`POST`/`DELETE` gated), and Monitoring Alerts (`POST /alerts/{server_id}` refactored to path-based `server_id` to eliminate IDOR / parameter-pollution vulnerability). Defense-in-depth in `require_server_permission` returns HTTP 400 if conflicting `server_id` values appear across path/query/body.
+- **Runtime diagnostics IDOR fixed (2026-08-12):** `GET /servers/{id}/runtime` and `GET /servers/{id}/runtime/validate` now enforce `require_server_permission("server.{id}.view")`; `GET /servers/runtime/ownership` enforces `require_permission("server:read")`. Regression tests in `backend/tests/api/test_runtime_permissions.py`.
+- Owner bootstrap / access-mode / invitation system (uncommitted working tree,
+  wired via `registration.py`): `POST /setup/bootstrap` (single-use),
+  `GET /setup/status`, `PUT /setup/access-mode` (owner-only, `LOCAL`/`GLOBAL`),
+  `POST /invites`, `DELETE /invites/{id}`, `GET /invites` (all `user:write`),
+  `GET /invites/verify/{token}`, `POST /invites/accept`, `POST /users`. Frontend:
+  `SetupPage`, `InvitePage`, `SystemStatusGuard`, `AccessSection`,
+  `InvitationsSection` under `/settings`. Migration `a957791492a7` adds
+  `system_state` + `invitations` tables.
 
 ### 4.3 WebSocket (fully functional & wired — Phase 3 closed)
 
@@ -191,6 +199,10 @@ Classification used by `Blueprint V5`:
 | K15 | Repo-root `data/` directory (gitignored, unused, awaiting cleanup decision) | Low | Housekeeping |
 | K16 | Provider selection config-driven via `MCS_PLUGIN_PROVIDERS`, validated at startup (K16A done 2026-08-05). Remaining: inspect configured list via API, add a second provider. | Low | Architecture debt (Phase 1) |
 | — | ~~**Files API IDOR Gap:** `GET /files`, `GET /files/content`, `GET /files/download` endpoints check login (`get_current_user`) but lack per-server permission enforcement~~ **Resolved 2026-08-11 (commit `a47daa8`)** — `require_server_permission` enforced on all 7 endpoints | ~~High~~ | ~~Security (Phase 4)~~ |
+| — | ~~**Runtime diagnostics IDOR:** `GET /servers/{id}/runtime`, `GET /servers/{id}/runtime/validate` were auth-only (no server scope); `GET /servers/runtime/ownership` exposed host-wide PID/tmux data with auth only~~ **Resolved 2026-08-12** — server-scoped guard + `server:read` + regression tests (`test_runtime_permissions.py`, 2 tests) | ~~High~~ | ~~Security~~ |
+| — | ~~**Invitation status case mismatch:** frontend compared `"active"`/`"consumed"` while backend returns `ACTIVE`/`USED`/`REVOKED`, so the Revoke button never rendered and status badges always fell through to the gray style~~ **Resolved 2026-08-12** — `InvitationsSection.tsx` compares uppercase enum values; `InvitationItem.use_count` matches backend `use_count` | ~~Medium~~ | ~~Bug~~ |
+| — | `npm run lint` fails with pre-existing errors (files: `SystemStatusGuard.test.tsx`, `InvitePage.test.tsx`, `SetupPage.test.tsx`, `AccessSection.test.tsx`, `InvitationsSection.test.tsx`, `ServerDetailPage.test.tsx`, `ServerShell.test.tsx`, `websocket/client.test.ts`, `RegisterPage.tsx`, `CreateServerPage.tsx`, `ServerDetailPage.tsx`, `ServerFilesPage.tsx`). Several flagged files are committed baseline files, so lint predates this pass. Not CI-gated backend; frontend CI runs lint. | Medium | Tech debt |
+| — | `ruff check` reports pre-existing errors across backend (incl. 52 in committed `servers.py`); no ruff CI gate; not introduced by this pass. | Low | Tech debt |
 | — | Backend `settings.py` router hardcodes `"version": "4.0.0"` instead of reading from live settings / AppSettings | Low | Known non-blocking |
 | — | ServerMetricsCharts 5s REST refetchInterval vs 60s backend collection cadence | Low | Known edge case |
 | — | Non-running server writes zero metrics rows → chart renders empty state without explanatory UI message | Low | Known edge case |

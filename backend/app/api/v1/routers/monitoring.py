@@ -36,7 +36,7 @@ async def get_metrics(
     server_id: str = Query(...),
     limit: int = Query(default=100, ge=1, le=10000),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_server_permission("server.{id}.view")),
 ) -> list[dict]:
     q = GetMetricsQuery(server_id=server_id, limit=limit)
     points = await query_bus.ask(q)

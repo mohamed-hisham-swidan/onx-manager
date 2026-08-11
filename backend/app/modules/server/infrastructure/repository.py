@@ -105,6 +105,7 @@ class SQLServerRepository(ServerRepository):
             model.launch_config_json = None
 
         model.missing_since = server.missing_since
+        model.owner_id = server.owner_id
 
         await self._session.flush()
 
@@ -190,6 +191,7 @@ class SQLServerRepository(ServerRepository):
             created_at=model.created_at,
             updated_at=model.updated_at,
             missing_since=model.missing_since,
+            owner_id=model.owner_id,
         )
 
         from app.modules.server.domain.aggregate import ServerStatus

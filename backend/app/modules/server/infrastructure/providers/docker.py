@@ -125,8 +125,9 @@ class DockerProvider(ServerProvider):
 
     async def execute_command(self, handle: ServerHandle, command: str) -> str:
         container_name = handle.external_id
+        escaped = command.replace("'", "'\\''")
         returncode, stdout = await self._docker_command(
-            f"exec {container_name} rcon-cli '{command}'",
+            f"exec {container_name} rcon-cli '{escaped}'",
         )
         if returncode != 0:
             raise ProviderError("docker", "execute_command", "docker exec failed")

@@ -2,14 +2,24 @@ from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
 from app.core.query_bus import QueryBus
 from app.modules.auth.application import (
+    AcceptInviteCommand,
+    AcceptInviteHandler,
+    BootstrapInstanceCommand,
+    BootstrapInstanceHandler,
     CreateApiKeyCommand,
     CreateApiKeyHandler,
+    CreateInviteCommand,
+    CreateInviteHandler,
     CreateUserCommand,
     CreateUserHandler,
     DeleteUserCommand,
     DeleteUserHandler,
     GetCurrentUserHandler,
     GetCurrentUserQuery,
+    GetSystemStatusHandler,
+    GetSystemStatusQuery,
+    ListInvitesHandler,
+    ListInvitesQuery,
     ListUsersHandler,
     ListUsersQuery,
     LoginCommand,
@@ -20,8 +30,14 @@ from app.modules.auth.application import (
     RefreshTokenHandler,
     RevokeApiKeyCommand,
     RevokeApiKeyHandler,
+    RevokeInviteCommand,
+    RevokeInviteHandler,
+    UpdateAccessModeCommand,
+    UpdateAccessModeHandler,
     UpdateUserCommand,
     UpdateUserHandler,
+    VerifyInviteHandler,
+    VerifyInviteQuery,
 )
 from app.modules.backup.application import (
     CreateBackupCommand,
@@ -144,6 +160,11 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(CreateUserCommand, CreateUserHandler(event_bus))
     command_bus.register(UpdateUserCommand, UpdateUserHandler(event_bus))
     command_bus.register(DeleteUserCommand, DeleteUserHandler(event_bus))
+    command_bus.register(BootstrapInstanceCommand, BootstrapInstanceHandler(event_bus))
+    command_bus.register(CreateInviteCommand, CreateInviteHandler(event_bus))
+    command_bus.register(AcceptInviteCommand, AcceptInviteHandler(event_bus))
+    command_bus.register(RevokeInviteCommand, RevokeInviteHandler(event_bus))
+    command_bus.register(UpdateAccessModeCommand, UpdateAccessModeHandler(event_bus))
 
 
 def _register_query_handlers(query_bus: QueryBus) -> None:
@@ -165,3 +186,6 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
 
     query_bus.register(GetCurrentUserQuery, GetCurrentUserHandler())
     query_bus.register(ListUsersQuery, ListUsersHandler())
+    query_bus.register(GetSystemStatusQuery, GetSystemStatusHandler())
+    query_bus.register(VerifyInviteQuery, VerifyInviteHandler())
+    query_bus.register(ListInvitesQuery, ListInvitesHandler())

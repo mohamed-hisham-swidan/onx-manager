@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
@@ -133,9 +134,15 @@ async def _collect_rcon_metrics(
 
 
 class MetricsCollector:
-    def __init__(self, event_bus: EventBus | None = None, known_servers: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus | None = None,
+        known_servers: list[str] | None = None,
+        per_server_timeout: float = 15.0,
+    ) -> None:
         self._event_bus = event_bus
         self._known_servers = known_servers or []
+        self._per_server_timeout = per_server_timeout
         self._proc_cache: dict[int, tuple[float, Any]] = {}
         self._rcon_clients: dict[str, PersistentRCONClient] = {}
 
@@ -181,12 +188,25 @@ class MetricsCollector:
 
                     if rcon_password:
                         client = self._rcon_clients.get(server_id)
-                        if client is None:
+                        if (
+                            client is None
+                            or client.host != rcon_host
+                            or client.port != rcon_port
+                            or client.password != rcon_password
+                        ):
+                            if client is not None:
+                                with contextlib.suppress(Exception):
+                                    await client.close()
                             client = PersistentRCONClient(rcon_host, rcon_port, rcon_password)
                             self._rcon_clients[server_id] = client
                         rcon_tps, rcon_players = await _collect_rcon_metrics(client)
                         tps = rcon_tps
                         players = rcon_players
+                    else:
+                        stale = self._rcon_clients.pop(server_id, None)
+                        if stale is not None:
+                            with contextlib.suppress(Exception):
+                                await stale.close()
 
                 except Exception:
                     logger.debug("Server lookup failed for %s, using defaults", server_id)
@@ -230,10 +250,22 @@ class MetricsCollector:
         return metric
 
     async def collect_all(self) -> dict[str, ServerMetrics]:
-        results: dict[str, ServerMetrics] = {}
-        for server_id in self._known_servers:
-            results[server_id] = await self.collect(server_id)
-        return results
+        async def collect_one(server_id: str) -> ServerMetrics:
+            try:
+                return await asyncio.wait_for(
+                    self.collect(server_id),
+                    timeout=self._per_server_timeout,
+                )
+            except TimeoutError:
+                logger.warning("Metrics collection timed out for %s", server_id)
+                return ServerMetrics(server_id=server_id)
+
+        if not self._known_servers:
+            return {}
+        collected = await asyncio.gather(
+            *(collect_one(server_id) for server_id in self._known_servers)
+        )
+        return {m.server_id: m for m in collected}
 
 
 class MetricCollectedEvent(DomainEvent):

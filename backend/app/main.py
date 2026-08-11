@@ -19,12 +19,14 @@ from app.api.v1.routers import (
     backups,
     files,
     health,
+    invites,
     marketplace,
     monitoring,
     plugins,
     schedules,
     servers,
     settings,
+    setup,
     software,
     users,
 )
@@ -277,6 +279,8 @@ def create_app() -> FastAPI:
     app.include_router(marketplace.router)
     app.include_router(auth.router)
     app.include_router(users.router)
+    app.include_router(setup.router)
+    app.include_router(invites.router)
     app.include_router(monitoring.router)
     app.include_router(health.router)
     app.include_router(schedules.router)
