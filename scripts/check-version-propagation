@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Verify application version propagation across pyproject.toml, package.json, and runtime.
+
+Checks that the single authoritative internal version (backend/pyproject.toml [project].version)
+agrees with:
+  A. frontend/package.json version (build metadata)
+  B. the runtime-reported version from GET /api/v1/settings
+
+Exit code 0 on agreement, 1 on mismatch.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import sys
+import tomllib
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_BACKEND_DIR = _REPO_ROOT / "backend"
+_FRONTEND_DIR = _REPO_ROOT / "frontend"
+
+_DEFAULT_PYPROJECT = _BACKEND_DIR / "pyproject.toml"
+_DEFAULT_PACKAGE_JSON = _FRONTEND_DIR / "package.json"
+
+
+def read_pyproject_version(path: Path) -> str:
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+    return data["project"]["version"]
+
+
+def read_package_json_version(path: Path) -> str:
+    with path.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    return data["version"]
+
+
+async def _probe_runtime_version() -> str:
+    """Start the real FastAPI app in-process and query GET /api/v1/settings.
+
+    Uses the existing test/application startup infrastructure (httpx ASGITransport)
+    with an in-memory SQLite engine and a freshly-generated JWT. Requires no developer
+    server, no DB file, no secrets, and no external services.
+    """
+    if str(_BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(_BACKEND_DIR))
+
+    import httpx
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from app.core.persistence.base import Base
+    from app.core.persistence.db import database
+    from app.main import create_app
+    from app.modules.auth.infrastructure.jwt import create_access_token
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    database._engine = engine
+    database._session_factory = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    app = create_app()
+    token = create_access_token(user_id="ci-version-check", permissions=["settings:read"])
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        resp = await client.get("/api/v1/settings", headers={"Authorization": f"Bearer {token}"})
+        resp.raise_for_status()
+        data = resp.json()
+        return data["version"]
+
+
+def probe_runtime_version() -> str:
+    return asyncio.run(_probe_runtime_version())
+
+
+def check(
+    pyproject_version: str, package_json_version: str, runtime_version: str
+) -> tuple[bool, str]:
+    versions = {
+        "pyproject.toml": pyproject_version,
+        "package.json": package_json_version,
+        "runtime": runtime_version,
+    }
+    lines = [f"{k}: {v}" for k, v in versions.items()]
+    agree = len(set(versions.values())) == 1
+    lines.append("PASS" if agree else "FAIL")
+    return agree, "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pyproject", type=Path, default=_DEFAULT_PYPROJECT)
+    parser.add_argument("--package-json", type=Path, default=_DEFAULT_PACKAGE_JSON)
+    parser.add_argument(
+        "--runtime-version",
+        default=None,
+        help="Override the runtime probe (for tests).",
+    )
+    args = parser.parse_args(argv)
+
+    pyproject_version = read_pyproject_version(args.pyproject)
+    package_json_version = read_package_json_version(args.package_json)
+    runtime_version = args.runtime_version or probe_runtime_version()
+
+    agree, report = check(pyproject_version, package_json_version, runtime_version)
+    print(report)
+    return 0 if agree else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Verify the Alembic migration chain satisfies the release DB compatibility floor.
+
+This is the CI-side complement to the Phase 5.5 startup check. It reuses the
+single authoritative declaration and graph helpers from
+``app.core.persistence.db_revision`` (``load_revision_parents``,
+``evaluate_revision``, ``RELEASE_MINIMUM_DB_REVISION``) — no compatibility
+logic is duplicated here.
+
+It verifies, WITHOUT running any migration:
+  - the migration graph has exactly one head revision, and
+  - that head equals the release floor ``RELEASE_MINIMUM_DB_REVISION``
+    (a ``evaluate_revision``-compatible descendant would also be accepted,
+    but for a release the head must match the pinned floor exactly).
+
+Exit code 0 on success, 1 on any violation.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
+
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+from app.core.persistence.db_revision import (  # noqa: E402
+    RELEASE_MINIMUM_DB_REVISION,
+    evaluate_revision,
+    load_revision_parents,
+)
+
+
+def _head_revisions(parents: dict[str, str | None]) -> list[str]:
+    """Revisions that are never referenced as another revision's down_revision."""
+    parents_of: set[str] = {p for p in parents.values() if p is not None}
+    return sorted(rev for rev in parents if rev not in parents_of)
+
+
+def main() -> int:
+    parents = load_revision_parents()
+    heads = _head_revisions(parents)
+
+    if len(heads) != 1:
+        print(
+            f"FAIL: migration history has {len(heads)} head revisions "
+            f"({', '.join(heads) or 'none'}); release requires exactly one head "
+            f"equal to '{RELEASE_MINIMUM_DB_REVISION}'."
+        )
+        return 1
+
+    head = heads[0]
+    if head != RELEASE_MINIMUM_DB_REVISION:
+        print(
+            f"FAIL: migration head is '{head}' but release floor is "
+            f"'{RELEASE_MINIMUM_DB_REVISION}'. Update migrations or the release floor."
+        )
+        return 1
+
+    status = evaluate_revision([head], parents=parents)
+    print(status.message)
+    return 0 if status.ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

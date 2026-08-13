@@ -14,6 +14,9 @@ Every AI session uses these scripts — never invent ad-hoc commands.
 | `scripts/test` | `pytest` | Run test suite |
 | `scripts/build` | `docker build` | Build production image |
 | `scripts/release` | Tag version, build, push | Create a release |
+| `scripts/check-version-propagation` | `python scripts/check-version-propagation` | Verify pyproject.toml, package.json, and runtime versions agree |
+| `scripts/check-route-contract` | `python scripts/check-route-contract` | Verify `contracts/permissions.yaml` route→permission matrix matches the live FastAPI route table (CI: route-permission-ci.yml) |
+| `scripts/reverify` | `./scripts/reverify` | Re-verification cadence — run the exact authoritative check set (version, DB head, ruff baseline, route contract, backend pytest, frontend typecheck/lint/test/build). Local twin of `.github/workflows/verification-cadence.yml` (weekly, see `docs/current-state.md` §7) |
 
 ## Usage
 

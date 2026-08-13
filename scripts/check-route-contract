@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""Verify contracts/permissions.yaml matches the live FastAPI route table.
+
+Boots the real application in-process and walks the live route table
+(flattening FastAPI 0.139 ``_IncludedRouter`` objects), classifying each
+route's actual authorization dependency. It then compares the
+machine-verifiable subset — method, path, status, and permission — against
+the ``route_permissions`` matrix in ``contracts/permissions.yaml``.
+
+Drift detected (exit code 1 on any):
+  - a live route absent from the contract (uncovered route)
+  - a contract entry with no live route (stale / deleted route)
+  - contract says ``enforced`` but the live route carries no permission check
+  - the live permission differs from the contract's stated permission
+  - contract says ``not-applicable-public`` / ``missing`` but the live route
+    enforces a permission
+  - contract says ``enforced-external`` but the route is not a WebSocket route
+
+Prose notes, the ``permissions:`` catalog, and ``roles:`` are manual policy and
+are NOT validated here. Exit code 0 on agreement, 1 on drift.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_BACKEND_DIR = _REPO_ROOT / "backend"
+_DEFAULT_CONTRACT = _REPO_ROOT / "contracts" / "permissions.yaml"
+
+_ALLOWED_STATUSES = {
+    "enforced",
+    "enforced-external",
+    "missing",
+    "not-applicable-public",
+}
+
+
+def iter_routes(app: Any) -> list[tuple[str, str, Any]]:
+    """Flatten the live route table, yielding (method, path, route)."""
+
+    out: list[tuple[str, str, Any]] = []
+
+    def walk(routes: list[Any]) -> None:
+        for r in routes:
+            if type(r).__name__ == "_IncludedRouter":
+                walk(r.original_router.routes)
+                continue
+            if hasattr(r, "methods"):
+                for m in sorted(r.methods - {"HEAD", "OPTIONS"}):
+                    out.append((m, r.path, r))
+            elif hasattr(r, "path"):
+                label = "WS" if type(r).__name__ == "APIWebSocketRoute" else "ROUTE"
+                out.append((label, r.path, r))
+
+    walk(app.routes)
+    return out
+
+
+def _closure_values(call: Any) -> list[Any]:
+    from contextlib import suppress
+
+    closure = getattr(call, "__closure__", None)
+    if not closure:
+        return []
+    values = []
+    for cell in closure:
+        with suppress(ValueError):
+            values.append(cell.cell_contents)
+    return values
+
+
+def _norm_permissions(values: list[Any]) -> set[str]:
+    """Normalize a live permission closure into a plain set of permission strings.
+
+    ``require_permission("x")`` stores a single str; ``require_server_permission``
+    stores a tuple (possibly a comma-joined template); ``require_owner()`` stores
+    nothing and is mapped to the pseudo-permission ``owner``.
+    """
+    perms: set[str] = set()
+    for v in values:
+        if isinstance(v, str):
+            perms.add(v)
+        elif isinstance(v, tuple):
+            for part in v:
+                perms.update(p.strip() for p in part.split(",") if p.strip())
+    return perms
+
+
+def classify_route(route: Any) -> dict[str, Any]:
+    """Derive the machine-verifiable authorization facts for one route."""
+
+    deps = getattr(getattr(route, "dependant", None), "dependencies", [])
+    permissions: set[str] = set()
+    owner = False
+    auth = False
+    is_ws = type(route).__name__ == "APIWebSocketRoute"
+
+    for dep in deps:
+        call = dep.call
+        if call is None:
+            continue
+        name = getattr(call, "__name__", "")
+        module = getattr(call, "__module__", "")
+        if module != "app.api.deps":
+            continue
+        if name == "_check":
+            values = _closure_values(call)
+            if not values:
+                owner = True
+            else:
+                permissions |= _norm_permissions(values)
+            auth = True
+        elif name == "get_current_user":
+            auth = True
+
+    return {
+        "is_ws": is_ws,
+        "auth": auth,
+        "owner": owner,
+        "permissions": permissions,
+    }
+
+
+def parse_contract(path: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    """Parse the machine-verifiable subset of the route_permissions matrix.
+
+    Only ``"METHOD /path": {permission: ..., status: ...}`` lines are captured;
+    comments and notes are ignored.
+    """
+    entries: dict[tuple[str, str], dict[str, Any]] = {}
+    key_re = re.compile(r'^\s*"(GET|POST|PUT|PATCH|DELETE|WS) (\S+)":\s*\{')
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        m = key_re.match(line)
+        if not m:
+            continue
+        method, route_path = m.group(1), m.group(2)
+        body = line[m.end():]
+        perm_m = re.search(r'permission:\s*("(?:[^"\\]|\\.)*"|null)', body)
+        status_m = re.search(r"status:\s*([A-Za-z0-9_-]+)", body)
+        if not status_m:
+            continue
+        permission_raw = perm_m.group(1) if perm_m else "null"
+        if permission_raw == "null":
+            permissions: set[str] | None = None
+        else:
+            inner = permission_raw[1:-1]
+            permissions = {p.strip() for p in re.split(r"\s+OR\s+|,", inner) if p.strip()}
+        entries[(method, route_path)] = {
+            "status": status_m.group(1),
+            "permission": permissions,
+        }
+    return entries
+
+
+def check(
+    live: list[tuple[str, str, dict[str, Any]]],
+    contract: dict[tuple[str, str], dict[str, Any]],
+) -> tuple[bool, list[str]]:
+    """Compare live route facts against the contract; return (ok, report lines)."""
+
+    problems: list[str] = []
+    live_by_key = {(m, p): facts for m, p, facts in live}
+
+    for key in sorted(live_by_key):
+        if key not in contract:
+            problems.append(
+                f"UNCOVERED  {key[0]} {key[1]} — live route missing from contract"
+            )
+            continue
+        facts = live_by_key[key]
+        entry = contract[key]
+        status = entry["status"]
+        if status not in _ALLOWED_STATUSES:
+            problems.append(
+                f"UNKNOWN-STATUS {key[0]} {key[1]} — contract status '{status}'"
+            )
+            continue
+        if status == "enforced-external":
+            if not facts["is_ws"]:
+                problems.append(
+                    f"NOT-WS {key[0]} {key[1]} — contract says enforced-external "
+                    "but route is not a WebSocket"
+                )
+            continue
+        if facts["is_ws"]:
+            problems.append(
+                f"WS {key[0]} {key[1]} — live WebSocket but contract status "
+                f"'{status}' (expected enforced-external)"
+            )
+            continue
+        if status == "enforced":
+            expected = entry["permission"]
+            if expected is None:
+                problems.append(
+                    f"NO-PERM {key[0]} {key[1]} — contract enforced but declares "
+                    "no permission"
+                )
+                continue
+            if facts["owner"]:
+                actual: set[str] = {"owner"}
+            else:
+                actual = facts["permissions"]
+            if not actual:
+                problems.append(
+                    f"NOT-ENFORCED {key[0]} {key[1]} — contract says enforced but "
+                    f"live route has no permission check (expected {sorted(expected)})"
+                )
+            elif actual != expected:
+                problems.append(
+                    f"PERMISSION-MISMATCH {key[0]} {key[1]} — contract "
+                    f"{sorted(expected)} vs live {sorted(actual)}"
+                )
+        elif status in {"missing", "not-applicable-public"}:
+            if facts["owner"] or facts["permissions"]:
+                problems.append(
+                    f"ENFORCED-LIVE {key[0]} {key[1]} — contract says '{status}' "
+                    "but live route enforces a permission "
+                    f"({sorted(facts['permissions'] or {'owner'})})"
+                )
+            elif status == "missing" and not facts["auth"]:
+                problems.append(
+                    f"PUBLIC-LIVE {key[0]} {key[1]} — contract says 'missing' but "
+                    "live route is fully public (auth-only expected)"
+                )
+
+    for key in sorted(set(contract) - set(live_by_key)):
+        problems.append(
+            f"STALE  {key[0]} {key[1]} — contract entry has no matching live route"
+        )
+
+    return (not problems, problems)
+
+
+def collect_live(app: Any) -> list[tuple[str, str, dict[str, Any]]]:
+    return [(method, path, classify_route(route)) for method, path, route in iter_routes(app)]
+
+
+def _boot_app(args: argparse.Namespace) -> Any:
+    if args.app:
+        import importlib
+
+        module = importlib.import_module(args.app)
+        app = getattr(module, "app", None)
+        if app is None:
+            app = module.create_app()
+    else:
+        from app.main import create_app
+
+        app = create_app()
+    return app
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--contract", type=Path, default=_DEFAULT_CONTRACT)
+    parser.add_argument(
+        "--app", default=None, help="Dotted import path to the FastAPI app (tests)."
+    )
+    args = parser.parse_args(argv)
+
+    if str(_BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(_BACKEND_DIR))
+
+    app = _boot_app(args)
+    live = collect_live(app)
+    contract = parse_contract(args.contract)
+
+    ok, problems = check(live, contract)
+    n_live = len(live)
+    n_contract = len(contract)
+    print(
+        f"Route/permission contract check: {n_live} live routes vs {n_contract} contract entries "
+        f"({args.contract})"
+    )
+    if problems:
+        print(f"FAIL — {len(problems)} drift(s):")
+        for p in problems:
+            print(f"  {p}")
+        return 1
+    print("PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

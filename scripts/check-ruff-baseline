@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Verify the backend Ruff violation counts do not exceed the committed baseline.
+
+Rule: this repository tracks its pre-existing lint debt by rule in
+``backend/ruff-baseline.json``. New work must NOT introduce new violations of
+any already-tracked rule (counts may only stay equal or decrease; new rules
+that fire at all are considered a regression).
+
+This makes the linter a real CI gate without demanding a blind 1738 -> 0
+cleanup in one batch. Fixing existing debt is expected and will simply keep
+the baseline counts unchanged or lower — it never fails an already-clean change.
+
+Exit code 0 when every rule's count is at or below its baseline,
+1 otherwise.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+_BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
+_BASELINE_PATH = _BACKEND_DIR / "ruff-baseline.json"
+
+
+def compare_counts(
+    baseline: dict[str, int], current: dict[str, int]
+) -> tuple[list[str], list[str], list[str]]:
+    """Classify current rule counts against the baseline.
+
+    Returns ``(regressions, fixed, reduced)``:
+      - ``regressions``: rules whose current count exceeds the baseline, or
+        that are absent from the baseline entirely (new violation codes);
+      - ``fixed``: rules present in the baseline but gone from the current
+        output — every violation of that rule was resolved;
+      - ``reduced``: baseline rules that still appear but below their count.
+
+    A rule legitimately disappears from ``current`` when all its violations
+    are fixed; that is never a regression.
+    """
+    regressions = sorted(
+        code
+        for code, count in current.items()
+        if code not in baseline or count > baseline[code]
+    )
+    fixed = sorted(code for code in baseline if code not in current)
+    reduced = sorted(code for code in baseline if current.get(code, 0) < baseline[code])
+    return regressions, fixed, reduced
+
+
+def _current_counts() -> dict[str, int]:
+    result = subprocess.run(
+        ["ruff", "check", ".", "--output-format=json"],
+        cwd=_BACKEND_DIR,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode not in (0, 1):
+        print(f"FAIL: ruff could not be executed.\n{result.stderr}")
+        raise SystemExit(2)
+    violations = json.loads(result.stdout)
+    counts: dict[str, int] = {}
+    for v in violations:
+        counts[v["code"]] = counts.get(v["code"], 0) + 1
+    return counts
+
+
+def main() -> int:
+    baseline = json.loads(_BASELINE_PATH.read_text())
+    current = _current_counts()
+
+    regressions, fixed, reduced = compare_counts(baseline, current)
+
+    if fixed:
+        print(f"Cleared entirely: {', '.join(fixed)}")
+    if reduced:
+        print(
+            "Reduced: "
+            + ", ".join(f"{c}: {baseline[c]} -> {current.get(c, 0)}" for c in reduced)
+        )
+
+    if regressions:
+        try:
+            baseline_label = _BASELINE_PATH.relative_to(_BACKEND_DIR)
+        except ValueError:
+            baseline_label = _BASELINE_PATH
+        print(
+            "FAIL: new Ruff violations exceed the committed baseline "
+            f"({baseline_label}).\n"
+            "Regressions:\n"
+            + "\n".join(f"  {c}: {current[c]} (baseline {baseline.get(c, 0)})" for c in regressions)
+            + "\nFix them, then run `ruff check . --fix` / apply edits. "
+            "Do NOT bump the baseline to paper over new violations."
+        )
+        return 1
+
+    print(
+        f"OK: {sum(current.values())} violations across {len(current)} rules — "
+        "all at or below baseline."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

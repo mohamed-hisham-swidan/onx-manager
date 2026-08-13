@@ -1,0 +1,40 @@
+name: Backend Version Propagation
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "backend/pyproject.toml"
+      - "frontend/package.json"
+      - "scripts/check-version-propagation"
+      - ".github/workflows/backend-version-ci.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "backend/pyproject.toml"
+      - "frontend/package.json"
+      - "scripts/check-version-propagation"
+      - ".github/workflows/backend-version-ci.yml"
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Verify version propagation
+        run: python ../scripts/check-version-propagation

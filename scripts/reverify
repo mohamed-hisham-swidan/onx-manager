@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Re-verification cadence — local one-shot runner.
+#
+# Mirrors the exact command set executed by the scheduled CI workflow
+# `.github/workflows/verification-cadence.yml` (the "Verification Cadence"
+# weekly run + its push/PR triggers). Run this locally to reproduce the
+# same authoritative checks the cadence enforces; anything that passes here
+# should pass the scheduled CI run, and vice versa.
+#
+#   backend:
+#     - version propagation      scripts/check-version-propagation
+#     - DB compat floor / head   scripts/check-db-revision
+#     - Ruff baseline            scripts/check-ruff-baseline
+#     - route/permission contract scripts/check-route-contract
+#     - full pytest suite
+#   frontend:
+#     - typecheck, lint, test, build
+#
+# Exit code 0 only if every step passes; otherwise the first failing step's
+# exit code is returned.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+echo "=== Re-verification cadence: backend ==="
+(
+    cd backend
+    echo "--- version propagation ---"
+    python ../scripts/check-version-propagation
+    echo "--- DB compatibility floor / migration head ---"
+    python ../scripts/check-db-revision
+    echo "--- Ruff baseline ---"
+    python ../scripts/check-ruff-baseline
+    echo "--- route/permission contract ---"
+    python ../scripts/check-route-contract
+    echo "--- full backend test suite ---"
+    python -m pytest -q
+)
+
+echo "=== Re-verification cadence: frontend ==="
+(
+    cd frontend
+    echo "--- typecheck ---"
+    npm run typecheck
+    echo "--- lint ---"
+    npm run lint
+    echo "--- test ---"
+    npm run test
+    echo "--- build ---"
+    npm run build
+)
+
+echo "=== Re-verification cadence: all checks passed ==="
