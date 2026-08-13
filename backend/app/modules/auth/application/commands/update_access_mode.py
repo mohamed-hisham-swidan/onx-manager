@@ -4,6 +4,7 @@ from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import InvalidValueError, PermissionDenied
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.core.version import get_app_version
 from app.modules.auth.domain.aggregate import AccessMode
 from app.modules.auth.infrastructure.repository import SQLSystemStateRepository, SQLUserRepository
 
@@ -52,6 +53,6 @@ class UpdateAccessModeHandler(CommandHandler[UpdateAccessModeCommand]):
                 "initialized": True,
                 "access_mode": target_mode.value if hasattr(target_mode, "value") else str(target_mode),
                 "user_count": user_count,
-                "version": "4.0.0",
+                "version": get_app_version(),
             },
         )

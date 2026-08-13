@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.query_bus import Query, QueryHandler
+from app.core.version import get_app_version
 from app.modules.auth.infrastructure.repository import SQLSystemStateRepository, SQLUserRepository
 
 
@@ -22,5 +23,5 @@ class GetSystemStatusHandler(QueryHandler[GetSystemStatusQuery]):
                 "initialized": state.initialized,
                 "access_mode": state.access_mode.value if hasattr(state.access_mode, "value") else str(state.access_mode),
                 "user_count": user_count,
-                "version": "4.0.0",
+                "version": get_app_version(),
             }

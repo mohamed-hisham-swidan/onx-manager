@@ -8,10 +8,12 @@ from typing import Any
 import yaml
 from pydantic_settings import BaseSettings
 
+from app.core.version import get_app_version
+
 
 class AppSettings(BaseSettings):
     app_name: str = "mcs-manager"
-    version: str = "4.0.0"
+    version: str = get_app_version()
     debug: bool = False
     log_level: str = "INFO"
     log_json: bool = True

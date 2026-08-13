@@ -2,8 +2,6 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-logger = logging.getLogger("mcs.main")
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -35,6 +33,7 @@ from app.core.config import AppSettings, ConfigFactory
 from app.core.event_bus import EventBus
 from app.core.http_client import close_http_client, init_http_client
 from app.core.query_bus import QueryBus
+from app.core.version import get_app_version
 from app.modules.auth.infrastructure.jwt import init_jwt_from_settings
 from app.registration import register_handlers
 from app.modules.server.application.reconciliation import reconcile_servers
@@ -46,10 +45,13 @@ from app.modules.server.application.services.filesystem_reconciliation import Fi
 from app.modules.server.application.migrate_import_arch import migrate_old_import_arch
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.core.persistence.db import database
+from app.core.persistence.db_revision import check_database_compatibility
 from app.modules.plugin.infrastructure.providers import validate_plugin_providers
 from app.websocket.endpoint import init_websocket, router as ws_router, start_websocket_services, stop_websocket_services
 
 from app.core.settings_store import init_settings_store
+
+logger = logging.getLogger("mcs.main")
 
 _start_time: float = 0.0
 
@@ -61,6 +63,9 @@ async def lifespan(app: FastAPI):
     settings = ConfigFactory.global_settings()
     init_settings_store()
     database.init(settings)
+    db_status = await check_database_compatibility()
+    if not db_status.ok:
+        raise RuntimeError(db_status.message)
     init_jwt_from_settings(settings)
     command_bus = CommandBus()
     query_bus = QueryBus()
@@ -247,7 +252,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Minecraft Server Manager",
-        version="4.0.0",
+        version=get_app_version(),
         description="REST API for managing Minecraft server instances",
         lifespan=lifespan,
         docs_url="/docs",
@@ -303,7 +308,7 @@ def create_app() -> FastAPI:
             db_status = "disconnected"
         return {
             "status": "ok",
-            "version": "4.0.0",
+            "version": get_app_version(),
             "database": db_status,
             "uptime_seconds": time.time() - _start_time if _start_time else 0,
         }

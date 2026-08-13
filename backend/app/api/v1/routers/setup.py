@@ -7,6 +7,7 @@ from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
 from app.api.deps import get_command_bus, get_query_bus, require_owner
 from app.api.errors import check_command_result
+from app.core.version import get_app_version
 from app.modules.auth.application import (
     BootstrapInstanceCommand,
     GetSystemStatusQuery,
@@ -21,7 +22,7 @@ class SystemStatusResponse(BaseModel):
     initialized: bool
     access_mode: str
     user_count: int
-    version: str = "4.0.0"
+    version: str = get_app_version()
 
 
 class BootstrapRequest(BaseModel):

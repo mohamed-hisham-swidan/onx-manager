@@ -7,6 +7,7 @@ from app.core.settings_store import (
     get_live_settings,
     update_settings as update_settings_store,
 )
+from app.core.version import get_app_version
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
@@ -18,7 +19,7 @@ async def get_settings_endpoint(
     live = get_live_settings()
     return {
         "app_name": live.app_name,
-        "version": "4.0.0",
+        "version": get_app_version(),
         "debug": live.debug,
         "log_level": live.log_level,
         "rate_limit_per_minute": live.rate_limit_per_minute,
@@ -43,7 +44,7 @@ async def update_settings(
         "requires_restart": sorted(restart_fields),
         "settings": {
             "app_name": live.app_name,
-            "version": "4.0.0",
+            "version": get_app_version(),
             "debug": live.debug,
             "log_level": live.log_level,
             "rate_limit_per_minute": live.rate_limit_per_minute,

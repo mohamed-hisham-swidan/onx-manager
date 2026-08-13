@@ -3,6 +3,8 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
+from app.core.version import get_app_version
+
 T = TypeVar("T")
 
 
@@ -27,6 +29,6 @@ class SuccessResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
-    version: str = "4.0.0"
+    version: str = get_app_version()
     database: str = "connected"
     uptime_seconds: float | None = None
