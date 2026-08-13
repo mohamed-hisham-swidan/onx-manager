@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, type FormEvent } from "react";
+import { useState, useMemo, type FormEvent } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { createApiClient } from "@/services/api";
@@ -18,12 +18,9 @@ export function RegisterPage() {
   });
 
   const [inviteToken, setInviteToken] = useState(tokenFromUrl);
-  const [tokenVerified, setTokenVerified] = useState(false);
-  const [verifyingToken, setVerifyingToken] = useState(false);
 
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
-  const [emailLocked, setEmailLocked] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -31,43 +28,46 @@ export function RegisterPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Automatically verify token from URL
-  useEffect(() => {
-    if (tokenFromUrl) {
-      handleVerifyToken(tokenFromUrl);
-    }
-  }, [tokenFromUrl]);
+  const [activeVerifyToken, setActiveVerifyToken] = useState(tokenFromUrl);
 
-  const handleVerifyToken = async (tok: string) => {
-    if (!tok.trim()) return;
+  const verifyQuery = useQuery({
+    queryKey: ["invite", "verify", activeVerifyToken],
+    queryFn: () => api.verifyInvite(activeVerifyToken.trim()),
+    enabled: !!activeVerifyToken.trim(),
+    retry: false,
+  });
+
+  const verification = verifyQuery.data;
+  const tokenVerified = verification?.valid === true;
+  const verifyingToken = verifyQuery.isPending || verifyQuery.isFetching;
+
+  const requestError = verifyQuery.error instanceof Error ? verifyQuery.error.message : "";
+  const verificationError = verification && !verification.valid ? "Invalid or expired invitation token." : "";
+  const verifyError = requestError || verificationError;
+  const displayError = error || verifyError;
+
+  const verifiedEmail = verification?.valid ? verification.email ?? "" : "";
+  const emailValue = verifiedEmail ? verifiedEmail : email;
+  const emailLocked = Boolean(verifiedEmail);
+
+  const handleClickVerify = () => {
     setError("");
-    setVerifyingToken(true);
-    try {
-      const res = await api.verifyInvite(tok.trim());
-      if (res.valid) {
-        setTokenVerified(true);
-        if (res.email) {
-          setEmail(res.email);
-          setEmailLocked(true);
-        }
-      } else {
-        setTokenVerified(false);
-        setError("Invalid or expired invitation token.");
-      }
-    } catch (err: unknown) {
-      setTokenVerified(false);
-      const msg = err instanceof Error ? err.message : "Failed to verify invitation token";
-      setError(msg);
-    } finally {
-      setVerifyingToken(false);
-    }
+    const tok = inviteToken.trim();
+    if (!tok) return;
+    setActiveVerifyToken(tok);
+  };
+
+  const handleChangeToken = () => {
+    setActiveVerifyToken("");
+    setInviteToken("");
+    setError("");
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (!displayName || !email || !password) {
+    if (!displayName || !emailValue || !password) {
       setError("All fields are required");
       return;
     }
@@ -86,7 +86,7 @@ export function RegisterPage() {
         // Token invitation registration
         const res = await api.acceptInvite({
           token: inviteToken.trim(),
-          email,
+          email: emailValue,
           password,
           display_name: displayName,
         });
@@ -94,7 +94,7 @@ export function RegisterPage() {
         navigate("/");
       } else {
         // Standard LOCAL registration
-        await api.createUser({ email, password, display_name: displayName });
+        await api.createUser({ email: emailValue, password, display_name: displayName });
         navigate("/login?registered=1");
       }
     } catch (err: unknown) {
@@ -131,9 +131,9 @@ export function RegisterPage() {
             {tokenVerified ? "Accept Invitation" : "Create account"}
           </h2>
 
-          {error && (
+          {displayError && (
             <div className="px-3 py-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg">
-              {error}
+              {displayError}
             </div>
           )}
 
@@ -158,7 +158,7 @@ export function RegisterPage() {
                   />
                   <button
                     type="button"
-                    onClick={() => handleVerifyToken(inviteToken)}
+                    onClick={handleClickVerify}
                     disabled={verifyingToken || !inviteToken.trim()}
                     className="px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 text-xs font-medium border border-gray-300 dark:border-gray-600 disabled:opacity-50"
                   >
@@ -176,11 +176,7 @@ export function RegisterPage() {
                   <span>Invitation verified!</span>
                   <button
                     type="button"
-                    onClick={() => {
-                      setTokenVerified(false);
-                      setInviteToken("");
-                      setEmailLocked(false);
-                    }}
+                    onClick={handleChangeToken}
                     className="text-xs text-gray-500 hover:underline"
                   >
                     Change
@@ -211,7 +207,7 @@ export function RegisterPage() {
                 <input
                   id="email"
                   type="email"
-                  value={email}
+                  value={emailValue}
                   onChange={(e) => !emailLocked && setEmail(e.target.value)}
                   disabled={emailLocked}
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-75 disabled:bg-gray-100 dark:disabled:bg-gray-800"

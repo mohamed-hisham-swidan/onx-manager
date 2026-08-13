@@ -4,13 +4,16 @@
 
 | Layer | Framework | Test Count | Location |
 |---|---|---|---|
-| Backend (unit + integration) | pytest + pytest-asyncio | **1219 collected / 1219 passing (0 failures)** | `backend/tests/` |
-| Frontend (component + unit) | Vitest + jsdom | **402 across 56 files** | `frontend/src/**/*.test.*` |
+| Backend (unit + integration) | pytest + pytest-asyncio | **1540 passed / 2 skipped (1542 collected, 0 failures)** | `backend/tests/` |
+| Frontend (component + unit) | Vitest + jsdom | **406 across 56 files** | `frontend/src/**/*.test.*` |
 
-> Measured 2026-08-12 (see `docs/current-state.md` §2). `npm run typecheck`
-> (`tsc --noEmit`) is clean. Frontend `npm run lint` has **pre-existing
-> failures** (flagged files predate the current release; not gated for this
-> release — tracked separately, not part of the test-suite counts above).
+> Measured 2026-08-13 (see `docs/current-state.md` §2). `npm run typecheck`
+> (`tsc --noEmit`) is clean. `npm run lint` (`eslint src/`) is clean (0 errors /
+> 0 warnings, resolved 2026-08-13). Backend lint is enforced as a **Ruff
+> baseline regression gate** — new violations fail CI while the pre-existing
+> baseline (1738 violations / 42 rules) remains tracked in
+> `backend/ruff-baseline.json` (see `scripts/check-ruff-baseline`). Pyright is
+> **advisory / local only — it is not a CI gate**.
 
 ---
 
@@ -328,10 +331,27 @@ The integration suite will live in `backend/tests/e2e/` and use the existing Doc
 
 ## Quality Gates
 
+CI enforces the following on every push/PR to `master`:
+
+1. **Backend CI** (`.github/workflows/backend-tests.yml`):
+   - `python -m pytest -q` — full backend suite (1540 passed / 2 skipped)
+   - `scripts/check-db-revision` — DB compatibility floor vs Alembic head
+     (`a957791492a7`)
+   - `scripts/check-ruff-baseline` — Ruff baseline regression gate (new
+     violations fail; reductions allowed; baseline debt stays tracked)
+2. **Frontend CI** (`.github/workflows/frontend-ci.yml`): `npm run typecheck`,
+   `npm run lint`, `npm test`, `npm run build`
+3. **Version propagation CI** (`.github/workflows/backend-version-ci.yml`):
+   `scripts/check-version-propagation` — verifies `pyproject.toml`, runtime
+   (`backend/app/core/version.py`), and frontend package versions agree
+
+**Pyright** (backend type-checking) is **advisory / local only** — it is not a
+CI gate and does not block merges.
+
 Every PR must pass:
 
-1. **Lint** — `ruff check .` (backend) / `npm run lint` (frontend)
-2. **Type check** — `pyright` (backend) / `npm run typecheck` (frontend)
+1. **Lint** — Ruff baseline gate (backend, via CI) / `npm run lint` (frontend, clean)
+2. **Type check** — `pyright` (backend, advisory/local) / `npm run typecheck` (frontend)
 3. **All tests passing** — `pytest` (backend) / `npm test` (frontend)
 4. **Coverage ≥ 90%** for new code
 

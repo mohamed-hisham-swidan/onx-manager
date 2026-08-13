@@ -4,8 +4,8 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SetupPage } from "./SetupPage";
 
-let mockBootstrapInstance = vi.fn();
-let mockLogin = vi.fn();
+const mockBootstrapInstance = vi.fn();
+const mockLogin = vi.fn();
 
 vi.mock("@/services/api", () => ({
   createApiClient: () => ({

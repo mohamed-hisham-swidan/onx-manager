@@ -81,7 +81,7 @@ See [Users](#users) and [Setup & access mode](#setup--access-mode).
 
 Every other route requires a valid Bearer token.
 
-### Authorization model (verified 2026-08-12)
+### Authorization model (verified 2026-08-13)
 
 Authorization is enforced at the route dependency layer in two forms:
 
@@ -109,7 +109,7 @@ Authorization is enforced at the route dependency layer in two forms:
 > the source of truth in `contracts/permissions.yaml`.
 >
 > The full list of enforced routes is maintained in
-> [`contracts/permissions.yaml`](contracts/permissions.yaml) (v1.4, 83
+> [`contracts/permissions.yaml`](contracts/permissions.yaml) (v1.5, 85
 > effective routes), not duplicated inline here.
 
 ### 401 vs 403
@@ -234,7 +234,7 @@ All routes under `POST /api/v1/auth/*` except `login`/`refresh` require a Bearer
 | `POST` | `/api/v1/auth/refresh` | Public | `RefreshTokenRequest` | `200 LoginResponse` | Refresh token → new pair |
 | `POST` | `/api/v1/auth/logout` | Bearer | `LogoutRequest` (optional) | `200 dict` | Revokes refresh token |
 | `GET` | `/api/v1/auth/me` | Bearer | — | `200 dict` | Current user info; `404` if not found |
-| `GET` | `/api/v1/auth/api-keys` | `user:read` (global) | — | `200 list[ApiKeyResponse]` | Active keys for the current user (`key` is `null`) |
+| `GET` | `/api/v1/auth/api-keys` | Bearer (auth-only) | — | `200 list[ApiKeyResponse]` | Active keys for the current user (`key` is `null`); auth-only — part of the documented residual auth-only reads (see Security architecture) |
 | `POST` | `/api/v1/auth/api-keys` | `user:write` | `ApiKeyCreateRequest` | `201 ApiKeyResponse` | **Plaintext `key` returned only here** |
 | `DELETE` | `/api/v1/auth/api-keys/{api_key_id}` | `user:write` | — | `204` | Revokes an API key |
 
@@ -727,7 +727,7 @@ setup/invite/verify/login/health paths) until the Owner is created.
 
 | Method | Path | Auth | Request body | Response | Notes |
 |---|---|---|---|---|---|
-| `GET` | `/api/v1/setup/status` | Public | — | `200 SystemStatusResponse` | `{"initialized": bool, "access_mode": "LOCAL"/"GLOBAL", "user_count": int}` — consumed by the setup wizard and `SystemStatusGuard` |
+| `GET` | `/api/v1/setup/status` | Public | — | `200 SystemStatusResponse` | `{"initialized": bool, "access_mode": "LOCAL"/"GLOBAL", "user_count": int, "version": str}` — consumed by the setup wizard and `SystemStatusGuard` |
 | `POST` | `/api/v1/setup/bootstrap` | Public | `BootstrapRequest` | `201 BootstrapResponse` | **Single-use** first-run: creates the Owner user and marks the instance initialized with the chosen access mode. Rejected `409 Conflict` once initialized. |
 | `PUT` | `/api/v1/setup/access-mode` | **Owner only** (`require_owner()`) | `AccessModeRequest` | `200 SystemStatusResponse` | Flips `LOCAL` ↔ `GLOBAL`. `admin:full` alone is **not** sufficient — the caller needs the `owner` role or a `global.*` permission claim. Rejected `400` if the instance is not initialized. |
 

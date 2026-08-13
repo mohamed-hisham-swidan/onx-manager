@@ -3,7 +3,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ApiError } from "@/services/api";
+import { ApiError, type MetricsSnapshot } from "@/services/api";
+import type { RuntimeDiagnosticsResponse } from "@/server_manager/types";
 import { ServerDetailPage } from "./ServerDetailPage";
 
 function NavigateButton({ to, label }: { to: string; label: string }) {
@@ -57,8 +58,8 @@ let mockData: typeof mockServer | null = mockServer;
 let mockIsLoading = false;
 let mockError: Error | null = null;
 
-let mockRuntimeData: any = null;
-let mockMetricsData: any = null;
+let mockRuntimeData: RuntimeDiagnosticsResponse | null = null;
+let mockMetricsData: MetricsSnapshot[] | null = null;
 
 vi.mock("@/server_manager/hooks/useServers", () => ({
   useServerDetail: vi.fn(() => ({

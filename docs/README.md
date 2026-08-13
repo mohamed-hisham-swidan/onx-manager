@@ -8,7 +8,11 @@ listed with their status so it is always clear what is implemented vs planned.
 > `docs/current-state.md`. Older documents (superseded roadmaps in `docs/history/`,
 > the archived Blueprint v4 split set in `docs/history/blueprint-v4/`) are kept for
 > history and are labeled `LEGACY`. Where any document disagrees with
-> `docs/current-state.md`, the current-state doc wins.
+> `docs/current-state.md`, the current-state doc wins. `current-state.md` is the
+> **single** current-state source of truth — there is no `STATUS.md`, and one is
+> not maintained (see `docs/current-state.md` §7.1). Its facts are kept honest by
+> the weekly re-verification cadence (`.github/workflows/verification-cadence.yml`,
+> `scripts/reverify`; §7.2).
 
 ---
 
@@ -19,7 +23,7 @@ listed with their status so it is always clear what is implemented vs planned.
 | [Current State](current-state.md) | ✅ **IMPLEMENTED** | Verified, evidence-based snapshot of the codebase (version, tests, DB, known issues). Read this first. |
 | [Roadmap (Blueprint V5)](roadmap/MCS-Manager-Engineering-Blueprint-V5.md) | ✅ **IMPLEMENTED** | The only authoritative roadmap — 10 dependency-ordered phases. Phase 1 (CLOSED), Phase 2 (CLOSED), Phase 3 (CLOSED), Phase 4 (CLOSED — server-scoped authorization, owner/access-mode/invitations), Phase 5 (Versioning), Phase 6 (Testing/CI/docs), Phase 7 (Network Access), Phase 8 (Dynamic endpoint + DNS), Phase 9 (Final stabilization), Phase 10 (AI — last, deferred). |
 | [Roadmap v2](history/mcs-manager-roadmap-v2.md) | ⏸️ **LEGACY** | Superseded by Blueprint v5. Historical phase plan kept in `history/`. |
-| [Versioning](VERSIONING.md) | 🟡 **PLANNED** | Single source-of-truth versioning strategy (currently `4.0.0` across code; stale `7.1.0` only in history/server data). Roadmap Phase 5. |
+| [Versioning](VERSIONING.md) | ✅ **ADOPTED** | Versioning policy: SemVer 2.0.0 semantics, `4.0.0` internal app version, `/api/v1` public API contract (independent), plugin `min_app_version` compatibility floor (separate). Policy adopted 2026-08-12 (Phase 5 WS 5.1); single-source mechanism implemented 2026-08-13 (WS 5.2–5.6). |
 | [Roadmap v1](history/mcs-manager-roadmap-v1.md) | ⏸️ **LEGACY** | Superseded by v2. Historical phase plan (9 phases) kept for reference. |
 | [Blueprint v4 (split set)](history/blueprint-v4/00-index-and-vision.md) | ⏸️ **LEGACY** | Superseded by Blueprint v5. Archived in `history/blueprint-v4/`. |
 
@@ -79,19 +83,20 @@ listed with their status so it is always clear what is implemented vs planned.
 | Symbol | Meaning |
 |--------|---------|
 | ✅ **IMPLEMENTED** | Describes current, verified behavior |
+| ✅ **ADOPTED** | Policy/standard is decided and binding; its enforcement mechanism may still be pending implementation |
 | 🟡 **PLANNED** | Design reference for a future phase; nothing implemented |
 | ⏸️ **LEGACY** | Historical; superseded; kept for reference only |
 | 🟡 **BACKLOG** | Parking-lot; nothing committed |
 
 ---
 
-## Cross-cutting claims (verified 2026-08-12)
+## Cross-cutting claims (verified 2026-08-13)
 
-- **Version:** `4.0.0` (code) — planning docs that mention "7.1.0" are stale.
-- **Backend tests:** 1219 passed (100% pass rate).
-- **Frontend tests:** 402 passed across 56 files (`tsc` typecheck clean; lint has pre-existing failures).
+- **Version:** `4.0.0` (code) — single source `backend/pyproject.toml` → `backend/app/core/version.py:get_app_version()`; planning docs that mention "7.1.0" are stale.
+- **Backend tests:** 1540 passed / 2 skipped (0 failures).
+- **Frontend tests:** 406 passed across 56 files (`tsc` typecheck clean; `eslint` clean, 0 errors / 0 warnings since 2026-08-13).
 - **Routers:** 14 · **Migrations:** 20 (head `a957791492a7`) · **ADRs:** 12 · **Contracts:** 6.
-- **Authorization:** enforced via `require_permission` (global), `require_server_permission` (server-scoped RBAC), and `require_owner` (access mode); `contracts/permissions.yaml` v1.4 documents 83 effective routes.
+- **Authorization:** enforced via `require_permission` (global), `require_server_permission` (server-scoped RBAC), and `require_owner` (access mode); `contracts/permissions.yaml` v1.5 documents 85 effective routes.
 - **Production DB:** `backend/data/servers/mcs.db` is a **legacy file** at revision `a3b2c3d4e5f6`; the default configured DB is `backend/mcs.db` **at head** (`a957791492a7`, with `system_state`, `invitations`, `server_memberships`). See `current-state.md` §3.
-- **CI:** frontend workflow only (no backend CI yet).
+- **CI:** five workflows — `backend-tests.yml` (full pytest + DB-compat + Ruff-baseline gate), `backend-version-ci.yml` (version propagation), `route-permission-ci.yml` (route→permission contract), `frontend-ci.yml` (typecheck/lint/test/build), `verification-cadence.yml` (weekly re-verification; see `current-state.md` §7). Pyright is advisory/local only, not CI-gated.
 

@@ -53,8 +53,8 @@ Then begin implementation. Do not skip any step.
 | Requirement | Standard |
 |---|---|
 | Runtime | Python 3.12+ |
-| Linter | `ruff` — zero warnings |
-| Type checker | `pyright` — strict mode, type hints everywhere |
+| Linter | `ruff` — no new violations beyond `backend/ruff-baseline.json` (gate: `./scripts/check-ruff-baseline`) |
+| Type checker | `pyright` — strict mode, type hints everywhere (advisory; run via `./scripts/typecheck`, not a CI gate yet) |
 | Testing | `pytest` — TDD workflow, coverage ≥ 90% for new code |
 | Logging | `structlog` — never use `print()` |
 | Error handling | Catch specific exception types — never bare `try/except` |
@@ -175,15 +175,16 @@ Before marking any task complete, verify **all** of the following:
 
 | Gate | Command | Requirement |
 |---|---|---|
-| Lint | `./scripts/lint` | Zero errors |
-| Type check | `./scripts/typecheck` | Zero errors |
+| Backend lint | `./scripts/check-ruff-baseline` | No new violations vs `backend/ruff-baseline.json` |
+| Frontend lint | `npm run lint` (in `frontend/`) | Zero errors |
+| Type check | `./scripts/typecheck` | Zero errors (advisory) |
 | Test | `./scripts/test` | All tests passing |
 | Coverage | `./scripts/test --coverage` | ≥ 90% for new code |
 
 ### Checklist
 
 - [ ] All tests pass
-- [ ] No lint errors
+- [ ] Backend lint within baseline / frontend lint zero errors
 - [ ] No type errors
 - [ ] Coverage ≥ 90% for new code
 - [ ] `STATE.md` updated

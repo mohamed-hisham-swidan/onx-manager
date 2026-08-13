@@ -1,18 +1,20 @@
 # MCS Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-08-11. Every claim below was verified against source code, the database,
+2026-08-13. Every claim below was verified against source code, the database,
 and a live test run. This document supersedes the stale counts and claims in
 `docs/status/history.md` (the historical narrative) and is the baseline that the
 Blueprint V5 governing plan is built on.
 
-**Last verified:** 2026-08-12
-**App version (code):** `4.0.0` (`backend/app/main.py:216`, `backend/pyproject.toml:3`)
+**Last verified:** 2026-08-13
+**App version (code):** `4.0.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 > Note on version numbers: the application reports `4.0.0` everywhere in code
 > and OpenAPI. Internal planning documents have at various times referenced
 > "7.1.0" as a project/session version; that number does **not** appear
-> anywhere in the codebase. The authoritative version is `4.0.0`.
+> anywhere in the codebase. The authoritative version is `4.0.0`, read from a
+> single source (`pyproject.toml`) via `get_app_version()` (see
+> `docs/VERSIONING.md`).
 
 ---
 
@@ -20,37 +22,45 @@ Blueprint V5 governing plan is built on.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 262 | `find backend/app -name "*.py"` |
-| Backend test files | 103 | `find backend/tests -name "test_*.py"` |
+| Backend Python source files | 278 | `find backend/app -name "*.py"` |
+| Backend test files | 107 | `find backend/tests -name "test_*.py"` |
 | Frontend test files | 56 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 14 | `auth, backups, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
 | Alembic migration revisions | 20 | `backend/alembic/versions/` (head `a957791492a7`) |
 | Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 9 | `auth, backup, event_store, health, monitoring, plugin, server, shared, storage` |
-| CI workflows | 1 (frontend only) | `.github/workflows/frontend-ci.yml` — no backend CI workflow exists |
+| CI workflows | 5 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml}` — full backend pytest + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence (see §7) |
 
 ---
 
-## 2. Test suite (measured 2026-08-12)
+## 2. Test suite (measured 2026-08-13)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **1219** |
-| Passed | **1219** |
-| Failed | **0** (100% pass rate across backend test suite) |
+| Collected | **1542** |
+| Passed | **1540** |
+| Skipped | **2** |
+| Failed | **0** |
+
+Backend CI runs the full suite on every push/PR to `master`
+(`.github/workflows/backend-tests.yml`), followed by a DB compatibility-floor
+check and a Ruff-baseline regression gate (see §5).
 
 ### Frontend — `frontend/` `npx vitest run`
 
 | Metric | Value |
 |--------|-------|
 | Test files | **56** |
-| Tests | **402** (all passing) |
+| Tests | **406** (all passing) |
 
 `npm run typecheck` (`tsc --noEmit`): clean.
-Frontend `npm run lint`: **pre-existing failures** (see §5 — not gated for this release; flagged files include committed files present before this pass).
+Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
+on every push/PR to `master`.
+Frontend `npm run lint` (`eslint src/`): **clean — 0 errors / 0 warnings**
+(resolved 2026-08-13, B6-2; previously pre-existing failures).
 
 
 ---
@@ -98,10 +108,10 @@ confirm environment uses `backend/mcs.db` before release.
 - Server membership & ownership model: `ServerModel.owner_id` (implicit full server access) and `ServerMembershipModel` (`server_memberships` table for `admin`, `dev`, `viewer` roles).
 - Protected surfaces: Files API (all 7 endpoints gated, with viewer role allowed file download access), Health API (`POST /health/evaluate/{server_id}` gated), Schedules API (`POST`/`DELETE` gated), and Monitoring Alerts (`POST /alerts/{server_id}` refactored to path-based `server_id` to eliminate IDOR / parameter-pollution vulnerability). Defense-in-depth in `require_server_permission` returns HTTP 400 if conflicting `server_id` values appear across path/query/body.
 - **Runtime diagnostics IDOR fixed (2026-08-12):** `GET /servers/{id}/runtime` and `GET /servers/{id}/runtime/validate` now enforce `require_server_permission("server.{id}.view")`; `GET /servers/runtime/ownership` enforces `require_permission("server:read")`. Regression tests in `backend/tests/api/test_runtime_permissions.py`.
-- Owner bootstrap / access-mode / invitation system (uncommitted working tree,
-  wired via `registration.py`): `POST /setup/bootstrap` (single-use),
-  `GET /setup/status`, `PUT /setup/access-mode` (owner-only, `LOCAL`/`GLOBAL`),
-  `POST /invites`, `DELETE /invites/{id}`, `GET /invites` (all `user:write`),
+- Owner bootstrap / access-mode / invitation system (committed `14a0d32`):
+  `POST /setup/bootstrap` (single-use), `GET /setup/status`,
+  `PUT /setup/access-mode` (owner-only, `LOCAL`/`GLOBAL`), `POST /invites`,
+  `DELETE /invites/{id}`, `GET /invites` (all `user:write`),
   `GET /invites/verify/{token}`, `POST /invites/accept`, `POST /users`. Frontend:
   `SetupPage`, `InvitePage`, `SystemStatusGuard`, `AccessSection`,
   `InvitationsSection` under `/settings`. Migration `a957791492a7` adds
@@ -187,7 +197,7 @@ Classification used by `Blueprint V5`:
 | K3 | ~~`PATCH /settings` stub~~ **Resolved 2026-08-09 (commit `2437590`, `789dcbd`)** — file-backed persistence + consumer hot-reload + frontend redesign | ~~Medium~~ | ~~Bug~~ |
 | K4 | ~~Plugin enable/disable routes use only get_current_user~~ **Resolved 2026-08-11 (commit `a47daa8`)** — Phase 4 authorization gating | ~~Medium~~ | ~~Bug (Phase 4)~~ |
 | K5 | ~~Marketplace is not a first-class frontend section~~ **Resolved 2026-08-06 (commit `1c12e0c`)** — own `/marketplace` route + sidebar entry + global search + install-time server picker | ~~Medium~~ | ~~Feature~~ |
-| K6 | No backend CI workflow (only `frontend-ci.yml`); the permissions route-coverage matrix is not CI-enforced | High | Process (Phase 4) |
+| K6 | ~~No backend CI workflow~~ **Resolved 2026-08-13 (B6-2)** — `.github/workflows/backend-tests.yml` runs full pytest + DB-compat + Ruff-baseline gate. Route-coverage matrix now CI-enforced via `scripts/check-route-contract` (B6-4, `.github/workflows/route-permission-ci.yml`) | High | Process (Phase 4) |
 | K7 | ~~13 mutating routes + 21 sensitive GET routes lack permission enforcement~~ **Resolved 2026-08-11 (commit `a47daa8`)** — Protected remaining mutating routes & Files API with server-scoped RBAC | ~~High~~ | ~~Bug (Phase 4)~~ |
 | K8 | ~~`test_start_server` + `test_metrics_task_requires_collector` fail in the suite~~ **Resolved 2026-08-08** — 100% backend pass rate (1144/1144 passed) | ~~Low~~ | ~~Test debt~~ |
 | K9 | Production DB 3 revisions behind head; no servers | Medium | Ops |
@@ -201,9 +211,9 @@ Classification used by `Blueprint V5`:
 | — | ~~**Files API IDOR Gap:** `GET /files`, `GET /files/content`, `GET /files/download` endpoints check login (`get_current_user`) but lack per-server permission enforcement~~ **Resolved 2026-08-11 (commit `a47daa8`)** — `require_server_permission` enforced on all 7 endpoints | ~~High~~ | ~~Security (Phase 4)~~ |
 | — | ~~**Runtime diagnostics IDOR:** `GET /servers/{id}/runtime`, `GET /servers/{id}/runtime/validate` were auth-only (no server scope); `GET /servers/runtime/ownership` exposed host-wide PID/tmux data with auth only~~ **Resolved 2026-08-12** — server-scoped guard + `server:read` + regression tests (`test_runtime_permissions.py`, 2 tests) | ~~High~~ | ~~Security~~ |
 | — | ~~**Invitation status case mismatch:** frontend compared `"active"`/`"consumed"` while backend returns `ACTIVE`/`USED`/`REVOKED`, so the Revoke button never rendered and status badges always fell through to the gray style~~ **Resolved 2026-08-12** — `InvitationsSection.tsx` compares uppercase enum values; `InvitationItem.use_count` matches backend `use_count` | ~~Medium~~ | ~~Bug~~ |
-| — | `npm run lint` fails with pre-existing errors (files: `SystemStatusGuard.test.tsx`, `InvitePage.test.tsx`, `SetupPage.test.tsx`, `AccessSection.test.tsx`, `InvitationsSection.test.tsx`, `ServerDetailPage.test.tsx`, `ServerShell.test.tsx`, `websocket/client.test.ts`, `RegisterPage.tsx`, `CreateServerPage.tsx`, `ServerDetailPage.tsx`, `ServerFilesPage.tsx`). Several flagged files are committed baseline files, so lint predates this pass. Not CI-gated backend; frontend CI runs lint. | Medium | Tech debt |
-| — | `ruff check` reports pre-existing errors across backend (incl. 52 in committed `servers.py`); no ruff CI gate; not introduced by this pass. | Low | Tech debt |
-| — | Backend `settings.py` router hardcodes `"version": "4.0.0"` instead of reading from live settings / AppSettings | Low | Known non-blocking |
+| — | ~~`npm run lint` fails with pre-existing errors~~ **Resolved 2026-08-13 (B6-2)** — `eslint src/` is 0 errors / 0 warnings across the codebase; typed error handling fixed without config weakening; `frontend-ci.yml` gates on lint | ~~Medium~~ | ~~Tech debt~~ |
+| — | ~~`ruff check` reports pre-existing errors across backend; no ruff CI gate~~ **Resolved 2026-08-13 (B6-2)** — `backend/ruff-baseline.json` (1738 pre-existing violations / 42 rules) + `scripts/check-ruff-baseline` + CI step in `backend-tests.yml`; **new** violations fail CI, baseline debt remains tracked | ~~Low~~ | ~~Tech debt~~ |
+| — | ~~Backend `settings.py` router hardcodes `"version": "4.0.0"` instead of reading from live settings / AppSettings~~ **Resolved 2026-08-13 (Phase 5.2)** — `backend/app/core/version.py:get_app_version()` is the single resolver (`pyproject.toml` tomllib → `importlib.metadata` fallback → `4.0.0` last resort); `settings.py`, `setup.py`, `schemas/common.py`, `main.py`/OpenAPI, `get_system_status.py`, `update_access_mode.py` all read it | ~~Low~~ | ~~Known non-blocking~~ |
 | — | ServerMetricsCharts 5s REST refetchInterval vs 60s backend collection cadence | Low | Known edge case |
 | — | Non-running server writes zero metrics rows → chart renders empty state without explanatory UI message | Low | Known edge case |
 
@@ -211,9 +221,10 @@ Classification used by `Blueprint V5`:
 
 ## 6. Files that define this state
 
-- `backend/app/main.py` — app factory, version, middleware, router registration
+- `backend/app/main.py` — app factory, version (`get_app_version`), middleware, router registration
 - `backend/app/api/v1/routers/plugins.py` — plugin list + marketplace routes
-- `backend/app/api/v1/routers/settings.py` — settings GET + PATCH stub
+- `backend/app/api/v1/routers/settings.py` — settings GET + PATCH
+- `backend/app/core/version.py` — single version resolver (`get_app_version`)
 - `backend/app/websocket/authorization.py`, `endpoint.py`, `dispatcher.py`,
   `handlers.py` — WS auth, channels, dispatch (see §4.3)
 - `backend/app/api/v1/middleware/rate_limit.py` — per `client_ip:path` limiter
@@ -223,4 +234,56 @@ Classification used by `Blueprint V5`:
   best-version selection
 - `contracts/permissions.yaml` — live route→permission coverage matrix
 - `backend/data/servers/mcs.db` / `backend/mcs.db` — production / dev databases
-- `.github/workflows/frontend-ci.yml` — the only CI workflow
+- `.github/workflows/backend-tests.yml`, `backend-version-ci.yml`,
+  `route-permission-ci.yml`, `frontend-ci.yml`, `verification-cadence.yml` — CI
+  workflows
+
+---
+
+## 7. Re-verification cadence & status source-of-truth (B6-5)
+
+### 7.1 Single source-of-truth decision (Model A)
+
+`STATUS.md` does not exist in this repository (verified: root, `docs/`,
+`docs/status/`). The two-document split flagged as a drift risk in Blueprint V5
+§2.7 is therefore resolved by **collapse, not by maintenance**: **this
+`current-state.md` is the single canonical operational snapshot**, and
+`docs/status/history.md` remains the historical narrative it intentionally
+supersedes. No `STATUS.md` is recreated; no second current-state document is
+introduced.
+
+### 7.2 Cadence
+
+A fixed, automated re-verification cadence enforces the "no stale snapshot" rule
+instead of trusting memory (Blueprint V5 §2.4):
+
+| Property | Value |
+|----------|-------|
+| Trigger | GitHub Actions `schedule:` — **weekly, Monday 03:00 UTC** |
+| Workflow | `.github/workflows/verification-cadence.yml` (job `re-verify`) |
+| Reuses existing checks | Yes — the exact authoritative scripts/gates, not a lightweight approximation |
+| Local twin | `scripts/reverify` — runs the identical command set |
+| Also runs on | push / pull_request to `master` for version files, `contracts/permissions.yaml`, the check scripts, `docs/**`, and the workflow itself |
+
+Checks executed each run (identical locally via `scripts/reverify`):
+
+1. `python ../scripts/check-version-propagation` — pyproject.toml / package.json / runtime agree
+2. `python ../scripts/check-db-revision` — migration head `a957791492a7` at release floor
+3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
+4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 85 entries match 85 live routes
+5. `python -m pytest -q` (backend) — full suite `1570 passed / 2 skipped`
+6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — `56 files / 406 tests`, clean typecheck/lint, build succeeds
+
+### 7.3 Execution status
+
+- **Cadence mechanism: IMPLEMENTED / VERIFIED.** The scheduled workflow
+  (`.github/workflows/verification-cadence.yml`) exists, is syntactically
+  valid, retains push/PR triggers, and was dry-run successfully on 2026-08-14
+  against the exact command set in §7.2 (all checks pass, locally and in the
+  existing CI paths).
+- **Phase 6 §2.6 requirement: PENDING.** Blueprint V5 §2.6 acceptance requires
+  the cadence to have "run at least once under its own schedule". That can only
+  be shown by observing a real GitHub scheduled execution. **Scheduled
+  execution remains PENDING FIRST GITHUB SCHEDULED RUN** — the first autonomic
+  Monday 03:00 UTC run must land before this criterion is considered met. No
+  scheduled run has been observed as of 2026-08-14.

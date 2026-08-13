@@ -4,9 +4,9 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { InvitePage } from "./InvitePage";
 
-let mockVerifyInvite = vi.fn();
-let mockAcceptInvite = vi.fn();
-let mockLogin = vi.fn();
+const mockVerifyInvite = vi.fn();
+const mockAcceptInvite = vi.fn();
+const mockLogin = vi.fn();
 
 vi.mock("@/services/api", () => ({
   createApiClient: () => ({

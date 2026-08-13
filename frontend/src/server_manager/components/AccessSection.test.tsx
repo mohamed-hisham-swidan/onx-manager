@@ -3,10 +3,10 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AccessSection } from "./AccessSection";
 
-let mockGetMe = vi.fn();
-let mockGetSetupStatus = vi.fn();
-let mockUpdateAccessMode = vi.fn();
-let mockToast = vi.fn();
+const mockGetMe = vi.fn();
+const mockGetSetupStatus = vi.fn();
+const mockUpdateAccessMode = vi.fn();
+const mockToast = vi.fn();
 
 vi.mock("@/services/api", () => ({
   createApiClient: () => ({

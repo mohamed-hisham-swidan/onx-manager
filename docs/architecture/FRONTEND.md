@@ -305,12 +305,29 @@ Production builds use `window.location.host` for API and WS URLs.
 
 ## Testing
 
-402 frontend tests across 56 files (measured 2026-08-12). Test infrastructure:
+406 frontend tests across 56 files (measured 2026-08-13). Test infrastructure:
 - `vitest.config.ts` — jsdom environment, `@/` path alias, globals enabled
 - `test-setup.ts` — jsdom, localStorage mock, matchMedia mock
 - Testing libraries: `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`
 
+`npm run typecheck` (`tsc --noEmit`) is clean; `npm run lint` (`eslint src/`) is
+clean (0 errors / 0 warnings, resolved 2026-08-13).
+
+### CI
+
+Frontend CI (`.github/workflows/frontend-ci.yml`) runs on every push/PR to
+`master` and gates on: `npm run typecheck`, `npm run lint`, `npm test`
+(406 / 56 files), and `npm run build`.
+
 Key test areas: `authStore` (9), `uiStore` (9), `api.ts` (11), `wsStore` (4), `AuthGuard` (2), `LoginPage` (5), `Sidebar` (4), `TopNav` (4), `AppLayout` (2), `WebSocketManager` (3), `ServersPage` (8), `DashboardPage` (7).
+
+### Version display source
+
+The application version shown in `SettingsPage` (`{settings.app_name ?? "MCS Manager"} {settings.version}`)
+is read from `GET /api/v1/settings` (`version` field), which the backend
+resolves via `backend/app/core/version.py:get_app_version()` from
+`backend/pyproject.toml`. `frontend/package.json` `version` is **build metadata
+only** — it is not the displayed product version (see `docs/VERSIONING.md`).
 
 ## Cross-References
 

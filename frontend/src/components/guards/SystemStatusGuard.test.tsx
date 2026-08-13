@@ -4,7 +4,7 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SystemStatusGuard } from "./SystemStatusGuard";
 
-let mockGetSetupStatus = vi.fn();
+const mockGetSetupStatus = vi.fn();
 
 vi.mock("@/services/api", () => ({
   createAuthenticatedApi: () => ({

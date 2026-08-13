@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { createAuthenticatedApi } from "@/services/api";
+import { createAuthenticatedApi, ApiError } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
 import { Icon } from "@/components/ui/Icon";
 import { toast } from "@/stores/toastStore";
@@ -35,6 +35,7 @@ export function ServerFilesPage() {
   const [currentPath, setCurrentPath] = useState("");
   const [editingFile, setEditingFile] = useState<FileItem | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [userEdited, setUserEdited] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -43,7 +44,7 @@ export function ServerFilesPage() {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const queryClient = useQueryClient();
 
-  const { data: files, isLoading, error, refetch } = useQuery({
+  const { data: files, isLoading, error } = useQuery({
     queryKey: queryKeys.files.list(serverId!, currentPath),
     queryFn: () => api.listServerFiles(serverId!, currentPath),
     enabled: !!serverId,
@@ -55,17 +56,13 @@ export function ServerFilesPage() {
     enabled: !!serverId && !!editingFile,
   });
 
-  React.useEffect(() => {
-    if (fileContentData !== undefined) {
-      setEditContent(fileContentData);
-    }
-  }, [fileContentData]);
+  const displayedContent = userEdited ? editContent : (fileContentData ?? "");
 
-  const handleMutationError = (defaultTitle: string, err: any) => {
-    if (err?.status === 403) {
+  const handleMutationError = (defaultTitle: string, err: Error) => {
+    if (err instanceof ApiError && err.status === 403) {
       toast("error", "Permission Denied", "You do not have permission to perform this action on this server.");
     } else {
-      toast("error", defaultTitle, err?.message);
+      toast("error", defaultTitle, err.message);
     }
   };
 
@@ -76,7 +73,7 @@ export function ServerFilesPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath) });
       setFileToDelete(null);
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       handleMutationError("Failed to delete file", err);
     },
   });
@@ -87,7 +84,7 @@ export function ServerFilesPage() {
       toast("success", "File uploaded");
       queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath) });
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       handleMutationError("Failed to upload file", err);
     },
   });
@@ -100,19 +97,19 @@ export function ServerFilesPage() {
       setShowNewFolder(false);
       setNewFolderName("");
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       handleMutationError("Failed to create folder", err);
     },
   });
 
   const saveMutation = useMutation({
-    mutationFn: () => api.writeServerFileContent(serverId!, editingFile!.path, editContent),
+    mutationFn: () => api.writeServerFileContent(serverId!, editingFile!.path, displayedContent),
     onSuccess: () => {
       toast("success", "File saved");
       queryClient.invalidateQueries({ queryKey: queryKeys.files.content(serverId!, editingFile!.path) });
       setEditingFile(null);
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       handleMutationError("Failed to save file", err);
     },
   });
@@ -128,8 +125,8 @@ export function ServerFilesPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (err: any) {
-      toast("error", "Download failed", err.message);
+    } catch (err: unknown) {
+      toast("error", "Download failed", err instanceof Error ? err.message : "Download failed");
     }
   };
 
@@ -145,7 +142,7 @@ export function ServerFilesPage() {
   };
 
   if (isLoading && !files) return <PageSkeleton />;
-  if (error) return <ErrorState message={(error as any).message} />;
+  if (error) return <ErrorState message={error.message} />;
 
   const pathParts = currentPath.split("/").filter(Boolean);
   const breadcrumbs = [
@@ -194,8 +191,11 @@ export function ServerFilesPage() {
           ) : (
             <textarea
               className="w-full h-[600px] p-4 font-mono text-sm text-gray-900 bg-gray-50 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-900 dark:border-gray-600 dark:text-white"
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
+              value={displayedContent}
+              onChange={(e) => {
+                setEditContent(e.target.value);
+                setUserEdited(true);
+              }}
               spellCheck={false}
             />
           )}
@@ -344,6 +344,8 @@ export function ServerFilesPage() {
                           } else if (isBinaryFile(file.name)) {
                             handleDownload(file);
                           } else {
+                            setUserEdited(false);
+                            setEditContent("");
                             setEditingFile(file);
                           }
                         }}
@@ -373,7 +375,11 @@ export function ServerFilesPage() {
                         )}
                         {!file.is_dir && !isBinaryFile(file.name) && (
                           <button
-                            onClick={() => setEditingFile(file)}
+                            onClick={() => {
+                              setUserEdited(false);
+                              setEditContent("");
+                              setEditingFile(file);
+                            }}
                             className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 dark:hover:text-green-400 dark:hover:bg-green-900/30 rounded transition-colors"
                             title="Edit"
                           >

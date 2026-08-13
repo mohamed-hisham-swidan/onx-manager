@@ -92,8 +92,9 @@ evaluates role permissions and ABAC ownership rules when tokens are issued
 surface as `403 PERMISSION_DENIED` via `backend/app/api/errors.py`.
 
 The live route→permission matrix is the single source of truth:
-`contracts/permissions.yaml` (v1.4, 83 effective routes), regenerated from
-runtime introspection of the route table.
+`contracts/permissions.yaml` (v1.5, 85 effective routes), regenerated from
+runtime introspection of the route table and CI-enforced via
+`scripts/check-route-contract` (`.github/workflows/route-permission-ci.yml`).
 
 > **Remaining auth-only reads (no permission node).** The following endpoints
 > are authenticated (`get_current_user`) but still carry no permission check;

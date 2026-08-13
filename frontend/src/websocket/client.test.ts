@@ -23,7 +23,7 @@ function createMockWebSocket() {
       const handler = handlers[event];
       if (handler) {
         if (event === "message") {
-          handler({ data: (args[0] as any)?.data ?? args[0] });
+          handler({ data: (args[0] as { data?: unknown } | undefined)?.data ?? args[0] });
         } else {
           handler();
         }

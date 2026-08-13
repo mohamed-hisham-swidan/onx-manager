@@ -283,6 +283,12 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Core application identity and runtime logging configuration.
           </p>
+          {settings.version ? (
+            <p className="mt-2 inline-flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-1.5 text-xs text-gray-600 dark:bg-gray-700/50 dark:text-gray-300">
+              <Icon name="info" size={14} className="text-gray-400 dark:text-gray-500" />
+              {settings.app_name ?? "MCS Manager"} {settings.version}
+            </p>
+          ) : null}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* App Name */}

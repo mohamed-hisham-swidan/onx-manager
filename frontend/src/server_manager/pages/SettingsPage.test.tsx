@@ -213,4 +213,35 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("Invitations Management")).toBeInTheDocument();
     expect(screen.queryByText("General")).not.toBeInTheDocument();
   });
+
+  it("(v1) displays the application version reported by the settings API", () => {
+    renderPage();
+    expect(screen.getByText("MCS Manager 4.0.0")).toBeInTheDocument();
+  });
+
+  it("(v2) sources the version from settings.version, not a frontend constant", () => {
+    mockData = { ...mockSettings, version: "5.7.2" };
+    renderPage();
+    expect(screen.getByText("MCS Manager 5.7.2")).toBeInTheDocument();
+    expect(screen.queryByText(/4\.0\.0/)).not.toBeInTheDocument();
+  });
+
+  it("(v3) reflects a changed backend version in the UI", () => {
+    mockData = { ...mockSettings, version: "6.0.0-beta.1" };
+    const { unmount } = renderPage();
+    expect(screen.getByText("MCS Manager 6.0.0-beta.1")).toBeInTheDocument();
+    unmount();
+
+    mockData = { ...mockSettings, version: "6.0.0" };
+    renderPage();
+    expect(screen.getByText("MCS Manager 6.0.0")).toBeInTheDocument();
+    expect(screen.queryByText(/6\.0\.0-beta\.1/)).not.toBeInTheDocument();
+  });
+
+  it("(v4) handles a missing/null version without crashing", () => {
+    mockData = { ...mockSettings, version: null as unknown as string };
+    renderPage();
+    expect(screen.getByText("General")).toBeInTheDocument();
+    expect(screen.queryByText(/MCS Manager \d+\.\d+\.\d+/)).not.toBeInTheDocument();
+  });
 });

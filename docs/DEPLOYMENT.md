@@ -142,8 +142,44 @@ docker compose restart backend
 ```
 
 The frontend nginx serves the compiled Vite SPA and proxies API/WebSocket
-requests to the backend container. The backend runs migrations on startup
-and serves the REST API.
+requests to the backend container. The backend runs the Alembic migration step
+in its container command and will not start against an incompatible schema
+(see below).
+
+## Database migrations & compatibility floor
+
+**MCS Manager 4.0.0 requires DB compatibility with Alembic revision
+`a957791492a7`.** The version-conditional floor is declared once in
+`backend/app/core/persistence/db_revision.py`
+(`RELEASE_MINIMUM_DB_REVISION`); it is **never auto-applied** and **never read
+from the DB URL config**.
+
+Each deployment must follow this sequence:
+
+```bash
+# 1. Apply migrations (container entrypoint does this; you may run it explicitly)
+alembic upgrade head
+
+# 2. Verify the database reached the required revision
+alembic current
+#   → should show a957791492a7 (or a compatible descendant for later releases)
+
+# 3. Start the application
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+- **Migrations are a deployment step, not a startup behavior.** The Docker image
+  runs `alembic upgrade head && uvicorn app.main:app`, but the application itself
+  performs **no** automatic migration.
+- **Startup fails closed.** On start the backend reads `alembic_version` from the
+  live database and aborts if the revision is missing, unknown, **behind
+  `a957791492a7`**, or on an incompatible branch. The error names the current
+  revision, the required minimum, and the fix (`alembic upgrade head`) — without
+  exposing the database URL or credentials.
+- A fresh database migrated with `alembic upgrade head` starts normally; a
+  database left below the floor (e.g. the legacy secondary SQLite file
+  described in `docs/architecture/DATABASE.md`) is rejected with an actionable
+  error.
 
 ## Production considerations
 

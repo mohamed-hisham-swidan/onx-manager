@@ -3,11 +3,11 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { InvitationsSection } from "./InvitationsSection";
 
-let mockListInvites = vi.fn();
-let mockGetMe = vi.fn();
-let mockListServers = vi.fn();
-let mockCreateInvite = vi.fn();
-let mockRevokeInvite = vi.fn();
+const mockListInvites = vi.fn();
+const mockGetMe = vi.fn();
+const mockListServers = vi.fn();
+const mockCreateInvite = vi.fn();
+const mockRevokeInvite = vi.fn();
 
 vi.mock("@/services/api", () => ({
   createAuthenticatedApi: () => ({

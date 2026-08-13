@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer, useServerRuntime } from "@/server_manager/hooks/useServers";
 import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { Skeleton } from "@/components/Skeleton";
@@ -9,7 +9,6 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
-import { ServerConfigEditor } from "@/server_manager/components/ServerConfigEditor";
 import { ServerConsole } from "@/server_manager/components/ServerConsole";
 import { Sparkline } from "@/server_manager/components/Sparkline";
 import { useServerMetrics } from "@/server_manager/hooks/useServerMetrics";
@@ -187,8 +186,6 @@ export function ServerDetailPage() {
     ? metrics.reduce((latest, m) => (m.timestamp > latest.timestamp ? m : latest))
     : undefined;
 
-  const tpsData = (metrics ?? []).map((m) => m.tps);
-  const playersData = (metrics ?? []).map((m) => m.players);
   const ramData = (metrics ?? []).map((m) => m.ram_used_mb);
   const cpuData = (metrics ?? []).map((m) => m.cpu_percent);
 

@@ -97,7 +97,7 @@ describe("ServerShell", () => {
       data: { ...mockServer, server_type: "fabric" },
       isLoading: false,
       error: null,
-    } as any);
+    } as unknown as ReturnType<typeof useServerDetail>);
   });
 
   it("renders top bar, contextual server sidebar with Mods for fabric server", () => {
@@ -120,7 +120,7 @@ describe("ServerShell", () => {
       data: { ...mockServer, server_type: "paper" },
       isLoading: false,
       error: null,
-    } as any);
+    } as unknown as ReturnType<typeof useServerDetail>);
 
     renderServerShell("/servers/srv-123/console");
 
@@ -133,7 +133,7 @@ describe("ServerShell", () => {
       data: { ...mockServer, server_type: "mohist" },
       isLoading: false,
       error: null,
-    } as any);
+    } as unknown as ReturnType<typeof useServerDetail>);
 
     renderServerShell("/servers/srv-123/console");
 
@@ -146,7 +146,7 @@ describe("ServerShell", () => {
       data: { ...mockServer, server_type: "vanilla" },
       isLoading: false,
       error: null,
-    } as any);
+    } as unknown as ReturnType<typeof useServerDetail>);
 
     renderServerShell("/servers/srv-123/console");
 
@@ -159,7 +159,7 @@ describe("ServerShell", () => {
       data: { ...mockServer, server_type: "custom_loader" },
       isLoading: false,
       error: null,
-    } as any);
+    } as unknown as ReturnType<typeof useServerDetail>);
 
     renderServerShell("/servers/srv-123/console");
 

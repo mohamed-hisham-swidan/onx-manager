@@ -216,6 +216,30 @@ alembic downgrade -1
 | `5e2962848581` | `989743c08820` | **Server ownership/memberships** — `owner_id` FK on servers; `server_memberships` table |
 | `a957791492a7` | `5e2962848581` | **System state & invitations** — `system_state`, `invitations` tables (head) |
 
+### Per-release compatibility floor
+
+The application refuses to start against a database whose schema revision is below
+the release minimum — **fail closed**, never auto-upgraded.
+
+| Release | Minimum DB revision |
+|---------|---------------------|
+| `4.0.0` | `a957791492a7` (current head) |
+
+- **Authoritative source:** `backend/app/core/persistence/db_revision.py`
+  (`RELEASE_MINIMUM_DB_REVISION`).
+- **Compatibility algorithm:** ancestry walk over the migration graph (each
+  revision's `down_revision`). The DB revision is compatible iff the release
+  minimum is reachable from it walking `down_revision` — i.e. the minimum is one
+  of its ancestors (or the revision *is* the minimum). Revision ids are graph
+  nodes; they are never compared as strings.
+- **Allowed:** exact minimum, and any compatible *descendant* revision.
+- **Rejected (startup aborts):** missing `alembic_version` table/row, unknown
+  revision, revision behind the minimum, multiple/hostile branch revisions.
+- **No auto-migration:** this check never runs Alembic. Deployment runs
+  `alembic upgrade head` first (see `docs/DEPLOYMENT.md`).
+- **Secret safety:** error messages report the revision ids and the minimum, never
+  the database URL or credentials.
+
 ## Audit Log Implementation
 
 The `event_store` table implements an append-only audit log:
@@ -352,6 +376,11 @@ backup — final schema matches production column-for-column).
   `invitations`, or `server_memberships` tables and is **not** referenced by
   the default config (`MCS_DATABASE_URL` unset → `backend/mcs.db`). Confirm the
   environment uses `backend/mcs.db` before release.
+
+> **Compatibility floor:** this secondary DB is behind the `4.0.0` minimum
+> (`a957791492a7`). Starting the application against it would fail closed with an
+> actionable "run `alembic upgrade head`" error — by design. Migrate it (or point
+> `MCS_DATABASE_URL` at the primary DB) before use.
 
 > Updated 2026-08-12 to match `docs/current-state.md` §3. The previous
 > production/`backend/data/servers/mcs.db` head claim (2026-08-04) described

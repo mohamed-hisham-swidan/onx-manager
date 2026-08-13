@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { createAuthenticatedApi } from "@/services/api";
 import { useCreateServer } from "@/server_manager/hooks/useServers";
@@ -58,46 +58,45 @@ const INITIAL_DATA: WizardData = {
 export function CreateServerPage() {
   const navigate = useNavigate();
   const createServer = useCreateServer();
-  const api = createAuthenticatedApi();
+  const api = useMemo(() => createAuthenticatedApi(), []);
 
   const [step, setStep] = useState<Step>("software");
   const [softwareList, setSoftwareList] = useState<SoftwareInfo[]>([]);
-  const [versions, setVersions] = useState<string[]>([]);
-  const [versionsLoading, setVersionsLoading] = useState(true);
-  const [versionsError, setVersionsError] = useState(false);
+  const [data, setData] = useState<WizardData>(INITIAL_DATA);
+  const [versionsState, setVersionsState] = useState<{ serverType: string; versions: string[]; error: boolean }>({
+    serverType: "",
+    versions: [],
+    error: false,
+  });
+  const versionsLoading = versionsState.serverType !== data.serverType;
   const [error, setError] = useState("");
   const [createdId, setCreatedId] = useState("");
-  const [data, setData] = useState<WizardData>(INITIAL_DATA);
 
   useEffect(() => {
     api.listSoftware().then(setSoftwareList).catch(() => {});
-  }, []);
+  }, [api]);
 
   useEffect(() => {
-    if (!data.serverType) return;
-    setVersionsLoading(true);
-    setVersionsError(false);
+    const serverType = data.serverType;
+    if (!serverType) return;
     api
-      .listSoftwareVersions(data.serverType)
+      .listSoftwareVersions(serverType)
       .then((v) => {
-        setVersions(v);
-        setVersionsLoading(false);
-        if (v.length > 0 && !data.minecraftVersion) {
-          setData((d) => ({ ...d, minecraftVersion: v[0] }));
+        setVersionsState({ serverType, versions: v, error: false });
+        if (v.length > 0) {
+          setData((d) => (d.minecraftVersion ? d : { ...d, minecraftVersion: v[0] }));
         }
       })
       .catch(() => {
-        setVersions([]);
-        setVersionsError(true);
-        setVersionsLoading(false);
+        setVersionsState({ serverType, versions: [], error: true });
       });
-  }, [data.serverType]);
+  }, [api, data.serverType]);
 
   useEffect(() => {
     if (step === "config" && !data.port) {
       api.getAvailablePort().then((r) => setData((d) => ({ ...d, port: r.port }))).catch(() => {});
     }
-  }, [step]);
+  }, [api, step, data.port]);
 
   const update = (partial: Partial<WizardData>) => setData((d) => ({ ...d, ...partial }));
 
@@ -178,7 +177,7 @@ export function CreateServerPage() {
       )}
 
       {step === "version" && (
-        <VersionStep versions={versions} loading={versionsLoading} error={versionsError} selected={data.minecraftVersion} onSelect={(v) => { update({ minecraftVersion: v }); setStep("config"); }} onBack={() => setStep("software")} />
+        <VersionStep versions={versionsState.versions} loading={versionsLoading} error={versionsState.error} selected={data.minecraftVersion} onSelect={(v) => { update({ minecraftVersion: v }); setStep("config"); }} onBack={() => setStep("software")} />
       )}
 
       {step === "config" && (
@@ -436,8 +435,8 @@ function PropertiesStep({ data, onChange, onNext, onBack }: { data: WizardData; 
             <label key={key} className="flex items-center space-x-2">
               <input
                 type="checkbox"
-                checked={(data as any)[key] as boolean}
-                onChange={(e) => onChange({ [key]: e.target.checked } as any)}
+                checked={data[key]}
+                onChange={(e) => onChange({ [key]: e.target.checked } as Partial<WizardData>)}
                 className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
               />
               <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
