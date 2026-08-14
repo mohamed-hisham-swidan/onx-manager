@@ -1,8 +1,8 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from app.core.exceptions import (
@@ -24,6 +24,7 @@ _ERROR_STATUS_MAP: dict[str, int] = {
     "NOT_FOUND": 404,
     "SERVER_NOT_RUNNING": 404,
     "CONFLICT": 409,
+    "CLAIM_ACTIVE": 409,
     "VALIDATION_ERROR": 422,
     "AUTHENTICATION_ERROR": 401,
     "PERMISSION_DENIED": 403,
@@ -54,7 +55,7 @@ def _error_response(status: int, error: str, code: str, detail: dict | None = No
             "error": error,
             "error_code": code,
             "detail": detail,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -97,7 +98,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
             "error": exc.message,
             "error_code": exc.code,
             "detail": exc.details,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         },
         headers={"Retry-After": str(retry_after)},
     )
@@ -119,7 +120,6 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 
 
 def register_error_handlers(app: "FastAPI") -> None:  # noqa: F821
-    from fastapi import FastAPI
 
     app.add_exception_handler(ValidationError, validation_error_handler)
     app.add_exception_handler(AuthenticationError, authentication_error_handler)

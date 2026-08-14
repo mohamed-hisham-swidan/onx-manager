@@ -7,8 +7,8 @@ from app.core.command_bus import CommandBus
 from app.core.config import AppSettings, ConfigFactory
 from app.core.event_bus import EventBus
 from app.core.exceptions import PermissionDenied
-from app.core.query_bus import QueryBus
 from app.core.persistence.db import get_db
+from app.core.query_bus import QueryBus
 from app.modules.storage.base import StorageBackend
 from app.modules.storage.encryption import BackupEncryption, build_backup_encryption
 from app.modules.storage.local import LocalStorage
@@ -69,7 +69,7 @@ async def get_event_bus() -> EventBus:
 
 
 async def get_current_user(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db),  # noqa: B008
     authorization: str = Header(default=""),
 ) -> dict:
     if not authorization.startswith("Bearer "):
@@ -93,7 +93,7 @@ def require_permission(permission: str):
     caller without the required permission gets a `PermissionDenied` (403).
     """
 
-    async def _check(current_user: dict = Depends(get_current_user)) -> dict:
+    async def _check(current_user: dict = Depends(get_current_user)) -> dict:  # noqa: B008
         permissions = current_user.get("permissions", [])
         if "admin:full" not in permissions and permission not in permissions:
             raise PermissionDenied(f"missing required permission: {permission}")
@@ -110,7 +110,7 @@ def require_owner():
     or a `global.*` permission claim (the Owner receives both at bootstrap).
     """
 
-    async def _check(current_user: dict = Depends(get_current_user)) -> dict:
+    async def _check(current_user: dict = Depends(get_current_user)) -> dict:  # noqa: B008
         roles = current_user.get("roles", [])
         permissions = current_user.get("permissions", [])
         if "owner" not in roles and "global.*" not in permissions:
@@ -158,8 +158,8 @@ def require_server_permission(*permissions: str):
 
     async def _check(
         request: Request,
-        db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),  # noqa: B008
+        current_user: dict = Depends(get_current_user),  # noqa: B008
     ) -> dict:
         user_perms = set(current_user.get("permissions", []))
         if "admin:full" in user_perms or "global.*" in user_perms or "global.servers.manage" in user_perms:
@@ -178,7 +178,7 @@ def require_server_permission(*permissions: str):
         found_ids = {i for i in (path_id, query_id, body_id) if i is not None}
         if len(found_ids) > 1:
             raise HTTPException(status_code=400, detail="Conflicting server_id parameters")
-            
+
         server_id = found_ids.pop() if found_ids else None
 
         if not server_id:
@@ -224,6 +224,68 @@ def require_server_permission(*permissions: str):
     return _check
 
 
+
+
+def require_exposure_grant(permission: str):
+    """FastAPI dependency factory: server-scoped exposure access.
+
+    Mirrors `require_server_permission` bypass semantics (global admin and the
+    owning user pass without a grant row) and then requires an explicit
+    `server_exposure_grants` row. Grants never infer from role: a membership
+    role alone is insufficient — only an explicit grant satisfies routes 9–14.
+    """
+
+    async def _check(
+        request: Request,
+        db: AsyncSession = Depends(get_db),  # noqa: B008
+        current_user: dict = Depends(get_current_user),  # noqa: B008
+    ) -> dict:
+        user_perms = set(current_user.get("permissions", []))
+        if (
+            "admin:full" in user_perms
+            or "global.*" in user_perms
+            or "global.servers.manage" in user_perms
+        ):
+            return current_user
+
+        path_id = request.path_params.get("server_id")
+        if not path_id:
+            raise HTTPException(status_code=400, detail="Missing server_id parameter")
+
+        from app.modules.server.infrastructure.models import ServerModel
+
+        stmt = select(ServerModel).where(ServerModel.id == path_id)
+        result = await db.execute(stmt)
+        server = result.scalar_one_or_none()
+        if server is None:
+            raise HTTPException(status_code=404, detail="Server not found")
+
+        user_id = current_user.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user authentication")
+        if server.owner_id and server.owner_id == user_id:
+            return current_user
+
+        from app.modules.exposure.infrastructure.models import ServerExposureGrantModel
+
+        grant_stmt = select(ServerExposureGrantModel).where(
+            ServerExposureGrantModel.server_id == path_id,
+            ServerExposureGrantModel.user_id == user_id,
+        )
+        grant_result = await db.execute(grant_stmt)
+        grant = grant_result.scalar_one_or_none()
+        if grant is None:
+            raise HTTPException(status_code=403, detail="No exposure grant for this server")
+
+        manage = permission.endswith(".exposure") and not permission.endswith(".exposure.view")
+        if manage and not grant.can_manage:
+            raise HTTPException(status_code=403, detail="Exposure manage permission denied")
+        if not manage and not (grant.can_manage or grant.can_view):
+            raise HTTPException(status_code=403, detail="Exposure view permission denied")
+
+        return current_user
+
+    return _check
 
 
 async def get_storage_backend() -> StorageBackend:

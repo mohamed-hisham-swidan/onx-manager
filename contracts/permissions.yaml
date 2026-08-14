@@ -1,8 +1,7 @@
 # Permission Contract
 # All permission strings and their meanings.
 
-version: 1.5
-
+version: 1.6
 # ─────────────────────────────────────────────────────────────────────────────
 # NOTE (generated 2026-08-02, updated 2026-08-04, Phase 1 §3.1 audit):
 # this file now also carries a route→permission coverage matrix
@@ -97,6 +96,27 @@ permissions:
     description: Modify system settings
     scope: global
 
+  exposure.credentials.manage:
+    description: Generate/reset/remove host agent credentials and trigger reconciliation
+    scope: global
+    note: Owner-only intent — routes additionally guarded by require_owner() for claim/reset/remove
+
+  exposure.global.stop:
+    description: Stop all exposures instance-wide (keeps credentials)
+    scope: global
+
+  exposure.panel.manage:
+    description: Read and configure the instance panel exposure
+    scope: global
+
+  server.{id}.exposure:
+    description: Manage a server's exposure configuration and targets
+    scope: server_id
+
+  server.{id}.exposure.view:
+    description: View a server's exposure configuration, status, and public addresses
+    scope: server_id
+
   admin:full:
     description: Unrestricted access
     scope: global
@@ -116,7 +136,7 @@ roles:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ROUTE → PERMISSION COVERAGE MATRIX (generated 2026-08-02, updated 2026-08-13)
-# Live introspection: 85 effective routes (excl. HEAD/OPTIONS), FastAPI 0.139.
+# Live introspection: 99 effective routes (excl. HEAD/OPTIONS), FastAPI 0.139.
 #   43 mutating -> 37 enforced, 5 intentionally public (login, refresh,
 #                  bootstrap, create_user, invites/accept), 1 missing (logout)
 #   41 GET      -> 14 enforced, 12 not-applicable-public, 15 auth-only/missing
@@ -198,7 +218,24 @@ route_permissions:
   # settings
   "PATCH /api/v1/settings": {permission: "settings:write", status: enforced}
 
-  # setup (Owner bootstrap / access mode)
+  # exposure — instance/Owner actions (Batch 7.1)
+  "GET /api/v1/exposure/agent": {permission: "exposure.credentials.manage", status: enforced, note: "host agent status; never returns secrets"}
+  "POST /api/v1/exposure/agent/claim": {permission: "owner", status: enforced, note: "Owner-only via require_owner(); generates claim code"}
+  "POST /api/v1/exposure/agent/reset": {permission: "owner", status: enforced, note: "Owner-only via require_owner()"}
+  "POST /api/v1/exposure/agent/reconcile": {permission: "exposure.credentials.manage", status: enforced}
+  "POST /api/v1/exposure/stop-all": {permission: "owner", status: enforced, note: "Owner-only via require_owner()"}
+  "POST /api/v1/exposure/credentials/remove": {permission: "owner", status: enforced, note: "Owner-only via require_owner()"}
+  "GET /api/v1/exposure/panel": {permission: "exposure.panel.manage", status: enforced}
+  "PUT /api/v1/exposure/panel": {permission: "exposure.panel.manage", status: enforced, note: "idempotent set method + desired_state"}
+
+  # exposure — server-scoped (Batch 7.1)
+  "GET /api/v1/servers/{server_id}/exposure": {permission: "server.{id}.exposure.view", status: enforced}
+  "PUT /api/v1/servers/{server_id}/exposure": {permission: "server.{id}.exposure", status: enforced, note: "create/update method + desired_state; NO_TARGETS on enable → 422"}
+  "PATCH /api/v1/servers/{server_id}/exposure": {permission: "server.{id}.exposure", status: enforced, note: "enable/disable; idempotent transitions"}
+  "DELETE /api/v1/servers/{server_id}/exposure": {permission: "server.{id}.exposure", status: enforced, note: "204 idempotent; removes exposure config"}
+  "GET /api/v1/servers/{server_id}/exposure/targets": {permission: "server.{id}.exposure.view", status: enforced}
+  "POST /api/v1/servers/{server_id}/exposure/targets": {permission: "server.{id}.exposure", status: enforced, note: "create java target from ServerModel.port; validates port + deny-list"}
+
   "POST /api/v1/setup/bootstrap": {permission: null, status: not-applicable-public, note: "single-use first-run wizard; rejects with 409/400 once instance initialized"}
   "PUT /api/v1/setup/access-mode": {permission: "owner", status: enforced, note: "Owner-only via require_owner() — admin:full alone is NOT sufficient; requires owner role or global.* claim"}
 

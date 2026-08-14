@@ -1,0 +1,401 @@
+from datetime import UTC
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.core.command_bus import CommandBus
+from app.core.event_bus import EventBus
+from app.core.persistence.base import Base
+from app.core.persistence.db import database
+from app.core.query_bus import QueryBus
+from tests.api.test_api_endpoints import _seed_api_key_header
+
+
+@pytest.fixture(scope="session")
+def buses():
+    from app.registration import register_handlers
+
+    event_bus = EventBus()
+    command_bus = CommandBus()
+    query_bus = QueryBus()
+    register_handlers(command_bus, query_bus, event_bus)
+    return command_bus, query_bus, event_bus
+
+
+@pytest.fixture(autouse=True)
+def _override_deps(buses) -> None:
+    command_bus, query_bus, event_bus = buses
+    from app.api import deps
+    from app.main import app
+
+    async def get_cb() -> CommandBus:
+        return command_bus
+
+    async def get_qb() -> QueryBus:
+        return query_bus
+
+    async def get_eb() -> EventBus:
+        return event_bus
+
+    app.dependency_overrides[deps.get_command_bus] = get_cb
+    app.dependency_overrides[deps.get_query_bus] = get_qb
+    app.dependency_overrides[deps.get_event_bus] = get_eb
+
+
+@pytest.fixture
+async def exposure_client(tmp_path):
+    import os
+
+    from httpx import ASGITransport, AsyncClient
+
+    from app.api.v1.middleware.rate_limit import InMemoryRateLimitStore
+    from app.main import app
+
+    stack = getattr(app, "middleware_stack", None)
+    while stack is not None:
+        if isinstance(stack, InMemoryRateLimitStore):
+            stack._hits.clear()
+        store = getattr(stack, "_store", None)
+        if isinstance(store, InMemoryRateLimitStore):
+            store._hits.clear()
+        stack = getattr(stack, "app", None)
+
+    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    database._engine = engine
+    database._session_factory = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async with database._session_factory() as sess:
+        from app.modules.auth.infrastructure.models import SystemStateModel
+        sess.add(SystemStateModel(id="default", initialized=True, access_mode="LOCAL"))
+        await sess.commit()
+
+    old_data_dir = os.environ.get("MCS_SERVERS_DATA_DIR")
+    test_servers_dir = tmp_path / "test_servers"
+    test_servers_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["MCS_SERVERS_DATA_DIR"] = str(test_servers_dir)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+    await engine.dispose()
+    database._engine = None
+    database._session_factory = None
+    if old_data_dir is not None:
+        os.environ["MCS_SERVERS_DATA_DIR"] = old_data_dir
+    else:
+        os.environ.pop("MCS_SERVERS_DATA_DIR", None)
+
+
+_user_counter = 0
+
+
+async def _seed_user(client) -> dict:
+    global _user_counter
+    _user_counter += 1
+    resp = await client.post(
+        "/api/v1/users",
+        json={
+            "email": f"expo{_user_counter}@test.com",
+            "password": "password123",
+            "display_name": "Expo User",
+        },
+    )
+    assert resp.status_code == 201
+    return resp.json()
+
+
+async def _owner_header(_client, user: dict) -> dict[str, str]:
+    from app.modules.auth.infrastructure.jwt import create_access_token
+
+    token = create_access_token(
+        user_id=user["user_id"],
+        roles=["owner"],
+        permissions=["server:create", "server:write", "server:delete", "server:read"],
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def _create_server(client, header: dict[str, str]) -> dict:
+    from unittest.mock import AsyncMock, patch
+
+    payload = {
+        "name": "Expo Test Server",
+        "minecraft_version": "1.21",
+        "min_memory_mb": 1024,
+        "max_memory_mb": 2048,
+        "port": 25565,
+        "gamemode": "survival",
+        "difficulty": "easy",
+    }
+    with patch(
+        "app.modules.server.application.services.jar_service.download_server_jar",
+        AsyncMock(return_value="/tmp/mock-jar/server.jar"),
+    ):
+        resp = await client.post("/api/v1/servers", json=payload, headers=header)
+    assert resp.status_code == 201
+    return resp.json()
+
+
+async def _grant_exposure(
+    _client, server_id: str, user_id: str, *, can_manage: bool, can_view: bool
+) -> None:
+    import uuid
+    from datetime import datetime
+
+    from app.modules.exposure.infrastructure.models import ServerExposureGrantModel
+
+    now = datetime.now(UTC)
+    async with database._session_factory() as session:
+        session.add(
+            ServerExposureGrantModel(
+                id=uuid.uuid4().hex,
+                server_id=server_id,
+                user_id=user_id,
+                can_manage=can_manage,
+                can_view=can_view,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await session.commit()
+
+
+async def _seed_user_with_perm(client, permissions: list[str]) -> dict:
+    user = await _seed_user(client)
+    header = await _seed_api_key_header(client, user["user_id"], permissions)
+    return user, header
+
+
+async def test_exposure_agent_status_requires_permission(exposure_client) -> None:
+    user, header = await _seed_user_with_perm(exposure_client, ["exposure.credentials.manage"])
+    resp = await exposure_client.get("/api/v1/exposure/agent", headers=header)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["claimed"] is False
+    assert data["claim_active"] is False
+    assert "secret_ciphertext" not in data
+
+
+async def test_exposure_agent_claim_requires_owner(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    non_owner = await _seed_api_key_header(
+        exposure_client, user["user_id"], ["exposure.credentials.manage"]
+    )
+    resp = await exposure_client.post("/api/v1/exposure/agent/claim", headers=non_owner)
+    assert resp.status_code == 403
+
+    owner = await _owner_header(exposure_client, user)
+    resp = await exposure_client.post("/api/v1/exposure/agent/claim", headers=owner)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["claim_code"]
+    assert data["claim_url"]
+    assert "expires_at" in data
+
+
+async def test_exposure_agent_claim_active_conflict(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+    resp = await exposure_client.post("/api/v1/exposure/agent/claim", headers=owner)
+    assert resp.status_code == 201
+
+    resp2 = await exposure_client.post("/api/v1/exposure/agent/claim", headers=owner)
+    assert resp2.status_code == 409
+    assert resp2.json()["error_code"] == "CLAIM_ACTIVE"
+
+
+async def test_exposure_agent_reset_and_remove_credentials(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+    resp = await exposure_client.post("/api/v1/exposure/agent/reset", headers=owner)
+    assert resp.status_code == 200
+    assert resp.json()["claimed"] is False
+
+    resp2 = await exposure_client.post("/api/v1/exposure/credentials/remove", headers=owner)
+    assert resp2.status_code == 200
+    assert resp2.json()["success"] is True
+
+
+async def test_exposure_agent_reconcile(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    header = await _seed_api_key_header(
+        exposure_client, user["user_id"], ["exposure.credentials.manage"]
+    )
+    resp = await exposure_client.post("/api/v1/exposure/agent/reconcile", headers=header)
+    assert resp.status_code == 200
+    assert resp.json()["reconciled"] is True
+
+
+async def test_exposure_stop_all(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+    resp = await exposure_client.post("/api/v1/exposure/stop-all", headers=owner)
+    assert resp.status_code == 200
+    assert resp.json()["disabled_count"] == 0
+
+
+async def test_panel_exposure_roundtrip(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    header = await _seed_api_key_header(exposure_client, user["user_id"], ["exposure.panel.manage"])
+
+    resp = await exposure_client.get("/api/v1/exposure/panel", headers=header)
+    assert resp.status_code == 200
+    assert resp.json()["method"] == "none"
+
+    resp = await exposure_client.put(
+        "/api/v1/exposure/panel",
+        json={"method": "cloudflare_tunnel", "desired_state": "ENABLED"},
+        headers=header,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["method"] == "cloudflare_tunnel"
+    assert data["desired_state"] == "ENABLED"
+
+    resp = await exposure_client.put(
+        "/api/v1/exposure/panel",
+        json={"method": "cloudflare_tunnel", "desired_state": "ENABLED"},
+        headers=header,
+    )
+    assert resp.status_code == 200
+
+
+async def test_panel_exposure_requires_permission(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    header = await _seed_api_key_header(exposure_client, user["user_id"], ["user:read"])
+    resp = await exposure_client.get("/api/v1/exposure/panel", headers=header)
+    assert resp.status_code == 403
+
+
+async def test_server_exposure_requires_grant(exposure_client) -> None:
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+    server = await _create_server(exposure_client, owner)
+
+    stranger_user = await _seed_user(exposure_client)
+    stranger = await _seed_api_key_header(
+        exposure_client, stranger_user["user_id"], ["server.{id}.exposure"]
+    )
+
+    resp = await exposure_client.get(
+        f"/api/v1/servers/{server['server_id']}/exposure", headers=stranger
+    )
+    assert resp.status_code == 403
+
+
+async def test_server_exposure_owner_bypass_and_target_flow(exposure_client) -> None:
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+    server = await _create_server(exposure_client, owner)
+    sid = server["server_id"]
+
+    resp = await exposure_client.get(f"/api/v1/servers/{sid}/exposure", headers=owner)
+    assert resp.status_code == 404
+
+    resp = await exposure_client.post(f"/api/v1/servers/{sid}/exposure/targets", headers=owner)
+    assert resp.status_code == 201
+    target = resp.json()
+    assert target["local_port"] == 25565
+    assert target["service_type"] == "java"
+    assert target["protocol"] == "tcp"
+
+    resp = await exposure_client.put(
+        f"/api/v1/servers/{sid}/exposure",
+        json={"method": "playit", "desired_state": "ENABLED"},
+        headers=owner,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["desired_state"] == "ENABLED"
+    assert data["aggregate_status"] == "DISABLED"
+    assert len(data["targets"]) == 1
+
+    resp = await exposure_client.get(f"/api/v1/servers/{sid}/exposure", headers=owner)
+    assert resp.status_code == 200
+    assert resp.json()["targets"][0]["local_port"] == 25565
+
+    resp = await exposure_client.get(f"/api/v1/servers/{sid}/exposure/targets", headers=owner)
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+    resp = await exposure_client.patch(
+        f"/api/v1/servers/{sid}/exposure",
+        json={"desired_state": "DISABLED"},
+        headers=owner,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["desired_state"] == "DISABLED"
+
+    resp = await exposure_client.delete(f"/api/v1/servers/{sid}/exposure", headers=owner)
+    assert resp.status_code == 204
+
+    resp = await exposure_client.get(f"/api/v1/servers/{sid}/exposure", headers=owner)
+    assert resp.status_code == 404
+
+
+async def test_server_exposure_grant_holder_manage(exposure_client) -> None:
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+    server = await _create_server(exposure_client, owner)
+    sid = server["server_id"]
+
+    grantee_user = await _seed_user(exposure_client)
+    grantee = await _seed_api_key_header(
+        exposure_client,
+        grantee_user["user_id"],
+        ["server.{id}.exposure", "server.{id}.exposure.view"],
+    )
+    await _grant_exposure(
+        exposure_client, sid, grantee_user["user_id"], can_manage=True, can_view=True
+    )
+
+    resp = await exposure_client.post(f"/api/v1/servers/{sid}/exposure/targets", headers=grantee)
+    assert resp.status_code == 201
+
+    resp = await exposure_client.get(f"/api/v1/servers/{sid}/exposure", headers=grantee)
+    assert resp.status_code == 200
+
+
+async def test_server_exposure_deny_list_port(exposure_client) -> None:
+
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+
+    resp = await exposure_client.post(
+        "/api/v1/servers",
+        json={
+            "name": "Deny List Server",
+            "minecraft_version": "1.21",
+            "min_memory_mb": 1024,
+            "max_memory_mb": 2048,
+            "port": 25575,
+            "gamemode": "survival",
+            "difficulty": "easy",
+        },
+        headers=owner,
+    )
+    assert resp.status_code == 201
+    sid = resp.json()["server_id"]
+
+    resp = await exposure_client.post(f"/api/v1/servers/{sid}/exposure/targets", headers=owner)
+    assert resp.status_code == 422
+
+
+async def test_server_exposure_no_targets_on_enable(exposure_client) -> None:
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+    server = await _create_server(exposure_client, owner)
+    sid = server["server_id"]
+
+    resp = await exposure_client.put(
+        f"/api/v1/servers/{sid}/exposure",
+        json={"method": "playit", "desired_state": "ENABLED"},
+        headers=owner,
+    )
+    assert resp.status_code == 422

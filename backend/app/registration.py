@@ -53,6 +53,38 @@ from app.modules.backup.application import (
     VerifyBackupCommand,
     VerifyBackupHandler,
 )
+from app.modules.exposure.application import (
+    CreateExposureTargetCommand,
+    CreateExposureTargetHandler,
+    DisableServerExposureCommand,
+    DisableServerExposureHandler,
+    EnableServerExposureCommand,
+    EnableServerExposureHandler,
+    GenerateClaimCommand,
+    GenerateClaimHandler,
+    GetAgentStatusHandler,
+    GetAgentStatusQuery,
+    GetPanelExposureHandler,
+    GetPanelExposureQuery,
+    GetServerExposureHandler,
+    GetServerExposureQuery,
+    ListExposureTargetsHandler,
+    ListExposureTargetsQuery,
+    ReconcileExposureCommand,
+    ReconcileExposureHandler,
+    RemoveCredentialsCommand,
+    RemoveCredentialsHandler,
+    RemoveServerExposureCommand,
+    RemoveServerExposureHandler,
+    ResetAgentCommand,
+    ResetAgentHandler,
+    SetPanelExposureCommand,
+    SetPanelExposureHandler,
+    SetServerExposureCommand,
+    SetServerExposureHandler,
+    StopAllExposuresCommand,
+    StopAllExposuresHandler,
+)
 from app.modules.health.application import (
     EvaluateHealthCommand,
     EvaluateHealthHandler,
@@ -152,6 +184,18 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(CreateAlertRuleCommand, CreateAlertRuleHandler(event_bus))
     command_bus.register(UpdateAlertRuleCommand, UpdateAlertRuleHandler(event_bus))
 
+    command_bus.register(SetServerExposureCommand, SetServerExposureHandler(event_bus))
+    command_bus.register(EnableServerExposureCommand, EnableServerExposureHandler(event_bus))
+    command_bus.register(DisableServerExposureCommand, DisableServerExposureHandler(event_bus))
+    command_bus.register(RemoveServerExposureCommand, RemoveServerExposureHandler(event_bus))
+    command_bus.register(CreateExposureTargetCommand, CreateExposureTargetHandler(event_bus))
+    command_bus.register(StopAllExposuresCommand, StopAllExposuresHandler(event_bus))
+    command_bus.register(GenerateClaimCommand, GenerateClaimHandler(event_bus))
+    command_bus.register(ResetAgentCommand, ResetAgentHandler(event_bus))
+    command_bus.register(RemoveCredentialsCommand, RemoveCredentialsHandler(event_bus))
+    command_bus.register(SetPanelExposureCommand, SetPanelExposureHandler(event_bus))
+    command_bus.register(ReconcileExposureCommand, ReconcileExposureHandler(event_bus))
+
     command_bus.register(LoginCommand, LoginHandler(event_bus))
     command_bus.register(LogoutCommand, LogoutHandler(event_bus))
     command_bus.register(RefreshTokenCommand, RefreshTokenHandler(event_bus))
@@ -183,6 +227,11 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(GetHealthTimelineQuery, GetHealthTimelineHandler())
 
     query_bus.register(GetMetricsQuery, GetMetricsHandler())
+
+    query_bus.register(GetServerExposureQuery, GetServerExposureHandler())
+    query_bus.register(GetAgentStatusQuery, GetAgentStatusHandler())
+    query_bus.register(GetPanelExposureQuery, GetPanelExposureHandler())
+    query_bus.register(ListExposureTargetsQuery, ListExposureTargetsHandler())
 
     query_bus.register(GetCurrentUserQuery, GetCurrentUserHandler())
     query_bus.register(ListUsersQuery, ListUsersHandler())

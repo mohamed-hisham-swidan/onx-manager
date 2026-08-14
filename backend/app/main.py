@@ -2,7 +2,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -15,6 +15,7 @@ from app.api.v1.middleware.request_id import RequestIDMiddleware
 from app.api.v1.routers import (
     auth,
     backups,
+    exposure,
     files,
     health,
     invites,
@@ -29,27 +30,29 @@ from app.api.v1.routers import (
     users,
 )
 from app.core.command_bus import CommandBus
-from app.core.config import AppSettings, ConfigFactory
+from app.core.config import ConfigFactory
 from app.core.event_bus import EventBus
 from app.core.http_client import close_http_client, init_http_client
+from app.core.persistence.db import database
+from app.core.persistence.db_revision import check_database_compatibility
 from app.core.query_bus import QueryBus
+from app.core.settings_store import init_settings_store
 from app.core.version import get_app_version
 from app.modules.auth.infrastructure.jwt import init_jwt_from_settings
-from app.registration import register_handlers
+from app.modules.plugin.infrastructure.providers import validate_plugin_providers
+from app.modules.server.application.migrate_import_arch import migrate_old_import_arch
 from app.modules.server.application.reconciliation import reconcile_servers
 from app.modules.server.application.runtime_reconciliation import (
     reconcile_all_runtimes,
     reconcile_orphans,
 )
-from app.modules.server.application.services.filesystem_reconciliation import FilesystemReconciliationService
-from app.modules.server.application.migrate_import_arch import migrate_old_import_arch
+from app.modules.server.application.services.filesystem_reconciliation import (
+    FilesystemReconciliationService,
+)
 from app.modules.server.infrastructure.repository import SQLServerRepository
-from app.core.persistence.db import database
-from app.core.persistence.db_revision import check_database_compatibility
-from app.modules.plugin.infrastructure.providers import validate_plugin_providers
-from app.websocket.endpoint import init_websocket, router as ws_router, start_websocket_services, stop_websocket_services
-
-from app.core.settings_store import init_settings_store
+from app.registration import register_handlers
+from app.websocket.endpoint import init_websocket, start_websocket_services, stop_websocket_services
+from app.websocket.endpoint import router as ws_router
 
 logger = logging.getLogger("mcs.main")
 
@@ -160,14 +163,16 @@ async def lifespan(app: FastAPI):
 
     # ── Task Queue & Scheduler (wired up once, during startup) ──────────
     logger.info("Starting task queue and scheduler")
-    from app.tasks.queue import InProcessQueue, init_task_queue
-    from app.tasks.scheduler import Scheduler
+    from app.modules.monitoring.infrastructure.collector import MetricsCollector
     from app.tasks.definitions import (
         init_collector as init_metrics_collector,
+    )
+    from app.tasks.definitions import (
         run_backup_task,
         run_metrics_collection_task,
     )
-    from app.modules.monitoring.infrastructure.collector import MetricsCollector
+    from app.tasks.queue import InProcessQueue, init_task_queue
+    from app.tasks.scheduler import Scheduler
 
     async def _session_factory():
         return database.session_factory()
@@ -202,9 +207,10 @@ async def lifespan(app: FastAPI):
     # Register the metrics collection job (every 0.5 seconds)
     try:
         async with await _session_factory() as sess:
-            from app.tasks.scheduler import CronJobModel
             from sqlalchemy import select
-            
+
+            from app.tasks.scheduler import CronJobModel
+
             # Remove old 1s job if it exists
             existing_old = await sess.execute(
                 select(CronJobModel).where(CronJobModel.name == "metrics_collect_every_1s")
@@ -233,8 +239,9 @@ async def lifespan(app: FastAPI):
 
     # Log the cron jobs now loaded from DB (including integrity_scan_hourly)
     async with await _session_factory() as sess:
-        from app.tasks.scheduler import CronJobModel
         from sqlalchemy import select
+
+        from app.tasks.scheduler import CronJobModel
         result = await sess.execute(select(CronJobModel).where(CronJobModel.enabled == 1))
         jobs = result.scalars().all()
         logger.info("Scheduler loaded %d cron job(s)", len(jobs))
@@ -278,6 +285,7 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
 
     app.include_router(servers.router)
+    app.include_router(exposure.router)
     app.include_router(backups.router)
     app.include_router(plugins.router)
     app.include_router(files.router)
@@ -316,7 +324,7 @@ def create_app() -> FastAPI:
     @app.get("/metrics")
     async def prometheus_metrics():
         try:
-            from prometheus_client import generate_latest, REGISTRY
+            from prometheus_client import REGISTRY, generate_latest
             from starlette.responses import Response
 
             return Response(
