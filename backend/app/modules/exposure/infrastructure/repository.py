@@ -211,6 +211,8 @@ class SQLPanelExposureRepository(PanelExposureRepository):
             public_address=model.public_address,
             error_code=model.error_code,
             error_message=model.error_message,
+            cloudflare_tunnel_id=model.cloudflare_tunnel_id,
+            cloudflare_token_ciphertext=model.cloudflare_token_ciphertext,
             created_at=model.created_at,
             updated_at=model.updated_at,
         )
@@ -226,6 +228,8 @@ class SQLPanelExposureRepository(PanelExposureRepository):
         model.public_address = panel.public_address
         model.error_code = panel.error_code
         model.error_message = panel.error_message
+        model.cloudflare_tunnel_id = panel.cloudflare_tunnel_id
+        model.cloudflare_token_ciphertext = panel.cloudflare_token_ciphertext
         await self._session.flush()
 
 

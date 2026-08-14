@@ -225,8 +225,8 @@ route_permissions:
   "POST /api/v1/exposure/agent/reconcile": {permission: "exposure.credentials.manage", status: enforced}
   "POST /api/v1/exposure/stop-all": {permission: "owner", status: enforced, note: "Owner-only via require_owner()"}
   "POST /api/v1/exposure/credentials/remove": {permission: "owner", status: enforced, note: "Owner-only via require_owner()"}
-  "GET /api/v1/exposure/panel": {permission: "exposure.panel.manage", status: enforced}
-  "PUT /api/v1/exposure/panel": {permission: "exposure.panel.manage", status: enforced, note: "idempotent set method + desired_state"}
+  "GET /api/v1/exposure/panel": {permission: "owner", status: enforced, note: "Owner-only via require_owner() — admin:full alone NOT sufficient (7.2a Decision 4); exposure.panel.manage remains documented but does not gate the route"}
+  "PUT /api/v1/exposure/panel": {permission: "owner", status: enforced, note: "Owner-only via require_owner() — admin:full alone NOT sufficient; idempotent set method + desired_state; cloudflare_tunnel enable requires token+hostname"}
 
   # exposure — server-scoped (Batch 7.1)
   "GET /api/v1/servers/{server_id}/exposure": {permission: "server.{id}.exposure.view", status: enforced}

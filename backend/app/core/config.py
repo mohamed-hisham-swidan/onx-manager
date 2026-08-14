@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 from pydantic_settings import BaseSettings
 
+from app.core.exceptions import InvalidValueError
 from app.core.version import get_app_version
 
 
@@ -40,6 +41,8 @@ class AppSettings(BaseSettings):
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_endpoint_url: str = ""
+    panel_bind_host: str = "127.0.0.1"
+    panel_bind_port: int = 8000
 
     model_config = {"env_prefix": "MCS_"}
 
@@ -128,9 +131,9 @@ def _merge_config(base: ServerConfig, overrides: dict[str, Any]) -> ServerConfig
     }
     for key, value in overrides.items():
         if key in kwargs:
-            if key == "java_args" and isinstance(value, list):
-                kwargs[key] = value
-            elif key == "env_vars" and isinstance(value, dict):
+            if (key == "java_args" and isinstance(value, list)) or (
+                key == "env_vars" and isinstance(value, dict)
+            ):
                 kwargs[key] = value
             else:
                 kwargs[key] = value
@@ -159,3 +162,37 @@ def _read_env_overrides(prefix: str) -> dict[str, Any]:
 
 def _to_bool(value: str) -> bool:
     return value.lower() in ("1", "true", "yes")
+
+
+def get_panel_bind() -> tuple[str, int]:
+    """Single authoritative reader for the Panel bind address (Decision 3).
+
+    All Cloudflare ingress computation and panel-bind consumers must read the
+    bind from this accessor — never from uvicorn CLI literals or scattered
+    ``:8000`` strings.
+    """
+    settings = ConfigFactory.global_settings()
+    return settings.panel_bind_host, settings.panel_bind_port
+
+
+def panel_ingress_target() -> str:
+    """Compute the Cloudflare ingress service target from the panel bind.
+
+    The ingress MUST target a loopback/local address. ``0.0.0.0`` (and any
+    non-loopback host) is rejected as a tunnel ingress target (Decision 3).
+    """
+    host, port = get_panel_bind()
+    host = host.strip().lower()
+    if host in ("0.0.0.0", "::", "::0", "0:0:0:0:0:0:0:0", ""):
+        raise InvalidValueError(
+            "panel_bind_host", host,
+            "0.0.0.0 is not a valid tunnel ingress target; must be loopback (127.0.0.0/8 or ::1)",
+        )
+    if host in ("localhost", "::1"):
+        host = "127.0.0.1"
+    if not host.startswith("127."):
+        raise InvalidValueError(
+            "panel_bind_host", host,
+            "must resolve to loopback (127.0.0.0/8 or ::1) for Cloudflare ingress",
+        )
+    return f"http://{host}:{port}"

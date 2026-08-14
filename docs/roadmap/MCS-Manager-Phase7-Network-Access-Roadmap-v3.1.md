@@ -232,9 +232,9 @@ Revised flow:
 6. **If automatic creation fails:** UI shows an "Open playit.gg Dashboard" button with ready-made instructions for creating the tunnel manually, and polls/reads back the resulting address once the user has created it on their end.
 
 ### Flow 2 — User selects Cloudflare Tunnel for the Panel (expanded — see §6b for full detail)
-1. User is prompted once for a Cloudflare API Token (Tunnel Edit scope, plus DNS Edit if they want a custom hostname).
-2. Backend creates a **Named Tunnel** and points its ingress at the Panel's local port only.
-3. UI displays the resulting `*.cfargotunnel.com` URL by default, or lets the user attach their own domain if their token has DNS Edit.
+1. User is prompted once for a Cloudflare API Token (Tunnel Edit scope **and** DNS Edit — both required per §6b.1) and a **Cloudflare-managed hostname/domain** for the Panel.
+2. Backend creates a **Named Tunnel**, points its ingress at the Panel's local bind (localhost-only, §6b.3), and creates ONLY the tunnel CNAME for the user's hostname.
+3. UI displays the resulting user hostname (no `*.cfargotunnel.com` default — §6b.1).
 
 ### 6a. Tunnel Lifecycle & State Machine
 
@@ -336,19 +336,52 @@ Precedence rationale: user-required actions (reclaim/claim) outrank all runtime 
 
 ### 6b. Cloudflare Panel Tunnel — full flow detail
 
-v2 left this under-specified. v3 concrete flow (retained; Panel only):
+v2 left this under-specified. v3 concrete flow, **revised to CUSTOM-DOMAIN-ONLY by the 7.2a RECON (2026-08-14)** — see §6b.1:
 
-1. User enters a Cloudflare API Token scoped to Tunnel Edit (and DNS Edit only if they intend to attach a custom hostname).
-2. Backend creates a **Named Tunnel** (`config_src: cloudflare`) rather than a Quick Tunnel, since Named Tunnels are what supports a stable address and optional custom domain.
-3. Ingress rule is scoped to exactly one route: `http://localhost:<PANEL_PORT>`. Nothing else on the host is ever put behind this ingress.
-4. Two address options are surfaced:
-   - **Quick path (default):** use the tunnel's own `*.cfargotunnel.com` address directly — no DNS Edit scope required.
-   - **Custom domain (optional):** if the token has DNS Edit, create a CNAME record and surface the user's own hostname instead.
-5. Backend runs `cloudflared tunnel run --token ...` as an orchestrated subprocess (orchestrate-only — see §8.5; MCS Manager does not bundle the binary in Phase 7).
-6. `tunnel_id` and the token (encrypted — §6d) are persisted along with `desired_state`.
-7. If the token is revoked externally (from the Cloudflare dashboard), the tunnel surfaces as `ERROR` transitioning to `RECLAIM_REQUIRED` — never a silent retry loop against a dead token.
+1. User enters a Cloudflare API Token scoped to Tunnel Edit **plus DNS Edit** (DNS Edit is now **required**, not optional — see §6b.1).
+2. Backend creates a **Named Tunnel** (`config_src: cloudflare`) rather than a Quick Tunnel, since Named Tunnels are what supports a stable address. **Quick Tunnels / `trycloudflare.com` are NOT used as a fallback (7.2a Decision 1).**
+3. Ingress rule is scoped to exactly one route: `http://127.0.0.1:<PANEL_PORT>`. Nothing else on the host is ever put behind this ingress.
+4. **Single address option:** the user-provided Cloudflare-managed hostname. MCS creates ONLY the tunnel CNAME (`CNAME proxied:true` → `<tunnel_id>.cfargotunnel.com`) required for the MCS-created tunnel. MCS never implements general DNS management.
+5. Backend runs `cloudflared tunnel run --token-file <path>` as an orchestrated subprocess (orchestrate-only — see §8.5; MCS Manager does not bundle the binary in Phase 7). `--token-file` is used instead of `--token` so the credential never appears in the process table (cloudflared security fix, VULN-118896).
+6. `cloudflare_tunnel_id` and the token (AES-GCM encrypted — §6d, §6b.2) are persisted along with `desired_state` on the `panel_exposure` singleton row.
+7. If the token is revoked externally (from the Cloudflare dashboard), the tunnel surfaces as `ERROR` transitioning to `RECLAIM_REQUIRED` — never a silent retry loop against a dead token. The owner must explicitly provide a new token.
 
 Since the Panel is HTTP-only traffic, there is no TCP-tunnel variant to consider here — that complexity is scoped entirely to Game Server Exposure (§4).
+
+#### 6b.1 Custom-domain-only decision (7.2a RECON — DESIGN FIX)
+
+**No stable no-DNS named-tunnel URL exists.** The `*.cfargotunnel.com` subdomain is a virtual CNAME **target**, not a browsable address; Cloudflare only proxies traffic for a DNS record pointing at it. The only zone-less option is a Quick Tunnel (`trycloudflare.com`), which is random, ephemeral (dies on every restart), 200-concurrent-request limited, SSE-less, and explicitly testing-only — unsuitable as a stable product flow. Therefore:
+
+- **7.2a REQUIRES a user-provided Cloudflare-managed hostname/domain input.** There is no "quick path" default.
+- MCS may: create the Named Tunnel, configure tunnel ingress, create ONLY the tunnel CNAME required for the MCS-created tunnel.
+- MCS must **not** implement general DNS management. The `*.cfargotunnel.com` target is never surfaced as the user-facing stable public URL.
+- Phase 8 remains responsible for broader DNS/domain management.
+
+#### 6b.2 Cloudflare credential storage (7.2a RECON — DESIGN FIX)
+
+**Extend `PanelExposure` rather than creating a generic encrypted-credentials subsystem.** Two new fields on the `panel_exposure` singleton:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `cloudflare_tunnel_id` | String | Non-secret tunnel UUID metadata (never encrypted) |
+| `cloudflare_token_ciphertext` | LargeBinary | AES-GCM(nonce\|ciphertext) of the Cloudflare tunnel token |
+
+Rules (7.2a Decision 2):
+- Encryption reuses the approved **AES-GCM `BackupEncryption`** / `load_or_create_backup_key` (`backend/app/modules/storage/encryption.py`). Fernet is excluded.
+- Plaintext token is never persisted, never returned by any API, never logged.
+- `cloudflare_tunnel_id` is non-secret metadata (safe to surface in status responses).
+- Credential rotation = replace the ciphertext with a freshly encrypted value.
+- Deleting/removing Cloudflare exposure clears the stored secret.
+- Revoked/invalid token → `RECLAIM_REQUIRED`; no auto-reissuance; owner must explicitly provide a new token.
+- **No generic credentials table is created.**
+
+#### 6b.3 Panel bind address (7.2a RECON — DESIGN FIX)
+
+The Cloudflare ingress target is derived from a **single authoritative Panel-bind configuration source** — see `MCS-Manager-Phase7.2-Design-Spec.md` §3 (Decision 3). No `:8000` literals are scattered through Cloudflare code. The ingress target is **localhost-only**; `0.0.0.0` is never used as the tunnel ingress target.
+
+#### 6b.4 Panel exposure authorization (7.2a RECON — DESIGN FIX)
+
+**Owner-only, enforced at the route dependency, not inferred from permission grants.** The RECON verified that `exposure.panel.manage` alone is insufficient: the current `require_permission("exposure.panel.manage")` short-circuits on `admin:full`, which would let an ordinary admin toggle Panel exposure — broader than Owner-only. Per 7.2a Decision 4, the Panel GET/PUT routes use the existing **`require_owner()`** dependency (owner role or `global.*` claim). `admin:full` alone is NOT sufficient. The `exposure.panel.manage` contract string remains documented but the route-level enforcement is `require_owner()`.
 
 ### 6c. playit Agent Architecture — Host-Level, Not Per-Server
 
@@ -618,7 +651,7 @@ Following the project's standard discipline: **RECON (evidence only, no code) �
 
 ### Batch 7.2a — Backend: Cloudflare Panel Exposure
 - **Objective:** Implement Cloudflare as the **primary Panel** exposure method (§6b).
-- **Deliverables:** Named-Tunnel orchestration per §6b (token intake, ingress scoped to the Panel port only, quick-path vs. custom-domain address, `cloudflared` subprocess orchestration, `RECLAIM_REQUIRED` handling for revoked tokens). Independent data/state, independent tests, independent review boundary. **Owner-only** (`exposure.panel.manage`).
+- **Deliverables:** Named-Tunnel orchestration per §6b (token intake, Custom-domain-only address model per §6b.1, ingress scoped to the authoritative Panel bind (§6b.3, localhost-only), `cloudflared` subprocess orchestration via `--token-file`, `RECLAIM_REQUIRED` handling for revoked tokens, credential storage on `panel_exposure` per §6b.2). Independent data/state, independent tests, independent review boundary. **Owner-only** (see §6b.4 — explicit `require_owner()` dependency).
 - **Test plan:** unit tests per Cloudflare flow, missing/revoked-token failure paths, restart-recovery against `desired_state`, permission checks.
 
 ### Batch 7.2b — Backend: Panel Port Forwarding / UPnP + playit HTTP alternative
@@ -650,7 +683,7 @@ Following the project's standard discipline: **RECON (evidence only, no code) �
 
 ### Batch 7.4 — Frontend: Panel Access UI
 - **Objective:** Extend the existing Settings → Access page with the **PanelExposure** selector (distinct from the unchanged Access Mode toggle) and live status/link display described in §5A, including the LOCAL-mode advisory (§3.3).
-- **Deliverables:** PanelExposure method selector, status indicator per method, one-time Cloudflare token entry flow with quick-path/custom-domain choice, playit.gg claim-link + dashboard-fallback UI, resulting URL display with copy-to-clipboard (reuse the existing `useClipboard` hook from Part B).
+- **Deliverables:** PanelExposure method selector, status indicator per method, one-time Cloudflare token entry flow with the **required hostname/domain input** (custom-domain-only per §6b.1; no quick-path/trycloudflare fallback), playit.gg claim-link + dashboard-fallback UI, resulting URL display with copy-to-clipboard (reuse the existing `useClipboard` hook from Part B).
 - **Test plan:** component tests per method's UI state, error-state rendering, `DEGRADED`/`ERROR`/`RECLAIM_REQUIRED` displayed distinctly from `ACTIVE`, advisory-when-LOCAL test.
 
 ### Batch 7.5 — Frontend: Game Server Exposure UI
@@ -696,7 +729,7 @@ Following the project's standard discipline: **RECON (evidence only, no code) �
 3. **Agent process supervision specified per platform** — systemd on Linux, subprocess+auto-restart on Windows, sidecar/compose on Docker, with explicit health-check and restart rules. (§6c.1)
 4. **Claim flow fully specified** — claim code generation, bounded exchange timeout, retry-on-failure, and an explicit "Reset agent" action tied to `playit reset`. (§6c.2)
 5. **State machine expanded** — added `DEGRADED` (soft failure, may recover) and `RECLAIM_REQUIRED` (credential revoked upstream) as distinct states from `ERROR`, plus explicit `STOPPING`/`STOPPED` transitions. Added server-level aggregate status rules across multiple targets. (§6a)
-6. **Cloudflare Panel flow fully specified** — Named Tunnel (not Quick Tunnel), ingress scoped to the Panel port only, quick-path `*.cfargotunnel.com` vs. optional custom-domain-via-DNS-Edit, orchestrate-only `cloudflared` subprocess, explicit revoked-token handling. (§6b)
+ 6. **Cloudflare Panel flow fully specified** — Named Tunnel (not Quick Tunnel), ingress scoped to the Panel bind only, orchestrate-only `cloudflared` subprocess (`--token-file`), explicit revoked-token handling. (§6b; **revised by the 7.2a RECON 2026-08-14:** custom-domain-only per §6b.1, PanelExposure credential fields per §6b.2, single Panel-bind config per §6b.3, explicit `require_owner()` per §6b.4)
 7. **UPnP/port-forwarding mechanics specified concretely** — external-port-equals-local-port default, bounded conflict retry, four-state status vocabulary, double-NAT and IPv6 handling, and a hard server-side port deny-list for RCON/management ports. (§7)
 8. **Security hardening section added** — rate limiting on claim/credential intake, audit logging on every exposure-state change, server-side `local_port` ownership validation, and the deny-list tied explicitly to security rather than just UX. (§8)
 9. **UDP/Bedrock made explicitly first-class** — data model, Assisted Setup flow, and dashboard fallback all account for UDP targets from the start; free-tier port limits and player-network UDP blocking documented as known constraints. (§4.3)

@@ -42,6 +42,15 @@ def _override_deps(buses) -> None:
     app.dependency_overrides[deps.get_event_bus] = get_eb
 
 
+@pytest.fixture(autouse=True)
+def _reset_supervisor_singleton() -> None:
+    from app.modules.exposure.infrastructure.cloudflared import reset_cloudflared_supervisor
+
+    reset_cloudflared_supervisor()
+    yield
+    reset_cloudflared_supervisor()
+
+
 @pytest.fixture
 async def exposure_client(tmp_path):
     import os
@@ -240,37 +249,261 @@ async def test_exposure_stop_all(exposure_client) -> None:
     assert resp.json()["disabled_count"] == 0
 
 
-async def test_panel_exposure_roundtrip(exposure_client) -> None:
-    user = await _seed_user(exposure_client)
-    header = await _seed_api_key_header(exposure_client, user["user_id"], ["exposure.panel.manage"])
+async def _mock_supervisor() -> object:
+    from unittest.mock import AsyncMock
 
+    supervisor = AsyncMock()
+    supervisor.start = AsyncMock()
+    supervisor.stop = AsyncMock()
+    supervisor.is_running = False
+    return supervisor
+
+
+async def _mock_cloudflare() -> object:
+    from unittest.mock import AsyncMock
+
+    client = AsyncMock()
+    client.create_named_tunnel = AsyncMock(
+        return_value=type(
+            "TunnelProvisionResult",
+            (),
+            {"tunnel_id": "tun-abc123", "token": "fake-tunnel-token-123"},
+        )()
+    )
+    client.configure_ingress = AsyncMock(return_value=None)
+    client.create_cname = AsyncMock(return_value=None)
+    return client
+
+
+async def test_panel_exposure_roundtrip(exposure_client) -> None:
+    from unittest.mock import patch
+
+    from app.modules.exposure.application import commands as exposure_commands
+
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+
+    resp = await exposure_client.get("/api/v1/exposure/panel", headers=owner)
+    assert resp.status_code == 200
+    assert resp.json()["method"] == "none"
+
+    mock_client = await _mock_cloudflare()
+    supervisor = await _mock_supervisor()
+    with (
+        patch.object(exposure_commands, "CloudflareClient", return_value=mock_client),
+        patch(
+            "app.modules.exposure.application.commands.get_cloudflared_supervisor",
+            return_value=supervisor,
+        ),
+    ):
+        resp = await exposure_client.put(
+            "/api/v1/exposure/panel",
+            json={
+                "method": "cloudflare_tunnel",
+                "desired_state": "ENABLED",
+                "cloudflare_token": "token-123",
+                "hostname": "panel.example.com",
+            },
+            headers=owner,
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["method"] == "cloudflare_tunnel"
+    assert data["desired_state"] == "ENABLED"
+    assert data["status"] == "STARTING"
+    assert data["cloudflare_tunnel_id"] == "tun-abc123"
+    assert data["public_address"] == "panel.example.com"
+    assert "token" not in data
+    mock_client.create_named_tunnel.assert_awaited_once()
+    mock_client.create_cname.assert_awaited_once()
+    supervisor.start.assert_awaited_once()
+
+    # Idempotent re-issue does not re-provision.
+    mock_client.reset_mock()
+    with patch.object(exposure_commands, "CloudflareClient", return_value=mock_client):
+        resp = await exposure_client.put(
+            "/api/v1/exposure/panel",
+            json={
+                "method": "cloudflare_tunnel",
+                "desired_state": "ENABLED",
+                "cloudflare_token": "token-123",
+                "hostname": "panel.example.com",
+            },
+            headers=owner,
+        )
+    assert resp.status_code == 200
+    mock_client.create_named_tunnel.assert_not_awaited()
+
+
+async def test_panel_exposure_requires_owner(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    # A granted non-owner with the panel permission is still denied.
+    header = await _seed_api_key_header(
+        exposure_client, user["user_id"], ["exposure.panel.manage"]
+    )
     resp = await exposure_client.get("/api/v1/exposure/panel", headers=header)
+    assert resp.status_code == 403
+
+    resp = await exposure_client.put(
+        "/api/v1/exposure/panel",
+        json={"method": "cloudflare_tunnel", "desired_state": "ENABLED"},
+        headers=header,
+    )
+    assert resp.status_code == 403
+
+
+async def test_panel_exposure_owner_allowed(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+
+    resp = await exposure_client.get("/api/v1/exposure/panel", headers=owner)
     assert resp.status_code == 200
     assert resp.json()["method"] == "none"
 
     resp = await exposure_client.put(
         "/api/v1/exposure/panel",
-        json={"method": "cloudflare_tunnel", "desired_state": "ENABLED"},
-        headers=header,
+        json={"method": "none", "desired_state": "DISABLED"},
+        headers=owner,
     )
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["method"] == "cloudflare_tunnel"
-    assert data["desired_state"] == "ENABLED"
+
+
+async def test_panel_exposure_admin_full_without_owner_denied(exposure_client) -> None:
+    """Decision 4: admin:full alone is NOT sufficient for panel exposure."""
+    user = await _seed_user(exposure_client)
+    admin_header = await _seed_api_key_header(exposure_client, user["user_id"], ["admin:full"])
+
+    resp = await exposure_client.get("/api/v1/exposure/panel", headers=admin_header)
+    assert resp.status_code == 403
 
     resp = await exposure_client.put(
         "/api/v1/exposure/panel",
         json={"method": "cloudflare_tunnel", "desired_state": "ENABLED"},
-        headers=header,
+        headers=admin_header,
     )
-    assert resp.status_code == 200
-
-
-async def test_panel_exposure_requires_permission(exposure_client) -> None:
-    user = await _seed_user(exposure_client)
-    header = await _seed_api_key_header(exposure_client, user["user_id"], ["user:read"])
-    resp = await exposure_client.get("/api/v1/exposure/panel", headers=header)
     assert resp.status_code == 403
+
+
+async def test_panel_exposure_ordinary_member_denied(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    member_header = await _seed_api_key_header(exposure_client, user["user_id"], ["server:read"])
+
+    resp = await exposure_client.get("/api/v1/exposure/panel", headers=member_header)
+    assert resp.status_code == 403
+
+    resp = await exposure_client.put(
+        "/api/v1/exposure/panel",
+        json={"method": "cloudflare_tunnel", "desired_state": "ENABLED"},
+        headers=member_header,
+    )
+    assert resp.status_code == 403
+
+
+async def test_panel_exposure_enable_requires_token_and_hostname(exposure_client) -> None:
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+
+    resp = await exposure_client.put(
+        "/api/v1/exposure/panel",
+        json={"method": "cloudflare_tunnel", "desired_state": "ENABLED"},
+        headers=owner,
+    )
+    assert resp.status_code == 422
+
+    resp = await exposure_client.put(
+        "/api/v1/exposure/panel",
+        json={
+            "method": "cloudflare_tunnel",
+            "desired_state": "ENABLED",
+            "cloudflare_token": "token-123",
+        },
+        headers=owner,
+    )
+    assert resp.status_code == 422
+
+
+async def test_panel_exposure_auth_error_maps_to_reclaim(exposure_client) -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from app.modules.exposure.application import commands as exposure_commands
+    from app.modules.exposure.infrastructure.cloudflare import CloudflareAuthError
+
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+
+    mock_client = AsyncMock()
+    mock_client.create_named_tunnel = AsyncMock(
+        side_effect=CloudflareAuthError("invalid token")
+    )
+    with patch.object(exposure_commands, "CloudflareClient", return_value=mock_client):
+        resp = await exposure_client.put(
+            "/api/v1/exposure/panel",
+            json={
+                "method": "cloudflare_tunnel",
+                "desired_state": "ENABLED",
+                "cloudflare_token": "bad-token",
+                "hostname": "panel.example.com",
+            },
+            headers=owner,
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "RECLAIM_REQUIRED"
+    assert data["error_code"] == "RECLAIM_REQUIRED"
+    assert data["cloudflare_tunnel_id"] is None
+    assert data["public_address"] is None
+
+
+async def test_panel_exposure_disable_clears_credentials(exposure_client) -> None:
+    from unittest.mock import patch
+
+    from app.modules.exposure.application import commands as exposure_commands
+
+    user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, user)
+
+    mock_client = await _mock_cloudflare()
+    supervisor = await _mock_supervisor()
+    with (
+        patch.object(exposure_commands, "CloudflareClient", return_value=mock_client),
+        patch(
+            "app.modules.exposure.application.commands.get_cloudflared_supervisor",
+            return_value=supervisor,
+        ),
+    ):
+        resp = await exposure_client.put(
+            "/api/v1/exposure/panel",
+            json={
+                "method": "cloudflare_tunnel",
+                "desired_state": "ENABLED",
+                "cloudflare_token": "token-123",
+                "hostname": "panel.example.com",
+            },
+            headers=owner,
+        )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "STARTING"
+
+    with (
+        patch.object(exposure_commands, "CloudflareClient", return_value=mock_client),
+        patch(
+            "app.modules.exposure.application.commands.get_cloudflared_supervisor",
+            return_value=supervisor,
+        ),
+    ):
+        resp = await exposure_client.put(
+            "/api/v1/exposure/panel",
+            json={"method": "cloudflare_tunnel", "desired_state": "DISABLED"},
+            headers=owner,
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["desired_state"] == "DISABLED"
+    assert data["status"] == "DISABLED"
+    assert data["cloudflare_tunnel_id"] is None
+    assert data["public_address"] is None
+    assert data["error_code"] is None
+    supervisor.stop.assert_awaited_once()
 
 
 async def test_server_exposure_requires_grant(exposure_client) -> None:

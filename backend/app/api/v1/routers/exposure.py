@@ -112,7 +112,7 @@ async def remove_credentials(
 @router.get("/exposure/panel", response_model=PanelExposureResponse)
 async def get_panel_exposure(
     query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
-    _current_user: dict = Depends(require_permission("exposure.panel.manage")),  # noqa: B008
+    _current_user: dict = Depends(require_owner()),  # noqa: B008
 ) -> PanelExposureResponse:
     return PanelExposureResponse(**await query_bus.ask(GetPanelExposureQuery()))
 
@@ -121,12 +121,14 @@ async def get_panel_exposure(
 async def set_panel_exposure(
     body: PanelExposureUpdateRequest,
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
-    current_user: dict = Depends(require_permission("exposure.panel.manage")),  # noqa: B008
+    current_user: dict = Depends(require_owner()),  # noqa: B008
 ) -> PanelExposureResponse:
     result = await command_bus.send(
         SetPanelExposureCommand(
             method=body.method,
             desired_state=body.desired_state,
+            cloudflare_token=body.cloudflare_token,
+            hostname=body.hostname,
             actor_id=current_user.get("user_id", ""),
         )
     )

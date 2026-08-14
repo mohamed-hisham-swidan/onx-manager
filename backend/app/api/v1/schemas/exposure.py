@@ -25,6 +25,7 @@ class PanelExposureResponse(BaseModel):
     desired_state: str
     status: str
     public_address: str | None = None
+    cloudflare_tunnel_id: str | None = None
     error_code: str | None = None
     error_message: str | None = None
 
@@ -32,6 +33,8 @@ class PanelExposureResponse(BaseModel):
 class PanelExposureUpdateRequest(BaseModel):
     method: str = Field(pattern="^(none|cloudflare_tunnel|playit_http|port_forward)$")
     desired_state: str = Field(pattern="^(ENABLED|DISABLED)$")
+    cloudflare_token: str = Field(default="", max_length=8192)
+    hostname: str = Field(default="", max_length=253)
 
 
 class TargetResponse(BaseModel):

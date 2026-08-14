@@ -81,6 +81,8 @@ class PanelExposureModel(Base, TimestampMixin):
     public_address = Column(String(512), nullable=True)
     error_code = Column(String(64), nullable=True)
     error_message = Column(Text, nullable=True)
+    cloudflare_tunnel_id = Column(String(64), nullable=True)
+    cloudflare_token_ciphertext = Column(LargeBinary, nullable=True)
 
 
 class ServerExposureGrantModel(Base, TimestampMixin):

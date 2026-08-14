@@ -473,6 +473,8 @@ class PanelExposure(AggregateRoot):
         public_address: str | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
+        cloudflare_tunnel_id: str | None = None,
+        cloudflare_token_ciphertext: bytes | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
     ) -> None:
@@ -484,6 +486,8 @@ class PanelExposure(AggregateRoot):
         self._public_address = public_address
         self._error_code = error_code
         self._error_message = error_message
+        self._cloudflare_tunnel_id = cloudflare_tunnel_id
+        self._cloudflare_token_ciphertext = cloudflare_token_ciphertext
         now = datetime.now(UTC)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
@@ -517,6 +521,18 @@ class PanelExposure(AggregateRoot):
         return self._error_message
 
     @property
+    def cloudflare_tunnel_id(self) -> str | None:
+        return self._cloudflare_tunnel_id
+
+    @property
+    def cloudflare_token_ciphertext(self) -> bytes | None:
+        return self._cloudflare_token_ciphertext
+
+    @property
+    def has_cloudflare_credentials(self) -> bool:
+        return bool(self._cloudflare_tunnel_id and self._cloudflare_token_ciphertext)
+
+    @property
     def created_at(self) -> datetime:
         return self._created_at
 
@@ -545,6 +561,18 @@ class PanelExposure(AggregateRoot):
     def set_error(self, code: str | None, message: str | None = None) -> None:
         self._error_code = code
         self._error_message = message
+        self._updated_at = datetime.now(UTC)
+
+    def set_cloudflare_credentials(
+        self, tunnel_id: str, token_ciphertext: bytes
+    ) -> None:
+        self._cloudflare_tunnel_id = tunnel_id
+        self._cloudflare_token_ciphertext = token_ciphertext
+        self._updated_at = datetime.now(UTC)
+
+    def clear_cloudflare_credentials(self) -> None:
+        self._cloudflare_tunnel_id = None
+        self._cloudflare_token_ciphertext = None
         self._updated_at = datetime.now(UTC)
 
 
