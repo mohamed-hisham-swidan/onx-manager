@@ -76,6 +76,32 @@ async def compute_desired_agent_running(session: AsyncSession) -> bool:
     return len(playit_servers) > 0 or panel_playit_enabled
 
 
+async def _attempt_server_upnp_mapping(
+    server_id: str,
+    target: ServerExposureTarget,
+) -> None:
+    upnp = AsyncUPnPService()
+    result = await upnp.attempt_mapping(
+        internal_port=target.local_port,
+        requested_external_port=target.local_port,
+        description=f"MCS-Server-{server_id[:8]}",
+        protocol="TCP",
+    )
+    if result.success:
+        target.mark_active(f"{result.external_ip}:{result.external_port}")
+    else:
+        target.mark_error(code=result.error_code, message=result.error_message)
+
+
+def _extract_target_external_port(target: ServerExposureTarget) -> int:
+    if target.public_address and ":" in target.public_address:
+        try:
+            return int(target.public_address.split(":")[-1])
+        except (ValueError, IndexError):
+            pass
+    return target.local_port
+
+
 class SetServerExposureCommand(Command):
     idempotency_key: IdempotencyKey = IdempotencyKey()
     server_id: str
@@ -105,6 +131,7 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                 raise NotFoundError(f"Server {command.server_id} not found")
 
             exposure = await repo.get(command.server_id)
+            prev_method = exposure.method if exposure else None
             if exposure is None:
                 exposure = ServerExposure(
                     server_id=command.server_id,
@@ -121,8 +148,17 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                     exposure.validate_target_port(target.local_port, server.properties.port.value)
                 exposure.set_desired_state(DesiredState.ENABLED)
 
-                agent = await agent_repo.get()
-                if method == ExposureMethod.PLAYIT:
+                if method == ExposureMethod.PORT_FORWARD:
+                    for target in exposure.targets:
+                        await _attempt_server_upnp_mapping(command.server_id, target)
+                elif method == ExposureMethod.PLAYIT:
+                    if prev_method == ExposureMethod.PORT_FORWARD:
+                        for target in exposure.targets:
+                            p = _extract_target_external_port(target)
+                            post_commit.append(
+                                lambda port=p: AsyncUPnPService().delete_mapping(port)
+                            )
+                    agent = await agent_repo.get()
                     supervisor = get_playit_supervisor()
                     if agent.is_claimed and agent.secret_ciphertext:
                         try:
@@ -155,6 +191,15 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                         )
             else:
                 exposure.set_desired_state(DesiredState.DISABLED)
+                if (
+                    prev_method == ExposureMethod.PORT_FORWARD
+                    or method == ExposureMethod.PORT_FORWARD
+                ):
+                    for target in exposure.targets:
+                        p = _extract_target_external_port(target)
+                        post_commit.append(
+                            lambda port=p: AsyncUPnPService().delete_mapping(port)
+                        )
                 for target in exposure.targets:
                     target.mark_disabled()
 
@@ -177,7 +222,7 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
             try:
                 await action()
             except Exception:
-                logger.exception("Post-commit playit action failed")
+                logger.exception("Post-commit server exposure action failed")
 
         return CommandResult(success=True, data=_exposure_payload(exposure))
 
@@ -216,7 +261,7 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
                 )
 
             game_port = server.properties.port.value
-            exposure.enable(
+            target = exposure.enable(
                 server_port=game_port,
                 target_id=str(uuid.uuid4().hex),
             )
@@ -224,30 +269,32 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
             agent = await agent_repo.get()
             supervisor = get_playit_supervisor()
 
-            if exposure.method == ExposureMethod.PLAYIT:
+            if exposure.method == ExposureMethod.PORT_FORWARD:
+                await _attempt_server_upnp_mapping(command.server_id, target)
+            elif exposure.method == ExposureMethod.PLAYIT:
                 if agent.is_claimed and agent.secret_ciphertext:
                     try:
                         secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
-                        for target in exposure.targets:
+                        for t in exposure.targets:
                             if supervisor.is_running:
-                                target.mark_active(target.public_address or "")
+                                t.mark_active(t.public_address or "")
                             else:
-                                target.mark_starting()
+                                t.mark_starting()
                         post_commit.append(
                             lambda s=secret_bytes: supervisor.start(
                                 s, on_status=_persist_playit_status
                             )
                         )
                     except Exception:
-                        for target in exposure.targets:
-                            target.mark_reclaim_required(
+                        for t in exposure.targets:
+                            t.mark_reclaim_required(
                                 code="RECLAIM_REQUIRED",
                                 message="Stored playit agent secret cannot be decrypted",
                             )
                 else:
-                    for target in exposure.targets:
-                        target._transition_to(ExposureStatus.CLAIM_REQUIRED)
-                        target.set_error(
+                    for t in exposure.targets:
+                        t._transition_to(ExposureStatus.CLAIM_REQUIRED)
+                        t.set_error(
                             "CLAIM_REQUIRED",
                             "playit.gg host agent claim required before tunnel activation",
                         )
@@ -271,7 +318,7 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
             try:
                 await action()
             except Exception:
-                logger.exception("Post-commit playit action failed")
+                logger.exception("Post-commit server exposure action failed")
 
         payload = _exposure_payload(exposure)
         payload["target"] = payload["targets"][-1] if payload["targets"] else None
@@ -300,12 +347,17 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
 
             exposure = await repo.get(command.server_id)
             if exposure is None:
-                raise NotFoundError(
-                    f"Exposure not found for server {command.server_id}",
-                    code="NOT_FOUND",
-                )
+                raise NotFoundError(f"Exposure not found for server {command.server_id}")
             if exposure.desired_state == DesiredState.ENABLED:
+                if exposure.method == ExposureMethod.PORT_FORWARD:
+                    for target in exposure.targets:
+                        p = _extract_target_external_port(target)
+                        post_commit.append(
+                            lambda port=p: AsyncUPnPService().delete_mapping(port)
+                        )
                 exposure.disable()
+                for target in exposure.targets:
+                    target.mark_disabled()
             _fold_aggregate(exposure)
             await repo.save(exposure)
 
@@ -324,7 +376,7 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
             try:
                 await action()
             except Exception:
-                logger.exception("Post-commit playit stop failed")
+                logger.exception("Post-commit server exposure action failed")
 
         return CommandResult(success=True, data=_exposure_payload(exposure))
 
@@ -352,6 +404,13 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
             exposure = await repo.get(command.server_id)
             if exposure is None:
                 return CommandResult(success=True, data={"removed": False})
+
+            if exposure.method == ExposureMethod.PORT_FORWARD:
+                for target in exposure.targets:
+                    p = _extract_target_external_port(target)
+                    post_commit.append(
+                        lambda port=p: AsyncUPnPService().delete_mapping(port)
+                    )
             exposure.mark_deleted()
             await repo.delete(exposure)
 
@@ -370,7 +429,7 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
             try:
                 await action()
             except Exception:
-                logger.exception("Post-commit playit stop failed")
+                logger.exception("Post-commit server exposure action failed")
 
         return CommandResult(success=True, data={"removed": True})
 
@@ -414,6 +473,12 @@ class CreateExposureTargetHandler(CommandHandler[CreateExposureTargetCommand]):
                 if not re.match(r"^[a-zA-Z0-9.-]+(:\d{1,5})?$", val):
                     raise ValidationError("Invalid public address format")
                 target.set_public_address(val)
+
+            if (
+                exposure.desired_state == DesiredState.ENABLED
+                and exposure.method == ExposureMethod.PORT_FORWARD
+            ):
+                await _attempt_server_upnp_mapping(command.server_id, target)
 
             _fold_aggregate(exposure)
             await repo.save(exposure)
@@ -490,7 +555,15 @@ class StopAllExposuresHandler(CommandHandler[StopAllExposuresCommand]):
             exposures = await repo.list()
             for exposure in exposures:
                 if exposure.desired_state == DesiredState.ENABLED:
+                    if exposure.method == ExposureMethod.PORT_FORWARD:
+                        for target in exposure.targets:
+                            p = _extract_target_external_port(target)
+                            post_commit.append(
+                                lambda port=p: AsyncUPnPService().delete_mapping(port)
+                            )
                     exposure.disable()
+                    for target in exposure.targets:
+                        target.mark_disabled()
                     _fold_aggregate(exposure)
                     await repo.save(exposure)
                     for event in exposure.collect_events():
@@ -1106,6 +1179,12 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
 
             exposures = await repo.list()
             for exposure in exposures:
+                if (
+                    exposure.desired_state == DesiredState.ENABLED
+                    and exposure.method == ExposureMethod.PORT_FORWARD
+                ):
+                    for target in exposure.targets:
+                        await _attempt_server_upnp_mapping(exposure.server_id, target)
                 _fold_aggregate(exposure)
                 await repo.save(exposure)
 

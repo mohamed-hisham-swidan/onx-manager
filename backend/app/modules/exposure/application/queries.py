@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.core.exceptions import NotFoundError
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.query_bus import Query, QueryHandler
+from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
 from app.modules.exposure.application.commands import (
     _agent_payload,
     _exposure_payload,
@@ -10,7 +11,6 @@ from app.modules.exposure.application.commands import (
     _panel_payload,
     _target_payload,
 )
-from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
 from app.modules.exposure.domain.repository import (
     HostAgentRepository,
     PanelExposureRepository,

@@ -254,7 +254,8 @@ class ServerExposureTarget(AggregateRoot):
         self._transition_to(ExposureStatus.STARTING)
 
     def mark_active(self, public_address: str | None = None) -> None:
-        self._transition_to(ExposureStatus.ACTIVE)
+        if self._status != ExposureStatus.ACTIVE:
+            self._transition_to(ExposureStatus.ACTIVE)
         if public_address is not None:
             self._public_address = public_address
         self._error_code = None
@@ -262,26 +263,36 @@ class ServerExposureTarget(AggregateRoot):
         self._updated_at = datetime.now(UTC)
 
     def mark_degraded(self) -> None:
-        self._transition_to(ExposureStatus.DEGRADED)
+        if self._status != ExposureStatus.DEGRADED:
+            self._transition_to(ExposureStatus.DEGRADED)
 
     def mark_error(self, code: str | None = None, message: str | None = None) -> None:
-        self._transition_to(ExposureStatus.ERROR)
+        if self._status != ExposureStatus.ERROR:
+            self._transition_to(ExposureStatus.ERROR)
         self.set_error(code, message)
+        self._updated_at = datetime.now(UTC)
 
     def mark_reclaim_required(self, code: str | None = None, message: str | None = None) -> None:
-        self._transition_to(ExposureStatus.RECLAIM_REQUIRED)
+        if self._status != ExposureStatus.RECLAIM_REQUIRED:
+            self._transition_to(ExposureStatus.RECLAIM_REQUIRED)
         self.set_error(code, message)
 
     def mark_stopping(self) -> None:
-        self._transition_to(ExposureStatus.STOPPING)
+        if self._status != ExposureStatus.STOPPING:
+            self._transition_to(ExposureStatus.STOPPING)
 
     def mark_stopped(self) -> None:
-        self._transition_to(ExposureStatus.STOPPED)
+        if self._status != ExposureStatus.STOPPED:
+            self._transition_to(ExposureStatus.STOPPED)
         self._public_address = None
 
     def mark_disabled(self) -> None:
-        self._transition_to(ExposureStatus.DISABLED)
+        if self._status != ExposureStatus.DISABLED:
+            self._transition_to(ExposureStatus.DISABLED)
         self._public_address = None
+        self._error_code = None
+        self._error_message = None
+        self._updated_at = datetime.now(UTC)
 
 
 _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
@@ -289,6 +300,7 @@ _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
         ExposureStatus.CLAIM_REQUIRED,
         ExposureStatus.STARTING,
         ExposureStatus.ACTIVE,
+        ExposureStatus.ERROR,
     },
     ExposureStatus.CLAIM_REQUIRED: {
         ExposureStatus.STARTING,
@@ -308,6 +320,7 @@ _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
         ExposureStatus.RECLAIM_REQUIRED,
         ExposureStatus.DISABLED,
         ExposureStatus.STARTING,
+        ExposureStatus.CLAIM_REQUIRED,
     },
     ExposureStatus.STOPPING: {
         ExposureStatus.STOPPED,
@@ -324,6 +337,7 @@ _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
     },
     ExposureStatus.ERROR: {
         ExposureStatus.STARTING,
+        ExposureStatus.ACTIVE,
         ExposureStatus.RECLAIM_REQUIRED,
         ExposureStatus.DISABLED,
     },

@@ -731,3 +731,82 @@ async def test_panel_exposure_port_forward_api(exposure_client) -> None:
         assert data["tls"] is False
         assert data["protocol"] == "http"
         assert data["external_port"] == 8080
+
+
+async def test_server_exposure_port_forward_api(exposure_client) -> None:
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+    server = await _create_server(exposure_client, owner)
+    sid = server["server_id"]
+
+    await exposure_client.post(f"/api/v1/servers/{sid}/exposure/targets", headers=owner)
+
+    from app.modules.exposure.infrastructure.upnp import UPnPResult
+
+    mock_result = UPnPResult(
+        success=True,
+        external_ip="198.51.100.4",
+        external_port=25565,
+        internal_port=25565,
+    )
+
+    with patch(
+        "app.modules.exposure.application.commands.AsyncUPnPService.attempt_mapping",
+        return_value=mock_result,
+    ):
+        resp = await exposure_client.put(
+            f"/api/v1/servers/{sid}/exposure",
+            json={"method": "port_forward", "desired_state": "ENABLED"},
+            headers=owner,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["method"] == "port_forward"
+        assert data["desired_state"] == "ENABLED"
+        assert data["aggregate_status"] == "ACTIVE"
+        assert len(data["targets"]) == 1
+        assert data["targets"][0]["status"] == "ACTIVE"
+        assert data["targets"][0]["public_address"] == "198.51.100.4:25565"
+
+
+async def test_server_exposure_port_forward_disable_api(exposure_client) -> None:
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+    server = await _create_server(exposure_client, owner)
+    sid = server["server_id"]
+
+    await exposure_client.post(f"/api/v1/servers/{sid}/exposure/targets", headers=owner)
+
+    from app.modules.exposure.infrastructure.upnp import UPnPResult
+
+    mock_result = UPnPResult(
+        success=True,
+        external_ip="198.51.100.4",
+        external_port=25565,
+        internal_port=25565,
+    )
+
+    with patch(
+        "app.modules.exposure.application.commands.AsyncUPnPService.attempt_mapping",
+        return_value=mock_result,
+    ):
+        await exposure_client.put(
+            f"/api/v1/servers/{sid}/exposure",
+            json={"method": "port_forward", "desired_state": "ENABLED"},
+            headers=owner,
+        )
+
+    with patch(
+        "app.modules.exposure.application.commands.AsyncUPnPService.delete_mapping",
+        return_value=True,
+    ) as mock_delete:
+        resp = await exposure_client.patch(
+            f"/api/v1/servers/{sid}/exposure",
+            json={"desired_state": "DISABLED"},
+            headers=owner,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["desired_state"] == "DISABLED"
+        assert data["aggregate_status"] == "DISABLED"
+        assert mock_delete.called
