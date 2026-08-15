@@ -123,6 +123,8 @@ class SQLServerExposureRepository(ServerExposureRepository):
         model.method = exposure.method.value
         model.desired_state = exposure.desired_state.value
         model.aggregate_status = exposure.aggregate_status.value
+        model.cloudflare_tunnel_id = exposure.cloudflare_tunnel_id
+        model.cloudflare_token_ciphertext = exposure.cloudflare_token_ciphertext
         await self._session.flush()
 
         for target in exposure.targets:
@@ -190,6 +192,8 @@ class SQLServerExposureRepository(ServerExposureRepository):
             desired_state=model.desired_state or DesiredState.DISABLED.value,
             aggregate_status=model.aggregate_status or ExposureStatus.DISABLED.value,
             targets=targets,
+            cloudflare_tunnel_id=model.cloudflare_tunnel_id,
+            cloudflare_token_ciphertext=model.cloudflare_token_ciphertext,
             created_at=model.created_at,
             updated_at=model.updated_at,
         )

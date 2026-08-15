@@ -63,16 +63,19 @@ class CloudflaredSupervisor:
     def __init__(
         self,
         *,
+        server_id: str | None = None,
         health_interval: float = HEALTH_INTERVAL_SECONDS,
         stale_after: float = STALE_AFTER_SECONDS,
         max_restarts: int = MAX_RESTARTS,
         backoff_base: float = BACKOFF_BASE_SECONDS,
     ) -> None:
+        self._server_id = server_id
         self._health_interval = health_interval
         self._stale_after = stale_after
         self._max_restarts = max_restarts
         self._backoff_base = backoff_base
 
+        self._lifecycle_lock = asyncio.Lock()
         self._process: asyncio.subprocess.Process | None = None
         self._token_file: Path | None = None
         self._monitor_task: asyncio.Task[None] | None = None
@@ -83,6 +86,10 @@ class CloudflaredSupervisor:
         self._status = ExposureStatus.STOPPED
         self._error_message: str | None = None
         self._on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None
+
+    @property
+    def server_id(self) -> str | None:
+        return self._server_id
 
     @property
     def status(self) -> ExposureStatus:
@@ -102,32 +109,36 @@ class CloudflaredSupervisor:
         *,
         on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None,
     ) -> None:
-        if self.is_running:
-            logger.info("cloudflared already running — ignoring duplicate start")
-            return
-        self._stop_event.clear()
-        self._on_status = on_status
-        self._restart_count = 0
-        await self._spawn(token)
-        self._monitor_task = asyncio.create_task(
-            self._monitor(), name="cloudflared-supervisor"
-        )
+        async with self._lifecycle_lock:
+            if on_status is not None:
+                self._on_status = on_status
+            if self.is_running:
+                logger.info("cloudflared already running — ignoring duplicate start")
+                return
+            self._stop_event.clear()
+            self._restart_count = 0
+            await self._spawn(token)
+            self._monitor_task = asyncio.create_task(
+                self._monitor(),
+                name=f"cloudflared-supervisor-{self._server_id or 'panel'}",
+            )
 
     async def stop(self) -> None:
-        self._stop_event.set()
-        await self._terminate_process()
-        if self._monitor_task is not None and not self._monitor_task.done():
-            self._monitor_task.cancel()
-            try:
-                await self._monitor_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.warning("cloudflared monitor task raised during stop", exc_info=True)
-            self._monitor_task = None
-        await self._delete_token_file()
-        self._set_status(ExposureStatus.STOPPED)
-        logger.info("cloudflared supervisor stopped")
+        async with self._lifecycle_lock:
+            self._stop_event.set()
+            await self._terminate_process()
+            if self._monitor_task is not None and not self._monitor_task.done():
+                self._monitor_task.cancel()
+                try:
+                    await self._monitor_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    logger.warning("cloudflared monitor task raised during stop", exc_info=True)
+                self._monitor_task = None
+            await self._delete_token_file()
+            self._set_status(ExposureStatus.STOPPED)
+            logger.info("cloudflared supervisor stopped")
 
     # -- lifecycle internals -----------------------------------------------
 
@@ -290,7 +301,12 @@ class CloudflaredSupervisor:
     # -- token file management ---------------------------------------------
 
     def _write_token_file(self, token: bytes) -> Path:
-        fd, path = tempfile.mkstemp(prefix="mcs-cloudflared-", suffix=".token")
+        prefix = (
+            f"mcs-cf-srv-{self._server_id[:8]}-"
+            if self._server_id
+            else "mcs-cloudflared-"
+        )
+        fd, path = tempfile.mkstemp(prefix=prefix, suffix=".token")
         os.close(fd)
         token_file = Path(path)
         token_file.chmod(0o600)
@@ -351,6 +367,7 @@ class CloudflaredSupervisor:
 
 
 _singleton: CloudflaredSupervisor | None = None
+_server_supervisors: dict[str, CloudflaredSupervisor] = {}
 
 
 def get_cloudflared_supervisor() -> CloudflaredSupervisor:
@@ -361,7 +378,21 @@ def get_cloudflared_supervisor() -> CloudflaredSupervisor:
     return _singleton
 
 
+def get_server_cloudflared_supervisor(server_id: str) -> CloudflaredSupervisor:
+    """Per-server supervisor registry for isolated cloudflared processes."""
+    if server_id not in _server_supervisors:
+        _server_supervisors[server_id] = CloudflaredSupervisor(server_id=server_id)
+    return _server_supervisors[server_id]
+
+
+def reset_server_cloudflared_supervisors() -> None:
+    """Test helper: clear all per-server supervisors so tests start fresh."""
+    global _server_supervisors
+    _server_supervisors.clear()
+
+
 def reset_cloudflared_supervisor() -> None:
     """Test helper: drop the singleton so tests start fresh."""
-    global _singleton
+    global _singleton, _server_supervisors
     _singleton = None
+    _server_supervisors.clear()

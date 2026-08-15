@@ -41,6 +41,8 @@ class ServerExposureModel(Base, TimestampMixin):
     method = Column(String(16), nullable=False)
     desired_state = Column(String(16), nullable=False, default="DISABLED")
     aggregate_status = Column(String(32), nullable=False, default="DISABLED")
+    cloudflare_tunnel_id = Column(String(64), nullable=True)
+    cloudflare_token_ciphertext = Column(LargeBinary, nullable=True)
 
 
 class ServerExposureTargetModel(Base, TimestampMixin):

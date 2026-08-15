@@ -21,3 +21,15 @@ class NoTargetsError(ValidationError):
             field="targets",
             details={"code": "NO_TARGETS"},
         )
+
+
+class WarningNotAcknowledgedError(MCSError):
+    """Cloudflare TCP requires acknowledged_warning=True."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Players must install Modflared (or run cloudflared) to connect. "
+            "This is not a normal public address.",
+            code="WARNING_NOT_ACKNOWLEDGED",
+            http_status=422,
+        )

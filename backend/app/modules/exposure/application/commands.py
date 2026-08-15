@@ -6,6 +6,7 @@ import secrets
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +28,11 @@ from app.modules.exposure.domain.aggregate import (
     ServerExposure,
     ServerExposureTarget,
 )
-from app.modules.exposure.domain.exceptions import ClaimActiveError, NoTargetsError
+from app.modules.exposure.domain.exceptions import (
+    ClaimActiveError,
+    NoTargetsError,
+    WarningNotAcknowledgedError,
+)
 from app.modules.exposure.domain.repository import (
     HostAgentRepository,
     PanelExposureRepository,
@@ -45,7 +50,11 @@ from app.modules.exposure.infrastructure.cloudflare import (
     CloudflareAuthError,
     CloudflareClient,
 )
-from app.modules.exposure.infrastructure.cloudflared import get_cloudflared_supervisor
+from app.modules.exposure.infrastructure.cloudflared import (
+    CloudflaredSupervisor,
+    get_cloudflared_supervisor,
+    get_server_cloudflared_supervisor,
+)
 from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
 from app.modules.exposure.infrastructure.repository import (
     SQLHostAgentRepository,
@@ -107,6 +116,9 @@ class SetServerExposureCommand(Command):
     server_id: str
     method: str
     desired_state: str
+    cloudflare_token: str = ""
+    hostname: str = ""
+    acknowledged_warning: bool = False
     actor_id: str = ""
 
 
@@ -121,6 +133,14 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
         method = ExposureMethod(command.method.lower())
         desired = DesiredState(command.desired_state.upper())
         post_commit: list[Callable[[], Awaitable[None]]] = []
+
+        # Server-side warning enforcement: must run before any Cloudflare API calls or DB writes
+        if (
+            method == ExposureMethod.CLOUDFLARE_TCP
+            and desired == DesiredState.ENABLED
+            and not command.acknowledged_warning
+        ):
+            raise WarningNotAcknowledgedError()
 
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
@@ -149,6 +169,8 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                 exposure.set_desired_state(DesiredState.ENABLED)
 
                 if method == ExposureMethod.PORT_FORWARD:
+                    if prev_method == ExposureMethod.CLOUDFLARE_TCP:
+                        post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
                     for target in exposure.targets:
                         await _attempt_server_upnp_mapping(command.server_id, target)
                 elif method == ExposureMethod.PLAYIT:
@@ -158,6 +180,9 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                             post_commit.append(
                                 lambda port=p: AsyncUPnPService().delete_mapping(port)
                             )
+                    if prev_method == ExposureMethod.CLOUDFLARE_TCP:
+                        post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
+
                     agent = await agent_repo.get()
                     supervisor = get_playit_supervisor()
                     if agent.is_claimed and agent.secret_ciphertext:
@@ -189,6 +214,19 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                         post_commit.append(
                             lambda: supervisor.start(None, on_status=_persist_playit_status)
                         )
+                elif method == ExposureMethod.CLOUDFLARE_TCP:
+                    if prev_method == ExposureMethod.PORT_FORWARD:
+                        for target in exposure.targets:
+                            p = _extract_target_external_port(target)
+                            post_commit.append(
+                                lambda port=p: AsyncUPnPService().delete_mapping(port)
+                            )
+                    await self._enable_server_cloudflare_tcp(
+                        server=server,
+                        exposure=exposure,
+                        command=command,
+                        post_commit=post_commit,
+                    )
             else:
                 exposure.set_desired_state(DesiredState.DISABLED)
                 if (
@@ -200,6 +238,12 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                         post_commit.append(
                             lambda port=p: AsyncUPnPService().delete_mapping(port)
                         )
+                if (
+                    prev_method == ExposureMethod.CLOUDFLARE_TCP
+                    or method == ExposureMethod.CLOUDFLARE_TCP
+                ):
+                    post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
+
                 for target in exposure.targets:
                     target.mark_disabled()
 
@@ -226,10 +270,127 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
 
         return CommandResult(success=True, data=_exposure_payload(exposure))
 
+    async def _start_server_supervisor(
+        self,
+        supervisor: CloudflaredSupervisor,
+        token: bytes,
+        on_status: Callable[[ExposureStatus], Awaitable[None]],
+    ) -> None:
+        if supervisor.is_running:
+            await supervisor.stop()
+        await supervisor.start(token, on_status=on_status)
+
+    async def _enable_server_cloudflare_tcp(
+        self,
+        server: Any,
+        exposure: ServerExposure,
+        command: SetServerExposureCommand | EnableServerExposureCommand,
+        post_commit: list[Callable[[], Awaitable[None]]],
+    ) -> None:
+        token = command.cloudflare_token.strip()
+        hostname = command.hostname.strip()
+        supervisor = get_server_cloudflared_supervisor(exposure.server_id)
+        on_status = _make_persist_server_cloudflare_status(exposure.server_id)
+
+        # Case 1: Token provided
+        if token:
+            # Subcase 1a: Tunnel already exists -> Token Rotation
+            if exposure.cloudflare_tunnel_id:
+                fallback = exposure.targets[0].public_address if exposure.targets else ""
+                resolved_hostname = hostname or fallback
+                if not resolved_hostname:
+                    raise ValidationError(
+                        "Hostname is required for Cloudflare TCP exposure",
+                        field="hostname",
+                    )
+                ciphertext = _panel_encryption().encrypt(token.encode("utf-8"))
+                exposure.set_cloudflare_credentials(exposure.cloudflare_tunnel_id, ciphertext)
+                for target in exposure.targets:
+                    target.mark_starting()
+                    target.set_public_address(resolved_hostname)
+                token_bytes = token.encode("utf-8")
+                post_commit.append(
+                    lambda t=token_bytes: self._start_server_supervisor(supervisor, t, on_status)
+                )
+                return
+
+            # Subcase 1b: Fresh setup
+            if not hostname:
+                raise ValidationError(
+                    "Hostname is required for Cloudflare TCP exposure",
+                    field="hostname",
+                )
+
+            client = CloudflareClient(token)
+            game_port = server.properties.port.value
+            try:
+                tunnel_name = f"mcs-srv-{exposure.server_id[:8]}"
+                provisioned = await client.create_named_tunnel(name=tunnel_name)
+                await client.configure_ingress(
+                    provisioned.tunnel_id,
+                    [
+                        {"hostname": hostname, "service": f"tcp://127.0.0.1:{game_port}"},
+                        {"service": "http_status:404"},
+                    ],
+                )
+                await client.create_cname(hostname, provisioned.tunnel_id)
+            except CloudflareAuthError as exc:
+                for target in exposure.targets:
+                    target.mark_reclaim_required(code="RECLAIM_REQUIRED", message=str(exc))
+                exposure.clear_cloudflare_credentials()
+                return
+            except CloudflareApiError as exc:
+                for target in exposure.targets:
+                    target.mark_error(code="CLOUDFLARE_API_ERROR", message=str(exc))
+                exposure.clear_cloudflare_credentials()
+                return
+
+            ciphertext = _panel_encryption().encrypt(provisioned.token.encode("utf-8"))
+            exposure.set_cloudflare_credentials(provisioned.tunnel_id, ciphertext)
+            for target in exposure.targets:
+                target.mark_starting()
+                target.set_public_address(hostname)
+
+            token_bytes = provisioned.token.encode("utf-8")
+            post_commit.append(
+                lambda t=token_bytes: self._start_server_supervisor(supervisor, t, on_status)
+            )
+
+        # Case 2: No token provided in command -> Check existing credentials
+        elif exposure.has_cloudflare_credentials:
+            try:
+                plaintext = _panel_encryption().decrypt(exposure.cloudflare_token_ciphertext)
+            except Exception:
+                for target in exposure.targets:
+                    target.mark_reclaim_required(
+                        code="RECLAIM_REQUIRED",
+                        message="Stored Cloudflare token ciphertext cannot be decrypted",
+                    )
+                return
+
+            for target in exposure.targets:
+                if supervisor.is_running:
+                    target.mark_active(target.public_address or "")
+                else:
+                    target.mark_starting()
+            post_commit.append(
+                lambda t=plaintext: self._start_server_supervisor(supervisor, t, on_status)
+            )
+
+        # Case 3: No token and no existing credentials
+        else:
+            raise ValidationError(
+                "Cloudflare token is required to enable Cloudflare TCP exposure",
+                field="cloudflare_token",
+            )
+
 
 class EnableServerExposureCommand(Command):
     idempotency_key: IdempotencyKey = IdempotencyKey()
     server_id: str
+    cloudflare_token: str = ""
+    hostname: str = ""
+    acknowledged_warning: bool = False
     actor_id: str = ""
     desired_state: str = "ENABLED"
 
@@ -259,6 +420,13 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
                     method=ExposureMethod.PLAYIT,
                     id=str(uuid.uuid4().hex),
                 )
+
+            # Warning check if method is CLOUDFLARE_TCP
+            if (
+                exposure.method == ExposureMethod.CLOUDFLARE_TCP
+                and not command.acknowledged_warning
+            ):
+                raise WarningNotAcknowledgedError()
 
             game_port = server.properties.port.value
             target = exposure.enable(
@@ -301,6 +469,22 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
                     post_commit.append(
                         lambda: supervisor.start(None, on_status=_persist_playit_status)
                     )
+            elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
+                handler = SetServerExposureHandler(self._event_bus)
+                set_cmd = SetServerExposureCommand(
+                    server_id=command.server_id,
+                    method=ExposureMethod.CLOUDFLARE_TCP.value,
+                    desired_state="ENABLED",
+                    cloudflare_token=command.cloudflare_token,
+                    hostname=command.hostname,
+                    acknowledged_warning=command.acknowledged_warning,
+                )
+                await handler._enable_server_cloudflare_tcp(
+                    server=server,
+                    exposure=exposure,
+                    command=set_cmd,
+                    post_commit=post_commit,
+                )
 
             _fold_aggregate(exposure)
             await repo.save(exposure)
@@ -355,6 +539,8 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
                         post_commit.append(
                             lambda port=p: AsyncUPnPService().delete_mapping(port)
                         )
+                elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
+                    post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
                 exposure.disable()
                 for target in exposure.targets:
                     target.mark_disabled()
@@ -411,6 +597,8 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
                     post_commit.append(
                         lambda port=p: AsyncUPnPService().delete_mapping(port)
                     )
+            elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
+                post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
             exposure.mark_deleted()
             await repo.delete(exposure)
 
@@ -561,6 +749,8 @@ class StopAllExposuresHandler(CommandHandler[StopAllExposuresCommand]):
                             post_commit.append(
                                 lambda port=p: AsyncUPnPService().delete_mapping(port)
                             )
+                    elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
+                        post_commit.append(get_server_cloudflared_supervisor(exposure.server_id).stop)
                     exposure.disable()
                     for target in exposure.targets:
                         target.mark_disabled()
@@ -1100,6 +1290,49 @@ async def _persist_panel_status(status: ExposureStatus) -> None:
         logger.exception("Failed to persist panel status %s", status.value)
 
 
+def _make_persist_server_cloudflare_status(
+    server_id: str,
+) -> Callable[[ExposureStatus], Awaitable[None]]:
+    async def _persist_status(status: ExposureStatus) -> None:
+        try:
+            async with UnitOfWork() as uow:
+                repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+                exposure = await repo.get(server_id)
+                if exposure is None or exposure.desired_state == DesiredState.DISABLED:
+                    return
+                for target in exposure.targets:
+                    if target.status != ExposureStatus.DISABLED:
+                        if status == ExposureStatus.ACTIVE:
+                            target.mark_active(target.public_address or "")
+                        elif status == ExposureStatus.RECLAIM_REQUIRED:
+                            target.mark_reclaim_required(
+                                code="RECLAIM_REQUIRED",
+                                message="cloudflared reported an invalid/revoked tunnel token",
+                            )
+                        elif status == ExposureStatus.DEGRADED:
+                            target.mark_degraded()
+                        elif status == ExposureStatus.ERROR:
+                            target.mark_error(
+                                code="CLOUDFLARED_CRASHED",
+                                message="cloudflared process crashed or failed health check",
+                            )
+                        elif status == ExposureStatus.STARTING:
+                            target.mark_starting()
+                        elif status == ExposureStatus.STOPPED:
+                            target.mark_stopped()
+                _fold_aggregate(exposure)
+                await repo.save(exposure)
+                await uow.commit()
+        except Exception:
+            logger.exception(
+                "Failed to persist server %s cloudflare status %s",
+                server_id,
+                status.value,
+            )
+
+    return _persist_status
+
+
 async def _persist_playit_status(status: ExposureStatus) -> None:
     try:
         async with UnitOfWork() as uow:
@@ -1185,6 +1418,40 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                 ):
                     for target in exposure.targets:
                         await _attempt_server_upnp_mapping(exposure.server_id, target)
+                elif (
+                    exposure.desired_state == DesiredState.ENABLED
+                    and exposure.method == ExposureMethod.CLOUDFLARE_TCP
+                    and exposure.has_cloudflare_credentials
+                ):
+                    srv_supervisor = get_server_cloudflared_supervisor(exposure.server_id)
+                    should_start = (
+                        exposure.aggregate_status != ExposureStatus.RECLAIM_REQUIRED
+                        and not srv_supervisor.is_running
+                    )
+                    if should_start:
+                        try:
+                            plaintext = _panel_encryption().decrypt(
+                                exposure.cloudflare_token_ciphertext
+                            )
+                            on_status = _make_persist_server_cloudflare_status(
+                                exposure.server_id
+                            )
+                            post_commit.append(
+                                lambda sup=srv_supervisor, pt=plaintext, ost=on_status: sup.start(
+                                    pt, on_status=ost
+                                )
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to decrypt server cloudflare token on reconcile"
+                            )
+                elif (
+                    exposure.desired_state == DesiredState.DISABLED
+                    and exposure.method == ExposureMethod.CLOUDFLARE_TCP
+                ):
+                    srv_supervisor = get_server_cloudflared_supervisor(exposure.server_id)
+                    if srv_supervisor.is_running:
+                        post_commit.append(srv_supervisor.stop)
                 _fold_aggregate(exposure)
                 await repo.save(exposure)
 
@@ -1370,6 +1637,8 @@ def _exposure_payload(exposure: ServerExposure) -> dict:
         "aggregate_status": exposure.aggregate_status.value,
         "error_code": None,
         "error_message": None,
+        "cloudflare_tunnel_id": exposure.cloudflare_tunnel_id,
+        "has_cloudflare_credentials": exposure.has_cloudflare_credentials,
         "targets": [_target_payload(t) for t in exposure.targets],
     }
 

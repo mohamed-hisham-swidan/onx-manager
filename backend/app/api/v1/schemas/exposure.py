@@ -67,16 +67,24 @@ class ServerExposureResponse(BaseModel):
     aggregate_status: str
     error_code: str | None = None
     error_message: str | None = None
+    cloudflare_tunnel_id: str | None = None
+    has_cloudflare_credentials: bool = False
     targets: list[TargetResponse] = []
 
 
 class ServerExposureUpdateRequest(BaseModel):
     method: str = Field(pattern="^(playit|port_forward|cloudflare_tcp)$")
     desired_state: str = Field(pattern="^(ENABLED|DISABLED)$")
+    cloudflare_token: str = Field(default="", max_length=8192)
+    hostname: str = Field(default="", max_length=253)
+    acknowledged_warning: bool = Field(default=False)
 
 
 class ServerExposureStateUpdateRequest(BaseModel):
     desired_state: str = Field(pattern="^(ENABLED|DISABLED)$")
+    cloudflare_token: str = Field(default="", max_length=8192)
+    hostname: str = Field(default="", max_length=253)
+    acknowledged_warning: bool = Field(default=False)
 
 
 class TargetCreateRequest(BaseModel):

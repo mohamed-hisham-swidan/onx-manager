@@ -301,6 +301,7 @@ _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
         ExposureStatus.STARTING,
         ExposureStatus.ACTIVE,
         ExposureStatus.ERROR,
+        ExposureStatus.RECLAIM_REQUIRED,
     },
     ExposureStatus.CLAIM_REQUIRED: {
         ExposureStatus.STARTING,
@@ -311,6 +312,8 @@ _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
         ExposureStatus.ACTIVE,
         ExposureStatus.CLAIM_REQUIRED,
         ExposureStatus.ERROR,
+        ExposureStatus.RECLAIM_REQUIRED,
+        ExposureStatus.DEGRADED,
         ExposureStatus.DISABLED,
     },
     ExposureStatus.ACTIVE: {
@@ -341,7 +344,11 @@ _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
         ExposureStatus.RECLAIM_REQUIRED,
         ExposureStatus.DISABLED,
     },
-    ExposureStatus.RECLAIM_REQUIRED: {ExposureStatus.STARTING, ExposureStatus.DISABLED},
+    ExposureStatus.RECLAIM_REQUIRED: {
+        ExposureStatus.STARTING,
+        ExposureStatus.ACTIVE,
+        ExposureStatus.DISABLED,
+    },
 }
 
 
@@ -362,6 +369,8 @@ class ServerExposure(AggregateRoot):
         desired_state: DesiredState | str = DesiredState.DISABLED,
         aggregate_status: ExposureStatus | str = ExposureStatus.DISABLED,
         targets: list[ServerExposureTarget] | None = None,
+        cloudflare_tunnel_id: str | None = None,
+        cloudflare_token_ciphertext: bytes | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
     ) -> None:
@@ -372,6 +381,8 @@ class ServerExposure(AggregateRoot):
         self._desired_state = _coerce_desired_state(desired_state)
         self._aggregate_status = _coerce_exposure_status(aggregate_status)
         self._targets = targets or []
+        self._cloudflare_tunnel_id = cloudflare_tunnel_id
+        self._cloudflare_token_ciphertext = cloudflare_token_ciphertext
         now = datetime.now(UTC)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
@@ -399,6 +410,30 @@ class ServerExposure(AggregateRoot):
     @property
     def targets(self) -> list[ServerExposureTarget]:
         return list(self._targets)
+
+    @property
+    def cloudflare_tunnel_id(self) -> str | None:
+        return self._cloudflare_tunnel_id
+
+    @property
+    def cloudflare_token_ciphertext(self) -> bytes | None:
+        return self._cloudflare_token_ciphertext
+
+    @property
+    def has_cloudflare_credentials(self) -> bool:
+        return bool(self._cloudflare_tunnel_id and self._cloudflare_token_ciphertext)
+
+    def set_cloudflare_credentials(
+        self, tunnel_id: str, token_ciphertext: bytes
+    ) -> None:
+        self._cloudflare_tunnel_id = tunnel_id
+        self._cloudflare_token_ciphertext = token_ciphertext
+        self._updated_at = datetime.now(UTC)
+
+    def clear_cloudflare_credentials(self) -> None:
+        self._cloudflare_tunnel_id = None
+        self._cloudflare_token_ciphertext = None
+        self._updated_at = datetime.now(UTC)
 
     @property
     def created_at(self) -> datetime:

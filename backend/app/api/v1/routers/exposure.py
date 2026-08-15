@@ -166,6 +166,9 @@ async def set_server_exposure(
             server_id=server_id,
             method=body.method,
             desired_state=body.desired_state,
+            cloudflare_token=body.cloudflare_token,
+            hostname=body.hostname,
+            acknowledged_warning=body.acknowledged_warning,
             actor_id=current_user.get("user_id", ""),
         )
     )
@@ -183,7 +186,12 @@ async def set_server_exposure_state(
     _current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> ServerExposureResponse:
     if body.desired_state == "ENABLED":
-        cmd = EnableServerExposureCommand(server_id=server_id)
+        cmd = EnableServerExposureCommand(
+            server_id=server_id,
+            cloudflare_token=body.cloudflare_token,
+            hostname=body.hostname,
+            acknowledged_warning=body.acknowledged_warning,
+        )
     else:
         cmd = DisableServerExposureCommand(server_id=server_id)
     result = await command_bus.send(cmd)

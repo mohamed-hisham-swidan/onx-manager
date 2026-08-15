@@ -810,3 +810,94 @@ async def test_server_exposure_port_forward_disable_api(exposure_client) -> None
         assert data["desired_state"] == "DISABLED"
         assert data["aggregate_status"] == "DISABLED"
         assert mock_delete.called
+
+
+async def test_server_exposure_cloudflare_tcp_warning_required_api(exposure_client) -> None:
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+    server = await _create_server(exposure_client, owner)
+    sid = server["server_id"]
+
+    await exposure_client.post(f"/api/v1/servers/{sid}/exposure/targets", headers=owner)
+
+    resp = await exposure_client.put(
+        f"/api/v1/servers/{sid}/exposure",
+        json={
+            "method": "cloudflare_tcp",
+            "desired_state": "ENABLED",
+            "cloudflare_token": "cf-token-123",
+            "hostname": "play.example.com",
+            # acknowledged_warning omitted (defaults False)
+        },
+        headers=owner,
+    )
+    assert resp.status_code == 422
+    data = resp.json()
+    assert data["error_code"] == "WARNING_NOT_ACKNOWLEDGED"
+    assert "Modflared" in data["error"]
+
+
+async def test_server_exposure_cloudflare_tcp_roundtrip_api(exposure_client) -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from app.modules.exposure.application import commands as exposure_commands
+    from app.modules.exposure.infrastructure.cloudflare import TunnelProvisionResult
+
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+    server = await _create_server(exposure_client, owner)
+    sid = server["server_id"]
+
+    await exposure_client.post(f"/api/v1/servers/{sid}/exposure/targets", headers=owner)
+
+    mock_client = AsyncMock()
+    mock_client.create_named_tunnel = AsyncMock(
+        return_value=TunnelProvisionResult(tunnel_id="tun-srv-abc", token="tun-token-xyz")
+    )
+    mock_client.configure_ingress = AsyncMock()
+    mock_client.create_cname = AsyncMock(return_value="dns-1")
+    supervisor = await _mock_supervisor()
+
+    with (
+        patch.object(exposure_commands, "CloudflareClient", return_value=mock_client),
+        patch(
+            "app.modules.exposure.application.commands.get_server_cloudflared_supervisor",
+            return_value=supervisor,
+        ),
+    ):
+        resp = await exposure_client.put(
+            f"/api/v1/servers/{sid}/exposure",
+            json={
+                "method": "cloudflare_tcp",
+                "desired_state": "ENABLED",
+                "cloudflare_token": "cf-token-123",
+                "hostname": "play.example.com",
+                "acknowledged_warning": True,
+            },
+            headers=owner,
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["method"] == "cloudflare_tcp"
+    assert data["desired_state"] == "ENABLED"
+    assert data["has_cloudflare_credentials"] is True
+    assert data["cloudflare_tunnel_id"] == "tun-srv-abc"
+    assert len(data["targets"]) == 1
+    assert data["targets"][0]["public_address"] == "play.example.com"
+    supervisor.start.assert_awaited_once()
+
+    # Disable via patch
+    with patch(
+        "app.modules.exposure.application.commands.get_server_cloudflared_supervisor",
+        return_value=supervisor,
+    ):
+        patch_resp = await exposure_client.patch(
+            f"/api/v1/servers/{sid}/exposure",
+            json={"desired_state": "DISABLED"},
+            headers=owner,
+        )
+    assert patch_resp.status_code == 200
+    patch_data = patch_resp.json()
+    assert patch_data["desired_state"] == "DISABLED"
+    assert patch_data["aggregate_status"] == "DISABLED"
+    supervisor.stop.assert_awaited_once()
