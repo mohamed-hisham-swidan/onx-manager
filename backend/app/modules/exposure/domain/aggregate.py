@@ -475,6 +475,10 @@ class PanelExposure(AggregateRoot):
         error_message: str | None = None,
         cloudflare_tunnel_id: str | None = None,
         cloudflare_token_ciphertext: bytes | None = None,
+        external_port: int | None = None,
+        playit_tunnel_id: str | None = None,
+        upnp_last_result: str | None = None,
+        upnp_last_mapped_at: datetime | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
     ) -> None:
@@ -488,6 +492,10 @@ class PanelExposure(AggregateRoot):
         self._error_message = error_message
         self._cloudflare_tunnel_id = cloudflare_tunnel_id
         self._cloudflare_token_ciphertext = cloudflare_token_ciphertext
+        self._external_port = external_port
+        self._playit_tunnel_id = playit_tunnel_id
+        self._upnp_last_result = upnp_last_result
+        self._upnp_last_mapped_at = upnp_last_mapped_at
         now = datetime.now(UTC)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
@@ -533,6 +541,22 @@ class PanelExposure(AggregateRoot):
         return bool(self._cloudflare_tunnel_id and self._cloudflare_token_ciphertext)
 
     @property
+    def external_port(self) -> int | None:
+        return self._external_port
+
+    @property
+    def playit_tunnel_id(self) -> str | None:
+        return self._playit_tunnel_id
+
+    @property
+    def upnp_last_result(self) -> str | None:
+        return self._upnp_last_result
+
+    @property
+    def upnp_last_mapped_at(self) -> datetime | None:
+        return self._upnp_last_mapped_at
+
+    @property
     def created_at(self) -> datetime:
         return self._created_at
 
@@ -573,6 +597,31 @@ class PanelExposure(AggregateRoot):
     def clear_cloudflare_credentials(self) -> None:
         self._cloudflare_tunnel_id = None
         self._cloudflare_token_ciphertext = None
+        self._updated_at = datetime.now(UTC)
+
+    def set_port_forward_details(
+        self,
+        external_port: int | None,
+        result: str | None,
+        mapped_at: datetime | None,
+    ) -> None:
+        self._external_port = external_port
+        self._upnp_last_result = result
+        self._upnp_last_mapped_at = mapped_at
+        self._updated_at = datetime.now(UTC)
+
+    def set_playit_tunnel(self, tunnel_id: str | None) -> None:
+        self._playit_tunnel_id = tunnel_id
+        self._updated_at = datetime.now(UTC)
+
+    def clear_playit_credentials(self) -> None:
+        self._playit_tunnel_id = None
+        self._updated_at = datetime.now(UTC)
+
+    def clear_port_forward_details(self) -> None:
+        self._external_port = None
+        self._upnp_last_result = None
+        self._upnp_last_mapped_at = None
         self._updated_at = datetime.now(UTC)
 
 

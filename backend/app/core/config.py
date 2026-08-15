@@ -164,6 +164,42 @@ def _to_bool(value: str) -> bool:
     return value.lower() in ("1", "true", "yes")
 
 
+_ACTIVE_PANEL_BIND_HOST: str | None = None
+_ACTIVE_PANEL_BIND_PORT: int | None = None
+
+
+def init_active_panel_bind(
+    host: str | None = None, port: int | None = None
+) -> tuple[str, int]:
+    """Capture or override the frozen boot-time panel socket bind (Decision 5 / F-72B-06).
+
+    This captures the physical bind address established when the Uvicorn TCP server
+    socket is bound at process launch. It remains frozen for the entire lifetime of
+    the process and is NOT affected by dynamic mutations to settings.yaml / LiveSettings.
+    """
+    global _ACTIVE_PANEL_BIND_HOST, _ACTIVE_PANEL_BIND_PORT
+    if host is not None and port is not None:
+        _ACTIVE_PANEL_BIND_HOST = host
+        _ACTIVE_PANEL_BIND_PORT = port
+    else:
+        h, p = get_panel_bind()
+        _ACTIVE_PANEL_BIND_HOST = host if host is not None else h
+        _ACTIVE_PANEL_BIND_PORT = port if port is not None else p
+    return _ACTIVE_PANEL_BIND_HOST, _ACTIVE_PANEL_BIND_PORT
+
+
+def get_active_panel_bind() -> tuple[str, int]:
+    """Return the frozen boot-time panel socket bind address.
+
+    Initializes once from ``get_panel_bind()`` on first access if not explicitly
+    initialized during application lifespan.
+    """
+    global _ACTIVE_PANEL_BIND_HOST, _ACTIVE_PANEL_BIND_PORT
+    if _ACTIVE_PANEL_BIND_HOST is None or _ACTIVE_PANEL_BIND_PORT is None:
+        init_active_panel_bind()
+    return _ACTIVE_PANEL_BIND_HOST, _ACTIVE_PANEL_BIND_PORT
+
+
 def get_panel_bind() -> tuple[str, int]:
     """Single authoritative reader for the Panel bind address (Decision 3).
 
@@ -172,7 +208,14 @@ def get_panel_bind() -> tuple[str, int]:
     ``:8000`` strings.
     """
     settings = ConfigFactory.global_settings()
-    return settings.panel_bind_host, settings.panel_bind_port
+    if "MCS_PANEL_BIND_HOST" in os.environ:
+        host = settings.panel_bind_host
+    else:
+        from app.core.settings_store import get_live_settings
+
+        live = get_live_settings()
+        host = live.panel_bind_host or settings.panel_bind_host
+    return host, settings.panel_bind_port
 
 
 def panel_ingress_target() -> str:

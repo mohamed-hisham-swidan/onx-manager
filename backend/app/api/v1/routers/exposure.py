@@ -129,6 +129,7 @@ async def set_panel_exposure(
             desired_state=body.desired_state,
             cloudflare_token=body.cloudflare_token,
             hostname=body.hostname,
+            external_port=body.external_port,
             actor_id=current_user.get("user_id", ""),
         )
     )

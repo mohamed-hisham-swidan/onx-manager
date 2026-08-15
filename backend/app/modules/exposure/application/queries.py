@@ -10,6 +10,7 @@ from app.modules.exposure.application.commands import (
     _panel_payload,
     _target_payload,
 )
+from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
 from app.modules.exposure.domain.repository import (
     HostAgentRepository,
     PanelExposureRepository,
@@ -61,8 +62,10 @@ class GetPanelExposureHandler(QueryHandler[GetPanelExposureQuery]):
     async def handle(self, _query: GetPanelExposureQuery) -> dict:
         async with UnitOfWork() as uow:
             repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
+            state_repo = SQLSystemStateRepository(uow.session)
             panel = await repo.get()
-            return _panel_payload(panel)
+            system_state = await state_repo.get()
+            return _panel_payload(panel, access_mode=system_state.access_mode)
 
 
 class ListExposureTargetsQuery(Query):

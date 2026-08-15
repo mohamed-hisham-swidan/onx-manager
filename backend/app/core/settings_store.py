@@ -13,6 +13,7 @@ read-only/env-var backed) so that the non-editable infrastructure fields
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -24,10 +25,12 @@ logger = logging.getLogger(__name__)
 _SETTINGS_FILE = Path("config/settings.yaml")
 
 # Fields that require a backend restart to take effect.
-RESTART_REQUIRED_FIELDS: frozenset[str] = frozenset({"app_name", "log_level", "debug"})
+RESTART_REQUIRED_FIELDS: frozenset[str] = frozenset(
+    {"app_name", "log_level", "debug", "panel_bind_host"}
+)
 
 # All editable fields with their default values.  Keep in sync with
-# AppSettings (core/config.py) and the 9 fields exposed by the API.
+# AppSettings (core/config.py) and the fields exposed by the API.
 _DEFAULTS: dict[str, Any] = {
     "app_name": "mcs-manager",
     "log_level": "INFO",
@@ -38,6 +41,7 @@ _DEFAULTS: dict[str, Any] = {
     "circuit_breaker_timeout_seconds": 30,
     "event_bus_retry_attempts": 3,
     "saga_timeout_seconds": 300,
+    "panel_bind_host": "127.0.0.1",
 }
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
@@ -56,6 +60,7 @@ class LiveSettings:
     circuit_breaker_timeout_seconds: int = 30
     event_bus_retry_attempts: int = 3
     saga_timeout_seconds: int = 300
+    panel_bind_host: str = "127.0.0.1"
 
 
 _live: LiveSettings | None = None
@@ -107,6 +112,8 @@ def init_settings_store(path: Path | None = None) -> None:
     for field, default in _DEFAULTS.items():
         if field in raw:
             kwargs[field] = _coerce(field, raw[field])
+        elif field == "panel_bind_host":
+            kwargs[field] = os.environ.get("MCS_PANEL_BIND_HOST", default)
         else:
             kwargs[field] = default
 

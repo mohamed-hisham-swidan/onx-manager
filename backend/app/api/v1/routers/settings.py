@@ -28,6 +28,7 @@ async def get_settings_endpoint(
         "circuit_breaker_timeout_seconds": live.circuit_breaker_timeout_seconds,
         "event_bus_retry_attempts": live.event_bus_retry_attempts,
         "saga_timeout_seconds": live.saga_timeout_seconds,
+        "panel_bind_host": live.panel_bind_host,
         "requires_restart": sorted(list(RESTART_REQUIRED_FIELDS)),
     }
 
@@ -53,5 +54,6 @@ async def update_settings(
             "circuit_breaker_timeout_seconds": live.circuit_breaker_timeout_seconds,
             "event_bus_retry_attempts": live.event_bus_retry_attempts,
             "saga_timeout_seconds": live.saga_timeout_seconds,
+            "panel_bind_host": live.panel_bind_host,
         },
     }

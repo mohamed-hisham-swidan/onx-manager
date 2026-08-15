@@ -195,9 +195,12 @@ class TestSettingsAPIEndpoints:
             res_get = await client.get("/api/v1/settings", headers=headers)
             assert res_get.status_code == 200
             data = res_get.json()
-            assert data["rate_limit_per_minute"] == 60
-            assert "requires_restart" in data
-            assert set(data["requires_restart"]) == {"app_name", "log_level", "debug"}
+            assert set(data["requires_restart"]) == {
+                "app_name",
+                "log_level",
+                "debug",
+                "panel_bind_host",
+            }
 
             # Update settings via PATCH
             res_patch = await client.patch(

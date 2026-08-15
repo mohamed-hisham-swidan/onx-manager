@@ -25,9 +25,17 @@ class PanelExposureResponse(BaseModel):
     desired_state: str
     status: str
     public_address: str | None = None
+    tls: bool = True
+    protocol: str = "https"
+    external_port: int | None = None
     cloudflare_tunnel_id: str | None = None
+    playit_tunnel_id: str | None = None
+    upnp_last_result: str | None = None
     error_code: str | None = None
     error_message: str | None = None
+    fix_hint: str | None = None
+    auto_fixed: bool = False
+    security_advisory: str | None = None
 
 
 class PanelExposureUpdateRequest(BaseModel):
@@ -35,6 +43,7 @@ class PanelExposureUpdateRequest(BaseModel):
     desired_state: str = Field(pattern="^(ENABLED|DISABLED)$")
     cloudflare_token: str = Field(default="", max_length=8192)
     hostname: str = Field(default="", max_length=253)
+    external_port: int | None = Field(default=None, ge=1, le=65535)
 
 
 class TargetResponse(BaseModel):

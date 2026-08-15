@@ -83,6 +83,10 @@ class PanelExposureModel(Base, TimestampMixin):
     error_message = Column(Text, nullable=True)
     cloudflare_tunnel_id = Column(String(64), nullable=True)
     cloudflare_token_ciphertext = Column(LargeBinary, nullable=True)
+    external_port = Column(Integer, nullable=True)
+    playit_tunnel_id = Column(String(64), nullable=True)
+    upnp_last_result = Column(String(32), nullable=True)
+    upnp_last_mapped_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class ServerExposureGrantModel(Base, TimestampMixin):

@@ -213,6 +213,10 @@ class SQLPanelExposureRepository(PanelExposureRepository):
             error_message=model.error_message,
             cloudflare_tunnel_id=model.cloudflare_tunnel_id,
             cloudflare_token_ciphertext=model.cloudflare_token_ciphertext,
+            external_port=model.external_port,
+            playit_tunnel_id=model.playit_tunnel_id,
+            upnp_last_result=model.upnp_last_result,
+            upnp_last_mapped_at=model.upnp_last_mapped_at,
             created_at=model.created_at,
             updated_at=model.updated_at,
         )
@@ -230,6 +234,10 @@ class SQLPanelExposureRepository(PanelExposureRepository):
         model.error_message = panel.error_message
         model.cloudflare_tunnel_id = panel.cloudflare_tunnel_id
         model.cloudflare_token_ciphertext = panel.cloudflare_token_ciphertext
+        model.external_port = panel.external_port
+        model.playit_tunnel_id = panel.playit_tunnel_id
+        model.upnp_last_result = panel.upnp_last_result
+        model.upnp_last_mapped_at = panel.upnp_last_mapped_at
         await self._session.flush()
 
 

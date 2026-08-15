@@ -1,4 +1,5 @@
 from datetime import UTC
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -632,3 +633,61 @@ async def test_server_exposure_no_targets_on_enable(exposure_client) -> None:
         headers=owner,
     )
     assert resp.status_code == 422
+
+
+async def test_panel_exposure_playit_http_api(exposure_client) -> None:
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+
+    with patch("app.modules.exposure.application.commands.get_playit_supervisor") as mock_sup:
+        mock_sup.return_value = AsyncMock()
+        resp = await exposure_client.put(
+            "/api/v1/exposure/panel",
+            json={"method": "playit_http", "desired_state": "ENABLED"},
+            headers=owner,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["method"] == "playit_http"
+        assert data["status"] == "CLAIM_REQUIRED"
+        assert data["tls"] is True
+        assert data["protocol"] == "https"
+
+
+async def test_panel_exposure_port_forward_api(exposure_client) -> None:
+    owner_user = await _seed_user(exposure_client)
+    owner = await _owner_header(exposure_client, owner_user)
+
+    from app.modules.exposure.infrastructure.upnp import UPnPResult
+
+    mock_result = UPnPResult(
+        success=True,
+        external_ip="198.51.100.99",
+        external_port=8080,
+        internal_port=8000,
+    )
+
+    with (
+        patch(
+            "app.modules.exposure.application.commands.get_active_panel_bind",
+            return_value=("0.0.0.0", 8000),
+        ),
+        patch(
+            "app.modules.exposure.application.commands.AsyncUPnPService.attempt_mapping",
+            return_value=mock_result,
+        ),
+    ):
+        resp = await exposure_client.put(
+            "/api/v1/exposure/panel",
+            json={"method": "port_forward", "desired_state": "ENABLED", "external_port": 8080},
+            headers=owner,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["method"] == "port_forward"
+        assert data["desired_state"] == "ENABLED"
+        assert data["status"] == "ACTIVE"
+        assert data["public_address"] == "http://198.51.100.99:8080"
+        assert data["tls"] is False
+        assert data["protocol"] == "http"
+        assert data["external_port"] == 8080

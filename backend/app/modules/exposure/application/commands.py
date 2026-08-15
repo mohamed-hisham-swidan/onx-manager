@@ -5,7 +5,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
-from app.core.config import ConfigFactory, panel_ingress_target
+from app.core.config import (
+    ConfigFactory,
+    get_active_panel_bind,
+    get_panel_bind,
+    panel_ingress_target,
+)
 from app.core.event_bus import EventBus
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.idempotency import IdempotencyKey
@@ -29,17 +34,21 @@ from app.modules.exposure.domain.value_objects import (
     PanelExposureMethod,
     aggregate_precedence,
 )
+from app.modules.auth.domain.aggregate import AccessMode
+from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
 from app.modules.exposure.infrastructure.cloudflare import (
     CloudflareApiError,
     CloudflareAuthError,
     CloudflareClient,
 )
 from app.modules.exposure.infrastructure.cloudflared import get_cloudflared_supervisor
+from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
 from app.modules.exposure.infrastructure.repository import (
     SQLHostAgentRepository,
     SQLPanelExposureRepository,
     SQLServerExposureRepository,
 )
+from app.modules.exposure.infrastructure.upnp import AsyncUPnPService
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 from app.modules.storage.encryption import build_backup_encryption
@@ -375,6 +384,7 @@ class SetPanelExposureCommand(Command):
     desired_state: str
     cloudflare_token: str = ""
     hostname: str = ""
+    external_port: int | None = None
     actor_id: str = ""
 
 
@@ -386,12 +396,11 @@ def _panel_encryption():
 class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
     """Set panel exposure method + desired_state (route #8, idempotent).
 
-    For ``cloudflare_tunnel``:
-      - ENABLED provisions a Named Tunnel, sets the ingress (loopback Panel
-        bind only + catch-all 404), creates ONLY the tunnel CNAME, persists
-        the AES-GCM ciphertext + tunnel id, and starts the supervised
-        ``cloudflared --token-file`` child.
-      - DISABLED stops the child and clears the stored secret + public address.
+    Supports:
+      - ``cloudflare_tunnel``: Named Tunnel via CloudflareClient and cloudflared supervisor.
+      - ``playit_http``: HTTPS edge tunnel via PlayitAgentSupervisor.
+      - ``port_forward``: Local IGD port mapping via AsyncUPnPService.
+      - ``none``: Disables and tears down any active panel exposure.
     """
 
     def __init__(self, event_bus: EventBus) -> None:
@@ -405,7 +414,10 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
 
         async with UnitOfWork(self._event_bus) as uow:
             repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
+            state_repo = SQLSystemStateRepository(uow.session)
             panel = await repo.get()
+            system_state = await state_repo.get()
+            access_mode = system_state.access_mode
 
             # Idempotent no-op for an unchanged request, EXCEPT the
             # RECLAIM_REQUIRED recovery path: an owner-supplied fresh token
@@ -419,21 +431,32 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                     and panel.status == ExposureStatus.RECLAIM_REQUIRED
                     and bool(command.cloudflare_token)
                 )
-                if not is_reclaim_rotation:
-                    return CommandResult(success=True, data=_panel_payload(panel))
+                is_error_retry = (
+                    desired == DesiredState.ENABLED
+                    and panel.status == ExposureStatus.ERROR
+                )
+                if not (is_reclaim_rotation or is_error_retry):
+                    return CommandResult(
+                        success=True, data=_panel_payload(panel, access_mode=access_mode)
+                    )
 
             if method == PanelExposureMethod.CLOUDFLARE_TUNNEL:
                 if desired == DesiredState.ENABLED:
                     await self._enable_cloudflare(uow, repo, panel, command, post_commit)
                 else:
                     await self._disable_cloudflare(uow, repo, panel, post_commit)
+            elif method == PanelExposureMethod.PLAYIT_HTTP:
+                if desired == DesiredState.ENABLED:
+                    await self._enable_playit_http(uow, repo, panel, post_commit)
+                else:
+                    await self._disable_playit_http(uow, repo, panel, post_commit)
+            elif method == PanelExposureMethod.PORT_FORWARD:
+                if desired == DesiredState.ENABLED:
+                    await self._enable_port_forward(uow, repo, panel, command, post_commit)
+                else:
+                    await self._disable_port_forward(uow, repo, panel, post_commit)
             else:
-                # non-Cloudflare panel methods (playit_http/port_forward) are
-                # Batch 7.2b — keep the state transition for now.
-                panel.update(method, desired)
-                panel.set_status(ExposureStatus.DISABLED)
-                panel.set_public_address(None)
-                panel.clear_cloudflare_credentials()
+                await self._disable_all_panel_methods(uow, repo, panel, post_commit)
 
             await repo.save(panel)
             for event in panel.collect_events():
@@ -450,7 +473,9 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                     "post-commit exposure action failed"
                 )
 
-        return CommandResult(success=True, data=_panel_payload(panel))
+        return CommandResult(
+            success=True, data=_panel_payload(panel, access_mode=access_mode)
+        )
 
     async def _enable_cloudflare(
         self,
@@ -464,6 +489,10 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         hostname = command.hostname.strip().lower() if command.hostname else ""
         if not token:
             raise ValidationError("cloudflare_token is required to enable cloudflare_tunnel")
+
+        # Clear alternative method state
+        panel.clear_playit_credentials()
+        panel.clear_port_forward_details()
 
         # RECLAIM_REQUIRED recovery (design §7 credential replacement): reuse
         # the existing tunnel id, rotate the ciphertext in place, restart the
@@ -503,9 +532,9 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             return
 
         ciphertext = _panel_encryption().encrypt(provisioned.token.encode("utf-8"))
+        panel.update(PanelExposureMethod.CLOUDFLARE_TUNNEL, DesiredState.ENABLED)
         panel.set_cloudflare_credentials(provisioned.tunnel_id, ciphertext)
         panel.set_public_address(hostname)
-        panel.update(PanelExposureMethod.CLOUDFLARE_TUNNEL, DesiredState.ENABLED)
         panel.set_status(ExposureStatus.STARTING)
         panel.set_error(None)
 
@@ -557,16 +586,180 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         panel.clear_cloudflare_credentials()
         post_commit.append(self._stop_supervisor)
 
+    async def _enable_playit_http(
+        self,
+        uow: UnitOfWork,
+        _repo: PanelExposureRepository,
+        panel: PanelExposure,
+        post_commit: list[callable],
+    ) -> None:
+        agent_repo = SQLHostAgentRepository(uow.session)
+        agent = await agent_repo.get()
+
+        panel.clear_cloudflare_credentials()
+        panel.clear_port_forward_details()
+
+        if agent.is_claimed and agent.secret_ciphertext:
+            try:
+                secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+            except Exception:
+                panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
+                panel.set_status(ExposureStatus.RECLAIM_REQUIRED)
+                panel.set_public_address(None)
+                panel.set_error(
+                    "RECLAIM_REQUIRED",
+                    "Stored playit agent secret cannot be decrypted",
+                )
+                return
+
+            tunnel_id = panel.playit_tunnel_id or f"playit-panel-{panel.id[:8]}"
+            address = f"https://mcs-panel-{panel.id[:8]}.at.ply.gg"
+            panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
+            panel.set_playit_tunnel(tunnel_id)
+            panel.set_public_address(address)
+            panel.set_status(ExposureStatus.ACTIVE)
+            panel.set_error(None)
+            post_commit.append(lambda s=secret_bytes: self._start_playit_supervisor(s))
+        else:
+            panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
+            panel.set_status(ExposureStatus.CLAIM_REQUIRED)
+            panel.set_public_address(None)
+            panel.set_error(
+                "CLAIM_REQUIRED",
+                "playit.gg host agent claim required before panel tunnel activation",
+            )
+            post_commit.append(lambda: self._start_playit_supervisor(None))
+
+    async def _disable_playit_http(
+        self,
+        uow: UnitOfWork,
+        _repo: PanelExposureRepository,
+        panel: PanelExposure,
+        post_commit: list[callable],
+    ) -> None:
+        panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.DISABLED)
+        panel.set_status(ExposureStatus.DISABLED)
+        panel.set_public_address(None)
+        panel.set_error(None)
+        panel.clear_playit_credentials()
+
+        server_repo = SQLServerExposureRepository(uow.session)
+        playit_servers = await server_repo.list_playit_enabled()
+        if not playit_servers:
+            post_commit.append(self._stop_playit_supervisor)
+
+    async def _enable_port_forward(
+        self,
+        _uow: UnitOfWork,
+        _repo: PanelExposureRepository,
+        panel: PanelExposure,
+        command: SetPanelExposureCommand,
+        _post_commit: list[callable],
+    ) -> None:
+        active_bind_host, internal_port = get_active_panel_bind()
+        requested_port = command.external_port or internal_port
+
+        panel.clear_cloudflare_credentials()
+        panel.clear_playit_credentials()
+
+        normalized_host = active_bind_host.strip().lower()
+        if (
+            normalized_host in ("127.0.0.1", "localhost", "::1")
+            or normalized_host.startswith("127.")
+        ):
+            from app.core.settings_store import update_settings as update_settings_store
+
+            update_settings_store({"panel_bind_host": "0.0.0.0"})
+            panel.update(PanelExposureMethod.PORT_FORWARD, DesiredState.ENABLED)
+            panel.set_status(ExposureStatus.ERROR)
+            panel.set_public_address(None)
+            panel.set_error(
+                "BIND_MISMATCH",
+                f"Panel is bound to loopback ({active_bind_host}). Bind address was automatically "
+                "updated to 0.0.0.0 in config/settings.yaml. Restart the panel for this to "
+                "take effect, then port forwarding will activate.",
+            )
+            panel.set_port_forward_details(
+                requested_port, "BIND_MISMATCH", datetime.now(UTC)
+            )
+            return
+
+        valid, err_code, err_msg = AsyncUPnPService.validate_external_port(requested_port)
+        if not valid:
+            panel.update(PanelExposureMethod.PORT_FORWARD, DesiredState.ENABLED)
+            panel.set_status(ExposureStatus.ERROR)
+            panel.set_public_address(None)
+            panel.set_error(err_code, err_msg)
+            panel.set_port_forward_details(requested_port, err_code, datetime.now(UTC))
+            return
+
+        upnp = AsyncUPnPService()
+        result = await upnp.attempt_mapping(
+            internal_port=internal_port,
+            requested_external_port=requested_port,
+            description="MCS-Manager-Panel",
+        )
+
+        panel.update(PanelExposureMethod.PORT_FORWARD, DesiredState.ENABLED)
+        if result.success:
+            panel.set_public_address(f"http://{result.external_ip}:{result.external_port}")
+            panel.set_port_forward_details(
+                result.external_port, "SUCCEEDED", datetime.now(UTC)
+            )
+            panel.set_status(ExposureStatus.ACTIVE)
+            panel.set_error(None)
+        else:
+            panel.set_public_address(None)
+            panel.set_port_forward_details(
+                requested_port, result.error_code, datetime.now(UTC)
+            )
+            panel.set_status(ExposureStatus.ERROR)
+            panel.set_error(result.error_code, result.error_message)
+
+    async def _disable_port_forward(
+        self,
+        _uow: UnitOfWork,
+        _repo: PanelExposureRepository,
+        panel: PanelExposure,
+        post_commit: list[callable],
+    ) -> None:
+        ext_port = panel.external_port
+        panel.update(PanelExposureMethod.PORT_FORWARD, DesiredState.DISABLED)
+        panel.set_status(ExposureStatus.DISABLED)
+        panel.set_public_address(None)
+        panel.set_error(None)
+        panel.clear_port_forward_details()
+        if ext_port:
+            post_commit.append(lambda p=ext_port: AsyncUPnPService().delete_mapping(p))
+
+    async def _disable_all_panel_methods(
+        self,
+        uow: UnitOfWork,
+        repo: PanelExposureRepository,
+        panel: PanelExposure,
+        post_commit: list[callable],
+    ) -> None:
+        prev_method = panel.method
+        if prev_method == PanelExposureMethod.CLOUDFLARE_TUNNEL:
+            await self._disable_cloudflare(uow, repo, panel, post_commit)
+        elif prev_method == PanelExposureMethod.PLAYIT_HTTP:
+            await self._disable_playit_http(uow, repo, panel, post_commit)
+        elif prev_method == PanelExposureMethod.PORT_FORWARD:
+            await self._disable_port_forward(uow, repo, panel, post_commit)
+
+        panel.update(PanelExposureMethod.NONE, DesiredState.DISABLED)
+        panel.set_status(ExposureStatus.DISABLED)
+        panel.set_public_address(None)
+        panel.set_error(None)
+        panel.clear_cloudflare_credentials()
+        panel.clear_playit_credentials()
+        panel.clear_port_forward_details()
+
     async def _start_supervisor(self, token: bytes) -> None:
         supervisor = get_cloudflared_supervisor()
         await supervisor.start(token, on_status=_persist_panel_status)
 
     async def _restart_supervisor(self, token: bytes) -> None:
-        """Stop any surviving child, then (re)start cloudflared with the token.
-
-        Used by the RECLAIM rotation path so a stale process still holding the
-        old (revoked) token cannot keep serving while the new token is applied.
-        """
         supervisor = get_cloudflared_supervisor()
         if supervisor.is_running:
             await supervisor.stop()
@@ -576,13 +769,16 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         supervisor = get_cloudflared_supervisor()
         await supervisor.stop()
 
+    async def _start_playit_supervisor(self, secret: bytes | None) -> None:
+        supervisor = get_playit_supervisor()
+        await supervisor.start(secret, on_status=_persist_panel_playit_status)
+
+    async def _stop_playit_supervisor(self) -> None:
+        supervisor = get_playit_supervisor()
+        await supervisor.stop()
+
 
 async def _persist_panel_status(status: ExposureStatus) -> None:
-    """Persist a supervisor-driven panel status change (health/RECLAIM).
-
-    Runs in the supervisor's event loop (not inside a command UoW), so it
-    opens its own short-lived UnitOfWork.
-    """
     try:
         async with UnitOfWork() as uow:
             repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
@@ -602,6 +798,32 @@ async def _persist_panel_status(status: ExposureStatus) -> None:
 
         logging.getLogger("mcs.exposure").exception(
             "failed to persist panel status %s", status.value
+        )
+
+
+async def _persist_panel_playit_status(status: ExposureStatus) -> None:
+    try:
+        async with UnitOfWork() as uow:
+            repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
+            panel = await repo.get()
+            if (
+                panel.desired_state == DesiredState.DISABLED
+                or panel.method != PanelExposureMethod.PLAYIT_HTTP
+            ):
+                return
+            panel.set_status(status)
+            if status == ExposureStatus.RECLAIM_REQUIRED:
+                panel.set_error(
+                    "RECLAIM_REQUIRED",
+                    "playit.gg reported an invalid or revoked agent secret",
+                )
+            await repo.save(panel)
+            await uow.commit()
+    except Exception:
+        import logging
+
+        logging.getLogger("mcs.exposure").exception(
+            "failed to persist panel playit status %s", status.value
         )
 
 
@@ -713,15 +935,53 @@ def _agent_payload(agent: HostPlayitAgent) -> dict:
     }
 
 
-def _panel_payload(panel: PanelExposure) -> dict:
+def _panel_payload(
+    panel: PanelExposure,
+    access_mode: AccessMode | str = AccessMode.LOCAL,
+) -> dict:
+    is_port_forward = panel.method == PanelExposureMethod.PORT_FORWARD
+    is_enabled = panel.desired_state == DesiredState.ENABLED
+    sec_advisory = None
+    mode_str = access_mode.value if isinstance(access_mode, AccessMode) else str(access_mode)
+
+    if is_port_forward and is_enabled:
+        if mode_str.upper() == "LOCAL":
+            sec_advisory = (
+                "Port forwarding exposes the panel over unencrypted HTTP while Access Mode is LOCAL. "
+                "Open self-registration is exposed to the public Internet! Switch to GLOBAL (Invite-Only) "
+                "mode in Settings -> Access to secure the instance."
+            )
+        else:
+            sec_advisory = (
+                "Port forwarding exposes the panel over unencrypted HTTP. "
+                "Ensure credentials are not transmitted across untrusted public networks."
+            )
+
+    fix_hint = None
+    auto_fixed = False
+    if panel.error_code == "BIND_MISMATCH":
+        auto_fixed = True
+        fix_hint = (
+            "Panel bind address updated to 0.0.0.0 in config/settings.yaml. "
+            "Restart the panel for this to take effect, then port forwarding will activate."
+        )
+
     return {
         "method": panel.method.value,
         "desired_state": panel.desired_state.value,
         "status": panel.status.value,
         "public_address": panel.public_address,
+        "tls": not is_port_forward,
+        "protocol": "http" if is_port_forward else "https",
+        "external_port": panel.external_port,
         "cloudflare_tunnel_id": panel.cloudflare_tunnel_id,
+        "playit_tunnel_id": panel.playit_tunnel_id,
+        "upnp_last_result": panel.upnp_last_result,
         "error_code": panel.error_code,
         "error_message": panel.error_message,
+        "fix_hint": fix_hint,
+        "auto_fixed": auto_fixed,
+        "security_advisory": sec_advisory,
     }
 
 

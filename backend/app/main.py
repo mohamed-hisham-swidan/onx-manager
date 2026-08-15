@@ -30,7 +30,7 @@ from app.api.v1.routers import (
     users,
 )
 from app.core.command_bus import CommandBus
-from app.core.config import ConfigFactory
+from app.core.config import ConfigFactory, init_active_panel_bind
 from app.core.event_bus import EventBus
 from app.core.http_client import close_http_client, init_http_client
 from app.core.persistence.db import database
@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
     _start_time = time.time()
     settings = ConfigFactory.global_settings()
     init_settings_store()
+    init_active_panel_bind()
     database.init(settings)
     db_status = await check_database_compatibility()
     if not db_status.ok:
