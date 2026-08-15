@@ -21,6 +21,9 @@ from app.modules.exposure.application.commands import (
     SetServerExposureHandler,
     StopAllExposuresCommand,
     StopAllExposuresHandler,
+    UpdateExposureTargetCommand,
+    UpdateExposureTargetHandler,
+    compute_desired_agent_running,
 )
 from app.modules.exposure.application.queries import (
     GetAgentStatusHandler,
@@ -56,6 +59,9 @@ __all__ = [
     "SetServerExposureHandler",
     "StopAllExposuresCommand",
     "StopAllExposuresHandler",
+    "UpdateExposureTargetCommand",
+    "UpdateExposureTargetHandler",
+    "compute_desired_agent_running",
     "GetAgentStatusHandler",
     "GetAgentStatusQuery",
     "GetPanelExposureHandler",

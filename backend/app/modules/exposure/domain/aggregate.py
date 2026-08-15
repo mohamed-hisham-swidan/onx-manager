@@ -253,9 +253,10 @@ class ServerExposureTarget(AggregateRoot):
     def mark_starting(self) -> None:
         self._transition_to(ExposureStatus.STARTING)
 
-    def mark_active(self, public_address: str) -> None:
+    def mark_active(self, public_address: str | None = None) -> None:
         self._transition_to(ExposureStatus.ACTIVE)
-        self._public_address = public_address
+        if public_address is not None:
+            self._public_address = public_address
         self._error_code = None
         self._error_message = None
         self._updated_at = datetime.now(UTC)
@@ -284,15 +285,29 @@ class ServerExposureTarget(AggregateRoot):
 
 
 _TARGET_TRANSITIONS: dict[ExposureStatus, set[ExposureStatus]] = {
-    ExposureStatus.DISABLED: {ExposureStatus.CLAIM_REQUIRED, ExposureStatus.STARTING},
-    ExposureStatus.CLAIM_REQUIRED: {ExposureStatus.STARTING, ExposureStatus.DISABLED},
-    ExposureStatus.STARTING: {ExposureStatus.ACTIVE, ExposureStatus.ERROR, ExposureStatus.DISABLED},
+    ExposureStatus.DISABLED: {
+        ExposureStatus.CLAIM_REQUIRED,
+        ExposureStatus.STARTING,
+        ExposureStatus.ACTIVE,
+    },
+    ExposureStatus.CLAIM_REQUIRED: {
+        ExposureStatus.STARTING,
+        ExposureStatus.ACTIVE,
+        ExposureStatus.DISABLED,
+    },
+    ExposureStatus.STARTING: {
+        ExposureStatus.ACTIVE,
+        ExposureStatus.CLAIM_REQUIRED,
+        ExposureStatus.ERROR,
+        ExposureStatus.DISABLED,
+    },
     ExposureStatus.ACTIVE: {
         ExposureStatus.STOPPING,
         ExposureStatus.DEGRADED,
         ExposureStatus.ERROR,
         ExposureStatus.RECLAIM_REQUIRED,
         ExposureStatus.DISABLED,
+        ExposureStatus.STARTING,
     },
     ExposureStatus.STOPPING: {
         ExposureStatus.STOPPED,

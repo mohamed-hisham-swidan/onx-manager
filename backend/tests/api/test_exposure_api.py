@@ -44,12 +44,47 @@ def _override_deps(buses) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_supervisor_singleton() -> None:
-    from app.modules.exposure.infrastructure.cloudflared import reset_cloudflared_supervisor
+async def _reset_supervisor_singleton():
+    from app.modules.exposure.infrastructure.cloudflared import (
+        get_cloudflared_supervisor,
+        reset_cloudflared_supervisor,
+    )
+    from app.modules.exposure.infrastructure.playit_agent import (
+        get_playit_supervisor,
+        reset_playit_supervisor,
+    )
 
+    await get_cloudflared_supervisor().stop()
+    await get_playit_supervisor().stop()
     reset_cloudflared_supervisor()
+    reset_playit_supervisor()
     yield
+    await get_cloudflared_supervisor().stop()
+    await get_playit_supervisor().stop()
     reset_cloudflared_supervisor()
+    reset_playit_supervisor()
+
+
+@pytest.fixture(autouse=True)
+def _mock_playit_subprocess() -> None:
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_proc = AsyncMock()
+    mock_proc.pid = 99999
+    mock_proc.returncode = None
+    mock_proc.wait = AsyncMock(return_value=0)
+    mock_proc.terminate = MagicMock()
+    mock_proc.kill = MagicMock()
+    mock_proc.stdout = AsyncMock(readline=AsyncMock(return_value=b""))
+    mock_proc.stderr = AsyncMock(readline=AsyncMock(return_value=b""))
+
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        patch("os.kill"),
+        patch("os.killpg"),
+        patch("os.getpgid", return_value=99999),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -547,7 +582,7 @@ async def test_server_exposure_owner_bypass_and_target_flow(exposure_client) -> 
     assert resp.status_code == 200
     data = resp.json()
     assert data["desired_state"] == "ENABLED"
-    assert data["aggregate_status"] == "DISABLED"
+    assert data["aggregate_status"] == "CLAIM_REQUIRED"
     assert len(data["targets"]) == 1
 
     resp = await exposure_client.get(f"/api/v1/servers/{sid}/exposure", headers=owner)
@@ -597,23 +632,28 @@ async def test_server_exposure_grant_holder_manage(exposure_client) -> None:
 
 
 async def test_server_exposure_deny_list_port(exposure_client) -> None:
+    from unittest.mock import AsyncMock, patch
 
     owner_user = await _seed_user(exposure_client)
     owner = await _owner_header(exposure_client, owner_user)
 
-    resp = await exposure_client.post(
-        "/api/v1/servers",
-        json={
-            "name": "Deny List Server",
-            "minecraft_version": "1.21",
-            "min_memory_mb": 1024,
-            "max_memory_mb": 2048,
-            "port": 25575,
-            "gamemode": "survival",
-            "difficulty": "easy",
-        },
-        headers=owner,
-    )
+    with patch(
+        "app.modules.server.application.services.jar_service.download_server_jar",
+        AsyncMock(return_value="/tmp/mock-jar/server.jar"),
+    ):
+        resp = await exposure_client.post(
+            "/api/v1/servers",
+            json={
+                "name": "Deny List Server",
+                "minecraft_version": "1.21",
+                "min_memory_mb": 1024,
+                "max_memory_mb": 2048,
+                "port": 25575,
+                "gamemode": "survival",
+                "difficulty": "easy",
+            },
+            headers=owner,
+        )
     assert resp.status_code == 201
     sid = resp.json()["server_id"]
 

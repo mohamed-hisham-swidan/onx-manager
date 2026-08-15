@@ -56,6 +56,8 @@ class TargetResponse(BaseModel):
     status: str
     error_code: str | None = None
     error_message: str | None = None
+    dashboard_url: str | None = None
+    setup_instructions: str | None = None
 
 
 class ServerExposureResponse(BaseModel):
@@ -78,7 +80,11 @@ class ServerExposureStateUpdateRequest(BaseModel):
 
 
 class TargetCreateRequest(BaseModel):
-    pass
+    public_address: str | None = Field(default=None, max_length=512)
+
+
+class TargetUpdateRequest(BaseModel):
+    public_address: str | None = Field(default=None, max_length=512)
 
 
 class ReconcileRequest(BaseModel):

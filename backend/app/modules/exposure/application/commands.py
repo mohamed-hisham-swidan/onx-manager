@@ -1,20 +1,26 @@
 from __future__ import annotations
 
+import logging
+import re
 import secrets
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.config import (
     ConfigFactory,
     get_active_panel_bind,
-    get_panel_bind,
     panel_ingress_target,
 )
 from app.core.event_bus import EventBus
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.auth.domain.aggregate import AccessMode
+from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
 from app.modules.exposure.domain.aggregate import (
     HostPlayitAgent,
     PanelExposure,
@@ -34,8 +40,6 @@ from app.modules.exposure.domain.value_objects import (
     PanelExposureMethod,
     aggregate_precedence,
 )
-from app.modules.auth.domain.aggregate import AccessMode
-from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
 from app.modules.exposure.infrastructure.cloudflare import (
     CloudflareApiError,
     CloudflareAuthError,
@@ -54,6 +58,22 @@ from app.modules.shared.value_objects import ServerId
 from app.modules.storage.encryption import build_backup_encryption
 
 CLAIM_TTL_MINUTES = 10
+logger = logging.getLogger("mcs.exposure")
+
+
+async def compute_desired_agent_running(session: AsyncSession) -> bool:
+    """Authoritative computation of host playit agent desired running state."""
+    server_repo = SQLServerExposureRepository(session)
+    panel_repo = SQLPanelExposureRepository(session)
+
+    playit_servers = await server_repo.list_playit_enabled()
+    panel = await panel_repo.get()
+
+    panel_playit_enabled = (
+        panel.method == PanelExposureMethod.PLAYIT_HTTP
+        and panel.desired_state == DesiredState.ENABLED
+    )
+    return len(playit_servers) > 0 or panel_playit_enabled
 
 
 class SetServerExposureCommand(Command):
@@ -74,9 +94,11 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
         server_id = ServerId(command.server_id)
         method = ExposureMethod(command.method.lower())
         desired = DesiredState(command.desired_state.upper())
+        post_commit: list[Callable[[], Awaitable[None]]] = []
 
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
             server_repo = SQLServerRepository(uow.session)
             server = await server_repo.get(server_id)
             if server is None:
@@ -98,14 +120,64 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                 for target in exposure.targets:
                     exposure.validate_target_port(target.local_port, server.properties.port.value)
                 exposure.set_desired_state(DesiredState.ENABLED)
+
+                agent = await agent_repo.get()
+                if method == ExposureMethod.PLAYIT:
+                    supervisor = get_playit_supervisor()
+                    if agent.is_claimed and agent.secret_ciphertext:
+                        try:
+                            secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                            for target in exposure.targets:
+                                if supervisor.is_running:
+                                    target.mark_active(target.public_address or "")
+                                else:
+                                    target.mark_starting()
+                            post_commit.append(
+                                lambda s=secret_bytes: supervisor.start(
+                                    s, on_status=_persist_playit_status
+                                )
+                            )
+                        except Exception:
+                            for target in exposure.targets:
+                                target.mark_reclaim_required(
+                                    code="RECLAIM_REQUIRED",
+                                    message="Stored playit agent secret cannot be decrypted",
+                                )
+                    else:
+                        for target in exposure.targets:
+                            target._transition_to(ExposureStatus.CLAIM_REQUIRED)
+                            target.set_error(
+                                "CLAIM_REQUIRED",
+                                "playit.gg host agent claim required before tunnel activation",
+                            )
+                        post_commit.append(
+                            lambda: supervisor.start(None, on_status=_persist_playit_status)
+                        )
             else:
                 exposure.set_desired_state(DesiredState.DISABLED)
+                for target in exposure.targets:
+                    target.mark_disabled()
 
             _fold_aggregate(exposure)
             await repo.save(exposure)
+
+            agent = await agent_repo.get()
+            desired_running = await compute_desired_agent_running(uow.session)
+            if desired_running != agent.desired_agent_running:
+                agent.set_desired_agent_running(desired_running)
+                await agent_repo.save(agent)
+                if not desired_running:
+                    post_commit.append(get_playit_supervisor().stop)
+
             for event in exposure.collect_events():
                 uow.add_event(event)
             await uow.commit()
+
+        for action in post_commit:
+            try:
+                await action()
+            except Exception:
+                logger.exception("Post-commit playit action failed")
 
         return CommandResult(success=True, data=_exposure_payload(exposure))
 
@@ -125,9 +197,11 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
 
     async def handle(self, command: EnableServerExposureCommand) -> CommandResult:
         server_id = ServerId(command.server_id)
+        post_commit: list[Callable[[], Awaitable[None]]] = []
 
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
             server_repo = SQLServerRepository(uow.session)
             server = await server_repo.get(server_id)
             if server is None:
@@ -141,19 +215,63 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
                     id=str(uuid.uuid4().hex),
                 )
 
-            if exposure.desired_state == DesiredState.ENABLED:
-                _fold_aggregate(exposure)
-                return CommandResult(success=True, data=_exposure_payload(exposure))
-
+            game_port = server.properties.port.value
             exposure.enable(
-                server_port=server.properties.port.value,
+                server_port=game_port,
                 target_id=str(uuid.uuid4().hex),
             )
+
+            agent = await agent_repo.get()
+            supervisor = get_playit_supervisor()
+
+            if exposure.method == ExposureMethod.PLAYIT:
+                if agent.is_claimed and agent.secret_ciphertext:
+                    try:
+                        secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                        for target in exposure.targets:
+                            if supervisor.is_running:
+                                target.mark_active(target.public_address or "")
+                            else:
+                                target.mark_starting()
+                        post_commit.append(
+                            lambda s=secret_bytes: supervisor.start(
+                                s, on_status=_persist_playit_status
+                            )
+                        )
+                    except Exception:
+                        for target in exposure.targets:
+                            target.mark_reclaim_required(
+                                code="RECLAIM_REQUIRED",
+                                message="Stored playit agent secret cannot be decrypted",
+                            )
+                else:
+                    for target in exposure.targets:
+                        target._transition_to(ExposureStatus.CLAIM_REQUIRED)
+                        target.set_error(
+                            "CLAIM_REQUIRED",
+                            "playit.gg host agent claim required before tunnel activation",
+                        )
+                    post_commit.append(
+                        lambda: supervisor.start(None, on_status=_persist_playit_status)
+                    )
+
             _fold_aggregate(exposure)
             await repo.save(exposure)
+
+            desired_running = await compute_desired_agent_running(uow.session)
+            if desired_running != agent.desired_agent_running:
+                agent.set_desired_agent_running(desired_running)
+                await agent_repo.save(agent)
+
             for event in exposure.collect_events():
                 uow.add_event(event)
             await uow.commit()
+
+        for action in post_commit:
+            try:
+                await action()
+            except Exception:
+                logger.exception("Post-commit playit action failed")
 
         payload = _exposure_payload(exposure)
         payload["target"] = payload["targets"][-1] if payload["targets"] else None
@@ -173,8 +291,13 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
         self._event_bus = event_bus
 
     async def handle(self, command: DisableServerExposureCommand) -> CommandResult:
+        post_commit: list[Callable[[], Awaitable[None]]] = []
+
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
+            agent = await agent_repo.get()
+
             exposure = await repo.get(command.server_id)
             if exposure is None:
                 raise NotFoundError(
@@ -185,9 +308,23 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
                 exposure.disable()
             _fold_aggregate(exposure)
             await repo.save(exposure)
+
+            desired_running = await compute_desired_agent_running(uow.session)
+            if desired_running != agent.desired_agent_running:
+                agent.set_desired_agent_running(desired_running)
+                await agent_repo.save(agent)
+                if not desired_running:
+                    post_commit.append(get_playit_supervisor().stop)
+
             for event in exposure.collect_events():
                 uow.add_event(event)
             await uow.commit()
+
+        for action in post_commit:
+            try:
+                await action()
+            except Exception:
+                logger.exception("Post-commit playit stop failed")
 
         return CommandResult(success=True, data=_exposure_payload(exposure))
 
@@ -205,16 +342,35 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
         self._event_bus = event_bus
 
     async def handle(self, command: RemoveServerExposureCommand) -> CommandResult:
+        post_commit: list[Callable[[], Awaitable[None]]] = []
+
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
+            agent = await agent_repo.get()
+
             exposure = await repo.get(command.server_id)
             if exposure is None:
                 return CommandResult(success=True, data={"removed": False})
             exposure.mark_deleted()
             await repo.delete(exposure)
+
+            desired_running = await compute_desired_agent_running(uow.session)
+            if desired_running != agent.desired_agent_running:
+                agent.set_desired_agent_running(desired_running)
+                await agent_repo.save(agent)
+                if not desired_running:
+                    post_commit.append(get_playit_supervisor().stop)
+
             for event in exposure.collect_events():
                 uow.add_event(event)
             await uow.commit()
+
+        for action in post_commit:
+            try:
+                await action()
+            except Exception:
+                logger.exception("Post-commit playit stop failed")
 
         return CommandResult(success=True, data={"removed": True})
 
@@ -222,6 +378,7 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
 class CreateExposureTargetCommand(Command):
     idempotency_key: IdempotencyKey = IdempotencyKey()
     server_id: str
+    public_address: str | None = None
     actor_id: str = ""
 
 
@@ -252,6 +409,56 @@ class CreateExposureTargetHandler(CommandHandler[CreateExposureTargetCommand]):
                 server_port=server.properties.port.value,
                 target_id=str(uuid.uuid4().hex),
             )
+            if command.public_address:
+                val = command.public_address.strip()
+                if not re.match(r"^[a-zA-Z0-9.-]+(:\d{1,5})?$", val):
+                    raise ValidationError("Invalid public address format")
+                target.set_public_address(val)
+
+            _fold_aggregate(exposure)
+            await repo.save(exposure)
+            for event in exposure.collect_events():
+                uow.add_event(event)
+            await uow.commit()
+
+        return CommandResult(success=True, data=_target_payload(target))
+
+
+class UpdateExposureTargetCommand(Command):
+    idempotency_key: IdempotencyKey = IdempotencyKey()
+    server_id: str
+    target_id: str
+    public_address: str | None = None
+    actor_id: str = ""
+
+
+class UpdateExposureTargetHandler(CommandHandler[UpdateExposureTargetCommand]):
+    """Update an existing exposure target (e.g. manual public_address entry)."""
+
+    def __init__(self, event_bus: EventBus) -> None:
+        self._event_bus = event_bus
+
+    async def handle(self, command: UpdateExposureTargetCommand) -> CommandResult:
+        async with UnitOfWork(self._event_bus) as uow:
+            repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            exposure = await repo.get(command.server_id)
+            if exposure is None:
+                raise NotFoundError(f"Exposure for server {command.server_id} not found")
+
+            target = next((t for t in exposure.targets if t.id == command.target_id), None)
+            if target is None:
+                raise NotFoundError(
+                    f"Target {command.target_id} not found on server {command.server_id}"
+                )
+
+            if command.public_address:
+                val = command.public_address.strip()
+                if not re.match(r"^[a-zA-Z0-9.-]+(:\d{1,5})?$", val):
+                    raise ValidationError("Invalid public address format")
+                target.set_public_address(val)
+            else:
+                target.set_public_address(None)
+
             _fold_aggregate(exposure)
             await repo.save(exposure)
             for event in exposure.collect_events():
@@ -274,8 +481,12 @@ class StopAllExposuresHandler(CommandHandler[StopAllExposuresCommand]):
 
     async def handle(self, _command: StopAllExposuresCommand) -> CommandResult:
         count = 0
+        post_commit: list[Callable[[], Awaitable[None]]] = []
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
+            agent = await agent_repo.get()
+
             exposures = await repo.list()
             for exposure in exposures:
                 if exposure.desired_state == DesiredState.ENABLED:
@@ -285,7 +496,21 @@ class StopAllExposuresHandler(CommandHandler[StopAllExposuresCommand]):
                     for event in exposure.collect_events():
                         uow.add_event(event)
                     count += 1
+
+            desired_running = await compute_desired_agent_running(uow.session)
+            if desired_running != agent.desired_agent_running:
+                agent.set_desired_agent_running(desired_running)
+                await agent_repo.save(agent)
+                if not desired_running:
+                    post_commit.append(get_playit_supervisor().stop)
+
             await uow.commit()
+
+        for action in post_commit:
+            try:
+                await action()
+            except Exception:
+                logger.exception("Post-commit playit stop failed")
 
         return CommandResult(success=True, data={"disabled_count": count})
 
@@ -637,16 +862,21 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         panel: PanelExposure,
         post_commit: list[callable],
     ) -> None:
+        agent_repo = SQLHostAgentRepository(uow.session)
+        agent = await agent_repo.get()
+
         panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.DISABLED)
         panel.set_status(ExposureStatus.DISABLED)
         panel.set_public_address(None)
         panel.set_error(None)
         panel.clear_playit_credentials()
 
-        server_repo = SQLServerExposureRepository(uow.session)
-        playit_servers = await server_repo.list_playit_enabled()
-        if not playit_servers:
-            post_commit.append(self._stop_playit_supervisor)
+        desired_running = await compute_desired_agent_running(uow.session)
+        if desired_running != agent.desired_agent_running:
+            agent.set_desired_agent_running(desired_running)
+            await agent_repo.save(agent)
+            if not desired_running:
+                post_commit.append(self._stop_playit_supervisor)
 
     async def _enable_port_forward(
         self,
@@ -771,7 +1001,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
 
     async def _start_playit_supervisor(self, secret: bytes | None) -> None:
         supervisor = get_playit_supervisor()
-        await supervisor.start(secret, on_status=_persist_panel_playit_status)
+        await supervisor.start(secret, on_status=_persist_playit_status)
 
     async def _stop_playit_supervisor(self) -> None:
         supervisor = get_playit_supervisor()
@@ -794,37 +1024,64 @@ async def _persist_panel_status(status: ExposureStatus) -> None:
             await repo.save(panel)
             await uow.commit()
     except Exception:
-        import logging
-
-        logging.getLogger("mcs.exposure").exception(
-            "failed to persist panel status %s", status.value
-        )
+        logger.exception("Failed to persist panel status %s", status.value)
 
 
-async def _persist_panel_playit_status(status: ExposureStatus) -> None:
+async def _persist_playit_status(status: ExposureStatus) -> None:
     try:
         async with UnitOfWork() as uow:
-            repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
-            panel = await repo.get()
+            agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
+            agent = await agent_repo.get()
+            agent.set_process_status(status.value)
+            await agent_repo.save(agent)
+
+            server_repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            exposures = await server_repo.list_playit_enabled()
+            for exposure in exposures:
+                for target in exposure.targets:
+                    if target.status != ExposureStatus.DISABLED:
+                        if status == ExposureStatus.ACTIVE:
+                            target.mark_active(target.public_address or "")
+                        elif status == ExposureStatus.RECLAIM_REQUIRED:
+                            target.mark_reclaim_required(
+                                code="RECLAIM_REQUIRED",
+                                message="playit.gg reported an invalid or revoked agent secret",
+                            )
+                        elif status == ExposureStatus.DEGRADED:
+                            target.mark_degraded()
+                        elif status == ExposureStatus.ERROR:
+                            target.mark_error(
+                                code="AGENT_CRASHED",
+                                message="playit agent process crashed",
+                            )
+                        elif status == ExposureStatus.CLAIM_REQUIRED:
+                            target._transition_to(ExposureStatus.CLAIM_REQUIRED)
+                            target.set_error(
+                                "CLAIM_REQUIRED",
+                                "playit.gg host agent claim required before tunnel activation",
+                            )
+                        elif status == ExposureStatus.STOPPED:
+                            target.mark_stopped()
+                _fold_aggregate(exposure)
+                await server_repo.save(exposure)
+
+            panel_repo: PanelExposureRepository = SQLPanelExposureRepository(uow.session)
+            panel = await panel_repo.get()
             if (
-                panel.desired_state == DesiredState.DISABLED
-                or panel.method != PanelExposureMethod.PLAYIT_HTTP
+                panel.method == PanelExposureMethod.PLAYIT_HTTP
+                and panel.desired_state == DesiredState.ENABLED
             ):
-                return
-            panel.set_status(status)
-            if status == ExposureStatus.RECLAIM_REQUIRED:
-                panel.set_error(
-                    "RECLAIM_REQUIRED",
-                    "playit.gg reported an invalid or revoked agent secret",
-                )
-            await repo.save(panel)
+                panel.set_status(status)
+                if status == ExposureStatus.RECLAIM_REQUIRED:
+                    panel.set_error(
+                        "RECLAIM_REQUIRED",
+                        "playit.gg reported an invalid or revoked agent secret",
+                    )
+                await panel_repo.save(panel)
+
             await uow.commit()
     except Exception:
-        import logging
-
-        logging.getLogger("mcs.exposure").exception(
-            "failed to persist panel playit status %s", status.value
-        )
+        logger.exception("Failed to persist playit status %s", status.value)
 
 
 class ReconcileExposureCommand(Command):
@@ -852,10 +1109,29 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                 _fold_aggregate(exposure)
                 await repo.save(exposure)
 
-            desired_running = len(await repo.list_playit_enabled()) > 0
+            desired_running = await compute_desired_agent_running(uow.session)
             if desired_running != agent.desired_agent_running:
                 agent.set_desired_agent_running(desired_running)
                 await agent_repo.save(agent)
+
+            supervisor = get_playit_supervisor()
+            if (
+                desired_running
+                and agent.is_claimed
+                and agent.secret_ciphertext
+                and not supervisor.is_running
+            ):
+                try:
+                    secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                    post_commit.append(
+                        lambda s=secret_bytes: supervisor.start(
+                            s, on_status=_persist_playit_status
+                        )
+                    )
+                except Exception:
+                    logger.exception("Failed to decrypt secret on reconcile")
+            elif not desired_running and supervisor.is_running:
+                post_commit.append(supervisor.stop)
 
             await self._reconcile_panel(uow, post_commit)
             await uow.commit()
@@ -864,12 +1140,7 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
             try:
                 await action()
             except Exception:
-
-                import logging
-
-                logging.getLogger("mcs.exposure").exception(
-                    "post-commit reconcile action failed"
-                )
+                logger.exception("Post-commit reconcile action failed")
 
         return CommandResult(success=True, data={"reconciled": True})
 
@@ -947,9 +1218,9 @@ def _panel_payload(
     if is_port_forward and is_enabled:
         if mode_str.upper() == "LOCAL":
             sec_advisory = (
-                "Port forwarding exposes the panel over unencrypted HTTP while Access Mode is LOCAL. "
-                "Open self-registration is exposed to the public Internet! Switch to GLOBAL (Invite-Only) "
-                "mode in Settings -> Access to secure the instance."
+                "Port forwarding exposes the panel over unencrypted HTTP while Access Mode "
+                "is LOCAL. Open self-registration is exposed to the public Internet! Switch to "
+                "GLOBAL (Invite-Only) mode in Settings -> Access to secure the instance."
             )
         else:
             sec_advisory = (
@@ -986,6 +1257,17 @@ def _panel_payload(
 
 
 def _target_payload(target: ServerExposureTarget) -> dict:
+    dashboard_url = None
+    setup_instructions = None
+    if (
+        target.status in (ExposureStatus.STARTING, ExposureStatus.ACTIVE)
+        and not target.public_address
+    ):
+        dashboard_url = "https://playit.gg/manage"
+        setup_instructions = (
+            "Add a Minecraft Java (TCP) tunnel on playit.gg pointing to local address "
+            f"127.0.0.1:{target.local_port}."
+        )
     return {
         "id": target.id,
         "exposure_id": target.exposure_id,
@@ -993,6 +1275,8 @@ def _target_payload(target: ServerExposureTarget) -> dict:
         "service_type": target.service_type.value,
         "local_port": target.local_port,
         "public_address": target.public_address,
+        "dashboard_url": dashboard_url,
+        "setup_instructions": setup_instructions,
         "status": target.status.value,
         "error_code": target.error_code,
         "error_message": target.error_message,

@@ -61,6 +61,8 @@ class PlayitAgentSupervisor:
         self._max_restarts = max_restarts
         self._backoff_base = backoff_base
 
+        self._lifecycle_lock = asyncio.Lock()
+        self._current_secret_bytes: bytes | None = None
         self._process: asyncio.subprocess.Process | None = None
         self._secret_file: Path | None = None
         self._monitor_task: asyncio.Task[None] | None = None
@@ -103,32 +105,61 @@ class PlayitAgentSupervisor:
         secret: bytes | str | None = None,
         on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None,
     ) -> None:
-        """Start the supervised playit agent child process."""
-        self._on_status = on_status
-        self._stop_event.clear()
-        self._restart_count = 0
-        self._error_message = None
+        """Start the supervised playit agent child process with idempotency guard."""
+        async with self._lifecycle_lock:
+            if on_status is not None:
+                self._on_status = on_status
 
-        if secret:
-            secret_bytes = secret if isinstance(secret, bytes) else secret.encode("utf-8")
-            self._secret_file = self._write_secret_file(secret_bytes)
-        else:
-            self._secret_file = None
+            secret_bytes = (
+                secret if isinstance(secret, bytes)
+                else secret.encode("utf-8") if secret is not None
+                else None
+            )
 
-        await self._spawn_child()
-        self._last_health_at = time.monotonic()
+            # Check if supervisor is already active/running
+            if self.is_running or self._status in (
+                ExposureStatus.STARTING,
+                ExposureStatus.ACTIVE,
+                ExposureStatus.CLAIM_REQUIRED,
+            ):
+                # If secret is being supplied to an unauthenticated instance, restart with secret
+                if secret_bytes and secret_bytes != self._current_secret_bytes:
+                    logger.info("Restarting playit supervisor with updated secret")
+                    await self._stop_internal()
+                else:
+                    logger.debug(
+                        "playit supervisor already active/starting; reusing running instance"
+                    )
+                    return
 
-        if self._secret_file:
-            self._set_status(ExposureStatus.STARTING)
-        else:
-            self._set_status(ExposureStatus.CLAIM_REQUIRED)
+            self._stop_event.clear()
+            self._restart_count = 0
+            self._error_message = None
+            self._current_secret_bytes = secret_bytes
 
-        self._monitor_task = asyncio.create_task(
-            self._monitor_loop(), name="playit-supervisor-monitor"
-        )
+            if secret_bytes:
+                self._secret_file = self._write_secret_file(secret_bytes)
+            else:
+                self._secret_file = None
+
+            await self._spawn_child()
+            self._last_health_at = time.monotonic()
+
+            if self._secret_file:
+                self._set_status(ExposureStatus.STARTING)
+            else:
+                self._set_status(ExposureStatus.CLAIM_REQUIRED)
+
+            self._monitor_task = asyncio.create_task(
+                self._monitor_loop(), name="playit-supervisor-monitor"
+            )
 
     async def stop(self) -> None:
         """Gracefully stop the supervisor and clean up secret files."""
+        async with self._lifecycle_lock:
+            await self._stop_internal()
+
+    async def _stop_internal(self) -> None:
         self._stop_event.set()
         if self._monitor_task is not None and not self._monitor_task.done():
             self._monitor_task.cancel()
@@ -138,6 +169,7 @@ class PlayitAgentSupervisor:
 
         await self._terminate_process()
         self._cleanup_secret_file()
+        self._current_secret_bytes = None
         self._set_status(ExposureStatus.STOPPED)
 
     async def restart(self, secret: bytes | str | None = None) -> None:
@@ -193,13 +225,15 @@ class PlayitAgentSupervisor:
     async def _read_output(self, proc: asyncio.subprocess.Process) -> None:
         """Read stdout and stderr lines for claim links or auth failure markers."""
         try:
-            while proc.returncode is None:
+            while not self._stop_event.is_set() and proc.returncode is None:
                 line_b = b""
                 if proc.stdout:
                     line_b = await proc.stdout.readline()
                 if not line_b and proc.stderr:
                     line_b = await proc.stderr.readline()
                 if not line_b:
+                    if proc.returncode is not None:
+                        break
                     await asyncio.sleep(0.1)
                     continue
 
@@ -332,3 +366,9 @@ def get_playit_supervisor() -> PlayitAgentSupervisor:
     if _GLOBAL_PLAYIT_SUPERVISOR is None:
         _GLOBAL_PLAYIT_SUPERVISOR = PlayitAgentSupervisor()
     return _GLOBAL_PLAYIT_SUPERVISOR
+
+
+def reset_playit_supervisor() -> None:
+    """Reset the module-level singleton (intended for hermetic test teardown)."""
+    global _GLOBAL_PLAYIT_SUPERVISOR
+    _GLOBAL_PLAYIT_SUPERVISOR = None

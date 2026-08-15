@@ -84,6 +84,8 @@ from app.modules.exposure.application import (
     SetServerExposureHandler,
     StopAllExposuresCommand,
     StopAllExposuresHandler,
+    UpdateExposureTargetCommand,
+    UpdateExposureTargetHandler,
 )
 from app.modules.health.application import (
     EvaluateHealthCommand,
@@ -189,6 +191,7 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(DisableServerExposureCommand, DisableServerExposureHandler(event_bus))
     command_bus.register(RemoveServerExposureCommand, RemoveServerExposureHandler(event_bus))
     command_bus.register(CreateExposureTargetCommand, CreateExposureTargetHandler(event_bus))
+    command_bus.register(UpdateExposureTargetCommand, UpdateExposureTargetHandler(event_bus))
     command_bus.register(StopAllExposuresCommand, StopAllExposuresHandler(event_bus))
     command_bus.register(GenerateClaimCommand, GenerateClaimHandler(event_bus))
     command_bus.register(ResetAgentCommand, ResetAgentHandler(event_bus))

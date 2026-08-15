@@ -20,6 +20,7 @@ from app.api.v1.schemas.exposure import (
     StopAllResponse,
     TargetCreateRequest,
     TargetResponse,
+    TargetUpdateRequest,
 )
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
@@ -39,6 +40,7 @@ from app.modules.exposure.application import (
     SetPanelExposureCommand,
     SetServerExposureCommand,
     StopAllExposuresCommand,
+    UpdateExposureTargetCommand,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["exposure"])
@@ -224,11 +226,37 @@ async def list_exposure_targets(
 )
 async def create_exposure_target(
     server_id: str,
-    _body: TargetCreateRequest | None = None,
+    body: TargetCreateRequest | None = None,
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> TargetResponse:
     result = await command_bus.send(
-        CreateExposureTargetCommand(server_id=server_id, actor_id=current_user.get("user_id", ""))
+        CreateExposureTargetCommand(
+            server_id=server_id,
+            public_address=body.public_address if body else None,
+            actor_id=current_user.get("user_id", ""),
+        )
+    )
+    return TargetResponse(**check_command_result(result))
+
+
+@router.put(
+    "/servers/{server_id}/exposure/targets/{target_id}",
+    response_model=TargetResponse,
+)
+async def update_exposure_target(
+    server_id: str,
+    target_id: str,
+    body: TargetUpdateRequest,
+    command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
+    current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
+) -> TargetResponse:
+    result = await command_bus.send(
+        UpdateExposureTargetCommand(
+            server_id=server_id,
+            target_id=target_id,
+            public_address=body.public_address,
+            actor_id=current_user.get("user_id", ""),
+        )
     )
     return TargetResponse(**check_command_result(result))
