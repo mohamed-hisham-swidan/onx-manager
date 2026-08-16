@@ -197,7 +197,7 @@ initialized). `GET /api/v1/setup/status` reports
 The mode flips via `PUT /api/v1/setup/access-mode` (Owner/`global.*` only).
 Invitation tokens are stored as SHA-256 hashes (`invitations.token_hash`);
 lifecycle status is `ACTIVE` / `USED` / `REVOKED` / `EXPIRED`. See
-`docs/history/owner-invite-system-roadmap.md` for the original design.
+`docs/history/features/owner-invite-system-roadmap.md` for the original design.
 
 ### ABAC Context Rules
 
