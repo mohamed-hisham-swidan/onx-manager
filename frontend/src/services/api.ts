@@ -135,7 +135,22 @@ export function createApiClient(
   }
 
   async function request<T>(path: string, config: RequestConfig = {}): Promise<T> {
-    const token = getToken();
+    let token = getToken();
+
+    // Proactively refresh expired token before making authenticated request
+    if (
+      !token &&
+      onRefresh &&
+      path !== "/api/v1/auth/refresh" &&
+      path !== "/api/v1/auth/login" &&
+      !path.startsWith("/api/v1/invites/verify")
+    ) {
+      const refreshed = await refreshAuth();
+      if (refreshed) {
+        token = getToken();
+      }
+    }
+
     const headers: Record<string, string> = {
       ...config.headers,
     };

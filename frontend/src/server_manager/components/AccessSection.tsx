@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { createApiClient } from "@/services/api";
+import { createAuthenticatedApi } from "@/services/api";
 import { Skeleton } from "@/components/Skeleton";
 import { AccessModeCard } from "@/server_manager/components/AccessModeCard";
 import { PanelExposureSection } from "@/server_manager/components/PanelExposureSection";
 
 export function AccessSection() {
-  const api = useMemo(() => createApiClient(window.location.origin, () => null), []);
+  const api = useMemo(() => createAuthenticatedApi(), []);
 
   // Current user identity check for single Owner permission gate
   const { data: currentUser, isLoading: loadingUser, isError: userError } = useQuery({

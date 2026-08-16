@@ -687,8 +687,9 @@ async def test_panel_exposure_playit_http_api(exposure_client) -> None:
         data = resp.json()
         assert data["method"] == "playit_http"
         assert data["status"] == "CLAIM_REQUIRED"
-        assert data["tls"] is True
-        assert data["protocol"] == "https"
+        assert data["tls"] is False
+        assert data["protocol"] == "http"
+
 
 
 async def test_panel_exposure_port_forward_api(exposure_client) -> None:

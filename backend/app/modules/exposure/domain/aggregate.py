@@ -170,6 +170,7 @@ class ServerExposureTarget(AggregateRoot):
         status: ExposureStatus | str = ExposureStatus.DISABLED,
         error_code: str | None = None,
         error_message: str | None = None,
+        playit_tunnel_id: str | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
     ) -> None:
@@ -183,6 +184,7 @@ class ServerExposureTarget(AggregateRoot):
         self._status = _coerce_exposure_status(status)
         self._error_code = error_code
         self._error_message = error_message
+        self._playit_tunnel_id = playit_tunnel_id
         now = datetime.now(UTC)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
@@ -210,6 +212,19 @@ class ServerExposureTarget(AggregateRoot):
     @property
     def public_address(self) -> str | None:
         return self._public_address
+
+    @property
+    def playit_tunnel_id(self) -> str | None:
+        return self._playit_tunnel_id
+
+    @playit_tunnel_id.setter
+    def playit_tunnel_id(self, value: str | None) -> None:
+        self._playit_tunnel_id = value
+        self._updated_at = datetime.now(UTC)
+
+    def set_playit_tunnel(self, tunnel_id: str | None) -> None:
+        self.playit_tunnel_id = tunnel_id
+
 
     @property
     def status(self) -> ExposureStatus:

@@ -1,12 +1,12 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { createApiClient } from "@/services/api";
+import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
 import { Skeleton } from "@/components/Skeleton";
 
 export function AccessModeCard() {
   const queryClient = useQueryClient();
-  const api = useMemo(() => createApiClient(window.location.origin, () => null), []);
+  const api = useMemo(() => createAuthenticatedApi(), []);
 
   const [pendingMode, setPendingMode] = useState<"LOCAL" | "GLOBAL" | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);

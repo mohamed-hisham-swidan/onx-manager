@@ -35,15 +35,33 @@ from app.modules.exposure.application.commands import (
     SetPanelExposureHandler,
     UpdateExposureTargetCommand,
     UpdateExposureTargetHandler,
+    _handle_playit_claimed_secret,
+    _persist_playit_status,
+    _reconcile_playit_tunnels,
     compute_desired_agent_running,
 )
-from app.modules.exposure.domain.value_objects import ExposureStatus
+from app.modules.exposure.domain.value_objects import (
+    AgentProcessStatus,
+    ExposureStatus,
+    exposure_status_to_process_status,
+)
 from app.modules.exposure.infrastructure.playit_agent import (
     PlayitAgentSupervisor,
     get_playit_supervisor,
     reset_playit_supervisor,
 )
-from app.modules.exposure.infrastructure.repository import SQLHostAgentRepository
+from app.modules.exposure.infrastructure.playit_api import (
+    PlayitAllocationFullError,
+    PlayitAuthError,
+    PlayitRundataDto,
+    PlayitTunnelDto,
+)
+from app.modules.exposure.infrastructure.repository import (
+    SQLHostAgentRepository,
+    SQLPanelExposureRepository,
+    SQLServerExposureRepository,
+)
+
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.value_objects import (
     JavaArguments,
@@ -367,3 +385,291 @@ class TestUnifiedDesiredAgentRunningComputation:
             )
             async with UnitOfWork() as uow:
                 assert await compute_desired_agent_running(uow.session) is True
+
+
+class TestPlayitClaimedSecretHandler:
+    async def test_handle_playit_claimed_secret_success(self, tmp_path) -> None:
+        """Verify _handle_playit_claimed_secret encrypts secret, updates status, and restarts supervisor."""
+        proc = _mock_subprocess()
+        supervisor = get_playit_supervisor()
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            secret_hex = "d08c824254113c9cccb943435abd2bcb70f54bcb45b56bc8ede3809988d1d88c"
+            await _handle_playit_claimed_secret(secret_hex)
+
+            # Check database agent record
+            async with UnitOfWork() as uow:
+                repo = SQLHostAgentRepository(uow.session)
+                agent = await repo.get()
+                assert agent.is_claimed is True
+                assert agent.process_status == AgentProcessStatus.STARTING
+
+            # Check supervisor is running with decrypted secret file
+            assert supervisor.is_running is True
+            assert supervisor._secret_file is not None
+            assert supervisor._secret_file.exists()
+            assert supervisor._secret_file.read_bytes() == secret_hex.encode("utf-8")
+
+
+class TestPlayitStatusEnumMapping:
+    @pytest.mark.parametrize(
+        "exposure_status,expected_process_status",
+        [
+            (ExposureStatus.ACTIVE, AgentProcessStatus.RUNNING),
+            (ExposureStatus.DEGRADED, AgentProcessStatus.RUNNING),
+            (ExposureStatus.STARTING, AgentProcessStatus.STARTING),
+            (ExposureStatus.STOPPING, AgentProcessStatus.STOPPING),
+            (ExposureStatus.STOPPED, AgentProcessStatus.STOPPED),
+            (ExposureStatus.DISABLED, AgentProcessStatus.STOPPED),
+            (ExposureStatus.CLAIM_REQUIRED, AgentProcessStatus.STOPPED),
+            (ExposureStatus.ERROR, AgentProcessStatus.ERROR),
+            (ExposureStatus.RECLAIM_REQUIRED, AgentProcessStatus.ERROR),
+        ],
+    )
+    async def test_exposure_status_to_process_status_mapping(
+        self,
+        exposure_status: ExposureStatus,
+        expected_process_status: AgentProcessStatus,
+    ) -> None:
+        assert exposure_status_to_process_status(exposure_status) == expected_process_status
+        assert exposure_status_to_process_status(exposure_status.value) == expected_process_status
+
+    async def test_persist_playit_status_does_not_raise_for_active(self, tmp_path) -> None:
+        """Regression test for F-04: _persist_playit_status must map ExposureStatus to AgentProcessStatus cleanly."""
+        await _seed_claimed_agent(tmp_path)
+        await _seed_server("srv-test-enum", "Enum Test", 25565)
+
+        # Calling _persist_playit_status with ExposureStatus.ACTIVE must NOT raise ValueError
+        await _persist_playit_status(ExposureStatus.ACTIVE)
+
+        async with UnitOfWork() as uow:
+            repo = SQLHostAgentRepository(uow.session)
+            agent = await repo.get()
+            assert agent.process_status == AgentProcessStatus.RUNNING
+
+
+class TestPlayitRealTunnelProvisioning:
+    async def test_panel_playit_match_existing_tunnel(self, tmp_path) -> None:
+        """Idempotency list-first: adopt existing tunnel on port 8000 instead of creating duplicate."""
+        await _seed_claimed_agent(tmp_path)
+        event_bus = EventBus()
+        handler = SetPanelExposureHandler(event_bus)
+        proc = _mock_subprocess()
+
+        mock_rundata = PlayitRundataDto(
+            agent_id="agent-123",
+            agent_type="self-managed",
+            account_status="ready",
+            tunnels=[
+                PlayitTunnelDto(
+                    id="tun-panel-existing",
+                    name="mcs-panel-existing",
+                    display_address="existing-panel.at.ply.gg:8000",
+                    port_type="tcp",
+                    local_ip="127.0.0.1",
+                    local_port=8000,
+                )
+            ],
+        )
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=mock_rundata)),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel") as mock_create,
+        ):
+            res = await handler.handle(
+                SetPanelExposureCommand(method="playit_http", desired_state="ENABLED")
+            )
+            assert res.success is True
+            assert res.data["status"] == "ACTIVE"
+            assert res.data["playit_tunnel_id"] == "tun-panel-existing"
+            assert res.data["public_address"] == "http://existing-panel.at.ply.gg:8000"
+            assert res.data["protocol"] == "http"
+            assert "Playit.gg free tier exposes the panel over raw TCP (HTTP)" in res.data["security_advisory"]
+            # create_tunnel should NOT have been called
+            mock_create.assert_not_called()
+
+    async def test_panel_playit_create_tunnel_when_not_found(self, tmp_path) -> None:
+        """Auto-create tunnel on playit.gg when no matching tunnel exists."""
+        await _seed_claimed_agent(tmp_path)
+        event_bus = EventBus()
+        handler = SetPanelExposureHandler(event_bus)
+        proc = _mock_subprocess()
+
+        mock_rundata = PlayitRundataDto(
+            agent_id="agent-123",
+            agent_type="self-managed",
+            account_status="ready",
+            tunnels=[],
+        )
+        mock_new_tunnel = PlayitTunnelDto(
+            id="tun-new-created",
+            name="mcs-panel-new",
+            display_address="new-panel.at.ply.gg:12345",
+            port_type="tcp",
+            local_ip="127.0.0.1",
+            local_port=8000,
+        )
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=mock_rundata)),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(return_value=mock_new_tunnel)) as mock_create,
+        ):
+            res = await handler.handle(
+                SetPanelExposureCommand(method="playit_http", desired_state="ENABLED")
+            )
+            assert res.success is True
+            assert res.data["status"] == "ACTIVE"
+            assert res.data["playit_tunnel_id"] == "tun-new-created"
+            assert res.data["public_address"] == "http://new-panel.at.ply.gg:12345"
+            mock_create.assert_awaited_once()
+
+    async def test_panel_playit_allocation_full_fallback(self, tmp_path) -> None:
+        """Allocation full falls back to STARTING with PLAYIT_ALLOCATION_FULL error code."""
+        await _seed_claimed_agent(tmp_path)
+        event_bus = EventBus()
+        handler = SetPanelExposureHandler(event_bus)
+        proc = _mock_subprocess()
+
+        mock_rundata = PlayitRundataDto(agent_id="a", agent_type="s", account_status="ready", tunnels=[])
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=mock_rundata)),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(side_effect=PlayitAllocationFullError("Limit reached"))),
+        ):
+            res = await handler.handle(
+                SetPanelExposureCommand(method="playit_http", desired_state="ENABLED")
+            )
+            assert res.success is True
+            assert res.data["status"] == "STARTING"
+            assert res.data["error_code"] == "PLAYIT_ALLOCATION_FULL"
+
+    async def test_panel_playit_teardown_deletes_remote_tunnel(self, tmp_path) -> None:
+        """Disabling panel playit exposure deletes remote tunnel and clears local credentials."""
+        await _seed_claimed_agent(tmp_path)
+        event_bus = EventBus()
+        handler = SetPanelExposureHandler(event_bus)
+        proc = _mock_subprocess()
+
+        mock_new_tunnel = PlayitTunnelDto(
+            id="tun-del-123",
+            name="mcs-panel-del",
+            display_address="del-panel.at.ply.gg:8000",
+            port_type="tcp",
+            local_ip="127.0.0.1",
+            local_port=8000,
+        )
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=PlayitRundataDto("a", "s", "r", []))),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(return_value=mock_new_tunnel)),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.delete_tunnel", AsyncMock(return_value=True)) as mock_delete,
+        ):
+            # Enable
+            await handler.handle(SetPanelExposureCommand(method="playit_http", desired_state="ENABLED"))
+
+            # Disable
+            res = await handler.handle(SetPanelExposureCommand(method="playit_http", desired_state="DISABLED"))
+            assert res.success is True
+            assert res.data["status"] == "DISABLED"
+            assert res.data["playit_tunnel_id"] is None
+            mock_delete.assert_awaited_once_with(
+                "valid-agent-secret",
+                "tun-del-123",
+            )
+
+    async def test_server_playit_match_or_create_and_delete(self, tmp_path) -> None:
+        """Server exposure enables real tunnel provisioning and deletes remote tunnel on disable."""
+        await _seed_claimed_agent(tmp_path)
+        await _seed_server("srv-mc-1", "MC Server 1", 25565)
+        event_bus = EventBus()
+        enable_handler = EnableServerExposureHandler(event_bus)
+        disable_handler = DisableServerExposureHandler(event_bus)
+        proc = _mock_subprocess()
+
+        mock_created_tunnel = PlayitTunnelDto(
+            id="tun-srv-mc-1",
+            name="mcs-srv-mc-java",
+            display_address="mc-play.at.ply.gg:25565",
+            port_type="tcp",
+            local_ip="127.0.0.1",
+            local_port=25565,
+        )
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=PlayitRundataDto("a", "s", "r", []))),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(return_value=mock_created_tunnel)) as mock_create,
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.delete_tunnel", AsyncMock(return_value=True)) as mock_delete,
+        ):
+            # Enable
+            res = await enable_handler.handle(EnableServerExposureCommand(server_id="srv-mc-1"))
+            assert res.success is True
+            assert res.data["aggregate_status"] == "ACTIVE"
+            assert len(res.data["targets"]) == 1
+            assert res.data["targets"][0]["public_address"] == "mc-play.at.ply.gg:25565"
+            mock_create.assert_awaited_once()
+
+            # Disable
+            res = await disable_handler.handle(DisableServerExposureCommand(server_id="srv-mc-1"))
+            assert res.success is True
+            assert res.data["aggregate_status"] == "DISABLED"
+            mock_delete.assert_awaited_once_with(
+                "valid-agent-secret",
+                "tun-srv-mc-1",
+            )
+
+    async def test_reconcile_playit_tunnels_auto_adoption(self, tmp_path) -> None:
+        """Background reconciliation adopts dashboard-created tunnel for pending server target."""
+        await _seed_claimed_agent(tmp_path)
+        await _seed_server("srv-adopt", "Adoption Test Server", 25565)
+        event_bus = EventBus()
+        enable_handler = EnableServerExposureHandler(event_bus)
+        proc = _mock_subprocess()
+
+        # Step 1: Enable server exposure when creation initially fails (falls back to STARTING / PLAYIT_TUNNEL_CREATION_PENDING)
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=PlayitRundataDto("a", "s", "r", []))),
+            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(side_effect=Exception("API offline"))),
+        ):
+            res = await enable_handler.handle(EnableServerExposureCommand(server_id="srv-adopt"))
+            assert res.success is True
+            assert res.data["aggregate_status"] == "STARTING"
+            assert res.data["targets"][0]["status"] == "STARTING"
+            assert res.data["targets"][0]["error_code"] == "PLAYIT_TUNNEL_CREATION_PENDING"
+
+        # Step 2: User creates tunnel manually on playit dashboard -> next reconciliation run adopts it
+        mock_discovered_rundata = PlayitRundataDto(
+            agent_id="a",
+            agent_type="s",
+            account_status="ready",
+            tunnels=[
+                PlayitTunnelDto(
+                    id="tun-discovered-99",
+                    name="custom-dash-tunnel",
+                    display_address="dash-play.at.ply.gg:25565",
+                    port_type="tcp",
+                    local_ip="127.0.0.1",
+                    local_port=25565,
+                )
+            ],
+        )
+
+        with patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=mock_discovered_rundata)):
+            await _reconcile_playit_tunnels()
+
+            async with UnitOfWork() as uow:
+                repo = SQLServerExposureRepository(uow.session)
+                exp = await repo.get("srv-adopt")
+                assert exp is not None
+                assert exp.aggregate_status == ExposureStatus.ACTIVE
+                assert exp.targets[0].status == ExposureStatus.ACTIVE
+                assert exp.targets[0].playit_tunnel_id == "tun-discovered-99"
+                assert exp.targets[0].public_address == "dash-play.at.ply.gg:25565"
+
+
+

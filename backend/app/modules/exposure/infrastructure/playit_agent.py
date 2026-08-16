@@ -14,6 +14,8 @@ import contextlib
 import logging
 import os
 import re
+import secrets
+import shutil
 import signal
 import sys
 import tempfile
@@ -30,8 +32,14 @@ STALE_AFTER_SECONDS = 90.0
 MAX_RESTARTS = 5
 BACKOFF_BASE_SECONDS = 2.0
 
-# Regex patterns for playit claim links and claim codes
+# Regex patterns for playit claim links, secret keys, and auth errors
 _CLAIM_URL_PATTERN = re.compile(r"https?://playit\.gg/claim/([a-zA-Z0-9_-]+)")
+_SECRET_PATTERNS = (
+    re.compile(r"secret:\s*([a-zA-Z0-9_\-\.\:\=]+)", re.IGNORECASE),
+    re.compile(r'secret\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE),
+    re.compile(r"secret_key:\s*([a-zA-Z0-9_\-\.\:\=]+)", re.IGNORECASE),
+    re.compile(r"^([0-9a-fA-F]{64})$"),
+)
 _AUTH_FAILURE_MARKERS = (
     "invalid secret",
     "unauthorized",
@@ -39,6 +47,54 @@ _AUTH_FAILURE_MARKERS = (
     "authentication failed",
     "claim expired",
 )
+
+
+def _get_playitd_cmd() -> list[str]:
+    """Return the command prefix to spawn the playit daemon."""
+    playitd = shutil.which("playitd")
+    if playitd:
+        return [playitd]
+    if Path("/opt/playit/playitd").is_file():
+        return ["/opt/playit/playitd"]
+    return ["playitd"]
+
+
+def _get_playit_cli_cmd() -> list[str]:
+    """Return the command prefix to spawn the playit CLI."""
+    playit = shutil.which("playit")
+    if playit:
+        return [playit]
+    if Path("/opt/playit/agent").is_file():
+        return ["/opt/playit/agent"]
+    return ["playit"]
+
+
+async def generate_playit_claim_code() -> tuple[str, str]:
+    """Generate a real 10-character hex claim code and claim URL via `playit claim generate`.
+
+    Falls back to a 10-hex token (secrets.token_hex(5)) if playit binary is unavailable
+    (e.g., in lightweight CI / unit test environments).
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "playit",
+            "claim",
+            "generate",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0 and stdout:
+            code = stdout.decode("utf-8").strip()
+            if code and len(code) <= 64:
+                return code, f"https://playit.gg/claim/{code}"
+    except (FileNotFoundError, OSError) as exc:
+        logger.warning("playit binary not available during claim generate: %s", exc)
+    except Exception as exc:
+        logger.warning("Error running playit claim generate: %s", exc)
+
+    fallback_code = secrets.token_hex(5)
+    return fallback_code, f"https://playit.gg/claim/{fallback_code}"
 
 
 def is_windows() -> bool:
@@ -75,6 +131,8 @@ class PlayitAgentSupervisor:
         self._claim_code: str | None = None
         self._claim_url: str | None = None
         self._on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None
+        self._on_secret: Callable[[str], Awaitable[None]] | None = None
+        self._on_reconcile: Callable[[], Awaitable[None]] | None = None
 
     @property
     def status(self) -> ExposureStatus:
@@ -103,12 +161,20 @@ class PlayitAgentSupervisor:
     async def start(
         self,
         secret: bytes | str | None = None,
+        claim_code: str | None = None,
         on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None,
+        on_secret: Callable[[str], Awaitable[None]] | None = None,
+        on_reconcile: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Start the supervised playit agent child process with idempotency guard."""
         async with self._lifecycle_lock:
             if on_status is not None:
                 self._on_status = on_status
+            if on_secret is not None:
+                self._on_secret = on_secret
+            if on_reconcile is not None:
+                self._on_reconcile = on_reconcile
+
 
             secret_bytes = (
                 secret
@@ -119,25 +185,28 @@ class PlayitAgentSupervisor:
             )
 
             # Check if supervisor is already active/running
-            if self.is_running or self._status in (
-                ExposureStatus.STARTING,
-                ExposureStatus.ACTIVE,
-                ExposureStatus.CLAIM_REQUIRED,
-            ):
+            if self.is_running:
                 # If secret is being supplied to an unauthenticated instance, restart with secret
                 if secret_bytes and secret_bytes != self._current_secret_bytes:
                     logger.info("Restarting playit supervisor with updated secret")
                     await self._stop_internal()
+                elif claim_code and claim_code != self._claim_code:
+                    logger.info("Restarting playit supervisor with updated claim code")
+                    await self._stop_internal()
                 else:
                     logger.debug(
-                        "playit supervisor already active/starting; reusing running instance"
+                        "playit supervisor already active/running with matching config; reusing running instance"
                     )
                     return
+            else:
+                # Process is not running; cleanly stop any residual monitor state before starting
+                await self._stop_internal()
 
             self._stop_event.clear()
             self._restart_count = 0
             self._error_message = None
             self._current_secret_bytes = secret_bytes
+            self._claim_code = claim_code
 
             if secret_bytes:
                 self._secret_file = self._write_secret_file(secret_bytes)
@@ -174,10 +243,21 @@ class PlayitAgentSupervisor:
         self._current_secret_bytes = None
         self._set_status(ExposureStatus.STOPPED)
 
-    async def restart(self, secret: bytes | str | None = None) -> None:
+    async def restart(
+        self,
+        secret: bytes | str | None = None,
+        claim_code: str | None = None,
+        on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None,
+        on_secret: Callable[[str], Awaitable[None]] | None = None,
+    ) -> None:
         """Restart supervisor with a fresh secret or claim."""
         await self.stop()
-        await self.start(secret=secret, on_status=self._on_status)
+        await self.start(
+            secret=secret,
+            claim_code=claim_code,
+            on_status=on_status or self._on_status,
+            on_secret=on_secret or self._on_secret,
+        )
 
     def _write_secret_file(self, secret: bytes) -> Path:
         """Write secret to a temporary file with restricted (0600) permissions."""
@@ -201,10 +281,18 @@ class PlayitAgentSupervisor:
 
     async def _spawn_child(self) -> None:
         """Spawn the playit child process."""
-        cmd = ["playit"]
         if self._secret_file:
-            cmd.extend(["run", "--secret-path", str(self._secret_file)])
+            cmd = list(_get_playitd_cmd())
+            socket_path = f"/tmp/mcs_playit_{os.getpid()}.sock"
+            cmd.extend([
+                "--secret-path", str(self._secret_file),
+                "--socket-path", socket_path,
+            ])
+        elif self._claim_code:
+            cmd = list(_get_playit_cli_cmd())
+            cmd.extend(["claim", "exchange", self._claim_code])
         else:
+            cmd = list(_get_playit_cli_cmd())
             cmd.extend(["claim", "url"])
 
         logger.info("Spawning playit subprocess (argv safe: secret passed via file)")
@@ -224,40 +312,69 @@ class PlayitAgentSupervisor:
             self._read_output(self._process), name="playit-output-reader"
         )
 
-    async def _read_output(self, proc: asyncio.subprocess.Process) -> None:
-        """Read stdout and stderr lines for claim links or auth failure markers."""
+    async def _read_stream(
+        self, stream: asyncio.StreamReader | None, stream_name: str
+    ) -> None:
+        """Continuously read lines from a single stream (stdout or stderr)."""
+        if stream is None:
+            return
         try:
-            while not self._stop_event.is_set() and proc.returncode is None:
-                line_b = b""
-                if proc.stdout:
-                    line_b = await proc.stdout.readline()
-                if not line_b and proc.stderr:
-                    line_b = await proc.stderr.readline()
+            while not self._stop_event.is_set():
+                line_b = await stream.readline()
                 if not line_b:
-                    if proc.returncode is not None:
-                        break
-                    await asyncio.sleep(0.1)
-                    continue
-
+                    break
                 line = line_b.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue
+                await self._process_output_line(line, stream_name)
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.debug("Playit %s reader exited: %s", stream_name, exc)
 
-                # Match claim URL
-                match = _CLAIM_URL_PATTERN.search(line)
-                if match:
-                    self._claim_url = match.group(0)
-                    self._claim_code = match.group(1)
-                    self._set_status(ExposureStatus.CLAIM_REQUIRED)
-                    logger.info("Playit claim URL captured: %s", self._claim_url)
+    async def _process_output_line(self, line: str, stream_name: str) -> None:
+        """Process a decoded output line from stdout or stderr."""
+        # Match claim URL
+        match = _CLAIM_URL_PATTERN.search(line)
+        if match:
+            self._claim_url = match.group(0)
+            self._claim_code = match.group(1)
+            self._set_status(ExposureStatus.CLAIM_REQUIRED)
+            logger.info("Playit claim URL captured: %s", self._claim_url)
+            return
 
-                # Match auth failures
-                line_lower = line.lower()
-                if any(m in line_lower for m in _AUTH_FAILURE_MARKERS):
-                    logger.warning("Playit auth failure marker detected: %s", line)
-                    self._error_message = line
-                    self._set_status(ExposureStatus.RECLAIM_REQUIRED)
+        # Match auth failures
+        line_lower = line.lower()
+        if any(m in line_lower for m in _AUTH_FAILURE_MARKERS):
+            logger.warning("Playit auth failure marker detected on %s: %s", stream_name, line)
+            self._error_message = line
+            self._set_status(ExposureStatus.RECLAIM_REQUIRED)
+            return
 
+        # Match secret from claim exchange (unauthenticated claim mode)
+        if not self._secret_file:
+            for pattern in _SECRET_PATTERNS:
+                sec_match = pattern.search(line)
+                if sec_match:
+                    captured_secret = sec_match.group(1).strip()
+                    if captured_secret and len(captured_secret) >= 10:
+                        logger.info("Playit agent secret key captured from claim exchange")
+                        self._claim_code = None
+                        self._set_status(ExposureStatus.STARTING)
+                        if self._on_secret:
+                            try:
+                                asyncio.create_task(self._on_secret(captured_secret))
+                            except Exception as exc:
+                                logger.exception("Error invoking on_secret callback: %s", exc)
+                        break
+
+    async def _read_output(self, proc: asyncio.subprocess.Process) -> None:
+        """Concurrently read stdout and stderr lines for claim links, secret keys, or auth failure markers."""
+        try:
+            await asyncio.gather(
+                self._read_stream(proc.stdout, "stdout"),
+                self._read_stream(proc.stderr, "stderr"),
+            )
         except asyncio.CancelledError:
             pass
         except Exception as exc:
@@ -275,8 +392,14 @@ class PlayitAgentSupervisor:
                     self._last_health_at = time.monotonic()
                     if self._status in (ExposureStatus.STARTING, ExposureStatus.DEGRADED):
                         self._set_status(ExposureStatus.ACTIVE)
+                    if self._on_reconcile:
+                        try:
+                            await self._on_reconcile()
+                        except Exception as exc:
+                            logger.debug("Playit reconciliation callback failed: %s", exc)
                 else:
                     await self._handle_process_exit()
+
 
             except asyncio.CancelledError:
                 break
@@ -288,6 +411,15 @@ class PlayitAgentSupervisor:
         if self._status == ExposureStatus.RECLAIM_REQUIRED:
             return
 
+        # If in claim exchange mode, exit means exchange finished or timed out.
+        # Do NOT retry with an invalid/consumed claim code!
+        if not self._secret_file:
+            logger.info(
+                "Playit claim exchange process exited (returncode %s)",
+                self._process.returncode if self._process else None,
+            )
+            return
+
         if self._restart_count >= self._max_restarts:
             self._error_message = f"playit exceeded max restarts ({self._max_restarts})"
             self._set_status(ExposureStatus.ERROR)
@@ -296,7 +428,7 @@ class PlayitAgentSupervisor:
         self._restart_count += 1
         delay = self._backoff_base**self._restart_count
         logger.warning(
-            "playit exited unexpectedly; restart %d/%d in %.1fs",
+            "playit daemon exited unexpectedly; restart %d/%d in %.1fs",
             self._restart_count,
             self._max_restarts,
             delay,

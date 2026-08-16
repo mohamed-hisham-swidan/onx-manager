@@ -82,3 +82,27 @@ def aggregate_precedence(statuses: list[ExposureStatus]) -> ExposureStatus:
     if not statuses:
         return ExposureStatus.DISABLED
     return min(statuses, key=lambda s: _PRECEDENCE_RANK[s])
+
+
+def exposure_status_to_process_status(status: ExposureStatus | str) -> AgentProcessStatus:
+    """Map aggregate exposure status to host agent process lifecycle status."""
+    if isinstance(status, str):
+        try:
+            status = ExposureStatus(status.upper())
+        except ValueError:
+            return AgentProcessStatus.STOPPED
+
+    match status:
+        case ExposureStatus.ACTIVE | ExposureStatus.DEGRADED:
+            return AgentProcessStatus.RUNNING
+        case ExposureStatus.STARTING:
+            return AgentProcessStatus.STARTING
+        case ExposureStatus.STOPPING:
+            return AgentProcessStatus.STOPPING
+        case ExposureStatus.DISABLED | ExposureStatus.STOPPED | ExposureStatus.CLAIM_REQUIRED:
+            return AgentProcessStatus.STOPPED
+        case ExposureStatus.ERROR | ExposureStatus.RECLAIM_REQUIRED:
+            return AgentProcessStatus.ERROR
+        case _:
+            return AgentProcessStatus.STOPPED
+

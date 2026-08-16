@@ -149,7 +149,10 @@ class TestPlayitSupervisor:
             yield mock_kill, mock_killpg
 
     def _mock_subprocess(
-        self, pid: int = SAFE_SENTINEL_PID, stdout_lines: list[bytes] | None = None
+        self,
+        pid: int = SAFE_SENTINEL_PID,
+        stdout_lines: list[bytes] | None = None,
+        stderr_lines: list[bytes] | None = None,
     ):
         proc = AsyncMock()
         proc.pid = pid
@@ -158,17 +161,26 @@ class TestPlayitSupervisor:
         proc.terminate = MagicMock()
         proc.kill = MagicMock()
 
-        lines = list(stdout_lines or [])
+        out_lines = list(stdout_lines or [])
+        err_lines = list(stderr_lines or [])
 
-        async def _readline():
-            if lines:
-                return lines.pop(0)
+        async def _readline_out():
+            if out_lines:
+                return out_lines.pop(0)
+            return b""
+
+        async def _readline_err():
+            if err_lines:
+                return err_lines.pop(0)
             return b""
 
         stdout = AsyncMock()
-        stdout.readline = AsyncMock(side_effect=_readline)
+        stdout.readline = AsyncMock(side_effect=_readline_out)
         proc.stdout = stdout
-        proc.stderr = AsyncMock(readline=AsyncMock(return_value=b""))
+
+        stderr = AsyncMock()
+        stderr.readline = AsyncMock(side_effect=_readline_err)
+        proc.stderr = stderr
         return proc
 
     async def test_start_and_stop_lifecycle_with_secret(self) -> None:
@@ -238,3 +250,87 @@ class TestPlayitSupervisor:
                 assert supervisor.is_running is True
         finally:
             await supervisor.stop()
+
+    async def test_claim_secret_capture(self) -> None:
+        supervisor = PlayitAgentSupervisor(health_interval=0.1)
+        captured_secret = None
+
+        async def _on_secret(sec: str) -> None:
+            nonlocal captured_secret
+            captured_secret = sec
+
+        exchange_output = [
+            b"Open this link to finish setting up playit:\n",
+            b"https://playit.gg/claim/testclaim123\n",
+            b"secret: my_super_secret_playit_key_1234567890\n",
+        ]
+        proc = self._mock_subprocess(stdout_lines=exchange_output)
+
+        try:
+            with patch("asyncio.create_subprocess_exec", return_value=proc):
+                await supervisor.start(claim_code="testclaim123", on_secret=_on_secret)
+                await asyncio.sleep(0.05)
+                assert captured_secret == "my_super_secret_playit_key_1234567890"
+        finally:
+            await supervisor.stop()
+
+    async def test_claim_bare_64_hex_secret_capture(self) -> None:
+        supervisor = PlayitAgentSupervisor(health_interval=0.1)
+        captured_secret = None
+
+        async def _on_secret(sec: str) -> None:
+            nonlocal captured_secret
+            captured_secret = sec
+
+        exchange_output = [
+            b"Open this link to finish setting up playit:\n",
+            b"https://playit.gg/claim/6cf8d96f0f\n",
+            b"Program approved. Finishing setup...\n",
+            b"d08c824254113c9cccb943435abd2bcb70f54bcb45b56bc8ede3809988d1d88c\n",
+        ]
+        proc = self._mock_subprocess(stdout_lines=exchange_output)
+
+        try:
+            with patch("asyncio.create_subprocess_exec", return_value=proc):
+                await supervisor.start(claim_code="6cf8d96f0f", on_secret=_on_secret)
+                await asyncio.sleep(0.05)
+                assert captured_secret == "d08c824254113c9cccb943435abd2bcb70f54bcb45b56bc8ede3809988d1d88c"
+        finally:
+            await supervisor.stop()
+
+    async def test_claim_code_change_forces_restart(self) -> None:
+        supervisor = PlayitAgentSupervisor(health_interval=0.1)
+        proc1 = self._mock_subprocess(pid=1001)
+        proc2 = self._mock_subprocess(pid=1002)
+
+        try:
+            with patch("asyncio.create_subprocess_exec", side_effect=[proc1, proc2]):
+                await supervisor.start(claim_code="code-1")
+                assert supervisor.is_running is True
+                assert supervisor.claim_code == "code-1"
+                assert supervisor._process.pid == 1001
+
+                # Re-starting with a new claim code must trigger restart and spawn proc2
+                await supervisor.start(claim_code="code-2")
+                assert supervisor.is_running is True
+                assert supervisor.claim_code == "code-2"
+                assert supervisor._process.pid == 1002
+        finally:
+            await supervisor.stop()
+
+    async def test_stderr_error_capture_concurrent(self) -> None:
+        supervisor = PlayitAgentSupervisor(health_interval=0.1)
+        stderr_output = [
+            b"connecting...\n",
+            b"error: unauthorized claim expired\n",
+        ]
+        proc = self._mock_subprocess(stdout_lines=[], stderr_lines=stderr_output)
+
+        try:
+            with patch("asyncio.create_subprocess_exec", return_value=proc):
+                await supervisor.start(claim_code="expiredcode")
+                await asyncio.sleep(0.05)
+                assert supervisor.status == ExposureStatus.RECLAIM_REQUIRED
+        finally:
+            await supervisor.stop()
+

@@ -156,6 +156,7 @@ class SQLServerExposureRepository(ServerExposureRepository):
             target_model.status = target.status.value
             target_model.error_code = target.error_code
             target_model.error_message = target.error_message
+            target_model.playit_tunnel_id = target.playit_tunnel_id
 
         await self._session.flush()
 
@@ -190,11 +191,13 @@ class SQLServerExposureRepository(ServerExposureRepository):
                 status=t.status or ExposureStatus.DISABLED.value,
                 error_code=t.error_code,
                 error_message=t.error_message,
+                playit_tunnel_id=t.playit_tunnel_id,
                 created_at=t.created_at,
                 updated_at=t.updated_at,
             )
             for t in target_result.scalars().all()
         ]
+
         return ServerExposure(
             id=model.id,
             server_id=model.server_id,

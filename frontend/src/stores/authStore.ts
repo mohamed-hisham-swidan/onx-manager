@@ -47,7 +47,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
   return {
     accessToken: valid ? stored!.accessToken : null,
-    refreshToken: valid ? stored!.refreshToken : null,
+    refreshToken: stored ? stored.refreshToken : null,
     isAuthenticated: valid ?? false,
 
     login: (accessToken, refreshToken, expiresIn) => {

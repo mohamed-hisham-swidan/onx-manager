@@ -29,6 +29,7 @@ from app.modules.exposure.domain.value_objects import (
     ServiceType,
     TargetProtocol,
     aggregate_precedence,
+    exposure_status_to_process_status,
 )
 
 __all__ = [
@@ -56,4 +57,6 @@ __all__ = [
     "ServiceType",
     "TargetProtocol",
     "aggregate_precedence",
+    "exposure_status_to_process_status",
 ]
+

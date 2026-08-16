@@ -29,12 +29,17 @@ from app.modules.exposure.domain.value_objects import (
     ExposureStatus,
     PanelExposureMethod,
 )
+from app.modules.exposure.infrastructure.playit_api import (
+    PlayitRundataDto,
+    PlayitTunnelDto,
+)
 from app.modules.exposure.infrastructure.repository import (
     SQLHostAgentRepository,
     SQLPanelExposureRepository,
 )
 from app.modules.exposure.infrastructure.upnp import UPnPResult
 from app.modules.storage.encryption import build_backup_encryption
+
 
 pytestmark = pytest.mark.asyncio
 
@@ -92,6 +97,22 @@ class TestPlayitHttpPanelExposure:
         sup.claim_url = None
         sup.claim_code = None
 
+        mock_rundata = PlayitRundataDto(
+            agent_id="default",
+            agent_type="self-managed",
+            account_status="ready",
+            tunnels=[
+                PlayitTunnelDto(
+                    id="tunnel-existing-123",
+                    name="mcs-panel-default",
+                    display_address="test-panel.at.ply.gg:8000",
+                    port_type="tcp",
+                    local_ip="127.0.0.1",
+                    local_port=8000,
+                )
+            ],
+        )
+
         with (
             patch(
                 "app.modules.exposure.application.commands._panel_encryption",
@@ -101,6 +122,10 @@ class TestPlayitHttpPanelExposure:
                 "app.modules.exposure.application.commands.get_playit_supervisor",
                 return_value=sup,
             ),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata",
+                AsyncMock(return_value=mock_rundata),
+            ),
         ):
             result = await handler.handle(cmd)
             assert result.success is True
@@ -109,8 +134,10 @@ class TestPlayitHttpPanelExposure:
             assert data["desired_state"] == "ENABLED"
             assert data["status"] == "ACTIVE"
             assert data["playit_tunnel_id"] == "tunnel-existing-123"
+            assert data["protocol"] == "http"
             sup.start.assert_awaited_once()
             assert sup.start.await_args[0][0] == b"existing-playit-secret"
+
 
     async def test_enable_playit_http_when_unclaimed(self) -> None:
         handler = SetPanelExposureHandler(EventBus())

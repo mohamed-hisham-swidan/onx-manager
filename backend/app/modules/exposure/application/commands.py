@@ -46,6 +46,7 @@ from app.modules.exposure.domain.repository import (
     ServerExposureRepository,
 )
 from app.modules.exposure.domain.value_objects import (
+    AgentProcessStatus,
     DesiredState,
     ExposureMethod,
     ExposureStatus,
@@ -53,6 +54,7 @@ from app.modules.exposure.domain.value_objects import (
     ServiceType,
     TargetProtocol,
     aggregate_precedence,
+    exposure_status_to_process_status,
 )
 from app.modules.exposure.infrastructure.cloudflare import (
     CloudflareApiError,
@@ -65,7 +67,17 @@ from app.modules.exposure.infrastructure.cloudflared import (
     get_server_cloudflared_supervisor,
 )
 from app.modules.exposure.infrastructure.models import ServerRegisteredPortModel
-from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
+from app.modules.exposure.infrastructure.playit_agent import (
+    generate_playit_claim_code,
+    get_playit_supervisor,
+)
+from app.modules.exposure.infrastructure.playit_api import (
+    PlayitAllocationFullError,
+    PlayitApiClient,
+    PlayitApiError,
+    PlayitAuthError,
+    PlayitRateLimitError,
+)
 from app.modules.exposure.infrastructure.repository import (
     SQLHostAgentRepository,
     SQLPanelExposureRepository,
@@ -111,6 +123,79 @@ async def _attempt_server_upnp_mapping(
         target.mark_active(f"{result.external_ip}:{result.external_port}")
     else:
         target.mark_error(code=result.error_code, message=result.error_message)
+
+
+async def _sync_server_playit_targets(
+    server_id: str,
+    exposure: ServerExposure,
+    secret_bytes: bytes,
+) -> None:
+    """Discover or create real playit.gg tunnels for server exposure targets."""
+    secret_hex = secret_bytes.decode("utf-8")
+    api_client = PlayitApiClient()
+    rundata = None
+    try:
+        rundata = await api_client.get_rundata(secret_hex)
+    except Exception as exc:
+        logger.warning("Failed to query playit rundata for server %s: %s", server_id, exc)
+
+    existing_tunnels = rundata.tunnels if rundata else []
+
+    for target in exposure.targets:
+        # 1. Match existing tunnel
+        matched = None
+
+        for t in existing_tunnels:
+            if (
+                t.local_port == target.local_port
+                and t.port_type in (target.protocol.value, "both")
+                and not t.is_disabled
+            ):
+                matched = t
+                break
+
+        if matched is not None and matched.display_address:
+            target.playit_tunnel_id = matched.id
+            target.mark_active(matched.display_address)
+        else:
+            # 2. Attempt creation via API
+            try:
+                tunnel_type = (
+                    "minecraft-java"
+                    if target.service_type == ServiceType.JAVA
+                    else ("minecraft-bedrock" if target.service_type == ServiceType.BEDROCK else None)
+                )
+                new_t = await api_client.create_tunnel(
+                    secret=secret_hex,
+                    name=f"mcs-{server_id[:6]}-{target.service_type.value[:8]}",
+                    local_ip="127.0.0.1",
+                    local_port=target.local_port,
+                    port_type=target.protocol.value,
+                    tunnel_type=tunnel_type,
+                )
+                if new_t.display_address:
+                    target.playit_tunnel_id = new_t.id
+                    target.mark_active(new_t.display_address)
+                else:
+
+                    target.mark_starting()
+                    target.set_error(
+                        "PLAYIT_TUNNEL_CREATION_PENDING",
+                        "Tunnel creation pending on playit.gg. The panel will auto-detect it once created.",
+                    )
+            except PlayitAllocationFullError:
+                target.mark_starting()
+                target.set_error(
+                    "PLAYIT_ALLOCATION_FULL",
+                    "playit.gg tunnel allocation limit reached. Manage tunnels on playit.gg.",
+                )
+            except Exception as exc:
+                logger.warning("Auto playit tunnel creation failed for server target %s: %s", target.id, exc)
+                target.mark_starting()
+                target.set_error(
+                    "PLAYIT_TUNNEL_CREATION_PENDING",
+                    "Tunnel creation pending on playit.gg. The panel will auto-detect it once created.",
+                )
 
 
 def _extract_target_external_port(target: ServerExposureTarget) -> int:
@@ -218,16 +303,15 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                     if agent.is_claimed and agent.secret_ciphertext:
                         try:
                             secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
-                            for target in exposure.targets:
-                                if supervisor.is_running:
-                                    target.mark_active(target.public_address or "")
-                                else:
-                                    target.mark_starting()
+                            await _sync_server_playit_targets(command.server_id, exposure, secret_bytes)
                             post_commit.append(
                                 lambda s=secret_bytes: supervisor.start(
-                                    s, on_status=_persist_playit_status
+                                    s,
+                                    on_status=_persist_playit_status,
+                                    on_reconcile=_reconcile_playit_tunnels,
                                 )
                             )
+
                         except Exception:
                             for target in exposure.targets:
                                 target.mark_reclaim_required(
@@ -244,6 +328,7 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                         post_commit.append(
                             lambda: supervisor.start(None, on_status=_persist_playit_status)
                         )
+
                 elif method == ExposureMethod.CLOUDFLARE_TCP:
                     if prev_method == ExposureMethod.PORT_FORWARD:
                         for target in exposure.targets:
@@ -487,16 +572,15 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
                 if agent.is_claimed and agent.secret_ciphertext:
                     try:
                         secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
-                        for t in exposure.targets:
-                            if supervisor.is_running:
-                                t.mark_active(t.public_address or "")
-                            else:
-                                t.mark_starting()
+                        await _sync_server_playit_targets(command.server_id, exposure, secret_bytes)
                         post_commit.append(
                             lambda s=secret_bytes: supervisor.start(
-                                s, on_status=_persist_playit_status
+                                s,
+                                on_status=_persist_playit_status,
+                                on_reconcile=_reconcile_playit_tunnels,
                             )
                         )
+
                     except Exception:
                         for t in exposure.targets:
                             t.mark_reclaim_required(
@@ -513,6 +597,7 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
                     post_commit.append(
                         lambda: supervisor.start(None, on_status=_persist_playit_status)
                     )
+
             elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
                 handler = SetServerExposureHandler(self._event_bus)
                 set_cmd = SetServerExposureCommand(
@@ -587,6 +672,19 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
                         )
                 elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
                     post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
+                elif exposure.method == ExposureMethod.PLAYIT:
+                    if agent.is_claimed and agent.secret_ciphertext:
+                        try:
+                            secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                            secret_hex = secret_bytes.decode("utf-8")
+                            api_client = PlayitApiClient()
+                            for target in exposure.targets:
+                                if target.playit_tunnel_id:
+                                    post_commit.append(
+                                        lambda s=secret_hex, tid=target.playit_tunnel_id: api_client.delete_tunnel(s, tid)
+                                    )
+                        except Exception as exc:
+                            logger.warning("Could not queue playit tunnel deletion on server disable: %s", exc)
                 exposure.disable()
                 for target in exposure.targets:
                     target.mark_disabled()
@@ -648,8 +746,22 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
                     )
             elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
                 post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
+            elif exposure.method == ExposureMethod.PLAYIT:
+                if agent.is_claimed and agent.secret_ciphertext:
+                    try:
+                        secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                        secret_hex = secret_bytes.decode("utf-8")
+                        api_client = PlayitApiClient()
+                        for target in exposure.targets:
+                            if target.playit_tunnel_id:
+                                post_commit.append(
+                                    lambda s=secret_hex, tid=target.playit_tunnel_id: api_client.delete_tunnel(s, tid)
+                                )
+                    except Exception as exc:
+                        logger.warning("Could not queue playit tunnel deletion on server remove: %s", exc)
             exposure.mark_deleted()
             await repo.delete(exposure)
+
 
             desired_running = await compute_desired_agent_running(uow.session)
             if desired_running != agent.desired_agent_running:
@@ -951,6 +1063,7 @@ class DeleteServerPortHandler(CommandHandler[DeleteServerPortCommand]):
                         exposure.desired_state == DesiredState.ENABLED
                         and exposure.method == ExposureMethod.PORT_FORWARD
                     ):
+
                         p = _extract_target_external_port(target_to_remove)
                         pr = target_to_remove.protocol.value.upper()
                         post_commit.append(
@@ -958,9 +1071,26 @@ class DeleteServerPortHandler(CommandHandler[DeleteServerPortCommand]):
                                 port, protocol=proto
                             )
                         )
+                    elif (
+                        exposure.method == ExposureMethod.PLAYIT
+                        and target_to_remove.playit_tunnel_id
+                    ):
+                        agent_repo = SQLHostAgentRepository(uow.session)
+                        agent = await agent_repo.get()
+                        if agent.is_claimed and agent.secret_ciphertext:
+                            try:
+                                secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                                secret_hex = secret_bytes.decode("utf-8")
+                                api_client = PlayitApiClient()
+                                post_commit.append(
+                                    lambda s=secret_hex, tid=target_to_remove.playit_tunnel_id: api_client.delete_tunnel(s, tid)
+                                )
+                            except Exception as exc:
+                                logger.warning("Could not queue playit tunnel deletion on port delete: %s", exc)
                     exposure.remove_target(target_to_remove.id)
                     _fold_aggregate(exposure)
                     await repo.save(exposure)
+
 
             await uow.commit()
 
@@ -1056,14 +1186,29 @@ class GenerateClaimHandler(CommandHandler[GenerateClaimCommand]):
             if agent.has_active_claim:
                 raise ClaimActiveError()
 
-            claim_code = command.claim_code or _fresh_claim_code()
-            claim_url = command.claim_url or "https://playit.gg/claim"
+            if command.claim_code:
+                claim_code = command.claim_code
+                claim_url = command.claim_url or f"https://playit.gg/claim/{claim_code}"
+            else:
+                claim_code, claim_url = await generate_playit_claim_code()
+
             expires_at = datetime.now(UTC) + timedelta(minutes=CLAIM_TTL_MINUTES)
             agent.generate_claim(claim_code, expires_at)
             await repo.save(agent)
             for event in agent.collect_events():
                 uow.add_event(event)
             await uow.commit()
+
+        # Start supervisor in background claim exchange mode with the real claim code
+        supervisor = get_playit_supervisor()
+        if not agent.is_claimed:
+            try:
+                await supervisor.start(
+                    claim_code=claim_code,
+                    on_secret=_handle_playit_claimed_secret,
+                )
+            except Exception:
+                logger.warning("Failed to start playit supervisor in claim exchange mode", exc_info=True)
 
         return CommandResult(
             success=True,
@@ -1342,6 +1487,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         if agent.is_claimed and agent.secret_ciphertext:
             try:
                 secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                secret_hex = secret_bytes.decode("utf-8")
             except Exception:
                 panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
                 panel.set_status(ExposureStatus.RECLAIM_REQUIRED)
@@ -1352,13 +1498,66 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                 )
                 return
 
-            tunnel_id = panel.playit_tunnel_id or f"playit-panel-{panel.id[:8]}"
-            address = f"https://mcs-panel-{panel.id[:8]}.at.ply.gg"
-            panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
-            panel.set_playit_tunnel(tunnel_id)
-            panel.set_public_address(address)
-            panel.set_status(ExposureStatus.ACTIVE)
-            panel.set_error(None)
+            _active_host, internal_port = get_active_panel_bind()
+            api_client = PlayitApiClient()
+            tunnel_obj = None
+
+            # 1. Idempotency list-first check
+            try:
+                rundata = await api_client.get_rundata(secret_hex)
+                for t in rundata.tunnels:
+                    if t.local_port == internal_port and t.port_type in ("tcp", "both") and not t.is_disabled:
+                        tunnel_obj = t
+                        break
+            except Exception as exc:
+                logger.warning("Failed to query playit rundata on panel enable: %s", exc)
+
+            # 2. Attempt creation if not found
+            if tunnel_obj is None:
+                try:
+                    tunnel_obj = await api_client.create_tunnel(
+                        secret=secret_hex,
+                        name=f"mcs-panel-{panel.id[:6]}",
+                        local_ip="127.0.0.1",
+                        local_port=internal_port,
+                        port_type="tcp",
+                    )
+                except PlayitAuthError:
+                    panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
+                    panel.set_status(ExposureStatus.RECLAIM_REQUIRED)
+                    panel.set_public_address(None)
+                    panel.set_error(
+                        "RECLAIM_REQUIRED",
+                        "playit.gg reported an invalid or revoked agent secret",
+                    )
+                    return
+                except PlayitAllocationFullError:
+                    panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
+                    panel.set_status(ExposureStatus.STARTING)
+                    panel.set_public_address(None)
+                    panel.set_error(
+                        "PLAYIT_ALLOCATION_FULL",
+                        "playit.gg tunnel allocation limit reached. Manage tunnels in playit.gg dashboard.",
+                    )
+                except Exception as exc:
+                    logger.warning("Automatic playit tunnel creation failed: %s", exc)
+                    panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
+                    panel.set_status(ExposureStatus.STARTING)
+                    panel.set_public_address(None)
+                    panel.set_error(
+                        "PLAYIT_TUNNEL_CREATION_PENDING",
+                        "Tunnel creation pending on playit.gg. The panel will auto-detect it once created.",
+                    )
+
+            if tunnel_obj is not None and tunnel_obj.display_address:
+                addr = tunnel_obj.display_address
+                address = f"http://{addr}" if not addr.startswith("http") else addr
+                panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
+                panel.set_playit_tunnel(tunnel_obj.id)
+                panel.set_public_address(address)
+                panel.set_status(ExposureStatus.ACTIVE)
+                panel.set_error(None)
+
             post_commit.append(lambda s=secret_bytes: self._start_playit_supervisor(s))
         else:
             panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
@@ -1380,6 +1579,16 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         agent_repo = SQLHostAgentRepository(uow.session)
         agent = await agent_repo.get()
 
+        tunnel_id = panel.playit_tunnel_id
+        if tunnel_id and agent.is_claimed and agent.secret_ciphertext:
+            try:
+                secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                secret_hex = secret_bytes.decode("utf-8")
+                api_client = PlayitApiClient()
+                post_commit.append(lambda s=secret_hex, tid=tunnel_id: api_client.delete_tunnel(s, tid))
+            except Exception as exc:
+                logger.warning("Could not queue playit tunnel deletion on disable: %s", exc)
+
         panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.DISABLED)
         panel.set_status(ExposureStatus.DISABLED)
         panel.set_public_address(None)
@@ -1392,6 +1601,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             await agent_repo.save(agent)
             if not desired_running:
                 post_commit.append(self._stop_playit_supervisor)
+
 
     async def _enable_port_forward(
         self,
@@ -1509,11 +1719,84 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
 
     async def _start_playit_supervisor(self, secret: bytes | None) -> None:
         supervisor = get_playit_supervisor()
-        await supervisor.start(secret, on_status=_persist_playit_status)
+        await supervisor.start(
+            secret,
+            on_status=_persist_playit_status,
+            on_reconcile=_reconcile_playit_tunnels,
+        )
 
     async def _stop_playit_supervisor(self) -> None:
         supervisor = get_playit_supervisor()
         await supervisor.stop()
+
+
+async def _reconcile_playit_tunnels() -> None:
+    """Periodically check playit.gg for pending tunnels and auto-adopt discovered ones."""
+    try:
+        async with UnitOfWork() as uow:
+            agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
+            agent = await agent_repo.get()
+            if not agent.is_claimed or not agent.secret_ciphertext:
+                return
+
+            try:
+                secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                secret_hex = secret_bytes.decode("utf-8")
+            except Exception:
+                return
+
+            api_client = PlayitApiClient()
+            rundata = await api_client.get_rundata(secret_hex)
+
+            # Reconcile Panel Exposure
+            panel_repo = SQLPanelExposureRepository(uow.session)
+            panel = await panel_repo.get()
+            if (
+                panel.method == PanelExposureMethod.PLAYIT_HTTP
+                and panel.desired_state == DesiredState.ENABLED
+                and (panel.status != ExposureStatus.ACTIVE or not panel.playit_tunnel_id)
+            ):
+                _active_host, internal_port = get_active_panel_bind()
+                for t in rundata.tunnels:
+                    if t.local_port == internal_port and t.port_type in ("tcp", "both") and not t.is_disabled:
+                        addr = t.display_address
+                        address = f"http://{addr}" if not addr.startswith("http") else addr
+                        panel.set_playit_tunnel(t.id)
+                        panel.set_public_address(address)
+                        panel.set_status(ExposureStatus.ACTIVE)
+                        panel.set_error(None)
+                        await panel_repo.save(panel)
+                        break
+
+            # Reconcile Server Exposures
+            server_repo = SQLServerExposureRepository(uow.session)
+            exposures = await server_repo.list_playit_enabled()
+            for exposure in exposures:
+                changed = False
+                for target in exposure.targets:
+                    if (
+                        target.status != ExposureStatus.DISABLED
+                        and (target.status != ExposureStatus.ACTIVE or not target.playit_tunnel_id)
+                    ):
+                        for t in rundata.tunnels:
+                            if (
+                                t.local_port == target.local_port
+                                and t.port_type in (target.protocol.value, "both")
+                                and not t.is_disabled
+                            ):
+                                target.playit_tunnel_id = t.id
+                                target.mark_active(t.display_address)
+                                changed = True
+
+                                break
+                if changed:
+                    _fold_aggregate(exposure)
+                    await server_repo.save(exposure)
+
+            await uow.commit()
+    except Exception as exc:
+        logger.debug("Playit background tunnel reconciliation skipped/failed: %s", exc)
+
 
 
 async def _persist_panel_status(status: ExposureStatus) -> None:
@@ -1583,8 +1866,9 @@ async def _persist_playit_status(status: ExposureStatus) -> None:
         async with UnitOfWork() as uow:
             agent_repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
             agent = await agent_repo.get()
-            agent.set_process_status(status.value)
+            agent.set_process_status(exposure_status_to_process_status(status))
             await agent_repo.save(agent)
+
 
             server_repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
             exposures = await server_repo.list_playit_enabled()
@@ -1633,6 +1917,41 @@ async def _persist_playit_status(status: ExposureStatus) -> None:
             await uow.commit()
     except Exception:
         logger.exception("Failed to persist playit status %s", status.value)
+
+
+async def _handle_playit_claimed_secret(secret: str) -> None:
+    """Invoked when PlayitAgentSupervisor captures the secret key from claim exchange."""
+    try:
+        secret_bytes = secret.strip().encode("utf-8")
+        ciphertext = _panel_encryption().encrypt(secret_bytes)
+
+        from app.api.deps import get_event_bus
+        event_bus = None
+        try:
+            event_bus = await get_event_bus()
+        except RuntimeError:
+            event_bus = None
+
+        async with UnitOfWork(event_bus) as uow:
+            repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
+            agent = await repo.get()
+            agent.store_secret(ciphertext)
+            agent.set_process_status(AgentProcessStatus.STARTING)
+            await repo.save(agent)
+            for event in agent.collect_events():
+                uow.add_event(event)
+            await uow.commit()
+
+        logger.info("Host playit agent secret encrypted and persisted to database")
+
+        # Now start the daemon with the newly encrypted secret
+        supervisor = get_playit_supervisor()
+        await supervisor.restart(
+            secret=secret_bytes,
+            on_status=_persist_playit_status,
+        )
+    except Exception as exc:
+        logger.exception("Failed to handle playit claimed secret: %s", exc)
 
 
 class ReconcileExposureCommand(Command):
@@ -1796,6 +2115,7 @@ def _panel_payload(
     access_mode: AccessMode | str = AccessMode.LOCAL,
 ) -> dict:
     is_port_forward = panel.method == PanelExposureMethod.PORT_FORWARD
+    is_playit = panel.method == PanelExposureMethod.PLAYIT_HTTP
     is_enabled = panel.desired_state == DesiredState.ENABLED
     sec_advisory = None
     mode_str = access_mode.value if isinstance(access_mode, AccessMode) else str(access_mode)
@@ -1812,6 +2132,12 @@ def _panel_payload(
                 "Port forwarding exposes the panel over unencrypted HTTP. "
                 "Ensure credentials are not transmitted across untrusted public networks."
             )
+    elif is_playit and is_enabled:
+        sec_advisory = (
+            "Playit.gg free tier exposes the panel over raw TCP (HTTP). Credentials are "
+            "transmitted without TLS encryption. For encrypted HTTPS access, switch to "
+            "Cloudflare Tunnel or upgrade to Playit Premium."
+        )
 
     fix_hint = None
     auto_fixed = False
@@ -1827,8 +2153,8 @@ def _panel_payload(
         "desired_state": panel.desired_state.value,
         "status": panel.status.value,
         "public_address": panel.public_address,
-        "tls": not is_port_forward,
-        "protocol": "http" if is_port_forward else "https",
+        "tls": not (is_port_forward or is_playit),
+        "protocol": "http" if (is_port_forward or is_playit) else "https",
         "external_port": panel.external_port,
         "cloudflare_tunnel_id": panel.cloudflare_tunnel_id,
         "playit_tunnel_id": panel.playit_tunnel_id,
@@ -1839,6 +2165,7 @@ def _panel_payload(
         "auto_fixed": auto_fixed,
         "security_advisory": sec_advisory,
     }
+
 
 
 def _target_payload(target: ServerExposureTarget) -> dict:
@@ -1884,5 +2211,4 @@ def _exposure_payload(exposure: ServerExposure) -> dict:
     }
 
 
-def _fresh_claim_code() -> str:
-    return secrets.token_urlsafe(32)
+
