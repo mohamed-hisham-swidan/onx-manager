@@ -322,4 +322,60 @@ export interface InvitationItem {
   created_at: string;
 }
 
+export type PanelExposureMethodType = "none" | "cloudflare_tunnel" | "playit_http" | "port_forward";
+
+export type DesiredStateType = "ENABLED" | "DISABLED";
+
+export type ExposureStatusType =
+  | "DISABLED"
+  | "STARTING"
+  | "ACTIVE"
+  | "STOPPING"
+  | "STOPPED"
+  | "DEGRADED"
+  | "ERROR"
+  | "RECLAIM_REQUIRED"
+  | "CLAIM_REQUIRED";
+
+export interface PanelExposureResponse {
+  method: PanelExposureMethodType;
+  desired_state: DesiredStateType;
+  status: ExposureStatusType;
+  public_address: string | null;
+  tls: boolean;
+  protocol: "http" | "https";
+  external_port: number | null;
+  cloudflare_tunnel_id: string | null;
+  playit_tunnel_id: string | null;
+  upnp_last_result: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  fix_hint: string | null;
+  auto_fixed: boolean;
+  security_advisory: string | null;
+}
+
+export interface PanelExposureUpdateRequest {
+  method: PanelExposureMethodType;
+  desired_state: DesiredStateType;
+  cloudflare_token?: string;
+  hostname?: string;
+  external_port?: number | null;
+}
+
+export interface AgentStatusResponse {
+  claimed: boolean;
+  process_status: string;
+  desired_agent_running: boolean;
+  last_health_at: string | null;
+  claim_active: boolean;
+  claim_expires_at: string | null;
+}
+
+export interface ClaimResponse {
+  claim_code: string;
+  claim_url: string;
+  expires_at: string;
+}
+
 

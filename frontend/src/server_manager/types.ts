@@ -144,6 +144,66 @@ export interface ServerActionRequest {
 
 export type StatusBadge = { label: string; color: string };
 
+export interface ExposureStatusBadgeConfig {
+  label: string;
+  color: string;
+  dotColor: string;
+  iconName?: "check" | "alert" | "info" | "restart";
+}
+
+export const EXPOSURE_STATUS_MAP: Record<import("@/types").ExposureStatusType, ExposureStatusBadgeConfig> = {
+  ACTIVE: {
+    label: "Active",
+    color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border border-green-200 dark:border-green-800",
+    dotColor: "bg-green-500",
+    iconName: "check",
+  },
+  STARTING: {
+    label: "Starting...",
+    color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800",
+    dotColor: "bg-blue-500 animate-pulse",
+  },
+  STOPPING: {
+    label: "Stopping...",
+    color: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 border border-orange-200 dark:border-orange-800",
+    dotColor: "bg-orange-500 animate-pulse",
+  },
+  STOPPED: {
+    label: "Stopped",
+    color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-200 dark:border-gray-700",
+    dotColor: "bg-gray-400",
+  },
+  DISABLED: {
+    label: "Disabled",
+    color: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-700",
+    dotColor: "bg-gray-400",
+  },
+  DEGRADED: {
+    label: "Degraded",
+    color: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-200 dark:border-amber-800",
+    dotColor: "bg-amber-500",
+    iconName: "alert",
+  },
+  ERROR: {
+    label: "Error",
+    color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border border-red-200 dark:border-red-800",
+    dotColor: "bg-red-500",
+    iconName: "alert",
+  },
+  RECLAIM_REQUIRED: {
+    label: "Token Revoked",
+    color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border border-red-200 dark:border-red-800",
+    dotColor: "bg-red-500",
+    iconName: "alert",
+  },
+  CLAIM_REQUIRED: {
+    label: "Claim Required",
+    color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-800",
+    dotColor: "bg-yellow-500 animate-pulse",
+    iconName: "info",
+  },
+};
+
 export const STATUS_MAP: Record<string, StatusBadge> = {
   running: { label: "Online", color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
   stopped: { label: "Offline", color: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400" },
@@ -151,6 +211,9 @@ export const STATUS_MAP: Record<string, StatusBadge> = {
   starting: { label: "Starting", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
   stopping: { label: "Stopping", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
   crashed: { label: "Crashed", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+  ...Object.fromEntries(
+    Object.entries(EXPOSURE_STATUS_MAP).map(([k, v]) => [k, { label: v.label, color: v.color }])
+  ),
 };
 
 export interface RuntimeDiagnosticsResponse {

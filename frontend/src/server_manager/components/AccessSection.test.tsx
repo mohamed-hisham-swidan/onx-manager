@@ -3,18 +3,58 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AccessSection } from "./AccessSection";
 
-const mockGetMe = vi.fn();
-const mockGetSetupStatus = vi.fn();
-const mockUpdateAccessMode = vi.fn();
-const mockToast = vi.fn();
+const {
+  mockGetMe,
+  mockGetSetupStatus,
+  mockUpdateAccessMode,
+  mockGetPanelExposure,
+  mockGetAgentStatus,
+  mockToast,
+} = vi.hoisted(() => ({
+  mockGetMe: vi.fn(),
+  mockGetSetupStatus: vi.fn(),
+  mockUpdateAccessMode: vi.fn(),
+  mockGetPanelExposure: vi.fn().mockResolvedValue({
+    method: "none",
+    desired_state: "DISABLED",
+    status: "DISABLED",
+    public_address: null,
+    tls: true,
+    protocol: "https",
+    external_port: null,
+    cloudflare_tunnel_id: null,
+    playit_tunnel_id: null,
+    upnp_last_result: null,
+    error_code: null,
+    error_message: null,
+    fix_hint: null,
+    auto_fixed: false,
+    security_advisory: null,
+  }),
+  mockGetAgentStatus: vi.fn().mockResolvedValue({
+    claimed: false,
+    process_status: "STOPPED",
+    desired_agent_running: false,
+    last_health_at: null,
+    claim_active: false,
+    claim_expires_at: null,
+  }),
+  mockToast: vi.fn(),
+}));
 
-vi.mock("@/services/api", () => ({
-  createApiClient: () => ({
+vi.mock("@/services/api", () => {
+  const client = {
     getMe: mockGetMe,
     getSetupStatus: mockGetSetupStatus,
     updateAccessMode: mockUpdateAccessMode,
-  }),
-}));
+    getPanelExposure: mockGetPanelExposure,
+    getAgentStatus: mockGetAgentStatus,
+  };
+  return {
+    createApiClient: () => client,
+    createAuthenticatedApi: () => client,
+  };
+});
 
 vi.mock("@/stores/toastStore", () => ({
   toast: (...args: unknown[]) => mockToast(...args),

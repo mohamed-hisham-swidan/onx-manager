@@ -32,6 +32,10 @@ import type {
   AcceptInviteResponse,
   InvitationItem,
   CurrentUserResponse,
+  PanelExposureResponse,
+  PanelExposureUpdateRequest,
+  AgentStatusResponse,
+  ClaimResponse,
 } from "@/types";
 import { useAuthStore } from "@/stores/authStore";
 import type {
@@ -381,6 +385,25 @@ export function createApiClient(
       request<VerifyInviteResponse>(`/api/v1/invites/verify/${token}`),
     acceptInvite: (body: AcceptInviteRequest) =>
       request<AcceptInviteResponse>("/api/v1/invites/accept", { method: "POST", body }),
+
+    // Exposure - Panel & Agent
+    getPanelExposure: () =>
+      request<PanelExposureResponse>("/api/v1/exposure/panel"),
+    setPanelExposure: (body: PanelExposureUpdateRequest) =>
+      request<PanelExposureResponse>("/api/v1/exposure/panel", {
+        method: "PUT",
+        body,
+      }),
+    getAgentStatus: () =>
+      request<AgentStatusResponse>("/api/v1/exposure/agent"),
+    generateClaim: () =>
+      request<ClaimResponse>("/api/v1/exposure/agent/claim", {
+        method: "POST",
+      }),
+    resetAgent: () =>
+      request<AgentStatusResponse>("/api/v1/exposure/agent/reset", {
+        method: "POST",
+      }),
   };
 }
 
