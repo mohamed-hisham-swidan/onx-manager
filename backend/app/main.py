@@ -60,7 +60,7 @@ _start_time: float = 0.0
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     global _start_time
     _start_time = time.time()
     settings = ConfigFactory.global_settings()
@@ -98,7 +98,9 @@ async def lifespan(app: FastAPI):
                 for r in repaired:
                     logger.info(
                         'Runtime reconciled server="%s" (%s): %s',
-                        r.server_name, r.server_id, "; ".join(r.actions),
+                        r.server_name,
+                        r.server_id,
+                        "; ".join(r.actions),
                     )
         except Exception:
             logger.exception("Startup runtime reconciliation failed")
@@ -118,14 +120,20 @@ async def lifespan(app: FastAPI):
             if snapshot.total_orphans > 0 or snapshot.conflicts:
                 logger.info(
                     "Startup ownership check: %d active servers, %d orphans, %d conflicts",
-                    len(snapshot.active_servers), snapshot.total_orphans, len(snapshot.conflicts),
+                    len(snapshot.active_servers),
+                    snapshot.total_orphans,
+                    len(snapshot.conflicts),
                 )
                 if snapshot.orphan_tmux:
-                    logger.warning("Orphan tmux sessions on startup: %s",
-                                   [r.identifier for r in snapshot.orphan_tmux])
+                    logger.warning(
+                        "Orphan tmux sessions on startup: %s",
+                        [r.identifier for r in snapshot.orphan_tmux],
+                    )
                 if snapshot.orphan_processes:
-                    logger.warning("Orphan Minecraft processes on startup: %s",
-                                   [r.identifier for r in snapshot.orphan_processes])
+                    logger.warning(
+                        "Orphan Minecraft processes on startup: %s",
+                        [r.identifier for r in snapshot.orphan_processes],
+                    )
                 if snapshot.conflicts:
                     for c in snapshot.conflicts:
                         logger.warning("Ownership conflict: %s — %s", c.reason.value, c.detail)
@@ -140,6 +148,15 @@ async def lifespan(app: FastAPI):
             logger.exception("Import architecture migration failed")
 
         try:
+            from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
+
+            reconciled_playit = await get_playit_supervisor().reconcile_startup()
+            if reconciled_playit:
+                logger.info("Playit supervisor successfully re-attached to running daemon")
+        except Exception:
+            logger.exception("Playit startup reconciliation failed")
+
+        try:
             service = FilesystemReconciliationService(repo)
             fs_result = await service.reconcile()
             await session.commit()
@@ -150,13 +167,23 @@ async def lifespan(app: FastAPI):
             if fs_result.deleted:
                 logger.info("FS reconciliation deleted %d stale record(s)", fs_result.total_deleted)
             if fs_result.missing:
-                logger.warning("FS reconciliation marked %d server(s) as MISSING", fs_result.total_missing)
+                logger.warning(
+                    "FS reconciliation marked %d server(s) as MISSING", fs_result.total_missing
+                )
             if fs_result.broken:
-                logger.warning("FS reconciliation found %d broken server(s)", fs_result.total_broken)
+                logger.warning(
+                    "FS reconciliation found %d broken server(s)", fs_result.total_broken
+                )
             if fs_result.ignored:
-                logger.info("FS reconciliation ignored %d non-Minecraft directory(ies)", fs_result.total_ignored)
+                logger.info(
+                    "FS reconciliation ignored %d non-Minecraft directory(ies)",
+                    fs_result.total_ignored,
+                )
             if fs_result.invalid_identity:
-                logger.warning("FS reconciliation found %d invalid identity file(s)", fs_result.total_invalid_identity)
+                logger.warning(
+                    "FS reconciliation found %d invalid identity file(s)",
+                    fs_result.total_invalid_identity,
+                )
             if fs_result.errors:
                 logger.warning("FS reconciliation encountered %d error(s)", fs_result.total_errors)
         except Exception:
@@ -243,6 +270,7 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import select
 
         from app.tasks.scheduler import CronJobModel
+
         result = await sess.execute(select(CronJobModel).where(CronJobModel.enabled == 1))
         jobs = result.scalars().all()
         logger.info("Scheduler loaded %d cron job(s)", len(jobs))
@@ -251,6 +279,25 @@ async def lifespan(app: FastAPI):
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────────
+    try:
+        from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
+
+        await get_playit_supervisor().stop()
+    except Exception:
+        logger.warning("Error stopping playit supervisor on shutdown", exc_info=True)
+
+    try:
+        from app.modules.exposure.infrastructure.cloudflared import (
+            _server_supervisors,
+            get_cloudflared_supervisor,
+        )
+
+        await get_cloudflared_supervisor().stop()
+        for _sid, s_sup in list(_server_supervisors.items()):
+            await s_sup.stop()
+    except Exception:
+        logger.warning("Error stopping cloudflared supervisor on shutdown", exc_info=True)
+
     await stop_websocket_services()
     await scheduler.stop()
     await metrics_collector.close()
@@ -312,7 +359,7 @@ def create_app() -> FastAPI:
     async def health_check():
         db_status = "connected"
         try:
-            database.engine
+            _ = database.engine
         except RuntimeError:
             db_status = "disconnected"
         return {

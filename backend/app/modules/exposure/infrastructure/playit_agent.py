@@ -1,8 +1,10 @@
-"""Orchestrated ``playit`` child-subprocess supervision (Batch 7.2b).
+"""Orchestrated ``playit`` child-subprocess supervision.
 
 Supervises the host-level playit.gg agent process:
   - Non-interactive claim detection via stdout/stderr extraction
-  - Secret key passed via temporary 0600 file (never on argv)
+  - Secret key passed via deterministic 0600 file (never on argv)
+  - Cross-process mutual exclusion via atomic file locking (fcntl.flock)
+  - Startup orphan reconciliation with dual PID + socket liveness probe
   - Process start/stop/restart with bounded exponential backoff
   - Health monitoring and state synchronization
 """
@@ -18,11 +20,11 @@ import secrets
 import shutil
 import signal
 import sys
-import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from app.core.config import AppSettings
 from app.modules.exposure.domain.value_objects import ExposureStatus
 
 logger = logging.getLogger("mcs.exposure.playit")
@@ -31,6 +33,10 @@ HEALTH_INTERVAL_SECONDS = 30.0
 STALE_AFTER_SECONDS = 90.0
 MAX_RESTARTS = 5
 BACKOFF_BASE_SECONDS = 2.0
+RECONCILE_TIMEOUT_SECONDS = 2.0
+SOCKET_PROBE_TIMEOUT_SECONDS = 0.2
+SIGTERM_WAIT_SECONDS = 5.0
+SIGKILL_WAIT_SECONDS = 3.0
 
 # Regex patterns for playit claim links, secret keys, and auth errors
 _CLAIM_URL_PATTERN = re.compile(r"https?://playit\.gg/claim/([a-zA-Z0-9_-]+)")
@@ -47,6 +53,15 @@ _AUTH_FAILURE_MARKERS = (
     "authentication failed",
     "claim expired",
 )
+
+
+def _get_default_run_dir() -> Path:
+    """Return canonical runtime directory for playit process state."""
+    try:
+        servers_dir = Path(AppSettings().servers_data_dir)
+        return servers_dir.parent / "run" / "playit"
+    except Exception:
+        return Path("data/run/playit")
 
 
 def _get_playitd_cmd() -> list[str]:
@@ -101,17 +116,111 @@ def is_windows() -> bool:
     return sys.platform == "win32"
 
 
+def _is_pid_alive(pid: int) -> bool:
+    """Check if process with given PID exists and is accessible."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+    except OSError:
+        return False
+
+
+def _is_pid_alive_and_playit(pid: int) -> bool:
+    """Verify PID exists and is actually a playit/playitd process (prevents recycled PID reuse)."""
+    if not _is_pid_alive(pid):
+        return False
+    if is_windows():
+        return True
+
+    # Inspect /proc/{pid}/cmdline on Linux
+    try:
+        cmdline_path = Path(f"/proc/{pid}/cmdline")
+        if cmdline_path.exists():
+            raw = cmdline_path.read_bytes()
+            cmdline = raw.replace(b"\x00", b" ").decode("utf-8", errors="replace").lower()
+            return "playit" in cmdline or "playitd" in cmdline
+    except Exception:
+        pass
+    return True
+
+
+async def _probe_unix_socket(
+    socket_path: Path, timeout: float = SOCKET_PROBE_TIMEOUT_SECONDS
+) -> bool:
+    """Perform a rapid connect probe on the Unix domain socket to verify active liveness."""
+    if not socket_path.exists():
+        return False
+    if is_windows():
+        return True
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_unix_connection(str(socket_path)),
+            timeout=timeout,
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
+class FileLock:
+    """Atomic non-blocking cross-process file lock via fcntl.flock on POSIX."""
+
+    def __init__(self, lock_path: Path) -> None:
+        self.lock_path = lock_path
+        self._fd: int | None = None
+
+    def acquire(self, timeout: float = 2.0) -> bool:
+        if is_windows():
+            return True
+        try:
+            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            self._fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+            start = time.monotonic()
+            while True:
+                try:
+                    import fcntl
+
+                    fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return True
+                except (BlockingIOError, OSError):
+                    if time.monotonic() - start > timeout:
+                        return False
+                    time.sleep(0.05)
+        except Exception as exc:
+            logger.warning("Failed to acquire file lock %s: %s", self.lock_path, exc)
+            return False
+
+    def release(self) -> None:
+        if is_windows() or self._fd is None:
+            return
+        import fcntl
+
+        with contextlib.suppress(OSError):
+            fcntl.flock(self._fd, fcntl.LOCK_UN)
+        with contextlib.suppress(OSError):
+            os.close(self._fd)
+        self._fd = None
+
+
 class PlayitAgentSupervisor:
     """Owns the host-level ``playit`` child process and claim/tunnel supervision."""
 
     def __init__(
         self,
         *,
+        run_dir: Path | None = None,
         health_interval: float = HEALTH_INTERVAL_SECONDS,
         stale_after: float = STALE_AFTER_SECONDS,
         max_restarts: int = MAX_RESTARTS,
         backoff_base: float = BACKOFF_BASE_SECONDS,
     ) -> None:
+        self._run_dir = run_dir or _get_default_run_dir()
         self._health_interval = health_interval
         self._stale_after = stale_after
         self._max_restarts = max_restarts
@@ -120,6 +229,7 @@ class PlayitAgentSupervisor:
         self._lifecycle_lock = asyncio.Lock()
         self._current_secret_bytes: bytes | None = None
         self._process: asyncio.subprocess.Process | None = None
+        self._external_pid: int | None = None
         self._secret_file: Path | None = None
         self._monitor_task: asyncio.Task[None] | None = None
         self._output_reader: asyncio.Task[None] | None = None
@@ -133,6 +243,32 @@ class PlayitAgentSupervisor:
         self._on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None
         self._on_secret: Callable[[str], Awaitable[None]] | None = None
         self._on_reconcile: Callable[[], Awaitable[None]] | None = None
+
+    @property
+    def run_dir(self) -> Path:
+        return self._run_dir
+
+    @property
+    def secret_file_path(self) -> Path:
+        return self._run_dir / "agent.secret"
+
+    @property
+    def socket_path(self) -> Path:
+        return self._run_dir / "agent.sock"
+
+    @property
+    def pid_file_path(self) -> Path:
+        return self._run_dir / "agent.pid"
+
+    @property
+    def lock_file_path(self) -> Path:
+        return self._run_dir / "agent.lock"
+
+    @property
+    def pid(self) -> int | None:
+        if self._process is not None and self._process.returncode is None:
+            return self._process.pid
+        return self._external_pid
 
     @property
     def status(self) -> ExposureStatus:
@@ -152,11 +288,90 @@ class PlayitAgentSupervisor:
 
     @property
     def is_running(self) -> bool:
-        return self._process is not None and self._process.returncode is None
+        if self._process is not None and self._process.returncode is None:
+            return True
+        if self._external_pid is not None:
+            return _is_pid_alive_and_playit(self._external_pid)
+        return False
 
     @property
     def last_health_at(self) -> float:
         return self._last_health_at
+
+    async def reconcile_startup(self) -> bool:
+        """Startup reconciliation: inspects PID and socket paths to re-attach or clean orphans."""
+        try:
+            return await asyncio.wait_for(
+                self._reconcile_startup_internal(),
+                timeout=RECONCILE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Playit startup reconciliation timed out after %.1fs", RECONCILE_TIMEOUT_SECONDS
+            )
+            return False
+        except Exception:
+            logger.exception("Error during playit startup reconciliation")
+            return False
+
+    async def _reconcile_startup_internal(self) -> bool:
+        lock = FileLock(self.lock_file_path)
+        if not lock.acquire(timeout=1.0):
+            logger.warning("Could not acquire playit startup reconciliation lock; skipping")
+            return False
+
+        try:
+            if not self.pid_file_path.exists():
+                self._cleanup_stale_artifacts(clean_pid=False)
+                return False
+
+            pid_str = ""
+            try:
+                pid_str = self.pid_file_path.read_text(encoding="utf-8").strip()
+                pid = int(pid_str)
+            except (ValueError, OSError):
+                logger.warning("Corrupted playit PID file containing '%s'; cleaning up", pid_str)
+                self._cleanup_stale_artifacts(clean_pid=True)
+                return False
+
+            if not _is_pid_alive_and_playit(pid):
+                logger.info(
+                    "Found stale playit PID file pointing to dead or recycled PID %d; cleaning up",
+                    pid,
+                )
+                self._cleanup_stale_artifacts(clean_pid=True)
+                return False
+
+            # Stage 2: Verify socket responsiveness
+            socket_alive = await _probe_unix_socket(
+                self.socket_path, timeout=SOCKET_PROBE_TIMEOUT_SECONDS
+            )
+            if socket_alive:
+                logger.info(
+                    "Playit startup reconciliation: re-attached to running daemon (PID %d)",
+                    pid,
+                )
+                self._external_pid = pid
+                if self.secret_file_path.exists():
+                    self._secret_file = self.secret_file_path
+                self._last_health_at = time.monotonic()
+                self._set_status(ExposureStatus.ACTIVE)
+                self._stop_event.clear()
+                if self._monitor_task is None or self._monitor_task.done():
+                    self._monitor_task = asyncio.create_task(
+                        self._monitor_loop(), name="playit-supervisor-monitor"
+                    )
+                return True
+
+            logger.warning(
+                "Playit daemon PID %d is alive but socket is unresponsive; terminating orphan",
+                pid,
+            )
+            await self._terminate_pid_direct(pid)
+            self._cleanup_stale_artifacts(clean_pid=True)
+            return False
+        finally:
+            lock.release()
 
     async def start(
         self,
@@ -166,7 +381,7 @@ class PlayitAgentSupervisor:
         on_secret: Callable[[str], Awaitable[None]] | None = None,
         on_reconcile: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
-        """Start the supervised playit agent child process with idempotency guard."""
+        """Start supervised playit agent child process with atomic idempotency and paths."""
         async with self._lifecycle_lock:
             if on_status is not None:
                 self._on_status = on_status
@@ -174,7 +389,6 @@ class PlayitAgentSupervisor:
                 self._on_secret = on_secret
             if on_reconcile is not None:
                 self._on_reconcile = on_reconcile
-
 
             secret_bytes = (
                 secret
@@ -186,7 +400,6 @@ class PlayitAgentSupervisor:
 
             # Check if supervisor is already active/running
             if self.is_running:
-                # If secret is being supplied to an unauthenticated instance, restart with secret
                 if secret_bytes and secret_bytes != self._current_secret_bytes:
                     logger.info("Restarting playit supervisor with updated secret")
                     await self._stop_internal()
@@ -195,12 +408,24 @@ class PlayitAgentSupervisor:
                     await self._stop_internal()
                 else:
                     logger.debug(
-                        "playit supervisor already active/running with matching config; reusing running instance"
+                        "playit supervisor already active/running with matching config; reusing"
                     )
                     return
             else:
-                # Process is not running; cleanly stop any residual monitor state before starting
                 await self._stop_internal()
+
+            # Ensure runtime directory permissions and prepare paths
+            try:
+                self._run_dir.mkdir(parents=True, exist_ok=True)
+                if not is_windows():
+                    with contextlib.suppress(OSError):
+                        os.chmod(self._run_dir, 0o700)
+            except (PermissionError, OSError) as exc:
+                err_msg = f"Failed to initialize runtime state directory at {self._run_dir}: {exc}"
+                logger.error(err_msg)
+                self._error_message = err_msg
+                self._set_status(ExposureStatus.ERROR)
+                raise
 
             self._stop_event.clear()
             self._restart_count = 0
@@ -226,7 +451,7 @@ class PlayitAgentSupervisor:
             )
 
     async def stop(self) -> None:
-        """Gracefully stop the supervisor and clean up secret files."""
+        """Gracefully stop the supervisor and clean up deterministic files."""
         async with self._lifecycle_lock:
             await self._stop_internal()
 
@@ -240,6 +465,8 @@ class PlayitAgentSupervisor:
 
         await self._terminate_process()
         self._cleanup_secret_file()
+        self._cleanup_pid_file()
+        self._cleanup_socket_file()
         self._current_secret_bytes = None
         self._set_status(ExposureStatus.STOPPED)
 
@@ -260,34 +487,69 @@ class PlayitAgentSupervisor:
         )
 
     def _write_secret_file(self, secret: bytes) -> Path:
-        """Write secret to a temporary file with restricted (0600) permissions."""
-        fd, path = tempfile.mkstemp(prefix="mcs_playit_secret_", suffix=".secret")
+        """Write secret to a deterministic file with restricted (0600) permissions."""
+        self._run_dir.mkdir(parents=True, exist_ok=True)
+        if not is_windows():
+            with contextlib.suppress(OSError):
+                os.chmod(self._run_dir, 0o700)
+
+        path = self.secret_file_path
+        fd = os.open(str(path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
         try:
-            os.chmod(path, 0o600)
             os.write(fd, secret)
         finally:
             os.close(fd)
-        return Path(path)
+
+        if not is_windows():
+            with contextlib.suppress(OSError):
+                os.chmod(path, 0o600)
+        return path
 
     def _cleanup_secret_file(self) -> None:
-        """Securely remove temporary secret file."""
-        if self._secret_file is not None and self._secret_file.exists():
+        """Securely remove deterministic secret file."""
+        if self.secret_file_path.exists():
             try:
-                self._secret_file.unlink(missing_ok=True)
+                self.secret_file_path.unlink(missing_ok=True)
             except OSError as exc:
-                logger.warning("Failed to remove playit secret file %s: %s", self._secret_file, exc)
-            finally:
-                self._secret_file = None
+                logger.warning(
+                    "Failed to remove playit secret file %s: %s", self.secret_file_path, exc
+                )
+        self._secret_file = None
+
+    def _write_pid_file(self, pid: int) -> None:
+        try:
+            self._run_dir.mkdir(parents=True, exist_ok=True)
+            self.pid_file_path.write_text(str(pid), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Failed to write playit PID file %s: %s", self.pid_file_path, exc)
+
+    def _cleanup_pid_file(self) -> None:
+        with contextlib.suppress(OSError):
+            self.pid_file_path.unlink(missing_ok=True)
+
+    def _cleanup_socket_file(self) -> None:
+        with contextlib.suppress(OSError):
+            self.socket_path.unlink(missing_ok=True)
+
+    def _cleanup_stale_artifacts(self, *, clean_pid: bool = True) -> None:
+        if clean_pid:
+            self._cleanup_pid_file()
+        self._cleanup_secret_file()
+        self._cleanup_socket_file()
 
     async def _spawn_child(self) -> None:
-        """Spawn the playit child process."""
+        """Spawn the playit child process using deterministic paths."""
+        self._cleanup_socket_file()
         if self._secret_file:
             cmd = list(_get_playitd_cmd())
-            socket_path = f"/tmp/mcs_playit_{os.getpid()}.sock"
-            cmd.extend([
-                "--secret-path", str(self._secret_file),
-                "--socket-path", socket_path,
-            ])
+            cmd.extend(
+                [
+                    "--secret-path",
+                    str(self._secret_file),
+                    "--socket-path",
+                    str(self.socket_path),
+                ]
+            )
         elif self._claim_code:
             cmd = list(_get_playit_cli_cmd())
             cmd.extend(["claim", "exchange", self._claim_code])
@@ -295,7 +557,7 @@ class PlayitAgentSupervisor:
             cmd = list(_get_playit_cli_cmd())
             cmd.extend(["claim", "url"])
 
-        logger.info("Spawning playit subprocess (argv safe: secret passed via file)")
+        logger.info("Spawning playit subprocess (argv safe: secret passed via deterministic file)")
 
         extra_kwargs: dict = {}
         if not is_windows():
@@ -308,13 +570,14 @@ class PlayitAgentSupervisor:
             **extra_kwargs,
         )
 
+        if self._process.pid:
+            self._write_pid_file(self._process.pid)
+
         self._output_reader = asyncio.create_task(
             self._read_output(self._process), name="playit-output-reader"
         )
 
-    async def _read_stream(
-        self, stream: asyncio.StreamReader | None, stream_name: str
-    ) -> None:
+    async def _read_stream(self, stream: asyncio.StreamReader | None, stream_name: str) -> None:
         """Continuously read lines from a single stream (stdout or stderr)."""
         if stream is None:
             return
@@ -369,7 +632,7 @@ class PlayitAgentSupervisor:
                         break
 
     async def _read_output(self, proc: asyncio.subprocess.Process) -> None:
-        """Concurrently read stdout and stderr lines for claim links, secret keys, or auth failure markers."""
+        """Read stdout and stderr lines for claim links, secret keys, or auth failure markers."""
         try:
             await asyncio.gather(
                 self._read_stream(proc.stdout, "stdout"),
@@ -400,7 +663,6 @@ class PlayitAgentSupervisor:
                 else:
                     await self._handle_process_exit()
 
-
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -411,8 +673,6 @@ class PlayitAgentSupervisor:
         if self._status == ExposureStatus.RECLAIM_REQUIRED:
             return
 
-        # If in claim exchange mode, exit means exchange finished or timed out.
-        # Do NOT retry with an invalid/consumed claim code!
         if not self._secret_file:
             logger.info(
                 "Playit claim exchange process exited (returncode %s)",
@@ -443,37 +703,56 @@ class PlayitAgentSupervisor:
             pass
 
     async def _terminate_process(self) -> None:
-        """Terminate the child subprocess cleanly."""
+        """Terminate the child subprocess or re-attached external process cleanly."""
         proc = self._process
+        ext_pid = self._external_pid
         self._process = None
+        self._external_pid = None
+
         if self._output_reader is not None and not self._output_reader.done():
             self._output_reader.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._output_reader
             self._output_reader = None
 
-        if proc is None or proc.returncode is not None:
+        pid = proc.pid if proc is not None and proc.returncode is None else ext_pid
+        if pid is None:
             return
 
-        pid = proc.pid
-        logger.info("Terminating playit subprocess (PID %s)", pid)
+        await self._terminate_pid_direct(pid)
 
+    async def _terminate_pid_direct(self, pid: int) -> None:
+        """Send direct SIGTERM then bounded SIGKILL fallback to a specific PID."""
+        logger.info("Terminating playit process (PID %s)", pid)
         try:
             if not is_windows():
-                os.killpg(os.getpgid(pid), signal.SIGTERM)
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    return
             else:
-                proc.terminate()
-            await asyncio.wait_for(proc.wait(), timeout=5.0)
-        except TimeoutError:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    return
+
+            start = time.monotonic()
+            while time.monotonic() - start < SIGTERM_WAIT_SECONDS:
+                if not _is_pid_alive(pid):
+                    return
+                await asyncio.sleep(0.1)
+
             logger.warning("playit (PID %s) did not exit on SIGTERM; sending SIGKILL", pid)
             try:
-                if not is_windows():
-                    os.killpg(os.getpgid(pid), signal.SIGKILL)
-                else:
-                    proc.kill()
-                await asyncio.wait_for(proc.wait(), timeout=3.0)
-            except Exception as exc:
-                logger.warning("Error killing playit process %s: %s", pid, exc)
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                return
+
+            start_kill = time.monotonic()
+            while time.monotonic() - start_kill < SIGKILL_WAIT_SECONDS:
+                if not _is_pid_alive(pid):
+                    return
+                await asyncio.sleep(0.1)
         except ProcessLookupError:
             pass
         except Exception as exc:
