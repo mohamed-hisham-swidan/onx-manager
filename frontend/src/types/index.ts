@@ -378,4 +378,145 @@ export interface ClaimResponse {
   expires_at: string;
 }
 
+// Server Network Exposure & Targets (Phase 7.5)
+export type ExposureMethodType = "none" | "playit" | "port_forward" | "cloudflare_tcp";
+
+export type TargetProtocolType = "tcp" | "udp";
+
+export type ServiceType = "java" | "bedrock" | "voice" | "bluemap";
+
+export interface TargetResponse {
+  id: string;
+  exposure_id: string;
+  protocol: TargetProtocolType;
+  service_type: ServiceType;
+  local_port: number;
+  public_address: string | null;
+  status: ExposureStatusType;
+  error_code: string | null;
+  error_message: string | null;
+  dashboard_url: string | null;
+  setup_instructions: string | null;
+}
+
+export interface ServerExposureResponse {
+  server_id: string;
+  method: ExposureMethodType;
+  desired_state: DesiredStateType;
+  aggregate_status: ExposureStatusType;
+  error_code: string | null;
+  error_message: string | null;
+  cloudflare_tunnel_id: string | null;
+  has_cloudflare_credentials: boolean;
+  targets: TargetResponse[];
+}
+
+export interface ServerExposureUpdateRequest {
+  method: ExposureMethodType;
+  desired_state: DesiredStateType;
+  cloudflare_token?: string;
+  hostname?: string;
+  acknowledged_warning?: boolean;
+}
+
+export interface ServerExposureStateUpdateRequest {
+  desired_state: DesiredStateType;
+  cloudflare_token?: string;
+  hostname?: string;
+  acknowledged_warning?: boolean;
+}
+
+export interface TargetCreateRequest {
+  service_type: ServiceType;
+  protocol?: TargetProtocolType;
+  local_port?: number;
+  public_address?: string;
+}
+
+export interface TargetUpdateRequest {
+  public_address: string;
+}
+
+export interface RegisteredPortResponse {
+  id: string;
+  server_id: string;
+  service_type: ServiceType;
+  protocol: TargetProtocolType;
+  port: number;
+  name: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface RegisteredPortCreateRequest {
+  service_type: Exclude<ServiceType, "java">;
+  protocol: TargetProtocolType;
+  port: number;
+  name?: string;
+}
+
+export interface StopAllResponse {
+  disabled_count: number;
+}
+
+export const SERVICE_METADATA: Record<ServiceType, {
+  label: string;
+  defaultProtocol: TargetProtocolType;
+  defaultPort: number;
+  description: string;
+  isPrimary: boolean;
+}> = {
+  java: {
+    label: "Java Edition",
+    defaultProtocol: "tcp",
+    defaultPort: 25565,
+    description: "Standard Minecraft Java game protocol (TCP). Port bound to Server Configuration.",
+    isPrimary: true,
+  },
+  bedrock: {
+    label: "Bedrock Edition (Geyser)",
+    defaultProtocol: "udp",
+    defaultPort: 19132,
+    description: "Minecraft Bedrock RakNet protocol (UDP) for cross-play.",
+    isPrimary: false,
+  },
+  voice: {
+    label: "Simple Voice Chat",
+    defaultProtocol: "udp",
+    defaultPort: 24454,
+    description: "In-game proximity voice chat protocol (UDP).",
+    isPrimary: false,
+  },
+  bluemap: {
+    label: "BlueMap Web Map",
+    defaultProtocol: "tcp",
+    defaultPort: 8100,
+    description: "3D browser map viewer (HTTP/TCP).",
+    isPrimary: false,
+  },
+};
+
+export const DENY_LIST_PORTS: ReadonlySet<number> = new Set([
+  25575, // RCON default
+  3306,  // MySQL
+  5432,  // PostgreSQL
+  6379,  // Redis
+  27017, // MongoDB
+  9090,  // Prometheus metrics
+  9100,  // Node exporter
+]);
+
+export function validateLocalPort(port: number, serverGamePort: number): { valid: boolean; error?: string } {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return { valid: false, error: "Port must be a valid number between 1 and 65535." };
+  }
+  if (DENY_LIST_PORTS.has(port)) {
+    return { valid: false, error: `Port ${port} is reserved for internal management/database services and cannot be exposed.` };
+  }
+  if (port === serverGamePort) {
+    return { valid: false, error: `Port ${port} is already assigned to the primary Java game server.` };
+  }
+  return { valid: true };
+}
+
 

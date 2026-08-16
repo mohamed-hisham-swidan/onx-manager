@@ -30,6 +30,7 @@ export function ServerShell() {
   const navItems = [
     { to: `/servers/${serverId}/console`, label: "Console", icon: "dashboard" as const },
     { to: `/servers/${serverId}/files`, label: "Files", icon: "folder" as const },
+    { to: `/servers/${serverId}/network`, label: "Network & Exposure", icon: "activity" as const },
     ...(supportsMods ? [{ to: `/servers/${serverId}/mods`, label: "Mods", icon: "plugin" as const }] : []),
     ...(supportsPlugins ? [{ to: `/servers/${serverId}/plugins`, label: "Plugins", icon: "plugin" as const }] : []),
   ];

@@ -36,6 +36,15 @@ import type {
   PanelExposureUpdateRequest,
   AgentStatusResponse,
   ClaimResponse,
+  ServerExposureResponse,
+  ServerExposureUpdateRequest,
+  ServerExposureStateUpdateRequest,
+  TargetResponse,
+  TargetCreateRequest,
+  TargetUpdateRequest,
+  RegisteredPortResponse,
+  RegisteredPortCreateRequest,
+  StopAllResponse,
 } from "@/types";
 import { useAuthStore } from "@/stores/authStore";
 import type {
@@ -402,6 +411,61 @@ export function createApiClient(
       }),
     resetAgent: () =>
       request<AgentStatusResponse>("/api/v1/exposure/agent/reset", {
+        method: "POST",
+      }),
+
+    // Server Exposure & Targets (Phase 7.5)
+    getServerExposure: (serverId: string) =>
+      request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`),
+    setServerExposure: (serverId: string, body: ServerExposureUpdateRequest) =>
+      request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`, {
+        method: "PUT",
+        body,
+      }),
+    setServerExposureState: (serverId: string, body: ServerExposureStateUpdateRequest) =>
+      request<ServerExposureResponse>(`/api/v1/servers/${serverId}/exposure`, {
+        method: "PATCH",
+        body,
+      }),
+    removeServerExposure: (serverId: string) =>
+      request<void>(`/api/v1/servers/${serverId}/exposure`, {
+        method: "DELETE",
+      }),
+    listExposureTargets: (serverId: string) =>
+      request<TargetResponse[]>(`/api/v1/servers/${serverId}/exposure/targets`),
+    createExposureTarget: (serverId: string, body: TargetCreateRequest) =>
+      request<TargetResponse>(`/api/v1/servers/${serverId}/exposure/targets`, {
+        method: "POST",
+        body,
+      }),
+    updateExposureTarget: (serverId: string, targetId: string, body: TargetUpdateRequest) =>
+      request<TargetResponse>(`/api/v1/servers/${serverId}/exposure/targets/${targetId}`, {
+        method: "PUT",
+        body,
+      }),
+    deleteExposureTarget: (serverId: string, targetId: string) =>
+      request<void>(`/api/v1/servers/${serverId}/exposure/targets/${targetId}`, {
+        method: "DELETE",
+      }),
+    listServerPorts: (serverId: string) =>
+      request<RegisteredPortResponse[]>(`/api/v1/servers/${serverId}/ports`),
+    registerServerPort: (serverId: string, body: RegisteredPortCreateRequest) =>
+      request<RegisteredPortResponse>(`/api/v1/servers/${serverId}/ports`, {
+        method: "POST",
+        body,
+      }),
+    deleteServerPort: (serverId: string, portId: string) =>
+      request<void>(`/api/v1/servers/${serverId}/ports/${portId}`, {
+        method: "DELETE",
+      }),
+
+    // Global Exposure Actions (Owner-Only)
+    stopAllExposures: () =>
+      request<StopAllResponse>("/api/v1/exposure/stop-all", {
+        method: "POST",
+      }),
+    removeCredentials: () =>
+      request<{ status: string }>("/api/v1/exposure/credentials/remove", {
         method: "POST",
       }),
   };

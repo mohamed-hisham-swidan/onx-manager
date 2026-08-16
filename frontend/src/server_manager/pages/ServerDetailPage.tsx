@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer, useServerRuntime } from "@/server_manager/hooks/useServers";
+import { useServerExposure } from "@/server_manager/hooks/useServerExposure";
 import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
@@ -64,6 +65,7 @@ export function ServerDetailPage() {
   const { data: server, isLoading, error } = useServerDetail(serverId ?? "");
   const { data: runtime } = useServerRuntime(serverId ?? "");
   const { data: metrics } = useServerMetrics(serverId ?? "");
+  const { exposure } = useServerExposure(serverId ?? "");
   const startServer = useStartServer();
   const stopServer = useStopServer();
   const restartServer = useRestartServer();
@@ -328,6 +330,24 @@ export function ServerDetailPage() {
                       <DetailRow label="Max Players">{server.max_players}</DetailRow>
                       <DetailRow label="MOTD">
                         <span className="block max-w-xs text-right">{renderMotd(server.motd)}</span>
+                      </DetailRow>
+                      <DetailRow label="Public Exposure">
+                        {exposure?.desired_state === "ENABLED" && exposure.targets?.[0]?.public_address ? (
+                          <div className="flex items-center gap-2">
+                            <StatusBadge status={exposure.aggregate_status} />
+                            <span className="font-mono text-xs">{exposure.targets[0].public_address}</span>
+                            <Link to={`/servers/${serverId}/network`} className="text-blue-600 dark:text-blue-400 hover:underline text-xs">
+                              Manage
+                            </Link>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500">Not Exposed</span>
+                            <Link to={`/servers/${serverId}/network`} className="text-blue-600 dark:text-blue-400 hover:underline text-xs">
+                              Configure
+                            </Link>
+                          </div>
+                        )}
                       </DetailRow>
                     </DetailSection>
                     <DetailSection title="Deployment">

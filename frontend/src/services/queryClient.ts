@@ -62,5 +62,8 @@ export const queryKeys = {
     all: ["exposure"] as const,
     panel: () => ["exposure", "panel"] as const,
     agent: () => ["exposure", "agent"] as const,
+    server: (serverId: string) => ["exposure", "server", serverId] as const,
+    targets: (serverId: string) => ["exposure", "targets", serverId] as const,
+    ports: (serverId: string) => ["exposure", "ports", serverId] as const,
   },
 };

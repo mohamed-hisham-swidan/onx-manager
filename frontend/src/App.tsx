@@ -17,6 +17,7 @@ import { CreateServerPage } from "@/server_manager/pages/CreateServerPage";
 import { ImportServerPage } from "@/server_manager/pages/ImportServerPage";
 import { ServerDetailPage } from "@/server_manager/pages/ServerDetailPage";
 import { ServerFilesPage } from "@/server_manager/pages/ServerFilesPage";
+import { ServerExposurePage } from "@/server_manager/pages/ServerExposurePage";
 import { ServerModsPage } from "@/server_manager/pages/ServerModsPage";
 import { BackupListPage } from "@/server_manager/pages/BackupListPage";
 import { PluginListPage } from "@/server_manager/pages/PluginListPage";
@@ -57,6 +58,7 @@ export default function App() {
                 <Route index element={<Navigate to="console" replace />} />
                 <Route path="console" element={<ServerDetailPage />} />
                 <Route path="files" element={<ServerFilesPage />} />
+                <Route path="network" element={<ServerExposurePage />} />
                 <Route path="mods" element={<ServerModsPage />} />
                 <Route path="plugins" element={<PluginListPage />} />
               </Route>
