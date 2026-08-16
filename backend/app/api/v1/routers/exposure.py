@@ -14,6 +14,8 @@ from app.api.v1.schemas.exposure import (
     PanelExposureResponse,
     PanelExposureUpdateRequest,
     ReconcileRequest,
+    RegisteredPortCreateRequest,
+    RegisteredPortResponse,
     ServerExposureResponse,
     ServerExposureStateUpdateRequest,
     ServerExposureUpdateRequest,
@@ -26,6 +28,7 @@ from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
 from app.modules.exposure.application import (
     CreateExposureTargetCommand,
+    DeleteServerPortCommand,
     DisableServerExposureCommand,
     EnableServerExposureCommand,
     GenerateClaimCommand,
@@ -33,7 +36,9 @@ from app.modules.exposure.application import (
     GetPanelExposureQuery,
     GetServerExposureQuery,
     ListExposureTargetsQuery,
+    ListServerPortsQuery,
     ReconcileExposureCommand,
+    RegisterServerPortCommand,
     RemoveCredentialsCommand,
     RemoveServerExposureCommand,
     ResetAgentCommand,
@@ -61,9 +66,7 @@ async def generate_claim(
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     current_user: dict = Depends(require_owner()),  # noqa: B008
 ) -> ClaimResponse:
-    result = await command_bus.send(
-        GenerateClaimCommand(actor_id=current_user.get("user_id", ""))
-    )
+    result = await command_bus.send(GenerateClaimCommand(actor_id=current_user.get("user_id", "")))
     return ClaimResponse(**check_command_result(result))
 
 
@@ -241,6 +244,9 @@ async def create_exposure_target(
     result = await command_bus.send(
         CreateExposureTargetCommand(
             server_id=server_id,
+            service_type=body.service_type if body else "java",
+            protocol=body.protocol if body else None,
+            local_port=body.local_port if body else None,
             public_address=body.public_address if body else None,
             actor_id=current_user.get("user_id", ""),
         )
@@ -268,3 +274,59 @@ async def update_exposure_target(
         )
     )
     return TargetResponse(**check_command_result(result))
+
+
+@router.get(
+    "/servers/{server_id}/ports",
+    response_model=list[RegisteredPortResponse],
+)
+async def list_server_ports(
+    server_id: str,
+    query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
+    _current_user: dict = Depends(require_exposure_grant("server.{id}.exposure.view")),  # noqa: B008
+) -> list[RegisteredPortResponse]:
+    result = await query_bus.ask(ListServerPortsQuery(server_id=server_id))
+    return [RegisteredPortResponse(**p) for p in result]
+
+
+@router.post(
+    "/servers/{server_id}/ports",
+    response_model=RegisteredPortResponse,
+    status_code=201,
+)
+async def register_server_port(
+    server_id: str,
+    body: RegisteredPortCreateRequest,
+    command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
+    current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
+) -> RegisteredPortResponse:
+    result = await command_bus.send(
+        RegisterServerPortCommand(
+            server_id=server_id,
+            service_type=body.service_type,
+            protocol=body.protocol,
+            port=body.port,
+            name=body.name,
+            actor_id=current_user.get("user_id", ""),
+        )
+    )
+    return RegisteredPortResponse(**check_command_result(result))
+
+
+@router.delete(
+    "/servers/{server_id}/ports/{port_id}",
+    status_code=204,
+)
+async def delete_server_port(
+    server_id: str,
+    port_id: str,
+    command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
+    current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
+) -> None:
+    await command_bus.send(
+        DeleteServerPortCommand(
+            server_id=server_id,
+            port_id=port_id,
+            actor_id=current_user.get("user_id", ""),
+        )
+    )

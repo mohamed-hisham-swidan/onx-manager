@@ -116,6 +116,7 @@ async def exposure_client(tmp_path):
 
     async with database._session_factory() as sess:
         from app.modules.auth.infrastructure.models import SystemStateModel
+
         sess.add(SystemStateModel(id="default", initialized=True, access_mode="LOCAL"))
         await sess.commit()
 
@@ -374,9 +375,7 @@ async def test_panel_exposure_roundtrip(exposure_client) -> None:
 async def test_panel_exposure_requires_owner(exposure_client) -> None:
     user = await _seed_user(exposure_client)
     # A granted non-owner with the panel permission is still denied.
-    header = await _seed_api_key_header(
-        exposure_client, user["user_id"], ["exposure.panel.manage"]
-    )
+    header = await _seed_api_key_header(exposure_client, user["user_id"], ["exposure.panel.manage"])
     resp = await exposure_client.get("/api/v1/exposure/panel", headers=header)
     assert resp.status_code == 403
 
@@ -468,9 +467,7 @@ async def test_panel_exposure_auth_error_maps_to_reclaim(exposure_client) -> Non
     owner = await _owner_header(exposure_client, user)
 
     mock_client = AsyncMock()
-    mock_client.create_named_tunnel = AsyncMock(
-        side_effect=CloudflareAuthError("invalid token")
-    )
+    mock_client.create_named_tunnel = AsyncMock(side_effect=CloudflareAuthError("invalid token"))
     with patch.object(exposure_commands, "CloudflareClient", return_value=mock_client):
         resp = await exposure_client.put(
             "/api/v1/exposure/panel",

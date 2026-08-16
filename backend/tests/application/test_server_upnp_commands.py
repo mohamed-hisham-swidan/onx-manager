@@ -92,9 +92,7 @@ async def setup_test_db(tmp_path, monkeypatch):
 
     test_db = tmp_path / "test.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{test_db}")
-    session_factory = async_sessionmaker(
-        bind=engine, class_=AsyncSession, expire_on_commit=False
-    )
+    session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     database._engine = engine
     database._session_factory = session_factory
 

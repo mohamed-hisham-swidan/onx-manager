@@ -113,3 +113,26 @@ class ServerExposureGrantModel(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("server_id", "user_id", name="uq_exposure_grant_server_user"),
     )
+
+
+class ServerRegisteredPortModel(Base, TimestampMixin):
+    __tablename__ = "server_registered_ports"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(
+        String(36),
+        ForeignKey("servers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    service_type = Column(String(32), nullable=False)
+    protocol = Column(String(8), nullable=False)
+    port = Column(Integer, nullable=False)
+    name = Column(String(64), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("server_id", "service_type", name="uq_server_registered_port_type"),
+        UniqueConstraint(
+            "server_id", "port", "protocol", name="uq_server_registered_port_protocol"
+        ),
+    )

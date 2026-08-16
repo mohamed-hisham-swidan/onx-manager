@@ -56,6 +56,8 @@ from app.modules.backup.application import (
 from app.modules.exposure.application import (
     CreateExposureTargetCommand,
     CreateExposureTargetHandler,
+    DeleteServerPortCommand,
+    DeleteServerPortHandler,
     DisableServerExposureCommand,
     DisableServerExposureHandler,
     EnableServerExposureCommand,
@@ -70,8 +72,12 @@ from app.modules.exposure.application import (
     GetServerExposureQuery,
     ListExposureTargetsHandler,
     ListExposureTargetsQuery,
+    ListServerPortsHandler,
+    ListServerPortsQuery,
     ReconcileExposureCommand,
     ReconcileExposureHandler,
+    RegisterServerPortCommand,
+    RegisterServerPortHandler,
     RemoveCredentialsCommand,
     RemoveCredentialsHandler,
     RemoveServerExposureCommand,
@@ -192,6 +198,8 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(RemoveServerExposureCommand, RemoveServerExposureHandler(event_bus))
     command_bus.register(CreateExposureTargetCommand, CreateExposureTargetHandler(event_bus))
     command_bus.register(UpdateExposureTargetCommand, UpdateExposureTargetHandler(event_bus))
+    command_bus.register(RegisterServerPortCommand, RegisterServerPortHandler(event_bus))
+    command_bus.register(DeleteServerPortCommand, DeleteServerPortHandler(event_bus))
     command_bus.register(StopAllExposuresCommand, StopAllExposuresHandler(event_bus))
     command_bus.register(GenerateClaimCommand, GenerateClaimHandler(event_bus))
     command_bus.register(ResetAgentCommand, ResetAgentHandler(event_bus))
@@ -235,6 +243,7 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(GetAgentStatusQuery, GetAgentStatusHandler())
     query_bus.register(GetPanelExposureQuery, GetPanelExposureHandler())
     query_bus.register(ListExposureTargetsQuery, ListExposureTargetsHandler())
+    query_bus.register(ListServerPortsQuery, ListServerPortsHandler())
 
     query_bus.register(GetCurrentUserQuery, GetCurrentUserHandler())
     query_bus.register(ListUsersQuery, ListUsersHandler())

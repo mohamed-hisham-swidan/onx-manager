@@ -93,9 +93,7 @@ class TestRoutePresence:
 class TestEnforcedMismatches:
     def test_permission_mismatch_fails(self, checker) -> None:
         live = [("GET", "/api/v1/monitoring/alerts", _enforced("server:read"))]
-        contract = {
-            ("GET", "/api/v1/monitoring/alerts"): _contract("missing", "settings:read")
-        }
+        contract = {("GET", "/api/v1/monitoring/alerts"): _contract("missing", "settings:read")}
         ok, problems = checker.check(live, contract)
         assert ok is False
         assert any("ENFORCED-LIVE" in p for p in problems)
@@ -291,8 +289,10 @@ class TestLiveContract:
         contract = checker.parse_contract(_CONTRACT)
         assert ("GET", "/api/v1/marketplace/search") in contract
         assert ("GET", "/api/v1/marketplace/projects/{project_id}") in contract
-        for key in (("GET", "/api/v1/marketplace/search"),
-                    ("GET", "/api/v1/marketplace/projects/{project_id}")):
+        for key in (
+            ("GET", "/api/v1/marketplace/search"),
+            ("GET", "/api/v1/marketplace/projects/{project_id}"),
+        ):
             assert contract[key]["status"] == "enforced"
             assert contract[key]["permission"] == {"plugin:manage"}
 
@@ -356,4 +356,4 @@ class TestMain:
         )
         assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
         assert "PASS" in result.stdout
-        assert "100 live routes vs 100 contract entries" in result.stdout
+        assert "103 live routes vs 103 contract entries" in result.stdout

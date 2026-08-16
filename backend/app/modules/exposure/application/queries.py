@@ -20,6 +20,7 @@ from app.modules.exposure.infrastructure.repository import (
     SQLHostAgentRepository,
     SQLPanelExposureRepository,
     SQLServerExposureRepository,
+    SQLServerRegisteredPortRepository,
 )
 
 
@@ -82,3 +83,27 @@ class ListExposureTargetsHandler(QueryHandler[ListExposureTargetsQuery]):
                     f"Exposure not found for server {query.server_id}",
                 )
             return [_target_payload(t) for t in exposure.targets]
+
+
+class ListServerPortsQuery(Query):
+    server_id: str
+
+
+class ListServerPortsHandler(QueryHandler[ListServerPortsQuery]):
+    async def handle(self, query: ListServerPortsQuery) -> list[dict]:
+        async with UnitOfWork() as uow:
+            ports_repo = SQLServerRegisteredPortRepository(uow.session)
+            ports = await ports_repo.list_for_server(query.server_id)
+            return [
+                {
+                    "id": p.id,
+                    "server_id": p.server_id,
+                    "service_type": p.service_type,
+                    "protocol": p.protocol,
+                    "port": p.port,
+                    "name": p.name,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                    "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+                }
+                for p in ports
+            ]

@@ -205,9 +205,10 @@ class CloudflaredSupervisor:
                         self._last_health_at = time.monotonic()
                         self._set_status(ExposureStatus.ACTIVE)
                     else:
-                        if self._status == ExposureStatus.ACTIVE and (
-                            time.monotonic() - self._last_health_at
-                        ) > self._stale_after:
+                        if (
+                            self._status == ExposureStatus.ACTIVE
+                            and (time.monotonic() - self._last_health_at) > self._stale_after
+                        ):
                             self._set_status(ExposureStatus.DEGRADED)
                 else:
                     await self._handle_process_exit()
@@ -238,7 +239,9 @@ class CloudflaredSupervisor:
         delay = self._backoff_base * (2 ** (self._restart_count - 1))
         logger.warning(
             "cloudflared exited; restart %d/%d in %.0fs",
-            self._restart_count, self._max_restarts, delay,
+            self._restart_count,
+            self._max_restarts,
+            delay,
         )
         await asyncio.sleep(min(delay, 60.0))
         if not self._stop_event.is_set():
@@ -301,11 +304,7 @@ class CloudflaredSupervisor:
     # -- token file management ---------------------------------------------
 
     def _write_token_file(self, token: bytes) -> Path:
-        prefix = (
-            f"mcs-cf-srv-{self._server_id[:8]}-"
-            if self._server_id
-            else "mcs-cloudflared-"
-        )
+        prefix = f"mcs-cf-srv-{self._server_id[:8]}-" if self._server_id else "mcs-cloudflared-"
         fd, path = tempfile.mkstemp(prefix=prefix, suffix=".token")
         os.close(fd)
         token_file = Path(path)
@@ -340,9 +339,7 @@ class CloudflaredSupervisor:
 
     # -- status ------------------------------------------------------------
 
-    def _set_status(
-        self, status: ExposureStatus, error_message: str | None = None
-    ) -> None:
+    def _set_status(self, status: ExposureStatus, error_message: str | None = None) -> None:
         self._status = status
         self._error_message = error_message
         if self._on_status is not None:

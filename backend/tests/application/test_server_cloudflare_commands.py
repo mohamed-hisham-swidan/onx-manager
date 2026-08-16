@@ -160,9 +160,7 @@ async def setup_test_db(tmp_path, monkeypatch):
 
     test_db = tmp_path / "test.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{test_db}")
-    session_factory = async_sessionmaker(
-        bind=engine, class_=AsyncSession, expire_on_commit=False
-    )
+    session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     database._engine = engine
     database._session_factory = session_factory
 
@@ -206,10 +204,12 @@ def _patch_boundaries(
 ):
     monkeypatch.setattr(exposure_commands, "CloudflareClient", lambda _token: client)
     if supervisors is not None:
+
         def _get_sup(srv_id: str):
             if srv_id not in supervisors:
                 supervisors[srv_id] = FakeServerSupervisor(srv_id)
             return supervisors[srv_id]
+
         monkeypatch.setattr(exposure_commands, "get_server_cloudflared_supervisor", _get_sup)
 
 
@@ -569,6 +569,7 @@ async def test_server_cloudflare_tcp_arbitrary_port_rejected():
         exposure = await repo.get("srv-1")
         if exposure is None:
             from app.modules.exposure.domain.aggregate import ServerExposure
+
             exposure = ServerExposure(server_id="srv-1", method=ExposureMethod.CLOUDFLARE_TCP)
         # Attempt to validate mismatched port
         with pytest.raises(InvalidValueError):
@@ -581,6 +582,7 @@ async def test_server_cloudflare_tcp_deny_list_ports_rejected():
     bus = EventBus()
     async with UnitOfWork(bus):
         from app.modules.exposure.domain.aggregate import ServerExposure
+
         exposure = ServerExposure(server_id="srv-1", method=ExposureMethod.CLOUDFLARE_TCP)
         with pytest.raises(InvalidValueError) as exc_info:
             exposure.validate_target_port(25575, 25575)

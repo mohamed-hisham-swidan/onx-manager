@@ -32,6 +32,7 @@ from app.modules.exposure.infrastructure.models import (
     ServerExposureGrantModel,
     ServerExposureModel,
     ServerExposureTargetModel,
+    ServerRegisteredPortModel,
 )
 
 
@@ -126,6 +127,15 @@ class SQLServerExposureRepository(ServerExposureRepository):
         model.cloudflare_tunnel_id = exposure.cloudflare_tunnel_id
         model.cloudflare_token_ciphertext = exposure.cloudflare_token_ciphertext
         await self._session.flush()
+
+        current_target_ids = {target.id for target in exposure.targets if target.id}
+        stmt = select(ServerExposureTargetModel).where(
+            ServerExposureTargetModel.exposure_id == model.id
+        )
+        existing_targets_res = await self._session.execute(stmt)
+        for existing_tm in existing_targets_res.scalars().all():
+            if existing_tm.id not in current_target_ids:
+                await self._session.delete(existing_tm)
 
         for target in exposure.targets:
             target_model = None
@@ -288,3 +298,55 @@ class SQLExposureGrantRepository(ExposureGrantRepository):
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+
+class SQLServerRegisteredPortRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get(self, id: str) -> ServerRegisteredPortModel | None:
+        return await self._session.get(ServerRegisteredPortModel, id)
+
+    async def list_for_server(self, server_id: str) -> list[ServerRegisteredPortModel]:
+        stmt = (
+            select(ServerRegisteredPortModel)
+            .where(ServerRegisteredPortModel.server_id == server_id)
+            .order_by(ServerRegisteredPortModel.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_service_type(
+        self, server_id: str, service_type: str
+    ) -> ServerRegisteredPortModel | None:
+        stmt = select(ServerRegisteredPortModel).where(
+            ServerRegisteredPortModel.server_id == server_id,
+            ServerRegisteredPortModel.service_type == service_type,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_port_protocol(
+        self, server_id: str, port: int, protocol: str
+    ) -> ServerRegisteredPortModel | None:
+        stmt = select(ServerRegisteredPortModel).where(
+            ServerRegisteredPortModel.server_id == server_id,
+            ServerRegisteredPortModel.port == port,
+            ServerRegisteredPortModel.protocol == protocol,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def save(self, model: ServerRegisteredPortModel) -> None:
+        existing = await self._session.get(ServerRegisteredPortModel, model.id)
+        if existing is None:
+            self._session.add(model)
+        await self._session.flush()
+
+    async def delete(self, id: str) -> bool:
+        model = await self._session.get(ServerRegisteredPortModel, id)
+        if model is not None:
+            await self._session.delete(model)
+            await self._session.flush()
+            return True
+        return False

@@ -108,9 +108,7 @@ class _FakeHttp:
         return _FakeResponse(resp["body"], resp.get("status", 200))
 
 
-_PATCH_GET_HTTP_CLIENT = (
-    "app.modules.exposure.infrastructure.cloudflare.get_http_client"
-)
+_PATCH_GET_HTTP_CLIENT = "app.modules.exposure.infrastructure.cloudflare.get_http_client"
 
 
 class TestCloudflareClient:

@@ -65,9 +65,7 @@ class CloudflareClient:
         async with client.request(method, url, headers=headers, **kwargs) as resp:
             body = await resp.json(content_type=None)
             if resp.status in (401, 403):
-                raise CloudflareAuthError(
-                    f"Cloudflare API rejected the token (HTTP {resp.status})"
-                )
+                raise CloudflareAuthError(f"Cloudflare API rejected the token (HTTP {resp.status})")
             if not body.get("success", True):
                 errors = body.get("errors", [])
                 codes = {e.get("code") for e in errors if isinstance(e, dict)}
@@ -76,16 +74,12 @@ class CloudflareClient:
                 ]
                 detail = "; ".join(messages) if messages else str(body.get("errors"))
                 if codes & _AUTH_ERROR_CODES:
-                    raise CloudflareAuthError(
-                        f"Cloudflare API reported an invalid token: {detail}"
-                    )
+                    raise CloudflareAuthError(f"Cloudflare API reported an invalid token: {detail}")
                 raise CloudflareApiError(
                     f"Cloudflare API error {path}: {detail or 'unknown error'}"
                 )
             if resp.status >= 400:
-                raise CloudflareApiError(
-                    f"Cloudflare API error {path}: HTTP {resp.status}"
-                )
+                raise CloudflareApiError(f"Cloudflare API error {path}: HTTP {resp.status}")
             return body.get("result")
 
     async def _account_id(self) -> str:
@@ -106,14 +100,10 @@ class CloudflareClient:
         # Try progressively shorter suffixes (zone == registrable domain).
         for i in range(len(parts) - 1):
             candidate = ".".join(parts[i:])
-            result = await self._request(
-                "GET", "/zones", params={"name": candidate, "per_page": 1}
-            )
+            result = await self._request("GET", "/zones", params={"name": candidate, "per_page": 1})
             if result:
                 return result[0]["id"]
-        raise CloudflareApiError(
-            f"No Cloudflare zone found that can own hostname {hostname!r}"
-        )
+        raise CloudflareApiError(f"No Cloudflare zone found that can own hostname {hostname!r}")
 
     # -- tunnel lifecycle --------------------------------------------------
 
@@ -130,9 +120,7 @@ class CloudflareClient:
             raise CloudflareApiError("Cloudflare API did not return a tunnel id/token")
         return TunnelProvisionResult(tunnel_id=tunnel_id, token=token)
 
-    async def configure_ingress(
-        self, tunnel_id: str, ingress: list[dict[str, str]]
-    ) -> None:
+    async def configure_ingress(self, tunnel_id: str, ingress: list[dict[str, str]]) -> None:
         account_id = await self._account_id()
         await self._request(
             "PUT",

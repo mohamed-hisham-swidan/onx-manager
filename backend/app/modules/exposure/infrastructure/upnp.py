@@ -45,12 +45,7 @@ class AsyncUPnPService:
         """Check if an IP is RFC 1918 private, link-local, loopback, or RFC 6598 CGNAT."""
         try:
             addr = ipaddress.ip_address(ip_str.strip())
-            return (
-                addr.is_private
-                or addr.is_loopback
-                or addr.is_link_local
-                or addr in _CGNAT_NET
-            )
+            return addr.is_private or addr.is_loopback or addr.is_link_local or addr in _CGNAT_NET
         except ValueError:
             return True
 
@@ -137,8 +132,7 @@ class AsyncUPnPService:
                     "reach the public Internet."
                 ),
                 fix_hint=(
-                    "Use Cloudflare Tunnel or playit.gg to expose your panel "
-                    "without a public IP."
+                    "Use Cloudflare Tunnel or playit.gg to expose your panel without a public IP."
                 ),
             )
 

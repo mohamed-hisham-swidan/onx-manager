@@ -17,20 +17,27 @@ from app.core.config import (
     panel_ingress_target,
 )
 from app.core.event_bus import EventBus
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import InvalidValueError, NotFoundError, ValidationError
 from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.auth.domain.aggregate import AccessMode
 from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
 from app.modules.exposure.domain.aggregate import (
+    DENY_LIST_PORTS,
     HostPlayitAgent,
     PanelExposure,
     ServerExposure,
     ServerExposureTarget,
+    _coerce_protocol,
+    _coerce_service_type,
 )
 from app.modules.exposure.domain.exceptions import (
     ClaimActiveError,
+    InvalidServiceTypeError,
+    MethodProtocolIncompatibleError,
     NoTargetsError,
+    PortAlreadyRegisteredError,
+    UnregisteredPortError,
     WarningNotAcknowledgedError,
 )
 from app.modules.exposure.domain.repository import (
@@ -43,6 +50,8 @@ from app.modules.exposure.domain.value_objects import (
     ExposureMethod,
     ExposureStatus,
     PanelExposureMethod,
+    ServiceType,
+    TargetProtocol,
     aggregate_precedence,
 )
 from app.modules.exposure.infrastructure.cloudflare import (
@@ -55,11 +64,13 @@ from app.modules.exposure.infrastructure.cloudflared import (
     get_cloudflared_supervisor,
     get_server_cloudflared_supervisor,
 )
+from app.modules.exposure.infrastructure.models import ServerRegisteredPortModel
 from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
 from app.modules.exposure.infrastructure.repository import (
     SQLHostAgentRepository,
     SQLPanelExposureRepository,
     SQLServerExposureRepository,
+    SQLServerRegisteredPortRepository,
 )
 from app.modules.exposure.infrastructure.upnp import AsyncUPnPService
 from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -93,8 +104,8 @@ async def _attempt_server_upnp_mapping(
     result = await upnp.attempt_mapping(
         internal_port=target.local_port,
         requested_external_port=target.local_port,
-        description=f"MCS-Server-{server_id[:8]}",
-        protocol="TCP",
+        description=f"MCS-Server-{server_id[:8]}-{target.service_type.value}",
+        protocol=target.protocol.value.upper(),
     )
     if result.success:
         target.mark_active(f"{result.external_ip}:{result.external_port}")
@@ -164,24 +175,43 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
             if desired == DesiredState.ENABLED:
                 if not exposure.targets:
                     raise NoTargetsError()
+                ports_repo = SQLServerRegisteredPortRepository(uow.session)
                 for target in exposure.targets:
-                    exposure.validate_target_port(target.local_port, server.properties.port.value)
+                    reg_port = None
+                    if target.service_type != ServiceType.JAVA:
+                        reg_model = await ports_repo.get_by_service_type(
+                            command.server_id, target.service_type.value
+                        )
+                        reg_port = reg_model.port if reg_model else None
+                    exposure.validate_target_port(
+                        local_port=target.local_port,
+                        server_port=server.properties.port.value,
+                        service_type=target.service_type,
+                        registered_port=reg_port,
+                    )
                 exposure.set_desired_state(DesiredState.ENABLED)
 
                 if method == ExposureMethod.PORT_FORWARD:
                     if prev_method == ExposureMethod.CLOUDFLARE_TCP:
-                        post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
+                        post_commit.append(
+                            get_server_cloudflared_supervisor(command.server_id).stop
+                        )
                     for target in exposure.targets:
                         await _attempt_server_upnp_mapping(command.server_id, target)
                 elif method == ExposureMethod.PLAYIT:
                     if prev_method == ExposureMethod.PORT_FORWARD:
                         for target in exposure.targets:
                             p = _extract_target_external_port(target)
+                            proto = target.protocol.value.upper()
                             post_commit.append(
-                                lambda port=p: AsyncUPnPService().delete_mapping(port)
+                                lambda port=p, pr=proto: AsyncUPnPService().delete_mapping(
+                                    port, protocol=pr
+                                )
                             )
                     if prev_method == ExposureMethod.CLOUDFLARE_TCP:
-                        post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
+                        post_commit.append(
+                            get_server_cloudflared_supervisor(command.server_id).stop
+                        )
 
                     agent = await agent_repo.get()
                     supervisor = get_playit_supervisor()
@@ -218,11 +248,13 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                     if prev_method == ExposureMethod.PORT_FORWARD:
                         for target in exposure.targets:
                             p = _extract_target_external_port(target)
+                            proto = target.protocol.value.upper()
                             post_commit.append(
-                                lambda port=p: AsyncUPnPService().delete_mapping(port)
+                                lambda port=p, pr=proto: AsyncUPnPService().delete_mapping(
+                                    port, protocol=pr
+                                )
                             )
                     await self._enable_server_cloudflare_tcp(
-                        server=server,
                         exposure=exposure,
                         command=command,
                         post_commit=post_commit,
@@ -235,8 +267,11 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                 ):
                     for target in exposure.targets:
                         p = _extract_target_external_port(target)
+                        proto = target.protocol.value.upper()
                         post_commit.append(
-                            lambda port=p: AsyncUPnPService().delete_mapping(port)
+                            lambda port=p, pr=proto: AsyncUPnPService().delete_mapping(
+                                port, protocol=pr
+                            )
                         )
                 if (
                     prev_method == ExposureMethod.CLOUDFLARE_TCP
@@ -282,11 +317,17 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
 
     async def _enable_server_cloudflare_tcp(
         self,
-        server: Any,
         exposure: ServerExposure,
         command: SetServerExposureCommand | EnableServerExposureCommand,
         post_commit: list[Callable[[], Awaitable[None]]],
     ) -> None:
+        for target in exposure.targets:
+            if target.protocol == TargetProtocol.UDP:
+                raise MethodProtocolIncompatibleError(
+                    "Cloudflare TCP exposure does not support UDP targets (Bedrock / Voice Chat). "
+                    "Use playit.gg or Port Forwarding instead."
+                )
+
         token = command.cloudflare_token.strip()
         hostname = command.hostname.strip()
         supervisor = get_server_cloudflared_supervisor(exposure.server_id)
@@ -307,7 +348,7 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                 exposure.set_cloudflare_credentials(exposure.cloudflare_tunnel_id, ciphertext)
                 for target in exposure.targets:
                     target.mark_starting()
-                    target.set_public_address(resolved_hostname)
+                    target.set_public_address(target.public_address or resolved_hostname)
                 token_bytes = token.encode("utf-8")
                 post_commit.append(
                     lambda t=token_bytes: self._start_server_supervisor(supervisor, t, on_status)
@@ -322,18 +363,21 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                 )
 
             client = CloudflareClient(token)
-            game_port = server.properties.port.value
+            ingress_rules: list[dict[str, str]] = []
+            for target in exposure.targets:
+                target_host = target.public_address or hostname
+                ingress_rules.append(
+                    {"hostname": target_host, "service": f"tcp://127.0.0.1:{target.local_port}"}
+                )
+            ingress_rules.append({"service": "http_status:404"})
+
             try:
                 tunnel_name = f"mcs-srv-{exposure.server_id[:8]}"
                 provisioned = await client.create_named_tunnel(name=tunnel_name)
-                await client.configure_ingress(
-                    provisioned.tunnel_id,
-                    [
-                        {"hostname": hostname, "service": f"tcp://127.0.0.1:{game_port}"},
-                        {"service": "http_status:404"},
-                    ],
-                )
-                await client.create_cname(hostname, provisioned.tunnel_id)
+                await client.configure_ingress(provisioned.tunnel_id, ingress_rules)
+                for target in exposure.targets:
+                    target_host = target.public_address or hostname
+                    await client.create_cname(target_host, provisioned.tunnel_id)
             except CloudflareAuthError as exc:
                 for target in exposure.targets:
                     target.mark_reclaim_required(code="RECLAIM_REQUIRED", message=str(exc))
@@ -349,40 +393,39 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
             exposure.set_cloudflare_credentials(provisioned.tunnel_id, ciphertext)
             for target in exposure.targets:
                 target.mark_starting()
-                target.set_public_address(hostname)
+                target.set_public_address(target.public_address or hostname)
 
             token_bytes = provisioned.token.encode("utf-8")
             post_commit.append(
                 lambda t=token_bytes: self._start_server_supervisor(supervisor, t, on_status)
             )
+            return
 
-        # Case 2: No token provided in command -> Check existing credentials
-        elif exposure.has_cloudflare_credentials:
+        # Case 2: No token provided (reuse existing stored credentials)
+        if exposure.has_cloudflare_credentials and exposure.cloudflare_token_ciphertext:
+            for target in exposure.targets:
+                target.mark_starting()
+                if not target.public_address and hostname:
+                    target.set_public_address(hostname)
             try:
                 plaintext = _panel_encryption().decrypt(exposure.cloudflare_token_ciphertext)
+                post_commit.append(
+                    lambda t=plaintext: self._start_server_supervisor(supervisor, t, on_status)
+                )
             except Exception:
                 for target in exposure.targets:
                     target.mark_reclaim_required(
                         code="RECLAIM_REQUIRED",
-                        message="Stored Cloudflare token ciphertext cannot be decrypted",
+                        message="Stored Cloudflare credentials cannot be decrypted",
                     )
-                return
-
-            for target in exposure.targets:
-                if supervisor.is_running:
-                    target.mark_active(target.public_address or "")
-                else:
-                    target.mark_starting()
-            post_commit.append(
-                lambda t=plaintext: self._start_server_supervisor(supervisor, t, on_status)
-            )
+                exposure.clear_cloudflare_credentials()
+            return
 
         # Case 3: No token and no existing credentials
-        else:
-            raise ValidationError(
-                "Cloudflare token is required to enable Cloudflare TCP exposure",
-                field="cloudflare_token",
-            )
+        raise ValidationError(
+            "Cloudflare API token is required for Cloudflare TCP exposure",
+            field="cloudflare_token",
+        )
 
 
 class EnableServerExposureCommand(Command):
@@ -429,7 +472,7 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
                 raise WarningNotAcknowledgedError()
 
             game_port = server.properties.port.value
-            target = exposure.enable(
+            exposure.enable(
                 server_port=game_port,
                 target_id=str(uuid.uuid4().hex),
             )
@@ -438,7 +481,8 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
             supervisor = get_playit_supervisor()
 
             if exposure.method == ExposureMethod.PORT_FORWARD:
-                await _attempt_server_upnp_mapping(command.server_id, target)
+                for t in exposure.targets:
+                    await _attempt_server_upnp_mapping(command.server_id, t)
             elif exposure.method == ExposureMethod.PLAYIT:
                 if agent.is_claimed and agent.secret_ciphertext:
                     try:
@@ -480,7 +524,6 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
                     acknowledged_warning=command.acknowledged_warning,
                 )
                 await handler._enable_server_cloudflare_tcp(
-                    server=server,
                     exposure=exposure,
                     command=set_cmd,
                     post_commit=post_commit,
@@ -536,8 +579,11 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
                 if exposure.method == ExposureMethod.PORT_FORWARD:
                     for target in exposure.targets:
                         p = _extract_target_external_port(target)
+                        proto = target.protocol.value.upper()
                         post_commit.append(
-                            lambda port=p: AsyncUPnPService().delete_mapping(port)
+                            lambda port=p, pr=proto: AsyncUPnPService().delete_mapping(
+                                port, protocol=pr
+                            )
                         )
                 elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
                     post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
@@ -594,8 +640,11 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
             if exposure.method == ExposureMethod.PORT_FORWARD:
                 for target in exposure.targets:
                     p = _extract_target_external_port(target)
+                    proto = target.protocol.value.upper()
                     post_commit.append(
-                        lambda port=p: AsyncUPnPService().delete_mapping(port)
+                        lambda port=p, pr=proto: AsyncUPnPService().delete_mapping(
+                            port, protocol=pr
+                        )
                     )
             elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
                 post_commit.append(get_server_cloudflared_supervisor(command.server_id).stop)
@@ -625,6 +674,9 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
 class CreateExposureTargetCommand(Command):
     idempotency_key: IdempotencyKey = IdempotencyKey()
     server_id: str
+    service_type: str = "java"
+    protocol: str | None = None
+    local_port: int | None = None
     public_address: str | None = None
     actor_id: str = ""
 
@@ -638,6 +690,7 @@ class CreateExposureTargetHandler(CommandHandler[CreateExposureTargetCommand]):
     async def handle(self, command: CreateExposureTargetCommand) -> CommandResult:
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            ports_repo = SQLServerRegisteredPortRepository(uow.session)
             server_repo = SQLServerRepository(uow.session)
             server = await server_repo.get(ServerId(command.server_id))
             if server is None:
@@ -651,10 +704,50 @@ class CreateExposureTargetHandler(CommandHandler[CreateExposureTargetCommand]):
                     id=str(uuid.uuid4().hex),
                 )
 
+            st = _coerce_service_type(command.service_type)
+
+            if st == ServiceType.JAVA:
+                proto = TargetProtocol.TCP
+                if command.protocol and _coerce_protocol(command.protocol) != proto:
+                    raise InvalidValueError(
+                        field="protocol",
+                        value=command.protocol,
+                        reason="Java target requires TCP protocol",
+                    )
+                port = server.properties.port.value
+                if command.local_port is not None and command.local_port != port:
+                    raise InvalidValueError(
+                        field="local_port",
+                        value=command.local_port,
+                        reason=f"Java target port must equal server game port ({port})",
+                    )
+                registered_port = None
+            else:
+                registered = await ports_repo.get_by_service_type(command.server_id, st.value)
+                if registered is None:
+                    raise UnregisteredPortError(
+                        f"Service type {st.value} has no registered port "
+                        f"for server {command.server_id}"
+                    )
+                registered_port = registered.port
+                port = command.local_port if command.local_port is not None else registered.port
+                proto = (
+                    _coerce_protocol(command.protocol)
+                    if command.protocol
+                    else _coerce_protocol(registered.protocol)
+                )
+
+            # Fail-fast check if method is CLOUDFLARE_TCP and protocol is UDP
+            if exposure.method == ExposureMethod.CLOUDFLARE_TCP and proto == TargetProtocol.UDP:
+                raise MethodProtocolIncompatibleError()
+
             target = exposure.create_target(
-                local_port=server.properties.port.value,
+                local_port=port,
                 server_port=server.properties.port.value,
                 target_id=str(uuid.uuid4().hex),
+                service_type=st,
+                protocol=proto,
+                registered_port=registered_port,
             )
             if command.public_address:
                 val = command.public_address.strip()
@@ -721,6 +814,165 @@ class UpdateExposureTargetHandler(CommandHandler[UpdateExposureTargetCommand]):
         return CommandResult(success=True, data=_target_payload(target))
 
 
+class RegisterServerPortCommand(Command):
+    idempotency_key: IdempotencyKey = IdempotencyKey()
+    server_id: str
+    service_type: str
+    protocol: str
+    port: int
+    name: str | None = None
+    actor_id: str = ""
+
+
+class RegisterServerPortHandler(CommandHandler[RegisterServerPortCommand]):
+    """Register a companion service port for a server."""
+
+    def __init__(self, event_bus: EventBus) -> None:
+        self._event_bus = event_bus
+
+    async def handle(self, command: RegisterServerPortCommand) -> CommandResult:
+        async with UnitOfWork(self._event_bus) as uow:
+            server_repo = SQLServerRepository(uow.session)
+            server = await server_repo.get(ServerId(command.server_id))
+            if server is None:
+                raise NotFoundError(f"Server {command.server_id} not found")
+
+            st = _coerce_service_type(command.service_type)
+            if st == ServiceType.JAVA:
+                raise InvalidServiceTypeError(
+                    "Java primary port cannot be registered in server_registered_ports "
+                    "(managed via ServerModel.port)"
+                )
+
+            proto = _coerce_protocol(command.protocol)
+
+            affinity_map = {
+                ServiceType.BEDROCK: TargetProtocol.UDP,
+                ServiceType.VOICE: TargetProtocol.UDP,
+                ServiceType.BLUEMAP: TargetProtocol.TCP,
+            }
+            expected_proto = affinity_map.get(st, TargetProtocol.TCP)
+            if expected_proto != proto:
+                raise InvalidValueError(
+                    field="protocol",
+                    value=proto.value,
+                    reason=f"Service type {st.value} requires protocol {expected_proto.value}",
+                )
+
+            if command.port < 1 or command.port > 65535:
+                raise InvalidValueError(
+                    field="port",
+                    value=command.port,
+                    reason="Port must be between 1 and 65535",
+                )
+
+            if command.port in DENY_LIST_PORTS:
+                raise InvalidValueError(
+                    field="port",
+                    value=command.port,
+                    reason="Port is on the deny-list (management/RCON/DB/metrics)",
+                )
+
+            ports_repo = SQLServerRegisteredPortRepository(uow.session)
+            existing_type = await ports_repo.get_by_service_type(command.server_id, st.value)
+            if existing_type is not None:
+                raise PortAlreadyRegisteredError(
+                    f"A port for service type {st.value} is already registered on this server"
+                )
+
+            existing_port = await ports_repo.get_by_port_protocol(
+                command.server_id, command.port, proto.value
+            )
+            if existing_port is not None:
+                raise PortAlreadyRegisteredError(
+                    f"Port {command.port}/{proto.value} is already registered on this server"
+                )
+
+            model = ServerRegisteredPortModel(
+                id=uuid.uuid4().hex,
+                server_id=command.server_id,
+                service_type=st.value,
+                protocol=proto.value,
+                port=command.port,
+                name=command.name,
+            )
+            await ports_repo.save(model)
+            await uow.commit()
+
+        return CommandResult(
+            success=True,
+            data={
+                "id": model.id,
+                "server_id": model.server_id,
+                "service_type": model.service_type,
+                "protocol": model.protocol,
+                "port": model.port,
+                "name": model.name,
+                "created_at": model.created_at.isoformat() if model.created_at else None,
+                "updated_at": model.updated_at.isoformat() if model.updated_at else None,
+            },
+        )
+
+
+class DeleteServerPortCommand(Command):
+    idempotency_key: IdempotencyKey = IdempotencyKey()
+    server_id: str
+    port_id: str
+    actor_id: str = ""
+
+
+class DeleteServerPortHandler(CommandHandler[DeleteServerPortCommand]):
+    """Delete a registered companion port and clean up associated exposure target."""
+
+    def __init__(self, event_bus: EventBus) -> None:
+        self._event_bus = event_bus
+
+    async def handle(self, command: DeleteServerPortCommand) -> CommandResult:
+        post_commit: list[Callable[[], Awaitable[None]]] = []
+        async with UnitOfWork(self._event_bus) as uow:
+            ports_repo = SQLServerRegisteredPortRepository(uow.session)
+            port_model = await ports_repo.get(command.port_id)
+            if port_model is None or port_model.server_id != command.server_id:
+                raise NotFoundError(
+                    f"Registered port {command.port_id} not found on server {command.server_id}"
+                )
+
+            st = port_model.service_type
+            await ports_repo.delete(command.port_id)
+
+            repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            exposure = await repo.get(command.server_id)
+            if exposure:
+                target_to_remove = next(
+                    (t for t in exposure.targets if t.service_type.value == st), None
+                )
+                if target_to_remove:
+                    if (
+                        exposure.desired_state == DesiredState.ENABLED
+                        and exposure.method == ExposureMethod.PORT_FORWARD
+                    ):
+                        p = _extract_target_external_port(target_to_remove)
+                        pr = target_to_remove.protocol.value.upper()
+                        post_commit.append(
+                            lambda port=p, proto=pr: AsyncUPnPService().delete_mapping(
+                                port, protocol=proto
+                            )
+                        )
+                    exposure.remove_target(target_to_remove.id)
+                    _fold_aggregate(exposure)
+                    await repo.save(exposure)
+
+            await uow.commit()
+
+        for action in post_commit:
+            try:
+                await action()
+            except Exception:
+                logger.exception("Post-commit registered port cleanup failed")
+
+        return CommandResult(success=True, data={"deleted": True})
+
+
 class StopAllExposuresCommand(Command):
     idempotency_key: IdempotencyKey = IdempotencyKey()
     actor_id: str = ""
@@ -746,11 +998,16 @@ class StopAllExposuresHandler(CommandHandler[StopAllExposuresCommand]):
                     if exposure.method == ExposureMethod.PORT_FORWARD:
                         for target in exposure.targets:
                             p = _extract_target_external_port(target)
+                            proto = target.protocol.value.upper()
                             post_commit.append(
-                                lambda port=p: AsyncUPnPService().delete_mapping(port)
+                                lambda port=p, pr=proto: AsyncUPnPService().delete_mapping(
+                                    port, protocol=pr
+                                )
                             )
                     elif exposure.method == ExposureMethod.CLOUDFLARE_TCP:
-                        post_commit.append(get_server_cloudflared_supervisor(exposure.server_id).stop)
+                        post_commit.append(
+                            get_server_cloudflared_supervisor(exposure.server_id).stop
+                        )
                     exposure.disable()
                     for target in exposure.targets:
                         target.mark_disabled()
@@ -920,8 +1177,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                     and bool(command.cloudflare_token)
                 )
                 is_error_retry = (
-                    desired == DesiredState.ENABLED
-                    and panel.status == ExposureStatus.ERROR
+                    desired == DesiredState.ENABLED and panel.status == ExposureStatus.ERROR
                 )
                 if not (is_reclaim_rotation or is_error_retry):
                     return CommandResult(
@@ -957,13 +1213,9 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             except Exception:
                 import logging
 
-                logging.getLogger("mcs.exposure").exception(
-                    "post-commit exposure action failed"
-                )
+                logging.getLogger("mcs.exposure").exception("post-commit exposure action failed")
 
-        return CommandResult(
-            success=True, data=_panel_payload(panel, access_mode=access_mode)
-        )
+        return CommandResult(success=True, data=_panel_payload(panel, access_mode=access_mode))
 
     async def _enable_cloudflare(
         self,
@@ -1156,9 +1408,8 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         panel.clear_playit_credentials()
 
         normalized_host = active_bind_host.strip().lower()
-        if (
-            normalized_host in ("127.0.0.1", "localhost", "::1")
-            or normalized_host.startswith("127.")
+        if normalized_host in ("127.0.0.1", "localhost", "::1") or normalized_host.startswith(
+            "127."
         ):
             from app.core.settings_store import update_settings as update_settings_store
 
@@ -1172,9 +1423,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                 "updated to 0.0.0.0 in config/settings.yaml. Restart the panel for this to "
                 "take effect, then port forwarding will activate.",
             )
-            panel.set_port_forward_details(
-                requested_port, "BIND_MISMATCH", datetime.now(UTC)
-            )
+            panel.set_port_forward_details(requested_port, "BIND_MISMATCH", datetime.now(UTC))
             return
 
         valid, err_code, err_msg = AsyncUPnPService.validate_external_port(requested_port)
@@ -1196,16 +1445,12 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         panel.update(PanelExposureMethod.PORT_FORWARD, DesiredState.ENABLED)
         if result.success:
             panel.set_public_address(f"http://{result.external_ip}:{result.external_port}")
-            panel.set_port_forward_details(
-                result.external_port, "SUCCEEDED", datetime.now(UTC)
-            )
+            panel.set_port_forward_details(result.external_port, "SUCCEEDED", datetime.now(UTC))
             panel.set_status(ExposureStatus.ACTIVE)
             panel.set_error(None)
         else:
             panel.set_public_address(None)
-            panel.set_port_forward_details(
-                requested_port, result.error_code, datetime.now(UTC)
-            )
+            panel.set_port_forward_details(requested_port, result.error_code, datetime.now(UTC))
             panel.set_status(ExposureStatus.ERROR)
             panel.set_error(result.error_code, result.error_message)
 
@@ -1433,9 +1678,7 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                             plaintext = _panel_encryption().decrypt(
                                 exposure.cloudflare_token_ciphertext
                             )
-                            on_status = _make_persist_server_cloudflare_status(
-                                exposure.server_id
-                            )
+                            on_status = _make_persist_server_cloudflare_status(exposure.server_id)
                             post_commit.append(
                                 lambda sup=srv_supervisor, pt=plaintext, ost=on_status: sup.start(
                                     pt, on_status=ost
@@ -1470,9 +1713,7 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                 try:
                     secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
                     post_commit.append(
-                        lambda s=secret_bytes: supervisor.start(
-                            s, on_status=_persist_playit_status
-                        )
+                        lambda s=secret_bytes: supervisor.start(s, on_status=_persist_playit_status)
                     )
                 except Exception:
                     logger.exception("Failed to decrypt secret on reconcile")
@@ -1490,9 +1731,7 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
 
         return CommandResult(success=True, data={"reconciled": True})
 
-    async def _reconcile_panel(
-        self, uow: UnitOfWork, post_commit: list[callable]
-    ) -> None:
+    async def _reconcile_panel(self, uow: UnitOfWork, post_commit: list[callable]) -> None:
         """Restore the panel Cloudflare tunnel from the persisted desired state.
 
         Uses only the stored aggregate (desired_state, method, credentials):
@@ -1610,8 +1849,10 @@ def _target_payload(target: ServerExposureTarget) -> dict:
         and not target.public_address
     ):
         dashboard_url = "https://playit.gg/manage"
+        st_name = target.service_type.value.capitalize()
+        proto_name = target.protocol.value.upper()
         setup_instructions = (
-            "Add a Minecraft Java (TCP) tunnel on playit.gg pointing to local address "
+            f"Add a {st_name} ({proto_name}) tunnel on playit.gg pointing to local address "
             f"127.0.0.1:{target.local_port}."
         )
     return {

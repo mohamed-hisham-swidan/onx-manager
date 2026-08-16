@@ -136,9 +136,7 @@ class TestFoldAggregate:
 
 
 class TestReconcileDesiredAgentRunning:
-    async def _run_reconcile(
-        self, exposures: list[ServerExposure], _exposure_db
-    ) -> bool:
+    async def _run_reconcile(self, exposures: list[ServerExposure], _exposure_db) -> bool:
         async with database._session_factory() as session:
             await _persist(session, exposures)
 
@@ -160,37 +158,49 @@ class TestReconcileDesiredAgentRunning:
             return agent.desired_agent_running
 
     async def test_playit_enabled_derives_true(self, exposure_db) -> None:
-        assert await self._run_reconcile(
-            [_exposure("s1", ExposureMethod.PLAYIT, DesiredState.ENABLED)],
-            exposure_db
-        ) is True
+        assert (
+            await self._run_reconcile(
+                [_exposure("s1", ExposureMethod.PLAYIT, DesiredState.ENABLED)], exposure_db
+            )
+            is True
+        )
 
     async def test_port_forward_only_derives_false(self, exposure_db) -> None:
-        assert await self._run_reconcile(
-            [_exposure("s1", ExposureMethod.PORT_FORWARD, DesiredState.ENABLED)],
-            exposure_db
-        ) is False
+        assert (
+            await self._run_reconcile(
+                [_exposure("s1", ExposureMethod.PORT_FORWARD, DesiredState.ENABLED)], exposure_db
+            )
+            is False
+        )
 
     async def test_cloudflare_tcp_only_derives_false(self, exposure_db) -> None:
-        assert await self._run_reconcile(
-            [_exposure("s1", ExposureMethod.CLOUDFLARE_TCP, DesiredState.ENABLED)],
-            exposure_db
-        ) is False
+        assert (
+            await self._run_reconcile(
+                [_exposure("s1", ExposureMethod.CLOUDFLARE_TCP, DesiredState.ENABLED)], exposure_db
+            )
+            is False
+        )
 
     async def test_mixed_playit_and_non_playit_derives_true(self, exposure_db) -> None:
-        assert await self._run_reconcile(
-            [
-                _exposure("s1", ExposureMethod.PLAYIT, DesiredState.ENABLED),
-                _exposure("s2", ExposureMethod.PORT_FORWARD, DesiredState.ENABLED),
-            ],
-            exposure_db
-        ) is True
+        assert (
+            await self._run_reconcile(
+                [
+                    _exposure("s1", ExposureMethod.PLAYIT, DesiredState.ENABLED),
+                    _exposure("s2", ExposureMethod.PORT_FORWARD, DesiredState.ENABLED),
+                ],
+                exposure_db,
+            )
+            is True
+        )
 
     async def test_none_enabled_derives_false(self, exposure_db) -> None:
-        assert await self._run_reconcile(
-            [
-                _exposure("s1", ExposureMethod.PLAYIT, DesiredState.DISABLED),
-                _exposure("s2", ExposureMethod.PORT_FORWARD, DesiredState.ENABLED),
-            ],
-            exposure_db
-        ) is False
+        assert (
+            await self._run_reconcile(
+                [
+                    _exposure("s1", ExposureMethod.PLAYIT, DesiredState.DISABLED),
+                    _exposure("s2", ExposureMethod.PORT_FORWARD, DesiredState.ENABLED),
+                ],
+                exposure_db,
+            )
+            is False
+        )

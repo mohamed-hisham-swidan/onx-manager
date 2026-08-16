@@ -144,9 +144,7 @@ async def _set_panel_reclaim_required() -> None:
         repo = SQLPanelExposureRepository(session)
         panel = await repo.get()
         panel.set_status(ExposureStatus.RECLAIM_REQUIRED)
-        panel.set_error(
-            "RECLAIM_REQUIRED", "cloudflared reported an invalid/revoked tunnel token"
-        )
+        panel.set_error("RECLAIM_REQUIRED", "cloudflared reported an invalid/revoked tunnel token")
         await repo.save(panel)
         await session.commit()
 
@@ -314,9 +312,7 @@ class TestSetPanelExposureAuthFailure:
 
 
 class TestReconcileRestartFromPersistedState:
-    async def test_reconcile_starts_from_stored_ciphertext_no_new_tunnel(
-        self, monkeypatch
-    ) -> None:
+    async def test_reconcile_starts_from_stored_ciphertext_no_new_tunnel(self, monkeypatch) -> None:
         client = FakeCloudflareClient()
         first = FakeSupervisor()
         _patch_boundaries(monkeypatch, client, first)
@@ -346,9 +342,7 @@ class TestReconcileRestartFromPersistedState:
         assert client.created_names == [f"mcs-panel-{_HOSTNAME}"]
         assert client.cnames == [(_HOSTNAME, "tun-abc")]
 
-    async def test_reconcile_after_disable_leaves_supervisor_stopped(
-        self, monkeypatch
-    ) -> None:
+    async def test_reconcile_after_disable_leaves_supervisor_stopped(self, monkeypatch) -> None:
         client = FakeCloudflareClient()
         supervisor = FakeSupervisor()
         _patch_boundaries(monkeypatch, client, supervisor)
@@ -416,9 +410,7 @@ class TestPanelTokenReclaimRotation:
     no-op, never silently require disable→enable, never mint a new tunnel.
     """
 
-    async def _enabled_panel(
-        self, client, _supervisor, handler
-    ) -> None:
+    async def _enabled_panel(self, client, _supervisor, handler) -> None:
         result = await handler.handle(
             SetPanelExposureCommand(
                 method="cloudflare_tunnel",
@@ -518,9 +510,7 @@ class TestPanelTokenReclaimRotation:
         assert panel.status == ExposureStatus.STARTING
         assert panel.desired_state == DesiredState.ENABLED
 
-    async def test_invalid_replacement_token_keeps_reclaim_required(
-        self, monkeypatch
-    ) -> None:
+    async def test_invalid_replacement_token_keeps_reclaim_required(self, monkeypatch) -> None:
         """E: an invalid replacement token keeps RECLAIM_REQUIRED (via the
         supervisor auth-failure feedback — never a silent success)."""
         client = FakeCloudflareClient()
@@ -552,9 +542,7 @@ class TestPanelTokenReclaimRotation:
         # No new credential was minted; the single original tunnel remains.
         assert client.create_attempts == 1
 
-    async def test_reclaim_rotation_repeated_request_idempotent(
-        self, monkeypatch
-    ) -> None:
+    async def test_reclaim_rotation_repeated_request_idempotent(self, monkeypatch) -> None:
         """F: a repeated identical rotation request is a no-op (no second
         restart, no re-encryption) once the panel left RECLAIM_REQUIRED."""
         client = FakeCloudflareClient()
@@ -581,9 +569,7 @@ class TestPanelTokenReclaimRotation:
         assert (await _load_panel()).cloudflare_token_ciphertext == ct_after_first
         assert client.create_attempts == 1
 
-    async def test_reclaim_rotation_payload_never_exposes_token(
-        self, monkeypatch
-    ) -> None:
+    async def test_reclaim_rotation_payload_never_exposes_token(self, monkeypatch) -> None:
         """G: the rotation result never returns/logs the plaintext token."""
         client = FakeCloudflareClient()
         supervisor = FakeSupervisor()

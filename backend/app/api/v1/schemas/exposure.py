@@ -88,11 +88,32 @@ class ServerExposureStateUpdateRequest(BaseModel):
 
 
 class TargetCreateRequest(BaseModel):
+    service_type: str = Field(default="java", pattern="^(java|bedrock|voice|bluemap)$")
+    protocol: str | None = Field(default=None, pattern="^(tcp|udp)$")
+    local_port: int | None = Field(default=None, ge=1, le=65535)
     public_address: str | None = Field(default=None, max_length=512)
 
 
 class TargetUpdateRequest(BaseModel):
     public_address: str | None = Field(default=None, max_length=512)
+
+
+class RegisteredPortCreateRequest(BaseModel):
+    service_type: str = Field(pattern="^(bedrock|voice|bluemap)$")
+    protocol: str = Field(pattern="^(tcp|udp)$")
+    port: int = Field(ge=1, le=65535)
+    name: str | None = Field(default=None, max_length=64)
+
+
+class RegisteredPortResponse(BaseModel):
+    id: str
+    server_id: str
+    service_type: str
+    protocol: str
+    port: int
+    name: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class ReconcileRequest(BaseModel):

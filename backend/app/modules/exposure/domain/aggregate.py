@@ -12,6 +12,7 @@ from app.modules.exposure.domain.events import (
     ServerExposureEnabledEvent,
     ServerExposureRemovedEvent,
 )
+from app.modules.exposure.domain.exceptions import DuplicateTargetError, UnregisteredPortError
 from app.modules.exposure.domain.value_objects import (
     AgentProcessStatus,
     DesiredState,
@@ -251,7 +252,8 @@ class ServerExposureTarget(AggregateRoot):
         self._updated_at = datetime.now(UTC)
 
     def mark_starting(self) -> None:
-        self._transition_to(ExposureStatus.STARTING)
+        if self._status != ExposureStatus.STARTING:
+            self._transition_to(ExposureStatus.STARTING)
 
     def mark_active(self, public_address: str | None = None) -> None:
         if self._status != ExposureStatus.ACTIVE:
@@ -423,9 +425,7 @@ class ServerExposure(AggregateRoot):
     def has_cloudflare_credentials(self) -> bool:
         return bool(self._cloudflare_tunnel_id and self._cloudflare_token_ciphertext)
 
-    def set_cloudflare_credentials(
-        self, tunnel_id: str, token_ciphertext: bytes
-    ) -> None:
+    def set_cloudflare_credentials(self, tunnel_id: str, token_ciphertext: bytes) -> None:
         self._cloudflare_tunnel_id = tunnel_id
         self._cloudflare_token_ciphertext = token_ciphertext
         self._updated_at = datetime.now(UTC)
@@ -455,15 +455,36 @@ class ServerExposure(AggregateRoot):
         self._aggregate_status = _coerce_exposure_status(status)
         self._updated_at = datetime.now(UTC)
 
-    def validate_target_port(self, local_port: int, server_port: int) -> None:
-        """Port must equal the owning server's ServerModel.port and must not
-        be a deny-listed management/internal port."""
-        if local_port != server_port:
-            raise InvalidValueError(
-                field="local_port",
-                value=local_port,
-                reason=f"must equal the server's game port ({server_port})",
-            )
+    def validate_target_port(
+        self,
+        local_port: int,
+        server_port: int,
+        service_type: ServiceType | str = ServiceType.JAVA,
+        registered_port: int | None = None,
+    ) -> None:
+        """Port must equal the owning server's ServerModel.port (for Java) or
+        the registered port for companion services, and must not be a
+        deny-listed management/internal port."""
+        st = _coerce_service_type(service_type)
+        if st == ServiceType.JAVA:
+            if local_port != server_port:
+                raise InvalidValueError(
+                    field="local_port",
+                    value=local_port,
+                    reason=f"must equal the server's game port ({server_port})",
+                )
+        else:
+            if registered_port is None:
+                raise UnregisteredPortError(
+                    f"Service type {st.value} has no registered port for this server"
+                )
+            if local_port != registered_port:
+                raise InvalidValueError(
+                    field="local_port",
+                    value=local_port,
+                    reason=f"must equal the registered port ({registered_port}) for {st.value}",
+                )
+
         if local_port in DENY_LIST_PORTS:
             raise InvalidValueError(
                 field="local_port",
@@ -476,27 +497,58 @@ class ServerExposure(AggregateRoot):
         local_port: int,
         server_port: int,
         target_id: str,
+        service_type: ServiceType | str = ServiceType.JAVA,
+        protocol: TargetProtocol | str = TargetProtocol.TCP,
+        registered_port: int | None = None,
     ) -> ServerExposureTarget:
-        self.validate_target_port(local_port, server_port)
-        existing = [
-            t
-            for t in self._targets
-            if t.service_type == ServiceType.JAVA and t.protocol == TargetProtocol.TCP
-        ]
-        if existing:
+        st = _coerce_service_type(service_type)
+        proto = _coerce_protocol(protocol)
+
+        affinity_map = {
+            ServiceType.JAVA: TargetProtocol.TCP,
+            ServiceType.BEDROCK: TargetProtocol.UDP,
+            ServiceType.VOICE: TargetProtocol.UDP,
+            ServiceType.BLUEMAP: TargetProtocol.TCP,
+        }
+        expected_proto = affinity_map.get(st, TargetProtocol.TCP)
+        if expected_proto != proto:
             raise InvalidValueError(
-                field="targets",
-                value=local_port,
-                reason="a java/tcp target already exists for this exposure",
+                field="protocol",
+                value=proto.value,
+                reason=f"Service type {st.value} requires protocol {expected_proto.value}",
             )
+
+        self.validate_target_port(
+            local_port=local_port,
+            server_port=server_port,
+            service_type=st,
+            registered_port=registered_port,
+        )
+
+        existing = [t for t in self._targets if t.service_type == st and t.protocol == proto]
+        if existing:
+            raise DuplicateTargetError(
+                f"a {st.value}/{proto.value} target already exists for this exposure"
+            )
+
         target = ServerExposureTarget(
             id=target_id,
             exposure_id=self._id or "",
             local_port=local_port,
+            service_type=st,
+            protocol=proto,
         )
         self._targets.append(target)
         self._updated_at = datetime.now(UTC)
         return target
+
+    def remove_target(self, target_id: str) -> ServerExposureTarget | None:
+        for idx, t in enumerate(self._targets):
+            if t.id == target_id:
+                removed = self._targets.pop(idx)
+                self._updated_at = datetime.now(UTC)
+                return removed
+        return None
 
     def enable(self, server_port: int, target_id: str) -> ServerExposureTarget:
         """Enable the exposure. Auto-creates the single java/tcp target from
@@ -651,9 +703,7 @@ class PanelExposure(AggregateRoot):
         self._error_message = message
         self._updated_at = datetime.now(UTC)
 
-    def set_cloudflare_credentials(
-        self, tunnel_id: str, token_ciphertext: bytes
-    ) -> None:
+    def set_cloudflare_credentials(self, tunnel_id: str, token_ciphertext: bytes) -> None:
         self._cloudflare_tunnel_id = tunnel_id
         self._cloudflare_token_ciphertext = token_ciphertext
         self._updated_at = datetime.now(UTC)

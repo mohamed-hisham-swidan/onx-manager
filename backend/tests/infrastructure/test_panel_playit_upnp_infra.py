@@ -64,9 +64,7 @@ class TestUPnPService:
     async def test_attempt_mapping_unsupported_when_discovery_fails(self) -> None:
         service = AsyncUPnPService(timeout=1)
         with patch.object(service, "_discover_igd", return_value=None):
-            result = await service.attempt_mapping(
-                internal_port=8000, requested_external_port=8000
-            )
+            result = await service.attempt_mapping(internal_port=8000, requested_external_port=8000)
             assert result.success is False
             assert result.error_code == "UPNP_UNSUPPORTED"
             assert "UPnP is disabled" in (result.error_message or "")
@@ -78,9 +76,7 @@ class TestUPnPService:
         mock_upnp.lan_address = "192.168.1.100"
 
         with patch.object(service, "_discover_igd", return_value=mock_upnp):
-            result = await service.attempt_mapping(
-                internal_port=8000, requested_external_port=8000
-            )
+            result = await service.attempt_mapping(internal_port=8000, requested_external_port=8000)
             assert result.success is False
             assert result.error_code == "DOUBLE_NAT_DETECTED"
             assert "Double-NAT or CGNAT" in (result.error_message or "")
@@ -93,9 +89,7 @@ class TestUPnPService:
         mock_upnp.add_port_mapping = AsyncMock(return_value=None)
 
         with patch.object(service, "_discover_igd", return_value=mock_upnp):
-            result = await service.attempt_mapping(
-                internal_port=8000, requested_external_port=8000
-            )
+            result = await service.attempt_mapping(internal_port=8000, requested_external_port=8000)
             assert result.success is True
             assert result.external_ip == "93.184.216.34"
             assert result.external_port == 8000
@@ -121,9 +115,7 @@ class TestUPnPService:
         )
 
         with patch.object(service, "_discover_igd", return_value=mock_upnp):
-            result = await service.attempt_mapping(
-                internal_port=8000, requested_external_port=8000
-            )
+            result = await service.attempt_mapping(internal_port=8000, requested_external_port=8000)
             assert result.success is True
             assert result.external_ip == "93.184.216.34"
             assert result.external_port == 8001

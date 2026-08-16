@@ -33,3 +33,70 @@ class WarningNotAcknowledgedError(MCSError):
             code="WARNING_NOT_ACKNOWLEDGED",
             http_status=422,
         )
+
+
+class MethodProtocolIncompatibleError(MCSError):
+    """The selected exposure method cannot support the target protocol."""
+
+    def __init__(
+        self,
+        message: str = (
+            "Cloudflare TCP exposure does not support UDP targets (Bedrock / Voice Chat). "
+            "Use playit.gg or Port Forwarding instead."
+        ),
+    ) -> None:
+        super().__init__(
+            message,
+            code="METHOD_PROTOCOL_INCOMPATIBLE",
+            http_status=422,
+        )
+
+
+class DuplicateTargetError(MCSError):
+    """A target for this service type and protocol already exists."""
+
+    def __init__(
+        self, message: str = "A target for this service type and protocol already exists"
+    ) -> None:
+        super().__init__(
+            message,
+            code="DUPLICATE_TARGET",
+            http_status=409,
+        )
+
+
+class PortAlreadyRegisteredError(MCSError):
+    """A port is already registered for this server/service/protocol."""
+
+    def __init__(
+        self, message: str = "A port is already registered for this service type or port/protocol"
+    ) -> None:
+        super().__init__(
+            message,
+            code="PORT_ALREADY_REGISTERED",
+            http_status=409,
+        )
+
+
+class UnregisteredPortError(MCSError):
+    """A companion service port must be registered before creating an exposure target."""
+
+    def __init__(
+        self, message: str = "Port must be registered before creating exposure target"
+    ) -> None:
+        super().__init__(
+            message,
+            code="UNREGISTERED_PORT",
+            http_status=422,
+        )
+
+
+class InvalidServiceTypeError(MCSError):
+    """Service type is invalid or disallowed in this context."""
+
+    def __init__(self, message: str = "Invalid service type") -> None:
+        super().__init__(
+            message,
+            code="INVALID_SERVICE_TYPE",
+            http_status=422,
+        )

@@ -236,6 +236,9 @@ route_permissions:
   "GET /api/v1/servers/{server_id}/exposure/targets": {permission: "server.{id}.exposure.view", status: enforced}
   "POST /api/v1/servers/{server_id}/exposure/targets": {permission: "server.{id}.exposure", status: enforced, note: "create java target from ServerModel.port; validates port + deny-list"}
   "PUT /api/v1/servers/{server_id}/exposure/targets/{target_id}": {permission: "server.{id}.exposure", status: enforced, note: "update exposure target public_address"}
+  "GET /api/v1/servers/{server_id}/ports": {permission: "server.{id}.exposure.view", status: enforced}
+  "POST /api/v1/servers/{server_id}/ports": {permission: "server.{id}.exposure", status: enforced, note: "register companion port; validates deny-list and single port per type"}
+  "DELETE /api/v1/servers/{server_id}/ports/{port_id}": {permission: "server.{id}.exposure", status: enforced, note: "204 idempotent; deletes registered companion port and removes associated exposure target"}
 
   "POST /api/v1/setup/bootstrap": {permission: null, status: not-applicable-public, note: "single-use first-run wizard; rejects with 409/400 once instance initialized"}
   "PUT /api/v1/setup/access-mode": {permission: "owner", status: enforced, note: "Owner-only via require_owner() — admin:full alone is NOT sufficient; requires owner role or global.* claim"}

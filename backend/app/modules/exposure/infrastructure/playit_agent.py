@@ -111,8 +111,10 @@ class PlayitAgentSupervisor:
                 self._on_status = on_status
 
             secret_bytes = (
-                secret if isinstance(secret, bytes)
-                else secret.encode("utf-8") if secret is not None
+                secret
+                if isinstance(secret, bytes)
+                else secret.encode("utf-8")
+                if secret is not None
                 else None
             )
 

@@ -43,10 +43,14 @@ class PanelExposureMethod(StrEnum):
 
 class TargetProtocol(StrEnum):
     TCP = "tcp"
+    UDP = "udp"
 
 
 class ServiceType(StrEnum):
     JAVA = "java"
+    BEDROCK = "bedrock"
+    VOICE = "voice"
+    BLUEMAP = "bluemap"
 
 
 # Deterministic aggregate precedence (highest → lowest). Per target-status
