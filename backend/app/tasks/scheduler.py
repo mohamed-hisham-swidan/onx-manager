@@ -96,6 +96,20 @@ class Scheduler:
             self._aps.remove_job(job_id)
         return True
 
+    async def update_job_expression(self, job_name: str, new_expression: str) -> bool:
+        async with await self._session_factory() as session:
+            stmt = select(CronJobModel).where(CronJobModel.name == job_name)
+            result = await session.execute(stmt)
+            model = result.scalar_one_or_none()
+            if model is None:
+                return False
+            model.cron_expression = new_expression
+            await session.commit()
+
+        if self._aps:
+            self._schedule_job(model)
+        return True
+
     async def _load_jobs(self) -> list[CronJobModel]:
         async with await self._session_factory() as session:
             stmt = select(CronJobModel).where(CronJobModel.enabled == 1)
@@ -156,3 +170,15 @@ class Scheduler:
             misfire_grace_time=1,
             **trigger_kwargs,
         )
+
+
+_global_scheduler: Scheduler | None = None
+
+
+def init_global_scheduler(scheduler: Scheduler) -> None:
+    global _global_scheduler
+    _global_scheduler = scheduler
+
+
+def get_scheduler() -> Scheduler | None:
+    return _global_scheduler

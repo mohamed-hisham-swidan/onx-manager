@@ -53,6 +53,7 @@ class TestSettingsPersistenceStore:
         assert live.idempotency_ttl_hours == 24
         assert live.log_level == "INFO"
         assert live.debug is False
+        assert live.metrics_interval_seconds == 0.2
 
     def test_update_persists_to_file(self, setup_temp_settings):
         test_yaml = setup_temp_settings
@@ -132,10 +133,11 @@ class TestConsumerHotReload:
 
     @pytest.mark.asyncio
     async def test_cleanup_task_idempotency_ttl_hot_reload(self, setup_temp_settings, monkeypatch):
+        from unittest.mock import MagicMock
         mock_session = AsyncMock()
         mock_session.execute = AsyncMock(return_value=AsyncMock(rowcount=0))
 
-        mock_sf = AsyncMock()
+        mock_sf = MagicMock()
         mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_sf.return_value.__aexit__ = AsyncMock(return_value=None)
 
@@ -205,7 +207,7 @@ class TestSettingsAPIEndpoints:
             # Update settings via PATCH
             res_patch = await client.patch(
                 "/api/v1/settings",
-                json={"rate_limit_per_minute": 90, "log_level": "WARNING"},
+                json={"rate_limit_per_minute": 90, "log_level": "WARNING", "metrics_interval_seconds": 1.0},
                 headers=headers,
             )
             assert res_patch.status_code == 200
@@ -213,9 +215,11 @@ class TestSettingsAPIEndpoints:
             assert patch_data["success"] is True
             assert patch_data["settings"]["rate_limit_per_minute"] == 90
             assert patch_data["settings"]["log_level"] == "WARNING"
+            assert patch_data["settings"]["metrics_interval_seconds"] == 1.0
             assert patch_data["requires_restart"] == ["log_level"]
 
             # Subsequent GET reflects live update without backend restart
             res_get2 = await client.get("/api/v1/settings", headers=headers)
             assert res_get2.status_code == 200
             assert res_get2.json()["rate_limit_per_minute"] == 90
+            assert res_get2.json()["metrics_interval_seconds"] == 1.0

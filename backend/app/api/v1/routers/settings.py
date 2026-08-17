@@ -29,6 +29,7 @@ async def get_settings_endpoint(
         "event_bus_retry_attempts": live.event_bus_retry_attempts,
         "saga_timeout_seconds": live.saga_timeout_seconds,
         "panel_bind_host": live.panel_bind_host,
+        "metrics_interval_seconds": live.metrics_interval_seconds,
         "requires_restart": sorted(list(RESTART_REQUIRED_FIELDS)),
     }
 
@@ -39,6 +40,25 @@ async def update_settings(
     current_user: dict = Depends(require_permission("settings:write")),
 ) -> dict:
     live, restart_fields = update_settings_store(body)
+
+    # If metrics collection interval was updated, dynamically reload the scheduler & batcher
+    if "metrics_interval_seconds" in body:
+        try:
+            from app.websocket.endpoint import get_metrics_batcher
+            batcher = get_metrics_batcher()
+            if batcher:
+                batcher.set_window_seconds(live.metrics_interval_seconds)
+
+            from app.tasks.scheduler import get_scheduler
+            scheduler = get_scheduler()
+            if scheduler:
+                await scheduler.update_job_expression(
+                    "metrics_collect",
+                    f"interval:{live.metrics_interval_seconds}s",
+                )
+        except Exception:
+            pass
+
     return {
         "success": True,
         "message": "Settings updated",
@@ -55,5 +75,6 @@ async def update_settings(
             "event_bus_retry_attempts": live.event_bus_retry_attempts,
             "saga_timeout_seconds": live.saga_timeout_seconds,
             "panel_bind_host": live.panel_bind_host,
+            "metrics_interval_seconds": live.metrics_interval_seconds,
         },
     }

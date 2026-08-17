@@ -42,6 +42,7 @@ _DEFAULTS: dict[str, Any] = {
     "event_bus_retry_attempts": 3,
     "saga_timeout_seconds": 300,
     "panel_bind_host": "127.0.0.1",
+    "metrics_interval_seconds": 0.2,
 }
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
@@ -61,6 +62,7 @@ class LiveSettings:
     event_bus_retry_attempts: int = 3
     saga_timeout_seconds: int = 300
     panel_bind_host: str = "127.0.0.1"
+    metrics_interval_seconds: float = 0.2
 
 
 _live: LiveSettings | None = None
@@ -90,6 +92,11 @@ def _coerce(field: str, value: Any) -> Any:
         if isinstance(value, bool):
             return value
         return str(value).lower() in ("true", "1", "yes")
+    if field == "metrics_interval_seconds":
+        try:
+            return round(max(0.1, min(60.0, float(value))), 2)
+        except (TypeError, ValueError):
+            return default
     try:
         return target_type(value)
     except (TypeError, ValueError):

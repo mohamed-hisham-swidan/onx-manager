@@ -207,6 +207,7 @@ export interface SettingsResponse {
   circuit_breaker_timeout_seconds: number;
   event_bus_retry_attempts: number;
   saga_timeout_seconds: number;
+  metrics_interval_seconds?: number;
   requires_restart?: string[];
 }
 
@@ -220,6 +221,7 @@ export interface SettingsUpdateRequest {
   circuit_breaker_timeout_seconds?: number;
   event_bus_retry_attempts?: number;
   saga_timeout_seconds?: number;
+  metrics_interval_seconds?: number;
 }
 
 export interface SettingsUpdateResponse {

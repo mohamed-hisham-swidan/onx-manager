@@ -58,7 +58,7 @@ from app.core.http_client import close_http_client, init_http_client
 from app.core.persistence.db import database
 from app.core.persistence.db_revision import check_database_compatibility
 from app.core.query_bus import QueryBus
-from app.core.settings_store import init_settings_store
+from app.core.settings_store import get_live_settings, init_settings_store
 from app.core.version import get_app_version
 from app.modules.auth.infrastructure.jwt import init_jwt_from_settings
 from app.modules.plugin.infrastructure.providers import validate_plugin_providers
@@ -272,41 +272,53 @@ async def lifespan(_app: FastAPI):
     init_metrics_collector(metrics_collector)
 
     # Scheduler — loads cron_jobs from DB and fires them on schedule
+    from app.tasks.scheduler import init_global_scheduler
     scheduler = Scheduler(_session_factory)
     scheduler.set_task_queue(task_queue)
+    init_global_scheduler(scheduler)
     await scheduler.start()
 
-    # Register the metrics collection job (every 0.2 seconds)
+    # Register/ensure the metrics collection job using configured interval
+    live_settings = get_live_settings()
+    current_interval = live_settings.metrics_interval_seconds
+    cron_expr = f"interval:{current_interval}s"
+
     try:
         async with await _session_factory() as sess:
             from sqlalchemy import select
 
             from app.tasks.scheduler import CronJobModel
 
-            # Remove old 1s and 0.5s jobs if they exist
-            for old_name in ("metrics_collect_every_1s", "metrics_collect_every_0.5s"):
-                existing_old = await sess.execute(
-                    select(CronJobModel).where(CronJobModel.name == old_name)
-                )
-                old_job = existing_old.scalar_one_or_none()
-                if old_job:
-                    await scheduler.remove_job(old_job.id)
-                    logger.info("Scheduler: Removed old %s job", old_name)
-
-            # Register new 0.2s job
+            # Look for existing metrics collection job under any known name
             existing = await sess.execute(
-                select(CronJobModel).where(CronJobModel.name == "metrics_collect_every_0.2s")
+                select(CronJobModel).where(
+                    CronJobModel.name.in_((
+                        "metrics_collect",
+                        "metrics_collect_every_0.2s",
+                        "metrics_collect_every_0.5s",
+                        "metrics_collect_every_1s",
+                    ))
+                )
             )
-            if existing.scalar_one_or_none() is None:
+            existing_jobs = list(existing.scalars().all())
+            if not existing_jobs:
                 await scheduler.add_job(
-                    name="metrics_collect_every_0.2s",
-                    cron_expression="interval:0.2s",
+                    name="metrics_collect",
+                    cron_expression=cron_expr,
                     task_name="run_metrics_collection",
                     params={},
                 )
-                logger.info("Scheduler: metrics_collect_every_0.2s registered")
+                logger.info("Scheduler: metrics_collect registered (%s)", cron_expr)
             else:
-                logger.info("Scheduler: metrics_collect_every_0.2s already registered, skipping")
+                primary = existing_jobs[0]
+                if primary.cron_expression != cron_expr or primary.name != "metrics_collect":
+                    primary.name = "metrics_collect"
+                    primary.cron_expression = cron_expr
+                    await sess.commit()
+                    scheduler._schedule_job(primary)
+                    logger.info("Scheduler: metrics_collect updated to %s", cron_expr)
+                for extra in existing_jobs[1:]:
+                    await scheduler.remove_job(extra.id)
     except Exception:
         logger.exception("Failed to register metrics collection cron job")
 

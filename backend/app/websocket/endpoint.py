@@ -81,6 +81,11 @@ async def stop_websocket_services() -> None:
         logger.info("WebSocket metrics push services stopped")
 
 
+def get_metrics_batcher() -> MetricsBatcher | None:
+    """Return the global active MetricsBatcher instance, if any."""
+    return _batcher
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(
     ws: WebSocket,

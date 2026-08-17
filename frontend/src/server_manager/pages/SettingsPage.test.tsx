@@ -15,6 +15,7 @@ const mockSettings = {
   circuit_breaker_timeout_seconds: 30,
   event_bus_retry_attempts: 3,
   saga_timeout_seconds: 300,
+  metrics_interval_seconds: 0.2,
   requires_restart: ["app_name", "log_level", "debug"],
 };
 
@@ -83,6 +84,7 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Rate Limiting & Security")).toBeInTheDocument();
     expect(screen.getByText("Circuit Breaker")).toBeInTheDocument();
     expect(screen.getByText("Event Bus & Sagas")).toBeInTheDocument();
+    expect(screen.getByText("Monitoring & Performance")).toBeInTheDocument();
   });
 
   it("shows loading skeletons", () => {
@@ -120,6 +122,28 @@ describe("SettingsPage", () => {
       expect(mockMutateAsync).toHaveBeenCalledWith(
         expect.objectContaining({
           app_name: "Updated Server Manager",
+        })
+      );
+    });
+  });
+
+  it("edits metrics_interval_seconds and saves via PATCH", async () => {
+    const { container } = renderPage();
+
+    const intervalInput = container.querySelector('[name="metrics_interval_seconds"]') as HTMLInputElement;
+    expect(intervalInput).toBeInTheDocument();
+    expect(intervalInput.value).toBe("0.2");
+
+    fireEvent.change(intervalInput, { target: { value: "1.5" } });
+    expect(intervalInput.value).toBe("1.5");
+
+    const saveButton = screen.getByRole("button", { name: /save settings/i });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metrics_interval_seconds: 1.5,
         })
       );
     });

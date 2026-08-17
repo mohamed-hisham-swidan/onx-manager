@@ -19,6 +19,7 @@ interface FormState {
   circuit_breaker_timeout_seconds: number;
   event_bus_retry_attempts: number;
   saga_timeout_seconds: number;
+  metrics_interval_seconds: number;
 }
 
 export function SettingsPage() {
@@ -116,6 +117,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
     circuit_breaker_timeout_seconds: settings.circuit_breaker_timeout_seconds ?? 30,
     event_bus_retry_attempts: settings.event_bus_retry_attempts ?? 3,
     saga_timeout_seconds: settings.saga_timeout_seconds ?? 300,
+    metrics_interval_seconds: settings.metrics_interval_seconds ?? 0.2,
   });
 
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -140,7 +142,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       Number(formData.circuit_breaker_max_failures) !== settings.circuit_breaker_max_failures ||
       Number(formData.circuit_breaker_timeout_seconds) !== settings.circuit_breaker_timeout_seconds ||
       Number(formData.event_bus_retry_attempts) !== settings.event_bus_retry_attempts ||
-      Number(formData.saga_timeout_seconds) !== settings.saga_timeout_seconds
+      Number(formData.saga_timeout_seconds) !== settings.saga_timeout_seconds ||
+      Number(formData.metrics_interval_seconds) !== (settings.metrics_interval_seconds ?? 0.2)
     );
   }, [formData, settings]);
 
@@ -173,6 +176,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       circuit_breaker_timeout_seconds: settings.circuit_breaker_timeout_seconds ?? 30,
       event_bus_retry_attempts: settings.event_bus_retry_attempts ?? 3,
       saga_timeout_seconds: settings.saga_timeout_seconds ?? 300,
+      metrics_interval_seconds: settings.metrics_interval_seconds ?? 0.2,
     });
     setSaveError(null);
     setSaveSuccessNotice(null);
@@ -193,6 +197,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       circuit_breaker_timeout_seconds: Number(formData.circuit_breaker_timeout_seconds),
       event_bus_retry_attempts: Number(formData.event_bus_retry_attempts),
       saga_timeout_seconds: Number(formData.saga_timeout_seconds),
+      metrics_interval_seconds: Number(formData.metrics_interval_seconds),
     };
 
     try {
@@ -519,6 +524,39 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             />
             <p id="saga_timeout_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Maximum execution duration before rolling back a distributed saga.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Section 5: Monitoring & Performance */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+        <div className="mb-4">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Monitoring & Performance</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Real-time server metrics collection rate and CPU/RAM sampling interval.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Metrics interval seconds */}
+          <div>
+            <label htmlFor="metrics_interval_seconds" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              CPU & Metrics Sampling Interval (seconds)
+            </label>
+            <input
+              id="metrics_interval_seconds"
+              name="metrics_interval_seconds"
+              type="number"
+              min={0.1}
+              max={60}
+              step={0.1}
+              value={formData.metrics_interval_seconds}
+              onChange={handleChange}
+              aria-describedby="metrics_interval_seconds-help"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p id="metrics_interval_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Frequency in seconds for sampling CPU, RAM, and streaming real-time metrics (e.g. 0.2s for live real-time, 1.0s or 5.0s for reduced CPU overhead).
             </p>
           </div>
         </div>

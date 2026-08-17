@@ -121,6 +121,9 @@ class MetricsBatcher:
         self._task: asyncio.Task[None] | None = None
         self._running = False
 
+    def set_window_seconds(self, window_seconds: float) -> None:
+        self._window_seconds = max(0.1, min(60.0, float(window_seconds)))
+
     async def start(self) -> None:
         self._running = True
         self._task = asyncio.create_task(self._batch_loop())
