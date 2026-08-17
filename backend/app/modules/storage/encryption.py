@@ -18,7 +18,15 @@ def load_or_create_backup_key(path: str | None = None) -> bytes:
     written to disk so it survives process restarts. Calling this repeatedly
     without deleting the file returns the same key.
     """
-    key_path = Path(path) if path else _DEFAULT_KEY_PATH
+    if path:
+        key_path = Path(path)
+    else:
+        candidates = [
+            Path("config/backup_encryption_key.bin"),
+            Path("backend/config/backup_encryption_key.bin"),
+        ]
+        key_path = next((c for c in candidates if c.exists()), _DEFAULT_KEY_PATH)
+
     if key_path.exists():
         data = key_path.read_bytes()
         if len(data) != 32:

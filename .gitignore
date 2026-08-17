@@ -38,6 +38,9 @@ frontend/build/
 *.pem
 *.key
 *.cert
+*.bin
+config/
+backend/config/
 .env
 .env.*
 !.env.example
@@ -52,6 +55,8 @@ logs/
 # Runtime / Process Artifacts
 # ──────────────────────────────────────────────
 /run/
+data/run/
+backend/data/run/
 .mcs/
 *.pid
 *.sock

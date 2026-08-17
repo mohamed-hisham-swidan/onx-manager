@@ -117,10 +117,25 @@ export function useServerExposure(serverId: string) {
   });
 
   const createTargetMutation = useMutation({
-    mutationFn: (body: TargetCreateRequest) => api.createExposureTarget(serverId, body),
+    mutationFn: async (body: TargetCreateRequest) => {
+      if (body.service_type !== "java") {
+        try {
+          await api.registerServerPort(serverId, {
+            service_type: body.service_type,
+            protocol: body.protocol,
+            port: body.local_port,
+            name: `${body.service_type.toUpperCase()} Port`,
+          });
+        } catch {
+          // Ignore if already registered
+        }
+      }
+      return api.createExposureTarget(serverId, body);
+    },
     onSuccess: (newTarget) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.exposure.server(serverId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.exposure.targets(serverId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.exposure.ports(serverId) });
       toast("success", "Target Added", `Companion target '${newTarget.service_type}' created.`);
     },
     onError: (err: Error) => {

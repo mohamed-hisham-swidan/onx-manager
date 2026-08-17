@@ -66,9 +66,9 @@ export function ServerExposurePage() {
   if (exposure && syncedExposure !== exposure) {
     setSyncedExposure(exposure);
     setDraftMethod(exposure.method);
-    if (agent?.claimed && claimData) {
-      setClaimData(null);
-    }
+  }
+  if (agent?.claimed && claimData) {
+    setClaimData(null);
   }
 
   const handleGenerateClaim = async (): Promise<ClaimResponse | void> => {

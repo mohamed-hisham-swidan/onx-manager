@@ -118,6 +118,8 @@ class HostPlayitAgent(AggregateRoot):
     def generate_claim(self, claim_code: str, expires_at: datetime) -> None:
         self._claim_code = claim_code
         self._claim_expires_at = expires_at
+        self._secret_ciphertext = None
+        self._process_status = AgentProcessStatus.STARTING
         self._updated_at = datetime.now(UTC)
         self._add_event(AgentClaimGeneratedEvent())
 

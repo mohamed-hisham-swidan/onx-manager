@@ -8,7 +8,7 @@ import type {
   AgentStatusResponse,
 } from "@/types";
 
-export function usePanelExposure() {
+export function usePanelExposure(draftMethod?: string) {
   const api = createAuthenticatedApi();
   const queryClient = useQueryClient();
 
@@ -33,9 +33,9 @@ export function usePanelExposure() {
     },
   });
 
-  // 2. Host Agent Status Query (strictly enabled only when playit is actively selected)
+  // 2. Host Agent Status Query (enabled when playit is actively configured or selected)
   const isPlayitActive =
-    panelQuery.data?.method === "playit_http" && panelQuery.data?.desired_state === "ENABLED";
+    panelQuery.data?.method === "playit_http" || draftMethod === "playit_http";
 
   const agentQuery = useQuery<AgentStatusResponse>({
     queryKey: queryKeys.exposure.agent(),

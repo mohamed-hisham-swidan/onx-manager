@@ -124,9 +124,44 @@ describe("PlayitClaimCard Component", () => {
     );
 
     expect(screen.getByText("playit.gg Host Agent Claimed")).toBeInTheDocument();
-    const resetBtn = screen.getByRole("button", { name: /Reset Agent Credentials/i });
+    const resetBtn = screen.getByRole("button", { name: /Reset Agent/i });
     fireEvent.click(resetBtn);
 
     expect(onResetAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("T-74-18: clicking restart claiming triggers onGenerateClaim from claimed and active states", () => {
+    const onGenerateClaim = vi.fn();
+    const { rerender } = render(
+      <PlayitClaimCard
+        claimed={true}
+        claimActive={false}
+        onGenerateClaim={onGenerateClaim}
+      />
+    );
+
+    // In claimed state
+    const restartBtnClaimed = screen.getByRole("button", { name: /Restart Claiming/i });
+    expect(restartBtnClaimed).toBeInTheDocument();
+    fireEvent.click(restartBtnClaimed);
+    expect(onGenerateClaim).toHaveBeenCalledTimes(1);
+
+    // In active claim state
+    const expiresAt = new Date(Date.now() + 300 * 1000).toISOString();
+    rerender(
+      <PlayitClaimCard
+        claimed={false}
+        claimActive={true}
+        claimCode="ABC123"
+        claimUrl="https://playit.gg/claim/ABC123"
+        claimExpiresAt={expiresAt}
+        onGenerateClaim={onGenerateClaim}
+      />
+    );
+
+    const restartBtnActive = screen.getByRole("button", { name: /Restart Claiming/i });
+    expect(restartBtnActive).toBeInTheDocument();
+    fireEvent.click(restartBtnActive);
+    expect(onGenerateClaim).toHaveBeenCalledTimes(2);
   });
 });

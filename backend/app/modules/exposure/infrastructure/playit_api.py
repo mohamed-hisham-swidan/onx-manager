@@ -194,25 +194,42 @@ class PlayitApiClient:
         port_count: int = 1,
     ) -> PlayitTunnelDto:
         """Request creation of a new tunnel on playit.gg."""
+        rundata = await self.get_rundata(secret)
+        agent_id = rundata.agent_id
+
+        resolved_tt = tunnel_type
+        if not resolved_tt:
+            if port_type == "udp" or local_port == 19132:
+                resolved_tt = "minecraft-bedrock"
+            else:
+                resolved_tt = "minecraft-java"
+
         body: dict[str, Any] = {
             "name": name,
-            "tunnel_type": tunnel_type,
+            "tunnel_type": resolved_tt,
             "port_type": port_type,
             "port_count": port_count,
-            "local_ip": local_ip,
-            "local_port": local_port,
+            "origin": {
+                "type": "agent",
+                "data": {
+                    "agent_id": agent_id,
+                    "local_ip": local_ip,
+                    "local_port": local_port,
+                },
+            },
+            "enabled": True,
+            "alloc": None,
         }
         res = await self._request("POST", "/tunnels/create", secret, json_body=body)
         tunnel_data = res.get("data", {})
         if not isinstance(tunnel_data, dict):
             tunnel_data = {"id": str(tunnel_data)}
 
-        # If display_address not in response, try fetching updated rundata
-        if not tunnel_data.get("display_address"):
-            rundata = await self.get_rundata(secret)
-            for t in rundata.tunnels:
-                if t.id == tunnel_data.get("id") or (t.local_port == local_port and t.port_type == port_type):
-                    return t
+        # Fetch updated rundata to get full assigned domain and port details
+        updated_rundata = await self.get_rundata(secret)
+        for t in updated_rundata.tunnels:
+            if t.id == tunnel_data.get("id") or (t.local_port == local_port and t.port_type == port_type):
+                return t
 
         return self._parse_tunnel(tunnel_data)
 

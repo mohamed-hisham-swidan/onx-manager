@@ -303,6 +303,8 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                     agent = await agent_repo.get()
                     supervisor = get_playit_supervisor()
                     if agent.is_claimed and agent.secret_ciphertext:
+                        agent.set_desired_agent_running(True)
+                        await agent_repo.save(agent)
                         try:
                             secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
                             await _sync_server_playit_targets(
@@ -574,6 +576,8 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
                     await _attempt_server_upnp_mapping(command.server_id, t)
             elif exposure.method == ExposureMethod.PLAYIT:
                 if agent.is_claimed and agent.secret_ciphertext:
+                    agent.set_desired_agent_running(True)
+                    await agent_repo.save(agent)
                     try:
                         secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
                         await _sync_server_playit_targets(command.server_id, exposure, secret_bytes)
@@ -1189,6 +1193,7 @@ class GenerateClaimCommand(Command):
     actor_id: str = ""
     claim_code: str = ""
     claim_url: str = ""
+    force: bool = False
 
 
 class GenerateClaimHandler(CommandHandler[GenerateClaimCommand]):
@@ -1202,7 +1207,7 @@ class GenerateClaimHandler(CommandHandler[GenerateClaimCommand]):
             repo: HostAgentRepository = SQLHostAgentRepository(uow.session)
             agent = await repo.get()
 
-            if agent.has_active_claim:
+            if agent.has_active_claim and not command.force:
                 raise ClaimActiveError()
 
             if command.claim_code:
@@ -1220,16 +1225,15 @@ class GenerateClaimHandler(CommandHandler[GenerateClaimCommand]):
 
         # Start supervisor in background claim exchange mode with the real claim code
         supervisor = get_playit_supervisor()
-        if not agent.is_claimed:
-            try:
-                await supervisor.start(
-                    claim_code=claim_code,
-                    on_secret=_handle_playit_claimed_secret,
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to start playit supervisor in claim exchange mode", exc_info=True
-                )
+        try:
+            await supervisor.start(
+                claim_code=claim_code,
+                on_secret=_handle_playit_claimed_secret,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to start playit supervisor in claim exchange mode", exc_info=True
+            )
 
         return CommandResult(
             success=True,
@@ -1522,6 +1526,8 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         panel.clear_port_forward_details()
 
         if agent.is_claimed and agent.secret_ciphertext:
+            agent.set_desired_agent_running(True)
+            await agent_repo.save(agent)
             try:
                 secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
                 secret_hex = secret_bytes.decode("utf-8")

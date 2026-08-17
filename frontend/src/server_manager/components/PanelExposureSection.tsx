@@ -17,18 +17,6 @@ function isValidFQDN(val: string): boolean {
 }
 
 export function PanelExposureSection() {
-  const {
-    panel,
-    isLoading,
-    agent,
-    updateExposure,
-    isUpdating,
-    refetch,
-  } = usePanelExposure();
-
-  const { copy } = useClipboard();
-  const api = useMemo(() => createAuthenticatedApi(), []);
-
   // Form State
   const [draftMethod, setDraftMethod] = useState<PanelExposureMethodType>("none");
   const [cloudflareToken, setCloudflareToken] = useState("");
@@ -40,6 +28,18 @@ export function PanelExposureSection() {
   const [isGeneratingClaim, setIsGeneratingClaim] = useState(false);
   const [isResettingAgent, setIsResettingAgent] = useState(false);
   const [claimData, setClaimData] = useState<import("@/types").ClaimResponse | null>(null);
+
+  const {
+    panel,
+    isLoading,
+    agent,
+    updateExposure,
+    isUpdating,
+    refetch,
+  } = usePanelExposure(draftMethod);
+
+  const { copy } = useClipboard();
+  const api = useMemo(() => createAuthenticatedApi(), []);
 
   // Refs for focus management (F-74-08)
   const firstInputRef = useRef<HTMLInputElement>(null);
@@ -59,9 +59,9 @@ export function PanelExposureSection() {
     if (panel.external_port && !externalPort) {
       setExternalPort(panel.external_port);
     }
-    if (agent?.claimed && claimData) {
-      setClaimData(null);
-    }
+  }
+  if (agent?.claimed && claimData) {
+    setClaimData(null);
   }
 
   // Focus management when switching method cards
@@ -558,10 +558,10 @@ export function PanelExposureSection() {
           <div className="space-y-4">
             <PlayitClaimCard
               claimed={Boolean(agent?.claimed)}
-              claimActive={Boolean(agent?.claim_active || claimData?.claim_code)}
-              claimCode={claimData?.claim_code}
-              claimUrl={claimData?.claim_url}
-              claimExpiresAt={claimData?.expires_at || agent?.claim_expires_at}
+              claimActive={Boolean(!agent?.claimed && (agent?.claim_active || claimData?.claim_code))}
+              claimCode={!agent?.claimed ? (claimData?.claim_code || agent?.claim_code) : undefined}
+              claimUrl={!agent?.claimed ? (claimData?.claim_url || agent?.claim_url) : undefined}
+              claimExpiresAt={!agent?.claimed ? (claimData?.expires_at || agent?.claim_expires_at) : undefined}
               onGenerateClaim={handleGenerateClaim}
               isGenerating={isGeneratingClaim}
               onResetAgent={handleResetAgent}

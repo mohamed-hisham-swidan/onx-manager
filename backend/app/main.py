@@ -149,10 +149,31 @@ async def lifespan(_app: FastAPI):
 
         try:
             from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
+            from app.modules.exposure.infrastructure.repository import SQLHostAgentRepository
+            from app.modules.exposure.application.commands import (
+                _panel_encryption,
+                _persist_playit_status,
+                _reconcile_playit_tunnels,
+            )
 
-            reconciled_playit = await get_playit_supervisor().reconcile_startup()
+            supervisor = get_playit_supervisor()
+            reconciled_playit = await supervisor.reconcile_startup()
             if reconciled_playit:
                 logger.info("Playit supervisor successfully re-attached to running daemon")
+            else:
+                agent_repo = SQLHostAgentRepository(session)
+                agent = await agent_repo.get()
+                if agent.is_claimed and agent.desired_agent_running and agent.secret_ciphertext:
+                    try:
+                        secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
+                        await supervisor.start(
+                            secret=secret_bytes,
+                            on_status=_persist_playit_status,
+                            on_reconcile=_reconcile_playit_tunnels,
+                        )
+                        logger.info("Playit supervisor successfully spawned daemon on startup")
+                    except Exception as e:
+                        logger.warning("Failed to spawn playit daemon on startup: %s", e)
         except Exception:
             logger.exception("Playit startup reconciliation failed")
 
