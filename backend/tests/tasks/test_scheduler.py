@@ -72,3 +72,29 @@ async def test_scheduler_set_task_queue() -> None:
     queue = FakeQueue()
     scheduler.set_task_queue(queue)
     assert scheduler._task_queue is queue
+
+
+@pytest.mark.asyncio
+async def test_scheduler_add_interval_and_cron_job() -> None:
+    factory = FakeSessionFactory()
+    scheduler = Scheduler(factory)
+    queue = FakeQueue()
+    scheduler.set_task_queue(queue)
+    await scheduler.start()
+
+    await scheduler.add_job(
+        name="test_interval_job",
+        cron_expression="interval:0.2s",
+        task_name="run_metrics_collection",
+    )
+
+    await scheduler.add_job(
+        name="test_cron_job",
+        cron_expression="0 * * * *",
+        task_name="run_backup_task",
+    )
+
+    assert scheduler._aps is not None
+    assert len(scheduler._aps.get_jobs()) == 2
+
+    await scheduler.stop()

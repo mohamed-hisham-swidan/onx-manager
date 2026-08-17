@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 async def run_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
-    async with await database.session_factory() as session:
+    async with database.session_factory() as session:
         counts: dict[str, int] = {}
 
         if params.get("cleanup_logs", True):

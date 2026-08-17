@@ -114,7 +114,7 @@ class EventDispatcher(EventHandler):
 
 
 class MetricsBatcher:
-    def __init__(self, registry: ConnectionRegistry, window_seconds: float = 2.0) -> None:
+    def __init__(self, registry: ConnectionRegistry, window_seconds: float = 0.2) -> None:
         self._registry = registry
         self._window_seconds = window_seconds
         self._samples: dict[str, list[dict[str, Any]]] = defaultdict(list)

@@ -43,6 +43,8 @@ class Scheduler:
         self._running = True
 
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        import logging
+        logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
         self._aps = AsyncIOScheduler()
 
         jobs = await self._load_jobs()
@@ -118,9 +120,12 @@ class Scheduler:
 
         params = json.loads(model.params_json) if model.params_json else {}
         
+        is_subminute_interval = False
         if model.cron_expression.startswith("interval:"):
             secs_str = model.cron_expression.split(":")[1].rstrip("s")
             secs = float(secs_str)
+            if secs < 10.0:
+                is_subminute_interval = True
             trigger_type = "interval"
             trigger_kwargs = {"seconds": secs}
         else:
@@ -131,16 +136,23 @@ class Scheduler:
             if self._task_queue:
                 await self._task_queue.enqueue(model.task_name, params)
 
-            async with await self._session_factory() as session:
-                m = await session.get(CronJobModel, model.id)
-                if m:
-                    m.last_run_at = datetime.now(timezone.utc)
-                    await session.commit()
+            if not is_subminute_interval:
+                try:
+                    async with await self._session_factory() as session:
+                        m = await session.get(CronJobModel, model.id)
+                        if m:
+                            m.last_run_at = datetime.now(timezone.utc)
+                            await session.commit()
+                except Exception:
+                    pass
 
         self._aps.add_job(
             run_job,
             trigger=trigger_type,
             id=model.id,
             replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=1,
             **trigger_kwargs,
         )

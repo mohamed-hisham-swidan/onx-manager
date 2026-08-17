@@ -28,7 +28,8 @@ class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
             server = await repo.get(ServerId(query.server_id))
 
             if not server.runtime or not server.runtime.external_id or server.status not in RUNNING_STATUSES:
-                raise ServerNotRunningError(server_id=query.server_id)
+                # Server not running — return empty list (no crash log lines stored in RuntimeInfo)
+                return ConsoleReadModel(server_id=query.server_id, lines=[])
 
             provider_type = server.runtime.provider
             from app.modules.server.infrastructure.providers import provider_factory
@@ -42,5 +43,6 @@ class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
             try:
                 lines = await provider.console(handle, tail=query.tail)
             except ProviderError:
-                raise ServerNotRunningError(server_id=query.server_id)
+                return ConsoleReadModel(server_id=query.server_id, lines=[])
             return ConsoleReadModel(server_id=query.server_id, lines=lines)
+

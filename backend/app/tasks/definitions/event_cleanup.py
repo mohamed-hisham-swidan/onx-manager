@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 async def run_event_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
-    async with await database.session_factory() as session:
+    async with database.session_factory() as session:
         retention_policies: list[tuple[str, int]] = [
             ("raw", params.get("raw_retention_hours", 2)),
             ("1m_rollup", params.get("rollup_1m_retention_days", 30)),
