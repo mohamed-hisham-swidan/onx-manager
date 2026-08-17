@@ -86,18 +86,25 @@ curl -X POST http://localhost:8000/api/v1/servers/reconcile \
 > that looks like a Minecraft server (matches cmdline pattern) and is not in
 > this project's DB. Use with extreme care on shared or production hosts.
 
-### Preflight Cleanup
+### Preflight Process Reconciliation
 
-Before starting, the project runs `scripts/preflight.sh` automatically to:
+Before starting, the project runs `scripts/preflight.sh` automatically to ensure a clean, reliable runtime environment without terminating healthy processes:
 
-1. Kill any existing process on the backend port (default 8000)
-2. Kill any existing process on the frontend port (default 5173)
-3. Check for SQLite locks on `backend/mcs.db` and release them
-4. Scan for orphaned `uvicorn`, `vite`, or `node` processes
-5. Verify ownership via `/proc/<PID>/cwd` before killing
-6. Print a summary table of actions taken
+1. **Smart Reconciliation Mode (Default)**:
+   - Probes `http://127.0.0.1:8000/health` (backend) and `http://127.0.0.1:5173` (frontend).
+   - If a service is already running and healthy, it **preserves** the process and protects its child/parent process families.
+   - Preserves active SQLite locks owned by the healthy backend.
+   - Detects and terminates only inactive, stale, or dead duplicate processes that do not hold an active listening port.
+2. **Daemon & Game Exclusions**:
+   - Background daemons (`playitd`, `cloudflared`) and live Minecraft game servers (`tmux`, `java` under `data/servers/`) are strictly exempt from preflight cleanup.
+3. **Force Cleanup Mode (`--stop`, `--restart`, `--force`, `--clean`, `-f`)**:
+   - Forcibly terminates all project-related backend and frontend processes, clears stale SQLite locks, and cleans `.mcs/*.pid` files.
+4. **Ownership Verification**:
+   - Verifies ownership via `/proc/<PID>/cwd` and strict `/proc/<PID>/cmdline` project identifiers (`app.main:app`, `mcs-frontend`, `mcs-manager`) before any kill action.
+5. **Summary Reporting**:
+   - Prints a real-time status table of active ports, SQLite DB lock state, and actions taken.
 
-This prevents `sqlite3.OperationalError: database is locked` from stale processes.
+This prevents duplicate instances and `sqlite3.OperationalError: database is locked` while ensuring live services and background tunnels are never interrupted.
 
 Configuration via environment variables:
 

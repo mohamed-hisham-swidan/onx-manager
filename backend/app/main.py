@@ -253,36 +253,37 @@ async def lifespan(_app: FastAPI):
     scheduler.set_task_queue(task_queue)
     await scheduler.start()
 
-    # Register the metrics collection job (every 0.5 seconds)
+    # Register the metrics collection job (every 0.2 seconds)
     try:
         async with await _session_factory() as sess:
             from sqlalchemy import select
 
             from app.tasks.scheduler import CronJobModel
 
-            # Remove old 1s job if it exists
-            existing_old = await sess.execute(
-                select(CronJobModel).where(CronJobModel.name == "metrics_collect_every_1s")
-            )
-            old_job = existing_old.scalar_one_or_none()
-            if old_job:
-                await scheduler.remove_job(old_job.id)
-                logger.info("Scheduler: Removed old metrics_collect_every_1s job")
+            # Remove old 1s and 0.5s jobs if they exist
+            for old_name in ("metrics_collect_every_1s", "metrics_collect_every_0.5s"):
+                existing_old = await sess.execute(
+                    select(CronJobModel).where(CronJobModel.name == old_name)
+                )
+                old_job = existing_old.scalar_one_or_none()
+                if old_job:
+                    await scheduler.remove_job(old_job.id)
+                    logger.info("Scheduler: Removed old %s job", old_name)
 
-            # Register new 0.5s job
+            # Register new 0.2s job
             existing = await sess.execute(
-                select(CronJobModel).where(CronJobModel.name == "metrics_collect_every_0.5s")
+                select(CronJobModel).where(CronJobModel.name == "metrics_collect_every_0.2s")
             )
             if existing.scalar_one_or_none() is None:
                 await scheduler.add_job(
-                    name="metrics_collect_every_0.5s",
-                    cron_expression="interval:0.5s",
+                    name="metrics_collect_every_0.2s",
+                    cron_expression="interval:0.2s",
                     task_name="run_metrics_collection",
                     params={},
                 )
-                logger.info("Scheduler: metrics_collect_every_0.5s registered")
+                logger.info("Scheduler: metrics_collect_every_0.2s registered")
             else:
-                logger.info("Scheduler: metrics_collect_every_0.5s already registered, skipping")
+                logger.info("Scheduler: metrics_collect_every_0.2s already registered, skipping")
     except Exception:
         logger.exception("Failed to register metrics collection cron job")
 

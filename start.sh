@@ -46,7 +46,7 @@ fi
 # Preflight: kill stale/duplicate processes before starting anything
 PREFLIGHT="${SCRIPT_DIR}/scripts/preflight.sh"
 if [ -x "$PREFLIGHT" ]; then
-    if ! "$PREFLIGHT"; then
+    if ! "$PREFLIGHT" "$@"; then
         echo ""
         echo "  ✖ Preflight check failed. Fix the issues above and try again."
         echo ""

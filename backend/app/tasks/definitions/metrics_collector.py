@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 import asyncio
 import logging
+import time
 from typing import Any
 
 from sqlalchemy import select
@@ -16,6 +15,8 @@ logger = logging.getLogger(__name__)
 _collector: MetricsCollector | None = None
 _prometheus: PrometheusMetricsRegistry | None = None
 _collection_lock = asyncio.Lock()
+_last_healthy_log_time: float = 0.0
+_HEARTBEAT_LOG_INTERVAL_SECONDS: float = 120.0  # Log healthy summary once every 2 minutes
 
 
 def init_collector(
@@ -29,7 +30,7 @@ def init_collector(
 
 async def run_metrics_collection_task(params: dict[str, Any]) -> dict[str, Any]:
     if _collection_lock.locked():
-        logger.warning("Metrics collection already in progress — skipping overlapping cycle")
+        logger.debug("Metrics collection already in progress — skipping overlapping cycle")
         return {"server_count": 0, "results": {}, "skipped": True}
 
     async with _collection_lock:
@@ -37,6 +38,7 @@ async def run_metrics_collection_task(params: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _run_collection(params: dict[str, Any]) -> dict[str, Any]:
+    global _last_healthy_log_time
     collector = _collector
     if collector is None:
         logger.warning("MetricsCollector not initialized — skipping collection")
@@ -61,7 +63,11 @@ async def _run_collection(params: dict[str, Any]) -> dict[str, Any]:
             prometheus.update_ram(server_id, metrics.ram_used_mb)
             prometheus.update_cpu(server_id, metrics.cpu_percent)
 
-    logger.info("Metrics collection completed for %d servers", len(results))
+    now = time.time()
+    if now - _last_healthy_log_time >= _HEARTBEAT_LOG_INTERVAL_SECONDS:
+        _last_healthy_log_time = now
+        logger.debug("Metrics collection running normally (%d active server(s))", len(results))
+
     return {
         "server_count": len(results),
         "results": {

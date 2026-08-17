@@ -83,9 +83,20 @@ log_raw()   { echo "$*"; }
 #      so we also check the command string.
 belongs_to_project() {
     local pid="$1"
-    local cwd cmd
+    local cwd="" cmd=""
 
-    # Check /proc/<PID>/cwd  (most reliable)
+    # Check cmdline first to exclude background daemons & games
+    if [ -r "/proc/${pid}/cmdline" ]; then
+        cmd="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
+        if [[ "$cmd" == *"playit"* ]] ||
+           [[ "$cmd" == *"cloudflared"* ]] ||
+           [[ "$cmd" == *"tmux"* ]] ||
+           [[ "$cmd" == *"java"* ]]; then
+            return 1
+        fi
+    fi
+
+    # Check /proc/<PID>/cwd
     if [ -L "/proc/${pid}/cwd" ]; then
         cwd="$(readlink -f "/proc/${pid}/cwd" 2>/dev/null || true)"
         if [[ "$cwd" == "${PROJECT_ROOT}"* ]]; then
@@ -97,21 +108,17 @@ belongs_to_project() {
         fi
     fi
 
-    # Check /proc/<PID>/cmdline (fallback — port listeners often lose cwd)
-    if [ -r "/proc/${pid}/cmdline" ]; then
-        cmd="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
-        if [[ -z "$cmd" ]]; then
-            return 1
-        fi
-        # Match any of: project dir, mcs-frontend, mcs-manager, backend app path
+    # Check /proc/<PID>/cmdline (strict project markers only — do NOT match generic 'uvicorn' or 'npm')
+    if [ -n "$cmd" ]; then
+        # Match project root path (excluding server data directories)
         if [[ "$cmd" == *"${PROJECT_ROOT}"* ]] &&
            [[ "$cmd" != *"${PROJECT_ROOT}/backend/data/servers/"* ]]; then
             return 0
         fi
+        # Match specific unique project identifiers
         if [[ "$cmd" == *"mcs-frontend"* ]] ||
            [[ "$cmd" == *"mcs-manager"* ]] ||
-           [[ "$cmd" == *"app.main:app"* ]] ||
-           [[ "$cmd" == *"npm"* ]]; then
+           [[ "$cmd" == *"app.main:app"* ]]; then
             return 0
         fi
     fi
@@ -133,7 +140,6 @@ print_process() {
 kill_safe() {
     local pid="$1"
     local source_desc="$2"
-    local killed=false
 
     if ! kill -0 "${pid}" 2>/dev/null; then
         return 0  # already gone
@@ -152,7 +158,6 @@ kill_safe() {
     FOUND_ANY=true
 
     kill "${pid}" 2>/dev/null || true
-    killed=true
 
     # Wait up to KILL_WAIT seconds
     local waited=0
@@ -181,30 +186,207 @@ kill_safe() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# Protection & Health State
+# ──────────────────────────────────────────────────────────────────────
+
+PROTECTED_PIDS=()
+FORCE_CLEAN=false
+
+is_protected() {
+    local target="$1"
+    for p in "${PROTECTED_PIDS[@]}"; do
+        if [ "$p" = "$target" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+protect_family() {
+    local base_pid="$1"
+    [ -z "$base_pid" ] && return
+
+    if ! is_protected "$base_pid"; then
+        PROTECTED_PIDS+=("$base_pid")
+    fi
+
+    # Add child processes (e.g. uvicorn reload child / worker / node threads)
+    local children
+    children="$(pgrep -P "$base_pid" 2>/dev/null || true)"
+    for c in $children; do
+        c="$(echo "$c" | tr -d '[:space:]')"
+        if [ -n "$c" ] && ! is_protected "$c"; then
+            PROTECTED_PIDS+=("$c")
+        fi
+    done
+
+    # Add parent process if it belongs to project
+    local ppid
+    ppid="$(ps -o ppid= -p "$base_pid" 2>/dev/null || true)"
+    ppid="$(echo "$ppid" | tr -d '[:space:]')"
+    if [ -n "$ppid" ] && [ "$ppid" -gt 1 ] && ! is_protected "$ppid" && belongs_to_project "$ppid"; then
+        PROTECTED_PIDS+=("$ppid")
+    fi
+}
+
+is_backend_healthy() {
+    if command -v curl &>/dev/null; then
+        local code
+        code="$(curl -s -o /dev/null -w "%{http_code}" -m 2 "http://127.0.0.1:${BACKEND_PORT}/health" 2>/dev/null || true)"
+        if [ "$code" = "200" ]; then
+            return 0
+        fi
+        code="$(curl -s -o /dev/null -w "%{http_code}" -m 2 "http://127.0.0.1:${BACKEND_PORT}/api/v1/health" 2>/dev/null || true)"
+        if [ "$code" = "200" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+is_frontend_healthy() {
+    if command -v curl &>/dev/null; then
+        local code
+        code="$(curl -s -o /dev/null -w "%{http_code}" -m 2 "http://127.0.0.1:${FRONTEND_PORT}" 2>/dev/null || true)"
+        if [ "$code" = "200" ] || [ "$code" = "304" ] || [ "$code" = "302" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # Checks
 # ──────────────────────────────────────────────────────────────────────
 
-check_port() {
-    local port="$1"
-    local label="$2"
+check_services() {
+    # 1. Backend Port (8000)
+    local be_pids
+    be_pids="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
+    if [ -n "${be_pids}" ]; then
+        if [ "${FORCE_CLEAN}" = "false" ] && is_backend_healthy; then
+            for pid in ${be_pids}; do
+                pid="$(echo "${pid}" | tr -d '[:space:]')"
+                [ -z "${pid}" ] && continue
+                protect_family "${pid}"
+                log_ok "Healthy backend running on port ${BACKEND_PORT} (PID ${pid}) — preserving"
+                SUMMARY_LINES+=("${GREEN}✔${RESET} Backend  PID ${pid} (port ${BACKEND_PORT})  ${GREEN}active & healthy${RESET}")
+            done
+        else
+            for pid in ${be_pids}; do
+                pid="$(echo "${pid}" | tr -d '[:space:]')"
+                [ -z "${pid}" ] && continue
+                kill_safe "${pid}" "backend port ${BACKEND_PORT}" || true
+            done
+        fi
+    fi
+
+    # 2. Frontend Port (5173)
+    local fe_pids
+    fe_pids="$(lsof -ti "tcp:${FRONTEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
+    if [ -n "${fe_pids}" ]; then
+        if [ "${FORCE_CLEAN}" = "false" ] && is_frontend_healthy; then
+            for pid in ${fe_pids}; do
+                pid="$(echo "${pid}" | tr -d '[:space:]')"
+                [ -z "${pid}" ] && continue
+                protect_family "${pid}"
+                log_ok "Healthy frontend running on port ${FRONTEND_PORT} (PID ${pid}) — preserving"
+                SUMMARY_LINES+=("${GREEN}✔${RESET} Frontend PID ${pid} (port ${FRONTEND_PORT})  ${GREEN}active & healthy${RESET}")
+            done
+        else
+            for pid in ${fe_pids}; do
+                pid="$(echo "${pid}" | tr -d '[:space:]')"
+                [ -z "${pid}" ] && continue
+                kill_safe "${pid}" "frontend port ${FRONTEND_PORT}" || true
+            done
+        fi
+    fi
+}
+
+check_db_lock() {
+    local db_path="$1"
+    if [ ! -f "${db_path}" ]; then
+        return 0
+    fi
     local pids
-    pids="$(lsof -ti "tcp:${port}" 2>/dev/null || true)"
+    pids="$(lsof -t "${db_path}" 2>/dev/null || true)"
     if [ -z "${pids}" ]; then
         return 0
     fi
     for pid in ${pids}; do
         pid="$(echo "${pid}" | tr -d '[:space:]')"
         [ -z "${pid}" ] && continue
-        kill_safe "${pid}" "${label} port ${port}" || true
+        if is_protected "${pid}"; then
+            log_info "SQLite lock on database held by active backend (PID ${pid}) — preserved"
+            continue
+        fi
+        kill_safe "${pid}" "stale SQLite lock on ${db_path}" || true
     done
 }
 
-# Remove stale PID files from .mcs/ after killing matching processes
-# This prevents launcher.py from reading a dead PID on next startup.
+scan_orphans() {
+    # Scan for duplicate / inactive / dead orphan processes that do NOT hold an active port
+    local patterns=("uvicorn" "vite" "node.*mcs-frontend" "python.*main:app" "npm")
+    local seen_pids=""
+
+    for pattern in "${patterns[@]}"; do
+        while IFS= read -r line; do
+            [ -z "${line}" ] && continue
+            local pid
+            pid="$(echo "${line}" | awk '{print $2}')"
+            pid="$(echo "${pid}" | tr -d '[:space:]')"
+            [ -z "${pid}" ] && continue
+
+            # Deduplicate
+            if [[ "${seen_pids}" == *" ${pid} "* ]]; then
+                continue
+            fi
+            seen_pids=" ${seen_pids} ${pid} "
+
+            # Never kill protected running services
+            if is_protected "${pid}"; then
+                continue
+            fi
+
+            # Quick check before expensive belongs_to_project
+            local cmdline
+            cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
+            if [[ -z "${cmdline}" ]]; then
+                continue
+            fi
+            if [[ "${cmdline}" == *"${PROJECT_ROOT}/backend/data/servers/"* ]]; then
+                continue
+            fi
+            if [[ "${cmdline}" != *"${PROJECT_ROOT}"* ]] &&
+               [[ "${cmdline}" != *"mcs-frontend"* ]] &&
+               [[ "${cmdline}" != *"mcs-manager"* ]] &&
+               [[ "${cmdline}" != *"app.main:app"* ]] &&
+               [[ "${cmdline}" != *"npm"* ]]; then
+                continue
+            fi
+
+            kill_safe "${pid}" "inactive/duplicate orphan (${pattern})" || true
+        done < <(ps aux | grep -iE "${pattern}" | grep -v grep 2>/dev/null || true)
+    done
+}
+
+# Remove stale PID files or sync with live protected PIDs
 cleanup_pid_files() {
     local mcs_dir="${PROJECT_ROOT}/.mcs"
     if [ ! -d "${mcs_dir}" ]; then
         return 0
+    fi
+
+    # Sync live PIDs if protected
+    local be_pid fe_pid
+    be_pid="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+    fe_pid="$(lsof -ti "tcp:${FRONTEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+
+    if [ -n "${be_pid}" ] && is_protected "${be_pid}"; then
+        echo "${be_pid}" > "${mcs_dir}/backend.pid" 2>/dev/null || true
+    fi
+    if [ -n "${fe_pid}" ] && is_protected "${fe_pid}"; then
+        echo "${fe_pid}" > "${mcs_dir}/frontend.pid" 2>/dev/null || true
     fi
 
     local cleaned=0
@@ -228,66 +410,6 @@ cleanup_pid_files() {
     fi
 }
 
-check_db_lock() {
-    local db_path="$1"
-    if [ ! -f "${db_path}" ]; then
-        return 0
-    fi
-    local pids
-    pids="$(lsof -t "${db_path}" 2>/dev/null || true)"
-    if [ -z "${pids}" ]; then
-        return 0
-    fi
-    for pid in ${pids}; do
-        pid="$(echo "${pid}" | tr -d '[:space:]')"
-        [ -z "${pid}" ] && continue
-        kill_safe "${pid}" "SQLite lock on ${db_path}" || true
-    done
-}
-
-scan_orphans() {
-    # Scan for project-related processes that may not hold a port or db lock.
-    # Uses ps with command matching (broader net, the belongs_to_project check
-    # will filter out false positives).
-    local patterns=("uvicorn" "vite" "node.*mcs-frontend" "python.*main:app" "npm")
-    local seen_pids=""
-
-    for pattern in "${patterns[@]}"; do
-        while IFS= read -r line; do
-            [ -z "${line}" ] && continue
-            local pid
-            pid="$(echo "${line}" | awk '{print $2}')"
-            pid="$(echo "${pid}" | tr -d '[:space:]')"
-            [ -z "${pid}" ] && continue
-
-            # Deduplicate
-            if [[ "${seen_pids}" == *" ${pid} "* ]]; then
-                continue
-            fi
-            seen_pids=" ${seen_pids} ${pid} "
-
-            # Quick check before expensive belongs_to_project
-            local cmdline
-            cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
-            if [[ -z "${cmdline}" ]]; then
-                continue
-            fi
-            if [[ "${cmdline}" == *"${PROJECT_ROOT}/backend/data/servers/"* ]]; then
-                continue
-            fi
-            if [[ "${cmdline}" != *"${PROJECT_ROOT}"* ]] &&
-               [[ "${cmdline}" != *"mcs-frontend"* ]] &&
-               [[ "${cmdline}" != *"mcs-manager"* ]] &&
-               [[ "${cmdline}" != *"app.main:app"* ]] &&
-               [[ "${cmdline}" != *"npm"* ]]; then
-                continue
-            fi
-
-            kill_safe "${pid}" "orphan (${pattern})" || true
-        done < <(ps aux | grep -iE "${pattern}" | grep -v grep 2>/dev/null || true)
-    done
-}
-
 # ──────────────────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────────────────
@@ -308,36 +430,56 @@ print_summary() {
 
     # Final port/db re-check
     local be_pids fe_pids db_pids
-    be_pids="$(lsof -ti "tcp:${BACKEND_PORT}" 2>/dev/null || true)"
-    fe_pids="$(lsof -ti "tcp:${FRONTEND_PORT}" 2>/dev/null || true)"
+    be_pids="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
+    fe_pids="$(lsof -ti "tcp:${FRONTEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
     db_pids="$(lsof -t "${MCS_DB}" 2>/dev/null || true)"
 
-    local any_remaining=false
-    [ -n "${be_pids}" ] && any_remaining=true
-    [ -n "${fe_pids}" ] && any_remaining=true
-    [ -n "${db_pids}" ] && any_remaining=true
-
-    if ! ${FOUND_ANY}; then
-        log_ok "Nothing to clean — system was already clean."
-    fi
+    local any_unclean=false
 
     local port_status
     if [ -n "${be_pids}" ]; then
-        port_status="${RED}in use${RESET}"
+        local first_be
+        first_be="$(echo "${be_pids}" | head -n 1 | tr -d '[:space:]')"
+        if is_protected "${first_be}" || is_backend_healthy; then
+            port_status="${GREEN}running (healthy)${RESET}"
+        else
+            port_status="${RED}in use (unclean)${RESET}"
+            any_unclean=true
+        fi
     else
         port_status="${GREEN}free${RESET}"
     fi
     echo "     ${BOLD}Backend port ${BACKEND_PORT}:${RESET} ${port_status}"
 
     if [ -n "${fe_pids}" ]; then
-        port_status="${RED}in use${RESET}"
+        local first_fe
+        first_fe="$(echo "${fe_pids}" | head -n 1 | tr -d '[:space:]')"
+        if is_protected "${first_fe}" || is_frontend_healthy; then
+            port_status="${GREEN}running (healthy)${RESET}"
+        else
+            port_status="${RED}in use (unclean)${RESET}"
+            any_unclean=true
+        fi
     else
         port_status="${GREEN}free${RESET}"
     fi
     echo "     ${BOLD}Frontend port ${FRONTEND_PORT}:${RESET} ${port_status}"
 
     if [ -n "${db_pids}" ]; then
-        port_status="${RED}locked${RESET}"
+        local all_db_protected=true
+        for db_p in ${db_pids}; do
+            db_p="$(echo "${db_p}" | tr -d '[:space:]')"
+            if ! is_protected "${db_p}"; then
+                all_db_protected=false
+                break
+            fi
+        done
+        if ${all_db_protected}; then
+            port_status="${GREEN}active (healthy backend)${RESET}"
+        else
+            port_status="${RED}locked (stale)${RESET}"
+            any_unclean=true
+        fi
     else
         port_status="${GREEN}free${RESET}"
     fi
@@ -345,16 +487,16 @@ print_summary() {
 
     echo ""
 
-    if ${any_remaining}; then
+    if ${any_unclean}; then
         log_error "Preflight FAILED — cannot guarantee clean state."
         log_raw ""
         return 1
     fi
 
     if ${KILLED_ANY}; then
-        log_ok "Preflight complete — cleaned ${#SUMMARY_LINES[@]} item(s)."
+        log_ok "Preflight complete — cleaned dead/duplicate item(s)."
     else
-        log_ok "System is clean. Proceed."
+        log_ok "System is healthy and ready. Proceed."
     fi
     log_raw ""
     return 0
@@ -365,17 +507,27 @@ print_summary() {
 # ──────────────────────────────────────────────────────────────────────
 
 main() {
+    for arg in "$@"; do
+        case "$arg" in
+            --stop|--restart|--force|--clean|-f)
+                FORCE_CLEAN=true
+                ;;
+        esac
+    done
+
     echo ""
     log_bold "═══ MC Server Manager — Preflight ═══"
     log_dim "Project root: ${PROJECT_ROOT}"
+    if ${FORCE_CLEAN}; then
+        log_dim "Mode: Force cleanup (stop/restart)"
+    else
+        log_dim "Mode: Smart reconciliation (preserve healthy, kill stale/duplicate orphans)"
+    fi
     echo ""
 
-    check_port "${BACKEND_PORT}"  "backend"
-    check_port "${FRONTEND_PORT}" "frontend"
+    check_services
     check_db_lock "${MCS_DB}"
     scan_orphans
-
-    # Clean stale .mcs/*.pid files after killing matching processes
     cleanup_pid_files
 
     print_summary
