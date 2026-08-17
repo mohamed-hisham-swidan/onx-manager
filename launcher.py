@@ -36,6 +36,20 @@ from pathlib import Path
 from threading import Lock, Thread
 from typing import Any
 
+if os.name == "posix":
+    try:
+        import fcntl
+        for _fd_str in os.listdir("/proc/self/fd"):
+            try:
+                _fd = int(_fd_str)
+                if _fd > 2:
+                    _flags = fcntl.fcntl(_fd, fcntl.F_GETFD)
+                    fcntl.fcntl(_fd, fcntl.F_SETFD, _flags | fcntl.FD_CLOEXEC)
+            except (ValueError, OSError):
+                pass
+    except Exception:
+        pass
+
 # ═══════════════════════════════════════════════════════════════════════
 # Constants
 # ═══════════════════════════════════════════════════════════════════════

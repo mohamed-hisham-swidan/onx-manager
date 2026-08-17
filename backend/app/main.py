@@ -1,10 +1,32 @@
+import fcntl
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+
+def _set_cloexec_on_all_fds() -> None:
+    """Set FD_CLOEXEC on all file descriptors >= 3 to prevent socket leakage into children."""
+    if os.name != "posix":
+        return
+    try:
+        for fd_str in os.listdir("/proc/self/fd"):
+            try:
+                fd = int(fd_str)
+                if fd > 2:
+                    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+                    fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
+            except (ValueError, OSError):
+                pass
+    except OSError:
+        pass
+
+
+_set_cloexec_on_all_fds()
 
 from app.api.deps import init_buses, init_storage
 from app.api.errors import register_error_handlers
@@ -63,6 +85,7 @@ _start_time: float = 0.0
 async def lifespan(_app: FastAPI):
     global _start_time
     _start_time = time.time()
+    _set_cloexec_on_all_fds()
     settings = ConfigFactory.global_settings()
     init_settings_store()
     init_active_panel_bind()
