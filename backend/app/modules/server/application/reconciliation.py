@@ -77,6 +77,7 @@ STALE_STATUSES = {
     ServerStatus.STARTING,
     ServerStatus.RUNNING,
     ServerStatus.STOPPING,
+    ServerStatus.CRASHED,
 }
 
 
@@ -105,12 +106,12 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
             provider_type = server.runtime.provider if server.runtime else "local"
             provider = provider_factory.get(provider_type)
 
-            if server.runtime and server.runtime.external_id:
-                handle = ServerHandle(
-                    provider=provider_type,
-                    server_id=sid,
-                    external_id=server.runtime.external_id,
-                )
+            ext_id = server.runtime.external_id if (server.runtime and server.runtime.external_id) else f"mcs-{sid}"
+            handle = ServerHandle(
+                provider=provider_type,
+                server_id=sid,
+                external_id=ext_id,
+            )
 
             status = ServerRuntimeStatus.STOPPED
             if handle:
@@ -187,6 +188,26 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
                         "new_status": "crashed",
                         "action": "repaired",
                         "reason": "stale RUNNING state — no runtime process detected",
+                    })
+
+            elif server.status == ServerStatus.CRASHED:
+                if status == ServerRuntimeStatus.RUNNING:
+                    logger.info(
+                        'Server %s was CRASHED in DB but runtime is RUNNING — recovering to RUNNING',
+                        label,
+                    )
+                    server.mark_running(
+                        pid=server.runtime.pid or 0,
+                        port=server.runtime.port,
+                        host=server.runtime.host,
+                        external_id=server.runtime.external_id,
+                    )
+                    await repo.save(server)
+                    results.append({
+                        "server_id": sid,
+                        "old_status": old_status,
+                        "new_status": "running",
+                        "action": "recovered",
                     })
 
             elif server.status == ServerStatus.STOPPING:

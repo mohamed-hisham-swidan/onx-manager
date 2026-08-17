@@ -830,6 +830,7 @@ class TerminalOpener:
                     env=env,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    close_fds=True,
                 )
                 if geometry:
                     kd_path = TerminalOpener._find_kdotool()
@@ -853,6 +854,7 @@ class TerminalOpener:
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,
                 pass_fds=(log_fh,),
+                close_fds=True,
             )
             os.close(log_fh)
             return proc.pid
@@ -1540,13 +1542,20 @@ def install_npm_deps() -> bool:
 def start_backend(cfg: LauncherConfig) -> bool:
     be_pid = PIDManager.read("backend")
     if be_pid and PIDManager.is_alive(be_pid) and PortManager.is_open(cfg.backend_port):
-        log_ok(f"Backend already running (PID {PIDManager.read('backend')})")
+        log_ok(f"Backend already running (PID {be_pid})")
         return True
 
     if PortManager.is_open(cfg.backend_port):
+        if check_backend_health():
+            actual_pid = PortManager.get_pid_by_port(cfg.backend_port) or be_pid
+            if actual_pid:
+                PIDManager.write("backend", actual_pid)
+            log_ok(f"Backend already running and healthy (PID {actual_pid})")
+            return True
+
         pid = PortManager.get_pid_by_port(cfg.backend_port)
         if pid and not ask_yes_no(
-            f"Port {cfg.backend_port} is in use by PID {pid}. Kill it?",
+            f"Port {cfg.backend_port} is in use by PID {pid} (unresponsive). Kill it?",
             default=True,
         ):
             log_error(f"Port {cfg.backend_port} is occupied. Aborting.")
@@ -1627,13 +1636,20 @@ def start_backend(cfg: LauncherConfig) -> bool:
 def start_frontend(cfg: LauncherConfig) -> bool:
     fe_pid = PIDManager.read("frontend")
     if fe_pid and PIDManager.is_alive(fe_pid) and PortManager.is_open(cfg.frontend_port):
-        log_ok(f"Frontend already running (PID {PIDManager.read('frontend')})")
+        log_ok(f"Frontend already running (PID {fe_pid})")
         return True
 
     if PortManager.is_open(cfg.frontend_port):
+        if check_frontend_ready():
+            actual_pid = PortManager.get_pid_by_port(cfg.frontend_port) or fe_pid
+            if actual_pid:
+                PIDManager.write("frontend", actual_pid)
+            log_ok(f"Frontend already running and ready (PID {actual_pid})")
+            return True
+
         pid = PortManager.get_pid_by_port(cfg.frontend_port)
         if pid and not ask_yes_no(
-            f"Port {cfg.frontend_port} is in use by PID {pid}. Kill it?",
+            f"Port {cfg.frontend_port} is in use by PID {pid} (unresponsive). Kill it?",
             default=True,
         ):
             log_error(f"Port {cfg.frontend_port} is occupied. Aborting.")
@@ -1750,8 +1766,7 @@ def cmd_start() -> int:
     # Start frontend
     print(f"\n  {c('bold', '▸ Starting Frontend')} {c('dim', '──')}")
     if not start_frontend(cfg):
-        log_error("Frontend startup failed. Aborting.")
-        cmd_stop()
+        log_error("Frontend startup failed.")
         return 1
 
     PIDManager.save_started_at()

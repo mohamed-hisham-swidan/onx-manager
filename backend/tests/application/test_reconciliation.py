@@ -145,6 +145,24 @@ class TestReconciliation:
         assert results[0]["action"] == "repaired"
         assert results[0]["new_status"] == "stopped"
 
+    async def test_crashed_server_recovered_when_running(self):
+        server = _make_server("s1", ServerStatus.CRASHED)
+        server._runtime.external_id = "mcs-s1"
+        repo = MagicMock()
+        repo.list = AsyncMock(return_value=[server])
+        repo.save = AsyncMock()
+
+        with patch(
+            "app.modules.server.application.reconciliation.provider_factory.get",
+            return_value=MagicMock(status=AsyncMock(return_value=ServerRuntimeStatus.RUNNING)),
+        ):
+            results = await reconcile_servers(repo)
+
+        assert len(results) == 1
+        assert results[0]["action"] == "recovered"
+        assert results[0]["new_status"] == "running"
+        repo.save.assert_called_once()
+
 
 @pytest.mark.asyncio
 class TestReconcileFilesystem:

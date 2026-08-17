@@ -44,8 +44,8 @@ _SERVER_TRANSITIONS: dict[ServerStatus, set[ServerStatus]] = {
     ServerStatus.STARTING: {ServerStatus.RUNNING, ServerStatus.CRASHED},
     ServerStatus.RUNNING: {ServerStatus.STOPPING, ServerStatus.CRASHED},
     ServerStatus.STOPPING: {ServerStatus.STOPPED, ServerStatus.CRASHED},
-    ServerStatus.STOPPED: {ServerStatus.STARTING},
-    ServerStatus.CRASHED: {ServerStatus.STARTING},
+    ServerStatus.STOPPED: {ServerStatus.STARTING, ServerStatus.RUNNING},
+    ServerStatus.CRASHED: {ServerStatus.STARTING, ServerStatus.RUNNING, ServerStatus.STOPPED},
 }
 
 

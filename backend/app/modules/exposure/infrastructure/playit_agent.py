@@ -55,13 +55,25 @@ _AUTH_FAILURE_MARKERS = (
 )
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[5]
+_BACKEND_DIR = Path(__file__).resolve().parents[4]
+
+
 def _get_default_run_dir() -> Path:
-    """Return canonical runtime directory for playit process state."""
+    """Return canonical absolute runtime directory for playit process state."""
     try:
-        servers_dir = Path(AppSettings().servers_data_dir)
-        return servers_dir.parent / "run" / "playit"
+        raw_servers_dir = AppSettings().servers_data_dir
+        servers_dir = Path(raw_servers_dir)
+        if not servers_dir.is_absolute():
+            if (_PROJECT_ROOT / raw_servers_dir).exists():
+                servers_dir = _PROJECT_ROOT / raw_servers_dir
+            elif (_BACKEND_DIR / raw_servers_dir).exists():
+                servers_dir = _BACKEND_DIR / raw_servers_dir
+            else:
+                servers_dir = _PROJECT_ROOT / raw_servers_dir
+        return (servers_dir.parent / "run" / "playit").resolve()
     except Exception:
-        return Path("data/run/playit")
+        return (_PROJECT_ROOT / "data" / "run" / "playit").resolve()
 
 
 def _get_playitd_cmd() -> list[str]:
@@ -567,6 +579,7 @@ class PlayitAgentSupervisor:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            close_fds=True,
             **extra_kwargs,
         )
 

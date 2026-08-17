@@ -457,6 +457,7 @@ class LocalLinuxProvider(ServerProvider):
                 cmd,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
+                close_fds=True,
             )
             await proc.wait()
             return proc.returncode if proc.returncode is not None else 0
@@ -472,6 +473,7 @@ class LocalLinuxProvider(ServerProvider):
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                close_fds=True,
             )
             stdout, _ = await proc.communicate()
             return proc.returncode if proc.returncode is not None else 0, stdout.decode("utf-8", errors="replace")

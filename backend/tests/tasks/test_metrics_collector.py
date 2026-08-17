@@ -197,6 +197,7 @@ async def test_collect_rebuilds_rcon_client_when_config_changes() -> None:
 
     session_ctx = AsyncMock()
     session_ctx.__aenter__.return_value = session_ctx
+    session_ctx.add = MagicMock()
     repo = MagicMock()
     repo.get = AsyncMock(return_value=fake_server)
 
@@ -249,6 +250,7 @@ async def test_collect_evicts_rcon_client_when_rcon_disabled() -> None:
 
     session_ctx = AsyncMock()
     session_ctx.__aenter__.return_value = session_ctx
+    session_ctx.add = MagicMock()
     repo = MagicMock()
     repo.get = AsyncMock(return_value=fake_server)
 
