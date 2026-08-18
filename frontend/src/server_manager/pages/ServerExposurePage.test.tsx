@@ -923,7 +923,7 @@ describe("Batch 7.5 — ServerExposurePage Acceptance Tests (T-75-01..T-75-24)",
     fireEvent.click(accordionBtn);
 
     expect(await screen.findByText("Public Exposure")).toBeInTheDocument();
-    expect(screen.getByText("mc.survival.ply.gg:25565")).toBeInTheDocument();
+    expect(screen.getAllByText("mc.survival.ply.gg:25565")).toHaveLength(2);
     const manageLink = screen.getByRole("link", { name: "Manage" });
     expect(manageLink).toHaveAttribute("href", "/servers/srv-123/network");
   });

@@ -935,6 +935,24 @@ class TestMonitoring:
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
+    async def test_get_metrics_with_nullable_tps(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+        from app.core.persistence.db import database
+        from app.modules.monitoring.domain.aggregate import MetricPoint
+        from app.modules.monitoring.infrastructure.repository import SQLMetricRepository
+        from app.modules.shared.value_objects import ServerId
+
+        server_id = created_server["server_id"]
+        async with database.session_factory() as session:
+            repo = SQLMetricRepository(session)
+            await repo.record(ServerId(server_id), MetricPoint(tps=None, players=0, ram_used_mb=256, cpu_percent=5))
+            await session.commit()
+
+        resp = await client.get(f"/api/v1/monitoring/metrics?server_id={server_id}&limit=5", headers=auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) >= 1
+        assert data[0]["tps"] is None
+
     async def test_list_alerts(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
         resp = await client.get("/api/v1/monitoring/alerts", headers=auth_header)
         assert resp.status_code == 200

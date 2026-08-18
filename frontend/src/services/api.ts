@@ -487,7 +487,7 @@ export function createApiClient(
 }
 
 export interface MetricsSnapshot {
-  tps: number;
+  tps: number | null;
   players: number;
   ram_used_mb: number;
   cpu_percent: number;

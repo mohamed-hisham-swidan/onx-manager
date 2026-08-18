@@ -10,7 +10,7 @@ class MetricPointModel(Base, TimestampMixin):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     server_id = Column(String(36), nullable=False, index=True)
-    tps = Column(Float, nullable=False)
+    tps = Column(Float, nullable=True)
     players = Column(Integer, nullable=False, default=0)
     ram_used_mb = Column(Float, nullable=False, default=0)
     cpu_percent = Column(Float, nullable=False, default=0)

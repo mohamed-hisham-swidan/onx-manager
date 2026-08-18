@@ -1,4 +1,5 @@
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -164,11 +165,15 @@ class TestRuntimeSupervisor:
             startup_timeout=1.0,
         )
 
+        assert supervisor.uptime == 0.0
+
         await supervisor.start()
         await asyncio.sleep(0.1)
 
         assert supervisor.last_heartbeat > 0
-        assert supervisor.uptime >= 0
+        assert supervisor.uptime > 0
+        assert supervisor._ready_at_wall is not None
+        assert abs(supervisor.uptime - (time.time() - supervisor._ready_at_wall)) < 0.2
 
         await supervisor.stop()
 

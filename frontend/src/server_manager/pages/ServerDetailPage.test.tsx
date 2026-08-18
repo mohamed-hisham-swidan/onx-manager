@@ -60,6 +60,16 @@ let mockError: Error | null = null;
 
 let mockRuntimeData: RuntimeDiagnosticsResponse | null = null;
 let mockMetricsData: MetricsSnapshot[] | null = null;
+let mockExposureData: { desired_state: string; aggregate_status: string; method?: string; targets?: Array<{ public_address: string | null }> } | null = null;
+
+vi.mock("@/server_manager/hooks/useServerExposure", () => ({
+  useServerExposure: vi.fn(() => ({
+    exposure: mockExposureData,
+    serverExposureQuery: { data: mockExposureData },
+    agentStatusQuery: { data: null },
+    portsQuery: { data: [] },
+  })),
+}));
 
 vi.mock("@/server_manager/hooks/useServers", () => ({
   useServerDetail: vi.fn(() => ({
@@ -119,6 +129,7 @@ describe("ServerDetailPage", () => {
     mockError = null;
     mockRuntimeData = null;
     mockMetricsData = null;
+    mockExposureData = null;
     subscribeChannelsMock.mockClear();
     unsubscribeChannelsMock.mockClear();
   });
@@ -160,7 +171,7 @@ describe("ServerDetailPage", () => {
     const expandBtn = screen.getByText("Server Info & Configuration");
     await user.click(expandBtn);
     expect(screen.getByText("1.20.4")).toBeInTheDocument();
-    expect(screen.getByText("25565")).toBeInTheDocument();
+    expect(screen.getAllByText("25565")).toHaveLength(2);
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Network")).toBeInTheDocument();
     expect(screen.getByText("Zone ID")).toBeInTheDocument();
@@ -210,6 +221,101 @@ describe("ServerDetailPage", () => {
     await user.click(screen.getByText("Delete"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Delete server?")).toBeInTheDocument();
+  });
+
+  it("renders TPS Usage card with live metric value when running", () => {
+    mockData = { ...mockServer, status: "running" };
+    mockMetricsData = [
+      {
+        tps: 20.0,
+        players: 3,
+        ram_used_mb: 1024,
+        cpu_percent: 10.0,
+        timestamp: "2026-08-18T19:00:00Z",
+      },
+    ];
+    renderPage();
+    expect(screen.getByText("TPS & Tick Rate")).toBeInTheDocument();
+    expect(screen.getByTestId("tps-usage-value")).toHaveTextContent("20.0 (100%)");
+  });
+
+  it("renders — for TPS Usage card when server is stopped despite metrics history", () => {
+    mockData = { ...mockServer, status: "stopped" };
+    mockMetricsData = [
+      {
+        tps: 20.0,
+        players: 3,
+        ram_used_mb: 1024,
+        cpu_percent: 10.0,
+        timestamp: "2026-08-18T19:00:00Z",
+      },
+    ];
+    renderPage();
+    expect(screen.getByTestId("tps-usage-value")).toHaveTextContent("—");
+  });
+
+  it("renders — for TPS Usage card when running but TPS is null (unknown)", () => {
+    mockData = { ...mockServer, status: "running" };
+    mockMetricsData = [
+      {
+        tps: null,
+        players: 3,
+        ram_used_mb: 1024,
+        cpu_percent: 10.0,
+        timestamp: "2026-08-18T19:00:00Z",
+      },
+    ];
+    renderPage();
+    expect(screen.getByTestId("tps-usage-value")).toHaveTextContent("—");
+  });
+
+  it("renders address widget with public exposure address when exposure is active", () => {
+    mockData = { ...mockServer, deployment_host: "127.0.0.1", deployment_port: 25565 };
+    mockExposureData = {
+      desired_state: "ENABLED",
+      aggregate_status: "ACTIVE",
+      method: "playit",
+      targets: [{ public_address: "craft.ply.gg:54321" }],
+    };
+    renderPage();
+    expect(screen.getByText("craft.ply.gg:54321")).toBeInTheDocument();
+  });
+
+  it("renders dedicated Server Port widget with copyable port value", () => {
+    mockData = { ...mockServer, port: 25577 };
+    renderPage();
+    const portWidget = screen.getByTestId("server-port-widget");
+    expect(portWidget).toBeInTheDocument();
+    expect(portWidget).toHaveTextContent("Server Port");
+    expect(portWidget).toHaveTextContent("25577");
+  });
+
+  it("renders uptime formatted when uptime_seconds > 0", () => {
+    mockRuntimeData = {
+      server_id: "srv-1",
+      server_name: "Test Server",
+      status: "running",
+      alive: true,
+      pid: 1234,
+      provider: "local",
+      uptime_seconds: 3665, // 1h 1m
+      heartbeat_age_seconds: null,
+      startup_duration_seconds: null,
+      restart_count: 0,
+      failure_code: null,
+      failure_reason: null,
+      last_logs: null,
+      last_exception: null,
+      last_verification_timestamp: null,
+      supervised: true,
+      runtime_handle: null,
+      provider_status: null,
+      last_crash_time: null,
+      port: 25565,
+      port_owner: null,
+    };
+    renderPage();
+    expect(screen.getByText("1h 1m")).toBeInTheDocument();
   });
 
   it("subscribes to metrics:<serverId> on mount", () => {

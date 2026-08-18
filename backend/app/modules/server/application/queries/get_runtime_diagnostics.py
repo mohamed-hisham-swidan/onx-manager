@@ -105,6 +105,13 @@ class GetServerRuntimeDiagnosticsHandler(QueryHandler[GetServerRuntimeDiagnostic
         except Exception:
             pass
 
+        if supervisor and supervisor.is_running:
+            uptime = supervisor.uptime
+        elif server.runtime and server.runtime.start_time and server.status and server.status.value in ("running", "starting"):
+            uptime = max(0.0, time.time() - server.runtime.start_time)
+        else:
+            uptime = 0.0
+
         diag_data = {
             "server_id": query.server_id,
             "server_name": server_name,
@@ -112,7 +119,7 @@ class GetServerRuntimeDiagnosticsHandler(QueryHandler[GetServerRuntimeDiagnostic
             "alive": alive,
             "pid": pid,
             "provider": provider_type,
-            "uptime_seconds": supervisor.uptime if (supervisor and supervisor.is_running) else (server.runtime.uptime_seconds if server.runtime else 0),
+            "uptime_seconds": uptime,
             "heartbeat_age_seconds": (time.time() - supervisor.last_heartbeat) if (supervisor and supervisor.is_running) else None,
             "startup_duration_seconds": supervisor.start_duration if (supervisor and supervisor.is_running) else None,
             "restart_count": server.runtime.restart_count if server.runtime else 0,

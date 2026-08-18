@@ -107,11 +107,23 @@ class TestMetricPointTpsValidation:
         with pytest.raises(ValueError, match=r"TPS out of sane range"):
             MetricPoint(tps=float("-inf"), players=0, ram_used_mb=0, cpu_percent=0)
 
+    def test_metric_point_none_tps_constructs(self) -> None:
+        point = MetricPoint(tps=None, players=0, ram_used_mb=500.0, cpu_percent=10.0)
+        assert point.tps is None
+        assert point.players == 0
+        assert point.ram_used_mb == 500.0
+        assert point.cpu_percent == 10.0
+
+        point_default = MetricPoint()
+        assert point_default.tps is None
+        assert point_default.players == 0
+
 
 @pytest.mark.usefixtures("init_test_db")
 class TestMetricsCollectorAndRepositoryIntegration:
     @pytest.mark.asyncio
     async def test_collector_persists_clamped_tps_and_emits_event(self) -> None:
+        from app.modules.server.domain.value_objects import ServerDeployment
         server_id = ServerId("srv-tps-1")
         server = Server.create(
             server_id=server_id,
@@ -121,6 +133,7 @@ class TestMetricsCollectorAndRepositoryIntegration:
             memory=MemoryAllocation(1024, 2048),
             java_args=JavaArguments(),
             properties=ServerProperties(port=PortNumber(25565)),
+            deployment=ServerDeployment(root_path="/tmp/srv-tps-1"),
         )
         server.start()
         server.mark_running(pid=12345, port=25565, host="127.0.0.1")
@@ -235,3 +248,110 @@ class TestMetricsCollectorAndRepositoryIntegration:
             s2_points = await metric_repo.get_series(ServerId("srv-good-1"))
             assert len(s2_points) == 1
             assert s2_points[0].tps == 20.0
+
+    @pytest.mark.asyncio
+    async def test_collector_persists_none_tps_when_no_rcon(self) -> None:
+        server_id = ServerId("srv-no-rcon")
+        server = Server.create(
+            server_id=server_id,
+            name="Vanilla No RCON",
+            server_type=ServerType.VANILLA,
+            minecraft_version=MinecraftVersion.parse("1.21"),
+            memory=MemoryAllocation(1024, 2048),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25565)),
+        )
+        server.start()
+        server.mark_running(pid=12348, port=25565, host="127.0.0.1")
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        events: list[object] = []
+        event_bus = EventBus()
+        from app.core.event_bus import EventHandler, DomainEvent
+        from app.modules.monitoring.infrastructure.collector import MetricCollectedEvent
+
+        class TestHandler(EventHandler):
+            async def handle(self, event: DomainEvent) -> None:
+                events.append(event)
+
+        event_bus.subscribe("MetricCollectedEvent", TestHandler())
+        collector = MetricsCollector(event_bus=event_bus)
+
+        with patch("app.modules.monitoring.infrastructure.collector._read_server_properties", return_value={"enable-rcon": "false"}), \
+             patch("app.modules.monitoring.infrastructure.collector._collect_process_metrics", return_value=(512.0, 5.0)):
+            metric = await collector.collect("srv-no-rcon")
+
+        assert metric.tps is None
+        assert metric.players == 0
+        assert metric.ram_used_mb == 512.0
+        assert metric.cpu_percent == 5.0
+
+        async with database.session_factory() as session:
+            metric_repo = SQLMetricRepository(session)
+            points = await metric_repo.get_series(server_id)
+            assert len(points) == 1
+            assert points[0].tps is None
+
+        assert len(events) == 1
+        assert isinstance(events[0], MetricCollectedEvent)
+        assert events[0].tps is None
+
+    @pytest.mark.asyncio
+    async def test_collector_persists_none_tps_on_rcon_failure(self) -> None:
+        server_id = ServerId("srv-rcon-fail")
+        server = Server.create(
+            server_id=server_id,
+            name="RCON Fail Server",
+            server_type=ServerType.VANILLA,
+            minecraft_version=MinecraftVersion.parse("1.21"),
+            memory=MemoryAllocation(1024, 2048),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25565)),
+        )
+        server.start()
+        server.mark_running(pid=12349, port=25565, host="127.0.0.1")
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        collector = MetricsCollector(event_bus=EventBus())
+
+        async def fail_rcon(_client: any) -> tuple[float, int]:
+            raise ConnectionRefusedError("RCON not yet up")
+
+        with patch("app.modules.monitoring.infrastructure.collector._collect_rcon_metrics", side_effect=fail_rcon), \
+             patch("app.modules.monitoring.infrastructure.collector._read_server_properties", return_value={"enable-rcon": "true", "rcon.password": "pass"}), \
+             patch("app.modules.monitoring.infrastructure.collector._collect_process_metrics", return_value=(256.0, 2.0)):
+            metric = await collector.collect("srv-rcon-fail")
+
+        assert metric.tps is None
+        async with database.session_factory() as session:
+            metric_repo = SQLMetricRepository(session)
+            points = await metric_repo.get_series(server_id)
+            assert len(points) == 1
+            assert points[0].tps is None
+
+    @pytest.mark.asyncio
+    async def test_sql_metric_repository_roundtrip_with_none_tps(self) -> None:
+        server_id = ServerId("srv-repo-none")
+        point = MetricPoint(tps=None, players=4, ram_used_mb=1024.0, cpu_percent=20.0)
+
+        async with database.session_factory() as session:
+            metric_repo = SQLMetricRepository(session)
+            await metric_repo.record(server_id, point)
+            await session.commit()
+
+        async with database.session_factory() as session:
+            metric_repo = SQLMetricRepository(session)
+            points = await metric_repo.get_series(server_id)
+            assert len(points) == 1
+            assert points[0].tps is None
+            assert points[0].players == 4
+            assert points[0].ram_used_mb == 1024.0
+            assert points[0].cpu_percent == 20.0

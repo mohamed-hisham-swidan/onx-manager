@@ -23,7 +23,7 @@ export function ServerMetricsCharts({ serverId }: ServerMetricsChartsProps) {
     refetchInterval: 5000,
   });
 
-  const tpsData = (metrics ?? []).map((m) => m.tps);
+  const tpsData = (metrics ?? []).map((m) => m.tps).filter((t): t is number => t != null);
   const playersData = (metrics ?? []).map((m) => m.players);
   const ramData = (metrics ?? []).map((m) => m.ram_used_mb);
   const cpuData = (metrics ?? []).map((m) => m.cpu_percent);
@@ -46,7 +46,7 @@ export function ServerMetricsCharts({ serverId }: ServerMetricsChartsProps) {
             : null;
 
   const metricCards = [
-    { label: "TPS", value: current?.tps?.toFixed(1) ?? "—", data: tpsData, color: "#22c55e", fillColor: "rgba(34, 197, 94, 0.1)" },
+    { label: "TPS", value: current?.tps != null ? current.tps.toFixed(1) : "—", data: tpsData, color: "#22c55e", fillColor: "rgba(34, 197, 94, 0.1)" },
     { label: "Players", value: current?.players ?? "—", data: playersData, color: "#3b82f6", fillColor: "rgba(59, 130, 246, 0.1)" },
     { label: "RAM", value: current ? `${(current.ram_used_mb / 1024).toFixed(1)} GB` : "—", data: ramData, color: "#eab308", fillColor: "rgba(234, 179, 8, 0.1)" },
     { label: "CPU", value: current ? `${current.cpu_percent.toFixed(1)}%` : "—", data: cpuData, color: "#ef4444", fillColor: "rgba(239, 68, 68, 0.1)" },

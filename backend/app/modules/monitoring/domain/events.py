@@ -8,9 +8,9 @@ from app.core.event_bus import DomainEvent
 class MetricRecordedEvent(DomainEvent):
     server_id: str
     metric_name: str
-    value: float
+    value: float | None = None
 
-    def __init__(self, server_id: str, metric_name: str, value: float, **data: Any) -> None:
+    def __init__(self, server_id: str, metric_name: str, value: float | None = None, **data: Any) -> None:
         super().__init__(server_id=server_id, metric_name=metric_name, value=value, **data)
 
 

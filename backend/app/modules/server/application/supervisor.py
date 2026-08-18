@@ -59,6 +59,7 @@ class RuntimeSupervisor:
         self._started_at = time.monotonic()
         self._last_heartbeat = time.time()
         self._start_duration: float | None = None
+        self._ready_at_wall: float | None = None
         self._stop_event = asyncio.Event()
 
     @property
@@ -83,8 +84,8 @@ class RuntimeSupervisor:
 
     @property
     def uptime(self) -> float:
-        if self._start_duration is not None:
-            return time.time() - (self._started_at + self._start_duration)
+        if self._ready_at_wall is not None:
+            return max(0.0, time.time() - self._ready_at_wall)
         return 0.0
 
     async def start(self) -> None:
@@ -171,6 +172,7 @@ class RuntimeSupervisor:
             if ready:
                 elapsed = time.monotonic() - self._started_at
                 self._start_duration = elapsed
+                self._ready_at_wall = time.time()
                 self._last_heartbeat = time.time()
                 logger.info(
                     'Server "%s" ready after %.1fs — sid=%s',

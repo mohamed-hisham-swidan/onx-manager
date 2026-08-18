@@ -15,8 +15,6 @@ from app.modules.health.infrastructure.integrity import (
 )
 from app.modules.health.domain.value_objects import IntegrityCheck
 
-pytestmark = pytest.mark.asyncio
-
 
 def _make_server_dir(tmp: str, server_id: str) -> Path:
     srvd = Path(tmp) / server_id

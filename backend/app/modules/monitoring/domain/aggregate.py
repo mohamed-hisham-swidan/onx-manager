@@ -19,21 +19,24 @@ _TPS_SANITY_CEILING = 20.5
 class MetricPoint:
     def __init__(
         self,
-        tps: float,
-        players: int,
-        ram_used_mb: float,
-        cpu_percent: float,
+        tps: float | None = None,
+        players: int = 0,
+        ram_used_mb: float = 0.0,
+        cpu_percent: float = 0.0,
         timestamp: datetime | None = None,
     ) -> None:
-        if not math.isfinite(tps) or tps < 0.0 or tps > _TPS_SANITY_CEILING:
-            raise ValueError(f"TPS out of sane range [0, {_TPS_SANITY_CEILING}], got {tps}")
+        if tps is not None:
+            if not math.isfinite(tps) or tps < 0.0 or tps > _TPS_SANITY_CEILING:
+                raise ValueError(f"TPS out of sane range [0, {_TPS_SANITY_CEILING}], got {tps}")
+            self.tps: float | None = min(tps, _TPS_MAX)
+        else:
+            self.tps = None
         if players < 0:
             raise ValueError(f"Players must be non-negative, got {players}")
         if ram_used_mb < 0:
             raise ValueError(f"RAM used must be non-negative, got {ram_used_mb}")
         if cpu_percent < 0 or cpu_percent > 100:
             raise ValueError(f"CPU percent must be 0-100, got {cpu_percent}")
-        self.tps = min(tps, _TPS_MAX)
         self.players = players
         self.ram_used_mb = ram_used_mb
         self.cpu_percent = cpu_percent

@@ -4,7 +4,6 @@ from app.core.command_bus import CommandResult
 from app.core.idempotency import IdempotencyKey, InMemoryIdempotencyStore
 
 
-@pytest.mark.asyncio
 class TestIdempotencyKey:
     def test_generates_unique_keys(self) -> None:
         k1 = IdempotencyKey()

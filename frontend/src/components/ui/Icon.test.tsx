@@ -21,4 +21,12 @@ describe("Icon", () => {
     const { container: c2 } = render(<Icon name="curseforge" />);
     expect(c2.querySelector("svg")).toBeInTheDocument();
   });
+
+  it("renders new overview icons (globe, clock, cpu, hard-drive)", () => {
+    const names = ["globe", "clock", "cpu", "hard-drive"] as const;
+    names.forEach((name) => {
+      const { container } = render(<Icon name={name} />);
+      expect(container.querySelector("svg")).toBeInTheDocument();
+    });
+  });
 });

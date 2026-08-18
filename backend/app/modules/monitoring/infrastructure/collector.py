@@ -40,7 +40,7 @@ except ImportError:
 @dataclass
 class ServerMetrics:
     server_id: str
-    tps: float = 20.0
+    tps: float | None = None
     players: int = 0
     ram_used_mb: float = 0.0
     cpu_percent: float = 0.0
@@ -118,8 +118,8 @@ def _collect_process_metrics(
 
 async def _collect_rcon_metrics(
     client: PersistentRCONClient,
-) -> tuple[float, int]:
-    tps = 20.0
+) -> tuple[float | None, int]:
+    tps: float | None = None
     players = 0
     try:
         tps_response = await client.send_command("tps")
@@ -158,7 +158,7 @@ class MetricsCollector:
     async def collect(self, server_id: str) -> ServerMetrics:
         metric = ServerMetrics(server_id=server_id)
         try:
-            tps = 20.0
+            tps: float | None = None
             players = 0
             ram_used_mb = 0.0
             cpu_percent = 0.0
@@ -211,20 +211,20 @@ class MetricsCollector:
                 except Exception:
                     logger.debug("Server lookup failed for %s, using defaults", server_id)
 
-            metric = ServerMetrics(
-                server_id=server_id,
-                tps=tps,
-                players=players,
-                ram_used_mb=ram_used_mb,
-                cpu_percent=cpu_percent,
-            )
-
             point = MetricPoint(
                 tps=tps,
                 players=players,
                 ram_used_mb=ram_used_mb,
                 cpu_percent=cpu_percent,
                 timestamp=datetime.now(timezone.utc),
+            )
+
+            metric = ServerMetrics(
+                server_id=server_id,
+                tps=point.tps,
+                players=players,
+                ram_used_mb=ram_used_mb,
+                cpu_percent=cpu_percent,
             )
 
             async with database.session_factory() as session:
@@ -270,7 +270,7 @@ class MetricsCollector:
 
 class MetricCollectedEvent(DomainEvent):
     server_id: str
-    tps: float = 0.0
+    tps: float | None = None
     players: int = 0
     ram_mb: float = 0.0
     cpu: float = 0.0

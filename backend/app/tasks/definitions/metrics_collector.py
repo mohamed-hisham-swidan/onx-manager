@@ -58,7 +58,8 @@ async def _run_collection(params: dict[str, Any]) -> dict[str, Any]:
     prometheus = _prometheus
     if prometheus is not None:
         for server_id, metrics in results.items():
-            prometheus.update_tps(server_id, metrics.tps)
+            if metrics.tps is not None:
+                prometheus.update_tps(server_id, metrics.tps)
             prometheus.update_players(server_id, metrics.players)
             prometheus.update_ram(server_id, metrics.ram_used_mb)
             prometheus.update_cpu(server_id, metrics.cpu_percent)

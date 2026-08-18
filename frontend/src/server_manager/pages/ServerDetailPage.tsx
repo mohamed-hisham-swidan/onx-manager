@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
+import { resolveAccessAddress } from "@/server_manager/utils/accessAddress";
 import { ServerConsole } from "@/server_manager/components/ServerConsole";
 import { Sparkline } from "@/server_manager/components/Sparkline";
 import { useServerMetrics } from "@/server_manager/hooks/useServerMetrics";
@@ -210,13 +211,18 @@ export function ServerDetailPage() {
 
   const ramData = (metrics ?? []).map((m) => m.ram_used_mb);
   const cpuData = (metrics ?? []).map((m) => m.cpu_percent);
+  const tpsData = (metrics ?? []).map((m) => m.tps).filter((t): t is number => t != null);
 
   const ramPercent =
     currentMetric && server?.max_memory_mb && server.max_memory_mb > 0
       ? (currentMetric.ram_used_mb / server.max_memory_mb) * 100
       : null;
 
-  const address = server.deployment_host ? `${server.deployment_host}:${server.deployment_port ?? server.port}` : "—";
+  const resolvedAddress = resolveAccessAddress(server, exposure);
+  const address = resolvedAddress.address ?? "—";
+
+  const isRunning = server.status === "running";
+  const hasLiveTps = isRunning && currentMetric?.tps != null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -235,9 +241,11 @@ export function ServerDetailPage() {
             </div>
             <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
               <span>{server.server_type} · {server.minecraft_version}</span>
-              {currentMetric && (
+              {isRunning && currentMetric && (
                 <span className="flex items-center gap-2 border-l border-gray-300 dark:border-gray-600 pl-2">
-                  <span title="TPS"><Icon name="activity" size={12} className="inline mr-1" />{currentMetric.tps.toFixed(1)}</span>
+                  {currentMetric.tps != null && (
+                    <span title="TPS"><Icon name="activity" size={12} className="inline mr-1" />{currentMetric.tps.toFixed(1)}</span>
+                  )}
                   <span title="Players"><Icon name="users" size={12} className="inline mr-1" />{currentMetric.players}</span>
                 </span>
               )}
@@ -252,11 +260,16 @@ export function ServerDetailPage() {
         <div className="lg:col-span-2 xl:col-span-3 flex flex-col gap-4">
           {/* Console */}
           <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
-            <ServerConsole serverId={serverId} />
+            <ServerConsole
+              serverId={serverId}
+              serverStatus={server.status}
+              tps={currentMetric?.tps}
+              players={currentMetric?.players}
+            />
           </div>
 
           {/* Usage Graphs */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="rounded-xl border border-gray-200 bg-white p-2.5 px-3 dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between mb-1">
                 <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">CPU Usage</h3>
@@ -278,6 +291,46 @@ export function ServerDetailPage() {
                 </span>
               </div>
               <Sparkline data={ramData} color="#eab308" fillColor="rgba(234, 179, 8, 0.1)" height={20} />
+            </div>
+            {/* TPS Usage */}
+            <div className="rounded-xl border border-gray-200 bg-white p-2.5 px-3 dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">TPS & Tick Rate</h3>
+                <span
+                  data-testid="tps-usage-value"
+                  className={`text-xs font-bold ${
+                    hasLiveTps
+                      ? currentMetric.tps! >= 19.5
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : currentMetric.tps! >= 16.0
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-red-600 dark:text-red-400"
+                      : "text-gray-400"
+                  }`}
+                >
+                  {hasLiveTps
+                    ? `${currentMetric.tps!.toFixed(1)} (${Math.min(100, Math.round((currentMetric.tps! / 20) * 100))}%)`
+                    : "—"}
+                </span>
+              </div>
+              <Sparkline
+                data={tpsData}
+                color={
+                  hasLiveTps && currentMetric.tps! < 16
+                    ? "#ef4444"
+                    : hasLiveTps && currentMetric.tps! < 19.5
+                      ? "#f59e0b"
+                      : "#10b981"
+                }
+                fillColor={
+                  hasLiveTps && currentMetric.tps! < 16
+                    ? "rgba(239, 68, 68, 0.1)"
+                    : hasLiveTps && currentMetric.tps! < 19.5
+                      ? "rgba(245, 158, 11, 0.1)"
+                      : "rgba(16, 185, 129, 0.1)"
+                }
+                height={20}
+              />
             </div>
             <div className="rounded-xl border border-gray-200 bg-white p-2.5 px-3 dark:border-gray-700 dark:bg-gray-800 flex flex-col justify-between">
               <div className="flex items-center justify-between mb-1">
@@ -403,7 +456,10 @@ export function ServerDetailPage() {
         {/* Right Side Column */}
         <div className="flex flex-col gap-3">
           <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Address</h3>
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+              <Icon name="globe" size={14} />
+              Address
+            </h3>
             <div className="flex items-center justify-between">
               <span className="text-base font-bold text-gray-900 dark:text-gray-100 truncate pr-2">{address}</span>
               {address !== "—" && (
@@ -418,22 +474,48 @@ export function ServerDetailPage() {
             </div>
           </div>
 
+          <div data-testid="server-port-widget" className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+              <Icon name="server" size={14} />
+              Server Port
+            </h3>
+            <div className="flex items-center justify-between">
+              <span className="text-base font-bold text-gray-900 dark:text-gray-100 truncate pr-2">{server.port}</span>
+              <button
+                onClick={() => copy(String(server.port), "Port copied to clipboard")}
+                className="shrink-0 p-1 rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="Copy port"
+              >
+                <Icon name="copy" size={14} />
+              </button>
+            </div>
+          </div>
+
           <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Uptime</h3>
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+              <Icon name="clock" size={14} />
+              Uptime
+            </h3>
             <p className="text-base font-bold text-gray-900 dark:text-gray-100">
               {runtime?.uptime_seconds ? formatUptime(runtime.uptime_seconds) : "—"}
             </p>
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">CPU Usage</h3>
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+              <Icon name="cpu" size={14} />
+              CPU Usage
+            </h3>
             <p className="text-base font-bold text-gray-900 dark:text-gray-100">
               {currentMetric ? `${currentMetric.cpu_percent.toFixed(1)}%` : "—"}
             </p>
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">RAM Usage</h3>
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+              <Icon name="database" size={14} />
+              RAM Usage
+            </h3>
             <p className="text-base font-bold text-gray-900 dark:text-gray-100">
               {currentMetric
                 ? ramPercent !== null
@@ -445,7 +527,10 @@ export function ServerDetailPage() {
 
           <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Storage Usage</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                <Icon name="hard-drive" size={14} />
+                Storage Usage
+              </h3>
               <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500">Coming Soon</span>
             </div>
             <p className="text-base font-bold text-gray-400 dark:text-gray-500">
