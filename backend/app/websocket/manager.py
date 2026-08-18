@@ -13,6 +13,10 @@ class ConnectionRegistry:
         self._user_connections: dict[str, set[str]] = defaultdict(set)
         self._channel_connections: dict[str, set[str]] = defaultdict(set)
         self._connection_channels: dict[str, set[str]] = defaultdict(set)
+        # Persistent channel bindings keyed by user_id.  Unlike the live maps
+        # above, these survive disconnect so that offline users remain visible
+        # to _find_disconnected_user_ids for offline buffering (Decision 3).
+        self._user_channel_bindings: dict[str, set[str]] = defaultdict(set)
         self._lock = asyncio.Lock()
 
     async def register(self, connection_id: str, ws: WebSocket) -> None:
@@ -31,6 +35,9 @@ class ConnectionRegistry:
                 conns.discard(connection_id)
                 if not conns:
                     del self._user_connections[user_id]
+            # NOTE: _user_channel_bindings is intentionally NOT cleared here.
+            # Bindings persist so that the dispatcher can buffer events for
+            # offline users.  Eviction is handled by EventDispatcher.
 
     async def get(self, connection_id: str) -> WebSocket | None:
         async with self._lock:
@@ -79,6 +86,18 @@ class ConnectionRegistry:
                     except Exception:
                         pass
         return sent
+
+    async def bind_user_channel(self, user_id: str, channel: str) -> None:
+        """Record a persistent user↔channel intent binding (survives disconnect)."""
+        async with self._lock:
+            self._user_channel_bindings[user_id].add(channel)
+
+    async def unbind_user_channel(self, user_id: str, channel: str) -> None:
+        """Remove a persistent user↔channel intent binding."""
+        async with self._lock:
+            self._user_channel_bindings[user_id].discard(channel)
+            if not self._user_channel_bindings[user_id]:
+                self._user_channel_bindings.pop(user_id, None)
 
     @property
     def active_connections(self) -> int:

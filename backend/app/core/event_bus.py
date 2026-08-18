@@ -41,6 +41,9 @@ class Subscription:
     handler: EventHandler
     priority: int = Priority.NORMAL
     cancelled: bool = False
+    # Optional per-subscription timeout override (seconds).
+    # When None the global EventBus._subscriber_timeout is used.
+    timeout: float | None = None
 
 
 @dataclass
@@ -62,10 +65,11 @@ class EventBus:
         event_type: str,
         handler: EventHandler,
         priority: int = Priority.NORMAL,
+        timeout: float | None = None,
     ) -> Subscription:
         if event_type not in self._subscribers:
             self._subscribers[event_type] = []
-        sub = Subscription(handler=handler, priority=priority)
+        sub = Subscription(handler=handler, priority=priority, timeout=timeout)
         self._subscribers[event_type].append(sub)
         self._subscribers[event_type].sort(key=lambda s: s.priority)
         return sub
@@ -116,9 +120,15 @@ class EventBus:
     ) -> None:
         last_error: Exception | None = None
         max_attempts = self.retry_attempts
+        # Use per-subscription timeout override when set; otherwise use the global.
+        effective_timeout = (
+            subscription.timeout
+            if subscription.timeout is not None
+            else self._subscriber_timeout
+        )
         for attempt in range(max_attempts):
             try:
-                async with asyncio.timeout(self._subscriber_timeout):
+                async with asyncio.timeout(effective_timeout):
                     await subscription.handler.handle(event)
                 return
             except TimeoutError:

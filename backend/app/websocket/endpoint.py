@@ -7,11 +7,12 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 
 from app.api.deps import get_event_bus
 from app.core.event_bus import DomainEvent, EventBus, EventHandler
+from app.core.settings_store import get_live_settings
 from app.modules.auth.infrastructure.jwt import verify_ws_token
 from app.websocket.authentication import WSAuthenticator
 from app.websocket.authorization import ChannelAuthorizer
 from app.websocket.buffer import OfflineMessageBuffer
-from app.websocket.dispatcher import MetricsBatcher
+from app.websocket.dispatcher import EventDispatcher, MetricsBatcher, WS_DISPATCH_ALLOWLIST
 from app.websocket.handlers import WSConnectionHandler
 from app.websocket.manager import ConnectionRegistry
 from app.websocket.rate_limiter import WSRateLimiter
@@ -29,6 +30,7 @@ _handler: WSConnectionHandler | None = None
 _event_bus: EventBus | None = None
 _batcher: MetricsBatcher | None = None
 _bridge: "MetricsBridgeHandler | None" = None
+_dispatcher: EventDispatcher | None = None
 
 
 class MetricsBridgeHandler(EventHandler):
@@ -62,23 +64,34 @@ def init_websocket(event_bus: EventBus) -> None:
 
 
 async def start_websocket_services() -> None:
-    """Start MetricsBatcher and subscribe its bridge to MetricCollectedEvent."""
-    global _batcher, _bridge
-    if _registry is None or _event_bus is None:
+    """Start MetricsBatcher, MetricsBridgeHandler, and EventDispatcher."""
+    global _batcher, _bridge, _dispatcher
+    if _registry is None or _event_bus is None or _buffer is None:
         logger.warning("start_websocket_services called before init_websocket")
         return
-    _batcher = MetricsBatcher(_registry)
+    # Decision 5: read the persisted metrics_interval_seconds at boot so that
+    # the batcher window matches the scheduler's interval from the first frame.
+    live = get_live_settings()
+    _batcher = MetricsBatcher(_registry, window_seconds=live.metrics_interval_seconds)
     _bridge = MetricsBridgeHandler(_batcher)
     _event_bus.subscribe("MetricCollectedEvent", _bridge)
     await _batcher.start()
-    logger.info("WebSocket metrics push services started")
+    # Decision 1: instantiate and start EventDispatcher with the 31-type allowlist.
+    _dispatcher = EventDispatcher(_registry, _buffer, _event_bus)
+    await _dispatcher.start(event_types=WS_DISPATCH_ALLOWLIST)
+    logger.info("WebSocket services started (batcher window=%.2fs, dispatcher subscribed %d types)",
+                live.metrics_interval_seconds, len(WS_DISPATCH_ALLOWLIST))
 
 
 async def stop_websocket_services() -> None:
-    """Stop MetricsBatcher gracefully."""
+    """Stop MetricsBatcher and EventDispatcher gracefully."""
+    global _dispatcher
     if _batcher is not None:
         await _batcher.stop()
-        logger.info("WebSocket metrics push services stopped")
+    if _dispatcher is not None:
+        await _dispatcher.stop()
+        _dispatcher = None
+    logger.info("WebSocket services stopped")
 
 
 def get_metrics_batcher() -> MetricsBatcher | None:

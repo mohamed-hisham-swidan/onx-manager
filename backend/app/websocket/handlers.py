@@ -83,10 +83,16 @@ class WSConnectionHandler:
         pending = self._buffer.get_pending(user_id)
         if not pending:
             return
-        events = [m.data for m in pending]
+        # Decision 3 security requirement: drop buffered events whose channels
+        # the current token no longer authorizes (permission downgrade).
+        authorized_events = [
+            m.data
+            for m in pending
+            if any(self._authorizer.can_subscribe(user_id, ch) for ch in m.channels)
+        ]
         ws = await self._registry.get(connection_id)
-        if ws is not None:
-            msg = MessageSerializer.state_sync_message(events)
+        if ws is not None and authorized_events:
+            msg = MessageSerializer.state_sync_message(authorized_events)
             await self._send_json(ws, msg.to_dict())
         self._buffer.clear(user_id)
 
@@ -129,6 +135,9 @@ class WSConnectionHandler:
                     )
                     continue
                 await self._registry.subscribe(connection_id, channel)
+                # Decision 3: record persistent user↔channel binding so that
+                # offline buffering remains possible after disconnect.
+                await self._registry.bind_user_channel(user_id, channel)
 
         elif msg_type == "unsubscribe":
             channels = data.get("channels", [])
@@ -140,6 +149,9 @@ class WSConnectionHandler:
                 return
             for channel in channels:
                 await self._registry.unsubscribe(connection_id, channel)
+                # Decision 3: mirror removal so an explicitly-left channel is
+                # never buffered for this user while offline.
+                await self._registry.unbind_user_channel(user_id, channel)
 
         elif msg_type == "refresh_token":
             new_token = data.get("token", "")

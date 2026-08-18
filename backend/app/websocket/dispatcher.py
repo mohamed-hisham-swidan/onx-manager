@@ -12,6 +12,52 @@ from app.websocket.serializers import MessageSerializer
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Decision 1 — Explicit WS delivery allowlist (31 event types).
+# Only these events are subscribed by EventDispatcher at startup.
+# Auth, metrics, and instance-level exposure events are intentionally excluded
+# to prevent cross-user privacy leaks and duplicate metric broadcasts.
+# ---------------------------------------------------------------------------
+WS_DISPATCH_ALLOWLIST: list[str] = [
+    # Server lifecycle
+    "ServerCreatedEvent",
+    "ServerStartingEvent",
+    "ServerStartedEvent",
+    "ServerStoppingEvent",
+    "ServerStoppedEvent",
+    "ServerCrashedEvent",
+    "ServerConfigChangedEvent",
+    "ServerDeletedEvent",
+    "ServerDiscoveredEvent",
+    "ServerVanishedEvent",
+    # Backup
+    "BackupStartedEvent",
+    "BackupCompletedEvent",
+    "BackupFailedEvent",
+    "BackupRestoredEvent",
+    "BackupDeletedEvent",
+    # Plugin
+    "PluginInstalledEvent",
+    "PluginEnabledEvent",
+    "PluginDisabledEvent",
+    "PluginUninstalledEvent",
+    "PluginUpdatedEvent",
+    # Exposure (server-scoped only)
+    "ServerExposureEnabledEvent",
+    "ServerExposureDisabledEvent",
+    "ServerExposureRemovedEvent",
+    # Monitoring
+    "AlertTriggeredEvent",
+    "AlertResolvedEvent",
+    # Health / crash pipeline products
+    "EvidenceCollectedEvent",
+    "CrashClassifiedEvent",
+    "RecoveryTriggeredEvent",
+    "RecoveryFailedEvent",
+    "RecoverySucceededEvent",
+    "HealthStatusChangedEvent",
+]
+
 
 class EventDispatcher(EventHandler):
     def __init__(
@@ -73,17 +119,40 @@ class EventDispatcher(EventHandler):
         return conn_ids
 
     async def _find_disconnected_user_ids(self, channels: set[str], sent_connections: set[str]) -> set[str]:
+        """Return user IDs that have a channel binding overlapping *channels*
+        but hold no live connection (and were therefore not reached by the
+        send loop).  After the scan, prune stale bindings for offline users
+        whose buffer bucket is empty (no pending data) to prevent unbounded
+        growth.
+        """
         user_ids: set[str] = set()
+        offline_with_no_match: list[str] = []
         async with self._registry._lock:
-            for user_id, conns in self._registry._user_connections.items():
-                has_any_channel = False
-                for ch in channels:
-                    if ch in self._registry._channel_connections:
-                        if any(c in conns for c in self._registry._channel_connections[ch]):
-                            has_any_channel = True
-                            break
-                if has_any_channel and not conns.intersection(sent_connections):
+            for user_id, bound_channels in list(self._registry._user_channel_bindings.items()):
+                # Skip users that have at least one live connection — they
+                # were already reached (or skipped for lack of subscription).
+                live_conns = self._registry._user_connections.get(user_id, set())
+                if live_conns:
+                    continue
+                # Offline user: check whether any bound channel overlaps the
+                # event's routed channels.
+                if not bound_channels.isdisjoint(channels):
+                    # Matching binding → buffer the event for this user.
                     user_ids.add(user_id)
+                else:
+                    # Offline and no channel match — candidate for eviction if
+                    # their buffer is also empty.
+                    offline_with_no_match.append(user_id)
+        # Eviction pass (outside registry lock): remove bindings for offline
+        # users who have no buffered data (drained or TTL-expired).
+        evict: list[str] = [
+            uid for uid in offline_with_no_match
+            if self._buffer.total_buffered(uid) == 0
+        ]
+        if evict:
+            async with self._registry._lock:
+                for uid in evict:
+                    self._registry._user_channel_bindings.pop(uid, None)
         return user_ids
 
     def _resolve_channels(self, event: DomainEvent) -> set[str]:

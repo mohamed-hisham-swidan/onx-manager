@@ -29,7 +29,8 @@ NON_RECOVERABLE_CODES: set[str] = {
 
 
 class RecoveryOrchestrator:
-    _crash_history: dict[str, list[float]] = defaultdict(list)
+    def __init__(self) -> None:
+        self._crash_history: dict[str, list[float]] = defaultdict(list)
 
     async def trigger(self, server_id: str, failure_code: str) -> RecoveryAction:
         self._record_crash(server_id)

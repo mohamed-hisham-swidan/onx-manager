@@ -101,6 +101,8 @@ from app.modules.health.application import (
     GetHealthTimelineHandler,
     GetHealthTimelineQuery,
 )
+from app.modules.health.application.event_handlers.health_signal_handler import HealthSignalHandler
+from app.modules.health.application.event_handlers.server_crashed_handler import HandleServerCrashHandler
 from app.modules.monitoring.application import (
     CreateAlertRuleCommand,
     CreateAlertRuleHandler,
@@ -165,6 +167,25 @@ def register_handlers(
     init_infrastructure()
     _register_command_handlers(command_bus, event_bus)
     _register_query_handlers(query_bus)
+    _register_event_handlers(event_bus)
+
+
+def _register_event_handlers(event_bus: EventBus) -> None:
+    """Wire domain EventHandlers to the EventBus (Decision 2 + 2a).
+
+    HandleServerCrashHandler subscribes with a 60 s per-attempt timeout override
+    because log-based evidence collection is disk-bound and can exceed the 10 s
+    global.  HealthSignalHandler is DB-bound and keeps the global default.
+    """
+    # Crash pipeline — one subscription, scoped type, 60 s per-attempt override.
+    crash_handler = HandleServerCrashHandler(event_bus)
+    event_bus.subscribe("ServerCrashedEvent", crash_handler, timeout=60.0)
+
+    # Health signal handler — three subscriptions, global 10 s timeout.
+    health_handler = HealthSignalHandler(event_bus)
+    event_bus.subscribe("RuntimeHealthSignalEvent", health_handler)
+    event_bus.subscribe("IntegrityCheckFailedEvent", health_handler)
+    event_bus.subscribe("CrashClassifiedEvent", health_handler)
 
 
 def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> None:
