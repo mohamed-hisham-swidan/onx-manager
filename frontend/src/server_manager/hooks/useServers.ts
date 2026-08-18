@@ -12,6 +12,7 @@ export function useServersList() {
   return useQuery({
     queryKey: queryKeys.servers.list(),
     queryFn: () => api.listServers(),
+    refetchInterval: 5000,
   });
 }
 
@@ -63,6 +64,7 @@ export function useServerDetail(serverId: string) {
     queryKey: queryKeys.servers.detail(serverId),
     queryFn: () => api.getServer(serverId),
     enabled: !!serverId,
+    refetchInterval: 5000,
   });
 }
 

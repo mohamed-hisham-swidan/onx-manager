@@ -13,11 +13,12 @@ import { toast } from "@/stores/toastStore";
 import { formatBytes, formatDateTime } from "@/server_manager/utils/format";
 import type { BackupResponse } from "@/types";
 
-const STATUS_FILTERS = ["all", "completed", "failed", "pending", "running"];
+const STATUS_FILTERS = ["all", "completed", "failed", "failed_timeout", "pending", "running"];
 
 const STATUS_STYLES: Record<string, string> = {
   completed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
   failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  failed_timeout: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
   pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
   running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
 };
@@ -173,7 +174,7 @@ export function BackupListPage() {
             >
               {STATUS_FILTERS.map((s) => (
                 <option key={s} value={s}>
-                  {s === "all" ? "All statuses" : s.charAt(0).toUpperCase() + s.slice(1)}
+                  {s === "all" ? "All statuses" : s === "failed_timeout" ? "Failed (Timeout)" : s.charAt(0).toUpperCase() + s.slice(1)}
                 </option>
               ))}
             </select>

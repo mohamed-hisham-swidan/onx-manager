@@ -59,11 +59,23 @@ describe("ServersPage", () => {
   });
 
   it("shows quick action buttons per status", () => {
+    vi.mocked(useServersList).mockReturnValue({
+      data: [
+        ...mockServers,
+        { server_id: "srv-4", name: "Starting Server", server_type: "vanilla", minecraft_version: "1.21", status: "starting", group_id: "default", port: 25568, motd: "", max_players: 20, gamemode: "survival", difficulty: "easy", created_at: "", updated_at: "" },
+        { server_id: "srv-5", name: "Stopping Server", server_type: "vanilla", minecraft_version: "1.21", status: "stopping", group_id: "default", port: 25569, motd: "", max_players: 20, gamemode: "survival", difficulty: "easy", created_at: "", updated_at: "" },
+      ],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useServersList>);
     renderPage();
     expect(screen.getByLabelText("Start Beta Plot")).toBeInTheDocument();
     expect(screen.getByLabelText("Stop Alpha World")).toBeInTheDocument();
     expect(screen.getByLabelText("Restart Alpha World")).toBeInTheDocument();
-    expect(screen.getAllByLabelText(/Delete/)).toHaveLength(3);
+    expect(screen.getByLabelText("Stop Starting Server")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Restart Starting Server")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Stopping Server is stopping")).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/Delete/)).toHaveLength(5);
   });
 
   it("filters by search text", () => {

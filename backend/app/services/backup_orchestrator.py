@@ -64,6 +64,25 @@ SAVE_ALL_POLL_INTERVAL_S = 0.5
 _SAVE_CONFIRMED_RE = re.compile(r"saved the (game|world)", re.IGNORECASE)
 
 
+_CANCELLED_BACKUPS: set[str] = set()
+
+
+class BackupCancelledError(Exception):
+    pass
+
+
+def cancel_backup(backup_id: str) -> None:
+    _CANCELLED_BACKUPS.add(str(backup_id))
+
+
+def is_backup_cancelled(backup_id: str) -> bool:
+    return str(backup_id) in _CANCELLED_BACKUPS
+
+
+def clear_cancelled_backup(backup_id: str) -> None:
+    _CANCELLED_BACKUPS.discard(str(backup_id))
+
+
 def artifact_path(backup_id: BackupJobId) -> str:
     return f"{backup_id}.tar.gz.enc"
 
@@ -114,25 +133,32 @@ class BackupSaga:
             ),
         ]
 
-        instance = await self._saga.create_saga("backup", steps, timeout_seconds=600.0)
-        result = await self._saga.execute(instance.saga_id)
+        try:
+            instance = await self._saga.create_saga("backup", steps, timeout_seconds=600.0)
+            result = await self._saga.execute(instance.saga_id)
 
-        async with UnitOfWork() as uow:
-            repo: BackupRepository = SQLBackupRepository(uow.session)
-            job = await repo.get_job(backup_id)
-            if result.status.value == "completed":
-                job.mark_completed(
-                    size_bytes=self._result_size,
-                    checksum=self._result_checksum,
-                    storage_path=self._result_storage_path,
-                )
-            else:
-                job.mark_failed(result.error or "Backup saga failed")
-            await repo.save_job(job)
-            await uow.commit()
+            async with UnitOfWork() as uow:
+                repo: BackupRepository = SQLBackupRepository(uow.session)
+                job = await repo.get_job(backup_id)
+                if result.status.value == "completed":
+                    job.mark_completed(
+                        size_bytes=self._result_size,
+                        checksum=self._result_checksum,
+                        storage_path=self._result_storage_path,
+                    )
+                elif is_backup_cancelled(str(backup_id)) or (result.error and "cancelled" in result.error.lower()) or (result.error and "timeout" in result.error.lower()):
+                    job.mark_failed_timeout(result.error or "Backup cancelled due to timeout")
+                else:
+                    job.mark_failed(result.error or "Backup saga failed")
+                await repo.save_job(job)
+                await uow.commit()
+        finally:
+            clear_cancelled_backup(str(backup_id))
 
     def _save_world(self, backup_id: BackupJobId, server_id: ServerId):
         async def fn() -> None:
+            if is_backup_cancelled(str(backup_id)):
+                raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             if not await self._server_is_running(server_id):
                 logger.info("World save not required — server %s is not running (backup %s)", server_id, backup_id)
                 return
@@ -189,10 +215,14 @@ class BackupSaga:
         backup_type: BackupType = BackupType.FULL,
     ):
         async def fn() -> None:
+            if is_backup_cancelled(str(backup_id)):
+                raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             server_dir, primary_world = await self._resolve_server_dir(server_id)
             self._temp_dir = tempfile.mkdtemp(prefix=f"mcs-backup-{str(backup_id)[:8]}-")
             self._tar_path = os.path.join(self._temp_dir, f"{backup_id}.tar.gz")
-            self._write_tar(self._tar_path, server_dir, primary_world, backup_type)
+            self._write_tar(self._tar_path, server_dir, primary_world, backup_type, backup_id=str(backup_id))
+            if is_backup_cancelled(str(backup_id)):
+                raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             logger.info(
                 "Backup compressed: %s (%d bytes)",
                 backup_id, os.path.getsize(self._tar_path),
@@ -202,6 +232,8 @@ class BackupSaga:
 
     def _encrypt(self, backup_id: BackupJobId, encryption: BackupEncryption | None):
         async def fn() -> None:
+            if is_backup_cancelled(str(backup_id)):
+                raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             if encryption is None:
                 raise RuntimeError(f"Encryption is required to complete backup {backup_id}")
             if not self._tar_path or not os.path.exists(self._tar_path):
@@ -213,6 +245,8 @@ class BackupSaga:
             with open(self._enc_path, "wb") as f:
                 f.write(encrypted)
             os.remove(self._tar_path)
+            if is_backup_cancelled(str(backup_id)):
+                raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             logger.info(
                 "Backup encrypted: %s (%d bytes plaintext -> %d bytes ciphertext)",
                 backup_id, len(plaintext), len(encrypted),
@@ -227,6 +261,8 @@ class BackupSaga:
         encryption: BackupEncryption | None,
     ):
         async def fn() -> None:
+            if is_backup_cancelled(str(backup_id)):
+                raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             if not self._enc_path or not os.path.exists(self._enc_path):
                 raise RuntimeError(f"Encrypted artifact missing for backup {backup_id}")
             with open(self._enc_path, "rb") as f:
@@ -251,6 +287,8 @@ class BackupSaga:
         encryption: BackupEncryption | None,
     ):
         async def fn() -> None:
+            if is_backup_cancelled(str(backup_id)):
+                raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             path = artifact_path(backup_id)
             data = await storage.read(path)
             actual_size = len(data)
@@ -320,6 +358,7 @@ class BackupSaga:
         server_dir: str,
         primary_world: str = "world",
         backup_type: BackupType = BackupType.FULL,
+        backup_id: str = "",
     ) -> None:
         dim_names: dict[str, str] = {s: f"{primary_world}{s}" for s in DIMENSION_SUFFIXES}
         dim_suffixes = _BACKUP_TYPE_DIMS[backup_type]
@@ -340,6 +379,8 @@ class BackupSaga:
 
         with tarfile.open(tar_path, "w:gz") as tar:
             for suffix in dim_suffixes:
+                if backup_id and is_backup_cancelled(backup_id):
+                    raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
                 dim_name = dim_names[suffix]
                 candidate = Path(server_dir) / dim_name
                 if candidate.is_dir():
@@ -356,6 +397,8 @@ class BackupSaga:
                 BackupType.END,
             ):
                 for suffix, dim_name in dim_names.items():
+                    if backup_id and is_backup_cancelled(backup_id):
+                        raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
                     if suffix in dim_suffixes:
                         continue
                     playerdata_dir = Path(server_dir) / dim_name / "playerdata"
@@ -364,12 +407,16 @@ class BackupSaga:
                         tar.add(str(playerdata_dir), arcname=arcname)
 
             if include_plugins:
+                if backup_id and is_backup_cancelled(backup_id):
+                    raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
                 plugins_dir = Path(server_dir) / "plugins"
                 if plugins_dir.is_dir():
                     tar.add(str(plugins_dir), arcname="plugins")
 
             if include_config:
                 for name in CONFIG_FILES:
+                    if backup_id and is_backup_cancelled(backup_id):
+                        raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
                     candidate = Path(server_dir) / name
                     if candidate.is_file():
                         tar.add(str(candidate), arcname=name)
@@ -387,7 +434,7 @@ class BackupSaga:
         async with UnitOfWork() as uow:
             repo = SQLServerRepository(uow.session)
             server = await repo.get(server_id)
-            return server.status.value in ("running", "starting")
+            return server.status.value == "running"
 
     async def _load_server(self, server_id: ServerId):
         async with UnitOfWork() as uow:

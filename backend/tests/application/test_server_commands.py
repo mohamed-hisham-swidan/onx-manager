@@ -341,7 +341,7 @@ class TestRestartServerHandler:
 
         assert result.success is True
         loaded = await _get_server("test-restart-deploy-1")
-        assert loaded.status.value == "running"
+        assert loaded.status.value in ("running", "starting")
 
     @pytest.mark.asyncio
     async def test_restart_applies_pending_plugin_deletions(self, event_bus: EventBus) -> None:

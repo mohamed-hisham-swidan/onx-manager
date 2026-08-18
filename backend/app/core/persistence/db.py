@@ -42,8 +42,25 @@ class DatabaseEngine:
             kw["pool_size"] = 20
             kw["max_overflow"] = 10
             kw["pool_pre_ping"] = True
+        else:
+            kw["connect_args"] = {"timeout": 30.0, "check_same_thread": False}
 
         self._engine = create_async_engine(self._settings.database_url, **kw)
+
+        if "sqlite" in self._settings.database_url:
+            from sqlalchemy import event
+
+            @event.listens_for(self._engine.sync_engine, "connect")
+            def set_sqlite_pragma(dbapi_connection: Any, connection_record: Any) -> None:
+                cursor = dbapi_connection.cursor()
+                try:
+                    cursor.execute("PRAGMA journal_mode=WAL")
+                    cursor.execute("PRAGMA busy_timeout=30000")
+                    cursor.execute("PRAGMA synchronous=NORMAL")
+                except Exception:
+                    pass
+                finally:
+                    cursor.close()
 
         self._session_factory = async_sessionmaker(
             bind=self._engine,

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -34,8 +35,22 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
             : null;
 
   const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending;
+  const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    const hasActive = Object.values(startCooldowns).some((t) => t > Date.now());
+    if (!hasActive) return;
+    const timer = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+    }, 200);
+    return () => clearInterval(timer);
+  }, [startCooldowns]);
 
   function handleStart(serverId: string, name: string) {
+    setStartCooldowns((prev) => ({ ...prev, [serverId]: Date.now() + 3000 }));
+    setNow(Date.now());
     startServer.mutate(serverId, {
       onSuccess: () => toast("success", "Server started", `"${name}" is starting.`),
       onError: (err) => toast("error", "Start failed", errorMessage(err)),
@@ -68,6 +83,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
         const status = server.status || "unknown";
         const actionColor =
           STATUS_MAP[status]?.color ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400";
+        const isServerStartingCooldown = startCooldowns[server.server_id] !== undefined && now < startCooldowns[server.server_id];
 
         return (
           <li key={server.server_id} className="flex items-center gap-3 py-3">
@@ -95,7 +111,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
               {["stopped", "created", "crashed"].includes(status) && (
                 <button
                   onClick={() => handleStart(server.server_id, server.name)}
-                  disabled={isBusy}
+                  disabled={isBusy || isServerStartingCooldown || status === "starting"}
                   aria-label={`Start ${server.name}`}
                   title="Start"
                   className="rounded-lg p-1.5 text-green-600 transition-colors hover:bg-green-100 hover:text-green-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-green-400 dark:hover:bg-green-900/30 dark:hover:text-green-300"
@@ -103,7 +119,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
                   <Icon name="play" size={16} />
                 </button>
               )}
-              {status === "running" && (
+              {["running", "starting"].includes(status) && (
                 <>
                   <button
                     onClick={() => handleStop(server.server_id, server.name)}
@@ -114,18 +130,20 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
                   >
                     <Icon name="stop" size={16} />
                   </button>
-                  <button
-                    onClick={() => handleRestart(server.server_id, server.name)}
-                    disabled={isBusy}
-                    aria-label={`Restart ${server.name}`}
-                    title="Restart"
-                    className="rounded-lg p-1.5 text-yellow-600 transition-colors hover:bg-yellow-100 hover:text-yellow-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-yellow-400 dark:hover:bg-yellow-900/30 dark:hover:text-yellow-300"
-                  >
-                    <Icon name="restart" size={16} />
-                  </button>
+                  {status === "running" && (
+                    <button
+                      onClick={() => handleRestart(server.server_id, server.name)}
+                      disabled={isBusy}
+                      aria-label={`Restart ${server.name}`}
+                      title="Restart"
+                      className="rounded-lg p-1.5 text-yellow-600 transition-colors hover:bg-yellow-100 hover:text-yellow-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-yellow-400 dark:hover:bg-yellow-900/30 dark:hover:text-yellow-300"
+                    >
+                      <Icon name="restart" size={16} />
+                    </button>
+                  )}
                 </>
               )}
-              {["starting", "stopping"].includes(status) && (
+              {status === "stopping" && (
                 <span
                   aria-label={`${server.name} is ${STATUS_MAP[status]?.label.toLowerCase()}`}
                   className="inline-flex h-7 w-7 items-center justify-center text-gray-400 dark:text-gray-500"

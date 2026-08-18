@@ -35,6 +35,8 @@ export function ServersPage() {
   const filterRef = useRef<HTMLDivElement>(null);
 
   const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending;
+  const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
+  const [now, setNow] = useState<number>(() => Date.now());
 
   useEffect(() => {
     if (!isFilterOpen) return;
@@ -54,6 +56,16 @@ export function ServersPage() {
     };
   }, [isFilterOpen]);
 
+  useEffect(() => {
+    const hasActive = Object.values(startCooldowns).some((t) => t > Date.now());
+    if (!hasActive) return;
+    const timer = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+    }, 200);
+    return () => clearInterval(timer);
+  }, [startCooldowns]);
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     const list = (servers ?? []).filter((s) => {
@@ -70,6 +82,8 @@ export function ServersPage() {
   }, [servers, search, statusFilter, sortKey]);
 
   function handleStart(server: ServerResponse) {
+    setStartCooldowns((prev) => ({ ...prev, [server.server_id]: Date.now() + 3000 }));
+    setNow(Date.now());
     startServer.mutate(server.server_id, {
       onSuccess: () => toast("success", "Server started", `"${server.name}" is starting.`),
       onError: (err) => toast("error", "Start failed", errorMessage(err)),
@@ -272,7 +286,7 @@ export function ServersPage() {
                           {["stopped", "created", "crashed"].includes(s.status) && (
                             <button
                               onClick={() => handleStart(s)}
-                              disabled={isBusy}
+                              disabled={isBusy || (startCooldowns[s.server_id] !== undefined && now < startCooldowns[s.server_id]) || s.status === "starting"}
                               aria-label={`Start ${s.name}`}
                               title="Start"
                               className="rounded-lg p-1.5 text-green-600 transition-colors hover:bg-green-100 hover:text-green-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-green-400 dark:hover:bg-green-900/30 dark:hover:text-green-300"
@@ -280,7 +294,7 @@ export function ServersPage() {
                               <Icon name="play" size={16} />
                             </button>
                           )}
-                          {s.status === "running" && (
+                          {["running", "starting"].includes(s.status) && (
                             <>
                               <button
                                 onClick={() => handleStop(s)}
@@ -291,18 +305,20 @@ export function ServersPage() {
                               >
                                 <Icon name="stop" size={16} />
                               </button>
-                              <button
-                                onClick={() => handleRestart(s)}
-                                disabled={isBusy}
-                                aria-label={`Restart ${s.name}`}
-                                title="Restart"
-                                className="rounded-lg p-1.5 text-yellow-600 transition-colors hover:bg-yellow-100 hover:text-yellow-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-yellow-400 dark:hover:bg-yellow-900/30 dark:hover:text-yellow-300"
-                              >
-                                <Icon name="restart" size={16} />
-                              </button>
+                              {s.status === "running" && (
+                                <button
+                                  onClick={() => handleRestart(s)}
+                                  disabled={isBusy}
+                                  aria-label={`Restart ${s.name}`}
+                                  title="Restart"
+                                  className="rounded-lg p-1.5 text-yellow-600 transition-colors hover:bg-yellow-100 hover:text-yellow-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-yellow-400 dark:hover:bg-yellow-900/30 dark:hover:text-yellow-300"
+                                >
+                                  <Icon name="restart" size={16} />
+                                </button>
+                              )}
                             </>
                           )}
-                          {["starting", "stopping"].includes(s.status) && (
+                          {s.status === "stopping" && (
                             <span
                               aria-label={`${s.name} is ${STATUS_MAP[s.status]?.label.toLowerCase()}`}
                               className="inline-flex h-7 w-7 items-center justify-center text-gray-400 dark:text-gray-500"

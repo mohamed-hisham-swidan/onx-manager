@@ -29,6 +29,7 @@ class BackupStatus(Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     FAILED = "failed"
+    FAILED_TIMEOUT = "failed_timeout"
 
 
 class BackupJob(AggregateRoot):
@@ -122,6 +123,18 @@ class BackupJob(AggregateRoot):
 
     def mark_failed(self, reason: str) -> None:
         self._status = BackupStatus.FAILED
+        self._error_message = reason
+        self._completed_at = datetime.now(timezone.utc)
+        self._add_event(
+            BackupFailedEvent(
+                backup_id=str(self._backup_id),
+                server_id=str(self._server_id),
+                reason=reason,
+            ),
+        )
+
+    def mark_failed_timeout(self, reason: str = "Backup timed out") -> None:
+        self._status = BackupStatus.FAILED_TIMEOUT
         self._error_message = reason
         self._completed_at = datetime.now(timezone.utc)
         self._add_event(

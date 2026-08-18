@@ -41,7 +41,7 @@ class ServerStatus(Enum):
 _SERVER_TRANSITIONS: dict[ServerStatus, set[ServerStatus]] = {
     ServerStatus.CREATED: {ServerStatus.STARTING, ServerStatus.BROKEN},
     ServerStatus.BROKEN: {ServerStatus.STARTING, ServerStatus.CREATED},
-    ServerStatus.STARTING: {ServerStatus.RUNNING, ServerStatus.CRASHED},
+    ServerStatus.STARTING: {ServerStatus.RUNNING, ServerStatus.CRASHED, ServerStatus.STOPPING},
     ServerStatus.RUNNING: {ServerStatus.STOPPING, ServerStatus.CRASHED},
     ServerStatus.STOPPING: {ServerStatus.STOPPED, ServerStatus.CRASHED},
     ServerStatus.STOPPED: {ServerStatus.STARTING, ServerStatus.RUNNING},
@@ -216,6 +216,26 @@ class Server(AggregateRoot):
     def start(self) -> None:
         self._transition_to(ServerStatus.STARTING)
         self._add_event(ServerStartingEvent(server_id=self._id))
+
+    def record_runtime_starting(
+        self,
+        pid: int,
+        port: int,
+        host: str = "127.0.0.1",
+        external_id: str = "",
+        start_time: int | None = None,
+    ) -> None:
+        self._runtime = RuntimeInfo(
+            status="starting",
+            provider=self._runtime.provider,
+            host=host,
+            port=port,
+            pid=pid,
+            start_time=start_time,
+            restart_count=self._runtime.restart_count,
+            external_id=external_id,
+        )
+        self._updated_at = datetime.now(timezone.utc)
 
     def mark_running(self, pid: int, port: int, host: str = "127.0.0.1", external_id: str = "", start_time: int | None = None) -> None:
         self._transition_to(ServerStatus.RUNNING)

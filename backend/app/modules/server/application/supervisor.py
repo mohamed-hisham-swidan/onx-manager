@@ -179,6 +179,34 @@ class RuntimeSupervisor:
                 add_timeline_milestone(
                     None, "Startup verification passed", self._server_name, self._server_id,
                 )
+                try:
+                    server = await self._repo_get(ServerId(self._server_id))
+                    if self._stop_event.is_set():
+                        logger.info(
+                            'Concurrent stop detected after wait_ready for server "%s" — skipping RUNNING transition sid=%s',
+                            self._server_name, self._server_id,
+                        )
+                        return
+                    pid = self._handle.metadata.get("pid", 0) if hasattr(self._handle, "metadata") and self._handle.metadata else (server.runtime.pid or 0)
+                    port = self._handle.metadata.get("port", server.properties.port.value) if hasattr(self._handle, "metadata") and self._handle.metadata else (server.runtime.port or server.properties.port.value)
+                    external_id = self._handle.external_id or server.runtime.external_id
+                    start_time = server.runtime.start_time
+                    host = server.runtime.host or "127.0.0.1"
+                    if server.status == ServerStatus.STARTING:
+                        server.mark_running(
+                            pid=pid,
+                            port=port,
+                            host=host,
+                            external_id=external_id,
+                            start_time=start_time,
+                        )
+                        await self._repo_save(server)
+                        add_timeline_milestone(None, "Server marked running", self._server_name, self._server_id)
+                except Exception:
+                    logger.exception(
+                        'Failed to transition server "%s" to RUNNING after startup verification — sid=%s',
+                        self._server_name, self._server_id,
+                    )
                 return
 
             iteration += 1
@@ -207,6 +235,35 @@ class RuntimeSupervisor:
                 'Server "%s" startup deadline elapsed=%.1fs but process still alive — continuing sid=%s',
                 self._server_name, elapsed, self._server_id,
             )
+            # TODO(STARTING-001): deadline-passed + process-alive -> transition to RUNNING best-effort
+            try:
+                server = await self._repo_get(ServerId(self._server_id))
+                if self._stop_event.is_set():
+                    logger.info(
+                        'Concurrent stop detected at startup deadline for server "%s" — skipping RUNNING transition sid=%s',
+                        self._server_name, self._server_id,
+                    )
+                    return
+                pid = self._handle.metadata.get("pid", 0) if hasattr(self._handle, "metadata") and self._handle.metadata else (server.runtime.pid or 0)
+                port = self._handle.metadata.get("port", server.properties.port.value) if hasattr(self._handle, "metadata") and self._handle.metadata else (server.runtime.port or server.properties.port.value)
+                external_id = self._handle.external_id or server.runtime.external_id
+                start_time = server.runtime.start_time
+                host = server.runtime.host or "127.0.0.1"
+                if server.status == ServerStatus.STARTING:
+                    server.mark_running(
+                        pid=pid,
+                        port=port,
+                        host=host,
+                        external_id=external_id,
+                        start_time=start_time,
+                    )
+                    await self._repo_save(server)
+                    add_timeline_milestone(None, "Server marked running (deadline continue)", self._server_name, self._server_id)
+            except Exception:
+                logger.exception(
+                    'Failed to transition server "%s" to RUNNING on deadline continue — sid=%s',
+                    self._server_name, self._server_id,
+                )
             return
         diag = await self._provider.collect_diagnostics(self._handle)
         log_crash_diagnostics(

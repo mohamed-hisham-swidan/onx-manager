@@ -74,6 +74,22 @@ export function ServerDetailPage() {
 
   const [showDelete, setShowDelete] = useState(false);
   const [infoExpanded, setInfoExpanded] = useState(false);
+  const [startCooldownUntil, setStartCooldownUntil] = useState<number>(0);
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (startCooldownUntil <= Date.now()) return;
+    const timer = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= startCooldownUntil) {
+        clearInterval(timer);
+      }
+    }, 200);
+    return () => clearInterval(timer);
+  }, [startCooldownUntil]);
+
+  const isStartCooldownActive = now < startCooldownUntil;
 
   useEffect(() => {
     if (!serverId) return;
@@ -130,20 +146,22 @@ export function ServerDetailPage() {
     <>
       {["stopped", "created", "crashed"].includes(s.status) && (
         <button
-          onClick={() =>
+          onClick={() => {
+            setStartCooldownUntil(Date.now() + 3000);
+            setNow(Date.now());
             startServer.mutate(serverId, {
               onSuccess: () => toast("success", "Server started", `"${s.name}" is starting.`),
               onError: (err) => toast("error", "Start failed", errorMessage(err)),
-            })
-          }
-          disabled={startServer.isPending}
+            });
+          }}
+          disabled={startServer.isPending || isStartCooldownActive || s.status === "starting"}
           className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
         >
           <Icon name="play" size={14} />
-          {startServer.isPending ? "Starting..." : "Start"}
+          {startServer.isPending || isStartCooldownActive ? "Starting..." : "Start"}
         </button>
       )}
-      {s.status === "running" && (
+      {["running", "starting"].includes(s.status) && (
         <>
           <button
             onClick={() =>
@@ -158,19 +176,21 @@ export function ServerDetailPage() {
             <Icon name="stop" size={14} />
             {stopServer.isPending ? "Stopping..." : "Stop"}
           </button>
-          <button
-            onClick={() =>
-              restartServer.mutate(serverId, {
-                onSuccess: () => toast("success", "Server restarting", `"${s.name}" is restarting.`),
-                onError: (err) => toast("error", "Restart failed", errorMessage(err)),
-              })
-            }
-            disabled={restartServer.isPending}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-yellow-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-yellow-700 disabled:opacity-50"
-          >
-            <Icon name="restart" size={14} />
-            {restartServer.isPending ? "Restarting..." : "Restart"}
-          </button>
+          {s.status === "running" && (
+            <button
+              onClick={() =>
+                restartServer.mutate(serverId, {
+                  onSuccess: () => toast("success", "Server restarting", `"${s.name}" is restarting.`),
+                  onError: (err) => toast("error", "Restart failed", errorMessage(err)),
+                })
+              }
+              disabled={restartServer.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-yellow-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-yellow-700 disabled:opacity-50"
+            >
+              <Icon name="restart" size={14} />
+              {restartServer.isPending ? "Restarting..." : "Restart"}
+            </button>
+          )}
         </>
       )}
       <button

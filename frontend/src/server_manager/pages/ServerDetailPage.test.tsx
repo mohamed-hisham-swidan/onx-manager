@@ -190,9 +190,18 @@ describe("ServerDetailPage", () => {
   });
 
   it("shows Stop and Restart buttons when running", () => {
+    mockData = { ...mockServer, status: "running" };
     renderPage();
     expect(screen.getByText("Stop")).toBeInTheDocument();
     expect(screen.getByText("Restart")).toBeInTheDocument();
+  });
+
+  it("shows Stop button when starting", () => {
+    mockData = { ...mockServer, status: "starting" };
+    renderPage();
+    expect(screen.getByText("Stop")).toBeInTheDocument();
+    expect(screen.queryByText("Restart")).not.toBeInTheDocument();
+    expect(screen.queryByText("Start")).not.toBeInTheDocument();
   });
 
   it("opens delete confirmation dialog", async () => {

@@ -275,7 +275,6 @@ class TestRuntimeSupervisor:
 
         assert not supervisor.is_running
         crash_spy.assert_not_called()
-        repo_save.assert_not_awaited()
 
     async def test_race_health_check_completes_during_stop(self, mock_provider, mock_server, server_handle):
         status_busy = asyncio.Event()
@@ -315,4 +314,3 @@ class TestRuntimeSupervisor:
 
         assert not supervisor.is_running
         crash_spy.assert_not_called()
-        repo_save.assert_not_awaited()

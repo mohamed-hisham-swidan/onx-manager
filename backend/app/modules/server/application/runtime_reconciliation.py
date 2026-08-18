@@ -6,6 +6,7 @@ import os
 import signal
 import socket
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
@@ -29,6 +30,7 @@ class MismatchType(Enum):
     DB_RUNNING_NO_TMUX = "db_running_no_tmux"
     DB_RUNNING_DEAD_PID = "db_running_dead_pid"
     DB_STARTING_ALIVE = "db_starting_alive"
+    DB_STARTING_DEAD = "db_starting_dead"
     SUPERVISOR_NO_TMUX = "supervisor_no_tmux"
     TMUX_PID_DEAD = "tmux_pid_dead"
     PID_PORT_MISMATCH = "pid_port_mismatch"
@@ -51,6 +53,7 @@ class ServerRuntimeState:
     port: int = 25565
     runtime_pid: int | None = None
     external_id: str = ""
+    start_age_seconds: float | None = None
 
 
 @dataclass
@@ -235,6 +238,21 @@ async def _get_server_state(
     else:
         port_listening = False
 
+    start_age_seconds: float | None = None
+    if server.status == ServerStatus.STARTING:
+        ref_time = None
+        if server.runtime and server.runtime.start_time:
+            try:
+                ref_time = datetime.fromisoformat(server.runtime.start_time)
+            except Exception:
+                pass
+        if ref_time is None and server.updated_at:
+            ref_time = server.updated_at
+        if ref_time is not None:
+            if ref_time.tzinfo is None:
+                ref_time = ref_time.replace(tzinfo=timezone.utc)
+            start_age_seconds = (datetime.now(timezone.utc) - ref_time).total_seconds()
+
     return ServerRuntimeState(
         server_id=sid,
         server_name=server.name,
@@ -248,6 +266,7 @@ async def _get_server_state(
         port=port if isinstance(port, int) else 25565,
         runtime_pid=server.runtime.pid if server.runtime else None,
         external_id=external_id,
+        start_age_seconds=start_age_seconds,
     )
 
 
@@ -285,13 +304,24 @@ def _detect_mismatches(state: ServerRuntimeState) -> list[MismatchReport]:
             ))
 
     if state.db_status == ServerStatus.STARTING:
-        if state.has_tmux and state.pid_alive and state.port_listening:
-            mismatches.append(MismatchReport(
-                server_id=state.server_id,
-                mismatch_type=MismatchType.DB_STARTING_ALIVE,
-                detail="DB marks STARTING but process is fully up and port is listening",
-                auto_repairable=True,
-            ))
+        if not state.supervisor_running:
+            if state.has_tmux and state.pid_alive:
+                mismatches.append(MismatchReport(
+                    server_id=state.server_id,
+                    mismatch_type=MismatchType.DB_STARTING_ALIVE,
+                    detail="DB marks STARTING with no active supervisor but process is alive",
+                    auto_repairable=True,
+                ))
+            else:
+                # Do not falsely crash servers that just started (within 60s grace window)
+                is_fresh = state.start_age_seconds is not None and state.start_age_seconds < 60.0
+                if not is_fresh:
+                    mismatches.append(MismatchReport(
+                        server_id=state.server_id,
+                        mismatch_type=MismatchType.DB_STARTING_DEAD,
+                        detail="DB marks STARTING with no active supervisor and process is dead",
+                        auto_repairable=True,
+                    ))
 
     return mismatches
 
@@ -323,6 +353,7 @@ async def _auto_repair(
             MismatchType.DB_RUNNING_NO_TMUX,
             MismatchType.DB_RUNNING_DEAD_PID,
             MismatchType.TMUX_PID_DEAD,
+            MismatchType.DB_STARTING_DEAD,
         ):
             server.crash(
                 exit_code=-1,

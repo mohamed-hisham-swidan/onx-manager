@@ -474,7 +474,7 @@ class TestServers:
     async def test_console_endpoint(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
         server_id = created_server["server_id"]
         resp = await client.get(f"/api/v1/servers/{server_id}/console?tail=50", headers=admin_header)
-        assert resp.status_code == 404
+        assert resp.status_code == 200
 
 
 class TestBackups:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
@@ -22,6 +23,8 @@ from app.modules.server.application.logging_utils import (
 )
 from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
 from app.modules.server.application.supervisor import RuntimeSupervisor
+from app.modules.backup.domain.aggregate import BackupStatus
+from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.providers import provider_factory
@@ -30,6 +33,9 @@ from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 
 logger = logging.getLogger("mcs.commands.restart_server")
+
+# TODO(STARTING-001-CFG): hardcoded for now; shares the future config system with the OQ-2 15-min supervisor startup timeout
+_BACKUP_WAIT_CAP_S: float = 30.0
 
 
 class RestartServerCommand(Command):
@@ -44,6 +50,28 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
     async def handle(self, command: RestartServerCommand) -> CommandResult:
         server_id = ServerId(command.server_id)
         sid = str(server_id)
+
+        # Check for active backups for this server and wait up to _BACKUP_WAIT_CAP_S
+        backup_deadline = time.monotonic() + _BACKUP_WAIT_CAP_S
+        while True:
+            async with database.session_factory() as bkp_session:
+                bkp_repo = SQLBackupRepository(bkp_session)
+                active_backups = [
+                    b for b in await bkp_repo.list_jobs(server_id)
+                    if b.status in (BackupStatus.PENDING, BackupStatus.IN_PROGRESS)
+                ]
+            if not active_backups:
+                break
+            if time.monotonic() >= backup_deadline:
+                logger.warning(
+                    'Restart backup-wait cap (%.1fs) exceeded for server "%s" — cancelling in-flight backup(s) and proceeding server_id=%s',
+                    _BACKUP_WAIT_CAP_S, sid, sid,
+                )
+                from app.services.backup_orchestrator import cancel_backup
+                for bkp in active_backups:
+                    cancel_backup(str(bkp.backup_id))
+                break
+            await asyncio.sleep(0.5)
 
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerRepository = SQLServerRepository(uow.session)
@@ -265,7 +293,7 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             async with UnitOfWork(self._event_bus) as uow:
                 repo = SQLServerRepository(uow.session)
                 server = await repo.get(server_id)
-                server.mark_running(
+                server.record_runtime_starting(
                     pid=result.pid or 0,
                     port=result.port,
                     host=result.address,
@@ -279,7 +307,7 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                 await uow.commit()
 
             logger.info(
-                'Server "%s" restarted — pid=%s port=%s server_id=%s',
+                'Server "%s" restarted process spawned — pid=%s port=%s server_id=%s',
                 server_name, result.pid, result.port, sid,
             )
 

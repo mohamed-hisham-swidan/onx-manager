@@ -270,7 +270,7 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
             async with UnitOfWork(self._event_bus) as uow:
                 repo = SQLServerRepository(uow.session)
                 server = await repo.get(server_id)
-                server.mark_running(
+                server.record_runtime_starting(
                     pid=result.pid or 0,
                     port=result.port,
                     host=result.address,
@@ -284,11 +284,11 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                 await uow.commit()
 
             logger.info(
-                'Server "%s" started — pid=%s port=%s server_id=%s',
+                'Server "%s" starting process spawned — pid=%s port=%s server_id=%s',
                 server_name, result.pid, result.port, sid,
             )
 
-            add_timeline_milestone(None, "Server marked running", server_name, sid)
+            add_timeline_milestone(None, "Process spawned, starting recorded", server_name, sid)
 
             handle = ServerHandle(
                 provider=provider_type,

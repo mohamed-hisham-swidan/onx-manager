@@ -127,7 +127,19 @@ export class WSHandler {
         data: null,
         action: "invalidate",
       });
-    } else if (eventType.includes("ServerStarted") || eventType.includes("ServerStopped") || eventType.includes("ServerRestarted")) {
+    } else if (
+      eventType.includes("ServerStarting") ||
+      eventType.includes("ServerStarted") ||
+      eventType.includes("ServerStopping") ||
+      eventType.includes("ServerStopped") ||
+      eventType.includes("ServerCrashed") ||
+      eventType.includes("ServerRestarted")
+    ) {
+      this._config.onCacheUpdate?.({
+        key: "servers:list",
+        data: null,
+        action: "invalidate",
+      });
       const serverId = event.server_id as string | undefined;
       if (serverId) {
         this._config.onCacheUpdate?.({

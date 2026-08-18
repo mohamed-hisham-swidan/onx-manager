@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timezone
@@ -12,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistence.base import Base
 from app.tasks.base import TaskQueue
+
+logger = logging.getLogger("mcs.tasks.scheduler")
 
 
 class CronJobModel(Base):
@@ -147,7 +150,19 @@ class Scheduler:
             trigger_kwargs = self._parse_cron(model.cron_expression)
 
         async def run_job() -> None:
-            if self._task_queue:
+            if is_subminute_interval and self._task_queue and hasattr(self._task_queue, "_handlers"):
+                handler = self._task_queue._handlers.get(model.task_name)
+                if handler:
+                    try:
+                        await handler(params)
+                    except Exception:
+                        logger.exception(
+                            'Sub-minute task "%s" failed (direct execution)',
+                            model.task_name,
+                        )
+                else:
+                    await self._task_queue.enqueue(model.task_name, params)
+            elif self._task_queue:
                 await self._task_queue.enqueue(model.task_name, params)
 
             if not is_subminute_interval:

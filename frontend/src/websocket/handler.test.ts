@@ -126,6 +126,31 @@ describe("WSHandler", () => {
     });
   });
 
+  it("invalidates both server list and server detail on ServerStarting, ServerStopping, ServerCrashed, and ServerRestarted events", () => {
+    const lifecycleEvents = ["ServerStarting", "ServerStarted", "ServerStopping", "ServerStopped", "ServerCrashed", "ServerRestarted"];
+
+    for (const eventType of lifecycleEvents) {
+      const onCacheUpdate = vi.fn();
+      const handler = new WSHandler({ onCacheUpdate });
+
+      handler["_route"]({
+        type: "event",
+        event: { event_type: eventType, server_id: "s-test-42" },
+      });
+
+      expect(onCacheUpdate).toHaveBeenCalledWith({
+        key: "servers:list",
+        data: null,
+        action: "invalidate",
+      });
+      expect(onCacheUpdate).toHaveBeenCalledWith({
+        key: "server:s-test-42",
+        data: null,
+        action: "invalidate",
+      });
+    }
+  });
+
   it("invalidates backup list on backup events", () => {
     const onCacheUpdate = vi.fn();
     const handler = new WSHandler({ onCacheUpdate });

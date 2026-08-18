@@ -23,6 +23,7 @@ const servers: ServerResponse[] = [
   { server_id: "srv-1", name: "Running", server_type: "vanilla", minecraft_version: "1.21", status: "running", group_id: "default", port: 25565, motd: "", max_players: 20, gamemode: "survival", difficulty: "easy", created_at: "", updated_at: "" },
   { server_id: "srv-2", name: "Stopped", server_type: "vanilla", minecraft_version: "1.21", status: "stopped", group_id: "default", port: 25566, motd: "", max_players: 20, gamemode: "survival", difficulty: "easy", created_at: "", updated_at: "" },
   { server_id: "srv-3", name: "Starting", server_type: "vanilla", minecraft_version: "1.21", status: "starting", group_id: "default", port: 25567, motd: "", max_players: 20, gamemode: "survival", difficulty: "easy", created_at: "", updated_at: "" },
+  { server_id: "srv-4", name: "Stopping", server_type: "vanilla", minecraft_version: "1.21", status: "stopping", group_id: "default", port: 25568, motd: "", max_players: 20, gamemode: "survival", difficulty: "easy", created_at: "", updated_at: "" },
 ];
 
 vi.mock("@/server_manager/hooks/useServers", () => ({
@@ -48,12 +49,12 @@ function renderList() {
 
 describe("DashboardServerList", () => {
   beforeEach(() => {
-    useToastStore.getState().clear();
+    useToastStore.setState({ toasts: [] });
     useWSStore.setState({
+      channels: new Map([
+        ["servers:list", { channel: "servers:list", status: ChannelStatus.ACTIVE, authorized: true, retryCount: 0 }],
+      ]),
       connectionState: ConnectionState.CONNECTED,
-      connected: true,
-      channelStates: {},
-      unattributedRejection: false,
     });
   });
 
@@ -62,6 +63,7 @@ describe("DashboardServerList", () => {
     expect(screen.getByRole("link", { name: "Running" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Stopped" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Starting" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Stopping" })).toBeInTheDocument();
     expect(screen.getByText("Online")).toBeInTheDocument();
     expect(screen.getByText("Offline")).toBeInTheDocument();
   });
@@ -72,14 +74,20 @@ describe("DashboardServerList", () => {
     expect(screen.getByLabelText("Restart Running")).toBeInTheDocument();
   });
 
+  it("shows stop button for starting servers", () => {
+    renderList();
+    expect(screen.getByLabelText("Stop Starting")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Restart Starting")).not.toBeInTheDocument();
+  });
+
   it("shows start button for stopped servers", () => {
     renderList();
     expect(screen.getByLabelText("Start Stopped")).toBeInTheDocument();
   });
 
-  it("shows a spinner for transitioning servers", () => {
+  it("shows a spinner for transitioning stopping servers", () => {
     renderList();
-    expect(screen.getByLabelText("Starting is starting")).toBeInTheDocument();
+    expect(screen.getByLabelText("Stopping is stopping")).toBeInTheDocument();
   });
 
   it("fires start with a success toast", () => {
