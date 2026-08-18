@@ -184,13 +184,19 @@ def _strip_mc_color_codes(text: str) -> str:
 
 
 def _first_number(text: str) -> float | None:
-    match = re.search(r"\d+\.?\d*", text)
+    match = re.search(r"-?\d+\.?\d*", text)
     if match:
         try:
             return float(match.group(0))
         except ValueError:
             return None
     return None
+
+
+def _clamp_tps(value: float) -> float:
+    # Deliberate asymmetry: clamp legitimate overshoot > 20.0 to 20.0,
+    # but do NOT clamp negative values so domain validator can reject garbage loudly.
+    return min(value, 20.0) if value >= 0.0 else value
 
 
 def parse_tps(response: str) -> float | None:
@@ -203,22 +209,22 @@ def parse_tps(response: str) -> float | None:
             after = line.split(":", 1)[1] if ":" in line else line
             value = _first_number(after)
             if value is not None:
-                return value
+                return _clamp_tps(value)
             continue
         if "Overall TPS" in line:
             for sep in ("=", ":"):
                 if sep in line:
                     value = _first_number(line.split(sep, 1)[1])
                     if value is not None:
-                        return value
+                        return _clamp_tps(value)
             value = _first_number(line)
             if value is not None:
-                return value
+                return _clamp_tps(value)
 
-    match = re.search(r"(?:avg|average)\s*[=:]\s*([\d.]+)", text, re.IGNORECASE)
+    match = re.search(r"(?:avg|average)\s*[=:]\s*(-?[\d.]+)", text, re.IGNORECASE)
     if match:
         try:
-            return float(match.group(1))
+            return _clamp_tps(float(match.group(1)))
         except ValueError:
             pass
     return None

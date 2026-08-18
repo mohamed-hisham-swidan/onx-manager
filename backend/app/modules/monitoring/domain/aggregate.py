@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+import math
 
 from app.modules.monitoring.domain.events import (
     AlertResolvedEvent,
@@ -10,6 +11,9 @@ from app.modules.monitoring.domain.events import (
 )
 from app.modules.shared.aggregate import AggregateRoot
 from app.modules.shared.value_objects import ServerId
+
+_TPS_MAX = 20.0
+_TPS_SANITY_CEILING = 20.5
 
 
 class MetricPoint:
@@ -21,15 +25,15 @@ class MetricPoint:
         cpu_percent: float,
         timestamp: datetime | None = None,
     ) -> None:
-        if tps < 0 or tps > 20:
-            raise ValueError(f"TPS must be between 0 and 20, got {tps}")
+        if not math.isfinite(tps) or tps < 0.0 or tps > _TPS_SANITY_CEILING:
+            raise ValueError(f"TPS out of sane range [0, {_TPS_SANITY_CEILING}], got {tps}")
         if players < 0:
             raise ValueError(f"Players must be non-negative, got {players}")
         if ram_used_mb < 0:
             raise ValueError(f"RAM used must be non-negative, got {ram_used_mb}")
         if cpu_percent < 0 or cpu_percent > 100:
             raise ValueError(f"CPU percent must be 0-100, got {cpu_percent}")
-        self.tps = tps
+        self.tps = min(tps, _TPS_MAX)
         self.players = players
         self.ram_used_mb = ram_used_mb
         self.cpu_percent = cpu_percent
