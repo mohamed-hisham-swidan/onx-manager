@@ -1,5 +1,6 @@
 import pytest
 
+from app.core.persistence.db import database
 from app.modules.server.application.queries.get_server import (
     GetServerHandler,
     GetServerQuery,
@@ -8,17 +9,40 @@ from app.modules.server.application.queries.list_servers import (
     ListServersHandler,
     ListServersQuery,
 )
+from app.modules.server.application.read_models import resolve_display_name
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.value_objects import (
     JavaArguments,
+    LocationType,
     MemoryAllocation,
     PortNumber,
+    ServerDeployment,
     ServerProperties,
     ServerType,
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
-from app.core.persistence.db import database
+
+
+def _build_server(server_id: str, name: str, root_path: str | None = None) -> Server:
+    deployment = None
+    if root_path is not None:
+        deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path=root_path,
+            working_directory=".",
+            startup_jar="server.jar",
+        )
+    return Server.create(
+        server_id=ServerId(server_id),
+        name=name,
+        server_type=ServerType.VANILLA,
+        minecraft_version=MinecraftVersion.parse("1.21"),
+        memory=MemoryAllocation(1024, 2048),
+        java_args=JavaArguments(),
+        properties=ServerProperties(port=PortNumber(25565)),
+        deployment=deployment,
+    )
 
 
 @pytest.mark.usefixtures("init_test_db")
@@ -112,3 +136,27 @@ class TestListServersHandler:
 
         assert len(result) == 1
         assert result[0].name == "Alpha"
+
+
+class TestResolveDisplayName:
+    def test_uses_db_name_when_no_deployment(self) -> None:
+        server = _build_server("rdn-1", "DbName")
+        assert resolve_display_name(server) == "DbName"
+
+    def test_uses_db_name_when_no_server_properties(self, tmp_path) -> None:
+        server = _build_server("rdn-2", "DbName", root_path=str(tmp_path))
+        assert resolve_display_name(server) == "DbName"
+
+    def test_uses_server_name_from_properties_file(self, tmp_path) -> None:
+        (tmp_path / "server.properties").write_text(
+            "#Minecraft server properties\nserver-name=OnxMC Test Server\n", encoding="utf-8",
+        )
+        server = _build_server("rdn-3", "DbName", root_path=str(tmp_path))
+        assert resolve_display_name(server) == "OnxMC Test Server"
+
+    def test_ignores_empty_server_name_in_properties_file(self, tmp_path) -> None:
+        (tmp_path / "server.properties").write_text(
+            "#Minecraft server properties\nserver-name=\n", encoding="utf-8",
+        )
+        server = _build_server("rdn-4", "DbName", root_path=str(tmp_path))
+        assert resolve_display_name(server) == "DbName"

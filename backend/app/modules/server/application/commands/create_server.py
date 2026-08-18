@@ -130,6 +130,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 write_server_properties(
                     str(server_id),
                     {
+                        "name": command.name,
                         "port": command.port,
                         "motd": command.motd,
                         "max_players": command.max_players,

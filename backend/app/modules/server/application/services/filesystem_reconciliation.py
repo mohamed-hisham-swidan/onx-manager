@@ -450,6 +450,9 @@ class FilesystemReconciliationService:
         if not server.deployment:
             return True
         current_jar = (scan.scanned or {}).get("server_jar") or "server.jar"
+        disk_name = (scan.scanned or {}).get("name")
+        if disk_name and disk_name.strip() and disk_name.strip() != server.name:
+            return True
         return server.deployment.root_path != entry.path or server.deployment.startup_jar != current_jar
 
     def _is_outside_data_dir(self, server: Server, data_dir: str) -> bool:
@@ -582,6 +585,10 @@ class FilesystemReconciliationService:
         server = pa.db_server
         entry = pa.fs_entry
         scan = pa.scan
+
+        disk_name = (scan.scanned or {}).get("name")
+        if disk_name and disk_name.strip() and disk_name.strip() != server.name:
+            server.rename(disk_name.strip())
 
         server.update_deployment(self._build_deployment(entry, scan))
         await self._repo.save(server)

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.config import AppSettings
 from app.modules.server.application.reconciliation import (
     cleanup_orphan_directory,
     reconcile_filesystem,
@@ -13,8 +14,10 @@ from app.modules.server.application.services.jar_service import server_dir_name
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.value_objects import (
     JavaArguments,
+    LocationType,
     MemoryAllocation,
     PortNumber,
+    ServerDeployment,
     ServerProperties,
     ServerType,
 )
@@ -328,3 +331,52 @@ class TestReconcileFilesystem:
             assert result["action"] == "deleted"
             assert result["success"] is True
             mock_delete.assert_called_once_with(orphan_dir)
+
+
+class TestFilesystemReconciliationNameDrift:
+    @pytest.mark.asyncio
+    async def test_reconciliation_syncs_drifted_server_name(self, tmp_path) -> None:
+        from app.modules.server.application.services.filesystem_reconciliation import (
+            FilesystemReconciliationService,
+        )
+
+        data_dir = tmp_path / "servers"
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        sid = "c82221ba2c9c49d3a4c7068a6f053944"
+        server_dir = data_dir / sid
+        server_dir.mkdir(parents=True, exist_ok=True)
+        (server_dir / "server.properties").write_text("server-name=Drifted Disk Name\nserver-port=25565\n", encoding="utf-8")
+        (server_dir / "eula.txt").write_text("eula=true\n", encoding="utf-8")
+        (server_dir / "server.jar").write_bytes(b"fake jar content")
+        
+        identity_dir = server_dir / ".mcsmanager"
+        identity_dir.mkdir(parents=True, exist_ok=True)
+        (identity_dir / "server.json").write_text(
+            f'{{"version": 1, "uid": "{sid}", "created_at": "2026-08-19T00:00:00Z", "manager": "mcs", "schema_version": 1}}',
+            encoding="utf-8",
+        )
+
+        server = _make_server(sid, ServerStatus.CREATED, name="Old Database Name")
+        server._deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path=str(server_dir),
+            working_directory=".",
+            startup_jar="server.jar",
+        )
+
+        repo = MagicMock()
+        repo.list = AsyncMock(return_value=[server])
+        repo.save = AsyncMock()
+
+        mock_settings = MagicMock()
+        mock_settings.servers_data_dir = str(data_dir)
+
+        service = FilesystemReconciliationService(repo=repo)
+        with patch("app.modules.server.application.services.filesystem_reconciliation.AppSettings", return_value=mock_settings):
+            result = await service.reconcile()
+
+        assert result.total_updated == 1
+        assert server.name == "Drifted Disk Name"
+        repo.save.assert_awaited_once_with(server)
+

@@ -468,6 +468,38 @@ def write_eula(
     return dest
 
 
+def update_server_properties_key(
+    dest_path: str,
+    key: str,
+    value: str,
+    fs: FileSystem | None = None,
+) -> bool:
+    """Update or insert a key=value line in an on-disk server.properties file.
+
+    Preserves other existing configuration and comments.
+    """
+    fs = fs or local_fs
+    if not fs.exists(dest_path):
+        fs.ensure_dir(str(Path(dest_path).parent))
+        fs.write_text(dest_path, f"#Minecraft server properties\n{key}={value}\n")
+        return True
+
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*(.*)$")
+    matched = False
+    new_lines = []
+    for line in fs.read_text(dest_path).splitlines():
+        if pattern.match(line):
+            new_lines.append(f"{key}={value}")
+            matched = True
+        else:
+            new_lines.append(line)
+    if not matched:
+        new_lines.append(f"{key}={value}")
+
+    fs.write_text(dest_path, "\n".join(new_lines) + "\n")
+    return True
+
+
 def write_server_properties(
     server_id: str,
     props: dict,
@@ -480,6 +512,11 @@ def write_server_properties(
 
     lines = [
         "#Minecraft server properties",
+    ]
+    name_val = props.get("server_name") or props.get("server-name") or props.get("name")
+    if name_val:
+        lines.append(f"server-name={name_val}")
+    lines.extend([
         f"server-port={props.get('port', 25565)}",
         f"motd={props.get('motd', 'A Minecraft Server')}",
         f"max-players={props.get('max_players', 20)}",
@@ -493,6 +530,7 @@ def write_server_properties(
         f"view-distance={props.get('view_distance', 10)}",
         f"simulation-distance={props.get('simulation_distance', 10)}",
         "",
-    ]
+    ])
     fs.write_text(dest, "\n".join(lines))
     return dest
+

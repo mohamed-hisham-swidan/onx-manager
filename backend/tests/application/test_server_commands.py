@@ -505,3 +505,51 @@ class TestImportServerHandler:
 
             assert result.success is True
             mock_delete.assert_not_called()
+
+
+@pytest.mark.usefixtures("init_test_db")
+class TestUpdateServerConfigHandler:
+    @pytest.mark.asyncio
+    async def test_update_name_updates_db_and_properties_file(self, event_bus: EventBus, tmp_path) -> None:
+        props_file = tmp_path / "server.properties"
+        props_file.write_text("#Minecraft server properties\nserver-name=OldName\nmotd=Initial\n", encoding="utf-8")
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            deployment = ServerDeployment(
+                location_type=LocationType.LOCAL,
+                root_path=str(tmp_path),
+                working_directory=".",
+                startup_jar="server.jar",
+            )
+            server = Server.create(
+                server_id=ServerId("test-upd-name"),
+                name="OldName",
+                server_type=ServerType.VANILLA,
+                minecraft_version=MinecraftVersion.parse("1.21"),
+                memory=MemoryAllocation(1024, 2048),
+                java_args=JavaArguments(),
+                properties=ServerProperties(port=PortNumber(25565)),
+                deployment=deployment,
+            )
+            await repo.save(server)
+            await session.commit()
+
+        handler = UpdateServerConfigHandler(event_bus)
+        result = await handler.handle(UpdateServerConfigCommand(
+            server_id="test-upd-name",
+            name="NewRenamedServer",
+            properties={"motd": "Updated MOTD", "max_players": 40},
+        ))
+
+        assert result.success is True
+        loaded = await _get_server("test-upd-name")
+        assert loaded.name == "NewRenamedServer"
+        assert loaded.properties.motd == "Updated MOTD"
+        assert loaded.properties.max_players == 40
+
+        content = props_file.read_text(encoding="utf-8")
+        assert "server-name=NewRenamedServer" in content
+        assert "motd=Updated MOTD" in content
+        assert "max-players=40" in content
+

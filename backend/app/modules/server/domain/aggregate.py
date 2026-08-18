@@ -282,6 +282,17 @@ class Server(AggregateRoot):
             ),
         )
 
+    def rename(self, name: str) -> None:
+        if not name or not name.strip():
+            raise InvalidValueError(field="name", value=name, reason="Server name cannot be empty")
+        new_name = name.strip()
+        if self._name != new_name:
+            self._name = new_name
+            self._updated_at = datetime.now(timezone.utc)
+            self._add_event(
+                ServerConfigChangedEvent(server_id=self._id, changed_keys=["name"]),
+            )
+
     def update_deployment(self, deployment: ServerDeployment) -> None:
         self._deployment = deployment
         self._updated_at = datetime.now(timezone.utc)

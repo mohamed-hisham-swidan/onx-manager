@@ -39,7 +39,50 @@ old DB name — the file and the manager disagree.
 - No decision made yet on whether this is a full sync (two-way) or read-only
   derivation; Mohamed to confirm when the fix is picked up.
 
-**Status:** OPEN — not started.
+**Status:** RESOLVED 2026-08-19.
+
+**Implemented solution (Read, Write, and Reconciliation Sync):**
+
+1. **Read path:**
+   - Added `resolve_display_name(server)` in
+     `backend/app/modules/server/application/read_models.py`. It reads the
+     on-disk `server.properties` (via `ServerDeployment.properties_path()`),
+     returns its `server-name=` value when present and non-empty, and falls back
+     to the DB `server.name` otherwise (missing file / no deployment root /
+     empty value).
+   - Both `ServerReadModel.from_domain` and `ServerDetailReadModel.from_domain`
+     now use `resolve_display_name`, so `GET /servers` and `GET /servers/{id}`
+     reflect the file immediately — no process restart, works for running and
+     stopped servers.
+   - Unit tests in `backend/tests/application/test_server_queries.py`
+     (`TestResolveDisplayName`).
+
+2. **Write path:**
+   - Added `Server.rename(new_name)` to domain aggregate in
+     `backend/app/modules/server/domain/aggregate.py`.
+   - Added `update_server_properties_key(dest_path, key, value)` in
+     `backend/app/modules/server/application/services/jar_service.py` to
+     atomically update/insert keys into `server.properties` while preserving
+     comments and formatting.
+   - Extended `UpdateServerConfigCommand` and handler in
+     `backend/app/modules/server/application/commands/update_server_config.py`
+     as well as `ServerUpdateRequest` in `schemas/server.py` and `routers/servers.py`
+     to support `name` updates and synchronize `server-name=<name>` to the on-disk file.
+   - Also updated `create_server.py` to write `server-name` upon server creation.
+   - Added `name?: string;` to `ServerUpdateRequest` in frontend `types.ts`.
+   - Unit and API tests in `backend/tests/domain/test_server_aggregate.py`,
+     `backend/tests/application/test_server_commands.py`, and
+     `backend/tests/api/test_api_endpoints.py`.
+
+3. **Reconciliation sync:**
+   - Updated `FilesystemReconciliationService` (`_deployment_needs_update` and
+     `_handle_update_deployment`) in `backend/app/modules/server/application/services/filesystem_reconciliation.py`
+     to detect server name drift between on-disk `server.properties` and the database,
+     updating `server.rename(...)` and saving to the DB so `name_search` and DB reads
+     stay consistent.
+   - Updated `scan_server_directory` in `import_service.py` to safely fallback
+     to directory name when `server-name=` is empty.
+   - Unit tests in `backend/tests/application/test_reconciliation.py` (`TestFilesystemReconciliationNameDrift`).
 
 ---
 

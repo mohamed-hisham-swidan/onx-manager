@@ -38,6 +38,7 @@ class ServerCreateRequest(BaseModel):
 
 
 class ServerUpdateRequest(BaseModel):
+    name: str | None = None
     properties: dict[str, object] = {}
     min_memory_mb: int | None = None
     max_memory_mb: int | None = None

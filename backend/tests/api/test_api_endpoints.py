@@ -391,12 +391,13 @@ class TestServers:
         server_id = created_server["server_id"]
         resp = await client.patch(
             f"/api/v1/servers/{server_id}",
-            json={"properties": {"motd": "Updated MOTD"}, "min_memory_mb": 2048},
+            json={"name": "Renamed Via API", "properties": {"motd": "Updated MOTD"}, "min_memory_mb": 2048},
             headers=privileged_header,
         )
         assert resp.status_code == 200
         get_resp = await client.get(f"/api/v1/servers/{server_id}", headers=privileged_header)
         data = get_resp.json()
+        assert data["name"] == "Renamed Via API"
         assert data["min_memory_mb"] == 2048
 
     async def test_start_server(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:

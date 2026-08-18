@@ -124,6 +124,7 @@ export interface ServerCreateRequest {
 }
 
 export interface ServerUpdateRequest {
+  name?: string;
   properties?: Record<string, unknown>;
   min_memory_mb?: number | null;
   max_memory_mb?: number | null;

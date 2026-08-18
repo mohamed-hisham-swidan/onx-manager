@@ -1,8 +1,39 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from app.modules.server.domain.aggregate import Server
+
+_SERVER_NAME_RE = re.compile(r"^\s*server-name\s*=\s*(.*?)\s*$")
+
+
+def resolve_display_name(server: Server) -> str:
+    """Resolve the server display name from the on-disk server.properties.
+
+    server.properties is the source of truth for the server name. When the
+    deployment root is known and the file declares a non-empty ``server-name``,
+    that value wins; otherwise the manager DB name is used as the fallback.
+    """
+    deployment = server.deployment
+    if deployment is None or not deployment.root_path:
+        return server.name
+
+    from app.modules.server.infrastructure.fs import local_fs
+
+    props_path = deployment.properties_path()
+    try:
+        if not local_fs.exists(props_path):
+            return server.name
+        for line in local_fs.read_text(props_path).splitlines():
+            m = _SERVER_NAME_RE.match(line)
+            if m:
+                value = m.group(1).strip()
+                if value:
+                    return value
+    except (OSError, PermissionError):
+        pass
+    return server.name
 
 
 class ServerReadModel:
@@ -40,7 +71,7 @@ class ServerReadModel:
     def from_domain(cls, server: Server) -> ServerReadModel:
         return cls(
             server_id=str(server.id),
-            name=server.name,
+            name=resolve_display_name(server),
             server_type=server.server_type.value,
             minecraft_version=str(server.minecraft_version),
             status=server.status.value,
@@ -127,7 +158,7 @@ class ServerDetailReadModel(ServerReadModel):
         rt = server.runtime
         return cls(
             server_id=str(server.id),
-            name=server.name,
+            name=resolve_display_name(server),
             server_type=server.server_type.value,
             minecraft_version=str(server.minecraft_version),
             status=server.status.value,

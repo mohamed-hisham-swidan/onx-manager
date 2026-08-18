@@ -162,3 +162,28 @@ class TestServerEdgeCases:
 
     def test_group_id_default(self, valid_server: Server) -> None:
         assert valid_server.group_id == "default"
+
+
+class TestServerRename:
+    def test_rename_updates_name_and_emits_event(self, valid_server: Server) -> None:
+        valid_server.collect_events()
+        valid_server.rename("New Awesome Server")
+        assert valid_server.name == "New Awesome Server"
+        events = valid_server.collect_events()
+        assert len(events) == 1
+        assert isinstance(events[0], ServerConfigChangedEvent)
+        assert "name" in events[0].changed_keys
+
+    def test_rename_same_name_is_noop(self, valid_server: Server) -> None:
+        valid_server.collect_events()
+        valid_server.rename("Test Server")
+        assert valid_server.name == "Test Server"
+        events = valid_server.collect_events()
+        assert len(events) == 0
+
+    def test_rename_empty_name_raises_invalid_value_error(self, valid_server: Server) -> None:
+        with pytest.raises(InvalidValueError):
+            valid_server.rename("")
+        with pytest.raises(InvalidValueError):
+            valid_server.rename("   ")
+

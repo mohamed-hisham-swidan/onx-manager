@@ -184,6 +184,7 @@ async def update_server(
 ) -> dict:
     cmd = UpdateServerConfigCommand(
         server_id=server_id,
+        name=body.name,
         properties=body.properties,
         min_memory_mb=body.min_memory_mb,
         max_memory_mb=body.max_memory_mb,

@@ -218,7 +218,7 @@ def scan_server_directory(path: str, fs: FileSystem | None = None) -> dict[str, 
     jar_name = _find_server_jar(server_dir, fs)
     server_type = _detect_server_type(jar_name, props)
 
-    name = props.get("server-name", Path(server_dir).name)
+    name = (props.get("server-name") or "").strip() or Path(server_dir).name
     jar_full_path = str(Path(server_dir) / jar_name) if jar_name else None
 
     return {
