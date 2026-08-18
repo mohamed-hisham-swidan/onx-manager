@@ -366,7 +366,6 @@ class BackupSaga:
         include_config = backup_type in (BackupType.FULL, BackupType.CONFIG)
 
         required_suffix = {
-            BackupType.FULL: "",
             BackupType.WORLDS: "",
             BackupType.WORLD: "",
             BackupType.NETHER: "_nether",

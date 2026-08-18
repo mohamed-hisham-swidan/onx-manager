@@ -91,14 +91,16 @@ def _seed_world(server_dir: str) -> None:
     (Path(server_dir) / "eula.txt").write_text("eula=true\n", encoding="utf-8")
 
 
-async def _seed_pending_job(backup_id: BackupJobId, server_id: ServerId) -> None:
+async def _seed_pending_job(
+    backup_id: BackupJobId, server_id: ServerId, backup_type: BackupType = BackupType.FULL,
+) -> None:
     from app.modules.backup.domain.aggregate import BackupJob
 
     async with database.session_factory() as session:
         job = BackupJob.create(
             backup_id=backup_id,
             server_id=server_id,
-            backup_type=BackupType.FULL,
+            backup_type=backup_type,
         )
         await SQLBackupRepository(session).save_job(job)
         await session.commit()
@@ -153,7 +155,47 @@ class TestBackupSaga:
             assert "eula.txt" in names
 
     @pytest.mark.asyncio
-    async def test_saga_fails_when_world_missing(self, app_db, tmp_path) -> None:
+    async def test_full_backup_succeeds_when_world_missing(self, app_db, tmp_path) -> None:
+        server_dir = str(tmp_path / "server")
+        Path(server_dir).mkdir(parents=True, exist_ok=True)
+        (Path(server_dir) / "server.properties").write_text(
+            "motd=no world here\n", encoding="utf-8",
+        )
+        server_id = ServerId(uuid.uuid4().hex)
+        backup_id = BackupJobId()
+        storage = LocalStorage(str(tmp_path / "backups"))
+        encryption = BackupEncryption(key=os.urandom(32))
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(_build_server(server_id, server_dir))
+            await session.commit()
+
+        await _seed_pending_job(backup_id, server_id, BackupType.FULL)
+
+        saga = BackupSaga(SagaOrchestrator())
+        await saga.execute(
+            backup_id=backup_id,
+            server_id=server_id,
+            storage=storage,
+            encryption=encryption,
+            backup_type=BackupType.FULL,
+        )
+
+        async with database.session_factory() as session:
+            job = await SQLBackupRepository(session).get_job(backup_id)
+
+        assert job.status == BackupStatus.COMPLETED
+        assert job.size_bytes > 0
+        artifact = await storage.read(f"{backup_id}.tar.gz.enc")
+        decrypted = encryption.decrypt(artifact)
+        with tarfile.open(fileobj=io.BytesIO(decrypted), mode="r:gz") as tar:
+            names = tar.getnames()
+            assert "world" not in names
+            assert "server.properties" in names
+
+    @pytest.mark.asyncio
+    async def test_world_backup_fails_when_world_missing(self, app_db, tmp_path) -> None:
         server_dir = str(tmp_path / "server")
         Path(server_dir).mkdir(parents=True, exist_ok=True)
         (Path(server_dir) / "server.properties").write_text(
@@ -168,7 +210,7 @@ class TestBackupSaga:
             await repo.save(_build_server(server_id, server_dir))
             await session.commit()
 
-        await _seed_pending_job(backup_id, server_id)
+        await _seed_pending_job(backup_id, server_id, BackupType.WORLD)
 
         saga = BackupSaga(SagaOrchestrator())
         await saga.execute(
@@ -176,6 +218,7 @@ class TestBackupSaga:
             server_id=server_id,
             storage=storage,
             encryption=BackupEncryption(key=os.urandom(32)),
+            backup_type=BackupType.WORLD,
         )
 
         async with database.session_factory() as session:
