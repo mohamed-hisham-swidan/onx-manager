@@ -42,12 +42,14 @@ class UnitOfWork:
         exc_val: BaseException | None,
         exc_tb: Any,
     ) -> None:
-        if exc_type is not None:
-            await self.rollback()
-        else:
-            await self.commit()
-        if self._session:
-            await self._session.close()
+        try:
+            if exc_type is not None:
+                await self.rollback()
+            else:
+                await self.commit()
+        finally:
+            if self._session:
+                await self._session.close()
 
     def add_event(self, event: DomainEvent) -> None:
         self._events.append(event)
