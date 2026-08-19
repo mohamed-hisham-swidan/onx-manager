@@ -179,6 +179,7 @@ route_permissions:
   # plugins — top-level marketplace (global search / project detail, no server context)
   "GET /api/v1/marketplace/search": {permission: "plugin:manage", status: enforced, note: "top-level global marketplace search; plugin:manage-gated (B6-4)"}
   "GET /api/v1/marketplace/projects/{project_id}": {permission: "plugin:manage", status: enforced, note: "top-level marketplace project detail; plugin:manage-gated (B6-4)"}
+  "GET /api/v1/marketplace/projects/{project_id}/versions": {permission: "plugin:manage", status: enforced, note: "top-level marketplace project versions; plugin:manage-gated (SPEC-PLUGIN-DETAIL-TABS-001)"}
 
   # files — server-scoped file management
   "GET /api/v1/servers/{server_id}/files": {permission: "server.{id}.files", status: enforced}

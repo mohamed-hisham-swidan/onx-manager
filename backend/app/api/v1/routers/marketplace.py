@@ -1,25 +1,38 @@
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import require_permission
-from app.api.v1.schemas.plugin import PluginProjectResponse, PluginSearchResultResponse
+from app.api.v1.schemas.plugin import (
+    PluginFileResponse,
+    PluginProjectResponse,
+    PluginSearchResultResponse,
+    PluginSearchResultsResponse,
+    PluginVersionResponse,
+    PluginVersionsResponse,
+)
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
+from app.modules.plugin.infrastructure.providers.base import PluginVersionInfo
 
 router = APIRouter(prefix="/api/v1/marketplace", tags=["marketplace"])
 
 __all__ = ["router"]
 
 
-@router.get("/search", response_model=list[PluginSearchResultResponse])
+@router.get("/search", response_model=PluginSearchResultsResponse)
 async def search_marketplace(
     query: str = Query(default="", max_length=100),
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
     project_type: str = Query(default="plugin"),
     current_user: dict = Depends(require_permission("plugin:manage")),
-) -> list[PluginSearchResultResponse]:
+) -> PluginSearchResultsResponse:
     provider = build_plugin_catalog_provider()
-    results = await provider.search(query, limit=limit, offset=offset, project_type=project_type)
-    return [PluginSearchResultResponse(**r.__dict__) for r in results]
+    page = await provider.search(query, limit=limit, offset=offset, project_type=project_type)
+    return PluginSearchResultsResponse(
+        items=[PluginSearchResultResponse(**r.__dict__) for r in page.items],
+        total_hits=page.total_hits,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get("/projects/{project_id}", response_model=PluginProjectResponse)
@@ -30,3 +43,36 @@ async def get_marketplace_project(
     provider = build_plugin_catalog_provider()
     project = await provider.get_project(project_id)
     return PluginProjectResponse(**project.__dict__)
+
+
+def _to_version_response(v: PluginVersionInfo) -> PluginVersionResponse:
+    return PluginVersionResponse(
+        version_id=v.version_id,
+        project_id=v.project_id,
+        name=v.name,
+        version_number=v.version_number,
+        game_versions=v.game_versions,
+        loaders=v.loaders,
+        files=[PluginFileResponse(**f.__dict__) for f in v.files],
+        dependencies=v.dependencies,
+        date_published=v.date_published,
+    )
+
+
+@router.get("/projects/{project_id}/versions", response_model=PluginVersionsResponse)
+async def get_marketplace_project_versions(
+    project_id: str,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    current_user: dict = Depends(require_permission("plugin:manage")),
+) -> PluginVersionsResponse:
+    provider = build_plugin_catalog_provider()
+    page = await provider.get_project_versions(project_id, limit=limit, offset=offset)
+    return PluginVersionsResponse(
+        project_id=project_id,
+        versions=[_to_version_response(v) for v in page.items],
+        selected=None,      # no server context — always null (D1/D6)
+        notice="",          # B2 — NOT None: strict str at plugin.py:83
+        notice_kind="",     # B2 — NOT None: strict str at plugin.py:84
+        total=page.total,
+    )

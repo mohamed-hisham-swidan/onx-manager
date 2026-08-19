@@ -49,11 +49,40 @@ def _game_version_matches(server_version: str, listed_version: str) -> bool:
     """True when the plugin's listed game version covers the server's version.
 
     A bare major.minor (e.g. "1.21") covers all patch releases of that line, and
-    an exact string matches directly.
+    an exact string matches directly.  Uses a two-part gate (numeric purity AND
+    segment-count bounds) to prevent prefix collisions (e.g. 1.21.1 vs 1.21.11).
     """
-    if listed_version == server_version:
-        return True
-    return listed_version.startswith(server_version) or server_version.startswith(listed_version)
+    server_raw_segments = server_version.strip().split(".")
+    listed_raw_segments = listed_version.strip().split(".")
+
+    def _is_safe_numeric_version(segments: list[str]) -> bool:
+        # Safe to run through _parse_mc's tuple comparison ONLY when:
+        #   (a) every segment is a plain non-negative integer string
+        #       (isdigit() — excludes suffixes like "11-rc3", "3-snapshot-9",
+        #       excludes empty segments from "1..21" or "1.21.", excludes
+        #       negative-looking segments), AND
+        #   (b) there are exactly 2 or 3 segments — _parse_mc silently
+        #       truncates anything longer (e.g. "1.21.11.2" → (1,21,11)).
+        return len(segments) in (2, 3) and all(seg.isdigit() for seg in segments)
+
+    if not (_is_safe_numeric_version(server_raw_segments)
+            and _is_safe_numeric_version(listed_raw_segments)):
+        # Any suffix, wrong segment count, or non-numeric value on either
+        # side: exact string equality only. Do NOT run it through _parse_mc.
+        return server_version.strip() == listed_version.strip()
+
+    # Both sides are confirmed-safe 2-or-3-segment pure-numeric dotted
+    # strings — _parse_mc is predictable and lossless here.
+    server_parts = _parse_mc(server_version)
+    listed_parts = _parse_mc(listed_version)
+
+    if len(listed_raw_segments) == 2:
+        # Bare major.minor covers the whole line (e.g. "1.21" covers every
+        # 1.21.x patch). Bareness is read from the RAW segment count.
+        return server_parts[:2] == listed_parts[:2]
+
+    # Exact numeric value requires exact equality — no prefix collision.
+    return server_parts == listed_parts
 
 
 def _published_at(version: PluginVersionInfo) -> str:

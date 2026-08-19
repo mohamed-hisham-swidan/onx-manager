@@ -40,6 +40,8 @@ frontend/src/
 │   ├── types.ts                 # Server-specific types
 │   ├── hooks/                   # Server-specific hooks
 │   ├── components/              # Server-specific components
+│   │   ├── CompatibilityCard.tsx # Loader + game-version + environment pills (marketplace sidebar, 2026-08-19)
+│   │   └── ProjectVersionsList.tsx # Versions tab; client-side Recommended badge from last-used server (2026-08-19)
 │   └── pages/                   # Feature pages
 │       ├── DashboardPage.tsx
 │       ├── ServersPage.tsx
@@ -51,7 +53,7 @@ frontend/src/
 │       ├── BackupListPage.tsx
 │       ├── PluginListPage.tsx
 │       ├── PluginMarketplacePage.tsx   # Modrinth marketplace (2026-08-04)
-│       ├── PluginDetailPage.tsx
+│       ├── PluginDetailPage.tsx    # Tabs: Description / Versions (+ disabled Changelog) + Compatibility sidebar (2026-08-19)
 │       ├── SettingsPage.tsx
 │       └── ApiKeysPage.tsx
 ├── pages/
@@ -305,19 +307,20 @@ Production builds use `window.location.host` for API and WS URLs.
 
 ## Testing
 
-406 frontend tests across 56 files (measured 2026-08-13). Test infrastructure:
+506 frontend tests across 65 files (measured 2026-08-19). Test infrastructure:
 - `vitest.config.ts` — jsdom environment, `@/` path alias, globals enabled
 - `test-setup.ts` — jsdom, localStorage mock, matchMedia mock
 - Testing libraries: `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`
 
-`npm run typecheck` (`tsc --noEmit`) is clean; `npm run lint` (`eslint src/`) is
-clean (0 errors / 0 warnings, resolved 2026-08-13).
+`npm run typecheck` (`tsc --noEmit`) reports 9 pre-existing errors (0 new at
+HEAD `7c12d85`); `npm run lint` (`eslint src/`) reports 2 pre-existing errors in
+`ServersPage.tsx` (0 in current work).
 
 ### CI
 
 Frontend CI (`.github/workflows/frontend-ci.yml`) runs on every push/PR to
 `master` and gates on: `npm run typecheck`, `npm run lint`, `npm test`
-(406 / 56 files), and `npm run build`.
+(506 / 65 files), and `npm run build`.
 
 Key test areas: `authStore` (9), `uiStore` (9), `api.ts` (11), `wsStore` (4), `AuthGuard` (2), `LoginPage` (5), `Sidebar` (4), `TopNav` (4), `AppLayout` (2), `WebSocketManager` (3), `ServersPage` (8), `DashboardPage` (7).
 

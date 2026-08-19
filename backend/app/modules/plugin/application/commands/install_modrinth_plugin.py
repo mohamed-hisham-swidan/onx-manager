@@ -207,11 +207,11 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
             return VersionSelection(selected=version, available=(version,))
 
         try:
-            versions = await provider.get_project_versions(project_id)
+            page = await provider.get_project_versions(project_id)
         except (DownloadError, DownloadTimeoutError) as e:
             raise ProviderError(provider.name, "fetch-versions", str(e)) from e
 
-        return select_best_version(server_type, minecraft_version, versions)
+        return select_best_version(server_type, minecraft_version, page.items)
 
 
 def _pick_primary_file(version: PluginVersionInfo) -> PluginFile:

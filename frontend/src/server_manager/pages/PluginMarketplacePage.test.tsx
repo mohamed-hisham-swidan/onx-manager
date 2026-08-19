@@ -30,6 +30,13 @@ const mockResults = [
   },
 ];
 
+const mockSearchResults = {
+  items: mockResults,
+  total_hits: mockResults.length,
+  offset: 0,
+  limit: 20,
+};
+
 const mockVersions = {
   project_id: "essentialsx",
   versions: [
@@ -191,7 +198,7 @@ describe("PluginMarketplacePage & InstallModal", () => {
   });
 
   it("opens InstallModal on Install button click from search results", () => {
-    useMarketplaceSearchGlobal.mockReturnValue({ data: mockResults, isLoading: false, isError: false, error: null });
+    useMarketplaceSearchGlobal.mockReturnValue({ data: mockSearchResults, isLoading: false, isError: false, error: null });
     renderPage("/marketplace");
     fireEvent.click(screen.getByRole("button", { name: /Install/i }));
 
@@ -210,7 +217,7 @@ describe("PluginMarketplacePage & InstallModal", () => {
   });
 
   it("starts with version dropdown collapsed and expands on click", () => {
-    useMarketplaceSearchGlobal.mockReturnValue({ data: mockResults, isLoading: false, isError: false, error: null });
+    useMarketplaceSearchGlobal.mockReturnValue({ data: mockSearchResults, isLoading: false, isError: false, error: null });
     renderPage("/marketplace");
     fireEvent.click(screen.getByRole("button", { name: /Install/i }));
 
@@ -221,7 +228,7 @@ describe("PluginMarketplacePage & InstallModal", () => {
   });
 
   it("hard excludes incompatible servers (e.g. Fabric server excluded for plugins)", () => {
-    useMarketplaceSearchGlobal.mockReturnValue({ data: mockResults, isLoading: false, isError: false, error: null });
+    useMarketplaceSearchGlobal.mockReturnValue({ data: mockSearchResults, isLoading: false, isError: false, error: null });
     renderPage("/marketplace");
     fireEvent.click(screen.getByRole("button", { name: /Install/i }));
 
@@ -233,7 +240,7 @@ describe("PluginMarketplacePage & InstallModal", () => {
   });
 
   it("resets version selection when target server is changed", () => {
-    useMarketplaceSearchGlobal.mockReturnValue({ data: mockResults, isLoading: false, isError: false, error: null });
+    useMarketplaceSearchGlobal.mockReturnValue({ data: mockSearchResults, isLoading: false, isError: false, error: null });
     renderPage("/marketplace");
     fireEvent.click(screen.getByRole("button", { name: /Install/i }));
 
@@ -247,7 +254,7 @@ describe("PluginMarketplacePage & InstallModal", () => {
     mockServers = [
       serverFixture({ server_id: "srv-3", name: "Fabric Server", server_type: "fabric", minecraft_version: "1.20.4" }),
     ];
-    useMarketplaceSearchGlobal.mockReturnValue({ data: mockResults, isLoading: false, isError: false, error: null });
+    useMarketplaceSearchGlobal.mockReturnValue({ data: mockSearchResults, isLoading: false, isError: false, error: null });
     renderPage("/marketplace");
     fireEvent.click(screen.getByRole("button", { name: /Install/i }));
 
@@ -256,7 +263,7 @@ describe("PluginMarketplacePage & InstallModal", () => {
   });
 
   it("executes installation and updates last used server on success", () => {
-    useMarketplaceSearchGlobal.mockReturnValue({ data: mockResults, isLoading: false, isError: false, error: null });
+    useMarketplaceSearchGlobal.mockReturnValue({ data: mockSearchResults, isLoading: false, isError: false, error: null });
     renderPage("/marketplace");
     fireEvent.click(screen.getByRole("button", { name: /Install/i }));
 

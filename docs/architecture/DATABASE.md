@@ -7,7 +7,7 @@
 | Primary database | PostgreSQL 16 |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (20 revisions) |
+| Migrations | Alembic (27 revisions, head `b1e2100000007`) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
 > **Redis note:** Redis appears in the documented stack but the running system
@@ -214,7 +214,14 @@ alembic downgrade -1
 | `784b5ba72077` | `c4d5e6f7a8b9` | `project_type` on plugins |
 | `989743c08820` | `784b5ba72077` | `icon_url` on plugins |
 | `5e2962848581` | `989743c08820` | **Server ownership/memberships** — `owner_id` FK on servers; `server_memberships` table |
-| `a957791492a7` | `5e2962848581` | **System state & invitations** — `system_state`, `invitations` tables (head) |
+| `a957791492a7` | `5e2962848581` | **System state & invitations** — `system_state`, `invitations` tables |
+| `b1e2100000001` | `a957791492a7` | Exposure subsystem tables — `host_playit_agent`, `server_exposure`, `server_exposure_target`, `panel_exposure` |
+| `b1e2100000002` | `b1e2100000001` | Panel Cloudflare columns (token, tunnel id, bind host/port) |
+| `b1e2100000003` | `b1e2100000002` | Panel Playit/UPnP columns (`external_port`, `playit_tunnel_id`, `upnp_last_result`, `upnp_last_mapped_at`) |
+| `b1e2100000004` | `b1e2100000003` | Server Cloudflare columns |
+| `b1e2100000005` | `b1e2100000004` | `server_registered_ports` table |
+| `b1e2100000006` | `b1e2100000005` | `server_exposure_target.playit_tunnel_id` |
+| `b1e2100000007` | `b1e2100000006` | `metric_points.tps` nullable — **head** |
 
 ### Per-release compatibility floor
 
@@ -223,7 +230,7 @@ the release minimum — **fail closed**, never auto-upgraded.
 
 | Release | Minimum DB revision |
 |---------|---------------------|
-| `4.0.0` | `a957791492a7` (current head) |
+| `4.0.0` | `b1e2100000007` (current head) |
 
 - **Authoritative source:** `backend/app/core/persistence/db_revision.py`
   (`RELEASE_MINIMUM_DB_REVISION`).
@@ -326,7 +333,14 @@ alembic upgrade head
 | `784b5ba72077` | `project_type` on `plugins` |
 | `989743c08820` | `icon_url` on `plugins` |
 | `5e2962848581` | **Server ownership & memberships** — `servers.owner_id` FK; `server_memberships` table |
-| `a957791492a7` | **System state & invitations** — `system_state`, `invitations` tables (head) |
+| `a957791492a7` | **System state & invitations** — `system_state`, `invitations` tables |
+| `b1e2100000001` | Exposure subsystem tables (`host_playit_agent`, `server_exposure`, `server_exposure_target`, `panel_exposure`) |
+| `b1e2100000002` | Panel Cloudflare columns |
+| `b1e2100000003` | Panel Playit/UPnP columns |
+| `b1e2100000004` | Server Cloudflare columns |
+| `b1e2100000005` | `server_registered_ports` table |
+| `b1e2100000006` | `server_exposure_target.playit_tunnel_id` |
+| `b1e2100000007` | `metric_points.tps` nullable (**head**) |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.
@@ -365,8 +379,8 @@ backup — final schema matches production column-for-column).
 ### Current dev database state
 
 - **File**: `backend/mcs.db`
-- **Alembic version**: `a957791492a7` (head)
-- **Tables**: 32 (including `alembic_version`, `system_state`, `invitations`, `server_memberships`, `test_samples`)
+- **Alembic version**: `b1e2100000007` (head)
+- **Tables**: 38 (including `alembic_version`, `system_state`, `invitations`, `server_memberships`, `test_samples`, and the exposure tables)
 
 ### Secondary database state
 
@@ -378,7 +392,7 @@ backup — final schema matches production column-for-column).
   environment uses `backend/mcs.db` before release.
 
 > **Compatibility floor:** this secondary DB is behind the `4.0.0` minimum
-> (`a957791492a7`). Starting the application against it would fail closed with an
+> (`b1e2100000007`). Starting the application against it would fail closed with an
 > actionable "run `alembic upgrade head`" error — by design. Migrate it (or point
 > `MCS_DATABASE_URL` at the primary DB) before use.
 

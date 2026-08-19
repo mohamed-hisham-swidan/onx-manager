@@ -13,6 +13,7 @@ import type {
   PluginResponse,
   PluginProjectResponse,
   PluginSearchResultResponse,
+  PluginSearchResultsResponse,
   PluginVersionsResponse,
   RefreshTokenRequest,
   SettingsResponse,
@@ -315,18 +316,24 @@ export function createApiClient(
 
     // Plugin marketplace
     searchMarketplace: (serverId: string, query: string, projectType?: string, limit?: number, offset?: number) =>
-      request<PluginSearchResultResponse[]>(`/api/v1/servers/${serverId}/plugins/marketplace/search`, {
+      request<PluginSearchResultsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/search`, {
         params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString() },
       }),
     // Global variant: server-independent marketplace search (no server_id in the path).
     searchMarketplaceGlobal: (query: string, projectType?: string, limit?: number, offset?: number) =>
-      request<PluginSearchResultResponse[]>(`/api/v1/marketplace/search`, {
+      request<PluginSearchResultsResponse>(`/api/v1/marketplace/search`, {
         params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString() },
       }),
     getMarketplaceProject: (projectId: string) =>
       request<PluginProjectResponse>(`/api/v1/marketplace/projects/${projectId}`),
-    getProjectVersions: (serverId: string, projectId: string) =>
-      request<PluginVersionsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/projects/${projectId}/versions`),
+    getMarketplaceProjectVersions: (projectId: string, limit?: number, offset?: number) =>
+      request<PluginVersionsResponse>(`/api/v1/marketplace/projects/${projectId}/versions`, {
+        params: { limit: limit?.toString(), offset: offset?.toString() },
+      }),
+    getProjectVersions: (serverId: string, projectId: string, limit?: number, offset?: number) =>
+      request<PluginVersionsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/projects/${projectId}/versions`, {
+        params: { limit: limit?.toString(), offset: offset?.toString() },
+      }),
     installFromMarketplace: (serverId: string, body: InstallModrinthPluginRequest) =>
       request<InstallModrinthPluginResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/install`, {
         method: "POST",

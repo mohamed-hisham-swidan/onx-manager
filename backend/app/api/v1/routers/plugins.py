@@ -13,6 +13,7 @@ from app.api.v1.schemas.plugin import (
     PluginFileResponse,
     PluginResponse,
     PluginSearchResultResponse,
+    PluginSearchResultsResponse,
     PluginVersionResponse,
     PluginVersionsResponse,
 )
@@ -64,7 +65,7 @@ async def list_plugins(
     return [PluginResponse(**p.__dict__) for p in plugins]
 
 
-@router.get("/marketplace/search", response_model=list[PluginSearchResultResponse])
+@router.get("/marketplace/search", response_model=PluginSearchResultsResponse)
 async def search_marketplace(
     server_id: str,
     query: str = Query(default="", max_length=100),
@@ -72,22 +73,30 @@ async def search_marketplace(
     offset: int = Query(default=0, ge=0),
     project_type: str = Query(default="plugin"),
     current_user: dict = Depends(require_permission("plugin:manage")),
-) -> list[PluginSearchResultResponse]:
+) -> PluginSearchResultsResponse:
     provider = build_plugin_catalog_provider()
-    results = await provider.search(query, limit=limit, offset=offset, project_type=project_type)
-    return [PluginSearchResultResponse(**r.__dict__) for r in results]
+    page = await provider.search(query, limit=limit, offset=offset, project_type=project_type)
+    return PluginSearchResultsResponse(
+        items=[PluginSearchResultResponse(**r.__dict__) for r in page.items],
+        total_hits=page.total_hits,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get("/marketplace/projects/{project_id}/versions", response_model=PluginVersionsResponse)
 async def get_project_versions(
     server_id: str,
     project_id: str,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
     query_bus: QueryBus = Depends(get_query_bus),
     current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginVersionsResponse:
     server = await query_bus.ask(GetServerQuery(server_id=server_id))
     provider = build_plugin_catalog_provider()
-    versions = await provider.get_project_versions(project_id)
+    page = await provider.get_project_versions(project_id)
+    versions = page.items
     versions_response = [_to_version_response(v) for v in versions]
 
     selected = None
@@ -106,10 +115,11 @@ async def get_project_versions(
 
     return PluginVersionsResponse(
         project_id=project_id,
-        versions=versions_response,
+        versions=versions_response[offset:offset + limit],
         selected=selected,
         notice=notice,
         notice_kind=notice_kind,
+        total=page.total,
     )
 
 

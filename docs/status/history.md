@@ -6,14 +6,14 @@
 docs that once said "7.1.0" are stale)  
 **License:** MIT  
 **Repository:** `server_manger/`  
-**Last updated:** 2026-08-04
+**Last updated:** 2026-08-19
 
 > **Factual baseline:** This document is the **historical narrative** (batch
 > history, session changelog, known-limitations log). It is **not** the source
 > of truth for current counts. For verified, current numbers (version, tests,
 > DB state, routers/migrations/ADRs/contracts, known issues) see
 > **[`docs/current-state.md`](../current-state.md)**, which was verified
-> 2026-08-04 and supersedes any conflicting number in this file.
+> 2026-08-19 and supersedes any conflicting number in this file.
 
 ---
 
@@ -473,3 +473,46 @@ server_manger/
 > migration / ADR / contract counts, known issues) live in
 > [`docs/current-state.md`](../current-state.md). The governing roadmap is
 > [`docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md`](../roadmap/MCS-Manager-Engineering-Blueprint-V5.md).
+
+---
+
+## Post-Phase-7 Sessions (2026-08-12 … 2026-08-19)
+
+### Phase 5 — Versioning & State consistency — Closed (2026-08-13)
+
+Workstreams 5.1 SemVer policy, 5.2 backend single version source
+(`backend/app/core/version.py`), 5.3 frontend version display, 5.4 CI version
+propagation, 5.5 Alembic minimum revision, 5.6 `.ai` state reconciliation.
+See `docs/VERSIONING.md`.
+
+### Phase 6 — Testing / CI / documentation reliability — Implemented (2026-08-13)
+
+B6-1 backend CI, B6-2 lint baseline gates (eslint 0/0, ruff baseline), B6-3
+docs reliability, B6-4 route→permission contract automation (85 routes), B6-5
+re-verification cadence (weekly Monday 03:00 UTC), B6-6 `.ai` reconciliation.
+Closure still pending first scheduled GitHub run of `verification-cadence.yml`.
+
+### Phase 7 — Network Access / Port Forwarding — Shipped (2026-08-14 … 2026-08-16)
+
+Batches 7.0–7.5 plus the real Playit.gg control-plane tunnel creation fix —
+exposure subsystem, Cloudflare named-tunnel panel exposure, Playit HTTP tunnel +
+UPnP forwarding, host-level playit agent, frontend exposure UI. Migration head
+advanced through `b1e2100000006`.
+
+### Post-Phase-7 fixes (2026-08-16 … 2026-08-19)
+
+| Commit | What changed |
+|--------|-------------|
+| `bc34c25` `dece81f` (2026-08-17) | SPEC-PLAYIT-LIFECYCLE-001 — playit daemon orphan prevention, deterministic runtime paths, fcntl flock, dual-stage reconciliation, lifespan teardown (12/12 tests). Archived: `docs/history/post-phase-7/2026-08-17-playit-lifecycle-orphan-prevention-design.md`. |
+| `e2a18fe` (2026-08-17) | Real-time 0.2s metrics streaming, clean console fallback, scheduler DB-lock fix. |
+| `f4fd254` (2026-08-18) | Configurable CPU/metrics sampling interval (hot-reload). |
+| `a3d02fd` (2026-08-18) | SPEC-STARTING-VISIBLE-001 v2.1 — STARTING lifecycle, backup wait-cap, WS invalidation. |
+| `f23843b` (2026-08-18) | SPEC-WS-DELIVERY-001 — WebSocket domain-event delivery + dormant crash pipeline wiring. Archived: `docs/history/post-phase-7/2026-08-18-websocket-domain-event-delivery-design.md`. |
+| `834561b` (2026-08-18) | SPEC-TPS-VALIDATION-001 — TPS contract bounds + clamp (30 tests). Archived: `docs/history/post-phase-7/2026-08-18-tps-validation-design.md`. |
+| `5c8c9d4` (2026-08-18) | SPEC-CONSOLE-OVERVIEW-001 — access address / port widget / uptime fix / nullable TPS (migration `b1e2100000007`). Archived: `docs/history/post-phase-7/2026-08-18-console-overview-design.md`. |
+| `3357d52` (2026-08-19) | FULL backup tolerates missing world directory (7 tests). |
+| `8650e9d` `5ec1841` `65a09d5` (2026-08-19) | FF-1 — server.properties as source of truth for server name (read/write/reconciliation + regression guard). |
+| `f2d158c` `7c12d85` (2026-08-19) | Gate CPU/RAM metric display on running status; close UoW session on commit raise. |
+| *(worktree, uncommitted)* (2026-08-19) | SPEC-PLUGIN-DETAIL-TABS-001 v1.3 — marketplace detail tabs (Description/Versions + disabled Changelog), Compatibility sidebar, nullable `wiki_url`/`source_url` crash fix, server-independent versions endpoint, strict client-side Recommended badge. Verified: backend 1934 passed / 2 skipped; frontend 506 passed / 65 files. Spec archived: `docs/history/post-phase-7/2026-08-19-plugin-detail-tabs-design.md`. |
+
+*Generated: 2026-08-19 · Project: MCS Manager v4.0 (4.0.0) · Post-Phase-7 fixes complete*

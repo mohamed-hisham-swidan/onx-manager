@@ -4,12 +4,13 @@
 
 | Layer | Framework | Test Count | Location |
 |---|---|---|---|
-| Backend (unit + integration) | pytest + pytest-asyncio | **1540 passed / 2 skipped (1542 collected, 0 failures)** | `backend/tests/` |
-| Frontend (component + unit) | Vitest + jsdom | **406 across 56 files** | `frontend/src/**/*.test.*` |
+| Backend (unit + integration) | pytest + pytest-asyncio | **1934 passed / 2 skipped (1936 collected, 0 failures)** | `backend/tests/` |
+| Frontend (component + unit) | Vitest + jsdom | **506 across 65 files** | `frontend/src/**/*.test.*` |
 
-> Measured 2026-08-13 (see `docs/current-state.md` §2). `npm run typecheck`
-> (`tsc --noEmit`) is clean. `npm run lint` (`eslint src/`) is clean (0 errors /
-> 0 warnings, resolved 2026-08-13). Backend lint is enforced as a **Ruff
+> Measured 2026-08-19 (see `docs/current-state.md` §2). `npm run typecheck`
+> (`tsc --noEmit`) reports 9 pre-existing errors (0 new at HEAD `7c12d85`).
+> `npm run lint` (`eslint src/`) reports 2 pre-existing errors in `ServersPage.tsx`
+> (0 in current work). Backend lint is enforced as a **Ruff
 > baseline regression gate** — new violations fail CI while the pre-existing
 > baseline (1738 violations / 42 rules) remains tracked in
 > `backend/ruff-baseline.json` (see `scripts/check-ruff-baseline`). Pyright is
@@ -334,9 +335,9 @@ The integration suite will live in `backend/tests/e2e/` and use the existing Doc
 CI enforces the following on every push/PR to `master`:
 
 1. **Backend CI** (`.github/workflows/backend-tests.yml`):
-   - `python -m pytest -q` — full backend suite (1540 passed / 2 skipped)
+   - `python -m pytest -q` — full backend suite (1934 passed / 2 skipped)
    - `scripts/check-db-revision` — DB compatibility floor vs Alembic head
-     (`a957791492a7`)
+     (`b1e2100000007`)
    - `scripts/check-ruff-baseline` — Ruff baseline regression gate (new
      violations fail; reductions allowed; baseline debt stays tracked)
 2. **Frontend CI** (`.github/workflows/frontend-ci.yml`): `npm run typecheck`,

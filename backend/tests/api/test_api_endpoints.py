@@ -658,31 +658,50 @@ class TestPluginMarketplace:
             headers=privileged_header,
         )
         assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
+        data = resp.json()
+        assert isinstance(data, dict)
+        assert "items" in data
+        assert "total_hits" in data
+        assert "offset" in data
+        assert "limit" in data
 
     async def test_global_marketplace_search(
         self, client: AsyncClient, privileged_header: dict[str, str]
     ) -> None:
-        from app.modules.plugin.infrastructure.providers.base import PluginSearchResult
+        from app.modules.plugin.infrastructure.providers.base import (
+            PluginSearchPage,
+            PluginSearchResult,
+        )
 
         class _FakeProvider:
             async def search(
                 self, _query: str, **kwargs: object  # noqa: ARG002
-            ) -> list[PluginSearchResult]:
-                return [
-                    PluginSearchResult(
-                        project_id="proj1",
-                        slug="essentialsx",
-                        title="EssentialsX",
-                        description="Essential commands",
-                        author="Essentials",
-                        project_types=["plugin"],
-                        downloads=1000,
-                        follows=10,
-                        icon_url="",
-                        latest_version_id="v1",
-                    )
-                ]
+            ) -> PluginSearchPage:
+                return PluginSearchPage(
+                    items=[
+                        PluginSearchResult(
+                            project_id="proj1",
+                            slug="essentialsx",
+                            title="EssentialsX",
+                            description="Essential commands",
+                            author="Essentials",
+                            project_types=["plugin"],
+                            downloads=1000,
+                            follows=10,
+                            icon_url="",
+                            latest_version_id="v1",
+                            categories=[],
+                            loaders=[],
+                            client_side=None,
+                            server_side=None,
+                            date_modified="",
+                            color=None,
+                        )
+                    ],
+                    total_hits=1,
+                    offset=0,
+                    limit=20,
+                )
 
         with patch(
             "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
@@ -694,35 +713,46 @@ class TestPluginMarketplace:
                 headers=privileged_header,
             )
         assert resp.status_code == 200
-        assert resp.json() == [
-            {
-                "project_id": "proj1",
-                "slug": "essentialsx",
-                "title": "EssentialsX",
-                "description": "Essential commands",
-                "author": "Essentials",
-                "project_types": ["plugin"],
-                "downloads": 1000,
-                "follows": 10,
-                "icon_url": "",
-                "latest_version_id": "v1",
-            }
-        ]
+        assert resp.json() == {
+            "items": [
+                {
+                    "project_id": "proj1",
+                    "slug": "essentialsx",
+                    "title": "EssentialsX",
+                    "description": "Essential commands",
+                    "author": "Essentials",
+                    "project_types": ["plugin"],
+                    "downloads": 1000,
+                    "follows": 10,
+                    "icon_url": "",
+                    "latest_version_id": "v1",
+                    "categories": [],
+                    "loaders": [],
+                    "client_side": None,
+                    "server_side": None,
+                    "date_modified": "",
+                    "color": None,
+                }
+            ],
+            "total_hits": 1,
+            "offset": 0,
+            "limit": 20,
+        }
 
     async def test_global_marketplace_search_project_type(
         self, client: AsyncClient, privileged_header: dict[str, str]
     ) -> None:
-        from app.modules.plugin.infrastructure.providers.base import PluginSearchResult
+        from app.modules.plugin.infrastructure.providers.base import PluginSearchPage
 
         passed_kwargs = {}
 
         class _FakeProvider:
             async def search(
                 self, _query: str, **kwargs: object
-            ) -> list[PluginSearchResult]:
+            ) -> PluginSearchPage:
                 nonlocal passed_kwargs
                 passed_kwargs = kwargs
-                return []
+                return PluginSearchPage(items=[], total_hits=0, offset=0, limit=20)
 
         with patch(
             "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
@@ -819,33 +849,42 @@ class TestPluginMarketplace:
     async def test_marketplace_versions_returns_files(
         self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
     ) -> None:
-        from app.modules.plugin.infrastructure.providers.base import PluginFile, PluginVersionInfo
+        from app.modules.plugin.infrastructure.providers.base import (
+            PluginFile,
+            PluginVersionInfo,
+            PluginVersionsPage,
+        )
 
         class _FakeProvider:
             name = "modrinth"
 
-            async def get_project_versions(self, _project_id: str) -> list[PluginVersionInfo]:
-                return [
-                    PluginVersionInfo(
-                        version_id="v1",
-                        project_id="proj1",
-                        name="Build 1",
-                        version_number="1.0.0",
-                        game_versions=["1.21"],
-                        loaders=["paper"],
-                        files=[
-                            PluginFile(
-                                url="https://example.com/plug.jar",
-                                filename="plug.jar",
-                                size_bytes=10,
-                                sha1="a" * 40,
-                                primary=True,
-                            )
-                        ],
-                        dependencies=["dep"],
-                        date_published="2024-01-01T00:00:00Z",
-                    )
-                ]
+            async def get_project_versions(
+                self, _project_id: str, **kwargs: object  # noqa: ARG002
+            ) -> PluginVersionsPage:
+                return PluginVersionsPage(
+                    items=[
+                        PluginVersionInfo(
+                            version_id="v1",
+                            project_id="proj1",
+                            name="Build 1",
+                            version_number="1.0.0",
+                            game_versions=["1.21"],
+                            loaders=["paper"],
+                            files=[
+                                PluginFile(
+                                    url="https://example.com/plug.jar",
+                                    filename="plug.jar",
+                                    size_bytes=10,
+                                    sha1="a" * 40,
+                                    primary=True,
+                                )
+                            ],
+                            dependencies=["dep"],
+                            date_published="2024-01-01T00:00:00Z",
+                        )
+                    ],
+                    total=1,
+                )
 
         server_id = created_server["server_id"]
         with patch(
@@ -859,6 +898,7 @@ class TestPluginMarketplace:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["versions"]) == 1
+        assert data["total"] == 1
         version = data["versions"][0]
         assert version["version_id"] == "v1"
         assert version["files"] == [
@@ -871,6 +911,205 @@ class TestPluginMarketplace:
                 "primary": True,
             }
         ]
+
+    async def test_marketplace_project_versions_returns_selected_null(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        """§3.5 / §4.6: server-independent versions endpoint returns 200 with selected=null."""
+        from app.modules.plugin.infrastructure.providers.base import (
+            PluginFile,
+            PluginVersionInfo,
+            PluginVersionsPage,
+        )
+
+        class _FakeProvider:
+            name = "modrinth"
+
+            async def get_project_versions(
+                self, _project_id: str, **kwargs: object  # noqa: ARG002
+            ) -> PluginVersionsPage:
+                return PluginVersionsPage(
+                    items=[
+                        PluginVersionInfo(
+                            version_id="v1",
+                            project_id="proj1",
+                            name="Build 1",
+                            version_number="1.0.0",
+                            game_versions=["1.21"],
+                            loaders=["paper"],
+                            files=[
+                                PluginFile(
+                                    url="https://example.com/plug.jar",
+                                    filename="plug.jar",
+                                    size_bytes=42,
+                                    sha1="a" * 40,
+                                    primary=True,
+                                )
+                            ],
+                            dependencies=[],
+                            date_published="2024-06-01T00:00:00Z",
+                        )
+                    ],
+                    total=1,
+                )
+
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/projects/proj1/versions",
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["project_id"] == "proj1"
+        assert len(data["versions"]) == 1
+        assert data["total"] == 1
+        assert data["versions"][0]["version_id"] == "v1"
+        assert data["selected"] is None
+        assert data["notice"] == ""
+        assert data["notice_kind"] == ""
+
+    async def test_marketplace_project_versions_requires_permission(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
+        """§3.5 / §4.6: versions endpoint enforces plugin:manage permission."""
+        resp = await client.get(
+            "/api/v1/marketplace/projects/proj1/versions",
+            headers=auth_header,
+        )
+        assert resp.status_code == 403
+
+    async def test_marketplace_project_versions_accepts_limit_offset(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        """Decision 6: versions endpoint threads real limit/offset server-side."""
+        from app.modules.plugin.infrastructure.providers.base import (
+            PluginVersionInfo,
+            PluginVersionsPage,
+        )
+
+        class _FakeProvider:
+            name = "modrinth"
+
+            async def get_project_versions(
+                self, _project_id: str, **kwargs: object
+            ) -> PluginVersionsPage:
+                limit_val = kwargs.get("limit")
+                offset_val = kwargs.get("offset", 0)
+                items = [
+                    PluginVersionInfo(
+                        version_id=f"v{i}",
+                        project_id="proj1",
+                        name=f"Build {i}",
+                        version_number=f"{i}.0.0",
+                        game_versions=["1.21"],
+                        loaders=["paper"],
+                        date_published="2024-06-01T00:00:00Z",
+                    )
+                    for i in range(3)
+                ]
+                if limit_val is not None:
+                    items = items[offset_val : offset_val + limit_val]
+                return PluginVersionsPage(items=items, total=3)
+
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/projects/proj1/versions",
+                params={"limit": 2, "offset": 1},
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert [v["version_id"] for v in data["versions"]] == ["v1", "v2"]
+        assert data["total"] == 3
+
+    async def test_marketplace_project_null_wiki_url(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        """§3.1 / §4.6: project with null wiki_url does NOT 500 (closes RP-13)."""
+        from app.modules.plugin.infrastructure.providers.base import PluginProject
+
+        class _FakeProvider:
+            name = "modrinth"
+
+            async def get_project(self, project_id: str) -> PluginProject:
+                return PluginProject(
+                    project_id=project_id,
+                    slug="veinminer",
+                    title="VeinMiner",
+                    description="Mine entire veins",
+                    body="# VeinMiner",
+                    author="Someone",
+                    project_types=["plugin"],
+                    loaders=["paper"],
+                    game_versions=["1.21"],
+                    downloads=500,
+                    follows=10,
+                    icon_url="https://example.com/icon.png",
+                    wiki_url=None,
+                    source_url=None,
+                )
+
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/projects/veinminer",
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["project_id"] == "veinminer"
+        assert data["wiki_url"] is None
+        assert data["source_url"] is None
+
+    async def test_marketplace_project_client_server_side_parsed(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        """§3.4 / §4.6: client_side/server_side fields are passed through."""
+        from app.modules.plugin.infrastructure.providers.base import PluginProject
+
+        class _FakeProvider:
+            name = "modrinth"
+
+            async def get_project(self, project_id: str) -> PluginProject:
+                return PluginProject(
+                    project_id=project_id,
+                    slug="essentialsx",
+                    title="EssentialsX",
+                    description="Essential commands",
+                    body="# EssentialsX",
+                    author="Essentials Team",
+                    project_types=["plugin"],
+                    loaders=["paper"],
+                    game_versions=["1.21"],
+                    downloads=1000,
+                    follows=50,
+                    icon_url="https://example.com/icon.png",
+                    wiki_url="https://example.com/wiki",
+                    source_url="https://example.com/source",
+                    client_side="optional",
+                    server_side="required",
+                )
+
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/projects/essentialsx",
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["client_side"] == "optional"
+        assert data["server_side"] == "required"
 
 
 class TestUsers:

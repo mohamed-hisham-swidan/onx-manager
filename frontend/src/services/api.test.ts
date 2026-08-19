@@ -80,7 +80,12 @@ describe("createApiClient", () => {
   });
 
   it("searchMarketplaceGlobal hits global endpoint with query params", async () => {
-    vi.mocked(fetch).mockImplementationOnce(mockFetch([{ project_id: "p1", title: "Test" }]));
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({
+      items: [{ project_id: "p1", title: "Test" }],
+      total_hits: 1,
+      offset: 20,
+      limit: 10,
+    }));
     const result = await api.searchMarketplaceGlobal("essentials", "mod", 10, 20);
 
     const url = vi.mocked(fetch).mock.calls[0][0] as string;
@@ -89,8 +94,9 @@ describe("createApiClient", () => {
     expect(url).toContain("project_type=mod");
     expect(url).toContain("limit=10");
     expect(url).toContain("offset=20");
-    expect(result).toHaveLength(1);
-    expect(result[0].project_id).toBe("p1");
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].project_id).toBe("p1");
+    expect(result.total_hits).toBe(1);
   });
 
   it("throws ApiError on 4xx", async () => {

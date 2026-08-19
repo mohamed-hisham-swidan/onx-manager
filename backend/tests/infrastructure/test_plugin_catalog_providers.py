@@ -92,6 +92,7 @@ class TestModrinthProviderSearch:
                         "slug": "paper-plugin",
                         "title": "Paper Plugin",
                         "all_project_types": ["plugin"],
+                        "categories": ["paper", "economy"],
                     },
                     {
                         "project_id": "proj-2",
@@ -99,16 +100,72 @@ class TestModrinthProviderSearch:
                         "title": "Fabric Mod",
                         "all_project_types": ["mod"],
                     },
-                ]
+                ],
+                "total_hits": 10,
             }
 
         monkeypatch.setattr(provider, "_get_json", mock_get_json)
 
-        results = await provider.search("worldedit")
-        assert len(results) == 1
-        assert results[0].project_id == "proj-1"
+        page = await provider.search("worldedit")
+        assert len(page.items) == 1
+        assert page.items[0].project_id == "proj-1"
+        assert page.total_hits == 10
         assert "project_type:plugin" in captured_params.get("facets", "")
         assert "categories:paper" in captured_params.get("facets", "")
+
+    @pytest.mark.asyncio
+    async def test_search_parses_new_schema_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        provider = ModrinthProvider()
+
+        async def mock_get_json(_path: str, params: dict | None = None) -> dict:
+            assert params and params.get("query") == "worldedit"
+            return {
+                "hits": [
+                    {
+                        "project_id": "proj-1",
+                        "slug": "paper-plugin",
+                        "title": "Paper Plugin",
+                        "all_project_types": ["plugin"],
+                        "categories": ["paper", "purpur", "economy"],
+                        "client_side": "unsupported",
+                        "server_side": "required",
+                        "date_modified": "2025-01-01T00:00:00Z",
+                        "color": 123456,
+                    },
+                ],
+                "total_hits": 1,
+            }
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        page = await provider.search("worldedit")
+        assert len(page.items) == 1
+        item = page.items[0]
+        assert item.categories == ["paper", "purpur", "economy"]
+        # loaders derived from categories — non-loader categories excluded
+        assert item.loaders == ["paper", "purpur"]
+        assert item.client_side == "unsupported"
+        assert item.server_side == "required"
+        assert item.date_modified == "2025-01-01T00:00:00Z"
+        assert item.color == 123456
+
+    @pytest.mark.asyncio
+    async def test_search_total_hits_missing_defaults_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        provider = ModrinthProvider()
+
+        async def mock_get_json(_path: str, params: dict | None = None) -> dict:
+            assert params and params.get("query") == "worldedit"
+            return {"hits": []}
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        page = await provider.search("worldedit")
+        assert page.items == []
+        assert page.total_hits == 0
 
     @pytest.mark.asyncio
     async def test_search_mod_facets(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,8 +195,92 @@ class TestModrinthProviderSearch:
         monkeypatch.setattr(provider, "_get_json", mock_get_json)
 
         results = await provider.search("sodium", project_type="mod")
-        assert len(results) == 1
-        assert results[0].project_id == "proj-2"
+        assert len(results.items) == 1
+        assert results.items[0].project_id == "proj-2"
         assert "project_type:mod" in captured_params.get("facets", "")
         assert "categories:fabric" in captured_params.get("facets", "")
+
+
+class TestModrinthProviderGetProject:
+    @pytest.mark.asyncio
+    async def test_get_project_nullable_links_and_environments(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        provider = ModrinthProvider()
+
+        async def mock_get_json(_path: str, _params: dict | None = None) -> dict:
+            return {
+                "id": "proj-1",
+                "slug": "test-project",
+                "title": "Test Project",
+                "description": "Test Desc",
+                "body": "Test Body",
+                "author": "Author",
+                "project_type": "plugin",
+                "loaders": ["paper"],
+                "game_versions": ["1.21"],
+                "downloads": 10,
+                "follows": 2,
+                "icon_url": None,
+                "wiki_url": None,
+                "source_url": None,
+                "client_side": "optional",
+                "server_side": "required",
+            }
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        project = await provider.get_project("proj-1")
+        assert project.project_id == "proj-1"
+        assert project.wiki_url is None
+        assert project.source_url is None
+        assert project.client_side == "optional"
+        assert project.server_side == "required"
+
+
+class TestModrinthProviderGetProjectVersions:
+    @pytest.mark.asyncio
+    async def test_returns_all_when_limit_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = ModrinthProvider()
+
+        async def mock_get_json(_path: str, _params: dict | None = None) -> dict:
+            return [
+                {
+                    "id": f"v{i}",
+                    "project_id": "proj-1",
+                    "name": f"v{i}",
+                    "version_number": f"{i}.0.0",
+                }
+                for i in range(3)
+            ]
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        page = await provider.get_project_versions("proj-1")
+        assert len(page.items) == 3
+        assert page.total == 3
+
+    @pytest.mark.asyncio
+    async def test_slices_fetch_all_then_slice(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = ModrinthProvider()
+
+        async def mock_get_json(_path: str, _params: dict | None = None) -> dict:
+            return [
+                {
+                    "id": f"v{i}",
+                    "project_id": "proj-1",
+                    "name": f"v{i}",
+                    "version_number": f"{i}.0.0",
+                }
+                for i in range(25)
+            ]
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        page = await provider.get_project_versions("proj-1", limit=10, offset=10)
+        assert len(page.items) == 10
+        assert page.items[0].version_id == "v10"
+        assert page.items[-1].version_id == "v19"
+        assert page.total == 25
+
 

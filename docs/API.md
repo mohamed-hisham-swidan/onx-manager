@@ -8,8 +8,8 @@
 >
 > This document is generated from the router code (`backend/app/api/v1/routers/`).
 > Every endpoint below was verified directly against its router function (the
-> 14 routers: `auth, backups, files, health, invites, marketplace, monitoring,
-> plugins, schedules, servers, settings, setup, software, users`).
+> 15 routers: `auth, backups, exposure, files, health, invites, marketplace,
+> monitoring, plugins, schedules, servers, settings, setup, software, users`).
 
 ---
 
@@ -81,7 +81,7 @@ See [Users](#users) and [Setup & access mode](#setup--access-mode).
 
 Every other route requires a valid Bearer token.
 
-### Authorization model (verified 2026-08-13)
+### Authorization model (verified 2026-08-19)
 
 Authorization is enforced at the route dependency layer in two forms:
 
@@ -453,8 +453,8 @@ Prefix `/api/v1/servers/{server_id}/plugins`. All routes require a Bearer token.
 | Method | Path | Auth | Request body | Response | Notes |
 |---|---|---|---|---|---|
 | `GET` | `/api/v1/servers/{server_id}/plugins` | Bearer | — | `200 list[PluginResponse]` | **Triggers filesystem reconciliation first** — on-disk `.jar` files become `detected` rows, deleted files are pruned (auth-only) |
-| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/search` | `plugin:manage` | — | `200 list[PluginSearchResultResponse]` | Modrinth catalog search (`query`, `limit`, `offset` query params) |
-| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions` | `plugin:manage` | — | `200 PluginVersionsResponse` | Versions + best-version selection for the server (with `selected`, `notice`, `notice_kind`) |
+| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/search` | `plugin:manage` | — | `200 PluginSearchResultsResponse` | Modrinth catalog search (`query`, `limit`, `offset` query params) — paginated envelope `{items, total_hits, offset, limit}` (Batch 1, SPEC-PLUGIN-PAGINATION-V3) |
+| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions` | `plugin:manage` | `limit`, `offset` | `200 PluginVersionsResponse` | Versions + best-version selection for the server (with `selected`, `notice`, `notice_kind`); optional `limit`/`offset` slicing, `total` = full count (Batch 1, SPEC-PLUGIN-PAGINATION-V3) |
 | `POST` | `/api/v1/servers/{server_id}/plugins/marketplace/install` | `plugin:manage` | `InstallModrinthPluginRequest` | `201 InstallModrinthPluginResponse` | Downloads the `.jar` (SHA-1/SHA-512 verified) into the server's `plugins/` folder |
 | `GET` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | Bearer | — | `200 PluginResponse` | Auth-only |
 | `DELETE` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | `plugin:manage` | — | `204` | Uninstall — sets `pending_deletion`; file removed on next server start/restart |
@@ -505,6 +505,39 @@ Prefix `/api/v1/servers/{server_id}/plugins`. All routes require a Bearer token.
   "updated_at": "2026-08-01T12:00:00"
 }
 ```
+
+---
+
+## Marketplace (server-independent)
+
+Prefix `/api/v1/marketplace`. Global catalog routes — no `server_id` context.
+All routes require a Bearer token and gate on `plugin:manage`.
+
+| Method | Path | Auth | Request body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/v1/marketplace/search` | `plugin:manage` | — | `200 PluginSearchResultsResponse` | Modrinth catalog search (`query`, `limit`, `offset`, `project_type` query params). Paginated envelope `{items, total_hits, offset, limit}` (Batch 1, SPEC-PLUGIN-PAGINATION-V3). Global search distinct from the server-scoped one (K5, `useMarketplaceSearchGlobal`). |
+| `GET` | `/api/v1/marketplace/projects/{project_id}` | `plugin:manage` | — | `200 PluginProjectResponse` | Full project detail (`description`, `body` Markdown, `game_versions`, `loaders`, `client_side`, `server_side`, nullable `wiki_url`/`source_url`). Null-`wiki_url`/`source_url` no longer 500s (SPEC-PLUGIN-DETAIL-TABS-001). |
+| `GET` | `/api/v1/marketplace/projects/{project_id}/versions` | `plugin:manage` | `limit`, `offset` | `200 PluginVersionsResponse` | All versions for a project, raw and unsorted, **`selected` always `null`** (no server context, D1/D6). Accepts optional `limit` (default 20, max 50) / `offset` (default 0); `total` = full version count (Decision 6 fetch-all-then-slice). Recommended is computed client-side from the last-used server. Batch 1, SPEC-PLUGIN-PAGINATION-V3. |
+
+> **Note:** the server-scoped marketplace routes (search/versions/install under
+> `/api/v1/servers/{server_id}/plugins/marketplace/...`) remain available and
+> keep their best-version selection (`selected`, `notice`, `notice_kind`).
+> The server-independent `/api/v1/marketplace/...` routes intentionally return
+> `selected=null` and empty `notice`/`notice_kind`.
+
+### Schemas
+
+`PluginProjectResponse`: `project_id`, `slug`, `title`, `description`, `body`,
+`author`, `project_types`, `downloads`, `follows`, `icon_url`,
+`latest_version_id`, `game_versions`, `loaders`, `client_side` (nullable),
+`server_side` (nullable), `wiki_url` (nullable), `source_url` (nullable).
+
+`PluginVersionsResponse`: `project_id`, `versions` (list of `PluginVersionResponse`),
+`selected` (always `null`), `notice` (empty string), `notice_kind` (empty string).
+
+`PluginVersionResponse`: `version_id`, `project_id`, `name`, `version_number`,
+`game_versions`, `loaders`, `files` (list of `PluginFileResponse`),
+`dependencies`, `date_published`.
 
 ---
 

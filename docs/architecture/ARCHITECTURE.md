@@ -175,7 +175,7 @@ Both must be set together when running test/development backends. Because `setsi
 | Language | Python 3.12+ (`requires-python = ">=3.12"`; CI runs 3.12) |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (20 revisions, head `a957791492a7`) |
+| Migrations | Alembic (27 revisions, head `b1e2100000007`) |
 | Version source | `backend/pyproject.toml` → `backend/app/core/version.py:get_app_version()` (runtime, OpenAPI, settings, health) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
@@ -431,7 +431,7 @@ isn't reachable until root_path is fixed.
 ## Testing
 
 ```bash
-pytest                          # All tests (1540 passed; 2 skipped; 0 failures)
+pytest                          # All tests (1934 passed; 2 skipped; 0 failures)
 pytest tests/ -x -q             # Quick run, stop on first failure
 ```
 
@@ -441,7 +441,7 @@ Test isolation: sandbox database + sandbox server directory, set via `MCS_DATABA
 
 - **Backend CI** (`.github/workflows/backend-tests.yml`): full `pytest`, a DB
   compatibility-floor check (`scripts/check-db-revision`, minimum
-  `a957791492a7`), and a Ruff baseline regression gate
+  `b1e2100000007`), and a Ruff baseline regression gate
   (`scripts/check-ruff-baseline`). New Ruff violations fail; the 1738
   pre-existing violations / 42 rules baseline stays tracked.
 - **Version propagation CI** (`.github/workflows/backend-version-ci.yml`):
@@ -452,7 +452,7 @@ Pyright is **advisory / local only** — not a CI gate.
 
 ### DB compatibility floor
 
-`4.0.0` pins minimum Alembic revision `a957791492a7`
+`4.0.0` pins minimum Alembic revision `b1e2100000007`
 (`backend/app/core/persistence/db_revision.py`, `RELEASE_MINIMUM_DB_REVISION`).
 Startup fails closed if the live DB is below the floor; the application never
 auto-runs migrations (see `docs/VERSIONING.md` §4.3).

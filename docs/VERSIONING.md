@@ -19,7 +19,7 @@ consistently in the backend, frontend, docs, and state files.
 
 ---
 
-## 2. Current version sources (verified 2026-08-13)
+## 2. Current version sources (verified 2026-08-19)
 
 | # | Source | Value today | Notes |
 |---|--------|-------------|-------|
@@ -64,10 +64,10 @@ consistently in the backend, frontend, docs, and state files.
 3. **No release semantics.** `4.0.0` was a string, not a SemVer contract —
    **resolved**: SemVer 2.0.0 semantics adopted (§4.2).
 4. **No migration/version compatibility rule.** With an Alembic migration chain
-   (20 revisions, head `a957791492a7`) and a prod DB that trails head, there was
-   no documented rule for "which DB revision a given app version expects" —
-   **resolved**: per-release minimum DB revision, fail-closed, never auto-migrated
-   (§4.3).
+    (27 revisions, head `b1e2100000007`) and a prod DB that trails head, there was
+    no documented rule for "which DB revision a given app version expects" —
+    **resolved**: per-release minimum DB revision, fail-closed, never auto-migrated
+    (§4.3).
 5. **State files are hand-maintained.** `.ai/CURRENT_STATE.json` and
    `.ai/PROJECT_STATE.json` carry `version` fields that can silently diverge from
    code — managed under Phase 5.6 / B6-6.
@@ -137,7 +137,7 @@ auto-upgraded**.
 
 | Release | Minimum DB revision |
 |---------|---------------------|
-| `4.0.0` | `a957791492a7` (current Alembic head) |
+| `4.0.0` | `b1e2100000007` (current Alembic head) |
 
 - **Authoritative declaration:** `backend/app/core/persistence/db_revision.py`
   (`RELEASE_MINIMUM_DB_REVISION`). No other runtime source duplicates it.

@@ -10,8 +10,10 @@ from app.modules.plugin.infrastructure.providers.base import (
     PluginCatalogProvider,
     PluginFile,
     PluginProject,
+    PluginSearchPage,
     PluginSearchResult,
     PluginVersionInfo,
+    PluginVersionsPage,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,17 @@ _MOD_LOADER_FACETS = (
     '["categories:fabric","categories:forge","categories:neoforge","categories:quilt"]'
 )
 
+_LOADER_CATEGORY_NAMES = frozenset(
+    {
+        *_PLUGIN_CATEGORIES,
+        *_MOD_CATEGORIES,
+        "velocity",
+        "bungeecord",
+        "waterfall",
+        "minestom",
+    }
+)
+
 
 class ModrinthProvider(PluginCatalogProvider):
     name = "modrinth"
@@ -45,7 +58,7 @@ class ModrinthProvider(PluginCatalogProvider):
         project_type: str = "plugin",
         limit: int = 20,
         offset: int = 0,
-    ) -> list[PluginSearchResult]:
+    ) -> PluginSearchPage:
         pt = (project_type or "").strip().lower()
         if pt == "mod":
             facet_type = _MOD_FACET
@@ -69,6 +82,7 @@ class ModrinthProvider(PluginCatalogProvider):
             project_types = hit.get("all_project_types") or [hit.get("project_type", "")]
             if target_type not in project_types:
                 continue
+            categories = [c for c in (hit.get("categories") or []) if c]
             results.append(
                 PluginSearchResult(
                     project_id=hit.get("project_id", ""),
@@ -81,9 +95,20 @@ class ModrinthProvider(PluginCatalogProvider):
                     follows=hit.get("follows", 0),
                     icon_url=hit.get("icon_url", ""),
                     latest_version_id=hit.get("latest_version", ""),
+                    categories=categories,
+                    loaders=[c for c in categories if c in _LOADER_CATEGORY_NAMES],
+                    client_side=hit.get("client_side"),
+                    server_side=hit.get("server_side"),
+                    date_modified=hit.get("date_modified", ""),
+                    color=hit.get("color"),
                 ),
             )
-        return results
+        return PluginSearchPage(
+            items=results,
+            total_hits=int(data.get("total_hits", 0)),
+            offset=offset,
+            limit=limit,
+        )
 
     async def get_project(self, project_id: str) -> PluginProject:
         data = await self._get_json(f"/project/{project_id}")
@@ -100,13 +125,27 @@ class ModrinthProvider(PluginCatalogProvider):
             downloads=data.get("downloads", 0),
             follows=data.get("follows", 0),
             icon_url=data.get("icon_url", ""),
-            wiki_url=data.get("wiki_url", ""),
-            source_url=data.get("source_url", ""),
+            wiki_url=data.get("wiki_url"),
+            source_url=data.get("source_url"),
+            client_side=data.get("client_side"),
+            server_side=data.get("server_side"),
         )
 
-    async def get_project_versions(self, project_id: str) -> list[PluginVersionInfo]:
+    async def get_project_versions(
+        self,
+        project_id: str,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> PluginVersionsPage:
         data = await self._get_json(f"/project/{project_id}/version")
-        return [self._parse_version(v) for v in data]
+        all_versions = [self._parse_version(v) for v in data]
+        if limit is None:
+            return PluginVersionsPage(items=all_versions, total=len(all_versions))
+        return PluginVersionsPage(
+            items=all_versions[offset : offset + limit],
+            total=len(all_versions),
+        )
 
     async def get_version(self, version_id: str) -> PluginVersionInfo:
         data = await self._get_json(f"/version/{version_id}")

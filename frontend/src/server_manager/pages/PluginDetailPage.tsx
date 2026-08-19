@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { useMarketplaceProject } from "@/server_manager/hooks/usePlugins";
 import { Icon } from "@/components/ui/Icon";
@@ -5,7 +6,11 @@ import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import { ComingSoonState } from "@/components/ComingSoonState";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
+import { CompatibilityCard } from "@/server_manager/components/CompatibilityCard";
+import { ProjectVersionsList } from "@/server_manager/components/ProjectVersionsList";
 import type { PluginSearchResultResponse } from "@/types";
+
+type DetailTab = "description" | "changelog" | "versions";
 
 function fmtDownloads(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -33,10 +38,58 @@ function DetailSection({ title, children }: { title: string; children: React.Rea
   );
 }
 
+interface DetailTabsProps {
+  activeTab: DetailTab;
+  onTabChange: (tab: DetailTab) => void;
+}
+
+function DetailTabs({ activeTab, onTabChange }: DetailTabsProps) {
+  return (
+    <div className="flex border-b border-gray-200 dark:border-gray-700" data-testid="detail-tabs">
+      <button
+        type="button"
+        onClick={() => onTabChange("description")}
+        className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+          activeTab === "description"
+            ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+            : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+        }`}
+      >
+        Description
+      </button>
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        title="Coming soon"
+        className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px border-transparent text-gray-300 dark:text-gray-600 cursor-not-allowed inline-flex items-center gap-1.5"
+      >
+        Changelog
+        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-400 dark:bg-gray-800 dark:text-gray-500">
+          Soon
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onTabChange("versions")}
+        className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+          activeTab === "versions"
+            ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+            : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+        }`}
+      >
+        Versions
+      </button>
+    </div>
+  );
+}
+
 export function PluginDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const [activeTab, setActiveTab] = useState<DetailTab>("description");
 
   const source = useMarketplaceSourceStore((s) => s.source);
   const setSource = useMarketplaceSourceStore((s) => s.setSource);
@@ -61,6 +114,12 @@ export function PluginDetailPage() {
       follows: project.follows,
       icon_url: project.icon_url,
       latest_version_id: "",
+      categories: [],
+      loaders: project.loaders,
+      client_side: project.client_side ?? null,
+      server_side: project.server_side ?? null,
+      date_modified: "",
+      color: null,
     };
     navigate(backUrl, { state: { selectedProject: searchResult } });
   }
@@ -249,26 +308,41 @@ export function PluginDetailPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
-          <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="mb-3 text-lg font-semibold text-gray-900 dark:text-gray-100">About</h3>
-            {project.description && (
-              <p className="mb-4 text-sm font-medium text-gray-700 dark:text-gray-300">
-                {project.description}
-              </p>
-            )}
-            {project.body ? (
-              <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300 leading-relaxed border-t border-gray-100 pt-4 dark:border-gray-700/50">
-                {project.body}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400 italic">
-                No additional description provided.
-              </p>
-            )}
-          </div>
+          <DetailTabs activeTab={activeTab} onTabChange={setActiveTab} />
+
+          {activeTab === "description" && (
+            <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800" data-testid="about-section">
+              <h3 className="mb-3 text-lg font-semibold text-gray-900 dark:text-gray-100">About</h3>
+              {project.description && (
+                <p className="mb-4 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {project.description}
+                </p>
+              )}
+              {project.body ? (
+                <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300 leading-relaxed border-t border-gray-100 pt-4 dark:border-gray-700/50">
+                  {project.body}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                  No additional description provided.
+                </p>
+              )}
+            </div>
+          )}
+
+          {activeTab === "versions" && (
+            <ProjectVersionsList projectId={project.project_id} />
+          )}
         </div>
 
         <div className="space-y-6">
+          <CompatibilityCard
+            gameVersions={project.game_versions}
+            loaders={project.loaders}
+            clientSide={project.client_side}
+            serverSide={project.server_side}
+          />
+
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
             <DetailSection title="Information">
               <DetailRow label="Author">{project.author}</DetailRow>

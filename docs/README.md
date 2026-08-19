@@ -34,7 +34,7 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |----------|--------|---------|
 | [Architecture](architecture/ARCHITECTURE.md) | ✅ **IMPLEMENTED** | System context, module structure, CQRS/hexagonal patterns, task wiring, reconciliation. |
-| [Database](architecture/DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain (20 revisions), query patterns, migration guide. |
+| [Database](architecture/DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain (27 revisions), query patterns, migration guide. |
 | [Security](architecture/SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (Phase 4 enforced: global + server-scoped RBAC), audit chain, data protection, rate limiting, sessions. |
 | [Plugins & Marketplace](architecture/plugins-and-marketplace.md) | ✅ **IMPLEMENTED** | Plugin registry (filesystem source of truth) + Modrinth marketplace implementation. |
 | [Network Access Design](architecture/network-access-design.md) | 🟡 **PLANNED** | Phases 7–8 design reference: TunnelProvider vs DnsProvider, dynamic endpoints, game vs management exposure, Tunnel ≠ Authentication. |
@@ -90,13 +90,13 @@ listed with their status so it is always clear what is implemented vs planned.
 
 ---
 
-## Cross-cutting claims (verified 2026-08-13)
+## Cross-cutting claims (verified 2026-08-19)
 
 - **Version:** `4.0.0` (code) — single source `backend/pyproject.toml` → `backend/app/core/version.py:get_app_version()`; planning docs that mention "7.1.0" are stale.
-- **Backend tests:** 1540 passed / 2 skipped (0 failures).
-- **Frontend tests:** 406 passed across 56 files (`tsc` typecheck clean; `eslint` clean, 0 errors / 0 warnings since 2026-08-13).
-- **Routers:** 14 · **Migrations:** 20 (head `a957791492a7`) · **ADRs:** 12 · **Contracts:** 6.
+- **Backend tests:** 1934 passed / 2 skipped (0 failures).
+- **Frontend tests:** 506 passed across 65 files (`tsc` typecheck: 9 pre-existing errors, 0 new since HEAD `7c12d85`; `eslint` 2 pre-existing errors in `ServersPage.tsx`, 0 in current work).
+- **Routers:** 15 · **Migrations:** 27 (head `b1e2100000007`) · **ADRs:** 12 · **Contracts:** 6.
 - **Authorization:** enforced via `require_permission` (global), `require_server_permission` (server-scoped RBAC), and `require_owner` (access mode); `contracts/permissions.yaml` v1.5 documents 85 effective routes.
-- **Production DB:** `backend/data/servers/mcs.db` is a **legacy file** at revision `a3b2c3d4e5f6`; the default configured DB is `backend/mcs.db` **at head** (`a957791492a7`, with `system_state`, `invitations`, `server_memberships`). See `current-state.md` §3.
+- **Production DB:** `backend/data/servers/mcs.db` is a **legacy file** at revision `a3b2c3d4e5f6`; the default configured DB is `backend/mcs.db` **at head** (`b1e2100000007`, with `system_state`, `invitations`, `server_memberships` + Phase-7 exposure tables). See `current-state.md` §3.
 - **CI:** five workflows — `backend-tests.yml` (full pytest + DB-compat + Ruff-baseline gate), `backend-version-ci.yml` (version propagation), `route-permission-ci.yml` (route→permission contract), `frontend-ci.yml` (typecheck/lint/test/build), `verification-cadence.yml` (weekly re-verification; see `current-state.md` §7). Pyright is advisory/local only, not CI-gated.
 

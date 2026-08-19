@@ -16,9 +16,12 @@ export function usePluginsList(serverId: string) {
   });
 }
 
+export const MARKETPLACE_PAGE_SIZE = 20;
+
 export interface MarketplaceSearchOptions {
   enabled?: boolean;
   projectType?: string;
+  offset?: number;
 }
 
 export function useMarketplaceSearch(
@@ -28,9 +31,10 @@ export function useMarketplaceSearch(
 ) {
   const api = useApi();
   const projectType = options?.projectType;
+  const offset = options?.offset ?? 0;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.search(serverId, query, projectType),
-    queryFn: () => api.searchMarketplace(serverId, query, projectType),
+    queryKey: queryKeys.plugins.marketplace.search(serverId, query, projectType, offset),
+    queryFn: () => api.searchMarketplace(serverId, query, projectType, MARKETPLACE_PAGE_SIZE, offset),
     enabled: (options?.enabled ?? true) && !!serverId,
   });
 }
@@ -41,9 +45,10 @@ export function useMarketplaceSearchGlobal(
 ) {
   const api = useApi();
   const projectType = options?.projectType;
+  const offset = options?.offset ?? 0;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.global(query, projectType),
-    queryFn: () => api.searchMarketplaceGlobal(query, projectType),
+    queryKey: queryKeys.plugins.marketplace.global(query, projectType, offset),
+    queryFn: () => api.searchMarketplaceGlobal(query, projectType, MARKETPLACE_PAGE_SIZE, offset),
     enabled: options?.enabled ?? true,
   });
 }
@@ -60,15 +65,29 @@ export function useMarketplaceProject(
   });
 }
 
+export function useMarketplaceProjectVersions(
+  projectId: string,
+  opts?: { enabled?: boolean; offset?: number },
+) {
+  const api = useApi();
+  const offset = opts?.offset ?? 0;
+  return useQuery({
+    queryKey: queryKeys.plugins.marketplace.projectVersions(projectId, offset),
+    queryFn: () => api.getMarketplaceProjectVersions(projectId, MARKETPLACE_PAGE_SIZE, offset),
+    enabled: (opts?.enabled ?? true) && !!projectId,
+  });
+}
+
 export function useProjectVersions(
   serverId: string,
   projectId: string,
   options?: MarketplaceSearchOptions,
 ) {
   const api = useApi();
+  const offset = options?.offset ?? 0;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.versions(serverId, projectId),
-    queryFn: () => api.getProjectVersions(serverId, projectId),
+    queryKey: queryKeys.plugins.marketplace.versions(serverId, projectId, offset),
+    queryFn: () => api.getProjectVersions(serverId, projectId, MARKETPLACE_PAGE_SIZE, offset),
     enabled: (options?.enabled ?? true) && !!serverId && !!projectId,
   });
 }

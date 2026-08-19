@@ -41,8 +41,10 @@ class PluginProject:
     downloads: int = 0
     follows: int = 0
     icon_url: str = ""
-    wiki_url: str = ""
-    source_url: str = ""
+    wiki_url: str | None = None
+    source_url: str | None = None
+    client_side: str | None = None
+    server_side: str | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,26 @@ class PluginSearchResult:
     follows: int = 0
     icon_url: str = ""
     latest_version_id: str = ""
+    categories: list[str] = field(default_factory=list)
+    loaders: list[str] = field(default_factory=list)
+    client_side: str | None = None
+    server_side: str | None = None
+    date_modified: str = ""
+    color: int | None = None
+
+
+@dataclass(frozen=True)
+class PluginSearchPage:
+    items: list[PluginSearchResult]
+    total_hits: int = 0
+    offset: int = 0
+    limit: int = 20
+
+
+@dataclass(frozen=True)
+class PluginVersionsPage:
+    items: list[PluginVersionInfo]
+    total: int = 0
 
 
 class PluginCatalogProvider(ABC):
@@ -70,7 +92,7 @@ class PluginCatalogProvider(ABC):
         project_type: str = "plugin",
         limit: int = 20,
         offset: int = 0,
-    ) -> list[PluginSearchResult]:
+    ) -> PluginSearchPage:
         ...
 
     @abstractmethod
@@ -78,7 +100,13 @@ class PluginCatalogProvider(ABC):
         ...
 
     @abstractmethod
-    async def get_project_versions(self, project_id: str) -> list[PluginVersionInfo]:
+    async def get_project_versions(
+        self,
+        project_id: str,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> PluginVersionsPage:
         ...
 
     @abstractmethod

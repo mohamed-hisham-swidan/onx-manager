@@ -1,12 +1,12 @@
 # MCS Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-08-13. Every claim below was verified against source code, the database,
+2026-08-19. Every claim below was verified against source code, the database,
 and a live test run. This document supersedes the stale counts and claims in
 `docs/status/history.md` (the historical narrative) and is the baseline that the
 Blueprint V5 governing plan is built on.
 
-**Last verified:** 2026-08-13
+**Last verified:** 2026-08-19
 **App version (code):** `4.0.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 > Note on version numbers: the application reports `4.0.0` everywhere in code
@@ -22,11 +22,11 @@ Blueprint V5 governing plan is built on.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 278 | `find backend/app -name "*.py"` |
-| Backend test files | 107 | `find backend/tests -name "test_*.py"` |
-| Frontend test files | 56 | `find frontend/src -name "*.test.*"` |
-| REST routers (`api/v1/routers/`) | 14 | `auth, backups, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
-| Alembic migration revisions | 20 | `backend/alembic/versions/` (head `a957791492a7`) |
+| Backend Python source files | 299 | `find backend/app -name "*.py"` |
+| Backend test files | 128 | `find backend/tests -name "test_*.py"` |
+| Frontend test files | 65 | `find frontend/src -name "*.test.*"` |
+| REST routers (`api/v1/routers/`) | 15 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
+| Alembic migration revisions | 27 | `backend/alembic/versions/` (head `b1e2100000007`) |
 | Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 9 | `auth, backup, event_store, health, monitoring, plugin, server, shared, storage` |
@@ -34,14 +34,14 @@ Blueprint V5 governing plan is built on.
 
 ---
 
-## 2. Test suite (measured 2026-08-13)
+## 2. Test suite (measured 2026-08-19)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **1542** |
-| Passed | **1540** |
+| Collected | **1936** |
+| Passed | **1934** |
 | Skipped | **2** |
 | Failed | **0** |
 
@@ -53,14 +53,18 @@ check and a Ruff-baseline regression gate (see §5).
 
 | Metric | Value |
 |--------|-------|
-| Test files | **56** |
-| Tests | **406** (all passing) |
+| Test files | **65** |
+| Tests | **506** (all passing) |
 
-`npm run typecheck` (`tsc --noEmit`): clean.
+`npm run typecheck` (`tsc --noEmit`): **9 pre-existing errors, 0 new** — the
+frontend typecheck baseline is 15 errors at HEAD `7c12d85`; the plugin-detail-tabs
+batch reduced it to 9 (fixed 6 pre-existing, introduced none). Remaining errors all
+reside in files untouched by the batch.
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
 on every push/PR to `master`.
-Frontend `npm run lint` (`eslint src/`): **clean — 0 errors / 0 warnings**
-(resolved 2026-08-13, B6-2; previously pre-existing failures).
+Frontend `npm run lint` (`eslint src/`): **2 pre-existing errors, both in
+`ServersPage.tsx` (`react-hooks/purity` on `Date.now()`)** — none in batch files;
+baseline unchanged at HEAD.
 
 
 ---
@@ -71,9 +75,9 @@ Frontend `npm run lint` (`eslint src/`): **clean — 0 errors / 0 warnings**
 
 | Property | Value |
 |----------|-------|
-| Alembic revision | `a957791492a7` — **at head** |
-| Head revision | `a957791492a7` (head == current) |
-| New tables | `system_state`, `invitations`, `server_memberships` present |
+| Alembic revision | `b1e2100000007` — **at head** |
+| Head revision | `b1e2100000007` (head == current) |
+| New tables | `system_state`, `invitations`, `server_memberships` present (from `a957791492a7`); plus Phase-7 exposure tables (`host_playit_agent`, `server_exposure`, `server_exposure_target`, `panel_exposure`) and nullable `metric_points.tps` (`b1e2100000007`) |
 
 ### Secondary DB — `backend/data/servers/mcs.db`
 
@@ -153,8 +157,25 @@ confirm environment uses `backend/mcs.db` before release.
   (`Icon.tsx`), plus a global search endpoint `GET /api/v1/marketplace/search`
   (`useMarketplaceSearchGlobal`) distinct from the server-scoped one. The install flow reworked
   into a global browse + server picker (pre-select: deep link → last-used server → first
-  compatible → any). The server-scoped `/plugins/marketplace` (`?server=<id>`) surface remains
-  for installs within a specific server's context. See `docs/architecture/plugins-and-marketplace.md`.
+compatible → any). The server-scoped `/plugins/marketplace` (`?server=<id>`) surface remains
+   for installs within a specific server's context. See `docs/architecture/plugins-and-marketplace.md`.
+- **Plugin detail tabs + crash fix (2026-08-19, SPEC-PLUGIN-DETAIL-TABS-001 v1.3):**
+  - Backend: `GET /api/v1/marketplace/projects/{project_id}/versions` (server-independent,
+    `selected=null` always) + nullable `wiki_url`/`source_url` and parsed
+    `client_side`/`server_side` on `PluginProjectResponse` — fixes the 500 crash
+    for Modrinth projects with null `wiki_url`/`source_url` (was 22/60 plugins,
+    33/60 mods). Strict v1.3 two-part `game_version_matches` gate in
+    `version_selector.py`.
+  - Frontend: `PluginDetailPage` now has **Description / Versions** tabs (Changelog
+    stubbed/disabled), a **Compatibility sidebar** (`CompatibilityCard.tsx`, loader
+    pills with generic `download` icon + "Supported environments" from
+    `client_side`/`server_side`), and a client-side **Recommended** badge
+    (`ProjectVersionsList.tsx` + `versionMatching.ts`) keyed on the last-used server
+    resolved via `server_id` (G1). Badge rule is **strict**: shown only when a
+    version's `game_versions` AND loader both match; no closest-distance fallback.
+  - Test coverage: 13 new matcher cases + backend API/route-contract/provider tests;
+    frontend suites for `versionMatching`, `CompatibilityCard`, `ProjectVersionsList`,
+    `PluginDetailPage` (all green).
 
 ### 4.5 Task queue, monitoring, health, settings persistence (implemented)
 
@@ -268,11 +289,11 @@ instead of trusting memory (Blueprint V5 §2.4):
 Checks executed each run (identical locally via `scripts/reverify`):
 
 1. `python ../scripts/check-version-propagation` — pyproject.toml / package.json / runtime agree
-2. `python ../scripts/check-db-revision` — migration head `a957791492a7` at release floor
+2. `python ../scripts/check-db-revision` — migration head `b1e2100000007` at release floor
 3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
 4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 85 entries match 85 live routes
-5. `python -m pytest -q` (backend) — full suite `1570 passed / 2 skipped`
-6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — `56 files / 406 tests`, clean typecheck/lint, build succeeds
+5. `python -m pytest -q` (backend) — full suite `1934 passed / 2 skipped`
+6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — `65 files / 506 tests`, typecheck/lint pre-existing only, build succeeds
 
 ### 7.3 Execution status
 

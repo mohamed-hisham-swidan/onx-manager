@@ -57,6 +57,19 @@ export interface PluginSearchResultResponse {
   follows: number;
   icon_url: string | null;
   latest_version_id: string;
+  categories: string[];
+  loaders: string[];
+  client_side: string | null;
+  server_side: string | null;
+  date_modified: string;
+  color: number | null;
+}
+
+export interface PluginSearchResultsResponse {
+  items: PluginSearchResultResponse[];
+  total_hits: number;
+  offset: number;
+  limit: number;
 }
 
 export interface PluginProjectResponse {
@@ -72,8 +85,10 @@ export interface PluginProjectResponse {
   downloads: number;
   follows: number;
   icon_url: string | null;
-  wiki_url: string;
-  source_url: string;
+  wiki_url: string | null;
+  source_url: string | null;
+  client_side?: string | null;
+  server_side?: string | null;
 }
 
 export interface PluginFileResponse {
@@ -103,6 +118,7 @@ export interface PluginVersionsResponse {
   selected: PluginVersionResponse | null;
   notice: string;
   notice_kind: string;
+  total: number;
 }
 
 export interface InstallModrinthPluginRequest {

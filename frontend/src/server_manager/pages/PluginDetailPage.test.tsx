@@ -30,6 +30,8 @@ const mockProject = {
   icon_url: "https://example.com/icon.png",
   wiki_url: "https://example.com/wiki",
   source_url: "https://example.com/source",
+  client_side: "optional",
+  server_side: "required",
 };
 
 interface ProjectMock {
@@ -39,14 +41,36 @@ interface ProjectMock {
   error: unknown;
 }
 
-const { useMarketplaceProject } = vi.hoisted(() => ({
+const { useMarketplaceProject, useMarketplaceProjectVersions, useServersList } = vi.hoisted(() => ({
   useMarketplaceProject: vi.fn<
     (projectId: string, options?: { enabled?: boolean }) => ProjectMock
   >(() => ({ data: null, isLoading: false, isError: false, error: null })),
+  useMarketplaceProjectVersions: vi.fn(() => ({
+    data: {
+      project_id: "essentialsx",
+      versions: [],
+      selected: null,
+      notice: "",
+      notice_kind: "",
+      total: 0,
+    },
+    isLoading: false,
+    error: null,
+  })),
+  useServersList: vi.fn(() => ({
+    data: [],
+    isLoading: false,
+    error: null,
+  })),
 }));
 
 vi.mock("@/server_manager/hooks/usePlugins", () => ({
   useMarketplaceProject,
+  useMarketplaceProjectVersions,
+}));
+
+vi.mock("@/server_manager/hooks/useServers", () => ({
+  useServersList,
 }));
 
 function renderDetailPage(projectId = "essentialsx") {
@@ -74,14 +98,37 @@ describe("PluginDetailPage", () => {
     });
   });
 
-  it("renders project details correctly", () => {
+  it("renders project details, tabs, and compatibility card", () => {
     renderDetailPage();
     expect(screen.getByRole("heading", { name: "EssentialsX" })).toBeInTheDocument();
     expect(screen.getAllByText("Essentials Team")[0]).toBeInTheDocument();
-    expect(screen.getByText("Long description of EssentialsX body")).toBeInTheDocument();
     expect(screen.getByText("5.0M")).toBeInTheDocument();
     expect(screen.getByText("Wiki")).toHaveAttribute("href", "https://example.com/wiki");
     expect(screen.getByText("Source Code")).toHaveAttribute("href", "https://example.com/source");
+
+    // Detail tabs present
+    expect(screen.getByTestId("detail-tabs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Description" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Changelog/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Versions" })).toBeInTheDocument();
+
+    // Default tab is Description -> About section rendered
+    expect(screen.getByTestId("about-section")).toBeInTheDocument();
+    expect(screen.getByText("Long description of EssentialsX body")).toBeInTheDocument();
+
+    // Compatibility card rendered
+    expect(screen.getByTestId("compatibility-card")).toBeInTheDocument();
+    expect(screen.getByText("Client and server")).toBeInTheDocument();
+  });
+
+  it("switches to Versions tab when clicked", () => {
+    renderDetailPage();
+    const versionsTab = screen.getByRole("button", { name: "Versions" });
+    fireEvent.click(versionsTab);
+
+    // About section hidden, Versions list container rendered
+    expect(screen.queryByTestId("about-section")).not.toBeInTheDocument();
+    expect(screen.getByTestId("no-versions-state")).toBeInTheDocument();
   });
 
   it("navigates back to marketplace with install state when Install button is clicked", () => {
@@ -102,6 +149,12 @@ describe("PluginDetailPage", () => {
           follows: 1200,
           icon_url: "https://example.com/icon.png",
           latest_version_id: "",
+          categories: [],
+          loaders: ["paper", "spigot"],
+          client_side: "optional",
+          server_side: "required",
+          date_modified: "",
+          color: null,
         },
       },
     });

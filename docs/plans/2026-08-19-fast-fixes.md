@@ -1,8 +1,7 @@
 # Fast Fixes — Parking List
 
-**Status:** Not implemented — documentation only.
-**Purpose:** Small behavioral fixes Mohamed has raised that are deferred. No
-code was changed for any item in this document; each entry describes the
+**Status:** Parking list — FF-1 RESOLVED (2026-08-19), FF-2 DEFERRED (no code changed for it).
+**Purpose:** Small behavioral fixes Mohamed has raised. Each entry describes the
 desired behavior so it can be picked up directly.
 **Last updated:** 2026-08-19
 

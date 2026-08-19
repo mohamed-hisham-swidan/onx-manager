@@ -36,6 +36,19 @@ class PluginSearchResultResponse(BaseModel):
     follows: int = 0
     icon_url: str | None = None
     latest_version_id: str = ""
+    categories: list[str] = []
+    loaders: list[str] = []
+    client_side: str | None = None
+    server_side: str | None = None
+    date_modified: str = ""
+    color: int | None = None
+
+
+class PluginSearchResultsResponse(BaseModel):
+    items: list[PluginSearchResultResponse]
+    total_hits: int = 0
+    offset: int = 0
+    limit: int = 20
 
 
 class PluginProjectResponse(BaseModel):
@@ -51,8 +64,10 @@ class PluginProjectResponse(BaseModel):
     downloads: int = 0
     follows: int = 0
     icon_url: str | None = None
-    wiki_url: str = ""
-    source_url: str = ""
+    wiki_url: str | None = None
+    source_url: str | None = None
+    client_side: str | None = None
+    server_side: str | None = None
 
 
 class PluginFileResponse(BaseModel):
@@ -82,6 +97,7 @@ class PluginVersionsResponse(BaseModel):
     selected: PluginVersionResponse | None = None
     notice: str = ""
     notice_kind: str = ""
+    total: int = 0
 
 
 class InstallModrinthPluginRequest(BaseModel):

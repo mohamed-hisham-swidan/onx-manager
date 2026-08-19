@@ -223,7 +223,7 @@ export function PluginMarketplacePage() {
 
           {search.isLoading ? (
             <TableSkeleton rows={4} cols={4} />
-          ) : search.isError ? null : search.data && search.data.length > 0 ? (
+          ) : search.isError ? null : search.data && search.data.items.length > 0 ? (
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
               <table className="w-full text-sm">
                 <thead>
@@ -235,7 +235,7 @@ export function PluginMarketplacePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {search.data.map((p) => (
+                  {search.data.items.map((p) => (
                     <tr
                       key={p.project_id}
                       className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"

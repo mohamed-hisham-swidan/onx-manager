@@ -121,7 +121,12 @@ Always returns the full version list sorted newest-first for manual override.
 
 ### 3.5 Routes
 
-All under `/api/v1/servers/{server_id}/plugins` (see `docs/API.md`):
+Two route namespaces — a server-scoped one under
+`/api/v1/servers/{server_id}/plugins`, and a server-independent global catalog
+one under `/api/v1/marketplace` (K5 + SPEC-PLUGIN-DETAIL-TABS-001). See
+`docs/API.md` for the full reference.
+
+Server-scoped (all under `/api/v1/servers/{server_id}/plugins`):
 
 | Method | Path | Permission | Notes |
 |--------|------|-----------|-------|
@@ -133,6 +138,14 @@ All under `/api/v1/servers/{server_id}/plugins` (see `docs/API.md`):
 | `DELETE` | `/plugins/{plugin_id}` | `plugin:manage` | Sets `pending_deletion` |
 | `POST` | `/plugins/{plugin_id}/enable` | auth-only (K4) | **No `require_permission`** — Phase 4 gap |
 | `POST` | `/plugins/{plugin_id}/disable` | auth-only (K4) | **No `require_permission`** — Phase 4 gap |
+
+Server-independent (under `/api/v1/marketplace`, all `plugin:manage`):
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/marketplace/search` | Global catalog search (K5, `useMarketplaceSearchGlobal`) |
+| `GET` | `/marketplace/projects/{project_id}` | Full project detail; nullable `wiki_url`/`source_url`; `client_side`/`server_side` (SPEC-PLUGIN-DETAIL-TABS-001) |
+| `GET` | `/marketplace/projects/{project_id}/versions` | All versions raw, `selected=null` always; Recommended computed client-side (2026-08-19) |
 
 ---
 

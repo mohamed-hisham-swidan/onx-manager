@@ -6,7 +6,11 @@ from app.modules.plugin.application.commands.install_modrinth_plugin import (
     InstallModrinthPluginCommand,
     InstallModrinthPluginHandler,
 )
-from app.modules.plugin.infrastructure.providers.base import PluginFile, PluginVersionInfo
+from app.modules.plugin.infrastructure.providers.base import (
+    PluginFile,
+    PluginVersionInfo,
+    PluginVersionsPage,
+)
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.value_objects import (
@@ -50,8 +54,13 @@ class _FakeProvider:
         self._version = version
         self.downloaded_url: str | None = None
 
-    async def get_project_versions(self, _project_id: str) -> list[PluginVersionInfo]:
-        return [self._version] if self._version else []
+    async def get_project_versions(
+        self, _project_id: str, **kwargs: object  # noqa: ARG002
+    ) -> PluginVersionsPage:
+        return PluginVersionsPage(
+            items=[self._version] if self._version else [],
+            total=1 if self._version else 0,
+        )
 
     async def get_version(self, _version_id: str) -> PluginVersionInfo:
         return self._version
