@@ -86,6 +86,7 @@ export interface ServerPropertiesInfo {
 export interface ScanResult {
   path: string;
   name: string;
+  server_name_declared?: boolean;
   server_type: string;
   minecraft_version: string;
   eula_accepted: boolean;

@@ -380,3 +380,52 @@ class TestFilesystemReconciliationNameDrift:
         assert server.name == "Drifted Disk Name"
         repo.save.assert_awaited_once_with(server)
 
+    @pytest.mark.asyncio
+    async def test_reconciliation_preserves_db_name_when_no_server_name_declared(self, tmp_path) -> None:
+        from app.modules.server.application.services.filesystem_reconciliation import (
+            FilesystemReconciliationService,
+        )
+
+        data_dir = tmp_path / "servers"
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        sid = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+        server_dir = data_dir / sid
+        server_dir.mkdir(parents=True, exist_ok=True)
+        # File has NO server-name property (legacy / name-less server)
+        (server_dir / "server.properties").write_text("server-port=25565\nmotd=A Minecraft Server\n", encoding="utf-8")
+        (server_dir / "eula.txt").write_text("eula=true\n", encoding="utf-8")
+        (server_dir / "server.jar").write_bytes(b"fake jar content")
+
+        identity_dir = server_dir / ".mcsmanager"
+        identity_dir.mkdir(parents=True, exist_ok=True)
+        (identity_dir / "server.json").write_text(
+            f'{{"version": 1, "uid": "{sid}", "created_at": "2026-08-19T00:00:00Z", "manager": "mcs", "schema_version": 1}}',
+            encoding="utf-8",
+        )
+
+        server = _make_server(sid, ServerStatus.CREATED, name="Custom DB Server Name")
+        server._deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path=str(server_dir),
+            working_directory=".",
+            startup_jar="server.jar",
+        )
+
+        repo = MagicMock()
+        repo.list = AsyncMock(return_value=[server])
+        repo.save = AsyncMock()
+
+        mock_settings = MagicMock()
+        mock_settings.servers_data_dir = str(data_dir)
+
+        service = FilesystemReconciliationService(repo=repo)
+        with patch("app.modules.server.application.services.filesystem_reconciliation.AppSettings", return_value=mock_settings):
+            result = await service.reconcile()
+
+        assert result.total_updated == 0
+        assert result.total_unchanged == 1
+        assert server.name == "Custom DB Server Name"
+        repo.save.assert_not_called()
+
+

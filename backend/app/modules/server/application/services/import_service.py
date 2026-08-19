@@ -218,12 +218,15 @@ def scan_server_directory(path: str, fs: FileSystem | None = None) -> dict[str, 
     jar_name = _find_server_jar(server_dir, fs)
     server_type = _detect_server_type(jar_name, props)
 
-    name = (props.get("server-name") or "").strip() or Path(server_dir).name
+    raw_server_name = (props.get("server-name") or "").strip()
+    server_name_declared = bool(raw_server_name)
+    name = raw_server_name or Path(server_dir).name
     jar_full_path = str(Path(server_dir) / jar_name) if jar_name else None
 
     return {
         "path": server_dir,
         "name": name,
+        "server_name_declared": server_name_declared,
         "server_type": server_type,
         "minecraft_version": _detect_version(props, jar_name) or "",
         "eula_accepted": eula,

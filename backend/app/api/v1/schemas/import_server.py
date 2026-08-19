@@ -50,6 +50,7 @@ class ServerPropertiesInfo(BaseModel):
 class ScanResult(BaseModel):
     path: str
     name: str
+    server_name_declared: bool = False
     server_type: str
     minecraft_version: str
     eula_accepted: bool
