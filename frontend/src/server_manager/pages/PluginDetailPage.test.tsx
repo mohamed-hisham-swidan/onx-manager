@@ -65,6 +65,7 @@ const { useMarketplaceProject, useMarketplaceProjectVersions, useServersList } =
 }));
 
 vi.mock("@/server_manager/hooks/usePlugins", () => ({
+  MARKETPLACE_PAGE_SIZE: 20,
   useMarketplaceProject,
   useMarketplaceProjectVersions,
 }));

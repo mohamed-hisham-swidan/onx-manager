@@ -1,8 +1,10 @@
 # Marketplace Pagination & Card Redesign v3 — Design Spec (2026-08-19)
 
 Status: **Batch 1 (Backend) COMPLETE** (verified: 188 backend + 506 frontend tests
-passing; zero new ruff violations). Batch 2 (Frontend pagination) and Batch 3
-(Frontend card redesign) are queued but NOT started.
+passing; zero new ruff violations). **Batch 2 (Frontend pagination) COMPLETE**
+(verified: full frontend suite green except one load-flaky unrelated acceptance
+timeout; zero new tsc/ESLint errors; vite build clean). Batch 3 (Frontend card
+redesign) is queued but NOT started.
 
 This spec layers on top of the currently-uncommitted SPEC-PLUGIN-DETAIL-TABS-001
 batch (the new `marketplace.py` router, `CompatibilityCard.tsx`,
@@ -143,12 +145,45 @@ currently parsed/exposed by our provider or schema. This requires:
   schema field additions (Decision 8); query-key fix (`offset` now in React
   Query keys); versions-endpoint `limit`/`offset` (Decision 6 backend half,
   fetch-all-then-slice in the Modrinth provider).
-- **Batch 2 (Frontend):** new reusable **Pagination** component (arrow +
-  page-number bar, URL-param-driven, no prefetch); wire into
-  `PluginMarketplacePage.tsx` and `ProjectVersionsList.tsx`. **NOT STARTED.**
+- **Batch 2 (Frontend):** **✅ DONE (2026-08-19).** New reusable **Pagination**
+  component (`frontend/src/components/ui/Pagination.tsx` — arrow + page-number
+  bar, URL-`page`-param-driven via `useSearchParams`, windowed numbers with
+  ellipsis, no prefetch); wired into `PluginMarketplacePage.tsx` (global +
+  server-scoped share one component; `offset = (page-1)*20` fed to both search
+  hooks; search/type-change resets `page`) and `ProjectVersionsList.tsx`
+  (`offset` threaded into `useMarketplaceProjectVersions`).
 - **Batch 3 (Frontend):** replace the marketplace table with the new
   Modrinth-style card component, consuming the new schema fields from Batch 1.
   **NOT STARTED.**
+
+## Batch 2 verification record
+
+- Frontend full suite: `520/521 passed` (66 files). The single failure is a
+  known load-flaky **pre-existing** acceptance test, `PanelExposureSection`
+  T-74-02 `switching to cloudflare ... saves token and hostname` hitting its
+  `5000ms` timeout under parallel load (same class as T-75-06 on the prior run);
+  it passes in isolation (`16/16`). Unrelated to Batch 2 (that component is one
+  of the 4 pre-existing tsc-error files).
+- Targeted Batch 2 tests: `30 passed` (`Pagination.test.tsx` 9,
+  `PluginMarketplacePage.test.tsx` 13, `ProjectVersionsList.test.tsx` 8).
+- `tsc --noEmit`: **no new errors** — same 4 pre-existing files as HEAD
+  (`DashboardServerList.test.tsx`, `PanelExposureSection.tsx`,
+  `useServerExposure.ts`, `ServerDetailPage.test.tsx`).
+- `vite build`: clean (only the pre-existing >500 kB chunk-size warning).
+- ESLint on all changed files: 0 errors; 2 warnings both pre-existing patterns
+  (`react-refresh/only-export-components` for a non-component export — same as
+  `CompatibilityCard`'s `getLoaderDisplay`; `react-hooks/exhaustive-deps` for
+  the pre-existing `?? []` in the recommended-version `useMemo`).
+
+## Findings Ledger (Batch 2 closure)
+
+| ID | Finding / Decision | Classification | Documentation Location | Code/Test Impact | Status |
+|---|---|---|---|---|---|
+| F-08 | New reusable **`Pagination`** component is URL-`page`-param-driven via `useSearchParams` (Decision 3): arrow + page-number bar mirrors the Modrinth screenshot, windowed numbers with ellipsis; `offset = (page-1)*20` (Decision 2); **no prefetch** — pages fetched only when the param changes | DESIGN | `frontend/src/components/ui/Pagination.tsx`; spec Decisions 2/3 | Exported `getPageItems` helper covered by unit tests; disabled arrows at boundaries; other URL params preserved | Verified |
+| F-09 | Out-of-range `page` values are **normalized** by a post-render effect that rewrites the URL to the last valid page (`setSearchParams(nextParams, { replace: true })`) in both `PluginMarketplacePage` and `ProjectVersionsList` — prevents empty renders for manually entered `?page=999` | DESIGN | `PluginMarketplacePage.tsx:74`, `ProjectVersionsList.tsx` | `Pagination.test.tsx` clamping test + `ProjectVersionsList.test.tsx` normalization test | Verified |
+| F-10 | `MARKETPLACE_PAGE_SIZE` (20) is now imported by the Pagination component and both consumers; the **three** test modules that `vi.mock` `usePlugins` (`PluginMarketplacePage`, `ProjectVersionsList`, `PluginDetailPage`) had to re-export `MARKETPLACE_PAGE_SIZE: 20` from the mock or the module import fails with `No "MARKETPLACE_PAGE_SIZE" export is defined` | BUG (test mock) | `PluginMarketplacePage.test.tsx:111`, `ProjectVersionsList.test.tsx`, `PluginDetailPage.test.tsx` | Mock factories now include the constant; verified by full suite | Verified |
+| F-11 | `ProjectVersionsList` empty-state guard moved from `versions.length === 0` to `totalVersions === 0` — an out-of-range page yields an empty **slice** while `total` is still > 0, so the "no versions" state must key on the authoritative `total`; the URL-normalization effect then recovers the last valid page | DESIGN | `ProjectVersionsList.tsx` | Empty-state test still keys on `total: 0` | Verified |
+| F-12 | `PanelExposureSection`/`ServerExposurePage` acceptance tests (T-74/T-75) time out sporadically at their 5s limits **only under full-suite parallel load**; both pass in isolation (16/16 and 24/24). Pre-existing load-flakiness, unrelated to pagination | CI (pre-existing) | `.ai/CURRENT_STATE.json` | None | Verified / not this batch |
 
 ## Batch 1 verification record
 

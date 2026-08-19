@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
+  MARKETPLACE_PAGE_SIZE,
   useMarketplaceSearch,
   useMarketplaceSearchGlobal,
 } from "@/server_manager/hooks/usePlugins";
+import { Pagination } from "@/components/ui/Pagination";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/EmptyState";
@@ -53,15 +55,29 @@ export function PluginMarketplacePage() {
   const isModrinth = source === "modrinth";
 
   const globalQuery = serverId ? "" : submitted;
+  const urlPage = Math.max(1, Number(searchParams.get("page")) || 1);
+  const offset = (urlPage - 1) * MARKETPLACE_PAGE_SIZE;
   const searchGlobal = useMarketplaceSearchGlobal(globalQuery, {
     enabled: isModrinth,
     projectType,
+    offset,
   });
   const searchScoped = useMarketplaceSearch(serverId, submitted, {
     enabled: isModrinth,
     projectType,
+    offset,
   });
   const search = serverId ? searchScoped : searchGlobal;
+
+  const totalHits = search.data?.total_hits ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalHits / MARKETPLACE_PAGE_SIZE));
+  useEffect(() => {
+    if (search.data && urlPage > totalPages) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set("page", String(totalPages));
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [search.data, urlPage, totalPages, searchParams, setSearchParams]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -72,6 +88,7 @@ export function PluginMarketplacePage() {
     } else {
       newParams.delete("q");
     }
+    newParams.delete("page");
     setSearchParams(newParams);
   }
 
@@ -82,6 +99,7 @@ export function PluginMarketplacePage() {
     } else {
       newParams.set("type", newType);
     }
+    newParams.delete("page");
     setSearchParams(newParams);
   }
 
@@ -224,7 +242,8 @@ export function PluginMarketplacePage() {
           {search.isLoading ? (
             <TableSkeleton rows={4} cols={4} />
           ) : search.isError ? null : search.data && search.data.items.length > 0 ? (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+            <>
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
@@ -287,7 +306,9 @@ export function PluginMarketplacePage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+              <Pagination totalItems={search.data.total_hits} />
+            </>
           ) : (
             <EmptyState
               icon="search"

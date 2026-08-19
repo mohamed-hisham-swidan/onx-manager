@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProjectVersionsList } from "./ProjectVersionsList";
 import { useMarketplaceProjectVersions } from "@/server_manager/hooks/usePlugins";
@@ -9,6 +10,7 @@ import type { PluginVersionResponse, PluginVersionsResponse } from "@/types";
 import type { ServerResponse } from "@/server_manager/types";
 
 vi.mock("@/server_manager/hooks/usePlugins", () => ({
+  MARKETPLACE_PAGE_SIZE: 20,
   useMarketplaceProjectVersions: vi.fn(),
 }));
 
@@ -77,11 +79,13 @@ const mockServers: ServerResponse[] = [
   },
 ];
 
-function renderList(projectId = "proj-1") {
+function renderList(projectId = "proj-1", initialEntry = "/") {
   const qc = new QueryClient();
   return render(
     <QueryClientProvider client={qc}>
-      <ProjectVersionsList projectId={projectId} />
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <ProjectVersionsList projectId={projectId} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -178,5 +182,66 @@ describe("ProjectVersionsList", () => {
 
     renderList();
     expect(screen.getByTestId("project-versions-loading")).toBeInTheDocument();
+  });
+
+  it("passes the page offset to the versions hook via the URL page param", () => {
+    vi.mocked(useMarketplaceProjectVersions).mockReturnValue({
+      data: {
+        project_id: "proj-1",
+        versions: mockVersions,
+        selected: null,
+        notice: "",
+        notice_kind: "",
+        total: 25,
+      } as PluginVersionsResponse,
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useMarketplaceProjectVersions>);
+
+    renderList("proj-1", "/?page=2");
+
+    expect(vi.mocked(useMarketplaceProjectVersions)).toHaveBeenLastCalledWith("proj-1", { offset: 20 });
+  });
+
+  it("renders pagination when more than one page of versions exists", () => {
+    vi.mocked(useMarketplaceProjectVersions).mockReturnValue({
+      data: {
+        project_id: "proj-1",
+        versions: mockVersions,
+        selected: null,
+        notice: "",
+        notice_kind: "",
+        total: 25,
+      } as PluginVersionsResponse,
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useMarketplaceProjectVersions>);
+
+    renderList("proj-1", "/?page=2");
+
+    expect(screen.getByRole("button", { name: "Page 2", current: "page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+  });
+
+  it("normalizes an out-of-range page param to the last page", async () => {
+    vi.mocked(useMarketplaceProjectVersions).mockReturnValue({
+      data: {
+        project_id: "proj-1",
+        versions: mockVersions,
+        selected: null,
+        notice: "",
+        notice_kind: "",
+        total: 25,
+      } as PluginVersionsResponse,
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useMarketplaceProjectVersions>);
+
+    renderList("proj-1", "/?page=99");
+
+    await waitFor(() => {
+      expect(vi.mocked(useMarketplaceProjectVersions)).toHaveBeenLastCalledWith("proj-1", { offset: 20 });
+    });
   });
 });

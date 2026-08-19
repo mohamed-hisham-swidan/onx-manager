@@ -95,10 +95,10 @@ const { useMarketplaceSearch, useMarketplaceSearchGlobal } = vi.hoisted(() => {
   const empty: SearchMock = { data: null, isLoading: false, isError: false, error: null };
   return {
     useMarketplaceSearch: vi.fn<
-      (serverId: string, query: string, options?: { enabled?: boolean; projectType?: string }) => SearchMock
+      (serverId: string, query: string, options?: { enabled?: boolean; projectType?: string; offset?: number }) => SearchMock
     >(() => empty),
     useMarketplaceSearchGlobal: vi.fn<
-      (query: string, options?: { enabled?: boolean; projectType?: string }) => SearchMock
+      (query: string, options?: { enabled?: boolean; projectType?: string; offset?: number }) => SearchMock
     >(() => empty),
   };
 });
@@ -108,6 +108,7 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
 }));
 
 vi.mock("@/server_manager/hooks/usePlugins", () => ({
+  MARKETPLACE_PAGE_SIZE: 20,
   useMarketplaceSearch,
   useMarketplaceSearchGlobal,
   useProjectVersions: vi.fn(() => ({ data: mockVersions, isLoading: false, isError: false, error: null })),
@@ -171,16 +172,16 @@ describe("PluginMarketplacePage & InstallModal", () => {
 
   it("switches to CurseForge source and renders coming soon state with disabled fetches", () => {
     renderPage();
-    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true, projectType: "plugin" });
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true, projectType: "plugin", offset: 0 });
 
     fireEvent.click(screen.getByRole("button", { name: /CurseForge/i }));
     expect(useMarketplaceSourceStore.getState().source).toBe("curseforge");
     expect(screen.getByText("CurseForge Integration Coming Soon")).toBeInTheDocument();
-    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: false, projectType: "plugin" });
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: false, projectType: "plugin", offset: 0 });
 
     fireEvent.click(screen.getByRole("button", { name: /Switch to Modrinth/i }));
     expect(useMarketplaceSourceStore.getState().source).toBe("modrinth");
-    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true, projectType: "plugin" });
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true, projectType: "plugin", offset: 0 });
   });
 
   it("changes Discover dropdown from Plugins to Mods and passes projectType to search hook", () => {
@@ -194,6 +195,7 @@ describe("PluginMarketplacePage & InstallModal", () => {
     expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", {
       enabled: true,
       projectType: "mod",
+      offset: 0,
     });
   });
 
@@ -277,5 +279,44 @@ describe("PluginMarketplacePage & InstallModal", () => {
     act(() => mockInstallCallbacks.onSuccess?.({ version: "2.21.0" }));
     expect(useLastUsedServerStore.getState().lastUsedServerId).toBe("srv-1");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("passes page offset to the search hook when navigating pagination", () => {
+    useMarketplaceSearchGlobal.mockReturnValue({ data: { items: mockResults, total_hits: 25, offset: 0, limit: 20 }, isLoading: false, isError: false, error: null });
+    renderPage("/marketplace");
+
+    fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
+
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", {
+      enabled: true,
+      projectType: "plugin",
+      offset: 20,
+    });
+  });
+
+  it("fetches the page offset from the URL page param on initial load", () => {
+    renderPage("/marketplace?page=2");
+
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", {
+      enabled: true,
+      projectType: "plugin",
+      offset: 20,
+    });
+  });
+
+  it("resets pagination to the first page when a new search is submitted", () => {
+    useMarketplaceSearchGlobal.mockReturnValue({ data: { items: mockResults, total_hits: 25, offset: 0, limit: 20 }, isLoading: false, isError: false, error: null });
+    renderPage("/marketplace?page=2");
+
+    fireEvent.change(screen.getByRole("textbox", { name: /Search plugins/i }), {
+      target: { value: "essentials" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Search$/i }));
+
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("essentials", {
+      enabled: true,
+      projectType: "plugin",
+      offset: 0,
+    });
   });
 });
