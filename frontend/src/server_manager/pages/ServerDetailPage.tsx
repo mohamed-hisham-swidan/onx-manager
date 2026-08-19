@@ -205,13 +205,18 @@ export function ServerDetailPage() {
     </>
   );
 
-  const currentMetric = metrics?.length
-    ? metrics.reduce((latest, m) => (m.timestamp > latest.timestamp ? m : latest))
-    : undefined;
+  const isRunning = server.status === "running";
 
-  const ramData = (metrics ?? []).map((m) => m.ram_used_mb);
-  const cpuData = (metrics ?? []).map((m) => m.cpu_percent);
-  const tpsData = (metrics ?? []).map((m) => m.tps).filter((t): t is number => t != null);
+  const currentMetric =
+    isRunning && metrics?.length
+      ? metrics.reduce((latest, m) => (m.timestamp > latest.timestamp ? m : latest))
+      : undefined;
+
+  const ramData = isRunning ? (metrics ?? []).map((m) => m.ram_used_mb) : [];
+  const cpuData = isRunning ? (metrics ?? []).map((m) => m.cpu_percent) : [];
+  const tpsData = isRunning
+    ? (metrics ?? []).map((m) => m.tps).filter((t): t is number => t != null)
+    : [];
 
   const ramPercent =
     currentMetric && server?.max_memory_mb && server.max_memory_mb > 0
@@ -221,7 +226,6 @@ export function ServerDetailPage() {
   const resolvedAddress = resolveAccessAddress(server, exposure);
   const address = resolvedAddress.address ?? "—";
 
-  const isRunning = server.status === "running";
   const hasLiveTps = isRunning && currentMetric?.tps != null;
 
   return (

@@ -254,6 +254,23 @@ describe("ServerDetailPage", () => {
     expect(screen.getByTestId("tps-usage-value")).toHaveTextContent("—");
   });
 
+  it("renders — for CPU and RAM Usage cards when server is stopped despite metrics history", () => {
+    mockData = { ...mockServer, status: "stopped" };
+    mockMetricsData = [
+      {
+        tps: 20.0,
+        players: 3,
+        ram_used_mb: 1024,
+        cpu_percent: 10.0,
+        timestamp: "2026-08-18T19:00:00Z",
+      },
+    ];
+    renderPage();
+    expect(screen.getAllByText("CPU Usage").length).toBeGreaterThan(0);
+    expect(screen.queryByText("10.0%")).not.toBeInTheDocument();
+    expect(screen.queryByText("1.0 GB (50.0%)")).not.toBeInTheDocument();
+  });
+
   it("renders — for TPS Usage card when running but TPS is null (unknown)", () => {
     mockData = { ...mockServer, status: "running" };
     mockMetricsData = [
