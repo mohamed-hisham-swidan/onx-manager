@@ -80,9 +80,26 @@ old DB name — the file and the manager disagree.
      to detect server name drift between on-disk `server.properties` and the database,
      updating `server.rename(...)` and saving to the DB so `name_search` and DB reads
      stay consistent.
-   - Updated `scan_server_directory` in `import_service.py` to safely fallback
-     to directory name when `server-name=` is empty.
+- Updated `scan_server_directory` in `import_service.py` to safely fallback
+      to directory name when `server-name=` is empty.
    - Unit tests in `backend/tests/application/test_reconciliation.py` (`TestFilesystemReconciliationNameDrift`).
+
+**Regression guard (2026-08-19, commit `5ec1841`):**
+
+The initial reconciliation sync would rename any legacy/name-less server (no
+`server-name=` in `server.properties`) to its folder basename on startup —
+violating the "DB name as fallback for name-less/legacy servers" rule. Fixed by:
+
+   - `scan_server_directory` now also returns `server_name_declared: bool`,
+     true only when the on-disk file actually declares a non-empty `server-name`.
+   - `_deployment_needs_update` / `_handle_update_deployment` only perform the
+     name-drift rename when `server_name_declared` is true; otherwise the DB
+     name is preserved unchanged.
+   - `ScanResult` schema (`schemas/import_server.py`) and frontend
+     `ScanResult` (`types.ts`) expose the new field.
+   - Regression test
+     `test_reconciliation_preserves_db_name_when_no_server_name_declared` in
+     `backend/tests/application/test_reconciliation.py`.
 
 ---
 
