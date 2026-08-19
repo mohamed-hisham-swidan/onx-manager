@@ -7,6 +7,7 @@ root; this directory holds design/architecture references.
 | Document | Status | Purpose |
 |----------|--------|---------|
 | [Architecture](ARCHITECTURE.md) | ✅ **IMPLEMENTED** | System context, module structure, CQRS/hexagonal patterns, task wiring, reconciliation. |
+| [Specs](SPECS.md) | ✅ **IMPLEMENTED** | Project specs: tech stack, all libraries, repository stats (files/lines by area), structure trees, feature inventory. |
 | [Database](DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain, query patterns, migration guide. |
 | [Security](SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (Phase 4 enforced: global + server-scoped RBAC), audit chain, data protection, rate limiting, sessions. |
 | [Frontend](FRONTEND.md) | ✅ **IMPLEMENTED** | React 19 app structure, state management, WebSocket integration, API client, testing. |

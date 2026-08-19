@@ -34,6 +34,7 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |----------|--------|---------|
 | [Architecture](architecture/ARCHITECTURE.md) | ✅ **IMPLEMENTED** | System context, module structure, CQRS/hexagonal patterns, task wiring, reconciliation. |
+| [Specs](architecture/SPECS.md) | ✅ **IMPLEMENTED** | Project specs: tech stack, all libraries, repository stats (files/lines by area), structure trees, feature inventory. |
 | [Database](architecture/DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain (27 revisions), query patterns, migration guide. |
 | [Security](architecture/SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (Phase 4 enforced: global + server-scoped RBAC), audit chain, data protection, rate limiting, sessions. |
 | [Plugins & Marketplace](architecture/plugins-and-marketplace.md) | ✅ **IMPLEMENTED** | Plugin registry (filesystem source of truth) + Modrinth marketplace implementation. |
