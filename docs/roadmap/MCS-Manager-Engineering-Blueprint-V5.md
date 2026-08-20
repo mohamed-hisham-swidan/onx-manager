@@ -2523,6 +2523,22 @@ Every Minecraft server the product manages runs inside a Docker container. Docke
 process-based providers, but their replacement. Existing servers created under a process-based
 provider are migrated to a container, not left running the old way indefinitely.
 
+This is the **single long-term execution model for server hosting on every host platform** — Linux,
+Windows/macOS via Docker Desktop, and any OS that can run Docker — not a Windows-specific add-on.
+The MCS Manager panel itself may run on any host OS; all server lifecycle management
+(create/start/stop/console/exec) goes through containers exclusively, never direct host execution
+(tmux on Linux `providers/local.py`, PowerShell on Windows `providers/local_windows.py`). The
+direct-host providers (`LocalLinuxProvider`, `LocalWindowsProvider`) are the **legacy path this
+phase phases out** in favor of containers.
+
+**Windows hosting is delivered BY this phase** — by making the container path work end-to-end —
+**not by finishing `LocalWindowsProvider`**, which is dormant/dead code (no code path selects it,
+its `start()` signature is incompatible with the provider interface, and it was never completed). It
+is marked for **eventual removal** once this phase completes; no active development is scheduled for
+it. Current environments are pre-production with disposable test servers, so no automated migration
+path is required — migrating is a manual copy of `data/servers/<id>/` into a container volume if ever
+needed.
+
 ### 4.2 Current reality (fact, `02` §6.1)
 
 - `ServerProvider` is already a Strategy-pattern abstraction (`server/infrastructure/providers/`)
@@ -2545,6 +2561,25 @@ provider are migrated to a container, not left running the old way indefinitely.
   resolution by walking the OS process tree. `DockerProvider` already implements `verify_process()`
   against the container's own state rather than a host PID — this phase must verify that path is as
   reliable as the tmux/PID path it replaces, not assume parity.
+- `LocalWindowsProvider` is dormant, not functional: no code path ever sets
+  `server.runtime.provider = "local_windows"` (default is hardcoded `"local"`,
+  `app/modules/server/domain/value_objects.py` `RuntimeInfo`), its `start()` omits the
+  `deployment`/`launch_config` parameters the interface declares
+  (`app/modules/server/infrastructure/providers/local_windows.py:24` vs `providers/base.py:53-60`),
+  and it is never finished. No OS-detection code selects it.
+- `DockerProvider` (`app/modules/server/infrastructure/providers/docker.py`) is **structurally
+  complete** — every `ServerProvider` method is implemented (`docker.py:24-26, 93-138, 140-147`).
+  Its client is the bare `docker` CLI via subprocess (`docker.py:156-165`) with **no hardcoded
+  socket path**, so it reaches Docker Desktop's Windows named pipe (Linux socket, or TCP) through
+  the CLI's default transport unchanged — the Windows-transport requirement is already satisfied on
+  paper.
+- What is missing is **integration, not the provider primitive**: `"docker"` is not selectable
+  anywhere (`ServerCreateRequest`/`ServerUpdateRequest` expose no provider field,
+  `app/api/v1/schemas/server.py:10-44`; the default is `"local"`), `DockerProvider.start()` takes
+  only `(server_id, config)` without `deployment`/`launch_config` (`docker.py:28`), there is no
+  bind of `deployment.root_path` into the container (`docker.py:45-47` maps only an optional
+  `world_dir`), and `wait_ready()` falls through to the ABC default that returns `True` immediately
+  (`providers/base.py:82-88`).
 
 ### 4.3 Why this phase sits here (dependency reasoning)
 
@@ -2571,41 +2606,97 @@ provider are migrated to a container, not left running the old way indefinitely.
 
 1. **Container image and defaults.** Formalize the `itzg/minecraft-server`-based image (or a
    maintained fork/pin of it) as the standard image for every server type currently supported by
-   `select_best_version()` (`02` §3.3) — vanilla, Paper/Purpur/Spigot/Bukkit, Fabric, Forge. Confirm
-   version-selection logic needs no change (it selects a Minecraft/loader version, not a runtime).
-2. **Make `docker` the only creation-time provider choice.** `CreateServerCommand` no longer accepts
-   `local`/`local_windows`/`ssh` as a target provider. `SSHProvider` and `CloudProvider` are
-   explicitly out of scope for removal by this phase (they solve a different problem — remote/cloud
-   *hosts*, not local runtime type) and are re-evaluated separately, not silently deprecated by this
-   workstream.
+   `select_best_version()` (`02` §3.3) — vanilla, Paper/Purpur/Spigot/Bukkit, Fabric, Forge.
+   **Per-server-type awareness ships via the image's own `TYPE` environment variable rather than
+   custom per-type Dockerfiles** — the image's documented `TYPE` set covers `VANILLA`, `PAPER`,
+   `PURPUR`, `SPIGOT`, `BUKKIT`, `FORGE`, `FABRIC` (plus NEOFORGE/QUILT/etc.), so a single image
+   with `-e TYPE=<mapped>` + `-e VERSION=<mc>` covers every `ServerType`. `DockerProvider.start()`
+   must map `server_type` → `TYPE` (it currently passes only `VERSION`/`MEMORY`/`JVM_XX_OPTS`,
+   `app/modules/server/infrastructure/providers/docker.py:39-43`). Caveat from the image's own docs:
+   the Bukkit/Spigot download provider no longer supports automated downloads, so
+   `TYPE=BUKKIT`/`TYPE=SPIGOT` may be unreliable and the docs recommend Paper — note this in operator
+   messaging. Confirm version-selection logic needs no change (it selects a Minecraft/loader
+   version, not a runtime).
+2. **Provider selectability & default — make `docker` the only creation-time provider choice.**
+   Today `provider` is not settable by any surface: `ServerCreateRequest`/`ServerUpdateRequest` have
+   no provider field (`app/api/v1/schemas/server.py:10-44`) and `server.runtime.provider` defaults
+   to hardcoded `"local"` (`app/modules/server/domain/value_objects.py` `RuntimeInfo`). This
+   workstream adds `docker` as the default creation-time provider, removes the `local`/`local_windows`
+   fallback, and ensures `CreateServerCommand` no longer selects `local`/`local_windows`/`ssh` as a
+   runtime target. `SSHProvider` and `CloudProvider` are explicitly out of scope for removal by this
+   phase (they solve a different problem — remote/cloud *hosts*, not local runtime type) and are
+   re-evaluated separately, not silently deprecated by this workstream.
 3. **One-time migration of existing servers.** A migration service, following the existing
    `migrate_old_import_arch` pattern (`02` §3.1) already used for legacy import-layout servers:
    detect servers running under `local`/`local_windows`, stop them cleanly, wrap their existing
    `data/servers/<id>/` directory as a container bind mount (no data copy, no re-download), create
    the equivalent `DockerProvider`-managed container, verify it starts and reaches the same running
    state, then flip the stored provider type. Must be resumable and safe to re-run (same idempotency
-   discipline as filesystem reconciliation, `02` §6.2).
-4. **Filesystem reconciliation update.** Extend `FilesystemReconciliationService` so disk-truth
-   scanning works unchanged for a bind-mounted container's world directory — the six-stage pipeline
-   (`02` §6.2) should not need to know whether a directory belongs to a container or a bare process.
-5. **RuntimeSupervisor parity check.** Verify `DockerProvider.verify_process()` and crash detection
-   give the same fidelity `RuntimeSupervisor` currently gets from tmux/PID-tree resolution — same
-   `STARTUP_TIMEOUT` / `RUNTIME_PROCESS_LOST` failure codes, same diagnostics quality. If parity
-   doesn't hold, that's a blocking finding for this phase, not a follow-up.
-6. **Resource limits.** Container-level CPU/memory limits (`docker create --memory`, `--cpus`) as the
-   enforcement point for the memory bounds already in the `Server` aggregate's value objects (`02`
-   §3.1), replacing whatever host-level enforcement (or lack of it) the process-based providers relied
-   on.
+   discipline as filesystem reconciliation, `02` §6.2). **Operational note:** current environments
+   are pre-production with disposable test servers, so the immediate need is satisfied by a
+   low-effort manual copy of `data/servers/<id>/` into the container's volume; the automated
+   migration service above is deferred until a non-disposable install exists.
+4. **Volume/bind-mount mapping to `deployment.root_path` + filesystem reconciliation.** A
+   containerized server's data must live under `deployment.root_path` (`data/servers/<id>/`) via a
+   bind mount so it remains visible to `FileSystem` (`app/modules/server/infrastructure/fs.py`) and
+   therefore to the file browser, backups, and mod/plugin/file operations. This mapping is currently
+   missing entirely: `DockerProvider.start()` maps only an optional `world_dir` to `/data/world`
+   (`docker.py:45-47`) and otherwise leaves data in an ephemeral/unnamed container filesystem.
+   `start()` must render `deployment.root_path` into the image's `/data` mount. Then extend
+   `FilesystemReconciliationService` so disk-truth scanning works unchanged for a bind-mounted
+   container's world directory — the six-stage pipeline (`02` §6.2) should not need to know whether
+   a directory belongs to a container or a bare process. (FileSystem ↔ volume parity is a
+   **critical** item — without it, backups/file-browser/mod-install silently break for Docker-hosted
+   servers.)
+5. **RuntimeSupervisor parity + readiness polling.** Verify `DockerProvider.verify_process()` and
+   crash detection give the same fidelity `RuntimeSupervisor` currently gets from tmux/PID-tree
+   resolution — same `STARTUP_TIMEOUT` / `RUNTIME_PROCESS_LOST` failure codes, same diagnostics
+   quality. Also implement real readiness: `DockerProvider` does not override `wait_ready()` and
+   inherits the ABC default that returns `True` immediately (`app/modules/server/infrastructure/providers/base.py:82-88`),
+   so the supervisor would skip the `"Done ("` readiness signal `LocalLinuxProvider` polls
+   (`providers/local.py:486-538`); the Docker path needs equivalent polling (container healthcheck
+   or log scanning). If parity doesn't hold, that's a blocking finding for this phase, not a
+   follow-up.
+6. **Resource limits.** Container-level CPU/memory limits (`docker create --memory`, `--cpus`) as
+   the enforcement point for the memory bounds already in the `Server` aggregate's value objects —
+   `MemoryAllocation` (`app/modules/server/domain/value_objects.py`) — so `min_mb`/`max_mb` render
+   into container limits. Today only JVM `-Xms/-Xmx` env flags are passed (`docker.py:39-43`); no
+   container-level `--memory`/`--cpus` is set. This replaces whatever host-level enforcement (or
+   lack of it) the process-based providers relied on.
 7. **Documentation and operator messaging.** `docs/DEVELOPMENT.md` / install docs updated to state
-   Docker as a hard prerequisite, not an option; migration behavior documented for anyone upgrading
-   from a pre-Phase-11 install.
+   Docker as a hard prerequisite, not an option; the cross-platform execution model (panel on any
+   host OS, servers always in containers) documented; migration behavior documented for anyone
+   upgrading from a pre-Phase-11 install.
+8. **`start()` signature parity with the provider interface.** `DockerProvider.start()` must accept
+   `deployment: ServerDeployment | None` and `launch_config: LaunchConfiguration | None` exactly as
+   the interface declares (`app/modules/server/infrastructure/providers/base.py:53-60`) and the live
+   start flow passes (`app/modules/server/application/commands/start_server.py` →
+   `provider.start(...)`); it currently takes only `(server_id, config)`
+   (`app/modules/server/infrastructure/providers/docker.py:28`), which the existing call path would
+   reject with `TypeError` and which blocks reading `deployment.root_path`/`startup_jar` (needed by
+   workstream 4).
+9. **Port mapping + host-port verification.** Map the game port (`-p {port}:25565`, already present
+   at `docker.py:49`) and the RCON port (the itzg image's `RCON_PORT` env) into the container. Add
+   the equivalent of `LocalLinuxProvider._verify_port_free()` (`providers/local.py:51-61`) as a
+   pre-create check so an occupied host port fails cleanly instead of racing. Internal panel console
+   commands continue via `docker exec … rcon-cli` (`docker.py:126-134`); a *published* RCON port only
+   matters for external tools. playit/cloudflared/UPnP tunnel the host's published game port — no
+   app-side dynamic game-port allocator exists today, so no conflict with container port mapping.
+10. **Windows host support is delivered here, not by another provider.** This phase is what unblocks
+    real Windows hosting: the container client is already transport-agnostic (bare `docker` CLI with
+    no hardcoded socket, `docker.py:156-165` — reaches Docker Desktop's Windows named pipe unchanged),
+    so once workstreams 1–9 land, a Windows Docker Desktop host runs the same container runtime as
+    Linux. **No separate Windows-native provider work should be scheduled**; `LocalWindowsProvider`
+    is marked for **eventual removal** (with `LocalLinuxProvider`) after this phase and stays out of
+    active development. Windows acceptance must be exercised on a Windows host with Docker Desktop,
+    not only on Linux.
 
 ### 4.5 Dependencies
 
-Phases 1–9 (see §4.3). Requires Docker Engine as a host prerequisite — this phase makes that
-prerequisite mandatory rather than optional, which is itself part of what needs explicit
-documentation and, if the project supports a non-Docker-capable host today, a decision record
-(Part VIII) on how that's handled.
+Phases 1–9 (see §4.3). Requires Docker as a host prerequisite (Docker Engine on Linux; Docker
+Desktop on Windows/macOS) — this phase makes that prerequisite mandatory rather than optional,
+which is itself part of what needs explicit documentation and, if the project supports a
+non-Docker-capable host today, a decision record (Part VIII) on how that's handled.
 
 ### 4.6 Acceptance criteria
 
@@ -2620,6 +2711,9 @@ documentation and, if the project supports a non-Docker-capable host today, a de
   bounds.
 - Migration is idempotent and resumable — interrupting it mid-run and re-running produces the same
   end state, not a duplicated or half-migrated one.
+- A Windows (or macOS) host running Docker Desktop — and any other Docker-capable OS — can create,
+  start, stop, console, and exec a server through `DockerProvider` with the same fidelity as Linux,
+  with no `LocalWindowsProvider` involvement.
 
 ### 4.7 Risks
 
@@ -2746,7 +2840,7 @@ criteria in the phase files (authoritative), restated here as a single close-out
 | M7 — Safe to expose to network | 7 | Local/publish choice explicit; independent game/management exposure; tunnel authz == local authz |
 | M8 — Stable published hostname | 8 | Endpoint changes propagate to state + DNS automatically |
 | M9 — Hardened baseline | 9 | End-to-end verification recorded before AI |
-| M11 — Every server containerized | 11 | No `local`/`local_windows` creation path remains; all pre-existing servers migrated and verified running under `DockerProvider`; reconciliation/health/crash parity confirmed |
+| M11 — Every server containerized | 11 | No `local`/`local_windows` creation path remains; all pre-existing servers migrated and verified running under `DockerProvider`; reconciliation/health/crash parity confirmed; cross-platform hosting verified on a Windows (Docker Desktop) host |
 | M10 — Guardrailed AI layer | 10 | All AI actions permission-gated, confirmed, audited |
 
 ### 2.1 Milestone discipline
