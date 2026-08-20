@@ -13,12 +13,49 @@ export interface ProjectCardProps {
   onInstall: (project: PluginSearchResultResponse) => void;
 }
 
+const MAX_VISIBLE_PILLS = 4;
+
 export function ProjectCard({ project, searchParams, onInstall }: ProjectCardProps) {
   const detailQuery = searchParams.toString();
   const loaders = project.loaders ?? [];
   const categories = project.categories ?? [];
   const envs = environmentLabels(project.client_side, project.server_side);
   const updatedLabel = formatRelativeTime(project.date_modified);
+  const detailPath = `/marketplace/${project.project_id}${detailQuery ? `?${detailQuery}` : ""}`;
+
+  const pillElements = [
+    ...loaders.map((loader) => {
+      const display = getLoaderDisplay(loader);
+      return (
+        <span
+          key={loader}
+          className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+        >
+          <Icon name={display.icon} size={11} className="shrink-0" />
+          {display.label}
+        </span>
+      );
+    }),
+    ...categories.map((category) => (
+      <span
+        key={category}
+        className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700/60 dark:text-gray-300"
+      >
+        {category}
+      </span>
+    )),
+    ...envs.map((env) => (
+      <span
+        key={env}
+        className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+      >
+        <Icon name="globe" size={11} className="shrink-0" />
+        {env}
+      </span>
+    )),
+  ];
+  const visiblePills = pillElements.slice(0, MAX_VISIBLE_PILLS);
+  const hiddenPillCount = pillElements.length - visiblePills.length;
 
   return (
     <li
@@ -27,7 +64,7 @@ export function ProjectCard({ project, searchParams, onInstall }: ProjectCardPro
     >
       <div className="flex items-start justify-between gap-4">
         <Link
-          to={`/marketplace/${project.project_id}${detailQuery ? `?${detailQuery}` : ""}`}
+          to={detailPath}
           className="group flex min-w-0 flex-1 items-start gap-3"
         >
           {project.icon_url ? (
@@ -66,35 +103,16 @@ export function ProjectCard({ project, searchParams, onInstall }: ProjectCardPro
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {loaders.map((loader) => {
-          const display = getLoaderDisplay(loader);
-          return (
-            <span
-              key={loader}
-              className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-            >
-              <Icon name={display.icon} size={11} className="shrink-0" />
-              {display.label}
-            </span>
-          );
-        })}
-        {categories.map((category) => (
-          <span
-            key={category}
-            className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700/60 dark:text-gray-300"
+        {visiblePills}
+        {hiddenPillCount > 0 && (
+          <Link
+            to={detailPath}
+            aria-label={`${hiddenPillCount} more tags`}
+            className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:bg-gray-700/60 dark:text-gray-400 dark:hover:bg-blue-900/30 dark:hover:text-blue-400"
           >
-            {category}
-          </span>
-        ))}
-        {envs.map((env) => (
-          <span
-            key={env}
-            className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-          >
-            <Icon name="globe" size={11} className="shrink-0" />
-            {env}
-          </span>
-        ))}
+            +{hiddenPillCount}
+          </Link>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 pt-3 text-xs text-gray-500 dark:border-gray-700/50 dark:text-gray-400">

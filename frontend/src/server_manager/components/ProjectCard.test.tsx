@@ -43,13 +43,32 @@ describe("ProjectCard", () => {
     expect(screen.getByText("Essential commands")).toBeInTheDocument();
   });
 
-  it("renders loader, category and environment pills", () => {
+  it("caps the tag pills and renders a +N overflow linking to the detail page", () => {
     renderCard();
     expect(screen.getByText("Paper")).toBeInTheDocument();
     expect(screen.getByText("Spigot")).toBeInTheDocument();
     expect(screen.getByText("management")).toBeInTheDocument();
     expect(screen.getByText("economy")).toBeInTheDocument();
+    expect(screen.queryByText("Server-side")).not.toBeInTheDocument();
+
+    const overflow = screen.getByRole("link", { name: "1 more tags" });
+    expect(overflow).toHaveAttribute("href", "/marketplace/essentialsx");
+  });
+
+  it("shows all pills when the tag count is under the cap", () => {
+    renderCard({ ...mockProject, loaders: ["paper"], categories: ["management"] });
+    expect(screen.getByText("Paper")).toBeInTheDocument();
+    expect(screen.getByText("management")).toBeInTheDocument();
     expect(screen.getByText("Server-side")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /more tags/ })).not.toBeInTheDocument();
+  });
+
+  it("renders a larger overflow count for tag-heavy projects", () => {
+    renderCard({
+      ...mockProject,
+      loaders: ["paper", "spigot", "purpur", "folia", "bukkit"],
+    });
+    expect(screen.getByText("+4")).toBeInTheDocument();
   });
 
   it("renders formatted downloads, follows and relative updated time", () => {
@@ -61,7 +80,7 @@ describe("ProjectCard", () => {
 
   it("links to the project detail page preserving search params", () => {
     renderCard(mockProject, new URLSearchParams("q=essentials&type=plugin"));
-    const link = screen.getByRole("link");
+    const link = screen.getByRole("link", { name: /EssentialsX/ });
     expect(link).toHaveAttribute("href", "/marketplace/essentialsx?q=essentials&type=plugin");
   });
 

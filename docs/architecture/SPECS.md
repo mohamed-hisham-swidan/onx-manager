@@ -88,22 +88,22 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | — `backend/app` (production) | 299 | 35,889 | `find backend/app -name '*.py'` |
 | — `backend/tests` | 139 (128 `test_*.py` + conftest etc.) | 30,127 | `find backend/tests -name '*.py'` |
 | — `backend/alembic` (env + versions) | 28 | (included above) | `find backend/alembic -name '*.py'` |
-| Frontend `frontend/src` (TS + TSX + CSS) | 161 | **24,222** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
-| — `.tsx` | 111 | — | `find frontend/src -name '*.tsx'` |
+| Frontend `frontend/src` (TS + TSX + CSS) | 165 | **24,806** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
+| — `.tsx` | 115 | — | `find frontend/src -name '*.tsx'` |
 | — `.ts` | 49 | — | `find frontend/src -name '*.ts'` |
 | — `.css` | 1 | — | `find frontend/src -name '*.css'` |
-| **TOTAL (backend + frontend source)** | **627** | **~91,820** | — |
-| Docs | 130 files (`docs/`, `scripts/`, `contracts/`, `.ai/`) | 25,950 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
+| **TOTAL (backend + frontend source)** | **631** | **~92,404** | — |
+| Docs | 107 files (`docs/`, `scripts/`, `contracts/`, `.ai/`) | 26,349 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 
 | Extension | Files |
 |---|---|
 | `.py` | 466 |
-| `.tsx` | 111 |
+| `.tsx` | 115 |
 | `.ts` | 49 |
 | `.css` | 1 |
-| **Total** | **627** |
+| **Total** | **631** |
 
 ### Backend DDD modules (`backend/app/modules/`)
 
@@ -120,17 +120,17 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | storage | 5 | 441 | Storage backends (local/S3/encryption) |
 | shared | 3 | 267 | Shared value objects / exceptions |
 
-### Frontend breakdown (`frontend/src/` — 161 files / 24,222 lines)
+### Frontend breakdown (`frontend/src/` — 165 files / 24,806 lines)
 
 | Area | Files | Lines |
 |---|---|---|
-| `server_manager/pages` | 25 | 7,487 |
-| `server_manager/components` | 38 | 7,053 |
-| `components/ui` | 14 | 722 |
+| `server_manager/pages` | 25 | 7,527 |
+| `server_manager/components` | 40 | 7,377 |
+| `components/ui` | 16 | 918 |
 | `components/layout` | 4 | 401 |
 | `components/guards` | 4 | 233 |
 | `server_manager/hooks` | 8 | 720 |
-| `server_manager/utils` | 10 | 551 |
+| `server_manager/utils` | 10 | 575 |
 | `services` | 3 | 729 |
 | `stores` (Zustand) | 13 | 912 |
 | `types` | 1 | 540 |
@@ -143,7 +143,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | Suite | Count | Detail |
 |---|---|---|
 | Backend (measured 2026-08-19) | **1,934 passed / 2 skipped** (1,936 collected) | 1595 `def test_`/`async def test_` functions across `backend/tests/` |
-| Frontend | **506 passed** (65 test files) | `npx vitest run` |
+| Frontend | **529 tests (67 test files)**, latest full run 2026-08-19: 528 passed + 1 pre-existing load-flaky timeout | `npx vitest run` |
 | Backend tests by area | — | `api` 5 files, `application` 37, `auth` 13, `core` 6, `domain` 13, `event_store` 4, `infrastructure` 25, `monitoring` 3, `plugin` 6, `tasks` 6 |
 
 ---
@@ -190,8 +190,8 @@ frontend/
     │   └── layout/
     ├── server_manager/
     │   ├── pages/                # 25 pages (server + plugin marketplace)
-    │   ├── components/           # 38 components (CompatibilityCard,
-    │   │                         #   ProjectVersionsList, ServerList, etc.)
+    │   ├── components/           # 40 components (CompatibilityCard,
+    │   │                         #   ProjectCard, ProjectVersionsList, etc.)
     │   ├── hooks/                # 8 hooks (incl. usePlugins, useServerExposure)
     │   └── utils/                # versionMatching, format, etc.
     ├── services/                 # api.ts, queryClient.ts (+ tests)
@@ -276,6 +276,11 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
   plugins/marketplace, backups, monitoring, settings.
 - TanStack Query data layer w/ typed query keys incl. pagination offset;
   Zustand for UI state; Tailwind v4 styling.
+- Marketplace (SPEC-PLUGIN-PAGINATION-V3, fully shipped 2026-08-19):
+  Modrinth-style ProjectCard list (loader/category/environment pills capped
+  at 4 with a `+N` overflow link, downloads/follows, relative last-updated),
+  driven by a reusable URL-`page`-param Pagination component (no prefetch);
+  versions list paginated via the same offset contract.
 - Live WebSocket console + server status invalidation; sub-second metric
   stream rendering (Sparkline, gauges).
 
@@ -297,10 +302,10 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 
 | Metric | Value |
 |---|---|
-| Source lines (backend + frontend) | ~91,820 |
-| Source files (backend + frontend) | 627 |
+| Source lines (backend + frontend) | ~92,404 |
+| Source files (backend + frontend) | 631 |
 | Python files / lines | 466 / 67,598 |
-| TS+TSX files / lines | 160 / ~24,203 |
+| TS+TSX files / lines | 164 / ~24,787 |
 | REST endpoints | 96 handlers across 15 routers |
 | Alembic revisions | 27 (head `b1e2100000007`) |
 | DB tables | 32 + (default dev DB at head) |
@@ -308,8 +313,8 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 | Contracts | 6 |
 | ADRs | 13 |
 | Backend tests | 1,934 passed / 2 skipped |
-| Frontend tests | 506 passed (65 files) |
-| Docs Markdown | 130 files / 25,950 lines |
+| Frontend tests | 529 (67 files); 528 passed + 1 load-flaky timeout (2026-08-19) |
+| Docs Markdown | 107 files / 26,349 lines |
 
 ---
 

@@ -24,7 +24,7 @@ Blueprint V5 governing plan is built on.
 |------|-------|----------|
 | Backend Python source files | 299 | `find backend/app -name "*.py"` |
 | Backend test files | 128 | `find backend/tests -name "test_*.py"` |
-| Frontend test files | 65 | `find frontend/src -name "*.test.*"` |
+| Frontend test files | 67 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 15 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
 | Alembic migration revisions | 27 | `backend/alembic/versions/` (head `b1e2100000007`) |
 | Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
@@ -53,8 +53,8 @@ check and a Ruff-baseline regression gate (see §5).
 
 | Metric | Value |
 |--------|-------|
-| Test files | **65** |
-| Tests | **506** (all passing) |
+| Test files | **67** |
+| Tests | **529** (latest full run 2026-08-19: 528 passed + 1 pre-existing load-flaky 5s timeout in an acceptance test, passes in isolation) |
 
 `npm run typecheck` (`tsc --noEmit`): **9 pre-existing errors, 0 new** — the
 frontend typecheck baseline is 15 errors at HEAD `7c12d85`; the plugin-detail-tabs
@@ -293,7 +293,7 @@ Checks executed each run (identical locally via `scripts/reverify`):
 3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
 4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 85 entries match 85 live routes
 5. `python -m pytest -q` (backend) — full suite `1934 passed / 2 skipped`
-6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — `65 files / 506 tests`, typecheck/lint pre-existing only, build succeeds
+6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — `67 files / 529 tests` (latest run: 528 passed + 1 pre-existing load-flaky timeout), typecheck/lint pre-existing only, build succeeds
 
 ### 7.3 Execution status
 
