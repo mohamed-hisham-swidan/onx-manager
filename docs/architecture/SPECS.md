@@ -207,8 +207,8 @@ docs/
 ├── architecture/        # 9 (ARCHITECTURE, SPECS, DATABASE, FRONTEND, SECURITY,
 │                        #   PROVISIONING, K5-review, plugins-and-marketplace, network-access)
 ├── decisions/           # 13 ADRs
-├── history/             # 47 (features, phase-7, post-phase-7, archive)
-├── roadmap/             # 2 (Blueprint V5, marketplace-pagination-v3)
+├── history/             # 48 (features, phase-7, post-phase-7, archive)
+├── roadmap/             # 1 (Blueprint V5; marketplace-pagination-v3 archived to history/features)
 ├── reference/           # 6
 ├── runtime/             # 8
 ├── status/              # 1 (history.md)

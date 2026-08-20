@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   MARKETPLACE_PAGE_SIZE,
   useMarketplaceSearch,
@@ -11,16 +11,11 @@ import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { ComingSoonState } from "@/components/ComingSoonState";
-import { TableSkeleton } from "@/components/Skeleton";
+import { Skeleton } from "@/components/Skeleton";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { InstallModal } from "@/server_manager/components/InstallModal";
+import { ProjectCard } from "@/server_manager/components/ProjectCard";
 import type { PluginSearchResultResponse } from "@/types";
-
-function fmtDownloads(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
 
 export function PluginMarketplacePage() {
   const navigate = useNavigate();
@@ -240,73 +235,38 @@ export function PluginMarketplacePage() {
           )}
 
           {search.isLoading ? (
-            <TableSkeleton rows={4} cols={4} />
+            <div className="space-y-3" data-testid="marketplace-cards-loading">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+                >
+                  <div className="flex items-start gap-3">
+                    <Skeleton className="h-11 w-11 rounded-lg" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-1/3" />
+                      <Skeleton className="h-3 w-1/4" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : search.isError ? null : search.data && search.data.items.length > 0 ? (
             <>
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
-                    <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Plugin</th>
-                    <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 sm:table-cell">Author</th>
-                    <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 md:table-cell">Downloads</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {search.data.items.map((p) => (
-                    <tr
-                      key={p.project_id}
-                      className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
-                    >
-                      <td className="px-4 py-3">
-                        <Link
-                          to={`/marketplace/${p.project_id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`}
-                          className="flex items-center gap-3 group"
-                        >
-                          {p.icon_url ? (
-                            <img
-                              src={p.icon_url}
-                              alt=""
-                              className="h-9 w-9 shrink-0 rounded-lg object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500">
-                              <Icon name="plugin" size={18} />
-                            </div>
-                          )}
-                          <div>
-                            <p className="font-medium text-gray-900 group-hover:text-blue-600 group-hover:underline dark:text-gray-100 dark:group-hover:text-blue-400">
-                              {p.title}
-                            </p>
-                            {p.description && (
-                              <p className="mt-0.5 max-w-md truncate text-xs text-gray-500 dark:text-gray-400" title={p.description}>
-                                {p.description}
-                              </p>
-                            )}
-                          </div>
-                        </Link>
-                      </td>
-                      <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">{p.author}</td>
-                      <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">
-                        {fmtDownloads(p.downloads)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => setSelectedProject(p)}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
-                          >
-                            <Icon name="plus" size={14} />
-                            Install
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
+              <ul className="space-y-3" data-testid="project-card-list">
+                {search.data.items.map((p) => (
+                  <ProjectCard
+                    key={p.project_id}
+                    project={p}
+                    searchParams={searchParams}
+                    onInstall={setSelectedProject}
+                  />
+                ))}
+              </ul>
               <Pagination totalItems={search.data.total_hits} />
             </>
           ) : (

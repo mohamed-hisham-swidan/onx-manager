@@ -27,6 +27,12 @@ const mockResults = [
     follows: 100,
     icon_url: "",
     latest_version_id: "v1",
+    categories: ["management"],
+    loaders: ["paper"],
+    client_side: "unsupported",
+    server_side: "required",
+    date_modified: new Date(Date.now() - 86400000).toISOString(),
+    color: null,
   },
 ];
 
@@ -168,6 +174,17 @@ describe("PluginMarketplacePage & InstallModal", () => {
   it("renders page header", () => {
     renderPage();
     expect(screen.getByRole("heading", { name: "Plugin Marketplace" })).toBeInTheDocument();
+  });
+
+  it("renders marketplace results as project cards with schema fields", () => {
+    useMarketplaceSearchGlobal.mockReturnValue({ data: mockSearchResults, isLoading: false, isError: false, error: null });
+    renderPage("/marketplace");
+
+    expect(screen.getByTestId("project-card-list")).toBeInTheDocument();
+    expect(screen.getByTestId("project-card-essentialsx")).toBeInTheDocument();
+    expect(screen.getByText("Paper")).toBeInTheDocument();
+    expect(screen.getByText("management")).toBeInTheDocument();
+    expect(screen.getByText("Server-side")).toBeInTheDocument();
   });
 
   it("switches to CurseForge source and renders coming soon state with disabled fetches", () => {
