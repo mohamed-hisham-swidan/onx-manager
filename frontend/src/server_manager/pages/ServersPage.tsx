@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useServersList, useStartServer, useStopServer, useRestartServer, useDeleteServer } from "@/server_manager/hooks/useServers";
+import { useServersList, useStartServer, useStopServer, useRestartServer, useDeleteServer, useRetryProvisioningServer } from "@/server_manager/hooks/useServers";
 import { STATUS_MAP } from "@/server_manager/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -10,11 +10,12 @@ import { ErrorState } from "@/components/ErrorState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
+import { ProvisioningProgress } from "@/server_manager/components/ProvisioningProgress";
 import type { ServerResponse } from "@/server_manager/types";
 
 type SortKey = "name" | "status" | "version";
 
-const STATUS_FILTERS = ["all", "running", "stopped", "starting", "stopping", "crashed", "created"];
+const STATUS_FILTERS = ["all", "running", "stopped", "starting", "provisioning", "provisioning_failed", "stopping", "crashed", "broken", "created"];
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
@@ -26,6 +27,7 @@ export function ServersPage() {
   const stopServer = useStopServer();
   const restartServer = useRestartServer();
   const deleteServer = useDeleteServer();
+  const retryProvisioning = useRetryProvisioningServer();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -34,7 +36,7 @@ export function ServersPage() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
 
-  const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending;
+  const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending || retryProvisioning.isPending;
   const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
   const [now, setNow] = useState<number>(() => Date.now());
 
@@ -101,6 +103,13 @@ export function ServersPage() {
     restartServer.mutate(server.server_id, {
       onSuccess: () => toast("success", "Server restarting", `"${server.name}" is restarting.`),
       onError: (err) => toast("error", "Restart failed", errorMessage(err)),
+    });
+  }
+
+  function handleRetryProvisioning(server: ServerResponse) {
+    retryProvisioning.mutate(server.server_id, {
+      onSuccess: () => toast("success", "Retry started", `Provisioning retry started for "${server.name}".`),
+      onError: (err) => toast("error", "Retry failed", errorMessage(err)),
     });
   }
 
@@ -283,15 +292,26 @@ export function ServersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
-                          {["stopped", "created", "crashed"].includes(s.status) && (
+                          {["stopped", "created", "crashed", "provisioning"].includes(s.status) && (
                             <button
                               onClick={() => handleStart(s)}
-                              disabled={isBusy || (startCooldowns[s.server_id] !== undefined && now < startCooldowns[s.server_id]) || s.status === "starting"}
+                              disabled={isBusy || (startCooldowns[s.server_id] !== undefined && now < startCooldowns[s.server_id]) || s.status === "starting" || s.status === "provisioning"}
                               aria-label={`Start ${s.name}`}
                               title="Start"
                               className="rounded-lg p-1.5 text-green-600 transition-colors hover:bg-green-100 hover:text-green-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-green-400 dark:hover:bg-green-900/30 dark:hover:text-green-300"
                             >
                               <Icon name="play" size={16} />
+                            </button>
+                          )}
+                          {s.status === "provisioning_failed" && s.provisioning_retryable === false && (
+                            <button
+                              onClick={() => handleRetryProvisioning(s)}
+                              disabled={isBusy}
+                              aria-label={`Retry Provisioning ${s.name}`}
+                              title="Retry Provisioning"
+                              className="rounded-lg p-1.5 text-amber-600 transition-colors hover:bg-amber-100 hover:text-amber-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-amber-400 dark:hover:bg-amber-900/30 dark:hover:text-amber-300"
+                            >
+                              <Icon name="restart" size={16} />
                             </button>
                           )}
                           {["running", "starting"].includes(s.status) && (
@@ -325,6 +345,9 @@ export function ServersPage() {
                             >
                               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600 dark:border-gray-600 dark:border-t-gray-300" />
                             </span>
+                          )}
+                          {s.status === "provisioning" && (
+                            <ProvisioningProgress serverId={s.server_id} className="min-w-[140px]" />
                           )}
                           <button
                             onClick={() => setDeleteTarget(s)}

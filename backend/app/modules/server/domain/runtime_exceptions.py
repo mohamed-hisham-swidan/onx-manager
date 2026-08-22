@@ -210,6 +210,107 @@ class InvalidLaunchConfiguration(RuntimeError_):
         )
 
 
+class InstallerProvisionError(RuntimeError_):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        code: str = "",
+        server_id: str = "",
+        detail: str = "",
+        diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = dict(diagnostics or {})
+        if detail:
+            merged["detail"] = detail
+        super().__init__(
+            message or "Installer provisioning failed",
+            code=code or "INSTALLER_PROVISION_FAILED",
+            server_id=server_id,
+            operation="provision",
+            diagnostics=merged,
+        )
+
+
+class MetadataFetchError(InstallerProvisionError):
+    def __init__(self, server_id: str = "", detail: str = "", original_error: str = "") -> None:
+        super().__init__(
+            f"Failed to fetch installer metadata: {detail}",
+            code="METADATA_FETCH_ERROR",
+            server_id=server_id,
+            detail=detail,
+            diagnostics={"original_error": original_error},
+        )
+
+
+class BuildResolutionError(InstallerProvisionError):
+    def __init__(
+        self,
+        server_id: str = "",
+        detail: str = "",
+        *,
+        underlying_fetch_failed: bool = False,
+    ) -> None:
+        self.underlying_fetch_failed = underlying_fetch_failed
+        super().__init__(
+            f"Failed to resolve build: {detail}",
+            code="BUILD_RESOLUTION_ERROR",
+            server_id=server_id,
+            detail=detail,
+            diagnostics={"underlying_fetch_failed": underlying_fetch_failed},
+        )
+
+
+class InstallerDownloadError(InstallerProvisionError):
+    def __init__(self, server_id: str = "", detail: str = "", url: str = "") -> None:
+        self.url = url
+        super().__init__(
+            f"Failed to download installer: {detail}",
+            code="INSTALLER_DOWNLOAD_ERROR",
+            server_id=server_id,
+            detail=detail,
+            diagnostics={"url": url},
+        )
+
+
+class InstallerExecutionError(InstallerProvisionError):
+    def __init__(
+        self,
+        server_id: str = "",
+        detail: str = "",
+        exit_code: int | None = None,
+        timed_out: bool = False,
+    ) -> None:
+        self.exit_code = exit_code
+        self.timed_out = timed_out
+        super().__init__(
+            f"Installer execution failed: {detail}",
+            code="INSTALLER_EXECUTION_ERROR",
+            server_id=server_id,
+            detail=detail,
+            diagnostics={"exit_code": exit_code, "timed_out": timed_out},
+        )
+
+
+class InsufficientDiskError(InstallerProvisionError):
+    def __init__(self, server_id: str = "", free_mb: int = 0, required_mb: int = 0) -> None:
+        self.free_mb = free_mb
+        self.required_mb = required_mb
+        super().__init__(
+            f"Insufficient disk space for install: {free_mb} MB free, need at least {required_mb} MB",
+            code="INSUFFICIENT_DISK",
+            server_id=server_id,
+            diagnostics={"free_mb": free_mb, "required_mb": required_mb},
+        )
+
+
+# Backward-compatibility aliases
+ForgeInstallError = InstallerProvisionError
+ForgeInstallFailedError = InstallerExecutionError
+ForgeInstallTimeoutError = InstallerExecutionError
+ForgeInsufficientDiskError = InsufficientDiskError
+
+
 class UnknownRuntimeFailure(RuntimeError_):
     def __init__(
         self,

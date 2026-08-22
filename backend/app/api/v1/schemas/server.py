@@ -62,6 +62,8 @@ class ServerResponse(BaseModel):
     difficulty: str
     created_at: datetime
     updated_at: datetime
+    provisioning_error: str | None = None
+    provisioning_retryable: bool = False
 
 
 class ServerDetailResponse(ServerResponse):

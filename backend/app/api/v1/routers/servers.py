@@ -42,6 +42,7 @@ from app.modules.server.application import (
     ImportServerCommand,
     ListServersQuery,
     RestartServerCommand,
+    RetryProvisioningCommand,
     StartServerCommand,
     StopServerCommand,
     UpdateServerConfigCommand,
@@ -231,6 +232,16 @@ async def restart_server(
     current_user: dict = Depends(require_server_permission("server.{id}.power")),
 ) -> dict:
     result = await command_bus.send(RestartServerCommand(server_id=server_id))
+    return check_command_result(result)
+
+
+@router.post("/{server_id}/retry-provisioning", response_model=dict)
+async def retry_provisioning(
+    server_id: str,
+    command_bus: CommandBus = Depends(get_command_bus),
+    current_user: dict = Depends(require_server_permission("server.{id}.write")),
+) -> dict:
+    result = await command_bus.send(RetryProvisioningCommand(server_id=server_id))
     return check_command_result(result)
 
 

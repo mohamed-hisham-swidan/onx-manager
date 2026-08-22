@@ -144,6 +144,8 @@ from app.modules.server.application import (
     ListServersQuery,
     RestartServerCommand,
     RestartServerHandler,
+    RetryProvisioningCommand,
+    RetryProvisioningHandler,
     StartServerCommand,
     StartServerHandler,
     StopServerCommand,
@@ -194,6 +196,7 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(StartServerCommand, StartServerHandler(event_bus))
     command_bus.register(StopServerCommand, StopServerHandler(event_bus))
     command_bus.register(RestartServerCommand, RestartServerHandler(event_bus))
+    command_bus.register(RetryProvisioningCommand, RetryProvisioningHandler(event_bus))
     command_bus.register(UpdateServerConfigCommand, UpdateServerConfigHandler(event_bus))
     command_bus.register(ImportServerCommand, ImportServerHandler(event_bus))
 

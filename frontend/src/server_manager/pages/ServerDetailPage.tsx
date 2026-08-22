@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer, useServerRuntime } from "@/server_manager/hooks/useServers";
+import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer, useServerRuntime, useRetryProvisioningServer } from "@/server_manager/hooks/useServers";
 import { useServerExposure } from "@/server_manager/hooks/useServerExposure";
 import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { Skeleton } from "@/components/Skeleton";
@@ -71,6 +71,7 @@ export function ServerDetailPage() {
   const stopServer = useStopServer();
   const restartServer = useRestartServer();
   const deleteServer = useDeleteServer();
+  const retryProvisioning = useRetryProvisioningServer();
   const { copy } = useClipboard();
 
   const [showDelete, setShowDelete] = useState(false);
@@ -145,7 +146,7 @@ export function ServerDetailPage() {
 
   const actions = (s: ServerDetailResponse) => (
     <>
-      {["stopped", "created", "crashed"].includes(s.status) && (
+      {["stopped", "created", "crashed", "provisioning"].includes(s.status) && (
         <button
           onClick={() => {
             setStartCooldownUntil(Date.now() + 3000);
@@ -155,11 +156,26 @@ export function ServerDetailPage() {
               onError: (err) => toast("error", "Start failed", errorMessage(err)),
             });
           }}
-          disabled={startServer.isPending || isStartCooldownActive || s.status === "starting"}
+          disabled={startServer.isPending || isStartCooldownActive || s.status === "starting" || s.status === "provisioning"}
           className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
         >
           <Icon name="play" size={14} />
           {startServer.isPending || isStartCooldownActive ? "Starting..." : "Start"}
+        </button>
+      )}
+      {s.status === "provisioning_failed" && s.provisioning_retryable === false && (
+        <button
+          onClick={() =>
+            retryProvisioning.mutate(serverId, {
+              onSuccess: () => toast("success", "Retry started", `Provisioning retry started for "${s.name}".`),
+              onError: (err) => toast("error", "Retry failed", errorMessage(err)),
+            })
+          }
+          disabled={retryProvisioning.isPending}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+        >
+          <Icon name="restart" size={14} />
+          {retryProvisioning.isPending ? "Retrying..." : "Retry Provisioning"}
         </button>
       )}
       {["running", "starting"].includes(s.status) && (

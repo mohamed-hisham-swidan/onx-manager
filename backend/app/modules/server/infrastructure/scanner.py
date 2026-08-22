@@ -43,15 +43,17 @@ def parse_dirname_for_id(dirname: str) -> str | None:
 
 
 def _detect_server_type(dir_path: Path) -> str:
-    if (dir_path / "paper.yml").exists():
+    if (dir_path / "paper.yml").exists() or (dir_path / "config" / "paper-global.yml").exists():
         return "paper"
     if (dir_path / "spigot.yml").exists():
         return "spigot"
     if (dir_path / "bukkit.yml").exists():
         return "bukkit"
-    if (dir_path / "forge.jar").exists():
+    if (dir_path / "libraries" / "net" / "neoforged").exists() or (dir_path / "neoforge.jar").exists():
+        return "neoforge"
+    if (dir_path / "libraries" / "net" / "minecraftforge").exists() or (dir_path / "forge.jar").exists():
         return "forge"
-    if (dir_path / "fabric-server-launch.jar").exists():
+    if (dir_path / "fabric-server-launch.jar").exists() or (dir_path / ".fabric").exists():
         return "fabric"
     mcmeta = dir_path / "usercache.json"
     if mcmeta.exists() or (dir_path / "server.jar").exists():
@@ -90,10 +92,14 @@ def _dir_size_mb(path: Path) -> float:
 def _dir_looks_like_server(dir_path: Path) -> bool:
     if not dir_path.is_dir():
         return False
-    has_jar = any(f.name.endswith(".jar") for f in dir_path.iterdir() if f.is_file())
+    has_executable = (
+        any(f.name.endswith(".jar") for f in dir_path.iterdir() if f.is_file())
+        or (dir_path / "run.sh").is_file()
+        or (dir_path / "run.bat").is_file()
+    )
     has_world = (dir_path / "world").is_dir()
     has_props = (dir_path / "server.properties").is_file()
-    return has_jar and (has_world or has_props)
+    return has_executable and (has_world or has_props)
 
 
 class FilesystemScanner:
@@ -124,6 +130,11 @@ class FilesystemScanner:
                         break
                 if not jar_name and jar_candidates:
                     jar_name = jar_candidates[0].name
+                if not jar_name:
+                    if (entry / "run.sh").is_file():
+                        jar_name = "run.sh"
+                    elif (entry / "run.bat").is_file():
+                        jar_name = "run.bat"
 
                 results.append(DiscoveredDirectory(
                     path=str(entry),

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 
@@ -55,14 +57,21 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
 
     async def handle(self, command: CreateServerCommand) -> CommandResult:
         from app.modules.server.application.services.jar_service import (
-            SERVER_TYPES_REQUIRING_MANUAL_INSTALL,
             download_server_jar,
+            forge_requires_installer,
+            neoforge_requires_installer,
             resolve_server_dir,
             write_eula,
             write_server_properties,
         )
 
         server_id = ServerId()
+        is_forge_installer = (
+            command.server_type == "forge" and forge_requires_installer(command.minecraft_version)
+        )
+        is_neoforge_installer = (
+            command.server_type == "neoforge" and neoforge_requires_installer(command.minecraft_version)
+        )
         server_dir_path = resolve_server_dir(
             server_id=str(server_id),
             name=command.name,
@@ -115,6 +124,8 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 deployment=deployment,
                 owner_id=command.creator_id,
             )
+            if is_forge_installer or is_neoforge_installer:
+                server.begin_provisioning()
             await repo.save(server)
 
             uow.defer_cleanup(lambda: local_fs.delete_dir(server_dir_path))
@@ -159,6 +170,28 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             for event in server.collect_events():
                 uow.add_event(event)
             await uow.commit()
+
+        if is_forge_installer:
+            from app.modules.server.application.services.forge_provisioner import (
+                provision_forge_server,
+            )
+
+            provision_forge_server(
+                server_id=str(server_id),
+                minecraft_version=command.minecraft_version,
+                event_bus=self._event_bus,
+            )
+
+        if is_neoforge_installer:
+            from app.modules.server.application.services.neoforge_provisioner import (
+                provision_neoforge_server,
+            )
+
+            provision_neoforge_server(
+                server_id=str(server_id),
+                minecraft_version=command.minecraft_version,
+                event_bus=self._event_bus,
+            )
 
         logger.info(
             'Server "%s" created — type=%s version=%s port=%d server_id=%s',

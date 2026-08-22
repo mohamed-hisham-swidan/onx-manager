@@ -15,6 +15,7 @@ from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import (
     JavaArguments,
+    LaunchConfiguration,
     MemoryAllocation,
     PortNumber,
     ServerDeployment,
@@ -315,8 +316,14 @@ class FilesystemReconciliationService:
             )
 
         reasons: list[str] = []
-        if not scanned.get("server_jar"):
-            reasons.append("No server jar detected")
+        has_executable = bool(
+            scanned.get("server_jar")
+            or scanned.get("run_script")
+            or self._fs.exists(str(Path(entry.path) / "run.sh"))
+            or self._fs.exists(str(Path(entry.path) / "run.bat"))
+        )
+        if not has_executable:
+            reasons.append("No server jar or run script detected")
         if not scanned.get("properties"):
             reasons.append("No server.properties found or empty")
 
@@ -425,6 +432,13 @@ class FilesystemReconciliationService:
         scan: ScanOutcome,
         plan: ReconciliationPlan,
     ) -> None:
+        if server.status == ServerStatus.PROVISIONING:
+            plan.actions.append(PlanAction(
+                action=ActionType.UNCHANGED,
+                db_server=server,
+            ))
+            return
+
         if scan.is_broken and server.status != ServerStatus.BROKEN:
             plan.actions.append(PlanAction(
                 action=ActionType.UPDATE_BROKEN,
@@ -711,10 +725,14 @@ class FilesystemReconciliationService:
 
     def _build_deployment(self, entry: FsEntry, scan: ScanOutcome) -> ServerDeployment:
         jar = (scan.scanned or {}).get("server_jar") or "server.jar"
+        run_script = (scan.scanned or {}).get("run_script")
+        has_run = bool(run_script or self._fs.exists(str(Path(entry.path) / "run.sh")) or self._fs.exists(str(Path(entry.path) / "run.bat")))
+        startup_cmd = f"bash {run_script or 'run.sh'} nogui" if (has_run or jar.endswith((".sh", ".bat"))) else ""
         return ServerDeployment(
             root_path=entry.path,
             working_directory=".",
             startup_jar=jar,
+            startup_command=startup_cmd,
         )
 
     def _find_name(self, entry: FsEntry, scan: ScanOutcome) -> str:
@@ -740,6 +758,14 @@ class FilesystemReconciliationService:
         props = self._build_server_properties(scan.scanned)
         deployment = self._build_deployment(entry, scan)
 
+        launch_config = None
+        run_script = (scan.scanned or {}).get("run_script")
+        server_jar = (scan.scanned or {}).get("server_jar") or ""
+        has_run = bool(run_script or self._fs.exists(str(Path(entry.path) / "run.sh")) or self._fs.exists(str(Path(entry.path) / "run.bat")))
+        if has_run or server_jar.endswith((".sh", ".bat")) or server_type in (ServerType.FORGE, ServerType.NEOFORGE):
+            script_cmd = f"bash {run_script or 'run.sh'} nogui"
+            launch_config = LaunchConfiguration(startup_command=script_cmd)
+
         return Server(
             server_id=server_id,
             name=name,
@@ -749,6 +775,7 @@ class FilesystemReconciliationService:
             java_args=JavaArguments(),
             properties=props,
             deployment=deployment,
+            launch_config=launch_config,
         )
 
     # ------------------------------------------------------------------

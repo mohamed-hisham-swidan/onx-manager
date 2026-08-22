@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { useStartServer, useStopServer, useRestartServer } from "@/server_manager/hooks/useServers";
+import { useStartServer, useStopServer, useRestartServer, useRetryProvisioningServer } from "@/server_manager/hooks/useServers";
 import { STATUS_MAP } from "@/server_manager/types";
 import { toast } from "@/stores/toastStore";
 import { useEffectiveConnectionState, useIsChannelDegraded } from "@/stores/wsStore";
+import { ProvisioningProgress } from "@/server_manager/components/ProvisioningProgress";
 import type { ServerResponse } from "@/server_manager/types";
 
 interface DashboardServerListProps {
@@ -20,6 +21,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
   const startServer = useStartServer();
   const stopServer = useStopServer();
   const restartServer = useRestartServer();
+  const retryProvisioning = useRetryProvisioningServer();
   const connectionState = useEffectiveConnectionState();
   const serverChannelDegraded = useIsChannelDegraded("server:*");
 
@@ -34,7 +36,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
             ? { text: "Status not live — subscription rejected", color: "text-amber-700 dark:text-amber-400" }
             : null;
 
-  const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending;
+  const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending || retryProvisioning.isPending;
   const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
   const [now, setNow] = useState<number>(() => Date.now());
 
@@ -68,6 +70,13 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
     restartServer.mutate(serverId, {
       onSuccess: () => toast("success", "Server restarting", `"${name}" is restarting.`),
       onError: (err) => toast("error", "Restart failed", errorMessage(err)),
+    });
+  }
+
+  function handleRetryProvisioning(serverId: string, name: string) {
+    retryProvisioning.mutate(serverId, {
+      onSuccess: () => toast("success", "Retry started", `Provisioning retry started for "${name}".`),
+      onError: (err) => toast("error", "Retry failed", errorMessage(err)),
     });
   }
 
@@ -108,15 +117,26 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
             <StatusBadge status={status} />
 
             <div className="flex shrink-0 items-center gap-1">
-              {["stopped", "created", "crashed"].includes(status) && (
+              {["stopped", "created", "crashed", "provisioning"].includes(status) && (
                 <button
                   onClick={() => handleStart(server.server_id, server.name)}
-                  disabled={isBusy || isServerStartingCooldown || status === "starting"}
+                  disabled={isBusy || isServerStartingCooldown || status === "starting" || status === "provisioning"}
                   aria-label={`Start ${server.name}`}
                   title="Start"
                   className="rounded-lg p-1.5 text-green-600 transition-colors hover:bg-green-100 hover:text-green-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-green-400 dark:hover:bg-green-900/30 dark:hover:text-green-300"
                 >
                   <Icon name="play" size={16} />
+                </button>
+              )}
+              {status === "provisioning_failed" && server.provisioning_retryable === false && (
+                <button
+                  onClick={() => handleRetryProvisioning(server.server_id, server.name)}
+                  disabled={isBusy}
+                  aria-label={`Retry Provisioning ${server.name}`}
+                  title="Retry Provisioning"
+                  className="rounded-lg p-1.5 text-amber-600 transition-colors hover:bg-amber-100 hover:text-amber-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-amber-400 dark:hover:bg-amber-900/30 dark:hover:text-amber-300"
+                >
+                  <Icon name="restart" size={16} />
                 </button>
               )}
               {["running", "starting"].includes(status) && (
@@ -150,6 +170,9 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
                 >
                   <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600 dark:border-gray-600 dark:border-t-gray-300" />
                 </span>
+              )}
+              {status === "provisioning" && (
+                <ProvisioningProgress serverId={server.server_id} />
               )}
             </div>
           </li>

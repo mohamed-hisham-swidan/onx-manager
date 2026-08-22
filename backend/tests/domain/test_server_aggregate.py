@@ -121,6 +121,45 @@ class TestServerStateMachine:
             valid_server.stop()
 
 
+class TestServerProvisioningFlow:
+    def test_begin_provisioning(self, valid_server: Server) -> None:
+        valid_server.begin_provisioning()
+        assert valid_server.status == ServerStatus.PROVISIONING
+
+    def test_finish_provisioning_returns_to_created(self, valid_server: Server) -> None:
+        valid_server.begin_provisioning()
+        valid_server.finish_provisioning()
+        assert valid_server.status == ServerStatus.CREATED
+
+    def test_fail_provisioning_marks_provisioning_failed(self, valid_server: Server) -> None:
+        valid_server.begin_provisioning()
+        valid_server.fail_provisioning(error="download error", retryable=True)
+        assert valid_server.status == ServerStatus.PROVISIONING_FAILED
+        assert valid_server.provisioning_error == "download error"
+        assert valid_server.provisioning_retryable is True
+
+    def test_fail_provisioning_fatal_marks_broken(self, valid_server: Server) -> None:
+        valid_server.begin_provisioning()
+        valid_server.fail_provisioning(error="out of disk", fatal=True)
+        assert valid_server.status == ServerStatus.BROKEN
+        assert valid_server.provisioning_error == "out of disk"
+        assert valid_server.provisioning_retryable is False
+
+    def test_provisioning_can_start(self, valid_server: Server) -> None:
+        valid_server.begin_provisioning()
+        valid_server.start()
+        assert valid_server.status == ServerStatus.STARTING
+
+    def test_cannot_provision_from_starting(self, valid_server: Server) -> None:
+        valid_server.start()
+        with pytest.raises(InvalidValueError):
+            valid_server.begin_provisioning()
+
+    def test_cannot_finish_provisioning_from_created(self, valid_server: Server) -> None:
+        with pytest.raises(InvalidValueError):
+            valid_server.finish_provisioning()
+
+
 class TestServerConfig:
     def test_update_properties(self, valid_server: Server) -> None:
         valid_server.start()

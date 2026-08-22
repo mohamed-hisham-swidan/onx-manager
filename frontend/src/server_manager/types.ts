@@ -20,6 +20,8 @@ export interface ServerResponse {
   difficulty: string;
   created_at: string;
   updated_at: string;
+  provisioning_error?: string | null;
+  provisioning_retryable?: boolean;
 }
 
 export interface ServerDetailResponse extends ServerResponse {
@@ -210,9 +212,12 @@ export const STATUS_MAP: Record<string, StatusBadge> = {
   running: { label: "Online", color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
   stopped: { label: "Offline", color: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400" },
   created: { label: "Not Started", color: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400" },
+  provisioning: { label: "Installing", color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400" },
+  provisioning_failed: { label: "Install Failed", color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
   starting: { label: "Starting", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
   stopping: { label: "Stopping", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
   crashed: { label: "Crashed", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+  broken: { label: "Broken", color: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" },
   ...Object.fromEntries(
     Object.entries(EXPOSURE_STATUS_MAP).map(([k, v]) => [k, { label: v.label, color: v.color }])
   ),

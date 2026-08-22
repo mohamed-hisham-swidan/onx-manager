@@ -23,6 +23,10 @@ from app.modules.server.application.commands.restart_server import (
     RestartServerCommand,
     RestartServerHandler,
 )
+from app.modules.server.application.commands.retry_provisioning import (
+    RetryProvisioningCommand,
+    RetryProvisioningHandler,
+)
 from app.modules.server.application.commands.start_server import (
     StartServerCommand,
     StartServerHandler,
@@ -35,7 +39,7 @@ from app.modules.server.application.commands.update_server_config import (
     UpdateServerConfigCommand,
     UpdateServerConfigHandler,
 )
-from app.modules.server.domain.aggregate import Server
+from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.value_objects import (
     JavaArguments,
     LocationType,
@@ -552,4 +556,124 @@ class TestUpdateServerConfigHandler:
         assert "server-name=NewRenamedServer" in content
         assert "motd=Updated MOTD" in content
         assert "max-players=40" in content
+
+
+@pytest.mark.usefixtures("init_test_db")
+class TestRetryProvisioningHandler:
+    @pytest.mark.asyncio
+    async def test_retry_nonexistent_server_fails(self, event_bus: EventBus) -> None:
+        handler = RetryProvisioningHandler(event_bus)
+        result = await handler.handle(RetryProvisioningCommand(server_id="nonexistent-srv"))
+        assert result.success is False
+        assert result.error_code == "SERVER_NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_retry_non_failed_status_fails(self, event_bus: EventBus, tmp_path) -> None:
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            deployment = ServerDeployment(
+                location_type=LocationType.LOCAL,
+                root_path=str(tmp_path),
+                working_directory=".",
+                startup_jar="server.jar",
+            )
+            server = Server.create(
+                server_id=ServerId("test-retry-created"),
+                name="RetryCreatedTest",
+                server_type=ServerType.FORGE,
+                minecraft_version=MinecraftVersion.parse("1.20.1"),
+                memory=MemoryAllocation(1024, 2048),
+                java_args=JavaArguments(),
+                properties=ServerProperties(port=PortNumber(25565)),
+                deployment=deployment,
+            )
+            await repo.save(server)
+            await session.commit()
+
+        handler = RetryProvisioningHandler(event_bus)
+        result = await handler.handle(RetryProvisioningCommand(server_id="test-retry-created"))
+        assert result.success is False
+        assert result.error_code == "INVALID_STATUS"
+        assert "expected 'provisioning_failed'" in result.error
+
+    @pytest.mark.asyncio
+    async def test_retry_forge_provisioning_succeeds_and_reinvokes(self, event_bus: EventBus, tmp_path) -> None:
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            deployment = ServerDeployment(
+                location_type=LocationType.LOCAL,
+                root_path=str(tmp_path),
+                working_directory=".",
+                startup_jar="server.jar",
+            )
+            server = Server.create(
+                server_id=ServerId("test-retry-forge"),
+                name="RetryForgeTest",
+                server_type=ServerType.FORGE,
+                minecraft_version=MinecraftVersion.parse("1.20.1"),
+                memory=MemoryAllocation(1024, 2048),
+                java_args=JavaArguments(),
+                properties=ServerProperties(port=PortNumber(25565)),
+                deployment=deployment,
+            )
+            server.begin_provisioning()
+            server.fail_provisioning(error="Download timed out", retryable=False)
+            await repo.save(server)
+            await session.commit()
+
+        handler = RetryProvisioningHandler(event_bus)
+        with patch("app.modules.server.application.services.forge_provisioner.provision_forge_server") as mock_prov:
+            result = await handler.handle(RetryProvisioningCommand(server_id="test-retry-forge"))
+            assert result.success is True
+            assert result.data["status"] == "provisioning"
+            mock_prov.assert_called_once_with(
+                server_id="test-retry-forge",
+                minecraft_version="1.20.1",
+                event_bus=event_bus,
+            )
+
+        loaded = await _get_server("test-retry-forge")
+        assert loaded.status == ServerStatus.PROVISIONING
+        assert loaded.provisioning_error is None
+        assert loaded.provisioning_retryable is False
+
+    @pytest.mark.asyncio
+    async def test_retry_neoforge_provisioning_succeeds_and_reinvokes(self, event_bus: EventBus, tmp_path) -> None:
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            deployment = ServerDeployment(
+                location_type=LocationType.LOCAL,
+                root_path=str(tmp_path),
+                working_directory=".",
+                startup_jar="server.jar",
+            )
+            server = Server.create(
+                server_id=ServerId("test-retry-neoforge"),
+                name="RetryNeoForgeTest",
+                server_type=ServerType.NEOFORGE,
+                minecraft_version=MinecraftVersion.parse("1.20.4"),
+                memory=MemoryAllocation(1024, 2048),
+                java_args=JavaArguments(),
+                properties=ServerProperties(port=PortNumber(25565)),
+                deployment=deployment,
+            )
+            server.begin_provisioning()
+            server.fail_provisioning(error="Metadata fetch failed", retryable=False)
+            await repo.save(server)
+            await session.commit()
+
+        handler = RetryProvisioningHandler(event_bus)
+        with patch("app.modules.server.application.services.neoforge_provisioner.provision_neoforge_server") as mock_prov:
+            result = await handler.handle(RetryProvisioningCommand(server_id="test-retry-neoforge"))
+            assert result.success is True
+            assert result.data["status"] == "provisioning"
+            mock_prov.assert_called_once_with(
+                server_id="test-retry-neoforge",
+                minecraft_version="1.20.4",
+                event_bus=event_bus,
+            )
+
+        loaded = await _get_server("test-retry-neoforge")
+        assert loaded.status == ServerStatus.PROVISIONING
+
 

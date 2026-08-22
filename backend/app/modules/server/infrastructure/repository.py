@@ -106,6 +106,8 @@ class SQLServerRepository(ServerRepository):
 
         model.missing_since = server.missing_since
         model.owner_id = server.owner_id
+        model.provisioning_error = server.provisioning_error
+        model.provisioning_retryable = server.provisioning_retryable
 
         await self._session.flush()
 
@@ -139,7 +141,7 @@ class SQLServerRepository(ServerRepository):
             status=model.status or "created",
             provider=model.provider or "local",
             host=model.deployment_host or "",
-            port=model.deployment_port or 25565,
+            port=model.deployment_port or model.port or 25565,
             pid=model.deployment_pid,
             start_time=model.deployment_start_time,
             uptime_seconds=model.uptime_seconds or 0.0,
@@ -192,6 +194,8 @@ class SQLServerRepository(ServerRepository):
             updated_at=model.updated_at,
             missing_since=model.missing_since,
             owner_id=model.owner_id,
+            provisioning_error=model.provisioning_error,
+            provisioning_retryable=bool(model.provisioning_retryable),
         )
 
         from app.modules.server.domain.aggregate import ServerStatus

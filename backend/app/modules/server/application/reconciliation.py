@@ -74,6 +74,7 @@ async def cleanup_orphan_directory(dir_path: str) -> dict:
 
 
 STALE_STATUSES = {
+    ServerStatus.PROVISIONING,
     ServerStatus.STARTING,
     ServerStatus.RUNNING,
     ServerStatus.STOPPING,
@@ -122,7 +123,38 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
 
             old_status = server.status.value
 
-            if server.status == ServerStatus.STARTING:
+            if server.status == ServerStatus.PROVISIONING:
+                logger.info(
+                    'Server %s was PROVISIONING — marking BROKEN (incomplete install)',
+                    label,
+                )
+                provisioning_dir = (
+                    server.deployment.server_directory()
+                    if server.deployment is not None
+                    else None
+                )
+                if provisioning_dir:
+                    try:
+                        local_fs.delete_dir(provisioning_dir)
+                    except Exception:
+                        logger.exception(
+                            "Failed to clean up in-progress install directory %s",
+                            provisioning_dir,
+                        )
+                server.fail_provisioning(
+                    error="stale PROVISIONING state — backend restarted mid-install",
+                    fatal=True,
+                )
+                await repo.save(server)
+                results.append({
+                    "server_id": sid,
+                    "old_status": old_status,
+                    "new_status": "broken",
+                    "action": "repaired",
+                    "reason": "stale PROVISIONING state — backend restarted mid-install",
+                })
+
+            elif server.status == ServerStatus.STARTING:
                 if status == ServerRuntimeStatus.RUNNING:
                     logger.info(
                         'Server %s was STARTING but found RUNNING — updating',

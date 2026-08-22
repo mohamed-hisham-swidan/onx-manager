@@ -155,6 +155,7 @@ route_permissions:
   "POST /api/v1/servers/{server_id}/start": {permission: "server.{id}.power", status: enforced, note: "server-scoped power control (owner/admin/dev; viewer denied)"}
   "POST /api/v1/servers/{server_id}/stop": {permission: "server.{id}.power", status: enforced, note: "server-scoped power control (owner/admin/dev; viewer denied)"}
   "POST /api/v1/servers/{server_id}/restart": {permission: "server.{id}.power", status: enforced, note: "server-scoped power control (owner/admin/dev; viewer denied)"}
+  "POST /api/v1/servers/{server_id}/retry-provisioning": {permission: "server.{id}.write", status: enforced, note: "retry failed provisioning; server-scoped write"}
   "POST /api/v1/servers/{server_id}/command": {permission: "server.{id}.console", status: enforced, note: "console command execution; server-scoped via require_server_permission (server admin/dev; viewer denied)"}
   "POST /api/v1/servers/runtime/ownership/claim": {permission: "server:write", status: enforced}
   "POST /api/v1/servers/reconcile": {permission: "server:write", status: enforced}

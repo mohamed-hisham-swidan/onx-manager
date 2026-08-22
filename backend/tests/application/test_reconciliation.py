@@ -63,6 +63,9 @@ def _make_server(sid: str, status: ServerStatus, name: str | None = None) -> Ser
         s.mark_running(pid=100, port=25565)
         s.crash(exit_code=1)
         s.collect_events()
+    elif status == ServerStatus.PROVISIONING:
+        s.begin_provisioning()
+        s.collect_events()
     return s
 
 
@@ -147,6 +150,31 @@ class TestReconciliation:
         assert len(results) == 1
         assert results[0]["action"] == "repaired"
         assert results[0]["new_status"] == "stopped"
+
+    async def test_provisioning_server_marked_broken_when_stale(self):
+        server = _make_server("s1", ServerStatus.PROVISIONING)
+        server._deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path="/tmp/srv-provisioning-stale",
+            working_directory=".",
+            startup_jar="server.jar",
+        )
+        repo = MagicMock()
+        repo.list = AsyncMock(return_value=[server])
+        repo.save = AsyncMock()
+
+        with patch(
+            "app.modules.server.application.reconciliation.local_fs.delete_dir"
+        ) as mock_delete:
+            results = await reconcile_servers(repo)
+
+        assert server.status == ServerStatus.BROKEN
+        assert len(results) == 1
+        assert results[0]["action"] == "repaired"
+        assert results[0]["new_status"] == "broken"
+        assert results[0]["reason"] == "stale PROVISIONING state — backend restarted mid-install"
+        mock_delete.assert_called_once_with(server.deployment.server_directory())
+        repo.save.assert_called_once()
 
     async def test_crashed_server_recovered_when_running(self):
         server = _make_server("s1", ServerStatus.CRASHED)

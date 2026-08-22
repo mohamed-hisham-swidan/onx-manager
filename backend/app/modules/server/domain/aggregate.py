@@ -30,6 +30,8 @@ from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 class ServerStatus(Enum):
     CREATED = "created"
+    PROVISIONING = "provisioning"
+    PROVISIONING_FAILED = "provisioning_failed"
     BROKEN = "broken"
     STARTING = "starting"
     RUNNING = "running"
@@ -39,8 +41,10 @@ class ServerStatus(Enum):
 
 
 _SERVER_TRANSITIONS: dict[ServerStatus, set[ServerStatus]] = {
-    ServerStatus.CREATED: {ServerStatus.STARTING, ServerStatus.BROKEN},
-    ServerStatus.BROKEN: {ServerStatus.STARTING, ServerStatus.CREATED},
+    ServerStatus.CREATED: {ServerStatus.STARTING, ServerStatus.BROKEN, ServerStatus.PROVISIONING},
+    ServerStatus.PROVISIONING: {ServerStatus.CREATED, ServerStatus.STARTING, ServerStatus.BROKEN, ServerStatus.PROVISIONING_FAILED},
+    ServerStatus.PROVISIONING_FAILED: {ServerStatus.PROVISIONING, ServerStatus.CREATED, ServerStatus.BROKEN},
+    ServerStatus.BROKEN: {ServerStatus.STARTING, ServerStatus.CREATED, ServerStatus.PROVISIONING},
     ServerStatus.STARTING: {ServerStatus.RUNNING, ServerStatus.CRASHED, ServerStatus.STOPPING},
     ServerStatus.RUNNING: {ServerStatus.STOPPING, ServerStatus.CRASHED},
     ServerStatus.STOPPING: {ServerStatus.STOPPED, ServerStatus.CRASHED},
@@ -67,6 +71,8 @@ class Server(AggregateRoot):
         updated_at: datetime | None = None,
         missing_since: datetime | None = None,
         owner_id: str | None = None,
+        provisioning_error: str | None = None,
+        provisioning_retryable: bool = False,
     ) -> None:
         super().__init__()
         self._id = server_id
@@ -83,6 +89,8 @@ class Server(AggregateRoot):
         self._launch_config = launch_config
         self._missing_since = missing_since
         self._owner_id = owner_id
+        self._provisioning_error = provisioning_error
+        self._provisioning_retryable = provisioning_retryable
         now = datetime.now(timezone.utc)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
@@ -151,6 +159,14 @@ class Server(AggregateRoot):
     def owner_id(self) -> str | None:
         return self._owner_id
 
+    @property
+    def provisioning_error(self) -> str | None:
+        return self._provisioning_error
+
+    @property
+    def provisioning_retryable(self) -> bool:
+        return self._provisioning_retryable
+
     def mark_broken(self) -> None:
         self._status = ServerStatus.BROKEN
         self._updated_at = datetime.now(timezone.utc)
@@ -212,6 +228,24 @@ class Server(AggregateRoot):
             )
         self._status = new_status
         self._updated_at = datetime.now(timezone.utc)
+
+    def begin_provisioning(self) -> None:
+        self._provisioning_error = None
+        self._provisioning_retryable = False
+        self._transition_to(ServerStatus.PROVISIONING)
+
+    def finish_provisioning(self) -> None:
+        self._provisioning_error = None
+        self._provisioning_retryable = False
+        self._transition_to(ServerStatus.CREATED)
+
+    def fail_provisioning(self, error: str = "", retryable: bool = False, fatal: bool = False) -> None:
+        self._provisioning_error = error or None
+        self._provisioning_retryable = retryable
+        if fatal:
+            self._transition_to(ServerStatus.BROKEN)
+        else:
+            self._transition_to(ServerStatus.PROVISIONING_FAILED)
 
     def start(self) -> None:
         self._transition_to(ServerStatus.STARTING)

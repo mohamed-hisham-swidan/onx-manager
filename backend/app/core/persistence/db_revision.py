@@ -25,7 +25,7 @@ from sqlalchemy.exc import DBAPIError
 logger = logging.getLogger(__name__)
 
 #: Single authoritative declaration of the DB schema floor for MCS Manager 4.0.0.
-RELEASE_MINIMUM_DB_REVISION = "b1e2100000007"
+RELEASE_MINIMUM_DB_REVISION = "b1e2100000008"
 
 
 

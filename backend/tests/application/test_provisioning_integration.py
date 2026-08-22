@@ -89,6 +89,30 @@ class TestCreateServerProvisioning:
         assert (server_dir / "server.properties").exists()
 
     @pytest.mark.asyncio
+    async def test_neoforge_creates_server_and_begins_provisioning(
+        self, event_bus: EventBus, init_test_db: None,
+    ) -> None:
+        handler = CreateServerHandler(event_bus)
+        cmd = CreateServerCommand(
+            name="Integration NeoForge",
+            server_type="neoforge",
+            minecraft_version="1.21.1",
+        )
+
+        result = await handler.handle(cmd)
+
+        assert result.success is True
+        sid = result.data["server_id"]
+        server = await _get_server(sid)
+        assert server.name == "Integration NeoForge"
+        assert str(server.server_type.value) == "neoforge"
+
+        server_dir = Path(server.deployment.root_path)
+        assert not (server_dir / "server.jar").exists()
+        assert (server_dir / "eula.txt").exists()
+        assert (server_dir / "server.properties").exists()
+
+    @pytest.mark.asyncio
     async def test_provisioning_failure_cleans_up_directory(
         self, event_bus: EventBus, init_test_db: None,
     ) -> None:
