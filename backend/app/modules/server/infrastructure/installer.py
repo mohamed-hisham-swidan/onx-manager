@@ -156,7 +156,12 @@ class SubprocessInstallerRunner(InstallerRunner):
                 break
             yield progress
 
-        # Normal completion
+        # Normal completion - ensure process has exited and returncode is populated
+        if not wait_task.done():
+            await wait_task
+        elif proc.returncode is None:
+            await proc.wait()
+
         exit_code = proc.returncode
         if exit_code != 0:
             stage = "failed"
