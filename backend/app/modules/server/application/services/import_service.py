@@ -30,7 +30,12 @@ def _read_eula(path: str, fs: FileSystem) -> bool:
     return "eula=true" in content
 
 
-def _detect_server_type(jar_name: str | None, props: dict[str, str]) -> str:
+def _detect_server_type(
+    jar_name: str | None,
+    props: dict[str, str],
+    server_dir: str | None = None,
+    fs: FileSystem | None = None,
+) -> str:
     if jar_name:
         name = jar_name.lower()
         if "paper" in name:
@@ -39,7 +44,9 @@ def _detect_server_type(jar_name: str | None, props: dict[str, str]) -> str:
             return "purpur"
         if "fabric" in name:
             return "fabric"
-        if "forge" in name or "neoforge" in name:
+        if "neoforge" in name:
+            return "neoforge"
+        if "forge" in name:
             return "forge"
         if "spigot" in name:
             return "spigot"
@@ -49,16 +56,34 @@ def _detect_server_type(jar_name: str | None, props: dict[str, str]) -> str:
             return "vanilla"
 
     settings_type = props.get("settings-type", "")
-    if settings_type in ("paper", "purpur", "fabric", "forge", "spigot", "bukkit"):
+    if settings_type in ("paper", "purpur", "fabric", "forge", "neoforge", "spigot", "bukkit"):
         return settings_type
 
     if props.get("paper-config") and props.get("paper-config") != "false":
         return "paper"
 
+    if server_dir and fs:
+        run_sh = str(Path(server_dir) / "run.sh")
+        if fs.exists(run_sh):
+            content = fs.read_text(run_sh).lower()
+            if "neoforged" in content or "neoforge" in content:
+                return "neoforge"
+            if "minecraftforge" in content or "forge" in content:
+                return "forge"
+        if fs.exists(str(Path(server_dir) / "libraries" / "net" / "neoforged")):
+            return "neoforge"
+        if fs.exists(str(Path(server_dir) / "libraries" / "net" / "minecraftforge")):
+            return "forge"
+
     return "vanilla"
 
 
-def _detect_version(props: dict[str, str], jar_name: str | None) -> str:
+def _detect_version(
+    props: dict[str, str],
+    jar_name: str | None,
+    server_dir: str | None = None,
+    fs: FileSystem | None = None,
+) -> str:
     v = props.get("version", "").strip()
     if re.match(r"^\d+\.\d+(\.\d+)?$", v):
         return v
@@ -72,6 +97,19 @@ def _detect_version(props: dict[str, str], jar_name: str | None) -> str:
         v = props.get(mc_key, "")
         if re.match(r"^\d+\.\d+(\.\d+)?$", v):
             return v
+
+    if server_dir and fs:
+        run_sh = str(Path(server_dir) / "run.sh")
+        if fs.exists(run_sh):
+            content = fs.read_text(run_sh)
+            m = re.search(r"/(?:neoforge|forge)/(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)/", content)
+            if m:
+                return m.group(1)
+        neoforge_dir = str(Path(server_dir) / "libraries" / "net" / "neoforged" / "neoforge")
+        if fs.is_dir(neoforge_dir):
+            entries = [e.name for e in fs.list_dir(neoforge_dir) if e.is_dir()]
+            if entries:
+                return entries[0]
 
     return ""
 
@@ -216,11 +254,18 @@ def scan_server_directory(path: str, fs: FileSystem | None = None) -> dict[str, 
     props = _read_properties(props_path, fs)
     eula = _read_eula(eula_path, fs)
     jar_name = _find_server_jar(server_dir, fs)
-    server_type = _detect_server_type(jar_name, props)
+    run_script = None
+    for script_name in ("run.sh", "run.bat"):
+        if fs.exists(str(Path(server_dir) / script_name)):
+            run_script = script_name
+            break
+    server_type = _detect_server_type(jar_name, props, server_dir=server_dir, fs=fs)
+    version = _detect_version(props, jar_name, server_dir=server_dir, fs=fs) or ""
 
     raw_server_name = (props.get("server-name") or "").strip()
     server_name_declared = bool(raw_server_name)
     name = raw_server_name or Path(server_dir).name
+    effective_jar = jar_name or run_script
     jar_full_path = str(Path(server_dir) / jar_name) if jar_name else None
 
     return {
@@ -228,9 +273,10 @@ def scan_server_directory(path: str, fs: FileSystem | None = None) -> dict[str, 
         "name": name,
         "server_name_declared": server_name_declared,
         "server_type": server_type,
-        "minecraft_version": _detect_version(props, jar_name) or "",
+        "minecraft_version": version,
         "eula_accepted": eula,
-        "server_jar": jar_name,
+        "server_jar": effective_jar,
+        "run_script": run_script,
         "jar_size_bytes": fs.size(jar_full_path) if jar_full_path and fs.exists(jar_full_path) else 0,
         "properties": {
             "port": _safe_parse_int(props.get("server-port", "25565"), 25565),

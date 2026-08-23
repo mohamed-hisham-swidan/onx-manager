@@ -99,6 +99,19 @@ describe("createApiClient", () => {
     expect(result.total_hits).toBe(1);
   });
 
+  it("searchMarketplaceGlobal appends the loader platform filter", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ items: [], total_hits: 0, offset: 0, limit: 20 }));
+    await api.searchMarketplaceGlobal("sodium", "mod", 20, 0, "neoforge");
+
+    const url = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(url).toContain("loader=neoforge");
+
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ items: [], total_hits: 0, offset: 0, limit: 20 }));
+    await api.searchMarketplaceGlobal("sodium", "mod");
+    const urlNoLoader = vi.mocked(fetch).mock.calls[1][0] as string;
+    expect(urlNoLoader).not.toContain("loader=");
+  });
+
   it("throws ApiError on 4xx", async () => {
     const errBody = { error: "Not found", error_code: "NOT_FOUND", detail: null, timestamp: null };
     vi.mocked(fetch).mockImplementation(mockFetch(errBody, 404));
@@ -151,5 +164,15 @@ describe("createApiClient", () => {
       expect.stringContaining("/api/v1/servers/s1"),
       expect.objectContaining({ method: "DELETE" }),
     );
+  });
+
+  it("retryProvisioning sends POST to /api/v1/servers/{id}/retry-provisioning", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", status: "provisioning" }));
+    const result = await api.retryProvisioning("s1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/retry-provisioning",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(result).toEqual({ server_id: "s1", status: "provisioning" });
   });
 });

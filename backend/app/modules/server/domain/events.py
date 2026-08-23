@@ -94,3 +94,26 @@ class ServerVanishedEvent(DomainEvent):
 
     def __init__(self, path: str, **data: Any) -> None:
         super().__init__(path=path, **data)
+
+
+class ForgeProvisionProgressEvent(DomainEvent):
+    server_id: str
+    stage: str
+    percent: int | None
+    message: str
+
+    def __init__(
+        self,
+        server_id: ServerId,
+        stage: str,
+        percent: int | None,
+        message: str,
+        **data: Any,
+    ) -> None:
+        super().__init__(
+            server_id=str(server_id),
+            stage=stage,
+            percent=percent,
+            message=message,
+            **data,
+        )

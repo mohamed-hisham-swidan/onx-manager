@@ -472,10 +472,59 @@ class TestServers:
         resp = await client.get("/api/v1/servers")
         assert resp.status_code == 401
 
-    async def test_console_endpoint(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
+    async def test_retry_provisioning_rejected_when_not_failed(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        created_server: dict,
+    ) -> None:
         server_id = created_server["server_id"]
-        resp = await client.get(f"/api/v1/servers/{server_id}/console?tail=50", headers=admin_header)
-        assert resp.status_code == 200
+        # created_server is in status 'created', not 'provisioning_failed'
+        resp = await client.post(
+            f"/api/v1/servers/{server_id}/retry-provisioning",
+            headers=privileged_header,
+        )
+        assert resp.status_code == 400
+        data = resp.json()
+        error_msg = data.get("error") or str(data.get("detail", ""))
+        assert "expected 'provisioning_failed'" in error_msg.lower()
+        assert data.get("error_code") == "INVALID_STATUS"
+
+    async def test_retry_provisioning_succeeds_when_failed(
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        created_server: dict,
+    ) -> None:
+        from app.core.persistence.db import database
+        from app.modules.server.infrastructure.models import ServerModel
+        from sqlalchemy import update
+
+        server_id = created_server["server_id"]
+        # Update server to forge server in PROVISIONING_FAILED status
+        async with database.session_factory() as session:
+            await session.execute(
+                update(ServerModel)
+                .where(ServerModel.id == server_id)
+                .values(
+                    server_type="forge",
+                    status="provisioning_failed",
+                    provisioning_error="Connection timed out",
+                    provisioning_retryable=False,
+                )
+            )
+            await session.commit()
+
+        with patch("app.modules.server.application.services.forge_provisioner.provision_forge_server") as mock_prov:
+            resp = await client.post(
+                f"/api/v1/servers/{server_id}/retry-provisioning",
+                headers=privileged_header,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["server_id"] == server_id
+            assert data["status"] == "provisioning"
+            mock_prov.assert_called_once()
 
 
 class TestBackups:
@@ -765,6 +814,46 @@ class TestPluginMarketplace:
             )
         assert resp.status_code == 200
         assert passed_kwargs.get("project_type") == "mod"
+
+    async def test_global_marketplace_search_loader(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        from app.modules.plugin.infrastructure.providers.base import PluginSearchPage
+
+        passed_kwargs = {}
+
+        class _FakeProvider:
+            async def search(
+                self, _query: str, **kwargs: object
+            ) -> PluginSearchPage:
+                nonlocal passed_kwargs
+                passed_kwargs = kwargs
+                return PluginSearchPage(items=[], total_hits=0, offset=0, limit=20)
+
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/search",
+                params={"query": "sodium", "loader": "neoforge"},
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        assert passed_kwargs.get("loader") == "neoforge"
+        # omitted loader must pass through as None, not ""
+        passed_kwargs.clear()
+        with patch(
+            "app.api.v1.routers.marketplace.build_plugin_catalog_provider",
+            return_value=_FakeProvider(),
+        ):
+            resp = await client.get(
+                "/api/v1/marketplace/search",
+                params={"query": "sodium"},
+                headers=privileged_header,
+            )
+        assert resp.status_code == 200
+        assert passed_kwargs.get("loader") is None
 
     async def test_get_marketplace_project(
         self, client: AsyncClient, privileged_header: dict[str, str]

@@ -122,15 +122,96 @@ async def _collect_rcon_metrics(
     tps: float | None = None
     players = 0
     try:
-        tps_response = await client.send_command("tps")
-        parsed = parse_tps(tps_response)
-        if parsed is not None:
-            tps = parsed
+        # Try NeoForge / Forge built-in TPS command first
+        for cmd in ("neoforge tps", "forge tps"):
+            resp = await client.send_command(cmd)
+            parsed = _parse_forge_tps(resp)
+            if parsed is not None:
+                tps = parsed
+                break
+
+        # Fall back to Minecraft 1.20.3+ built-in 'tick query' (Vanilla, Fabric, NeoForge)
+        if tps is None:
+            tick_resp = await client.send_command("tick query")
+            parsed = _parse_tick_query(tick_resp)
+            if parsed is not None:
+                tps = parsed
+
+        # Fall back to Paper / Spigot 'tps' command
+        if tps is None:
+            tps_response = await client.send_command("tps")
+            parsed = parse_tps(tps_response)
+            if parsed is not None:
+                tps = parsed
+
         list_response = await client.send_command("list")
         players = parse_player_count(list_response)
     except Exception as exc:
         logger.debug("RCON metrics failed: %s", exc)
     return tps, players
+
+
+def _parse_tick_query(response: str) -> float | None:
+    """Parse output from vanilla/Fabric/NeoForge '/tick query' command (1.20.3+).
+
+    Examples:
+    - "Target tick rate: 20.0 per second."
+    - "The target tick rate is 20.0 per second. The average tick time is 0.1ms (target 50.0ms), with 20.0 ticks per second (100% of target)."
+    - "The average tick time is 12.3ms, with 19.8 ticks per second"
+    """
+    import re
+    match = re.search(r"Target tick rate:?\s*(?:is\s*)?([\d.]+)\s*per second", response, re.IGNORECASE)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            pass
+
+    match = re.search(r"with\s+([\d.]+)\s+ticks per second", response, re.IGNORECASE)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            pass
+
+    match = re.search(r"tick rate:?\s*(?:is\s*)?([\d.]+)\s*per second", response, re.IGNORECASE)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            pass
+
+    return None
+
+
+def _parse_forge_tps(response: str) -> float | None:
+    """Parse output from 'forge tps' or 'neoforge tps' command.
+
+    Forge Format:
+    Dim minecraft:overworld (minecraft:overworld): Mean tick time: 0.109 ms. Mean TPS: 20.000
+
+    NeoForge Format:
+    Overworld: 20.000 TPS (0.140 ms/tick)
+    Overall: 20.000 TPS (0.246 ms/tick)
+    """
+    import re
+    # Forge: Mean TPS: 20.000
+    matches = re.findall(r"Mean TPS:\s*([\d.]+)", response)
+    if matches:
+        try:
+            return float(matches[0])
+        except ValueError:
+            pass
+
+    # NeoForge: Overall: 20.000 TPS or Overworld: 20.000 TPS or <value> TPS
+    matches = re.findall(r"([\d.]+)\s*TPS", response, re.IGNORECASE)
+    if matches:
+        try:
+            return float(matches[0])
+        except ValueError:
+            pass
+
+    return None
 
 
 class MetricsCollector:

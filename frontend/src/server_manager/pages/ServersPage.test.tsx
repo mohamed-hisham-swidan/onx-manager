@@ -17,6 +17,7 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
   useStartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useStopServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useRestartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useRetryProvisioningServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
 import { useServersList } from "@/server_manager/hooks/useServers";

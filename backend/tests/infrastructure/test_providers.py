@@ -278,8 +278,9 @@ class TestLocalLinuxProviderWaitReady:
         provider = LocalLinuxProvider()
         handle = ServerHandle(provider="local", server_id="s1", external_id="mcs-s1")
 
-        with patch.object(provider, "console", AsyncMock(return_value=["line1", "Done (10.234s)! For help, type \"help\""])):
-            ready = await provider.wait_ready("s1", handle, timeout=5)
+        with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=True)):
+            with patch.object(provider, "console", AsyncMock(return_value=["line1", "Done (10.234s)! For help, type \"help\""])):
+                ready = await provider.wait_ready("s1", handle, timeout=5)
         assert ready is True
 
     @pytest.mark.asyncio

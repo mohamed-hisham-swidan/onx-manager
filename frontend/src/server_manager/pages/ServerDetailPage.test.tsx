@@ -84,6 +84,7 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
   useStopServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useRestartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useDeleteServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useRetryProvisioningServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
 vi.mock("@/server_manager/hooks/useServerMetrics", () => ({

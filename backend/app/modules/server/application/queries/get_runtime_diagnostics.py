@@ -92,16 +92,18 @@ class GetServerRuntimeDiagnosticsHandler(QueryHandler[GetServerRuntimeDiagnostic
         validation_chain = []
         try:
             from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
-            mgr = RuntimeOwnershipManager(repo)
-            snapshot = await mgr.discover_all()
-            for conflict in snapshot.conflicts:
-                owner_conflicts.append({
-                    "reason": conflict.reason.value,
-                    "detail": conflict.detail,
-                    "auto_resolvable": conflict.auto_resolvable,
-                })
-            validation = await mgr.validate_runtime(query.server_id)
-            validation_chain = validation.chain
+            async with database.session_factory() as diag_session:
+                diag_repo: ServerRepository = SQLServerRepository(diag_session)
+                mgr = RuntimeOwnershipManager(diag_repo)
+                snapshot = await mgr.discover_all()
+                for conflict in snapshot.conflicts:
+                    owner_conflicts.append({
+                        "reason": conflict.reason.value,
+                        "detail": conflict.detail,
+                        "auto_resolvable": conflict.auto_resolvable,
+                    })
+                validation = await mgr.validate_runtime(query.server_id)
+                validation_chain = validation.chain
         except Exception:
             pass
 

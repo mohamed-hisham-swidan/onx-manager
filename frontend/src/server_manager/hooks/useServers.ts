@@ -102,3 +102,15 @@ export function useUpdateServer() {
     },
   });
 }
+
+export function useRetryProvisioningServer() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (serverId: string) => api.retryProvisioning(serverId),
+    onSuccess: (_data, serverId) => {
+      qc.invalidateQueries({ queryKey: queryKeys.servers.all });
+      qc.invalidateQueries({ queryKey: queryKeys.servers.detail(serverId) });
+    },
+  });
+}

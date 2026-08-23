@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Server types that do NOT support plugin catalog installation.
 # NOTE: Must be kept manually in sync with frontend capability mapping in:
 # frontend/src/server_manager/utils/serverCapabilities.ts
-_MANUAL_SERVER_TYPES = {"vanilla", "fabric", "forge"}
+_MANUAL_SERVER_TYPES = {"vanilla", "fabric", "forge", "neoforge"}
 
 
 class InstallModrinthPluginCommand(Command):

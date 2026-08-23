@@ -221,12 +221,23 @@ def parse_tps(response: str) -> float | None:
             if value is not None:
                 return _clamp_tps(value)
 
+    # Forge/Spark common patterns
+    # Spark: "Server TPS: 19.8" or "TPS: 19.8"
+    match = re.search(r"(?:Server\s+)?TPS\s*[=:]\s*(-?[\d.]+)", text, re.IGNORECASE)
+    if match:
+        try:
+            return _clamp_tps(float(match.group(1)))
+        except ValueError:
+            pass
+
+    # Generic "avg/average" pattern
     match = re.search(r"(?:avg|average)\s*[=:]\s*(-?[\d.]+)", text, re.IGNORECASE)
     if match:
         try:
             return _clamp_tps(float(match.group(1)))
         except ValueError:
             pass
+
     return None
 
 

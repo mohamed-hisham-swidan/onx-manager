@@ -81,12 +81,7 @@ class FilesystemIntegrityChecker(IntegrityChecker):
 def _check_jar(srvd: Path, checks: list[IntegrityCheck]) -> None:
     jar_files = list(srvd.glob("*.jar"))
     if not jar_files:
-        checks.append(IntegrityCheck(
-            check_name="server_jar",
-            severity="critical",
-            status="fail",
-            detail="No .jar files found in server directory",
-        ))
+        _check_modern_forge_layout(srvd, checks)
         return
     server_jars = [f for f in jar_files if "server" in f.name.lower()]
     if server_jars:
@@ -102,6 +97,29 @@ def _check_jar(srvd: Path, checks: list[IntegrityCheck]) -> None:
             severity="warning",
             status="warn",
             detail=f"Found jar(s): {', '.join(f.name for f in jar_files[:3])} — none named 'server'",
+        ))
+
+
+def _check_modern_forge_layout(srvd: Path, checks: list[IntegrityCheck]) -> None:
+    """Forge >= 1.17 installers produce ``run.sh`` + ``libraries/`` but place the
+    runtime JAR deep inside ``libraries/`` — a top-level jar check alone would
+    (wrongly) block such servers from starting.
+    """
+    run_sh = srvd / "run.sh"
+    libraries = srvd / "libraries"
+    if run_sh.is_file() and libraries.is_dir():
+        checks.append(IntegrityCheck(
+            check_name="server_jar",
+            severity="critical",
+            status="pass",
+            detail="Forge-style install detected: run.sh + libraries/ (no top-level jar)",
+        ))
+    else:
+        checks.append(IntegrityCheck(
+            check_name="server_jar",
+            severity="critical",
+            status="fail",
+            detail="No .jar files and no run.sh + libraries/ layout found in server directory",
         ))
 
 

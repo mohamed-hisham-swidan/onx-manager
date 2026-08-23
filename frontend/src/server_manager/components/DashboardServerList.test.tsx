@@ -30,10 +30,12 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
   useStartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useStopServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useRestartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useRetryProvisioningServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
-import { useStartServer } from "@/server_manager/hooks/useServers";
+import { useStartServer, useRetryProvisioningServer } from "@/server_manager/hooks/useServers";
 const useStartServerMock = vi.mocked(useStartServer);
+const useRetryProvisioningServerMock = vi.mocked(useRetryProvisioningServer);
 
 const qc = new QueryClient();
 
@@ -125,6 +127,74 @@ describe("DashboardServerList", () => {
     renderList();
     expect(screen.getByRole("status")).toHaveTextContent("Status not live — subscription rejected");
     expect(screen.getByRole("link", { name: "Running" })).toBeInTheDocument();
+  });
+
+  it("does not show retry provisioning button when provisioning_retryable is true", () => {
+    const failedAutoRetryingServer: ServerResponse = {
+      server_id: "srv-failed-retrying",
+      name: "AutoRetrying",
+      server_type: "forge",
+      minecraft_version: "1.20.1",
+      status: "provisioning_failed",
+      provisioning_error: "Transient connection drop",
+      provisioning_retryable: true,
+      group_id: "default",
+      port: 25569,
+      motd: "",
+      max_players: 20,
+      gamemode: "survival",
+      difficulty: "easy",
+      created_at: "",
+      updated_at: "",
+    };
+
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <DashboardServerList servers={[failedAutoRetryingServer]} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByLabelText("Retry Provisioning AutoRetrying")).not.toBeInTheDocument();
+  });
+
+  it("shows retry provisioning button when provisioning_retryable is false and triggers action", () => {
+    const mutate = vi.fn((_id: string, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
+    useRetryProvisioningServerMock.mockReturnValue({ mutate, isPending: false } as unknown as ReturnType<typeof useRetryProvisioningServer>);
+
+    const failedExhaustedServer: ServerResponse = {
+      server_id: "srv-failed-exhausted",
+      name: "ExhaustedServer",
+      server_type: "forge",
+      minecraft_version: "1.20.1",
+      status: "provisioning_failed",
+      provisioning_error: "Installer timeout",
+      provisioning_retryable: false,
+      group_id: "default",
+      port: 25570,
+      motd: "",
+      max_players: 20,
+      gamemode: "survival",
+      difficulty: "easy",
+      created_at: "",
+      updated_at: "",
+    };
+
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <DashboardServerList servers={[failedExhaustedServer]} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const retryBtn = screen.getByLabelText("Retry Provisioning ExhaustedServer");
+    expect(retryBtn).toBeInTheDocument();
+
+    fireEvent.click(retryBtn);
+    expect(mutate).toHaveBeenCalledWith("srv-failed-exhausted", expect.anything());
+    expect(useToastStore.getState().toasts.some((t) => t.title === "Retry started")).toBe(true);
   });
 
   it("does not show the note when an unrelated channel is rejected", () => {

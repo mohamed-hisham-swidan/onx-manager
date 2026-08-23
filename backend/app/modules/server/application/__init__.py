@@ -26,6 +26,10 @@ from app.modules.server.application.commands.update_server_config import (
     UpdateServerConfigCommand,
     UpdateServerConfigHandler,
 )
+from app.modules.server.application.commands.retry_provisioning import (
+    RetryProvisioningCommand,
+    RetryProvisioningHandler,
+)
 from app.modules.server.application.queries.get_server import (
     GetServerHandler,
     GetServerQuery,
@@ -57,6 +61,8 @@ __all__ = [
     "ImportServerHandler",
     "RestartServerCommand",
     "RestartServerHandler",
+    "RetryProvisioningCommand",
+    "RetryProvisioningHandler",
     "StartServerCommand",
     "StartServerHandler",
     "StopServerCommand",

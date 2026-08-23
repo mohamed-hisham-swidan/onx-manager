@@ -91,6 +91,7 @@ class ServerType(str, Enum):
     PURPUR = "purpur"
     FABRIC = "fabric"
     FORGE = "forge"
+    NEOFORGE = "neoforge"
     SPIGOT = "spigot"
     BUKKIT = "bukkit"
 
@@ -106,6 +107,7 @@ class ServerType(str, Enum):
             "purpur": "Purpur",
             "fabric": "Fabric",
             "forge": "Forge",
+            "neoforge": "NeoForge",
             "spigot": "Spigot",
             "bukkit": "Bukkit",
         }

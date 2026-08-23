@@ -283,6 +283,8 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/stop`, { method: "POST", body: { reason: reason ?? "" } }),
     restartServer: (serverId: string) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/restart`, { method: "POST" }),
+    retryProvisioning: (serverId: string) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/retry-provisioning`, { method: "POST" }),
     getServerConsole: (serverId: string, tail?: number) =>
       request<ConsoleResponse>(`/api/v1/servers/${serverId}/console`, { params: { tail: tail?.toString() } }),
     sendServerCommand: (serverId: string, body: CommandRequest) =>
@@ -315,14 +317,14 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/disable`, { method: "POST" }),
 
     // Plugin marketplace
-    searchMarketplace: (serverId: string, query: string, projectType?: string, limit?: number, offset?: number) =>
+    searchMarketplace: (serverId: string, query: string, projectType?: string, limit?: number, offset?: number, loader?: string) =>
       request<PluginSearchResultsResponse>(`/api/v1/servers/${serverId}/plugins/marketplace/search`, {
-        params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString() },
+        params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString(), loader },
       }),
     // Global variant: server-independent marketplace search (no server_id in the path).
-    searchMarketplaceGlobal: (query: string, projectType?: string, limit?: number, offset?: number) =>
+    searchMarketplaceGlobal: (query: string, projectType?: string, limit?: number, offset?: number, loader?: string) =>
       request<PluginSearchResultsResponse>(`/api/v1/marketplace/search`, {
-        params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString() },
+        params: { query, project_type: projectType, limit: limit?.toString(), offset: offset?.toString(), loader },
       }),
     getMarketplaceProject: (projectId: string) =>
       request<PluginProjectResponse>(`/api/v1/marketplace/projects/${projectId}`),

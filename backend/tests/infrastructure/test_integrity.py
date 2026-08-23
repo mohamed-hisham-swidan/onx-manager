@@ -70,6 +70,35 @@ class TestFilesystemIntegrityChecker:
             for c in report.checks
         )
 
+    async def test_forge_run_sh_layout_passes(self):
+        checker = FilesystemIntegrityChecker()
+        with tempfile.TemporaryDirectory() as tmp:
+            srvd = _make_server_dir(tmp, "srv-forge")
+            (srvd / "run.sh").write_text("#!/usr/bin/env bash\n")
+            (srvd / "libraries").mkdir()
+            (srvd / "server.properties").write_text("server-port=25565\n")
+
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(
+                    "app.modules.health.infrastructure.integrity._resolve_path",
+                    lambda _sid, _root_path=None: srvd,
+                )
+                report = await checker.check("srv-forge")
+
+        assert report.overall_status != "fail"
+        assert any(
+            c.check_name == "server_jar" and c.status == "pass"
+            for c in report.checks
+        )
+
+    async def test_no_jar_and_no_run_sh_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            srvd = _make_server_dir(tmp, "srv-incomplete")
+            reports: list[IntegrityCheck] = []
+            _check_jar(srvd, reports)
+        assert reports[0].status == "fail"
+        assert "run.sh" in reports[0].detail
+
     async def test_quick_scope_skips_disk_check(self):
         checker = FilesystemIntegrityChecker()
         with tempfile.TemporaryDirectory() as tmp:

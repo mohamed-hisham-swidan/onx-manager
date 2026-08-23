@@ -6,6 +6,7 @@ export interface ServerCapabilities {
 const MOD_SERVER_TYPES = new Set([
   "fabric",
   "forge",
+  "neoforge",
 ]);
 
 const PLUGIN_SERVER_TYPES = new Set([

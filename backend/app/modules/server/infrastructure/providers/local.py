@@ -147,8 +147,24 @@ class LocalLinuxProvider(ServerProvider):
             memory_max = cfg.get("memory_max_mb", 2048)
             port = cfg.get("port", 25565)
             cmd = launch_config.effective_command()
-            if "-Xms" not in cmd and "-Xmx" not in cmd:
-                cmd = f"{cmd} -Xms{memory_min}M -Xmx{memory_max}M"
+            is_script_launch = (
+                cmd.startswith(("bash ", "sh ", "./", "exec ")) or cmd.endswith(".sh")
+            )
+            if is_script_launch:
+                if "nogui" not in cmd and "--nogui" not in cmd:
+                    cmd = f"{cmd} nogui"
+                jvm_args_file = os.path.join(server_dir, "user_jvm_args.txt")
+                if os.path.exists(jvm_args_file) or not os.path.exists(os.path.join(server_dir, jar)):
+                    try:
+                        self._fs.write_text(
+                            jvm_args_file,
+                            f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
+                        )
+                    except Exception:
+                        pass
+            else:
+                if "-Xms" not in cmd and "-Xmx" not in cmd:
+                    cmd = f"{cmd} -Xms{memory_min}M -Xmx{memory_max}M"
             if deployment:
                 cmd = f"cd {server_dir} && {cmd}"
         else:
@@ -159,11 +175,31 @@ class LocalLinuxProvider(ServerProvider):
             port = cfg.get("port", 25565)
             java_exec = "java"
             jvm_flags = " ".join(java_args) if isinstance(java_args, list) else str(java_args)
-            cmd = (
-                f"cd {server_dir} && {java_exec} {jvm_flags} "
-                f"-Xms{memory_min}M -Xmx{memory_max}M "
-                f"-jar {jar} nogui"
+
+            # Auto-detect script execution vs JAR execution for discovered/unconfigured servers
+            has_run_script = self._fs.exists(os.path.join(server_dir, "run.sh")) or self._fs.exists(os.path.join(server_dir, "run.bat"))
+            is_script = (
+                jar.endswith((".sh", ".bat"))
+                or jar.startswith(("bash ", "sh ", "./"))
+                or (not self._fs.exists(os.path.join(server_dir, jar)) and has_run_script)
             )
+            if is_script:
+                script_name = "run.sh" if self._fs.exists(os.path.join(server_dir, "run.sh")) else jar
+                jvm_args_file = os.path.join(server_dir, "user_jvm_args.txt")
+                try:
+                    self._fs.write_text(
+                        jvm_args_file,
+                        f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
+                    )
+                except Exception:
+                    pass
+                cmd = f"cd {server_dir} && bash {script_name} nogui"
+            else:
+                cmd = (
+                    f"cd {server_dir} && {java_exec} {jvm_flags} "
+                    f"-Xms{memory_min}M -Xmx{memory_max}M "
+                    f"-jar {jar} nogui"
+                )
 
         instance_id = uuid.uuid4().hex[:16]
         marker_prefix = f"export MCS_MANAGED=1 MCS_INSTANCE_ID={instance_id}; "
@@ -220,17 +256,7 @@ class LocalLinuxProvider(ServerProvider):
                 f"Process died immediately after tmux creation server={server_id} session={session_name}",
             )
 
-        start_time: int | None = None
-        try:
-            with open(f"/proc/{pid}/stat", "r") as f:
-                data = f.read()
-            paren_end = data.rfind(")")
-            if paren_end != -1:
-                fields = data[paren_end + 2:].split()
-                if len(fields) >= 20:
-                    start_time = int(fields[19])
-        except (OSError, ValueError, IndexError):
-            pass
+        start_time = int(time.time())
 
         logger.info(
             "Phase 4/4: Server process started — server=%s pid=%d start_time=%s port=%d session=%s phase=startup",
@@ -241,7 +267,7 @@ class LocalLinuxProvider(ServerProvider):
             provider="local",
             server_id=server_id,
             external_id=session_name,
-            metadata={"server_dir": server_dir, "session_name": session_name},
+            metadata={"server_dir": server_dir, "session_name": session_name, "port": port},
         )
 
         return DeploymentResult(
@@ -249,7 +275,7 @@ class LocalLinuxProvider(ServerProvider):
             address="127.0.0.1",
             port=port,
             pid=pid,
-            metadata={"handle": str(handle), "session_name": session_name, "start_time": start_time},
+            metadata={"handle": str(handle), "session_name": session_name, "start_time": start_time, "port": port},
         )
 
     async def stop(self, handle: ServerHandle, force: bool = False) -> None:
@@ -494,6 +520,15 @@ class LocalLinuxProvider(ServerProvider):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
+                # Check if tmux session exists before trying to capture console
+                has = await self._tmux_has_session(session_name)
+                if not has:
+                    logger.info(
+                        'wait_ready server=%s session=%s session not found or terminated provider=%s',
+                        label, session_name, self.provider_type,
+                    )
+                    return False
+
                 lines = await self.console(handle, tail=50)
                 logger.info(
                     'wait_ready server=%s session=%s iter lines=%d has_done=%s provider=%s',
@@ -503,13 +538,6 @@ class LocalLinuxProvider(ServerProvider):
                 for line in lines:
                     if "Done (" in line:
                         return True
-                has = await self._tmux_has_session(session_name)
-                if not has:
-                    logger.info(
-                        'wait_ready server=%s session=%s session missing provider=%s',
-                        label, session_name, self.provider_type,
-                    )
-                    return False
                 pid = await self._get_tmux_pid(session_name)
                 if pid is None:
                     logger.info(
@@ -576,6 +604,17 @@ class LocalLinuxProvider(ServerProvider):
                 label, session_name, handle.external_id, self.provider_type,
                 exc_info=True,
             )
+
+        if not log_lines:
+            server_dir = handle.metadata.get("server_dir")
+            if server_dir:
+                log_file = os.path.join(server_dir, "logs", "latest.log")
+                if os.path.isfile(log_file):
+                    try:
+                        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                            log_lines = [line.rstrip("\n") for line in f.readlines()[-300:]]
+                    except Exception:
+                        pass
 
         try:
             pid = await self._get_tmux_pid(session_name)

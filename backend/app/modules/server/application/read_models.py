@@ -52,6 +52,8 @@ class ServerReadModel:
         difficulty: str,
         created_at: datetime,
         updated_at: datetime,
+        provisioning_error: str | None = None,
+        provisioning_retryable: bool = False,
     ) -> None:
         self.server_id = server_id
         self.name = name
@@ -66,6 +68,8 @@ class ServerReadModel:
         self.difficulty = difficulty
         self.created_at = created_at
         self.updated_at = updated_at
+        self.provisioning_error = provisioning_error
+        self.provisioning_retryable = provisioning_retryable
 
     @classmethod
     def from_domain(cls, server: Server) -> ServerReadModel:
@@ -83,6 +87,8 @@ class ServerReadModel:
             difficulty=server.properties.difficulty,
             created_at=server.created_at,
             updated_at=server.updated_at,
+            provisioning_error=server.provisioning_error,
+            provisioning_retryable=server.provisioning_retryable,
         )
 
 
@@ -123,12 +129,16 @@ class ServerDetailReadModel(ServerReadModel):
         startup_jar: str | None = None,
         startup_command: str | None = None,
         primary_world: str | None = None,
+        provisioning_error: str | None = None,
+        provisioning_retryable: bool = False,
     ) -> None:
         super().__init__(
             server_id=server_id, name=name, server_type=server_type,
             minecraft_version=minecraft_version, status=status, group_id=group_id,
             port=port, motd=motd, max_players=max_players, gamemode=gamemode,
             difficulty=difficulty, created_at=created_at, updated_at=updated_at,
+            provisioning_error=provisioning_error,
+            provisioning_retryable=provisioning_retryable,
         )
         self.min_memory_mb = min_memory_mb
         self.max_memory_mb = max_memory_mb
@@ -191,4 +201,6 @@ class ServerDetailReadModel(ServerReadModel):
             startup_jar=dep.startup_jar if dep else None,
             startup_command=dep.startup_command if dep else None,
             primary_world=dep.primary_world if dep else None,
+            provisioning_error=server.provisioning_error,
+            provisioning_retryable=server.provisioning_retryable,
         )
