@@ -53,7 +53,7 @@ class TestSettingsPersistenceStore:
         assert live.idempotency_ttl_hours == 24
         assert live.log_level == "INFO"
         assert live.debug is False
-        assert live.metrics_interval_seconds == 0.2
+        assert live.metrics_interval_seconds == 1.5
 
     def test_update_persists_to_file(self, setup_temp_settings):
         test_yaml = setup_temp_settings

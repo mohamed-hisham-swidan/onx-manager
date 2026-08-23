@@ -42,7 +42,7 @@ _DEFAULTS: dict[str, Any] = {
     "event_bus_retry_attempts": 3,
     "saga_timeout_seconds": 300,
     "panel_bind_host": "127.0.0.1",
-    "metrics_interval_seconds": 0.2,
+    "metrics_interval_seconds": 1.5,
 }
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
@@ -62,7 +62,7 @@ class LiveSettings:
     event_bus_retry_attempts: int = 3
     saga_timeout_seconds: int = 300
     panel_bind_host: str = "127.0.0.1"
-    metrics_interval_seconds: float = 0.2
+    metrics_interval_seconds: float = 1.5
 
 
 _live: LiveSettings | None = None

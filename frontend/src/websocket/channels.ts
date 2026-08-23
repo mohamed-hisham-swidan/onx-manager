@@ -14,6 +14,7 @@ export const VALID_CHANNEL_PREFIXES = [
   "metrics",
   "auth",
   "user",
+  "provision",
 ] as const;
 
 export const MAX_CHANNELS = 50;

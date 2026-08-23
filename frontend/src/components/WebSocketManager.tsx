@@ -3,6 +3,7 @@ import { queryClient } from "@/services/queryClient";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/stores/authStore";
 import { useActivityStore, toActivityEvent } from "@/stores/activityStore";
+import { useProvisionProgressStore, toProvisionProgressEvent } from "@/stores/provisionProgressStore";
 import type { MetricsSnapshot } from "@/services/api";
 import { MAX_POINTS } from "@/server_manager/components/ServerMetricsCharts";
 
@@ -57,6 +58,10 @@ export function WebSocketManager() {
   const onEvent = useCallback(
     (event: Record<string, unknown>) => {
       addEvent(toActivityEvent(event));
+      const provisionEvent = toProvisionProgressEvent(event);
+      if (provisionEvent) {
+        useProvisionProgressStore.getState().setProgress(event.server_id as string, provisionEvent);
+      }
     },
     [addEvent],
   );

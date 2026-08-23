@@ -43,7 +43,7 @@ class AppSettings(BaseSettings):
     s3_endpoint_url: str = ""
     panel_bind_host: str = "127.0.0.1"
     panel_bind_port: int = 8000
-    metrics_interval_seconds: float = 0.2
+    metrics_interval_seconds: float = 1.5
 
     model_config = {"env_prefix": "MCS_"}
 
