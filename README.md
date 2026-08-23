@@ -1,7 +1,7 @@
 # Minecraft Server Manager
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-1219%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-2021%20passing-brightgreen.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](#)
 [![TypeScript](https://img.shields.io/badge/typescript-5%2B-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](#)
@@ -54,6 +54,7 @@ Then open `http://localhost:8000` — the first-run wizard creates your admin ac
 | Area | Link |
 |---|---|
 | Full Doc Index | [docs/README.md](docs/README.md) |
+| Canonical Roadmap | [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) |
 | Architecture | [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) |
 | API Reference | [docs/API.md](docs/API.md) |
 | Database Schema | [docs/architecture/DATABASE.md](docs/architecture/DATABASE.md) |

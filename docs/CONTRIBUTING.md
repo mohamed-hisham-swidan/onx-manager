@@ -13,11 +13,11 @@ Before writing any code, read the following in order:
 3. **`PROJECT_STATE.json`** — current state of every batch
 4. Your batch's **`STATE.md`** — what was done and what is next
 5. Your batch's **`PROMPT.md`** — complete context for the work unit
-6. **`docs/reference/file-ownership.md`** — confirm which files you own
+6. **`docs/history/archive/legacy-file-ownership-batch-map.md`** — confirm which files you own
 7. **`docs/reference/dependency-graph.md`** — understand inter-batch dependencies
 8. **`docs/architecture/ARCHITECTURE.md`** — system architecture reference
 
-Every file has exactly one owner (see [reference/file-ownership.md](reference/file-ownership.md)). A batch may only modify files it owns. Read access is unrestricted.
+Every file has exactly one owner (see [history/archive/legacy-file-ownership-batch-map.md](history/archive/legacy-file-ownership-batch-map.md)). A batch may only modify files it owns. Read access is unrestricted.
 
 ---
 
@@ -32,7 +32,7 @@ Read the following documents **in this exact order** at session start:
 3. `PROJECT_STATE.json`
 4. Your batch's `STATE.md`
 5. Your batch's `PROMPT.md`
-6. `docs/reference/file-ownership.md`
+6. `docs/history/archive/legacy-file-ownership-batch-map.md`
 
 Then begin implementation. Do not skip any step.
 

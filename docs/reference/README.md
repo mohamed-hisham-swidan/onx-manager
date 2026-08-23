@@ -1,14 +1,18 @@
-# Reference Index
+# Reference & Subsystem Registries Portal
 
-Machine-readable / quick-look reference maps for the codebase. These documents are
-cross-reference tables and indexes, consulted on demand rather than read start-to-end.
+This directory contains registries, contracts, and system catalogs reflecting live codebase reality.
 
-| Document | Purpose |
-|----------|---------|
-| [Module Map](module-map.md) | DDD module boundaries and responsibilities. |
-| [Dependency Graph](dependency-graph.md) | Module-to-module dependency relationships. |
-| [Event Catalog](event-catalog.md) | Domain events, event-store counterparts, and producers/consumers. |
-| [Contract Registry](contract-registry.md) | Shared contract schemas (YAML/JSON) and their consumers. |
-| [File Ownership](file-ownership.md) | Which directory `docs/` and source files belong to which owner. |
+---
 
-Part of the [documentation index](../README.md).
+## Registries & Catalogs
+
+| Document | Scope |
+|---|---|
+| [`event-catalog.md`](event-catalog.md) | All 52 domain event classes across all DDD modules with payload specifications. |
+| [`module-map.md`](module-map.md) | Complete directory map of 10 DDD modules, 15 REST routers, and 19 frontend pages. |
+| [`dependency-graph.md`](dependency-graph.md) | Layering rules and hexagonal boundary constraints. |
+| [`contract-registry.md`](contract-registry.md) | Route permissions schema and contract inventory. |
+
+---
+
+> Historical batch maps (e.g. `legacy-file-ownership-batch-map.md`) are archived in [`docs/history/archive/`](../history/archive/).

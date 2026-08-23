@@ -107,10 +107,10 @@ Authorization is enforced at the route dependency layer in two forms:
 > enable/disable gate on `plugin:manage`, settings/schedules/alerts/health
 > routes gate on their permissions, and the runtime diagnostics routes gate on
 > `server.{id}.view` / `server:read`. The complete route→permission matrix is
-> the source of truth in `contracts/permissions.yaml`.
+> the source of truth in `../contracts/permissions.yaml`.
 >
 > The full list of enforced routes is maintained in
-> [`contracts/permissions.yaml`](contracts/permissions.yaml) (v1.5, 85
+> [`../contracts/permissions.yaml`](../contracts/permissions.yaml) (v1.5, 85
 > effective routes), not duplicated inline here.
 
 ### 401 vs 403

@@ -1,19 +1,22 @@
-# Architecture & Design Index
+# Architecture Documentation Portal
 
-Deep design and subsystem documents describing how MCS Manager is built and
-why. Reference manuals (API, testing, development, deployment) live at `docs/`
-root; this directory holds design/architecture references.
+This directory contains the living architecture and system design specifications for MCS Manager.
 
-| Document | Status | Purpose |
-|----------|--------|---------|
-| [Architecture](ARCHITECTURE.md) | ✅ **IMPLEMENTED** | System context, module structure, CQRS/hexagonal patterns, task wiring, reconciliation. |
-| [Specs](SPECS.md) | ✅ **IMPLEMENTED** | Project specs: tech stack, all libraries, repository stats (files/lines by area), structure trees, feature inventory. |
-| [Database](DATABASE.md) | ✅ **IMPLEMENTED** | Schema design, migration chain, query patterns, migration guide. |
-| [Security](SECURITY.md) | ✅ **IMPLEMENTED** | Authentication, authorization (Phase 4 enforced: global + server-scoped RBAC), audit chain, data protection, rate limiting, sessions. |
-| [Frontend](FRONTEND.md) | ✅ **IMPLEMENTED** | React 19 app structure, state management, WebSocket integration, API client, testing. |
-| [Plugins & Marketplace](plugins-and-marketplace.md) | ✅ **IMPLEMENTED** | Plugin registry (filesystem source of truth) + Modrinth marketplace implementation. |
-| [Network Access Design](network-access-design.md) | 🟡 **PLANNED** | Phases 7–8 design reference: TunnelProvider vs DnsProvider, dynamic endpoints, tunnel ≠ auth. |
-| [Provisioning](PROVISIONING.md) | ✅ **IMPLEMENTED** | Server creation flow, JAR validation, supported server types. |
-| [Marketplace Design Review](K5-marketplace-design-review.md) | ✅ **IMPLEMENTED** | K5 marketplace first-class-section design review and implementation record. |
+---
 
-Part of the [documentation index](../README.md).
+## Active Architecture Documents
+
+| Document | Description |
+|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Master system architecture, bounded contexts, CQRS buses, and hexagonal layering. |
+| [`DATABASE.md`](DATABASE.md) | Database engine (SQLite/PostgreSQL), schema design, and Alembic migrations. |
+| [`SECURITY.md`](SECURITY.md) | Authentication (JWT RS256), authorization (RBAC/ABAC), and sandbox security. |
+| [`FRONTEND.md`](FRONTEND.md) | React 19 frontend architecture, state management, and component hierarchy. |
+| [`SPECS.md`](SPECS.md) | System technical specifications and repository metrics. |
+| [`PROVISIONING.md`](PROVISIONING.md) | Server creation and software provisioning architecture. |
+| [`SPEC-FORGE-PROVISIONING-001.md`](SPEC-FORGE-PROVISIONING-001.md) | Forge & NeoForge automated installer provisioning specification. |
+| [`plugins-and-marketplace.md`](plugins-and-marketplace.md) | Plugin manager and Modrinth catalog integration design. |
+
+---
+
+> Historical design reviews and superseded phase plans are archived in [`docs/history/`](../history/).
