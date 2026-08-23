@@ -1,86 +1,45 @@
-# Dependency Graph
+# Inter-Module Dependency Graph & Layering Rules
 
-> Cross-references: [Module Map](module-map.md), [Contract Registry](contract-registry.md), [Architecture](../architecture/ARCHITECTURE.md), [API](../API.md)
-
-## Batch Dependencies
-
-```
-Batch 01 (Core) ──► Batch 02 (Domain) ──► Batch 03 (Providers) ──► Batch 04 (Application)
-                                                                          │
-    Batch 08 (Auth) ◄──────────────────────────────────────────────────────┤
-         │                                                                 │
-         └──► Batch 05 (API) ◄─────────────────────────────────────────────┘
-                  │
-                  ├──► Batch 06 (WebSocket)
-                  ├──► Batch 10 (Frontend)
-                  └──► Batch 09 (Monitoring)
-
-    Batch 07 (Plugins) ◄── Batch 04 (uses application layer)
-```
-
-## Execution Order & Dependency Rules
-
-| Batch | Depends On | Can Start After | Notes |
-|---|---|---|---|
-| 01 | Nothing | Immediately | Foundation — everything builds on this |
-| 02 | 01 | Batch 01 done | Domain model layer |
-| 03 | 01, 02 | Batch 02 done | Infrastructure providers |
-| 04 | 01, 02, 03 | Batch 03 done | Application layer |
-| 05 | 01, 04, 08 | Batch 04 + 08 done | API layer (waits for Auth) |
-| 06 | 01, 04, 05 | Batch 05 done | WebSocket (depends on API) |
-| 07 | 01, 02, 03, 04 | Batch 04 done | Plugin system (can parallel with 05/06) |
-| 08 | 01, 02 | Batch 02 done | Auth — can parallel with Batch 03/04 |
-| 09 | 01, 04, 05 | Batch 04 done | Monitoring — can parallel with 06/07 |
-| 10 | 05, 06 | Batch 06 done | Frontend (depends on API + WS) |
-
-## Shared Interfaces (Contracts)
-
-These interfaces cross batch boundaries and must not change without coordination:
-
-| Interface | Provided By | Consumed By | Contract ID |
-|---|---|---|---|
-| `CommandBus` | Batch 01 | All batches | C-001 |
-| `EventBus` | Batch 01 | All batches | C-002 |
-| `QueryBus` | Batch 01 | All batches | C-003 |
-| `UnitOfWork` | Batch 01 | All batches | C-004 |
-| `MCSError` hierarchy | Batch 01 | All batches | C-005 |
-| `ServerProvider` | Batch 03 | Batch 04, 05, 06 | C-006 |
-| `Server` aggregate | Batch 02 | Batch 03, 04, 05, 09 | C-007 |
-| `JWTProvider` | Batch 08 | Batch 05, 06 | C-008 |
-| `PermissionEvaluator` | Batch 08 | Batch 05, 06 | C-009 |
-| `AuditLogger` | Batch 08 | Batch 05 | C-010 |
-| `TaskQueue` | Batch 09 | Batch 04, 05 | C-011 |
-| `EventStore` | Batch 09 | All batches | C-012 |
-
-Full details in the [Contract Registry](contract-registry.md).
-
-## Cross-Batch Request Protocol
-
-When Batch A needs something from Batch B:
-
-1. Batch A writes a `REQUEST` entry in `MASTER_PLAN.md`
-2. Format:
-   ```
-   REQUEST
-   From: Batch-A
-   To: Batch-B
-   Needed: Short description
-   Reason: Why it's needed
-   Required Interface: Function signature / class
-   Priority: High/Medium/Low
-   ```
-3. Batch B implements the requirement in its next session
-4. Batch B updates the request status to COMPLETED in `MASTER_PLAN.md`
-5. Batch A can proceed
-
-## Prohibited Dependencies
-
-| Violation | Reason |
-|---|---|
-| Batch 05 → Batch 03 (direct) | API must go through Batch 04 application layer |
-| Batch 10 → backend internals | Frontend consumes only API contracts |
-| Batch 07 → Batch 08 | Plugins are auth-agnostic |
+**Status:** Living Reference (Synchronized with live codebase)  
+**Architectural Pattern:** Modular Monolith with Strict Hexagonal Boundaries (ADR 0001)
 
 ---
 
-See [Module Map](module-map.md) for full module listing per batch.
+## 1. Module Layering Rules
+
+Modules communicate across strict boundaries:
+1. **Domain Layer (`domain/`):** Zero outbound dependencies on other modules or infrastructure. Contains entities, value objects, domain events, and repository interfaces.
+2. **Application Layer (`application/`):** Depends only on own domain and core abstractions (Bus, Units of Work). Handles commands, queries, and event handlers.
+3. **Infrastructure Layer (`infrastructure/`):** Implements domain interfaces (SQL repositories, providers, HTTP clients).
+4. **API Layer (`api/v1/`):** Thin REST routing layer invoking Application Handlers via CommandBus / QueryBus.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       API Routers (15)                      │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ CommandBus / QueryBus
+┌──────────────────────────────v──────────────────────────────┐
+│                  Application Command/Query Handlers         │
+└──────────────┬──────────────────────────────┬───────────────┘
+               │                              │
+┌──────────────v──────────────┐┌──────────────v───────────────┐
+│     Domain Aggregates       ││   Infrastructure Adapters    │
+│  (Server, User, Backup...)  ││ (SQLAlchemy, LocalProvider)  │
+└─────────────────────────────┘└──────────────────────────────┘
+```
+
+---
+
+## 2. Bounded Context Dependency Map
+
+| Module | Allowed Upstream Modules | Prohibited Direct Dependencies | Communication Mechanism |
+|---|---|---|---|
+| **`server`** | `shared`, `core` | `auth`, `plugin`, `backup`, `exposure` | Publishes domain events to EventBus |
+| **`auth`** | `shared`, `core` | `server`, `plugin`, `exposure` | Self-contained identity & permission context |
+| **`backup`** | `shared`, `core`, `server` (queries only) | `auth`, `plugin`, `exposure` | Subscribes to server events; executes sagas |
+| **`health`** | `shared`, `core`, `server` (queries only) | `plugin`, `exposure` | Subscribes to server lifecycle events |
+| **`monitoring`** | `shared`, `core`, `server` (queries only) | `auth`, `plugin`, `exposure` | Background collector polling runtime state |
+| **`plugin`** | `shared`, `core`, `server` (queries only) | `auth`, `backup`, `exposure` | Manages server plugins directory |
+| **`exposure`** | `shared`, `core`, `server` (queries only) | `plugin`, `backup` | Subscribes to server lifecycle for tunnel sync |
+| **`event_store`** | `shared`, `core` | All business modules | Listens to all domain events via EventBus |
+| **`storage`** | `shared`, `core` | All business modules | Pure filesystem & object storage provider |

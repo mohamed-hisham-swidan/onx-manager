@@ -1,124 +1,70 @@
-# Module Map
+# System Module Map & Route Inventory
 
-> Cross-references: [Architecture](../architecture/ARCHITECTURE.md), [Dependency Graph](dependency-graph.md), [File Ownership](file-ownership.md)
-
-Every backend module mapped to its purpose, path, and the batch that built it. Directories verified against the current filesystem at `backend/app/`.
-
----
-
-## Foundation Layer — Batch 01
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| Core | `backend/app/core/` | Foundation | Config factory, exception hierarchy, CQRS buses, idempotency, saga base, circuit breaker, feature flags, logging, security utils |
-| Persistence | `backend/app/core/persistence/` | Foundation | SQLAlchemy engine, base ORM model, `BaseRepository`, `UnitOfWork` |
-| Migrations | `backend/alembic/` | Foundation | Database migration scripts, env config |
-
-## Domain Layer — Batch 02
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| Server Domain | `backend/app/modules/server/domain/` | Domain | `Server` aggregate root, value objects (`ServerId`, `MinecraftVersion`, etc.), domain events, repository interface, domain service, diagnostics types |
-| Backup Domain | `backend/app/modules/backup/domain/` | Domain | `BackupJob`, `BackupPolicy` aggregates, domain events, repository interface |
-| Plugin Domain | `backend/app/modules/plugin/domain/` | Domain | `Plugin`, `PluginRegistry` aggregates, value objects, domain events, repository interface |
-| Auth Domain | `backend/app/modules/auth/domain/` | Domain | `User`, `Role` aggregates, auth domain events |
-| Monitoring Domain | `backend/app/modules/monitoring/domain/` | Domain | `MetricSeries`, `AlertRule` aggregates, monitoring events |
-| Shared Domain | `backend/app/modules/shared/` | Domain | Cross-context value objects, shared aggregate base |
-
-## Infrastructure Layer — Batch 03
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| Server Infra | `backend/app/modules/server/infrastructure/` | Infrastructure | SQLAlchemy repository, `ServerProvider` interface + local/docker/remote/cloud providers, filesystem helpers, location tracking, ORM models |
-| Backup Infra | `backend/app/modules/backup/infrastructure/` | Infrastructure | SQLAlchemy repository, ORM models |
-| Plugin Infra | `backend/app/modules/plugin/infrastructure/` | Infrastructure | SQLAlchemy repository, ORM models, manifest validation, dependency resolver, sandbox, lifecycle state machine |
-| Storage Backend | `backend/app/modules/storage/` | Infrastructure | `StorageBackend` interface, local filesystem adapter, S3 adapter, encryption helpers |
-
-## Application Layer — Batch 04
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| Server App | `backend/app/modules/server/application/` | Application | Commands (create/delete/start/stop/restart/import/update), queries, read models, supervisor, reconciliation, service layer |
-| Backup App | `backend/app/modules/backup/application/` | Application | Commands (create/restore/delete/verify), queries |
-| Plugin App | `backend/app/modules/plugin/application/` | Application | Commands (install/uninstall/enable/disable), queries |
-| Monitoring App | `backend/app/modules/monitoring/application/` | Application | Commands (create/update alert rules), queries |
-| Orchestrators | `backend/app/services/` | Application | Saga orchestrators for server lifecycle, backup, deployment provider selection |
-
-## Interface Layer — Batch 05
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| API Layer | `backend/app/api/` | Interface | FastAPI app factory, dependency injection, global error handlers |
-| API v1 Routers | `backend/app/api/v1/routers/` | Interface | REST endpoints for servers, backups, plugins, users, auth, monitoring, health, schedules, settings, software |
-| API v1 Schemas | `backend/app/api/v1/schemas/` | Interface | Pydantic request/response schemas |
-| API v1 Middleware | `backend/app/api/v1/middleware/` | Interface | Auth, audit, request ID, rate-limit middleware |
-
-## WebSocket Layer — Batch 06
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| WebSocket | `backend/app/websocket/` | Interface | Connection manager, auth, authorization, event dispatcher, message handlers, serialization, offline buffer, rate limiter |
-| WS Client | `frontend/src/websocket/` | Interface | TypeScript WS client, auto-reconnect, channel subscription, message dispatch |
-
-## Plugin System — Batch 07
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| Plugin Runner | `backend/app/modules/plugin/infrastructure/runner/` | Infrastructure | `PluginRunner` interface, subprocess runner, container runner |
-| Plugin SDK | `backend/plugins/sdk/` | Platform | `BasePlugin` class, event/command decorators, config access, sandboxed storage, scoped HTTP client |
-
-## Auth System — Batch 08
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| Auth Infra | `backend/app/modules/auth/infrastructure/` | Infrastructure | SQLAlchemy repository, JWT (RS256), Argon2id password hashing, RBAC+ABAC policy engine, audit log writer |
-| Auth App | `backend/app/modules/auth/application/` | Application | Commands (login/logout/refresh/api-key), queries |
-
-## Monitoring & Tasks — Batch 09
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| Tasks | `backend/app/tasks/` | Infrastructure | APScheduler setup, base task, task queue (in-process + ARQ/Redis), task definitions (backup, health check, metrics, cleanup) |
-| Monitoring Infra | `backend/app/modules/monitoring/infrastructure/` | Infrastructure | Metrics registry, server metrics collector, health check registry, ORM models |
-| Event Store | `backend/app/modules/event_store/` | Infrastructure | Event repository, cryptographic chain verification, dead letter queue |
-
-## Health & Integrity Engine — post-Batch 10
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| Health Domain | `backend/app/modules/health/domain/` | Domain | `ServerHealth` aggregate, `FailureCode` enum, domain events, repository interface |
-| Health App | `backend/app/modules/health/application/` | Application | Commands (evaluate health, crash recovery), queries (status, timeline, dashboard), event handlers |
-| Health Infra | `backend/app/modules/health/infrastructure/` | Infrastructure | Health calculator, crash analyzer, evidence collector, environment fingerprinting, integrity validation, recovery orchestrator, ORM models |
-
-## Frontend — Batch 10
-
-| Module | Path | Type | Description |
-|---|---|---|---|
-| Frontend App | `frontend/src/` | Interface | React SPA (Vite + TypeScript), stores, components, pages, services, hooks |
-| App Entry | `frontend/src/main.tsx`, `App.tsx` | Interface | Root component and entry point |
-| Pages | `frontend/src/pages/` | Interface | Login, Register |
-| Server Manager Pages | `frontend/src/server_manager/pages/` | Interface | Dashboard, Servers, Create Server, Import Server, Server Detail, Backup List, Plugin List, Settings, API Keys |
-| Components | `frontend/src/components/` | Interface | Shared UI: `WebSocketManager`, `ErrorBoundary`, `EmptyState`, `Skeleton`, `AuthGuard`, `Sidebar`, `TopNav` |
-| Server Manager Components | `frontend/src/server_manager/components/` | Interface | Server-specific: `ServerConsole`, `ServerConfigEditor`, `ServerMetricsCharts`, `CreateBackupDialog`, `InstallPluginDialog`, `Sparkline` |
+**Status:** Living Reference (Synchronized with live codebase)  
+**Backend Architecture:** Modular Monolith with 10 DDD Bounded Contexts & Hexagonal Architecture  
+**Frontend Architecture:** React 19 / Vite / TanStack Query with 19 pages
 
 ---
 
-## Batch Allocation Summary
+## 1. Backend Bounded Contexts (`backend/app/modules/`)
 
-| Batch | Layer | Modules |
+| Module Name | Domain Responsibilities | Key Aggregates & Value Objects | Physical Path |
+|---|---|---|---|
+| **`server`** | Server aggregate root, lifecycle transitions, provisioning engine, launch config, process supervision, import scanner, filesystem reconciliation | `Server`, `ServerId`, `ServerStatus`, `ServerProperties`, `LaunchConfiguration` | `backend/app/modules/server/` |
+| **`auth`** | User entity, password hashing (bcrypt), RS256 JWT tokens, RBAC/ABAC permissions, invite codes, API keys | `User`, `UserId`, `Role`, `Permission`, `ApiKey`, `InviteCode` | `backend/app/modules/auth/` |
+| **`backup`** | Backup saga, tar/gzip archiving, restoration orchestrator, S3/local storage strategies, checksum verification | `Backup`, `BackupId`, `BackupType`, `BackupStatus` | `backend/app/modules/backup/` |
+| **`health`** | System & server health classification, filesystem integrity guard, crash analyzer, automated recovery sagas | `HealthReport`, `IntegrityCheck`, `CrashClassification`, `RecoveryAction` | `backend/app/modules/health/` |
+| **`monitoring`** | Host & process CPU/RAM metrics collection, RCON client & TPS parsing, Prometheus metrics endpoint | `MetricPoint`, `MetricsSnapshot`, `AlertRule` | `backend/app/modules/monitoring/` |
+| **`plugin`** | Plugin entity, Modrinth & CurseForge catalog providers, subprocess isolation runner, JSON-RPC SDK bridge | `Plugin`, `PluginProject`, `PluginVersion`, `CatalogProvider` | `backend/app/modules/plugin/` |
+| **`exposure`** | Network access subsystem, Cloudflare Named Tunnels, Playit.gg agent daemon control plane, UPnP port forwarding | `ExposureConfig`, `TunnelMapping`, `PlayitAgent`, `PortForward` | `backend/app/modules/exposure/` |
+| **`event_store`** | Append-only event store persistence, event stream replaying, aggregate event auditing | `EventStoreEntry`, `StreamSnapshot` | `backend/app/modules/event_store/` |
+| **`storage`** | Local & remote storage providers, atomic file writes, same-filesystem staging directory management | `StorageProvider`, `LocalStorageProvider`, `S3StorageProvider` | `backend/app/modules/storage/` |
+| **`shared`** | Shared domain primitives, base aggregate root, entity ID generators, event abstractions | `AggregateRoot`, `Entity`, `ValueObject`, `DomainEvent` | `backend/app/modules/shared/` |
+
+---
+
+## 2. API Routers (`backend/app/api/v1/routers/` — 15 Routers)
+
+| Router | Prefix | Responsibility | Endpoint Count |
+|---|---|---|---|
+| `auth.py` | `/api/v1/auth` | User authentication, token issuance, refresh, logout, session inspection | 5 |
+| `users.py` | `/api/v1/users` | User management, role assignment, password updates, deactivation | 6 |
+| `invites.py` | `/api/v1/invites` | User invitation creation, token redemption, invite revocation | 4 |
+| `setup.py` | `/api/v1/setup` | First-run owner bootstrap, system initialization guard | 3 |
+| `servers.py` | `/api/v1/servers` | Server CRUD, start/stop/restart/kill, console tail, command execution, retry-provisioning | 14 |
+| `software.py` | `/api/v1/software` | Minecraft server software list, version discovery, download metadata | 4 |
+| `plugins.py` | `/api/v1/servers/{id}/plugins` | Installed plugin management, enable/disable, local JAR install/uninstall | 6 |
+| `marketplace.py` | `/api/v1/marketplace` | Global & server-scoped plugin search, project details, version listing, Modrinth install | 6 |
+| `backups.py` | `/api/v1/backups` | Backup creation, listing, restoration, deletion, download stream | 7 |
+| `exposure.py` | `/api/v1/exposure` & `/servers/{id}/exposure` | Cloudflare/Playit panel access, server tunnel mapping, UPnP forwarding, agent claim | 10 |
+| `files.py` | `/api/v1/servers/{id}/files` | Server filesystem browser, file read/write, directory listing, upload/delete | 8 |
+| `health.py` | `/api/v1/health` & `/servers/{id}/health` | System health checks, server integrity validation, crash reports, recovery triggers | 6 |
+| `monitoring.py` | `/api/v1/monitoring` | Host metrics, server CPU/RAM/TPS timeseries, resource alerts | 5 |
+| `schedules.py` | `/api/v1/schedules` | Automated scheduled tasks (backups, restarts, commands) | 6 |
+| `settings.py` | `/api/v1/settings` | Live application settings inspection, runtime config updates | 5 |
+
+---
+
+## 3. Frontend Page Inventory (`frontend/src/` — 19 Pages)
+
+| Page Component | Route Path | Purpose |
 |---|---|---|
-| 01 | Foundation | core, persistence, alembic |
-| 02 | Domain | server/domain, backup/domain, plugin/domain, auth/domain, monitoring/domain, shared |
-| 03 | Infrastructure | server/infrastructure, backup/infrastructure, plugin/infrastructure (repos), modules/storage |
-| 04 | Application | server/application, backup/application, plugin/application, monitoring/application, services |
-| 05 | Interface | api, main.py, openapi.yaml |
-| 06 | Interface | websocket (backend + frontend/src/websocket) |
-| 07 | Platform | plugin/infrastructure/runner, plugins/sdk |
-| 08 | Infrastructure + App | auth/infrastructure, auth/application |
-| 09 | Infrastructure | tasks, monitoring/infrastructure, event_store |
-| 10 | Interface | frontend/src |
-| health | Domain + App + Infra | health/domain, health/application, health/infrastructure |
-
----
-
-See also: [Contract Registry](contract-registry.md) for shared interfaces between modules, [Event Catalog](event-catalog.md) for domain events.
+| `LoginPage.tsx` | `/login` | User login form with JWT authentication |
+| `RegisterPage.tsx` | `/register` | User registration via invite code |
+| `SetupPage.tsx` | `/setup` | First-run owner account setup wizard |
+| `InvitePage.tsx` | `/invite/:code` | Invite code landing and account creation |
+| `DashboardPage.tsx` | `/` | System overview, active server cards, quick actions |
+| `ServersPage.tsx` | `/servers` | Filterable list of all Minecraft servers with status badges |
+| `CreateServerPage.tsx` | `/servers/new` | Multi-step server creation wizard (Software, Version, Config, Properties, Review) |
+| `ImportServerPage.tsx` | `/servers/import` | Unmanaged server import wizard from filesystem scanner |
+| `ServerDetailPage.tsx` | `/servers/:id` | Server management hub (Console, Controls, Status, Metrics overview) |
+| `ServerFilesPage.tsx` | `/servers/:id/files` | In-browser file explorer, text editor, file uploader |
+| `ServerModsPage.tsx` | `/servers/:id/mods` | Mod & plugin manager for Forge, Fabric, NeoForge, Paper |
+| `ServerExposurePage.tsx` | `/servers/:id/exposure` | Game server network exposure configuration (Playit, Cloudflare, UPnP) |
+| `PluginListPage.tsx` | `/servers/:id/plugins` | Installed plugins table with toggle switch and uninstall |
+| `PluginMarketplacePage.tsx` | `/marketplace` | Modrinth plugin/mod marketplace browser with search, filters, pagination |
+| `PluginDetailPage.tsx` | `/marketplace/:id` | Rich plugin details with ReactMarkdown descriptions, version picker, install modal |
+| `BackupListPage.tsx` | `/servers/:id/backups` | Backup management, manual trigger, download, restore actions |
+| `SettingsPage.tsx` | `/settings` | System configuration, network access, auth policies, live settings |
+| `ApiKeysPage.tsx` | `/settings/api-keys` | User API key generation, permissions, revocation |
+| `NotFoundPage.tsx` | `*` | 404 error page with navigation fallback |
