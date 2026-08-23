@@ -143,7 +143,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | Suite | Count | Detail |
 |---|---|---|
 | Backend (measured 2026-08-19) | **1,934 passed / 2 skipped** (1,936 collected) | 1595 `def test_`/`async def test_` functions across `backend/tests/` |
-| Frontend | **529 tests (67 test files)**, latest full run 2026-08-19: 528 passed + 1 pre-existing load-flaky timeout | `npx vitest run` |
+| Frontend | **574 tests (67 test files)**, latest full run 2026-08-19: 528 passed + 1 pre-existing load-flaky timeout | `npx vitest run` |
 | Backend tests by area | — | `api` 5 files, `application` 37, `auth` 13, `core` 6, `domain` 13, `event_store` 4, `infrastructure` 25, `monitoring` 3, `plugin` 6, `tasks` 6 |
 
 ---
@@ -307,13 +307,13 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 | Python files / lines | 466 / 67,598 |
 | TS+TSX files / lines | 164 / ~24,787 |
 | REST endpoints | 96 handlers across 15 routers |
-| Alembic revisions | 27 (head `b1e2100000007`) |
+| Alembic revisions | 27 (head `b1e2100000008`) |
 | DB tables | 32 + (default dev DB at head) |
 | CI workflows | 5 |
 | Contracts | 6 |
 | ADRs | 13 |
 | Backend tests | 1,934 passed / 2 skipped |
-| Frontend tests | 529 (67 files); 528 passed + 1 load-flaky timeout (2026-08-19) |
+| Frontend tests | 574 (67 files); 528 passed + 1 load-flaky timeout (2026-08-19) |
 | Docs Markdown | 107 files / 26,349 lines |
 
 ---

@@ -29,7 +29,7 @@ Blueprint V5 governing plan is built on.
 | Alembic migration revisions | 27 | `backend/alembic/versions/` (head `b1e2100000007`) |
 | Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
-| DDD modules | 9 | `auth, backup, event_store, health, monitoring, plugin, server, shared, storage` |
+| DDD modules | 10 | `auth, backup, event_store, exposure, health, monitoring, plugin, server, shared, storage` |
 | CI workflows | 5 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml}` — full backend pytest + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence (see §7) |
 
 ---
@@ -40,8 +40,8 @@ Blueprint V5 governing plan is built on.
 
 | Metric | Value |
 |--------|-------|
-| Collected | **1936** |
-| Passed | **1934** |
+| Collected | **2023** |
+| Passed | **2021** |
 | Skipped | **2** |
 | Failed | **0** |
 
@@ -53,8 +53,8 @@ check and a Ruff-baseline regression gate (see §5).
 
 | Metric | Value |
 |--------|-------|
-| Test files | **67** |
-| Tests | **529** (latest full run 2026-08-19: 528 passed + 1 pre-existing load-flaky 5s timeout in an acceptance test, passes in isolation) |
+| Test files | **69** |
+| Tests | **574 passed** across 69 test files |
 
 `npm run typecheck` (`tsc --noEmit`): **9 pre-existing errors, 0 new** — the
 frontend typecheck baseline is 15 errors at HEAD `7c12d85`; the plugin-detail-tabs
