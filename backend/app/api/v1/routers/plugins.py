@@ -72,10 +72,17 @@ async def search_marketplace(
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
     project_type: str = Query(default="plugin"),
+    loader: str = Query(default="", max_length=50),
     current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginSearchResultsResponse:
     provider = build_plugin_catalog_provider()
-    page = await provider.search(query, limit=limit, offset=offset, project_type=project_type)
+    page = await provider.search(
+        query,
+        limit=limit,
+        offset=offset,
+        project_type=project_type,
+        loader=loader or None,
+    )
     return PluginSearchResultsResponse(
         items=[PluginSearchResultResponse(**r.__dict__) for r in page.items],
         total_hits=page.total_hits,

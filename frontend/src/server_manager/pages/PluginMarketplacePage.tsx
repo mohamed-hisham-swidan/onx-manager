@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/Skeleton";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { InstallModal } from "@/server_manager/components/InstallModal";
 import { ProjectCard } from "@/server_manager/components/ProjectCard";
+import { getLoaderDisplay } from "@/server_manager/components/CompatibilityCard";
 import type { PluginSearchResultResponse } from "@/types";
 
 export function PluginMarketplacePage() {
@@ -24,6 +25,7 @@ export function PluginMarketplacePage() {
   const urlServerId = searchParams.get("server") ?? "";
   const urlQuery = searchParams.get("q") ?? "";
   const urlProjectType = (searchParams.get("type") as "plugin" | "mod") || "plugin";
+  const urlLoader = searchParams.get("loader") ?? "";
 
   const [query, setQuery] = useState(urlQuery);
   const [prevUrlQuery, setPrevUrlQuery] = useState(urlQuery);
@@ -52,15 +54,18 @@ export function PluginMarketplacePage() {
   const globalQuery = serverId ? "" : submitted;
   const urlPage = Math.max(1, Number(searchParams.get("page")) || 1);
   const offset = (urlPage - 1) * MARKETPLACE_PAGE_SIZE;
+  const loader = urlLoader || undefined;
   const searchGlobal = useMarketplaceSearchGlobal(globalQuery, {
     enabled: isModrinth,
     projectType,
     offset,
+    loader,
   });
   const searchScoped = useMarketplaceSearch(serverId, submitted, {
     enabled: isModrinth,
     projectType,
     offset,
+    loader,
   });
   const search = serverId ? searchScoped : searchGlobal;
 
@@ -94,6 +99,13 @@ export function PluginMarketplacePage() {
     } else {
       newParams.set("type", newType);
     }
+    newParams.delete("page");
+    setSearchParams(newParams);
+  }
+
+  function handleClearLoader() {
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete("loader");
     newParams.delete("page");
     setSearchParams(newParams);
   }
@@ -228,6 +240,27 @@ export function PluginMarketplacePage() {
             <p className="-mt-4 mb-6 text-sm text-gray-500 dark:text-gray-400">
               Browse the global marketplace without a server — you'll pick a destination when installing.
             </p>
+          )}
+
+          {urlLoader && (
+            <div
+              className="-mt-3 mb-6 flex flex-wrap items-center gap-2"
+              data-testid="loader-filter-tag"
+            >
+              <span className="text-sm text-gray-500 dark:text-gray-400">Platform:</span>
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                <Icon name={getLoaderDisplay(urlLoader).icon} size={12} className="shrink-0" />
+                {getLoaderDisplay(urlLoader).label}
+                <button
+                  type="button"
+                  onClick={handleClearLoader}
+                  aria-label={`Remove ${getLoaderDisplay(urlLoader).label} platform filter`}
+                  className="text-blue-500 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200"
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              </span>
+            </div>
           )}
 
           {search.isError && (

@@ -101,10 +101,10 @@ const { useMarketplaceSearch, useMarketplaceSearchGlobal } = vi.hoisted(() => {
   const empty: SearchMock = { data: null, isLoading: false, isError: false, error: null };
   return {
     useMarketplaceSearch: vi.fn<
-      (serverId: string, query: string, options?: { enabled?: boolean; projectType?: string; offset?: number }) => SearchMock
+      (serverId: string, query: string, options?: { enabled?: boolean; projectType?: string; offset?: number; loader?: string }) => SearchMock
     >(() => empty),
     useMarketplaceSearchGlobal: vi.fn<
-      (query: string, options?: { enabled?: boolean; projectType?: string; offset?: number }) => SearchMock
+      (query: string, options?: { enabled?: boolean; projectType?: string; offset?: number; loader?: string }) => SearchMock
     >(() => empty),
   };
 });
@@ -335,5 +335,29 @@ describe("PluginMarketplacePage & InstallModal", () => {
       projectType: "plugin",
       offset: 0,
     });
+  });
+
+  it("passes a ?loader= platform filter to the search and shows a removable tag", () => {
+    useMarketplaceSearchGlobal.mockReturnValue({ data: { items: mockResults, total_hits: 1, offset: 0, limit: 20 }, isLoading: false, isError: false, error: null });
+    renderPage("/marketplace?loader=fabric");
+
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", {
+      enabled: true,
+      projectType: "plugin",
+      offset: 0,
+      loader: "fabric",
+    });
+    const tag = screen.getByTestId("loader-filter-tag");
+    expect(tag).toHaveTextContent("Fabric");
+
+    useMarketplaceSearchGlobal.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Fabric platform filter" }));
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", {
+      enabled: true,
+      projectType: "plugin",
+      offset: 0,
+      loader: undefined,
+    });
+    expect(screen.queryByTestId("loader-filter-tag")).not.toBeInTheDocument();
   });
 });

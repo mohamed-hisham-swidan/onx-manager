@@ -22,6 +22,27 @@ describe("Icon", () => {
     expect(c2.querySelector("svg")).toBeInTheDocument();
   });
 
+  it("renders all loader platform icons", () => {
+    const names = [
+      "paper",
+      "spigot",
+      "purpur",
+      "bukkit",
+      "folia",
+      "fabric",
+      "forge",
+      "neoforge",
+      "quilt",
+      "velocity",
+      "bungeecord",
+      "waterfall",
+    ] as const;
+    names.forEach((name) => {
+      const { container } = render(<Icon name={name} />);
+      expect(container.querySelector("svg")).toBeInTheDocument();
+    });
+  });
+
   it("renders new overview icons (globe, clock, cpu, hard-drive)", () => {
     const names = ["globe", "clock", "cpu", "hard-drive"] as const;
     names.forEach((name) => {

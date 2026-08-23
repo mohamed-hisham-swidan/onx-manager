@@ -200,6 +200,48 @@ class TestModrinthProviderSearch:
         assert "project_type:mod" in captured_params.get("facets", "")
         assert "categories:fabric" in captured_params.get("facets", "")
 
+    @pytest.mark.asyncio
+    async def test_search_single_loader_facet(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = ModrinthProvider()
+        captured_params = {}
+
+        async def mock_get_json(_path: str, params: dict | None = None) -> dict:
+            nonlocal captured_params
+            captured_params = params or {}
+            return {"hits": [], "total_hits": 0}
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        await provider.search("worldedit", loader="paper")
+        facets = captured_params.get("facets", "")
+        assert 'categories:paper' in facets
+        # the OR-list of all server loaders must be replaced, not combined
+        assert "categories:spigot" not in facets
+        assert "categories:bukkit" not in facets
+        assert '["categories:paper"]' in facets
+
+        await provider.search("sodium", project_type="mod", loader="NeoForge")
+        assert '["categories:neoforge"]' in captured_params.get("facets", "")
+
+    @pytest.mark.asyncio
+    async def test_search_invalid_loader_ignored(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        provider = ModrinthProvider()
+        captured_params = {}
+
+        async def mock_get_json(_path: str, params: dict | None = None) -> dict:
+            nonlocal captured_params
+            captured_params = params or {}
+            return {"hits": [], "total_hits": 0}
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        # facet-syntax payloads must be rejected, not interpolated
+        await provider.search("worldedit", loader='"categories:paper"],["evil')
+        facets = captured_params.get("facets", "")
+        assert "evil" not in facets
+        assert "categories:paper" in facets  # fell back to the full loader set
+        assert "categories:spigot" in facets
+
 
 class TestModrinthProviderGetProject:
     @pytest.mark.asyncio
@@ -236,6 +278,54 @@ class TestModrinthProviderGetProject:
         assert project.source_url is None
         assert project.client_side == "optional"
         assert project.server_side == "required"
+
+    @pytest.mark.asyncio
+    async def test_get_project_resolves_author_from_team(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        provider = ModrinthProvider()
+        calls: list[str] = []
+        payloads = {
+            "/project/proj-2": {
+                "id": "proj-2",
+                "slug": "team-project",
+                "title": "Team Project",
+                "description": "Desc",
+                "team": "team-abc",
+            },
+            "/team/team-abc/members": [
+                {"role": "Member", "user": {"username": "Contributor"}},
+                {"role": "Owner", "user": {"username": "OwnerName"}},
+            ],
+        }
+
+        async def mock_get_json(path: str, _params: dict | None = None) -> dict:
+            calls.append(path)
+            return payloads[path]
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        project = await provider.get_project("proj-2")
+        assert calls == ["/project/proj-2", "/team/team-abc/members"]
+        assert project.author == "OwnerName"
+
+    @pytest.mark.asyncio
+    async def test_get_project_team_failure_falls_back_to_empty_author(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.core.exceptions import DownloadError
+
+        provider = ModrinthProvider()
+
+        async def mock_get_json(path: str, _params: dict | None = None) -> dict:
+            if path.startswith("/project/"):
+                return {"id": "proj-3", "team": "team-xyz"}
+            raise DownloadError(path, 500)
+
+        monkeypatch.setattr(provider, "_get_json", mock_get_json)
+
+        project = await provider.get_project("proj-3")
+        assert project.author == ""
 
 
 class TestModrinthProviderGetProjectVersions:

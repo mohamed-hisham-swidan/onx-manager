@@ -1,4 +1,8 @@
 import { useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { useMarketplaceProject } from "@/server_manager/hooks/usePlugins";
 import { Icon } from "@/components/ui/Icon";
@@ -7,10 +11,54 @@ import { ErrorState } from "@/components/ErrorState";
 import { ComingSoonState } from "@/components/ComingSoonState";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { CompatibilityCard } from "@/server_manager/components/CompatibilityCard";
+import { getPlatformInfo, platformProjectType } from "@/server_manager/data/platforms";
 import { ProjectVersionsList } from "@/server_manager/components/ProjectVersionsList";
 import type { PluginSearchResultResponse } from "@/types";
 
 type DetailTab = "description" | "changelog" | "versions";
+
+// Stable component overrides for ReactMarkdown. Defined at module scope so the
+// object identity does not change on every render.
+const markdownComponents: Components = {
+  img: ({ node: _node, ...props }) => (
+    <img
+      {...props}
+      loading="lazy"
+      className="my-4 max-w-full rounded-lg border border-gray-200 dark:border-gray-700"
+    />
+  ),
+  table: ({ node: _node, children, ...props }) => (
+    <div className="my-4 w-full overflow-x-auto rounded-lg border border-gray-300 dark:border-gray-600">
+      <table
+        {...props}
+        className="w-full border-collapse text-sm"
+      >
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ node: _node, ...props }) => (
+    <thead
+      {...props}
+      className="bg-slate-100 text-left dark:bg-slate-800"
+    />
+  ),
+  th: ({ node: _node, ...props }) => (
+    <th
+      {...props}
+      className="border-b-2 border-gray-300 px-3.5 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 dark:border-gray-600 dark:text-slate-300"
+    />
+  ),
+  tr: ({ node: _node, ...props }) => (
+    <tr {...props} className="border-b border-gray-200 last:border-b-0 dark:border-gray-700" />
+  ),
+  td: ({ node: _node, ...props }) => (
+    <td
+      {...props}
+      className="px-3.5 py-2.5 align-top text-gray-800 dark:text-gray-200"
+    />
+  ),
+};
 
 function fmtDownloads(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -69,6 +117,10 @@ function DetailTabs({ activeTab, onTabChange }: DetailTabsProps) {
           Soon
         </span>
       </button>
+      {/* When enabled (SPEC-PLUGIN-DETAIL-TABS-001), the Changelog tab will need
+          the same ReactMarkdown + remarkGfm treatment as the Description tab —
+          changelog bodies are Markdown too and must render via react-markdown
+          (not raw text / not rehype-raw) to stay safe against untrusted HTML. */}
       <button
         type="button"
         onClick={() => onTabChange("versions")}
@@ -100,6 +152,20 @@ export function PluginDetailPage() {
   });
 
   const backUrl = `/marketplace${location.search}`;
+
+  const projectType: "plugin" | "mod" = project
+    ? project.project_types.includes("mod")
+      ? "mod"
+      : "plugin"
+    : "plugin";
+
+  function buildPlatformHref(loader: string): string {
+    const params = new URLSearchParams(location.search);
+    params.set("type", platformProjectType(loader, projectType));
+    params.set("loader", loader.toLowerCase());
+    params.delete("page");
+    return `/marketplace?${params.toString()}`;
+  }
 
   function handleInstall() {
     if (!project) return;
@@ -319,8 +385,25 @@ export function PluginDetailPage() {
                 </p>
               )}
               {project.body ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300 leading-relaxed border-t border-gray-100 pt-4 dark:border-gray-700/50">
-                  {project.body}
+                <div className="border-t border-gray-100 pt-4 dark:border-gray-700/50">
+                  {/* react-markdown v10 no longer accepts a className prop; the
+                      prose styles live on the wrapping div. */}
+                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[
+                        rehypeRaw,
+                        // defaultSchema already allows img/details/summary/br/table/
+                        // code while stripping scripts, onclick handlers and style
+                        // attributes — required so Modrinth's HTML bodies render
+                        // (inline images load, details blocks open).
+                        [rehypeSanitize, defaultSchema],
+                      ]}
+                      components={markdownComponents}
+                    >
+                      {project.body}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-gray-500 dark:text-gray-400 italic">
@@ -341,6 +424,7 @@ export function PluginDetailPage() {
             loaders={project.loaders}
             clientSide={project.client_side}
             serverSide={project.server_side}
+            buildPlatformHref={buildPlatformHref}
           />
 
           <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
@@ -352,12 +436,24 @@ export function PluginDetailPage() {
                 <span className="capitalize">{project.project_types.join(", ") || "—"}</span>
               </DetailRow>
               <DetailRow label="Loaders">
-                <span>{project.loaders.length > 0 ? project.loaders.join(", ") : "—"}</span>
-              </DetailRow>
-              <DetailRow label="Game Versions">
-                <span className="block max-w-xs text-right truncate" title={project.game_versions.join(", ")}>
-                  {project.game_versions.length > 0 ? project.game_versions.join(", ") : "—"}
-                </span>
+                {project.loaders.length > 0 ? (
+                  <span className="flex flex-wrap justify-end gap-1">
+                    {project.loaders.map((loader) => {
+                      const info = getPlatformInfo(loader);
+                      return (
+                        <span
+                          key={loader}
+                          className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                        >
+                          <Icon name={info.icon} size={11} />
+                          {info.label}
+                        </span>
+                      );
+                    })}
+                  </span>
+                ) : (
+                  <span>—</span>
+                )}
               </DetailRow>
             </DetailSection>
           </div>

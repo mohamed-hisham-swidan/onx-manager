@@ -22,6 +22,7 @@ export interface MarketplaceSearchOptions {
   enabled?: boolean;
   projectType?: string;
   offset?: number;
+  loader?: string;
 }
 
 export function useMarketplaceSearch(
@@ -32,9 +33,11 @@ export function useMarketplaceSearch(
   const api = useApi();
   const projectType = options?.projectType;
   const offset = options?.offset ?? 0;
+  const loader = options?.loader;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.search(serverId, query, projectType, offset),
-    queryFn: () => api.searchMarketplace(serverId, query, projectType, MARKETPLACE_PAGE_SIZE, offset),
+    queryKey: queryKeys.plugins.marketplace.search(serverId, query, projectType, offset, loader),
+    queryFn: () =>
+      api.searchMarketplace(serverId, query, projectType, MARKETPLACE_PAGE_SIZE, offset, loader),
     enabled: (options?.enabled ?? true) && !!serverId,
   });
 }
@@ -46,9 +49,11 @@ export function useMarketplaceSearchGlobal(
   const api = useApi();
   const projectType = options?.projectType;
   const offset = options?.offset ?? 0;
+  const loader = options?.loader;
   return useQuery({
-    queryKey: queryKeys.plugins.marketplace.global(query, projectType, offset),
-    queryFn: () => api.searchMarketplaceGlobal(query, projectType, MARKETPLACE_PAGE_SIZE, offset),
+    queryKey: queryKeys.plugins.marketplace.global(query, projectType, offset, loader),
+    queryFn: () =>
+      api.searchMarketplaceGlobal(query, projectType, MARKETPLACE_PAGE_SIZE, offset, loader),
     enabled: options?.enabled ?? true,
   });
 }

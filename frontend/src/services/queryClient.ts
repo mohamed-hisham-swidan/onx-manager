@@ -26,11 +26,11 @@ export const queryKeys = {
     list: (serverId: string) => ["plugins", "list", serverId] as const,
     detail: (serverId: string, pluginId: string) => ["plugins", "detail", serverId, pluginId] as const,
     marketplace: {
-      search: (serverId: string, query: string, projectType?: string, offset = 0) =>
-        ["plugins", "marketplace", "search", serverId, query, projectType ?? "plugin", offset] as const,
+      search: (serverId: string, query: string, projectType?: string, offset = 0, loader?: string) =>
+        ["plugins", "marketplace", "search", serverId, query, projectType ?? "plugin", offset, loader ?? "all"] as const,
       // Global (no server_id) marketplace search — distinct from the server-scoped `search` key to avoid cache collisions.
-      global: (query: string, projectType?: string, offset = 0) =>
-        ["plugins", "marketplace", "global", query, projectType ?? "plugin", offset] as const,
+      global: (query: string, projectType?: string, offset = 0, loader?: string) =>
+        ["plugins", "marketplace", "global", query, projectType ?? "plugin", offset, loader ?? "all"] as const,
       project: (projectId: string) => ["plugins", "marketplace", "project", projectId] as const,
       projectVersions: (projectId: string, offset = 0) => ["plugins", "marketplace", "project-versions", projectId, offset] as const,
       versions: (serverId: string, projectId: string, offset = 0) => ["plugins", "marketplace", "versions", serverId, projectId, offset] as const,

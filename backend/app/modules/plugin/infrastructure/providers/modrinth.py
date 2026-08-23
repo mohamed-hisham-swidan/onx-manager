@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 
 from app.core.exceptions import CorruptedDownloadError, DownloadError, DownloadTimeoutError
 from app.core.http_client import get_http_client
@@ -56,6 +57,7 @@ class ModrinthProvider(PluginCatalogProvider):
         query: str,
         *,
         project_type: str = "plugin",
+        loader: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> PluginSearchPage:
@@ -68,6 +70,14 @@ class ModrinthProvider(PluginCatalogProvider):
             facet_type = _PLUGIN_FACET
             facet_loaders = _PLUGIN_LOADER_FACETS
             target_type = "plugin"
+
+        # Single-platform tag filter: "?loader=paper" narrows the search to
+        # projects published for that one platform. The loader token is
+        # validated against a conservative charset so it can never inject
+        # extra facet-syntax fragments; an invalid value is ignored.
+        loader_token = (loader or "").strip().lower()
+        if loader_token and re.fullmatch(r"[a-z0-9-]{1,50}", loader_token):
+            facet_loaders = f'["categories:{loader_token}"]'
 
         params = {
             "query": query,
@@ -112,13 +122,29 @@ class ModrinthProvider(PluginCatalogProvider):
 
     async def get_project(self, project_id: str) -> PluginProject:
         data = await self._get_json(f"/project/{project_id}")
+        author = data.get("author") or ""
+        team_id = data.get("team")
+        if not author and team_id:
+            # Modrinth v2/v3 project payloads carry a team id instead of the
+            # author; resolve the team's owner for the canonical author name.
+            try:
+                members = await self._get_json(f"/team/{team_id}/members")
+                if not isinstance(members, list):
+                    members = []
+                owner = next(
+                    (m for m in members if m.get("role") == "Owner"),
+                    (members or [{}])[0],
+                )
+                author = (owner.get("user") or {}).get("username", "")
+            except (DownloadError, DownloadTimeoutError):
+                author = ""
         return PluginProject(
             project_id=data.get("id", project_id),
             slug=data.get("slug", ""),
             title=data.get("title", ""),
             description=data.get("description", ""),
             body=data.get("body", ""),
-            author=data.get("author", ""),
+            author=author,
             project_types=data.get("all_project_types") or [data.get("project_type", "")],
             loaders=data.get("loaders") or [],
             game_versions=data.get("game_versions") or [],

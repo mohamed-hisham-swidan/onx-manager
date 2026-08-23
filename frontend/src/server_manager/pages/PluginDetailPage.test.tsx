@@ -122,6 +122,40 @@ describe("PluginDetailPage", () => {
     expect(screen.getByText("Client and server")).toBeInTheDocument();
   });
 
+  it("does not show a Game Versions row in the Information sidebar", () => {
+    useMarketplaceProject.mockReturnValue({
+      data: {
+        ...mockProject,
+        game_versions: ["1.17", "1.17.1", "1.18", "1.18.1", "1.18.2"],
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    renderDetailPage();
+    expect(screen.queryByText("Game Versions")).not.toBeInTheDocument();
+  });
+
+  it("renders the sidebar Loaders as icon-tagged pills, not comma text", () => {
+    renderDetailPage();
+    const dl = screen.getByText("Loaders").closest("dl");
+    expect(dl).not.toBeNull();
+    expect(dl?.querySelector('span[class*="rounded-full"]')?.textContent).toBe("Paper");
+    expect(screen.queryByText("paper, spigot")).not.toBeInTheDocument();
+    const pills = dl?.querySelectorAll('span[class*="rounded-full"]');
+    expect(pills?.length).toBe(2);
+    expect(pills?.[0]?.querySelector("svg")).not.toBeNull();
+    expect(pills?.[1]?.querySelector("svg")).not.toBeNull();
+  });
+
+  it("makes platform pills search the marketplace by that platform", () => {
+    renderDetailPage();
+    const paper = screen.getByRole("link", { name: "Paper" });
+    expect(paper).toHaveAttribute("href", "/marketplace?type=plugin&loader=paper");
+    const spigot = screen.getByRole("link", { name: "Spigot" });
+    expect(spigot).toHaveAttribute("href", "/marketplace?type=plugin&loader=spigot");
+  });
+
   it("switches to Versions tab when clicked", () => {
     renderDetailPage();
     const versionsTab = screen.getByRole("button", { name: "Versions" });
@@ -176,5 +210,92 @@ describe("PluginDetailPage", () => {
     });
     renderDetailPage();
     expect(screen.getByText("Network error")).toBeInTheDocument();
+  });
+
+  it("renders markdown image syntax as a real img element", () => {
+    useMarketplaceProject.mockReturnValue({
+      data: {
+        ...mockProject,
+        body: "![Screenshot](https://cdn.modrinth.com/essentials/screenshot.png)",
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    renderDetailPage();
+    const img = screen.getByRole("img", { name: "Screenshot" });
+    expect(img).toHaveAttribute("src", "https://cdn.modrinth.com/essentials/screenshot.png");
+    expect(img).toHaveAttribute("loading", "lazy");
+  });
+
+  it("renders GitHub-flavored markdown (tables + task lists) as real markup", () => {
+    useMarketplaceProject.mockReturnValue({
+      data: {
+        ...mockProject,
+        body: "- [x] Features\n- [ ] Coming soon\n\n| A | B |\n|---|---|\n| 1 | 2 |",
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    renderDetailPage();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    expect(screen.getByText("Features")).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(table).toBeInTheDocument();
+    expect(table).toHaveClass("border-collapse");
+    expect(table.closest("div")).toHaveClass("overflow-x-auto", "rounded-lg", "border");
+    expect(screen.getAllByRole("columnheader")[0]).toHaveClass("uppercase", "font-bold");
+  });
+
+  it("renders styled tables for raw-HTML table bodies", () => {
+    useMarketplaceProject.mockReturnValue({
+      data: {
+        ...mockProject,
+        body: "<table><thead><tr><th>Command</th><th>Desc</th></tr></thead><tbody><tr><td>/veinminer blocks</td><td>Edit</td></tr></tbody></table>",
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    renderDetailPage();
+    const table = screen.getByRole("table");
+    expect(table).toBeInTheDocument();
+    expect(screen.getByText("/veinminer blocks")).toBeInTheDocument();
+  });
+
+  it("escapes raw HTML in the body instead of executing it", () => {
+    useMarketplaceProject.mockReturnValue({
+      data: {
+        ...mockProject,
+        body: "<script>alert(1)</script><img src=x onerror=alert(1)>",
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    renderDetailPage();
+    expect(document.querySelector("script")).not.toBeInTheDocument();
+    expect(document.querySelector("img[onerror]")).not.toBeInTheDocument();
+    expect(screen.queryByText("alert(1)")).not.toBeInTheDocument();
+  });
+
+  it("blocks javascript: URLs in markdown links", () => {
+    useMarketplaceProject.mockReturnValue({
+      data: {
+        ...mockProject,
+        body: "[click me](javascript:alert(1))",
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    renderDetailPage();
+    expect(
+      screen.getByText("click me", { selector: "a" }),
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector("a[href^='javascript:']"),
+    ).not.toBeInTheDocument();
   });
 });
