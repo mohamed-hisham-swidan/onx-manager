@@ -4,10 +4,10 @@
 
 | Component | Choice |
 |---|---|
-| Primary database | PostgreSQL 16 |
+| Primary database | SQLite 3 (`aiosqlite` async) default; PostgreSQL 16 (`asyncpg`) supported |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (27 revisions, head `b1e2100000007`) |
+| Migrations | Alembic (28 revisions, head `b1e2100000008`) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
 > **Redis note:** Redis appears in the documented stack but the running system
@@ -40,13 +40,15 @@ The central aggregate. Each row represents a single Minecraft server instance wi
 |---|---|---|---|
 | `id` | `String(36)` PK | — | UUID |
 | `name` | `String(255)` | — | |
-| `server_type` | `String(32)` | `"vanilla"` | vanilla, paper, purpur, fabric, spigot, bukkit, forge |
+| `server_type` | `String(32)` | `"vanilla"` | vanilla, paper, purpur, fabric, forge, neoforge, spigot, bukkit |
 | `minecraft_version` | `String(16)` | — | |
 | `memory_min_mb` | `Integer` | 1024 | |
 | `memory_max_mb` | `Integer` | 2048 | |
 | `group_id` | `String(64)` | `"default"` | Logical grouping |
 | `status` | `String(16)` | `"created"` | created → installing → stopped → running |
 | `port` | `Integer` | 25565 | |
+| `provisioning_error` | `Text` | `None` | Nullable error summary when status is `provisioning_failed` |
+| `provisioning_retryable` | `Boolean` | `False` | True if transient error is auto-retryable |
 | `motd`, `max_players`, `gamemode`, `difficulty`, `pvp`, etc. | varied | — | Direct server.properties mapping |
 | `provider` | `String(32)` | `"local"` | local, docker, remote |
 | `location_type` | `String(16)` | `"local"` | Filesystem placement |

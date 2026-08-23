@@ -35,6 +35,7 @@
 18. [Invites](#invites)
 19. [App-level endpoints](#app-level-endpoints)
 20. [WebSocket protocol](#websocket-protocol)
+21. [Exposure](#exposure)
 
 ---
 
@@ -916,3 +917,127 @@ rate-limited per connection; exceeding the limit yields an `error`
 (`RATE_LIMITED`) rather than a close frame. The session token is treated as
 valid for 1 hour after connect and must be refreshed via `refresh_token`
 before expiry.
+
+
+---
+
+## Exposure
+
+Public panel and game server network exposure management (Cloudflare Tunnels, Playit.gg agent daemon, and UPnP port forwarding).
+
+### `GET /api/v1/exposure/panel`
+
+Get current web panel public exposure status (Cloudflare Named Tunnel or Playit.gg tunnel).
+
+- **Auth:** Required (`admin` role or `exposure:read`)
+- **Response `200 OK`:**
+  ```json
+  {
+    "provider": "cloudflare",
+    "is_enabled": true,
+    "public_url": "https://panel.example.com",
+    "status": "active"
+  }
+  ```
+
+### `POST /api/v1/exposure/panel/cloudflare`
+
+Configure and enable Cloudflare Tunnel public exposure for the web panel.
+
+- **Auth:** Required (`owner` role)
+- **Body:**
+  ```json
+  {
+    "tunnel_token": "eyJhIjoi..."
+  }
+  ```
+
+### `POST /api/v1/exposure/panel/playit`
+
+Enable Playit.gg tunnel public exposure for the web panel.
+
+- **Auth:** Required (`owner` role)
+
+### `DELETE /api/v1/exposure/panel`
+
+Disable public panel exposure and terminate running tunnel agents.
+
+- **Auth:** Required (`owner` role)
+
+### `GET /api/v1/exposure/playit/claim`
+
+Generate or retrieve a Playit.gg account claim link.
+
+- **Auth:** Required (`admin` role)
+- **Response `200 OK`:**
+  ```json
+  {
+    "claim_url": "https://playit.gg/claim/abc123xyz"
+  }
+  ```
+
+### `DELETE /api/v1/exposure/playit/credentials`
+
+Remove stored Playit.gg agent authentication credentials.
+
+- **Auth:** Required (`owner` role)
+
+### `POST /api/v1/exposure/playit/reset`
+
+Reset local Playit daemon agent state.
+
+- **Auth:** Required (`owner` role)
+
+### `GET /api/v1/servers/{server_id}/exposure`
+
+Get game server network exposure configuration and active public address.
+
+- **Auth:** Required (`servers:read`)
+- **Response `200 OK`:**
+  ```json
+  {
+    "server_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "exposure_type": "playit",
+    "public_address": "auto-mc.playit.gg",
+    "public_port": 25565,
+    "is_active": true
+  }
+  ```
+
+### `POST /api/v1/servers/{server_id}/exposure/playit`
+
+Enable Playit.gg tunnel for a specific Minecraft server.
+
+- **Auth:** Required (`servers:write`)
+
+### `DELETE /api/v1/servers/{server_id}/exposure`
+
+Disable public exposure for a Minecraft server.
+
+- **Auth:** Required (`servers:write`)
+
+### `GET /api/v1/servers/{server_id}/exposure/ports`
+
+List additional forwarded companion ports (e.g. BlueMap, Dynmap, Voice Chat).
+
+- **Auth:** Required (`servers:read`)
+
+### `POST /api/v1/servers/{server_id}/exposure/ports`
+
+Add a companion port forwarding rule.
+
+- **Auth:** Required (`servers:write`)
+- **Body:**
+  ```json
+  {
+    "port": 8100,
+    "protocol": "tcp",
+    "label": "Dynmap Web"
+  }
+  ```
+
+### `DELETE /api/v1/servers/{server_id}/exposure/ports/{port_id}`
+
+Remove a companion port forwarding rule.
+
+- **Auth:** Required (`servers:write`)
