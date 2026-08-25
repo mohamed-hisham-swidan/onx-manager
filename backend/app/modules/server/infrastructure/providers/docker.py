@@ -21,6 +21,9 @@ class DockerProvider(ServerProvider):
     def provider_type(self) -> str:
         return "docker"
 
+    def capabilities(self) -> list[str]:
+        return ["process", "console", "exec"]
+
     async def ping(self) -> bool:
         returncode, _ = await self._docker_command("info --format '{{.OSType}}'")
         return returncode == 0
@@ -35,6 +38,12 @@ class DockerProvider(ServerProvider):
         version = config.get("minecraft_version", "LATEST")
 
         await self._ensure_image(image)
+
+        label_flags = [
+            "--label com.mcsmanager.managed=true",
+            f"--label com.mcsmanager.server_id={server_id}",
+            "--label com.mcsmanager.runtime=docker",
+        ]
 
         env_flags = [
             f"-e VERSION={version}",
@@ -52,6 +61,7 @@ class DockerProvider(ServerProvider):
 
         create_cmd = (
             f"create --name {container_name} "
+            f"{' '.join(label_flags)} "
             f"{' '.join(env_flags)} "
             f"{' '.join(volume_flags)} "
             f"{port_flag} "

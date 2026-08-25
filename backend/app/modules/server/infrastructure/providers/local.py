@@ -37,6 +37,9 @@ class LocalLinuxProvider(ServerProvider):
     def provider_type(self) -> str:
         return "local"
 
+    def capabilities(self) -> list[str]:
+        return ["process", "console", "exec"]
+
     async def ping(self) -> bool:
         return True
 

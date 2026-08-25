@@ -53,9 +53,9 @@ describe("DashboardServerList", () => {
   beforeEach(() => {
     useToastStore.setState({ toasts: [] });
     useWSStore.setState({
-      channels: new Map([
-        ["servers:list", { channel: "servers:list", status: ChannelStatus.ACTIVE, authorized: true, retryCount: 0 }],
-      ]),
+      channelStates: {
+        "servers:list": { channel: "servers:list", status: ChannelStatus.SUBSCRIBED, authorized: true, retryCount: 0 },
+      },
       connectionState: ConnectionState.CONNECTED,
     });
   });

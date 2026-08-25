@@ -559,9 +559,9 @@ export function PanelExposureSection() {
             <PlayitClaimCard
               claimed={Boolean(agent?.claimed)}
               claimActive={Boolean(!agent?.claimed && (agent?.claim_active || claimData?.claim_code))}
-              claimCode={!agent?.claimed ? (claimData?.claim_code || agent?.claim_code) : undefined}
-              claimUrl={!agent?.claimed ? (claimData?.claim_url || agent?.claim_url) : undefined}
-              claimExpiresAt={!agent?.claimed ? (claimData?.expires_at || agent?.claim_expires_at) : undefined}
+              claimCode={!agent?.claimed ? claimData?.claim_code : undefined}
+              claimUrl={!agent?.claimed ? claimData?.claim_url : undefined}
+              claimExpiresAt={!agent?.claimed ? (claimData?.expires_at || agent?.claim_expires_at || undefined) : undefined}
               onGenerateClaim={handleGenerateClaim}
               isGenerating={isGeneratingClaim}
               onResetAgent={handleResetAgent}

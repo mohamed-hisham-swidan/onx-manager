@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError, type MetricsSnapshot } from "@/services/api";
-import type { RuntimeDiagnosticsResponse } from "@/server_manager/types";
+import type { RuntimeDiagnosticsResponse, ServerDetailResponse } from "@/server_manager/types";
 import { ServerDetailPage } from "./ServerDetailPage";
 
 function NavigateButton({ to, label }: { to: string; label: string }) {
@@ -22,7 +22,7 @@ vi.mock("@/hooks/useWebSocket", () => ({
   unsubscribeChannels: unsubscribeChannelsMock,
 }));
 
-const mockServer = {
+const mockServer: ServerDetailResponse = {
   server_id: "srv-1",
   name: "Test Server",
   server_type: "vanilla",
@@ -48,13 +48,18 @@ const mockServer = {
   deployment_host: null,
   deployment_port: null,
   deployment_pid: null,
+  location_type: null,
+  location_uri: null,
   root_path: null,
+  working_directory: null,
   startup_jar: null,
+  startup_command: null,
+  primary_world: null,
   created_at: "2024-01-01T00:00:00Z",
   updated_at: "2024-01-01T00:00:00Z",
 };
 
-let mockData: typeof mockServer | null = mockServer;
+let mockData: ServerDetailResponse | null = mockServer;
 let mockIsLoading = false;
 let mockError: Error | null = null;
 
@@ -331,6 +336,10 @@ describe("ServerDetailPage", () => {
       last_crash_time: null,
       port: 25565,
       port_owner: null,
+      tmux_session: null,
+      jvm_command: null,
+      owner_conflicts: [],
+      validation_chain: [],
     };
     renderPage();
     expect(screen.getByText("1h 1m")).toBeInTheDocument();

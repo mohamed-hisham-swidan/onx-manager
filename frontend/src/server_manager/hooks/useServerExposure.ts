@@ -11,6 +11,7 @@ import type {
   RegisteredPortCreateRequest,
   AgentStatusResponse,
 } from "@/types";
+import { SERVICE_METADATA } from "@/types";
 
 export function useServerExposure(serverId: string) {
   const api = createAuthenticatedApi();
@@ -122,8 +123,8 @@ export function useServerExposure(serverId: string) {
         try {
           await api.registerServerPort(serverId, {
             service_type: body.service_type,
-            protocol: body.protocol,
-            port: body.local_port,
+            protocol: body.protocol ?? SERVICE_METADATA[body.service_type].defaultProtocol,
+            port: body.local_port ?? SERVICE_METADATA[body.service_type].defaultPort,
             name: `${body.service_type.toUpperCase()} Port`,
           });
         } catch {

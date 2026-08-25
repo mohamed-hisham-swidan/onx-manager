@@ -533,3 +533,90 @@ class TestLocalLinuxProviderPreFlight:
                                             launch_config=lc,
                                         )
         mock_kill.assert_awaited_once_with([1111, 2222])
+
+
+class TestProviderCapabilities:
+    def test_base_provider_default_capabilities(self) -> None:
+        class DummyProvider(ServerProvider):
+            @property
+            def provider_type(self) -> str:
+                return "dummy"
+
+            async def ping(self) -> bool:
+                return True
+
+            async def start(self, *args, **kwargs):
+                pass
+
+            async def stop(self, *args, **kwargs):
+                pass
+
+            async def status(self, *args, **kwargs):
+                pass
+
+            async def console(self, *args, **kwargs):
+                pass
+
+            async def execute_command(self, *args, **kwargs):
+                pass
+
+            async def destroy(self, *args, **kwargs):
+                pass
+
+        assert DummyProvider().capabilities() == []
+        assert CloudProviderStub().capabilities() == []
+
+    def test_local_linux_provider_capabilities(self) -> None:
+        capabilities = LocalLinuxProvider().capabilities()
+        assert capabilities == ["process", "console", "exec"]
+        assert "filesystem" not in capabilities
+        assert "docker" not in capabilities
+
+    def test_local_windows_provider_capabilities(self) -> None:
+        capabilities = LocalWindowsProvider().capabilities()
+        assert capabilities == ["process", "console", "exec"]
+        assert "powershell" not in capabilities
+
+    def test_docker_provider_capabilities(self) -> None:
+        capabilities = DockerProvider().capabilities()
+        assert capabilities == ["process", "console", "exec"]
+        assert "docker" not in capabilities
+        assert "logs" not in capabilities
+
+    def test_circuit_breaker_wrapper_delegates_capabilities(self) -> None:
+        inner = LocalLinuxProvider()
+        wrapped = CircuitBreakerProviderWrapper(inner)
+        assert wrapped.capabilities() == ["process", "console", "exec"]
+
+
+class TestDockerProvider:
+    @pytest.mark.asyncio
+    async def test_start_creates_container_with_ownership_labels(self) -> None:
+        provider = DockerProvider()
+        config = {
+            "image": "itzg/minecraft-server:latest",
+            "port": 25565,
+            "memory_min_mb": 1024,
+            "memory_max_mb": 2048,
+        }
+
+        with patch.object(provider, "_ensure_image", AsyncMock()) as mock_ensure:
+            with patch.object(provider, "_docker_command", AsyncMock()) as mock_docker:
+                mock_docker.side_effect = [
+                    (0, ""),         # create
+                    (0, ""),         # start
+                    (0, "12345\n"),  # inspect pid
+                ]
+                result = await provider.start(server_id="test-server-42", config=config)
+
+        assert result.status == ServerRuntimeStatus.RUNNING
+        assert result.pid == 12345
+        assert result.port == 25565
+        mock_ensure.assert_awaited_once_with("itzg/minecraft-server:latest")
+
+        create_call_args = mock_docker.call_args_list[0][0][0]
+        assert "create --name mcs-test-server-42" in create_call_args
+        assert "--label com.mcsmanager.managed=true" in create_call_args
+        assert "--label com.mcsmanager.server_id=test-server-42" in create_call_args
+        assert "--label com.mcsmanager.runtime=docker" in create_call_args
+

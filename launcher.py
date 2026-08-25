@@ -51,6 +51,32 @@ if os.name == "posix":
         pass
 
 # ═══════════════════════════════════════════════════════════════════════
+# Platform & Stream Initialization (UTF-8 encoding / Windows console)
+# ═══════════════════════════════════════════════════════════════════════
+
+if os.name == "nt":
+    # Enable UTF-8 code page (65001) for Windows console
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
+    except Exception:
+        pass
+    try:
+        os.system("color")
+    except Exception:
+        pass
+
+# Reconfigure stdout and stderr streams to UTF-8 with safe error replacement
+for _stream_name in ("stdout", "stderr"):
+    _stream = getattr(sys, _stream_name, None)
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+# ═══════════════════════════════════════════════════════════════════════
 # Constants
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -87,9 +113,6 @@ COLORS: dict[str, str] = {
     "bg_magenta": "\033[105m",
     "bg_cyan": "\033[106m",
 }
-
-if os.name == "nt":
-    os.system("color")
 
 
 def c(code: str, text: str) -> str:
@@ -179,10 +202,10 @@ FRONTEND_LOG = LOGS_DIR / "frontend.log"
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Terminal output utilities
+# Terminal output utilities & Unicode resilience
 # ═══════════════════════════════════════════════════════════════════════
 
-_ansi_enabled = sys.stdout.isatty()
+_ansi_enabled = sys.stdout.isatty() if hasattr(sys.stdout, "isatty") else False
 
 
 def ansi(text: str) -> str:
@@ -190,6 +213,98 @@ def ansi(text: str) -> str:
 
 
 SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+_GLYPH_FALLBACKS: dict[str, str] = {
+    "✔": "[OK]",
+    "✓": "[OK]",
+    "✖": "[X]",
+    "⚠": "[!]",
+    "ℹ": "[i]",
+    "▸": ">",
+    "—": "-",
+    "–": "-",
+    "━": "=",
+    "─": "-",
+    "═": "=",
+    "●": "*",
+    "○": "o",
+    "█": "#",
+    "╗": "+",
+    "╔": "+",
+    "╝": "+",
+    "╚": "+",
+    "║": "|",
+    "⠋": "*",
+    "⠙": "*",
+    "⠹": "*",
+    "⠸": "*",
+    "⠼": "*",
+    "⠴": "*",
+    "⠦": "*",
+    "⠧": "*",
+    "⠇": "*",
+    "⠏": "*",
+}
+
+_GLYPH_TRANS_TABLE = str.maketrans(_GLYPH_FALLBACKS)
+_builtin_print = print
+
+
+def _safe_encode_text(text: str, encoding: str) -> str:
+    """Attempt direct encoding; on failure, transliterate known unicode symbols to ASCII and encode."""
+    try:
+        text.encode(encoding)
+        return text
+    except UnicodeEncodeError:
+        transliterated = text.translate(_GLYPH_TRANS_TABLE)
+        try:
+            return transliterated.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        except Exception:
+            return transliterated.encode("ascii", errors="replace").decode("ascii")
+
+
+def safe_print(*args: Any, **kwargs: Any) -> None:
+    """Resilient print function that catches UnicodeEncodeError and falls back to ASCII transliteration."""
+    try:
+        _builtin_print(*args, **kwargs)
+    except UnicodeEncodeError:
+        file = kwargs.get("file") or sys.stdout
+        encoding = getattr(file, "encoding", None) or "ascii"
+        safe_args = [_safe_encode_text(str(a) if not isinstance(a, str) else a, encoding) for a in args]
+        try:
+            _builtin_print(*safe_args, **kwargs)
+        except Exception:
+            try:
+                ascii_args = [
+                    str(a).translate(_GLYPH_TRANS_TABLE).encode("ascii", errors="replace").decode("ascii")
+                    for a in args
+                ]
+                _builtin_print(*ascii_args, **kwargs)
+            except Exception:
+                pass
+
+
+def safe_write(stream: Any, text: str) -> None:
+    """Safe stream write that catches UnicodeEncodeError and falls back to ASCII transliteration."""
+    try:
+        stream.write(text)
+    except UnicodeEncodeError:
+        encoding = getattr(stream, "encoding", None) or "ascii"
+        try:
+            safe_text = _safe_encode_text(text, encoding)
+            stream.write(safe_text)
+        except Exception:
+            try:
+                ascii_text = str(text).translate(_GLYPH_TRANS_TABLE).encode("ascii", errors="replace").decode("ascii")
+                stream.write(ascii_text)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+# Globally guard print across launcher module
+print = safe_print
 
 
 class Spinner:
@@ -200,7 +315,7 @@ class Spinner:
 
     def start(self) -> None:
         if not _ansi_enabled:
-            print(f"{self._message}...")
+            safe_print(f"{self._message}...")
             return
         self._running = True
         self._thread = Thread(target=self._spin, daemon=True)
@@ -210,12 +325,18 @@ class Spinner:
         i = 0
         while self._running:
             char = SPINNER_CHARS[i % len(SPINNER_CHARS)]
-            sys.stdout.write(f"\r{c('cyan', char)} {self._message}...")
-            sys.stdout.flush()
+            safe_write(sys.stdout, f"\r{c('cyan', char)} {self._message}...")
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
             time.sleep(0.1)
             i += 1
-        sys.stdout.write("\r" + " " * 80 + "\r")
-        sys.stdout.flush()
+        safe_write(sys.stdout, "\r" + " " * 80 + "\r")
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
 
     def stop(self) -> None:
         self._running = False
@@ -313,6 +434,7 @@ def print_usage() -> None:
     print(f"    python launcher.py --status --watch{c('dim', '  Live monitoring')}")
     print(f"    python launcher.py --logs       {c('dim', 'Show service logs')}")
     print(f"    python launcher.py --self-test  {c('dim', 'Verify prerequisites')}")
+    print(f"    python launcher.py --install-cpp{c('dim', '  Install C++ Build Tools (Win)')}")
     print(f"    python launcher.py --code       {c('dim', 'Also open VS Code')}")
     print(f"    python launcher.py --help       {c('dim', 'Show this help')}")
     print()
@@ -735,6 +857,8 @@ class TerminalOpener:
     @staticmethod
     def _wrap_command(cmd_str: str, log_file: Path) -> str:
         log_file.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            return cmd_str
         return f"{cmd_str} 2>&1 | tee '{log_file}'; exec bash"
 
     @staticmethod
@@ -805,22 +929,39 @@ class TerminalOpener:
         return [term_exe] + term_args + [wrapped]
 
     @staticmethod
+    def escape_cmd_path(path: str | Path) -> str:
+        """Escape and sanitize a filesystem path for insertion inside double quotes in a Windows cmd.exe command."""
+        # 1. Remove any double quotes to prevent quote-injection or quote breakout
+        s = str(path).replace('"', "")
+        # 2. Strip trailing backslashes to avoid escaping the closing quote in C/C++ argv parsers (CommandLineToArgvW)
+        return s.rstrip("\\")
+
+    @staticmethod
     def open_backend(
         python: Path,
         port: int,
         env: dict[str, str] | None = None,
     ) -> int | None:
-        cmd_str = (
-            f"cd '{BACKEND_DIR}' && "
-            f"PYTHONPATH='{BACKEND_DIR}' "
-            f"{python} -m uvicorn app.main:app "
-            f"--host 0.0.0.0 --port {port} --reload"
-        )
+        if os.name == "nt":
+            esc_backend = TerminalOpener.escape_cmd_path(BACKEND_DIR)
+            esc_python = TerminalOpener.escape_cmd_path(python)
+            cmd_str = f'cd /d "{esc_backend}" && "{esc_python}" -m uvicorn app.main:app --host 0.0.0.0 --port {port} --reload'
+        else:
+            cmd_str = (
+                f"cd '{BACKEND_DIR}' && "
+                f"PYTHONPATH='{BACKEND_DIR}' "
+                f"{python} -m uvicorn app.main:app "
+                f"--host 0.0.0.0 --port {port} --reload"
+            )
         return TerminalOpener._open("Backend", cmd_str, BACKEND_LOG, env, WINDOW_BACKEND)
 
     @staticmethod
     def open_frontend() -> int | None:
-        cmd_str = f"cd '{FRONTEND_DIR}' && npm run dev"
+        if os.name == "nt":
+            esc_frontend = TerminalOpener.escape_cmd_path(FRONTEND_DIR)
+            cmd_str = f'cd /d "{esc_frontend}" && npm run dev'
+        else:
+            cmd_str = f"cd '{FRONTEND_DIR}' && npm run dev"
         return TerminalOpener._open("Frontend", cmd_str, FRONTEND_LOG, None, WINDOW_FRONTEND)
 
     @staticmethod
@@ -861,14 +1002,22 @@ class TerminalOpener:
 
         try:
             log_fh = os.open(str(log_file), os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+            popen_kwargs: dict[str, Any] = {
+                "env": env,
+                "stdout": log_fh,
+                "stderr": subprocess.STDOUT,
+                "stdin": subprocess.DEVNULL,
+                "close_fds": True,
+            }
+            if os.name != "nt":
+                popen_kwargs["pass_fds"] = (log_fh,)
+                popen_cmd: list[str] | str = ["bash", "-c", cmd_str]
+            else:
+                popen_cmd = f'cmd.exe /s /c "{cmd_str}"'
+
             proc = subprocess.Popen(
-                ["bash", "-c", cmd_str],
-                env=env,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
-                pass_fds=(log_fh,),
-                close_fds=True,
+                popen_cmd,
+                **popen_kwargs,
             )
             os.close(log_fh)
             return proc.pid
@@ -1401,8 +1550,11 @@ class StatusDisplay:
                 fe = StatusDisplay._collect_service("frontend", cfg.frontend_port)
                 resources = SystemMonitor.collect()
                 # Clear screen using ANSI codes
-                sys.stdout.write("\033[2J\033[H")
-                sys.stdout.flush()
+                safe_write(sys.stdout, "\033[2J\033[H")
+                try:
+                    sys.stdout.flush()
+                except Exception:
+                    pass
                 StatusDisplay.render(be, fe, resources)
                 print(f"  {c('dim', 'Press Ctrl+C to stop watching')}")
                 time.sleep(WATCH_REFRESH)
@@ -1495,6 +1647,321 @@ def find_backend_venv() -> Path | None:
     return None
 
 
+def is_valid_python(py_path: Path | str) -> bool:
+    """Check if the given python path exists and is Python 3.12+."""
+    try:
+        res = subprocess.run(
+            [str(py_path), "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if res.returncode == 0:
+            parts = res.stdout.strip().split(".")
+            major, minor = int(parts[0]), int(parts[1])
+            return major > 3 or (major == 3 and minor >= 12)
+    except Exception:
+        pass
+    return False
+
+
+def find_system_python() -> Path | None:
+    """Find any available Python 3.12+ executable on the host system."""
+    candidates: list[Path | str] = []
+
+    # Check PATH commands
+    for name in ("python", "python3", "py"):
+        found = shutil.which(name)
+        if found:
+            candidates.append(Path(found))
+
+    # Windows-specific search paths
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        if local_app:
+            candidates.extend([
+                Path(local_app) / "Programs" / "Python" / "Python313" / "python.exe",
+                Path(local_app) / "Programs" / "Python" / "Python312" / "python.exe",
+            ])
+        program_files = os.environ.get("ProgramFiles", "C:/Program Files")
+        candidates.extend([
+            Path(program_files) / "Python313" / "python.exe",
+            Path(program_files) / "Python312" / "python.exe",
+            Path("C:/Python313/python.exe"),
+            Path("C:/Python312/python.exe"),
+        ])
+
+    for c in candidates:
+        if isinstance(c, str):
+            c = Path(c)
+        if c.is_file() and is_valid_python(c):
+            return c
+    return None
+
+
+def download_file(url: str, dest: Path, description: str = "Downloading") -> bool:
+    """Download a file with live progress, SSL verification fallback, and native tool fallback (curl / PowerShell)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Method 1: Python urllib with chunked download and live progress
+    for verify_ssl in (True, False):
+        try:
+            import ssl
+            import urllib.request
+            ctx = ssl.create_default_context() if verify_ssl else ssl._create_unverified_context()
+            req = urllib.request.Request(url, headers={"User-Agent": "MCS-Launcher/1.0"})
+            with urllib.request.urlopen(req, context=ctx, timeout=60) as resp, open(dest, "wb") as f:
+                total_size = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                chunk_size = 65536
+                last_print = 0
+                while True:
+                    chunk = resp.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    now = time.time()
+                    if now - last_print > 0.4 or downloaded == total_size:
+                        last_print = now
+                        if total_size > 0:
+                            pct = int((downloaded / total_size) * 100)
+                            mb_done = downloaded / (1024 * 1024)
+                            mb_total = total_size / (1024 * 1024)
+                            safe_write(sys.stdout, f"\r  ▸ {description}: {mb_done:.1f} MB / {mb_total:.1f} MB ({pct}%)")
+                        else:
+                            mb_done = downloaded / (1024 * 1024)
+                            safe_write(sys.stdout, f"\r  ▸ {description}: {mb_done:.1f} MB")
+                        try:
+                            sys.stdout.flush()
+                        except Exception:
+                            pass
+                safe_write(sys.stdout, "\n")
+            if dest.is_file() and dest.stat().st_size > 1000000:
+                return True
+        except Exception:
+            continue
+
+    # Method 2: curl (available on Windows 10/11 and Linux)
+    curl_cmd = shutil.which("curl.exe") or shutil.which("curl")
+    if curl_cmd:
+        try:
+            safe_print(f"  ▸ {description} via curl...")
+            res = subprocess.run([curl_cmd, "-L", "-k", "-#", "-o", str(dest), url], timeout=180)
+            if res.returncode == 0 and dest.is_file() and dest.stat().st_size > 1000000:
+                return True
+        except Exception:
+            pass
+
+    # Method 3: PowerShell (Windows)
+    if os.name == "nt" and shutil.which("powershell"):
+        try:
+            safe_print(f"  ▸ {description} via PowerShell...")
+            res = subprocess.run([
+                "powershell", "-NoProfile", "-Command",
+                f"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object System.Net.WebClient).DownloadFile('{url}', '{dest}')"
+            ], capture_output=True, timeout=180)
+            if res.returncode == 0 and dest.is_file() and dest.stat().st_size > 1000000:
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
+def auto_install_python_windows() -> Path | None:
+    """Auto-download and install official Python 3.12 on Windows."""
+    # 1. Try winget first if available
+    if shutil.which("winget"):
+        log_step("Python", "Installing Python 3.12 via Windows Package Manager (winget)...")
+        try:
+            res = subprocess.run(
+                [
+                    "winget", "install", "--id", "Python.Python.3.12",
+                    "-e", "--accept-package-agreements", "--accept-source-agreements",
+                    "--silent",
+                ],
+                capture_output=True, text=True, timeout=300,
+            )
+            if res.returncode == 0:
+                log_ok("Python 3.12 installed via winget")
+                time.sleep(2)
+                found = find_system_python()
+                if found:
+                    return found
+        except Exception:
+            pass
+
+    # 2. Download official installer from python.org
+    installer_url = "https://www.python.org/ftp/python/3.12.8/python-3.12.8-amd64.exe"
+    tmp_dir = MCS_DIR / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    installer_path = tmp_dir / "python-3.12.8-installer.exe"
+
+    log_step("Python", "Downloading Python 3.12 installer from python.org...")
+    try:
+        downloaded = download_file(installer_url, installer_path, "Downloading Python 3.12 installer")
+
+        if not downloaded or not installer_path.is_file() or installer_path.stat().st_size < 1000000:
+            log_error("Failed to download Python installer (empty or incomplete file)")
+            return None
+
+        log_ok(f"Downloaded Python installer ({installer_path.stat().st_size / (1024 * 1024):.1f} MB)")
+
+        log_step("Python", "Running Python installer (passive user install)...")
+        install_res = subprocess.run(
+            [
+                str(installer_path),
+                "/passive",
+                "InstallAllUsers=0",
+                "PrependPath=1",
+                "Include_pip=1",
+                "Include_test=0",
+            ],
+            capture_output=True, text=True, timeout=300,
+        )
+        try:
+            installer_path.unlink()
+        except OSError:
+            pass
+
+        if install_res.returncode == 0:
+            log_ok("Python 3.12 installation complete")
+            time.sleep(2)
+            # Add newly installed Python to current PATH
+            local_app = os.environ.get("LOCALAPPDATA", "")
+            if local_app:
+                py_dir = Path(local_app) / "Programs" / "Python" / "Python312"
+                scripts_dir = py_dir / "Scripts"
+                if py_dir.is_dir():
+                    os.environ["PATH"] = f"{py_dir};{scripts_dir};{os.environ.get('PATH', '')}"
+            return find_system_python()
+        else:
+            log_error(f"Python installer exited with code {install_res.returncode}")
+    except Exception as e:
+        log_error(f"Failed to auto-download/install Python: {e}")
+
+    return None
+
+
+def auto_install_cpp_tools_windows() -> bool:
+    """Download and install Microsoft Visual C++ Build Tools and Runtime on Windows."""
+    if os.name != "nt":
+        log_info("Microsoft Visual C++ Tools auto-installer is only applicable on Windows.")
+        return True
+
+    # 1. Try winget first if available
+    if shutil.which("winget"):
+        log_step("C++ Tools", "Installing Visual Studio C++ Build Tools via winget...")
+        try:
+            res = subprocess.run(
+                [
+                    "winget", "install", "--id", "Microsoft.VisualStudio.2022.BuildTools",
+                    "-e", "--accept-package-agreements", "--accept-source-agreements",
+                    "--override", "--quiet --wait --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended",
+                ],
+                capture_output=True, text=True, timeout=600,
+            )
+            if res.returncode == 0:
+                log_ok("Visual Studio C++ Build Tools installed via winget")
+                return True
+        except Exception:
+            pass
+
+    tmp_dir = MCS_DIR / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    # 2. Install VC++ Runtime Redistributable first
+    vcredist_url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+    vcredist_path = tmp_dir / "vc_redist.x64.exe"
+    log_step("C++ Tools", "Downloading Microsoft Visual C++ Redistributable...")
+    if download_file(vcredist_url, vcredist_path, "Downloading VC++ Redistributable"):
+        try:
+            log_step("C++ Tools", "Installing VC++ Redistributable...")
+            subprocess.run([str(vcredist_path), "/install", "/passive", "/norestart"], timeout=180)
+            try:
+                vcredist_path.unlink()
+            except OSError:
+                pass
+            log_ok("VC++ Redistributable installed")
+        except Exception as e:
+            log_warn(f"VC++ Redistributable installation note: {e}")
+
+    # 3. Download official Visual Studio C++ Build Tools bootstrapper from Microsoft
+    bt_url = "https://aka.ms/vs/17/release/vs_BuildTools.exe"
+    bt_path = tmp_dir / "vs_BuildTools.exe"
+    log_step("C++ Tools", "Downloading Visual Studio C++ Build Tools installer from Microsoft...")
+    if download_file(bt_url, bt_path, "Downloading VS Build Tools"):
+        try:
+            log_step("C++ Tools", "Running VS Build Tools installer (quiet mode)...")
+            res = subprocess.run(
+                [
+                    str(bt_path),
+                    "--quiet",
+                    "--wait",
+                    "--norestart",
+                    "--nocache",
+                    "--add", "Microsoft.VisualStudio.Workload.VCTools",
+                    "--includeRecommended",
+                ],
+                timeout=900,
+            )
+            try:
+                bt_path.unlink()
+            except OSError:
+                pass
+            if res.returncode in (0, 3010):
+                log_ok("Visual Studio C++ Build Tools installed successfully")
+                return True
+            else:
+                log_error(f"VS Build Tools installer exited with code {res.returncode}")
+        except Exception as e:
+            log_error(f"Failed to install VS Build Tools: {e}")
+
+    return False
+
+
+def ensure_python_environment() -> Path | None:
+    """Ensure a Python 3.12+ environment exists for the backend (auto-downloading and creating venv if needed)."""
+    # 1. If backend/.venv already has a valid Python, use it
+    venv_py = find_backend_venv()
+    if venv_py and is_valid_python(venv_py):
+        return venv_py
+
+    # 2. Find system Python
+    sys_py = find_system_python()
+    if sys_py is None:
+        if os.name == "nt":
+            log_warn("Python 3.12+ not found. Attempting automatic download & installation...")
+            sys_py = auto_install_python_windows()
+        else:
+            log_error("Python 3.12+ not found on system.")
+            return None
+
+    if sys_py is None:
+        return None
+
+    # 3. Create backend virtual environment
+    log_step("Backend", f"Creating virtual environment at {VENV_DIR}...")
+    try:
+        VENV_DIR.parent.mkdir(parents=True, exist_ok=True)
+        res = subprocess.run(
+            [str(sys_py), "-m", "venv", str(VENV_DIR)],
+            cwd=str(BACKEND_DIR),
+            capture_output=True, text=True, timeout=90,
+        )
+        if res.returncode != 0:
+            log_error(f"Failed to create virtual environment:\n{res.stderr[:400]}")
+            return sys_py
+        created_venv = find_backend_venv()
+        if created_venv:
+            log_ok(f"Created virtual environment at {VENV_DIR}")
+            install_backend_deps(created_venv)
+            return created_venv
+    except Exception as e:
+        log_error(f"Error creating virtual environment: {e}")
+
+    return sys_py
+
+
 def check_backend_health() -> bool:
     try:
         import urllib.request
@@ -1513,38 +1980,87 @@ def check_frontend_ready() -> bool:
 
 
 def install_backend_deps(python: Path) -> bool:
-    log_step("Backend", "Installing dependencies...")
+    log_step("Backend", "Installing dependencies from requirements.txt...")
+    req_file = BACKEND_DIR / "requirements.txt"
+    if not req_file.is_file():
+        log_error("requirements.txt not found in backend directory")
+        return False
+
     try:
-        result = subprocess.run(
-            [str(python), "-m", "pip", "install", "-r", "requirements.txt"],
+        # On Windows, netifaces lacks Python 3.12 binary wheels and requires MSVC C++ tools.
+        # netifaces-plus is the official modern drop-in wheel replacement for Windows Python 3.12+.
+        if os.name == "nt":
+            subprocess.run(
+                [str(python), "-m", "pip", "install", "--no-warn-script-location", "netifaces-plus", "defusedxml"],
+                cwd=str(BACKEND_DIR),
+                capture_output=True, timeout=60,
+            )
+            subprocess.run(
+                [str(python), "-m", "pip", "install", "--no-warn-script-location", "--no-deps", "aioupnp"],
+                cwd=str(BACKEND_DIR),
+                capture_output=True, timeout=60,
+            )
+
+        proc = subprocess.Popen(
+            [str(python), "-m", "pip", "install", "--no-warn-script-location", "-r", str(req_file)],
             cwd=str(BACKEND_DIR),
-            capture_output=True, text=True, timeout=120,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
-        if result.returncode != 0:
-            log_error(f"pip install failed:\n{result.stderr[:500]}")
+        error_lines: list[str] = []
+        if proc.stdout:
+            for line in proc.stdout:
+                line_s = line.strip()
+                if line_s:
+                    if any(k in line_s for k in ("Collecting", "Downloading", "Installing", "Successfully installed", "Requirement already satisfied")):
+                        safe_print(f"    {c('dim', '▸')} {line_s[:95]}")
+                    elif any(k in line_s for k in ("ERROR:", "error:", "Failed", "Exception", "Traceback")):
+                        error_lines.append(line_s)
+        proc.wait(timeout=300)
+        if proc.returncode != 0:
+            log_error(f"pip install exited with code {proc.returncode}")
+            if error_lines:
+                for el in error_lines[-5:]:
+                    safe_print(f"    {c('red', '✖')} {el[:95]}")
             return False
-        log_ok("Dependencies installed")
+        log_ok("Backend dependencies installed successfully")
         return True
     except subprocess.TimeoutExpired:
-        log_error("pip install timed out")
+        log_error("pip install timed out (300s limit exceeded)")
+        return False
+    except Exception as e:
+        log_error(f"pip install error: {e}")
         return False
 
 
 def install_npm_deps() -> bool:
     log_step("Frontend", "Installing npm packages...")
     try:
-        result = subprocess.run(
-            ["npm", "install"],
+        proc = subprocess.Popen(
+            ["npm", "install"] if os.name != "nt" else ["npm.cmd", "install"],
             cwd=str(FRONTEND_DIR),
-            capture_output=True, text=True, timeout=120,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            shell=(os.name == "nt"),
         )
-        if result.returncode != 0:
-            log_error(f"npm install failed:\n{result.stderr[:500]}")
+        if proc.stdout:
+            for line in proc.stdout:
+                line_s = line.strip()
+                if line_s and any(k in line_s for k in ("added", "audited", "packages", "npm", "WARN")):
+                    safe_print(f"    {c('dim', '▸')} {line_s[:95]}")
+        proc.wait(timeout=300)
+        if proc.returncode != 0:
+            log_error(f"npm install exited with code {proc.returncode}")
             return False
-        log_ok("npm packages installed")
+        log_ok("Frontend dependencies installed successfully")
         return True
     except subprocess.TimeoutExpired:
-        log_error("npm install timed out")
+        log_error("npm install timed out (300s limit exceeded)")
+        return False
+    except Exception as e:
+        log_error(f"npm install error: {e}")
         return False
 
 
@@ -1576,30 +2092,26 @@ def start_backend(cfg: LauncherConfig) -> bool:
             return False
         PortManager.kill_on_port(cfg.backend_port)
 
-    python = find_backend_venv()
+    python = ensure_python_environment()
     if python is None:
-        python_path = "python" if os.name == "nt" else "python3"
-        try:
-            subprocess.run([python_path, "--version"], capture_output=True, timeout=5)
-            python = Path(python_path)
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            ErrorHandler.show(
-                "No Python interpreter found.",
-                f"Install Python 3.12+, then run:\n"
-                f"  cd {BACKEND_DIR} && python3 -m venv .venv\n"
-                f"  .venv/bin/pip install -r requirements.txt",
-            )
-            return False
+        ErrorHandler.show(
+            "No Python interpreter found.",
+            f"Install Python 3.12+ from https://python.org, then run:\n"
+            f"  cd {BACKEND_DIR} && python -m venv .venv\n"
+            f"  .venv/bin/pip install -r requirements.txt",
+        )
+        return False
 
     if python.is_absolute():
         deps_ok = Validator.check_backend_deps(python)
         if not deps_ok:
             if cfg.auto_install_deps:
-                if not ErrorHandler.show(
-                    "Backend dependencies missing.",
-                    "Auto-installing...",
-                    lambda: install_backend_deps(python),
-                ):
+                log_step("Backend", "Missing dependencies detected. Auto-installing...")
+                if not install_backend_deps(python):
+                    ErrorHandler.show(
+                        "Failed to install backend dependencies.",
+                        f"Try running manually: {python} -m pip install -r requirements.txt",
+                    )
                     return False
             else:
                 log_warn("Dependencies may be missing (auto_install_deps=False)")
@@ -1688,11 +2200,9 @@ def start_frontend(cfg: LauncherConfig) -> bool:
 
     if not Validator.check_frontend_deps():
         if cfg.auto_install_deps:
-            if not ErrorHandler.show(
-                "Frontend dependencies not installed.",
-                "Auto-installing...",
-                install_npm_deps,
-            ):
+            log_step("Frontend", "Frontend dependencies missing. Auto-installing...")
+            if not install_npm_deps():
+                log_error("Failed to install frontend dependencies")
                 return False
         else:
             log_error("node_modules not found. Run 'npm install' in frontend/")
@@ -1864,6 +2374,16 @@ def cmd_open_vscode() -> None:
         log_warn("VS Code 'code' command not found in PATH")
 
 
+def cmd_install_cpp() -> int:
+    print_banner()
+    print(f"  {c('bold', '▸ Installing Microsoft C++ Build Tools')} {c('dim', '───')}\n")
+    if os.name != "nt":
+        log_info("Microsoft Visual C++ Build Tools are only applicable on Windows.")
+        return 0
+    ok = auto_install_cpp_tools_windows()
+    return 0 if ok else 1
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Main entry point
 # ═══════════════════════════════════════════════════════════════════════
@@ -1888,6 +2408,9 @@ def main() -> int:
 
     if "--self-test" in args:
         return cmd_self_test()
+
+    if "--install-cpp" in args or "--cpp-tools" in args:
+        return cmd_install_cpp()
 
     if "--logs" in args:
         return cmd_logs()
@@ -1914,7 +2437,16 @@ if __name__ == "__main__":
         cmd_stop()
         sys.exit(130)
     except Exception as exc:
-        log_error(f"Unhandled error: {exc}")
+        try:
+            log_error(f"Unhandled error: {exc}")
+        except Exception:
+            try:
+                safe_print(f"  [X] Unhandled error: {exc}")
+            except Exception:
+                pass
         import traceback
-        traceback.print_exc()
+        try:
+            traceback.print_exc()
+        except Exception:
+            pass
         sys.exit(1)

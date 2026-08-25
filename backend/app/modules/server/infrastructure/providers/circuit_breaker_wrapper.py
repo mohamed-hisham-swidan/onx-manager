@@ -33,6 +33,9 @@ class CircuitBreakerProviderWrapper(ServerProvider):
     def provider_type(self) -> str:
         return self._wrapped.provider_type
 
+    def capabilities(self) -> list[str]:
+        return self._wrapped.capabilities()
+
     async def ping(self) -> bool:
         try:
             return await self._breaker.call_factory(self._wrapped.ping)

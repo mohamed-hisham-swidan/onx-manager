@@ -18,6 +18,9 @@ class LocalWindowsProvider(ServerProvider):
     def provider_type(self) -> str:
         return "local_windows"
 
+    def capabilities(self) -> list[str]:
+        return ["process", "console", "exec"]
+
     async def ping(self) -> bool:
         return platform.system() == "Windows"
 

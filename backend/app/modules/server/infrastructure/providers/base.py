@@ -79,6 +79,29 @@ class ServerProvider(ABC):
     async def destroy(self, handle: ServerHandle) -> None:
         ...
 
+    def capabilities(self) -> list[str]:
+        """Return the list of public, externally usable capabilities supported by this provider.
+
+        A capability represents an operational feature that callers (such as sagas, supervisors,
+        or API routers) can rely on through the public `ServerProvider` contract.
+
+        Canonical capability vocabulary:
+        - "process": Provider manages the execution lifecycle of the server process or container
+                     (start, stop, status, get_runtime_pid).
+        - "console": Provider captures and streams live/historical console and log output via `console()`.
+        - "exec":    Provider supports executing interactive commands on the running server via `execute_command()`.
+
+        Rules for capability strings:
+        - Names represent public API contracts, not internal implementation mechanisms (e.g. do not expose
+          "tmux", "powershell", "filesystem", or specific runtime type identities like "docker" as capabilities;
+          runtime identity is exposed via `provider_type`).
+        - Callers may safely branch on capabilities (e.g. `if "exec" in provider.capabilities(): ...`).
+        - Unknown or future capabilities must be ignored by callers that do not recognize them.
+        - The default implementation returns an empty list `[]`, indicating a minimal or stub provider
+          with no declared operational capabilities.
+        """
+        return []
+
     async def wait_ready(
         self,
         server_id: str,
