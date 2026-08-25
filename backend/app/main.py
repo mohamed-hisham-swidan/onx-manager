@@ -68,7 +68,7 @@ _start_time: float = 0.0
 async def lifespan(_app: FastAPI):
     global _start_time
     _start_time = time.time()
-    _set_cloexec_on_all_fds()
+    set_cloexec_on_all_fds()
     settings = ConfigFactory.global_settings()
     init_settings_store()
     init_active_panel_bind()
