@@ -1,4 +1,3 @@
-import fcntl
 import logging
 import os
 import time
@@ -8,25 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.core.platform_lock import set_cloexec_on_all_fds
 
-def _set_cloexec_on_all_fds() -> None:
-    """Set FD_CLOEXEC on all file descriptors >= 3 to prevent socket leakage into children."""
-    if os.name != "posix":
-        return
-    try:
-        for fd_str in os.listdir("/proc/self/fd"):
-            try:
-                fd = int(fd_str)
-                if fd > 2:
-                    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-                    fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
-            except (ValueError, OSError):
-                pass
-    except OSError:
-        pass
-
-
-_set_cloexec_on_all_fds()
+set_cloexec_on_all_fds()
 
 from app.api.deps import init_buses, init_storage
 from app.api.errors import register_error_handlers

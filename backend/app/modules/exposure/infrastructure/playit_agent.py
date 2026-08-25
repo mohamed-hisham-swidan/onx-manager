@@ -180,44 +180,7 @@ async def _probe_unix_socket(
         return False
 
 
-class FileLock:
-    """Atomic non-blocking cross-process file lock via fcntl.flock on POSIX."""
-
-    def __init__(self, lock_path: Path) -> None:
-        self.lock_path = lock_path
-        self._fd: int | None = None
-
-    def acquire(self, timeout: float = 2.0) -> bool:
-        if is_windows():
-            return True
-        try:
-            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-            self._fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR, 0o600)
-            start = time.monotonic()
-            while True:
-                try:
-                    import fcntl
-
-                    fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    return True
-                except (BlockingIOError, OSError):
-                    if time.monotonic() - start > timeout:
-                        return False
-                    time.sleep(0.05)
-        except Exception as exc:
-            logger.warning("Failed to acquire file lock %s: %s", self.lock_path, exc)
-            return False
-
-    def release(self) -> None:
-        if is_windows() or self._fd is None:
-            return
-        import fcntl
-
-        with contextlib.suppress(OSError):
-            fcntl.flock(self._fd, fcntl.LOCK_UN)
-        with contextlib.suppress(OSError):
-            os.close(self._fd)
-        self._fd = None
+from app.core.platform_lock import FileLock
 
 
 class PlayitAgentSupervisor:
