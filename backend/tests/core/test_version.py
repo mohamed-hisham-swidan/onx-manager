@@ -29,7 +29,7 @@ def test_pyproject_value_wins_when_available(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_metadata_used_when_pyproject_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(version, "_read_pyproject_version", lambda: None)
-    assert get_app_version() == importlib.metadata.version("mcs-manager")
+    assert get_app_version() == importlib.metadata.version("onx-manager")
 
 
 def test_emergency_fallback_when_both_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -52,7 +52,7 @@ def test_shipped_pyproject_parses_with_tomllib() -> None:
 
 
 def test_single_source_matches_installed_metadata() -> None:
-    assert get_app_version() == importlib.metadata.version("mcs-manager")
+    assert get_app_version() == importlib.metadata.version("onx-manager")
     assert get_app_version() == "4.0.0"
 
 

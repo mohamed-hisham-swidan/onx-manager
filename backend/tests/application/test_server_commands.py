@@ -71,7 +71,7 @@ async def _create_test_server(
     if with_deployment:
         deployment = ServerDeployment(
             location_type=LocationType.LOCAL,
-            root_path=f"/tmp/mcs-test/{server_id}",
+            root_path=f"/tmp/onx-test/{server_id}",
             working_directory=".",
             startup_jar="server.jar",
         )
@@ -217,7 +217,7 @@ class TestStartServerHandler:
             address="127.0.0.1",
             port=25565,
             pid=12345,
-            metadata={"session_name": "mcs-test-start-deploy-1"},
+            metadata={"session_name": "onx-test-start-deploy-1"},
         )
 
         handler = StartServerHandler(event_bus)
@@ -243,7 +243,7 @@ class TestStartServerHandler:
             address="127.0.0.1",
             port=25565,
             pid=12345,
-            metadata={"session_name": "mcs-test-start-runtime-1"},
+            metadata={"session_name": "onx-test-start-runtime-1"},
         )
 
         handler = StartServerHandler(event_bus)
@@ -271,7 +271,7 @@ class TestStartServerHandler:
             address="127.0.0.1",
             port=25565,
             pid=12345,
-            metadata={"session_name": "mcs-test-start-pdel-1"},
+            metadata={"session_name": "onx-test-start-pdel-1"},
         )
 
         mock_consume = AsyncMock(return_value=[])
@@ -336,7 +336,7 @@ class TestRestartServerHandler:
             address="127.0.0.1",
             port=25565,
             pid=12345,
-            metadata={"session_name": "mcs-test-restart-deploy-1"},
+            metadata={"session_name": "onx-test-restart-deploy-1"},
         )
 
         handler = RestartServerHandler(event_bus)
@@ -363,7 +363,7 @@ class TestRestartServerHandler:
             address="127.0.0.1",
             port=25565,
             pid=12345,
-            metadata={"session_name": "mcs-test-restart-pdel-1"},
+            metadata={"session_name": "onx-test-restart-pdel-1"},
         )
 
         mock_consume = AsyncMock(return_value=[])

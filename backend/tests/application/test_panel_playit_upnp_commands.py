@@ -104,7 +104,7 @@ class TestPlayitHttpPanelExposure:
             tunnels=[
                 PlayitTunnelDto(
                     id="tunnel-existing-123",
-                    name="mcs-panel-default",
+                    name="onx-panel-default",
                     display_address="test-panel.at.ply.gg:8000",
                     port_type="tcp",
                     local_ip="127.0.0.1",

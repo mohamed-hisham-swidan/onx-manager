@@ -76,8 +76,8 @@ class TestRuntimeExceptions:
         assert "console unavailable" in str(exc).lower()
 
     def test_tmux_session_lost(self) -> None:
-        exc = TmuxSessionLost(server_id="srv-1", session_name="mcs-srv-1")
-        assert "mcs-srv-1" in str(exc)
+        exc = TmuxSessionLost(server_id="srv-1", session_name="onx-srv-1")
+        assert "onx-srv-1" in str(exc)
 
     def test_java_process_not_found(self) -> None:
         exc = JavaProcessNotFound(server_id="srv-1", pid=12345)

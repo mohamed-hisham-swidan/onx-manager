@@ -312,7 +312,7 @@ async def test_docker_execute_command_escapes_single_quotes() -> None:
     from app.modules.server.infrastructure.providers.docker import DockerProvider
 
     provider = DockerProvider()
-    handle = ServerHandle(provider="docker", server_id="s1", external_id="mcs-s1")
+    handle = ServerHandle(provider="docker", server_id="s1", external_id="onx-s1")
 
     captured: dict[str, str] = {}
 
@@ -324,4 +324,4 @@ async def test_docker_execute_command_escapes_single_quotes() -> None:
 
     await provider.execute_command(handle, "say 'hello'; touch /tmp/pwned")
 
-    assert captured["args"] == "exec mcs-s1 rcon-cli 'say '\\''hello'\\''; touch /tmp/pwned'"
+    assert captured["args"] == "exec onx-s1 rcon-cli 'say '\\''hello'\\''; touch /tmp/pwned'"

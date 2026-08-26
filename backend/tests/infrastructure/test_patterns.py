@@ -55,7 +55,7 @@ class TestFailurePatterns:
         assert code == FailureCode.PERMISSION_ERROR
 
     def test_detect_tmux_session_lost(self) -> None:
-        logs = ["tmux: session not found: mcs-test-1"]
+        logs = ["tmux: session not found: onx-test-1"]
         code, name = detect_failure(logs)
         assert code == FailureCode.TMUX_SESSION_LOST
 

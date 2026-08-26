@@ -66,7 +66,7 @@ async def _create_server(
     if with_deployment:
         deployment = ServerDeployment(
             location_type=LocationType.LOCAL,
-            root_path=f"/tmp/mcs-{server_id}",
+            root_path=f"/tmp/onx-{server_id}",
             working_directory=".",
             startup_jar="server.jar",
         )
@@ -82,10 +82,10 @@ async def _create_server(
     )
     if status == ServerStatus.RUNNING:
         server.start()
-        server.mark_running(pid=1234, port=25565, external_id=f"mcs-{server_id}")
+        server.mark_running(pid=1234, port=25565, external_id=f"onx-{server_id}")
     elif status == ServerStatus.STARTING:
         server.start()
-        server.record_runtime_starting(pid=1234, port=25565, external_id=f"mcs-{server_id}")
+        server.record_runtime_starting(pid=1234, port=25565, external_id=f"onx-{server_id}")
     server.collect_events()
 
     async with database.session_factory() as session:
@@ -114,7 +114,7 @@ class TestStartingVisibleAggregate:
             pid=9999,
             port=25565,
             host="127.0.0.1",
-            external_id="mcs-agg-1",
+            external_id="onx-agg-1",
             start_time="2026-08-18T12:00:00Z",
         )
 
@@ -123,7 +123,7 @@ class TestStartingVisibleAggregate:
         assert server.runtime.pid == 9999
         assert server.runtime.port == 25565
         assert server.runtime.host == "127.0.0.1"
-        assert server.runtime.external_id == "mcs-agg-1"
+        assert server.runtime.external_id == "onx-agg-1"
 
         events = server.collect_events()
         assert any(isinstance(e, ServerStartingEvent) for e in events)
@@ -160,7 +160,7 @@ class TestStartAndRestartCommandsLeaveStarting:
             address="127.0.0.1",
             port=25565,
             pid=4567,
-            metadata={"session_name": "mcs-srv-start-1"},
+            metadata={"session_name": "onx-srv-start-1"},
         )
 
         handler = StartServerHandler(event_bus)
@@ -188,7 +188,7 @@ class TestStartAndRestartCommandsLeaveStarting:
             address="127.0.0.1",
             port=25565,
             pid=7890,
-            metadata={"session_name": "mcs-srv-restart-1"},
+            metadata={"session_name": "onx-srv-restart-1"},
         )
 
         handler = RestartServerHandler(event_bus)
@@ -229,7 +229,7 @@ class TestStartAndRestartCommandsLeaveStarting:
             address="127.0.0.1",
             port=25565,
             pid=7891,
-            metadata={"session_name": "mcs-srv-restart-starting-1"},
+            metadata={"session_name": "onx-srv-restart-starting-1"},
         )
 
         handler = RestartServerHandler(event_bus)
@@ -249,7 +249,7 @@ class TestStartAndRestartCommandsLeaveStarting:
 @pytest.mark.usefixtures("init_test_db")
 class TestSupervisorVerifyStartup:
     @pytest.mark.asyncio
-    async def test_supervisor_verify_startup_transitions_to_running_on_ready(self) -> None:
+    async def test_supervisor_verify_startup_transitions_to_running_when_wait_ready_true(self) -> None:
         server = await _create_server("srv-sup-1", status=ServerStatus.STARTING)
 
         mock_provider = MagicMock(spec=ServerProvider)
@@ -266,7 +266,7 @@ class TestSupervisorVerifyStartup:
         handle = ServerHandle(
             provider="local",
             server_id="srv-sup-1",
-            external_id="mcs-srv-sup-1",
+            external_id="onx-srv-sup-1",
             metadata={"pid": 1234, "port": 25565, "server_name": server.name},
         )
 
@@ -304,7 +304,7 @@ class TestSupervisorVerifyStartup:
         handle = ServerHandle(
             provider="local",
             server_id="srv-sup-2",
-            external_id="mcs-srv-sup-2",
+            external_id="onx-srv-sup-2",
             metadata={"pid": 1234, "port": 25565, "server_name": server.name},
         )
 
@@ -351,7 +351,7 @@ class TestSupervisorVerifyStartup:
         handle = ServerHandle(
             provider="local",
             server_id="srv-sup-3",
-            external_id="mcs-srv-sup-3",
+            external_id="onx-srv-sup-3",
             metadata={"pid": 1234, "port": 25565, "server_name": server.name},
         )
 
@@ -393,7 +393,7 @@ class TestSupervisorVerifyStartup:
         handle = ServerHandle(
             provider="local",
             server_id="srv-sup-4",
-            external_id="mcs-srv-sup-4",
+            external_id="onx-srv-sup-4",
             metadata={"pid": 1234, "port": 25565, "server_name": server.name},
         )
 
@@ -450,7 +450,7 @@ class TestRuntimeReconciliationStarting:
             pid_alive=True,
             port_listening=False,  # Dropped port requirement for alive transition
             port=25565,
-            external_id="mcs-srv-alive-1",
+            external_id="onx-srv-alive-1",
         )
 
         mismatches = _detect_mismatches(state)
@@ -529,7 +529,7 @@ class TestBackupCooperativeCancellation:
             address="127.0.0.1",
             port=25565,
             pid=9999,
-            metadata={"session_name": "mcs-srv-bkp-restart"},
+            metadata={"session_name": "onx-srv-bkp-restart"},
         )
 
         handler = RestartServerHandler(event_bus)

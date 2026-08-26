@@ -37,12 +37,12 @@ def _write_fixtures(  # noqa: PLR0913
 ) -> tuple[Path, Path]:
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        f'[project]\nname = "mcs-manager"\nversion = "{pyproject_version}"\n',
+        f'[project]\nname = "onx-manager"\nversion = "{pyproject_version}"\n',
         encoding="utf-8",
     )
     package = tmp_path / "package.json"
     package.write_text(
-        json.dumps({"name": "mcs-frontend", "version": package_version}),
+        json.dumps({"name": "onx-frontend", "version": package_version}),
         encoding="utf-8",
     )
     return pyproject, package

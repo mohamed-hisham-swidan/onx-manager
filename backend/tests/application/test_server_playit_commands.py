@@ -463,7 +463,7 @@ class TestPlayitRealTunnelProvisioning:
             tunnels=[
                 PlayitTunnelDto(
                     id="tun-panel-existing",
-                    name="mcs-panel-existing",
+                    name="onx-panel-existing",
                     display_address="existing-panel.at.ply.gg:8000",
                     port_type="tcp",
                     local_ip="127.0.0.1",
@@ -504,7 +504,7 @@ class TestPlayitRealTunnelProvisioning:
         )
         mock_new_tunnel = PlayitTunnelDto(
             id="tun-new-created",
-            name="mcs-panel-new",
+            name="onx-panel-new",
             display_address="new-panel.at.ply.gg:12345",
             port_type="tcp",
             local_ip="127.0.0.1",
@@ -555,7 +555,7 @@ class TestPlayitRealTunnelProvisioning:
 
         mock_new_tunnel = PlayitTunnelDto(
             id="tun-del-123",
-            name="mcs-panel-del",
+            name="onx-panel-del",
             display_address="del-panel.at.ply.gg:8000",
             port_type="tcp",
             local_ip="127.0.0.1",
@@ -592,7 +592,7 @@ class TestPlayitRealTunnelProvisioning:
 
         mock_created_tunnel = PlayitTunnelDto(
             id="tun-srv-mc-1",
-            name="mcs-srv-mc-java",
+            name="onx-srv-mc-java",
             display_address="mc-play.at.ply.gg:25565",
             port_type="tcp",
             local_ip="127.0.0.1",

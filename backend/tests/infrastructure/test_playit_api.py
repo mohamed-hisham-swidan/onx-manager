@@ -34,8 +34,8 @@ class TestPlayitApiClient:
                     "tunnels": [
                         {
                             "id": "tun-1",
-                            "name": "mcs-panel-abc123",
-                            "display_address": "mcs-panel.at.ply.gg:12345",
+                            "name": "onx-panel-abc123",
+                            "display_address": "onx-panel.at.ply.gg:12345",
                             "port_type": "tcp",
                             "local_ip": "127.0.0.1",
                             "local_port": 8000,
@@ -43,8 +43,8 @@ class TestPlayitApiClient:
                         },
                         {
                             "id": "tun-2",
-                            "name": "mcs-server-java",
-                            "display_address": "mcs-play.at.ply.gg:25565",
+                            "name": "onx-server-java",
+                            "display_address": "onx-play.at.ply.gg:25565",
                             "port_type": "tcp",
                             "local_ip": "127.0.0.1",
                             "local_port": 25565,
@@ -67,7 +67,7 @@ class TestPlayitApiClient:
             assert len(rundata.tunnels) == 2
             assert rundata.tunnels[0].id == "tun-1"
             assert rundata.tunnels[0].local_port == 8000
-            assert rundata.tunnels[0].display_address == "mcs-panel.at.ply.gg:12345"
+            assert rundata.tunnels[0].display_address == "onx-panel.at.ply.gg:12345"
 
     async def test_create_tunnel_success(self) -> None:
         mock_resp = MagicMock()
@@ -77,7 +77,7 @@ class TestPlayitApiClient:
                 "status": "ok",
                 "data": {
                     "id": "tun-new-999",
-                    "name": "mcs-server-java",
+                    "name": "onx-server-java",
                     "display_address": "crafted-land.ply.gg:30000",
                     "port_type": "tcp",
                     "local_ip": "127.0.0.1",
@@ -93,7 +93,7 @@ class TestPlayitApiClient:
             client = PlayitApiClient()
             tunnel = await client.create_tunnel(
                 secret=SECRET_HEX,
-                name="mcs-server-java",
+                name="onx-server-java",
                 local_ip="127.0.0.1",
                 local_port=25565,
                 port_type="tcp",
@@ -126,7 +126,7 @@ class TestPlayitApiClient:
             with pytest.raises(PlayitAllocationFullError):
                 await client.create_tunnel(
                     secret=SECRET_HEX,
-                    name="mcs-server-java",
+                    name="onx-server-java",
                     local_ip="127.0.0.1",
                     local_port=25565,
                 )

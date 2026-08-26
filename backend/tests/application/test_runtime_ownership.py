@@ -64,7 +64,7 @@ def _make_server(
         s.start()
         s.collect_events()
     if status in (ServerStatus.RUNNING, ServerStatus.STOPPING):
-        ext_id = f"mcs-{sid}" if with_external_id else ""
+        ext_id = f"onx-{sid}" if with_external_id else ""
         s.mark_running(pid=pid or 0, port=port, external_id=ext_id)
         s.collect_events()
     if status == ServerStatus.STOPPING:
@@ -124,7 +124,7 @@ class TestFindAllTmuxSessions:
     @patch("app.modules.server.application.runtime_ownership.os.popen")
     def test_with_sessions(self, mock_popen):
         mock_proc = MagicMock()
-        mock_proc.read.return_value = "mcs-s1\nmcs-s2\nother-session\n"
+        mock_proc.read.return_value = "onx-s1\nonx-s2\nother-session\n"
         mock_popen.return_value = mock_proc
         with patch(
             "app.modules.server.application.runtime_ownership._get_tmux_pane_pid",
@@ -132,8 +132,8 @@ class TestFindAllTmuxSessions:
         ):
             result = _find_all_tmux_sessions()
         assert len(result) == 3
-        assert result[0] == ("mcs-s1", 12345)
-        assert result[1] == ("mcs-s2", 12345)
+        assert result[0] == ("onx-s1", 12345)
+        assert result[1] == ("onx-s2", 12345)
 
 
 class TestGetJavaCmdline:
@@ -253,14 +253,14 @@ class TestGetTmuxPanePid:
         mock_proc = MagicMock()
         mock_proc.read.return_value = "12345\n"
         mock_popen.return_value = mock_proc
-        assert _get_tmux_pane_pid("mcs-s1") == 12345
+        assert _get_tmux_pane_pid("onx-s1") == 12345
 
     @patch("app.modules.server.application.runtime_ownership.os.popen")
     def test_not_found(self, mock_popen):
         mock_proc = MagicMock()
         mock_proc.read.return_value = ""
         mock_popen.return_value = mock_proc
-        assert _get_tmux_pane_pid("mcs-s1") is None
+        assert _get_tmux_pane_pid("onx-s1") is None
 
 
 @pytest.mark.asyncio
@@ -294,7 +294,7 @@ class TestRuntimeOwnershipManagerDiscover:
         manager = RuntimeOwnershipManager(repo)
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-s1", 100)],
+            return_value=[("onx-s1", 100)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
@@ -348,7 +348,7 @@ class TestRuntimeOwnershipManagerDiscover:
         manager = RuntimeOwnershipManager(repo)
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-orphan", 999)],
+            return_value=[("onx-orphan", 999)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
@@ -361,7 +361,7 @@ class TestRuntimeOwnershipManagerDiscover:
                     snapshot = await manager.discover_all()
 
         assert len(snapshot.orphan_tmux) == 1
-        assert snapshot.orphan_tmux[0].identifier == "mcs-orphan"
+        assert snapshot.orphan_tmux[0].identifier == "onx-orphan"
         assert snapshot.orphan_tmux[0].pid == 999
         assert len(snapshot.orphan_processes) == 0
         assert len(snapshot.conflicts) >= 1
@@ -404,7 +404,7 @@ class TestRuntimeOwnershipManagerDiscover:
         manager = RuntimeOwnershipManager(repo)
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-s1", 100), ("mcs-s2", 200)],
+            return_value=[("onx-s1", 100), ("onx-s2", 200)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
@@ -462,7 +462,7 @@ class TestRuntimeOwnershipManagerClaim:
         manager = RuntimeOwnershipManager(repo)
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-other", 500)],
+            return_value=[("onx-other", 500)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
@@ -510,7 +510,7 @@ class TestRuntimeOwnershipManagerClaim:
         manager = RuntimeOwnershipManager(repo)
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-orphan", 999)],
+            return_value=[("onx-orphan", 999)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
@@ -546,7 +546,7 @@ class TestRuntimeOwnershipManagerClaim:
         manager = RuntimeOwnershipManager(repo)
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-orphan", 999)],
+            return_value=[("onx-orphan", 999)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
@@ -624,7 +624,7 @@ class TestRuntimeOwnershipManagerCleanup:
         manager = RuntimeOwnershipManager(repo)
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-orphan", 888)],
+            return_value=[("onx-orphan", 888)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
@@ -648,7 +648,7 @@ class TestRuntimeOwnershipManagerCleanup:
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_tmux"
-        assert actions[0]["identifier"] == "mcs-orphan"
+        assert actions[0]["identifier"] == "onx-orphan"
 
     async def test_cleanup_orphan_process(self):
         repo = MagicMock(spec_set=["get", "list", "save", "delete"])
@@ -735,7 +735,7 @@ class TestRuntimeOwnershipManagerValidate:
         manager = RuntimeOwnershipManager(repo)
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-s1", 100)],
+            return_value=[("onx-s1", 100)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
@@ -809,7 +809,7 @@ class TestRuntimeOwnershipManagerIntegration:
         manager = RuntimeOwnershipManager(repo)
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-live", 100)],
+            return_value=[("onx-live", 100)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",

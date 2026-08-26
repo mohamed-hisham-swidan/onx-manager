@@ -160,7 +160,7 @@ class TestRestoreBackupHandler:
         if with_deployment:
             deployment = ServerDeployment(
                 location_type=LocationType.LOCAL,
-                root_path=f"/tmp/mcs-test/{server_id}",
+                root_path=f"/tmp/onx-test/{server_id}",
                 working_directory=".",
             )
         async with database.session_factory() as session:

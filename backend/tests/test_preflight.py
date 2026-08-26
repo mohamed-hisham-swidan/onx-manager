@@ -51,7 +51,7 @@ def test_preflight_dry_run_success():
         timeout=15,
     )
     assert proc.returncode == 0, f"preflight.sh failed with stdout/err:\n{proc.stdout}\n{proc.stderr}"
-    assert "MC Server Manager — Preflight" in proc.stdout
+    assert "onx-manager — Preflight" in proc.stdout
     assert "Smart reconciliation" in proc.stdout
     assert "Preflight Summary" in proc.stdout
 

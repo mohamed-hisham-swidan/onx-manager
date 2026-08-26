@@ -126,6 +126,7 @@ class TestPerformSafeRestore:
         assert (server_dir / "world" / "level.dat").read_text() == "new-world"
         assert (server_dir / "world_nether" / "DIM1.dat").read_text() == "new-nether"
         assert (server_dir / "plugins" / "p.jar").read_text() == "keep-me"
+        assert not (server_dir / "world.onx-old").exists()
         assert not (server_dir / "world.mcs-old").exists()
 
     @pytest.mark.asyncio
@@ -172,6 +173,7 @@ class TestPerformSafeRestore:
 
         assert captured_dir == [os.path.dirname(os.path.abspath(str(server_dir)))]
         assert os.stat(captured_dir[0]).st_dev == os.stat(str(server_dir)).st_dev
+        assert not list(tmp_path.glob("onx-restore-*"))
         assert not list(tmp_path.glob("mcs-restore-*"))
 
     @pytest.mark.asyncio

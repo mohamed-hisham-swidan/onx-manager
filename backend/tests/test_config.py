@@ -6,7 +6,7 @@ from app.core.config import AppSettings, ConfigFactory, ServerConfig
 class TestAppSettings:
     def test_default_values(self) -> None:
         settings = AppSettings()
-        assert settings.app_name == "mcs-manager"
+        assert settings.app_name == "onx-manager"
         assert settings.debug is False
         assert settings.log_level == "INFO"
         assert settings.idempotency_ttl_hours == 24

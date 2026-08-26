@@ -52,10 +52,10 @@ class TestServerHandle:
         handle = ServerHandle(
             provider="local",
             server_id="s1",
-            external_id="mcs-s1",
+            external_id="onx-s1",
             metadata={"key": "val"},
         )
-        assert str(handle) == "local/s1:mcs-s1"
+        assert str(handle) == "local/s1:onx-s1"
         assert handle.metadata["key"] == "val"
 
 
@@ -172,7 +172,7 @@ class TestLocalLinuxProviderStart:
         )
         deployment = ServerDeployment(
             location_type=LocationType.LOCAL,
-            root_path="/tmp/mcs/test-server",
+            root_path="/tmp/onx/test-server",
         )
 
         from unittest.mock import MagicMock
@@ -200,7 +200,7 @@ class TestLocalLinuxProviderStart:
         provider = LocalLinuxProvider()
         deployment = ServerDeployment(
             location_type=LocationType.LOCAL,
-            root_path="/tmp/mcs/test-server",
+            root_path="/tmp/onx/test-server",
         )
         config = {
             "java_args": ["-XX:+UseG1GC"],
@@ -276,7 +276,7 @@ class TestLocalLinuxProviderWaitReady:
     @pytest.mark.asyncio
     async def test_wait_ready_done_found(self) -> None:
         provider = LocalLinuxProvider()
-        handle = ServerHandle(provider="local", server_id="s1", external_id="mcs-s1")
+        handle = ServerHandle(provider="local", server_id="s1", external_id="onx-s1")
 
         with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=True)):
             with patch.object(provider, "console", AsyncMock(return_value=["line1", "Done (10.234s)! For help, type \"help\""])):
@@ -286,7 +286,7 @@ class TestLocalLinuxProviderWaitReady:
     @pytest.mark.asyncio
     async def test_wait_ready_session_missing(self) -> None:
         provider = LocalLinuxProvider()
-        handle = ServerHandle(provider="local", server_id="s2", external_id="mcs-s2")
+        handle = ServerHandle(provider="local", server_id="s2", external_id="onx-s2")
 
         with patch.object(provider, "console", AsyncMock(return_value=[])):
             with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=False)):
@@ -296,7 +296,7 @@ class TestLocalLinuxProviderWaitReady:
     @pytest.mark.asyncio
     async def test_wait_ready_pid_is_none(self) -> None:
         provider = LocalLinuxProvider()
-        handle = ServerHandle(provider="local", server_id="s3", external_id="mcs-s3")
+        handle = ServerHandle(provider="local", server_id="s3", external_id="onx-s3")
 
         with patch.object(provider, "console", AsyncMock(return_value=[])):
             with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=True)):
@@ -307,7 +307,7 @@ class TestLocalLinuxProviderWaitReady:
     @pytest.mark.asyncio
     async def test_wait_ready_pid_dead(self) -> None:
         provider = LocalLinuxProvider()
-        handle = ServerHandle(provider="local", server_id="s4", external_id="mcs-s4")
+        handle = ServerHandle(provider="local", server_id="s4", external_id="onx-s4")
 
         with patch.object(provider, "console", AsyncMock(return_value=[])):
             with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=True)):
@@ -319,7 +319,7 @@ class TestLocalLinuxProviderWaitReady:
     @pytest.mark.asyncio
     async def test_wait_ready_deadline_exceeded(self) -> None:
         provider = LocalLinuxProvider()
-        handle = ServerHandle(provider="local", server_id="s5", external_id="mcs-s5")
+        handle = ServerHandle(provider="local", server_id="s5", external_id="onx-s5")
 
         with patch.object(provider, "console", AsyncMock(return_value=[])):
             with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=True)):
@@ -331,7 +331,7 @@ class TestLocalLinuxProviderWaitReady:
     @pytest.mark.asyncio
     async def test_wait_ready_console_failure_logged(self) -> None:
         provider = LocalLinuxProvider()
-        handle = ServerHandle(provider="local", server_id="s6", external_id="mcs-s6")
+        handle = ServerHandle(provider="local", server_id="s6", external_id="onx-s6")
 
         with patch.object(provider, "console", AsyncMock(side_effect=RuntimeError("tmux error"))):
             with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=True)):
@@ -345,7 +345,7 @@ class TestLocalLinuxProviderStop:
     @pytest.mark.asyncio
     async def test_stop_process_already_gone(self) -> None:
         provider = LocalLinuxProvider()
-        handle = ServerHandle(provider="local", server_id="s7", external_id="mcs-s7")
+        handle = ServerHandle(provider="local", server_id="s7", external_id="onx-s7")
 
         with patch.object(provider, "_get_tmux_pid", AsyncMock(return_value=None)):
             with patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run:
@@ -359,7 +359,7 @@ class TestLocalLinuxProviderStop:
         import signal
 
         provider = LocalLinuxProvider()
-        handle = ServerHandle(provider="local", server_id="s8", external_id="mcs-s8")
+        handle = ServerHandle(provider="local", server_id="s8", external_id="onx-s8")
 
         def kill_side_effect(pid, sig):
             if sig == signal.SIGTERM:
@@ -399,17 +399,17 @@ class TestLocalLinuxProviderPreFlight:
         provider = LocalLinuxProvider()
         with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=True)):
             with patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run:
-                await provider._cleanup_stale_tmux("mcs-srv1")
+                await provider._cleanup_stale_tmux("onx-srv1")
         cmd = mock_run.call_args[0][0]
         assert "tmux kill-session" in cmd
-        assert "mcs-srv1" in cmd
+        assert "onx-srv1" in cmd
 
     @pytest.mark.asyncio
     async def test_cleanup_stale_tmux_not_exists(self) -> None:
         provider = LocalLinuxProvider()
         with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=False)):
             with patch.object(provider, "_run_command", AsyncMock()) as mock_run:
-                await provider._cleanup_stale_tmux("mcs-srv1")
+                await provider._cleanup_stale_tmux("onx-srv1")
         mock_run.assert_not_called()
 
     @pytest.mark.asyncio
@@ -447,7 +447,7 @@ class TestLocalLinuxProviderPreFlight:
     @pytest.mark.asyncio
     async def test_start_cleans_up_stale_tmux(self) -> None:
         provider = LocalLinuxProvider()
-        deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/mcs/test")
+        deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/onx/test")
         lc = LaunchConfiguration(
             java_executable="java",
             startup_command="",
@@ -469,7 +469,7 @@ class TestLocalLinuxProviderPreFlight:
     @pytest.mark.asyncio
     async def test_start_verifies_port(self) -> None:
         provider = LocalLinuxProvider()
-        deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/mcs/test")
+        deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/onx/test")
         lc = LaunchConfiguration(
             java_executable="java",
             startup_command="",
@@ -491,7 +491,7 @@ class TestLocalLinuxProviderPreFlight:
     @pytest.mark.asyncio
     async def test_start_port_contested_raises(self) -> None:
         provider = LocalLinuxProvider()
-        deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/mcs/test")
+        deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/onx/test")
         lc = LaunchConfiguration(
             java_executable="java",
             startup_command="",
@@ -511,7 +511,7 @@ class TestLocalLinuxProviderPreFlight:
     @pytest.mark.asyncio
     async def test_start_process_dies_immediately(self) -> None:
         provider = LocalLinuxProvider()
-        deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/mcs/test")
+        deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/onx/test")
         lc = LaunchConfiguration(
             java_executable="java",
             startup_command="",
@@ -615,8 +615,8 @@ class TestDockerProvider:
         mock_ensure.assert_awaited_once_with("itzg/minecraft-server:latest")
 
         create_call_args = mock_docker.call_args_list[0][0][0]
-        assert "create --name mcs-test-server-42" in create_call_args
-        assert "--label com.mcsmanager.managed=true" in create_call_args
-        assert "--label com.mcsmanager.server_id=test-server-42" in create_call_args
-        assert "--label com.mcsmanager.runtime=docker" in create_call_args
+        assert "create --name onx-test-server-42" in create_call_args
+        assert "--label com.onx-manager.managed=true" in create_call_args
+        assert "--label com.onx-manager.server_id=test-server-42" in create_call_args
+        assert "--label com.onx-manager.runtime=docker" in create_call_args
 

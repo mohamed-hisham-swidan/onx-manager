@@ -41,15 +41,15 @@ def _make_server(sid: str, status: ServerStatus, name: str | None = None) -> Ser
     s.collect_events()
     if status == ServerStatus.STARTING:
         s.start()
-        s._runtime.external_id = "mcs-s1"
+        s._runtime.external_id = "onx-s1"
         s.collect_events()
     elif status == ServerStatus.RUNNING:
         s.start()
-        s.mark_running(pid=100, port=25565, external_id="mcs-s1")
+        s.mark_running(pid=100, port=25565, external_id="onx-s1")
         s.collect_events()
     elif status == ServerStatus.STOPPING:
         s.start()
-        s.mark_running(pid=100, port=25565, external_id="mcs-s1")
+        s.mark_running(pid=100, port=25565, external_id="onx-s1")
         s.stop()
         s.collect_events()
     elif status == ServerStatus.STOPPED:
@@ -178,7 +178,7 @@ class TestReconciliation:
 
     async def test_crashed_server_recovered_when_running(self):
         server = _make_server("s1", ServerStatus.CRASHED)
-        server._runtime.external_id = "mcs-s1"
+        server._runtime.external_id = "onx-s1"
         repo = MagicMock()
         repo.list = AsyncMock(return_value=[server])
         repo.save = AsyncMock()

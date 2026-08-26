@@ -178,7 +178,7 @@ class TestSetPanelExposureEnable:
 
         # Cloudflare orchestration: exactly one tunnel, loopback ingress + catch-all,
         # exactly one CNAME.
-        assert client.created_names == [f"mcs-panel-{_HOSTNAME}"]
+        assert client.created_names == [f"onx-panel-{_HOSTNAME}"]
         assert len(client.ingresses) == 1
         tunnel_id, ingress = client.ingresses[0]
         assert tunnel_id == "tun-abc"
@@ -233,7 +233,7 @@ class TestSetPanelExposureEnable:
         # Same method + desired_state -> early return, nothing reprovisioned.
         result = await handler.handle(cmd)
         assert result.success
-        assert client.created_names == [f"mcs-panel-{_HOSTNAME}"]
+        assert client.created_names == [f"onx-panel-{_HOSTNAME}"]
         assert supervisor.starts == [_TUNNEL_TOKEN.encode("utf-8")]
 
 
@@ -339,7 +339,7 @@ class TestReconcileRestartFromPersistedState:
         # Reconcile starts cloudflared from the persisted ciphertext...
         assert second.starts == [_TUNNEL_TOKEN.encode("utf-8")]
         # ...without minting a new tunnel / new CNAME.
-        assert client.created_names == [f"mcs-panel-{_HOSTNAME}"]
+        assert client.created_names == [f"onx-panel-{_HOSTNAME}"]
         assert client.cnames == [(_HOSTNAME, "tun-abc")]
 
     async def test_reconcile_after_disable_leaves_supervisor_stopped(self, monkeypatch) -> None:
@@ -421,7 +421,7 @@ class TestPanelTokenReclaimRotation:
         )
         assert result.success
         assert result.data["status"] == "STARTING"
-        assert client.created_names == [f"mcs-panel-{_HOSTNAME}"]
+        assert client.created_names == [f"onx-panel-{_HOSTNAME}"]
 
     async def test_reclaim_rotation_happens_in_place(self, monkeypatch) -> None:
         """A: RECLAIM_REQUIRED + fresh token -> rotation happens; C: restart attempted."""
@@ -449,7 +449,7 @@ class TestPanelTokenReclaimRotation:
 
         # No re-provision: exactly the one original tunnel + CNAME, no duplicates.
         assert client.create_attempts == 1
-        assert client.created_names == [f"mcs-panel-{_HOSTNAME}"]
+        assert client.created_names == [f"onx-panel-{_HOSTNAME}"]
         assert client.cnames == [(_HOSTNAME, "tun-abc")]
 
         # C: the supervised child was restarted with the replacement token

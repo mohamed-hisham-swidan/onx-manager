@@ -53,7 +53,7 @@ def server_handle() -> ServerHandle:
     return ServerHandle(
         provider="local",
         server_id="test-sup-1",
-        external_id="mcs-test-sup-1",
+        external_id="onx-test-sup-1",
     )
 
 

@@ -44,7 +44,7 @@ def setup_temp_settings(tmp_path, monkeypatch):
 class TestSettingsPersistenceStore:
     def test_init_and_get_defaults(self, setup_temp_settings):
         live = get_live_settings()
-        assert live.app_name == "mcs-manager"
+        assert live.app_name == "onx-manager"
         assert live.rate_limit_per_minute == 60
         assert live.circuit_breaker_max_failures == 5
         assert live.circuit_breaker_timeout_seconds == 30
@@ -54,6 +54,19 @@ class TestSettingsPersistenceStore:
         assert live.log_level == "INFO"
         assert live.debug is False
         assert live.metrics_interval_seconds == 1.5
+
+    def test_auto_migrate_legacy_app_name(self, setup_temp_settings):
+        """Legacy default 'mcs-manager' in settings.yaml should auto-migrate to 'onx-manager'."""
+        test_yaml = setup_temp_settings
+        test_yaml.write_text("app_name: mcs-manager\n", encoding="utf-8")
+
+        init_settings_store(test_yaml)
+
+        live = get_live_settings()
+        assert live.app_name == "onx-manager"
+
+        content = test_yaml.read_text(encoding="utf-8")
+        assert "app_name: onx-manager" in content
 
     def test_update_persists_to_file(self, setup_temp_settings):
         test_yaml = setup_temp_settings

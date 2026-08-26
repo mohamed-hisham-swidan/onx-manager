@@ -126,7 +126,7 @@ class TestCloudflareClient:
         )
         with patch(_PATCH_GET_HTTP_CLIENT, return_value=http):
             client = CloudflareClient("tok")
-            result = await client.create_named_tunnel(name="mcs-panel-x.example.com")
+            result = await client.create_named_tunnel(name="onx-panel-x.example.com")
         assert result.tunnel_id == "tun-1"
         assert result.token == "tok"
         assert http.calls[0][0] == "GET"
@@ -186,7 +186,7 @@ class TestCloudflareClient:
         with patch(_PATCH_GET_HTTP_CLIENT, return_value=http):
             client = CloudflareClient("tok")
             with pytest.raises(CloudflareAuthError):
-                await client.create_named_tunnel(name="mcs-panel-x.example.com")
+                await client.create_named_tunnel(name="onx-panel-x.example.com")
 
     async def test_http_401_maps_to_reclaim(self) -> None:
         from app.modules.exposure.infrastructure.cloudflare import (
@@ -198,7 +198,7 @@ class TestCloudflareClient:
         with patch(_PATCH_GET_HTTP_CLIENT, return_value=http):
             client = CloudflareClient("tok")
             with pytest.raises(CloudflareAuthError):
-                await client.create_named_tunnel(name="mcs-panel-x.example.com")
+                await client.create_named_tunnel(name="onx-panel-x.example.com")
 
     async def test_other_error_maps_to_api_error(self) -> None:
         from app.modules.exposure.infrastructure.cloudflare import (
@@ -217,7 +217,7 @@ class TestCloudflareClient:
         with patch(_PATCH_GET_HTTP_CLIENT, return_value=http):
             client = CloudflareClient("tok")
             with pytest.raises(CloudflareApiError):
-                await client.create_named_tunnel(name="mcs-panel-x.example.com")
+                await client.create_named_tunnel(name="onx-panel-x.example.com")
 
 
 class TestCloudflaredSupervisor:

@@ -250,7 +250,7 @@ async def test_server_cloudflare_tcp_enable_success(monkeypatch):
     assert result.data["targets"][0]["public_address"] == _HOSTNAME
 
     assert client.create_attempts == 1
-    assert client.created_names == ["mcs-srv-srv-1"]
+    assert client.created_names == ["onx-srv-srv-1"]
     assert client.cnames == [(_HOSTNAME, "tun-srv-abc")]
     assert supervisors["srv-1"].is_running is True
     assert supervisors["srv-1"].starts == [_TUNNEL_TOKEN.encode("utf-8")]

@@ -50,7 +50,7 @@ def _make_server(
         s.start()
         s.collect_events()
     if status in (ServerStatus.RUNNING, ServerStatus.STOPPING):
-        ext_id = f"mcs-{sid}" if with_external_id else ""
+        ext_id = f"onx-{sid}" if with_external_id else ""
         s.mark_running(pid=pid or 0, port=port, external_id=ext_id)
         s.collect_events()
     if status == ServerStatus.STOPPING:
@@ -343,7 +343,7 @@ class TestReconcileOrphans:
     async def test_kills_orphan_tmux_system_wide(self):
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["mcs-orphan"],
+            return_value=["onx-orphan"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
@@ -363,13 +363,13 @@ class TestReconcileOrphans:
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_tmux"
-        assert actions[0]["session"] == "mcs-orphan"
+        assert actions[0]["session"] == "onx-orphan"
         mock_kill.assert_any_call(12345, signal.SIGTERM)
 
     async def test_kills_orphan_tmux_project_owned(self):
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["mcs-orphan"],
+            return_value=["onx-orphan"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
@@ -393,13 +393,13 @@ class TestReconcileOrphans:
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_tmux"
-        assert actions[0]["session"] == "mcs-orphan"
+        assert actions[0]["session"] == "onx-orphan"
         mock_kill.assert_any_call(12345, signal.SIGTERM)
 
     async def test_skips_non_owned_tmux_in_project_scope(self):
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["mcs-untracked"],
+            return_value=["onx-untracked"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
@@ -519,7 +519,7 @@ class TestReconcileOrphans:
 
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["mcs-srv-running", "mcs-actual-orphan"],
+            return_value=["onx-srv-running", "onx-actual-orphan"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
@@ -542,7 +542,7 @@ class TestReconcileOrphans:
                                 actions = await reconcile_orphans(mock_repo)
 
         assert len(actions) == 1
-        assert actions[0]["session"] == "mcs-actual-orphan"
+        assert actions[0]["session"] == "onx-actual-orphan"
         mock_kill.assert_any_call(12345, signal.SIGTERM)
         assert mock_repo.list.call_count == 2
 
@@ -562,7 +562,7 @@ class TestReconcileOrphans:
 
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["my-custom-session", "mcs-actual-orphan-2"],
+            return_value=["my-custom-session", "onx-actual-orphan-2"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
@@ -585,7 +585,7 @@ class TestReconcileOrphans:
                                 actions = await reconcile_orphans(mock_repo)
 
         assert len(actions) == 1
-        assert actions[0]["session"] == "mcs-actual-orphan-2"
+        assert actions[0]["session"] == "onx-actual-orphan-2"
         mock_kill.assert_any_call(9999, signal.SIGTERM)
 
     async def test_skips_running_server_java_pid(self):
@@ -604,7 +604,7 @@ class TestReconcileOrphans:
 
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["mcs-srv-java"],
+            return_value=["onx-srv-java"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
@@ -642,7 +642,7 @@ class TestReconcileOrphans:
 
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["mcs-srv-stopped"],
+            return_value=["onx-srv-stopped"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
@@ -665,13 +665,13 @@ class TestReconcileOrphans:
                                 actions = await reconcile_orphans(mock_repo)
 
         assert len(actions) == 1
-        assert actions[0]["session"] == "mcs-srv-stopped"
+        assert actions[0]["session"] == "onx-srv-stopped"
         mock_kill.assert_any_call(5555, signal.SIGTERM)
 
     async def test_fail_gracefully_on_ownership_check_exception(self):
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["mcs-broken-pid"],
+            return_value=["onx-broken-pid"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
@@ -726,7 +726,7 @@ class TestReconcileOrphans:
     async def test_system_wide_kills_without_ownership_check(self):
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["mcs-orphan"],
+            return_value=["onx-orphan"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
@@ -751,7 +751,7 @@ class TestReconcileOrphans:
     async def test_audit_log_produced_for_kill_decision(self):
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["mcs-orphan"],
+            return_value=["onx-orphan"],
         ):
             with patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",

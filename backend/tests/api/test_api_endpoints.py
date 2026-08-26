@@ -412,7 +412,7 @@ class TestServers:
             address="127.0.0.1",
             port=25565,
             pid=12345,
-            metadata={"session_name": "mcs-test-start"},
+            metadata={"session_name": "onx-test-start"},
         )
 
         server_id = created_server["server_id"]
@@ -444,7 +444,7 @@ class TestServers:
             address="127.0.0.1",
             port=25565,
             pid=12345,
-            metadata={"session_name": "mcs-test-stop"},
+            metadata={"session_name": "onx-test-stop"},
         )
         mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
         mock_provider.stop.return_value = None
@@ -1343,7 +1343,7 @@ class TestSettings:
         resp = await client.get("/api/v1/settings", headers=admin_header)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["app_name"] == "mcs-manager"
+        assert data["app_name"] == "onx-manager"
         assert "requires_restart" in data
 
     async def test_update_settings(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
@@ -1443,7 +1443,7 @@ class TestRuntimeOwnershipAPI:
     async def test_runtime_ownership_with_orphan(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
         with patch(
             "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("mcs-orphan-x", 12345)],
+            return_value=[("onx-orphan-x", 12345)],
         ):
             with patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",

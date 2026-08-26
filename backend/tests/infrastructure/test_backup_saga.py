@@ -312,7 +312,7 @@ def _build_running_server(server_id: ServerId, server_dir: str) -> Server:
         host="127.0.0.1",
         port=25566,
         pid=12345,
-        external_id="mcs-save-test-session",
+        external_id="onx-save-test-session",
     )
     return server
 
