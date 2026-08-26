@@ -9,16 +9,17 @@ import yaml
 from pydantic_settings import BaseSettings
 
 from app.core.exceptions import InvalidValueError
+from app.core.identity import IDENTITY
 from app.core.version import get_app_version
 
 
 class AppSettings(BaseSettings):
-    app_name: str = "mcs-manager"
+    app_name: str = IDENTITY.project_name
     version: str = get_app_version()
     debug: bool = False
     log_level: str = "INFO"
     log_json: bool = True
-    database_url: str = "sqlite+aiosqlite:///./mcs.db"
+    database_url: str = f"sqlite+aiosqlite:///./{IDENTITY.db_filename_new}"
     database_echo: bool = False
     secret_key: str = "change-me-in-production"
     cors_origins: list[str] = ["*"]
@@ -45,7 +46,7 @@ class AppSettings(BaseSettings):
     panel_bind_port: int = 8000
     metrics_interval_seconds: float = 1.5
 
-    model_config = {"env_prefix": "MCS_"}
+    model_config = {"env_prefix": "MCS_", "extra": "ignore"}
 
 
 @dataclass(frozen=True)
@@ -98,10 +99,13 @@ class ConfigFactory:
                 raw = yaml.safe_load(f) or {}
             base = _merge_config(base, raw)
 
-        env_prefix = f"MCS_SERVER_{server_id.upper().replace('-', '_')}_"
-        env_overrides = _read_env_overrides(env_prefix)
-        if env_overrides:
-            base = _merge_config(base, env_overrides)
+        env_prefix_legacy = f"{IDENTITY.env_prefix_legacy}SERVER_{server_id.upper().replace('-', '_')}_"
+        env_prefix_new = f"{IDENTITY.env_prefix_new}SERVER_{server_id.upper().replace('-', '_')}_"
+        env_overrides = _read_env_overrides(env_prefix_legacy)
+        env_overrides_new = _read_env_overrides(env_prefix_new)
+        if env_overrides or env_overrides_new:
+            merged_env = {**env_overrides, **env_overrides_new}
+            base = _merge_config(base, merged_env)
 
         if overrides:
             base = _merge_config(base, overrides)
@@ -209,7 +213,7 @@ def get_panel_bind() -> tuple[str, int]:
     ``:8000`` strings.
     """
     settings = ConfigFactory.global_settings()
-    if "MCS_PANEL_BIND_HOST" in os.environ:
+    if "MCS_PANEL_BIND_HOST" in os.environ or "ONX_PANEL_BIND_HOST" in os.environ:
         host = settings.panel_bind_host
     else:
         from app.core.settings_store import get_live_settings

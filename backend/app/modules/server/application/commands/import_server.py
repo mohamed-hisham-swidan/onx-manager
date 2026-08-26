@@ -21,7 +21,9 @@ from app.modules.server.application.services.jar_service import resolve_server_d
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 from app.core.persistence.unit_of_work import UnitOfWork
 
-logger = logging.getLogger("mcs.commands.import_server")
+from app.core.identity import IDENTITY
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.import_server")
 
 SERVERS_DATA_DIR: str = ""  # kept for backward compat with migrate_import_arch.py imports
 

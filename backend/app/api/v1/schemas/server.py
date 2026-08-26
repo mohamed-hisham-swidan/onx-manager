@@ -155,7 +155,7 @@ class ReconcileRequest(BaseModel):
         default="project_owned",
         pattern=r"^(project_owned|system_wide)$",
         description="'project_owned' (default) — only kill processes with positive ownership marker/cwd inside project data dir. "
-        "'system_wide' — kill any mcs-* tmux session or Minecraft Java PID not in DB (legacy behavior).",
+        "'system_wide' — kill any managed tmux session or Minecraft Java PID not in DB (legacy behavior).",
     )
 
 

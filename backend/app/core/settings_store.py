@@ -20,9 +20,12 @@ from typing import Any
 
 import yaml
 
+from app.core.identity import IDENTITY
+
 logger = logging.getLogger(__name__)
 
 _SETTINGS_FILE = Path("config/settings.yaml")
+_LEGACY_APP_NAME = "mcs-manager"  # hardcoded legacy default for migration check
 
 # Fields that require a backend restart to take effect.
 RESTART_REQUIRED_FIELDS: frozenset[str] = frozenset(
@@ -32,7 +35,7 @@ RESTART_REQUIRED_FIELDS: frozenset[str] = frozenset(
 # All editable fields with their default values.  Keep in sync with
 # AppSettings (core/config.py) and the fields exposed by the API.
 _DEFAULTS: dict[str, Any] = {
-    "app_name": "mcs-manager",
+    "app_name": IDENTITY.project_name,
     "log_level": "INFO",
     "debug": False,
     "rate_limit_per_minute": 60,
@@ -52,7 +55,7 @@ _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERRO
 class LiveSettings:
     """Mutable settings that can be updated without a restart (except where noted)."""
 
-    app_name: str = "mcs-manager"
+    app_name: str = IDENTITY.project_name
     log_level: str = "INFO"
     debug: bool = False
     rate_limit_per_minute: int = 60
@@ -110,22 +113,46 @@ def init_settings_store(path: Path | None = None) -> None:
     Should be called once at application startup *after* env-var settings
     are available (i.e. in the FastAPI lifespan, just after
     ``ConfigFactory.global_settings()``).
+
+    Migration: if the persisted YAML contains the exact legacy default
+    "mcs-manager" for app_name, silently upgrade it to the new default.
     """
     global _live
     effective_path = path or _SETTINGS_FILE
     raw = _load_yaml_file(effective_path)
+
+    # MIGRATION: check RAW YAML before any defaults are applied
+    # Use hardcoded legacy string, not _DEFAULTS (which may already be new value)
+    migrated = False
+    if raw.get("app_name") == _LEGACY_APP_NAME:
+        raw["app_name"] = IDENTITY.project_name  # "onx-manager"
+        migrated = True
 
     kwargs: dict[str, Any] = {}
     for field, default in _DEFAULTS.items():
         if field in raw:
             kwargs[field] = _coerce(field, raw[field])
         elif field == "panel_bind_host":
-            kwargs[field] = os.environ.get("MCS_PANEL_BIND_HOST", default)
+            kwargs[field] = os.environ.get("ONX_PANEL_BIND_HOST") or os.environ.get(
+                "MCS_PANEL_BIND_HOST", default
+            )
         else:
             kwargs[field] = default
 
     _live = LiveSettings(**kwargs)
-    logger.info("Settings store initialised from %s", effective_path if raw else "defaults")
+
+    # Persist migrated value immediately (idempotent: only writes if changed)
+    if migrated:
+        _persist(_live, effective_path)
+        logger.info(
+            "Migrated settings.yaml app_name from legacy default to %s",
+            IDENTITY.project_name,
+        )
+    else:
+        logger.info(
+            "Settings store initialised from %s",
+            effective_path if raw else "defaults",
+        )
 
 
 def get_live_settings() -> LiveSettings:
@@ -162,13 +189,14 @@ def update_settings(updates: dict[str, Any]) -> tuple[LiveSettings, list[str]]:
     return live, restart_fields
 
 
-def _persist(live: LiveSettings) -> None:
-    """Write the current live settings to ``config/settings.yaml``."""
-    _SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+def _persist(live: LiveSettings, path: Path | None = None) -> None:
+    """Write the current live settings to ``config/settings.yaml`` (or specified path)."""
+    target_path = path or _SETTINGS_FILE
+    target_path.parent.mkdir(parents=True, exist_ok=True)
     data: dict[str, Any] = {k: getattr(live, k) for k in _DEFAULTS}
     try:
-        with open(_SETTINGS_FILE, "w") as f:
+        with open(target_path, "w") as f:
             yaml.safe_dump(data, f, default_flow_style=False)
     except Exception:
-        logger.exception("Failed to persist settings to %s", _SETTINGS_FILE)
+        logger.exception("Failed to persist settings to %s", target_path)
         raise

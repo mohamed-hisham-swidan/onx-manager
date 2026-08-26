@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 
 from app.modules.health.domain.services import CrashClassifier
 from app.modules.health.domain.value_objects import CrashClassification, EvidenceBundle
+from app.core.identity import IDENTITY
 from app.modules.server.domain.diagnostics import FailureCode
 from app.modules.server.infrastructure.providers.patterns import FAILURE_PATTERNS
 
-logger = logging.getLogger("mcs.health.crash_analyzer")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.crash_analyzer")
 
 EXIT_CODE_MAP: dict[int, FailureCode] = {
     1: FailureCode.UNKNOWN_RUNTIME_FAILURE,

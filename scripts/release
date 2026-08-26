@@ -23,7 +23,7 @@ git push origin "$VERSION"
 ./scripts/build
 
 # Push Docker image
-docker tag mcs-manager:latest "mcs-manager:$VERSION"
-docker push "mcs-manager:$VERSION"
+docker tag onx-manager:latest "onx-manager:$VERSION"
+docker push "onx-manager:$VERSION"
 
 echo "=== Release $VERSION Complete ==="

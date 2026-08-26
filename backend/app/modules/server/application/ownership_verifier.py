@@ -7,7 +7,10 @@ from enum import Enum
 from typing import Optional
 
 
-MCS_MARKER = "MCS_MANAGED"
+from app.core.identity import IDENTITY
+
+MCS_MARKER = IDENTITY.process_marker_legacy
+ONX_MARKER = IDENTITY.process_marker_new
 MCS_MARKER_ENV_VAL = "1"
 
 
@@ -93,7 +96,10 @@ def verify_ownership(
         )
 
     env = _get_process_env(pid)
-    has_marker = env.get(MCS_MARKER) == MCS_MARKER_ENV_VAL
+    has_marker = (
+        env.get(ONX_MARKER) == MCS_MARKER_ENV_VAL
+        or env.get(MCS_MARKER) == MCS_MARKER_ENV_VAL
+    )
     cwd = _get_process_cwd(pid)
 
     cwd_matches = False

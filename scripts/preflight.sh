@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# MC Server Manager — Preflight Process Cleanup
-# ==============================================
+# onx-manager — Preflight Process Cleanup
+# ======================================
 # Runs BEFORE every backend/frontend start to prevent duplicate processes,
 # orphaned services, and stale SQLite locks.  Idempotent — safe to run
 # anytime, even on a clean system.
 #
 # Usage:
 #   scripts/preflight.sh          # normal run
-#   MCS_PROJECT_ROOT=/custom/path scripts/preflight.sh   # explicit root
+#   ONX_PROJECT_ROOT=/custom/path scripts/preflight.sh   # explicit root
 #
 # On success: exits 0 (system clean or cleaned).
 # On failure: exits 1 (something unclean could not be resolved).
@@ -27,10 +27,11 @@ set -euo pipefail
 # Config
 # ──────────────────────────────────────────────────────────────────────
 
-BACKEND_PORT="${MCS_BACKEND_PORT:-8000}"
-FRONTEND_PORT="${MCS_FRONTEND_PORT:-5173}"
-PROJECT_ROOT="${MCS_PROJECT_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}"
+BACKEND_PORT="${ONX_BACKEND_PORT:-${MCS_BACKEND_PORT:-8000}}"
+FRONTEND_PORT="${ONX_FRONTEND_PORT:-${MCS_FRONTEND_PORT:-5173}}"
+PROJECT_ROOT="${ONX_PROJECT_ROOT:-${MCS_PROJECT_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}}}"
 BACKEND_DIR="${PROJECT_ROOT}/backend"
+ONX_DB="${BACKEND_DIR}/onx.db"
 MCS_DB="${BACKEND_DIR}/mcs.db"
 KILL_WAIT=5
 BOLD=""
@@ -116,7 +117,9 @@ belongs_to_project() {
             return 0
         fi
         # Match specific unique project identifiers
-        if [[ "$cmd" == *"mcs-frontend"* ]] ||
+        if [[ "$cmd" == *"onx-frontend"* ]] ||
+           [[ "$cmd" == *"mcs-frontend"* ]] ||
+           [[ "$cmd" == *"onx-manager"* ]] ||
            [[ "$cmd" == *"mcs-manager"* ]] ||
            [[ "$cmd" == *"app.main:app"* ]]; then
             return 0
@@ -326,7 +329,7 @@ check_db_lock() {
 
 scan_orphans() {
     # Scan for duplicate / inactive / dead orphan processes that do NOT hold an active port
-    local patterns=("uvicorn" "vite" "node.*mcs-frontend" "python.*main:app" "npm")
+    local patterns=("uvicorn" "vite" "node.*onx-frontend" "node.*mcs-frontend" "python.*main:app" "npm")
     local seen_pids=""
 
     for pattern in "${patterns[@]}"; do
@@ -358,7 +361,9 @@ scan_orphans() {
                 continue
             fi
             if [[ "${cmdline}" != *"${PROJECT_ROOT}"* ]] &&
+               [[ "${cmdline}" != *"onx-frontend"* ]] &&
                [[ "${cmdline}" != *"mcs-frontend"* ]] &&
+               [[ "${cmdline}" != *"onx-manager"* ]] &&
                [[ "${cmdline}" != *"mcs-manager"* ]] &&
                [[ "${cmdline}" != *"app.main:app"* ]] &&
                [[ "${cmdline}" != *"npm"* ]]; then
@@ -372,42 +377,44 @@ scan_orphans() {
 
 # Remove stale PID files or sync with live protected PIDs
 cleanup_pid_files() {
-    local mcs_dir="${PROJECT_ROOT}/.mcs"
-    if [ ! -d "${mcs_dir}" ]; then
-        return 0
-    fi
-
-    # Sync live PIDs if protected
-    local be_pid fe_pid
-    be_pid="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
-    fe_pid="$(lsof -ti "tcp:${FRONTEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
-
-    if [ -n "${be_pid}" ] && is_protected "${be_pid}"; then
-        echo "${be_pid}" > "${mcs_dir}/backend.pid" 2>/dev/null || true
-    fi
-    if [ -n "${fe_pid}" ] && is_protected "${fe_pid}"; then
-        echo "${fe_pid}" > "${mcs_dir}/frontend.pid" 2>/dev/null || true
-    fi
-
-    local cleaned=0
-    for pid_file in "${mcs_dir}"/*.pid; do
-        [ -f "${pid_file}" ] || continue
-        local old_pid
-        old_pid="$(cat "${pid_file}" 2>/dev/null || true)"
-        if [ -z "${old_pid}" ]; then
-            rm -f "${pid_file}" 2>/dev/null || true
-            cleaned=$((cleaned + 1))
+    for dir_name in ".onx" ".mcs"; do
+        local pid_dir="${PROJECT_ROOT}/${dir_name}"
+        if [ ! -d "${pid_dir}" ]; then
             continue
         fi
-        if ! kill -0 "${old_pid}" 2>/dev/null; then
-            rm -f "${pid_file}" 2>/dev/null || true
-            cleaned=$((cleaned + 1))
+
+        # Sync live PIDs if protected
+        local be_pid fe_pid
+        be_pid="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+        fe_pid="$(lsof -ti "tcp:${FRONTEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+
+        if [ -n "${be_pid}" ] && is_protected "${be_pid}"; then
+            echo "${be_pid}" > "${pid_dir}/backend.pid" 2>/dev/null || true
+        fi
+        if [ -n "${fe_pid}" ] && is_protected "${fe_pid}"; then
+            echo "${fe_pid}" > "${pid_dir}/frontend.pid" 2>/dev/null || true
+        fi
+
+        local cleaned=0
+        for pid_file in "${pid_dir}"/*.pid; do
+            [ -f "${pid_file}" ] || continue
+            local old_pid
+            old_pid="$(cat "${pid_file}" 2>/dev/null || true)"
+            if [ -z "${old_pid}" ]; then
+                rm -f "${pid_file}" 2>/dev/null || true
+                cleaned=$((cleaned + 1))
+                continue
+            fi
+            if ! kill -0 "${old_pid}" 2>/dev/null; then
+                rm -f "${pid_file}" 2>/dev/null || true
+                cleaned=$((cleaned + 1))
+            fi
+        done
+
+        if [ "${cleaned}" -gt 0 ]; then
+            log_info "Cleaned ${cleaned} stale PID file(s) from ${dir_name}/"
         fi
     done
-
-    if [ "${cleaned}" -gt 0 ]; then
-        log_info "Cleaned ${cleaned} stale PID file(s) from .mcs/"
-    fi
 }
 
 # ──────────────────────────────────────────────────────────────────────
@@ -432,7 +439,7 @@ print_summary() {
     local be_pids fe_pids db_pids
     be_pids="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
     fe_pids="$(lsof -ti "tcp:${FRONTEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
-    db_pids="$(lsof -t "${MCS_DB}" 2>/dev/null || true)"
+    db_pids="$(lsof -t "${ONX_DB}" "${MCS_DB}" 2>/dev/null || true)"
 
     local any_unclean=false
 
@@ -495,7 +502,7 @@ print_summary() {
 
     if ${KILLED_ANY}; then
         log_ok "Preflight complete — cleaned dead/duplicate item(s)."
-    else
+        else
         log_ok "System is healthy and ready. Proceed."
     fi
     log_raw ""
@@ -516,7 +523,7 @@ main() {
     done
 
     echo ""
-    log_bold "═══ MC Server Manager — Preflight ═══"
+    log_bold "═══ onx-manager — Preflight ═══"
     log_dim "Project root: ${PROJECT_ROOT}"
     if ${FORCE_CLEAN}; then
         log_dim "Mode: Force cleanup (stop/restart)"
@@ -526,6 +533,7 @@ main() {
     echo ""
 
     check_services
+    check_db_lock "${ONX_DB}"
     check_db_lock "${MCS_DB}"
     scan_orphans
     cleanup_pid_files

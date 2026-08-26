@@ -7,9 +7,10 @@ from app.core.event_bus import EventBus
 from app.modules.server.application.services.jar_service import server_dir_name
 from app.modules.server.domain.events import ServerDiscoveredEvent, ServerVanishedEvent
 from app.modules.server.domain.repository import ServerRepository
+from app.core.identity import IDENTITY
 from app.modules.server.infrastructure.scanner import FilesystemScanner
 
-logger = logging.getLogger("mcs.discovery.engine")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.discovery.engine")
 
 
 async def run_discovery_scan(

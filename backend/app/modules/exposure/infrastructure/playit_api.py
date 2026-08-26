@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.http_client import get_http_client
+from app.core.identity import IDENTITY
 
-logger = logging.getLogger("mcs.exposure.playit.api")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.exposure.playit.api")
 
 _API_BASE = "https://api.playit.gg"
 

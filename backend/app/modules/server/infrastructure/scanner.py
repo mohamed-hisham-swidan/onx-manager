@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.core.config import AppSettings
+from app.core.identity import IDENTITY
 
-logger = logging.getLogger("mcs.discovery.scanner")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.discovery.scanner")
 
 
 @dataclass

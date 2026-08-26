@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from app.core.identity import IDENTITY
 from app.core.saga import SagaOrchestrator, SagaStep
 from app.modules.backup.domain.aggregate import BackupStatus, BackupType
 from app.modules.backup.domain.repository import BackupRepository
@@ -218,7 +219,7 @@ class BackupSaga:
             if is_backup_cancelled(str(backup_id)):
                 raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             server_dir, primary_world = await self._resolve_server_dir(server_id)
-            self._temp_dir = tempfile.mkdtemp(prefix=f"mcs-backup-{str(backup_id)[:8]}-")
+            self._temp_dir = tempfile.mkdtemp(prefix=f"{IDENTITY.temp_prefix_new}backup-{str(backup_id)[:8]}-")
             self._tar_path = os.path.join(self._temp_dir, f"{backup_id}.tar.gz")
             self._write_tar(self._tar_path, server_dir, primary_world, backup_type, backup_id=str(backup_id))
             if is_backup_cancelled(str(backup_id)):

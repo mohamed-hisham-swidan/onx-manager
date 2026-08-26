@@ -26,9 +26,10 @@ from app.modules.server.infrastructure.providers.base import (
     ServerProvider,
     ServerRuntimeStatus,
 )
+from app.core.identity import IDENTITY
 from app.modules.shared.value_objects import ServerId
 
-logger = logging.getLogger("mcs.supervisor")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.supervisor")
 
 
 class RuntimeSupervisor:

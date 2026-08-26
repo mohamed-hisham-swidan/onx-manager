@@ -17,10 +17,11 @@ from app.modules.health.domain.value_objects import (
     HealthTrend,
     SignalSeverity,
 )
+from app.core.identity import IDENTITY
 from app.modules.health.infrastructure.health_calculator import SignalHealthCalculator
 from app.modules.health.infrastructure.repository import SQLHealthRepository
 
-logger = logging.getLogger("mcs.health.signal_handler")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.signal_handler")
 
 
 class HealthSignalHandler(EventHandler):

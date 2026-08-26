@@ -32,7 +32,9 @@ from app.modules.server.infrastructure.providers.base import ServerHandle, Serve
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 
-logger = logging.getLogger("mcs.commands.restart_server")
+from app.core.identity import IDENTITY
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.restart_server")
 
 # TODO(STARTING-001-CFG): hardcoded for now; shares the future config system with the OQ-2 15-min supervisor startup timeout
 _BACKUP_WAIT_CAP_S: float = 30.0

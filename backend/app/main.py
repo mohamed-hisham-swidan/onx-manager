@@ -59,7 +59,9 @@ from app.registration import register_handlers
 from app.websocket.endpoint import init_websocket, start_websocket_services, stop_websocket_services
 from app.websocket.endpoint import router as ws_router
 
-logger = logging.getLogger("mcs.main")
+from app.core.identity import IDENTITY
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.main")
 
 _start_time: float = 0.0
 

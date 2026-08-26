@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from app.api.deps import build_backup_encryption, build_storage_backend
 from app.core.config import ConfigFactory
+from app.core.identity import IDENTITY
 from app.core.persistence.db import database
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
@@ -81,7 +82,7 @@ async def perform_safe_restore(
     # sibling of server_dir is guaranteed to share its filesystem.
     staging_parent = os.path.dirname(os.path.abspath(server_dir))
     os.makedirs(staging_parent, exist_ok=True)
-    temp_dir = tempfile.mkdtemp(prefix="mcs-restore-", dir=staging_parent)
+    temp_dir = tempfile.mkdtemp(prefix=f"{IDENTITY.temp_prefix_new}restore-", dir=staging_parent)
     try:
         extract_dir = os.path.join(temp_dir, "extract")
         os.makedirs(extract_dir, exist_ok=True)
@@ -131,7 +132,7 @@ def _atomic_replace_file(src: str, dst: str) -> None:
     """
     parent = os.path.dirname(dst)
     os.makedirs(parent, exist_ok=True)
-    tmp_path = os.path.join(parent, f".{os.path.basename(dst)}.mcs-tmp")
+    tmp_path = os.path.join(parent, f".{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}tmp")
     with open(src, "rb") as f:
         data = f.read()
     with open(tmp_path, "wb") as f:
@@ -148,7 +149,7 @@ def _atomic_replace_dir(src: str, dst: str) -> None:
     """
     parent = os.path.dirname(dst)
     os.makedirs(parent, exist_ok=True)
-    old_path = os.path.join(parent, f"{os.path.basename(dst)}.mcs-old")
+    old_path = os.path.join(parent, f"{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}old")
     if os.path.lexists(dst):
         os.replace(dst, old_path)
     try:

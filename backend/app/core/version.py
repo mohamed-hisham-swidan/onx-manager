@@ -5,7 +5,9 @@ import tomllib
 from functools import lru_cache
 from pathlib import Path
 
-_DISTRIBUTION_NAME = "mcs-manager"
+from app.core.identity import IDENTITY
+
+_DISTRIBUTION_NAME = IDENTITY.dist_name
 _FALLBACK_VERSION = "4.0.0"
 
 

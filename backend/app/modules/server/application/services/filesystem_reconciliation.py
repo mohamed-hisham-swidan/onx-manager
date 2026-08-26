@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -10,6 +11,7 @@ from enum import Enum
 from pathlib import Path
 
 from app.core.config import AppSettings
+from app.core.identity import IDENTITY
 from app.modules.server.application.services.import_service import scan_server_directory
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
@@ -25,12 +27,7 @@ from app.modules.server.domain.value_objects import (
 from app.modules.server.infrastructure.fs import FileSystem, local_fs
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
-logger = logging.getLogger("mcs.reconciliation.fs")
-
-IDENTITY_DIR = ".mcsmanager"
-IDENTITY_FILE = "server.json"
-IDENTITY_VERSION = 1
-IDENTITY_SCHEMA_V1 = {"version", "uid", "created_at", "manager", "schema_version"}
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.reconciliation.fs")
 
 # ---------------------------------------------------------------------------
 # Reconciliation Result
@@ -251,39 +248,77 @@ class FilesystemReconciliationService:
     def _read_identities(self, entries: list[FsEntry]) -> list[IdentityResult]:
         return [self._read_single_identity(e) for e in entries]
 
+    def _identity_paths(self, dir_path: str) -> list[str]:
+        """Return candidate identity file paths in priority order: NEW first, then LEGACY."""
+        base = Path(dir_path)
+        return [
+            str(base / IDENTITY.identity_dir_new / IDENTITY.identity_file),  # NEW primary
+            str(base / IDENTITY.identity_dir_legacy / IDENTITY.identity_file),  # LEGACY fallback
+        ]
+
     def _read_single_identity(self, entry: FsEntry) -> IdentityResult:
-        path = self._identity_path(entry.path)
-        if not self._fs.exists(path):
-            return IdentityResult(status=IdentityStatus.MISSING)
+        """Try NEW location first, then LEGACY. Accept both manager values.
+        If LEGACY is read successfully, trigger migration write to NEW location.
+        """
+        for path in self._identity_paths(entry.path):
+            if not self._fs.exists(path):
+                continue
+            try:
+                raw = json.loads(self._fs.read_text(path))
+            except (json.JSONDecodeError, OSError) as exc:
+                # Corrupted file — try next location instead of failing fast
+                logger.warning(
+                    "Failed to read identity at %s: %s; trying fallback",
+                    path,
+                    exc,
+                )
+                continue
 
-        try:
-            raw = json.loads(self._fs.read_text(path))
-        except (json.JSONDecodeError, OSError) as exc:
-            return IdentityResult(status=IdentityStatus.INVALID, error=f"Unreadable identity: {exc}")
+            if not isinstance(raw, dict):
+                continue  # try next location
 
-        if not isinstance(raw, dict):
-            return IdentityResult(status=IdentityStatus.INVALID, error="Identity is not a JSON object")
+            version = raw.get("version", 0)
+            if version != IDENTITY.identity_version:
+                continue  # try next location
 
-        version = raw.get("version", 0)
-        if version != IDENTITY_VERSION:
-            return IdentityResult(
-                status=IdentityStatus.INVALID,
-                error=f"Unsupported identity version: {version}, expected {IDENTITY_VERSION}",
-                identity=raw,
+            uid = raw.get("uid") or raw.get("server_id")
+            if not isinstance(uid, str) or len(uid) != 32:
+                continue  # try next location
+
+            # ACCEPT both manager values (field was never validated before)
+            manager = raw.get("manager", "")
+            if manager not in (
+                IDENTITY.manager_field_legacy,
+                IDENTITY.manager_field_new,
+            ):
+                logger.debug(
+                    "Identity manager field %r not in expected set; accepting anyway",
+                    manager,
+                )
+
+            # MIGRATION-ON-READ: if we read from legacy path, write new identity atomically
+            legacy_path = str(
+                Path(entry.path)
+                / IDENTITY.identity_dir_legacy
+                / IDENTITY.identity_file
             )
+            if path == legacy_path:
+                try:
+                    self._write_single_identity_atomic(
+                        entry.path, uid, location="new"
+                    )
+                    logger.info(
+                        "Migrated identity for %s from legacy to new location",
+                        uid,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to migrate identity for %s: %s", uid, exc
+                    )
 
-        uid = raw.get("uid") or raw.get("server_id")
-        if not isinstance(uid, str) or len(uid) != 32:
-            return IdentityResult(
-                status=IdentityStatus.INVALID,
-                error=f"Invalid UID: {uid!r}",
-                identity=raw,
-            )
+            return IdentityResult(status=IdentityStatus.VALID, uid=uid, identity=raw)
 
-        return IdentityResult(status=IdentityStatus.VALID, uid=uid, identity=raw)
-
-    def _identity_path(self, dir_path: str) -> str:
-        return str(Path(dir_path) / IDENTITY_DIR / IDENTITY_FILE)
+        return IdentityResult(status=IdentityStatus.MISSING)
 
     # ------------------------------------------------------------------
     # Stage 3 — Detect whether each directory is a Minecraft server
@@ -783,31 +818,99 @@ class FilesystemReconciliationService:
     # Called DURING _execute_plan() (before DB commit) for write-ahead safety.
     # ------------------------------------------------------------------
 
-    def _write_single_identity(self, dir_path: str, uid: str, result: ReconciliationResult) -> None:
+    def _write_single_identity(
+        self, dir_path: str, uid: str, result: ReconciliationResult | None = None
+    ) -> None:
+        """Write identity to BOTH locations atomically (write-to-temp-then-rename).
+        Called by _handle_import, _handle_ignore, _handle_repair_identity.
+        """
+        # Write NEW (primary) atomically
+        self._write_single_identity_atomic(dir_path, uid, location="new", result=result)
+        # Write LEGACY (for backward compat during transition) atomically
+        self._write_single_identity_atomic(dir_path, uid, location="legacy", result=result)
+
+    def _write_single_identity_atomic(
+        self,
+        dir_path: str,
+        uid: str,
+        location: str,  # "new" or "legacy"
+        result: ReconciliationResult | None = None,
+    ) -> None:
+        """Atomic write: write to temp file, then rename over target."""
         try:
-            identity_dir = str(Path(dir_path) / IDENTITY_DIR)
+            if location == "new":
+                identity_dir = str(Path(dir_path) / IDENTITY.identity_dir_new)
+                target_path = str(
+                    Path(dir_path)
+                    / IDENTITY.identity_dir_new
+                    / IDENTITY.identity_file
+                )
+                doc = self._build_identity_doc_new(uid)
+            else:
+                identity_dir = str(Path(dir_path) / IDENTITY.identity_dir_legacy)
+                target_path = str(
+                    Path(dir_path)
+                    / IDENTITY.identity_dir_legacy
+                    / IDENTITY.identity_file
+                )
+                doc = self._build_identity_doc_legacy(uid)
+
             self._fs.ensure_dir(identity_dir)
-            doc = self._build_identity_doc(uid)
-            self._fs.write_text(
-                self._identity_path(dir_path),
-                json.dumps(doc, indent=2),
-            )
-            result.identity_written.append({
-                "path": dir_path,
-                "uid": uid,
-            })
-            logger.debug("Wrote identity for %s in %s", uid, dir_path)
+
+            # Atomic write: write to temp, then rename
+            # Use same directory for temp to ensure rename is atomic on POSIX
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=identity_dir,
+                prefix=f".{IDENTITY.identity_file}.tmp.",
+                suffix=".json",
+                delete=False,
+                encoding="utf-8",
+            ) as tmp:
+                json.dump(doc, tmp, indent=2)
+                tmp_path = tmp.name
+
+            # Atomic rename (POSIX guarantee: no partial file visible)
+            self._fs.rename(tmp_path, target_path)
+
+            if result is not None:
+                result.identity_written.append(
+                    {"path": dir_path, "uid": uid, "location": location}
+                )
+            logger.debug("Wrote %s identity for %s in %s", location, uid, dir_path)
+
         except Exception as exc:
-            logger.error("Failed to write identity for %s in %s: %s", uid, dir_path, exc)
+            logger.error(
+                "Failed to write %s identity for %s in %s: %s",
+                location,
+                uid,
+                dir_path,
+                exc,
+            )
+            # Clean up temp file if it exists
+            try:
+                if "tmp_path" in locals() and self._fs.exists(tmp_path):
+                    self._fs.remove(tmp_path)
+            except Exception:
+                pass
             raise
 
-    def _build_identity_doc(self, uid: str) -> dict:
+    def _build_identity_doc_new(self, uid: str) -> dict:
         return {
-            "version": IDENTITY_VERSION,
+            "version": IDENTITY.identity_version,
             "uid": uid,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "manager": "mcsmanager",
-            "schema_version": 1,
+            "manager": IDENTITY.manager_field_new,
+            "schema_version": IDENTITY.schema_version,
+        }
+
+    def _build_identity_doc_legacy(self, uid: str) -> dict:
+        return {
+            "version": IDENTITY.identity_version,
+            "uid": uid,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "manager": IDENTITY.manager_field_legacy,
+            "schema_version": IDENTITY.schema_version,
         }
 
     def _plan_to_result(self, plan: ReconciliationPlan) -> ReconciliationResult:

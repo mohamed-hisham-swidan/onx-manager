@@ -16,6 +16,8 @@ env/
 *.key
 
 # Database (production data must not be in the image)
+onx.db
+data/onx.db
 mcs.db
 data/mcs.db
 

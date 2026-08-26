@@ -13,9 +13,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.identity import IDENTITY
 from app.modules.exposure.domain.aggregate import DENY_LIST_PORTS
 
-logger = logging.getLogger("mcs.exposure.upnp")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.exposure.upnp")
 
 _CGNAT_NET = ipaddress.ip_network("100.64.0.0/10")
 DEFAULT_SSDP_TIMEOUT_SECONDS = 3

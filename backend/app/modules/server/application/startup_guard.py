@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-logger = logging.getLogger("mcs.startup.guard")
+from app.core.identity import IDENTITY
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.startup.guard")
 
 
 @dataclass

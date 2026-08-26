@@ -8,11 +8,12 @@ from app.modules.server.application.services.jar_service import server_dir_name
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository, ServerFilters
 from app.modules.server.infrastructure.fs import local_fs
+from app.core.identity import IDENTITY
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle, ServerProvider, ServerRuntimeStatus
 from app.modules.shared.value_objects import ServerId
 
-logger = logging.getLogger("mcs.reconciliation")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.reconciliation")
 
 def _servers_data_dir() -> str:
     from app.core.config import AppSettings
@@ -107,7 +108,7 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
             provider_type = server.runtime.provider if server.runtime else "local"
             provider = provider_factory.get(provider_type)
 
-            ext_id = server.runtime.external_id if (server.runtime and server.runtime.external_id) else f"mcs-{sid}"
+            ext_id = server.runtime.external_id if (server.runtime and server.runtime.external_id) else f"{IDENTITY.temp_prefix_new}{sid}"
             handle = ServerHandle(
                 provider=provider_type,
                 server_id=sid,

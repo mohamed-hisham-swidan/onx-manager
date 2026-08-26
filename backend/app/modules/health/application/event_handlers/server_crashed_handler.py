@@ -9,9 +9,10 @@ from app.modules.health.infrastructure.evidence_collector import LogBasedEvidenc
 from app.modules.health.infrastructure.recovery_orchestrator import RecoveryOrchestrator
 from app.modules.health.infrastructure.repository import SQLDiagnosticsRepository
 from app.modules.server.domain.events import ServerCrashedEvent
+from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
 
-logger = logging.getLogger("mcs.health.crash_handler")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.crash_handler")
 
 
 class HandleServerCrashHandler(EventHandler):

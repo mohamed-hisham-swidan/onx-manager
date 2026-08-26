@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from app.core.exceptions import ProviderError
+from app.core.identity import IDENTITY
 from app.modules.server.infrastructure.providers.base import (
     DeploymentResult,
     ServerHandle,
@@ -30,7 +31,7 @@ class DockerProvider(ServerProvider):
 
     async def start(self, server_id: str, config: dict[str, Any]) -> DeploymentResult:
         image = config.get("image", "itzg/minecraft-server:latest")
-        container_name = f"mcs-{server_id}"
+        container_name = f"{IDENTITY.temp_prefix_new}{server_id}"
         port = config.get("port", 25565)
         memory_min = config.get("memory_min_mb", 1024)
         memory_max = config.get("memory_max_mb", 2048)
@@ -40,9 +41,9 @@ class DockerProvider(ServerProvider):
         await self._ensure_image(image)
 
         label_flags = [
-            "--label com.mcsmanager.managed=true",
-            f"--label com.mcsmanager.server_id={server_id}",
-            "--label com.mcsmanager.runtime=docker",
+            f"--label {IDENTITY.docker_label_prefix_new}.managed=true",
+            f"--label {IDENTITY.docker_label_prefix_new}.server_id={server_id}",
+            f"--label {IDENTITY.docker_label_prefix_new}.runtime=docker",
         ]
 
         env_flags = [

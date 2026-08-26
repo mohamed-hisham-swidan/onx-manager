@@ -84,10 +84,11 @@ from app.modules.exposure.infrastructure.repository import (
 from app.modules.exposure.infrastructure.upnp import AsyncUPnPService
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
+from app.core.identity import IDENTITY
 from app.modules.storage.encryption import build_backup_encryption
 
 CLAIM_TTL_MINUTES = 10
-logger = logging.getLogger("mcs.exposure")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.exposure")
 
 
 async def compute_desired_agent_running(session: AsyncSession) -> bool:
@@ -166,7 +167,7 @@ async def _sync_server_playit_targets(
                 )
                 new_t = await api_client.create_tunnel(
                     secret=secret_hex,
-                    name=f"mcs-{server_id[:6]}-{target.service_type.value[:8]}",
+                    name=f"{IDENTITY.temp_prefix_new}{server_id[:6]}-{target.service_type.value[:8]}",
                     local_ip="127.0.0.1",
                     local_port=target.local_port,
                     port_type=target.protocol.value,
@@ -463,7 +464,7 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
             ingress_rules.append({"service": "http_status:404"})
 
             try:
-                tunnel_name = f"mcs-srv-{exposure.server_id[:8]}"
+                tunnel_name = f"{IDENTITY.temp_prefix_new}srv-{exposure.server_id[:8]}"
                 provisioned = await client.create_named_tunnel(name=tunnel_name)
                 await client.configure_ingress(provisioned.tunnel_id, ingress_rules)
                 for target in exposure.targets:
@@ -1399,9 +1400,13 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             except Exception:
                 import logging
 
-                logging.getLogger("mcs.exposure").exception("post-commit exposure action failed")
+                logging.getLogger(f"{IDENTITY.logger_prefix_new}.exposure").exception(
+                    "post-commit exposure action failed"
+                )
 
-        return CommandResult(success=True, data=_panel_payload(panel, access_mode=access_mode))
+        return CommandResult(
+            success=True, data=_panel_payload(panel, access_mode=access_mode)
+        )
 
     async def _enable_cloudflare(
         self,
@@ -1414,7 +1419,9 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         token = command.cloudflare_token
         hostname = command.hostname.strip().lower() if command.hostname else ""
         if not token:
-            raise ValidationError("cloudflare_token is required to enable cloudflare_tunnel")
+            raise ValidationError(
+                "cloudflare_token is required to enable cloudflare_tunnel"
+            )
 
         # Clear alternative method state
         panel.clear_playit_credentials()
@@ -1423,17 +1430,26 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         # RECLAIM_REQUIRED recovery (design §7 credential replacement): reuse
         # the existing tunnel id, rotate the ciphertext in place, restart the
         # supervised child. No new tunnel, no new CNAME, no DNS writes.
-        if panel.status == ExposureStatus.RECLAIM_REQUIRED and panel.cloudflare_tunnel_id:
-            await self._rotate_cloudflare_token(panel, token, hostname, post_commit)
+        if (
+            panel.status == ExposureStatus.RECLAIM_REQUIRED
+            and panel.cloudflare_tunnel_id
+        ):
+            await self._rotate_cloudflare_token(
+                panel, token, hostname, post_commit
+            )
             return
 
         if not hostname:
-            raise ValidationError("hostname is required to enable cloudflare_tunnel")
+            raise ValidationError(
+                "hostname is required to enable cloudflare_tunnel"
+            )
 
         ingress = panel_ingress_target()
         client = CloudflareClient(token)
         try:
-            provisioned = await client.create_named_tunnel(name=f"mcs-panel-{hostname}")
+            provisioned = await client.create_named_tunnel(
+                name=f"{IDENTITY.temp_prefix_new}panel-{hostname}"
+            )
             await client.configure_ingress(
                 provisioned.tunnel_id,
                 [
@@ -1564,7 +1580,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                 try:
                     tunnel_obj = await api_client.create_tunnel(
                         secret=secret_hex,
-                        name=f"mcs-panel-{panel.id[:6]}",
+                        name=f"{IDENTITY.temp_prefix_new}panel-{panel.id[:6]}",
                         local_ip="127.0.0.1",
                         local_port=internal_port,
                         port_type="tcp",

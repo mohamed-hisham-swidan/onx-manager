@@ -4,13 +4,14 @@ from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import ServerNotFoundError
 from app.core.idempotency import IdempotencyKey
+from app.core.identity import IDENTITY
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 from app.core.persistence.unit_of_work import UnitOfWork
 
-logger = logging.getLogger("mcs.commands.delete_server")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.delete_server")
 
 
 class DeleteServerCommand(Command):

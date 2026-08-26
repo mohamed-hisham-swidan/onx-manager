@@ -11,7 +11,7 @@ from app.modules.auth.infrastructure.models import ApiKeyModel, UserModel
 
 
 def _is_api_key(token: str) -> bool:
-    return token.startswith("mcs_")
+    return token.startswith("onx_") or token.startswith("mcs_")
 
 
 async def resolve_bearer_token(token: str, db: AsyncSession) -> dict:

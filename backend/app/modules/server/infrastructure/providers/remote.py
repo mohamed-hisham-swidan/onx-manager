@@ -6,6 +6,7 @@ import tempfile
 from typing import Any
 
 from app.core.exceptions import ProviderError
+from app.core.identity import IDENTITY
 from app.modules.server.infrastructure.providers.base import (
     DeploymentResult,
     ServerHandle,
@@ -18,18 +19,18 @@ class SSHProvider(ServerProvider):
     def __init__(
         self,
         host: str,
-        username: str = "root",
         port: int = 22,
-        key_path: str | None = None,
+        username: str = "root",
+        client_keys: list[str] | None = None,
+        passphrase: str | None = None,
         known_hosts: str | None = None,
-        keepalive_seconds: int = 30,
     ) -> None:
         self._host = host
-        self._username = username
         self._port = port
-        self._key_path = key_path or os.path.expanduser("~/.ssh/id_rsa")
+        self._username = username
+        self._client_keys = client_keys
+        self._passphrase = passphrase
         self._known_hosts = known_hosts
-        self._keepalive_seconds = keepalive_seconds
         self._connection: Any = None
 
     @property
@@ -52,7 +53,7 @@ class SSHProvider(ServerProvider):
         jar_path = config.get("jar_path", "server.jar")
         server_dir = config.get("server_dir", f"/opt/minecraft/servers/{server_id}")
         java_args = config.get("java_args", [])
-        session_name = f"mcs-{server_id}"
+        session_name = f"{IDENTITY.temp_prefix_new}{server_id}"
 
         jvm_args = " ".join(java_args) if isinstance(java_args, list) else java_args
 

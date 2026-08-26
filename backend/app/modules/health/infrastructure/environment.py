@@ -8,9 +8,10 @@ import subprocess
 
 from app.modules.health.domain.services import EnvironmentScanner
 from app.modules.health.domain.value_objects import EnvironmentReport
+from app.core.identity import IDENTITY
 from app.modules.server.infrastructure.providers import provider_factory
 
-logger = logging.getLogger("mcs.health.environment")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.environment")
 
 
 class HostEnvironmentScanner(EnvironmentScanner):

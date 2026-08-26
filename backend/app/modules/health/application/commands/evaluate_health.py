@@ -9,10 +9,11 @@ from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.health.domain.aggregate import HealthStatus
 from app.modules.health.domain.value_objects import HealthSignal, HealthStatusEnum, HealthTrend, SignalSeverity
+from app.core.identity import IDENTITY
 from app.modules.health.infrastructure.health_calculator import SignalHealthCalculator
 from app.modules.health.infrastructure.repository import SQLHealthRepository
 
-logger = logging.getLogger("mcs.health.evaluate")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.evaluate")
 
 
 class EvaluateHealthCommand(Command):

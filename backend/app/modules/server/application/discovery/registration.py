@@ -16,9 +16,10 @@ from app.modules.server.domain.value_objects import (
     ServerProperties,
     ServerType,
 )
+from app.core.identity import IDENTITY
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
-logger = logging.getLogger("mcs.discovery.registration")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.discovery.registration")
 
 
 async def handle_server_discovered(

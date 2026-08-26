@@ -31,7 +31,9 @@ from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 
-logger = logging.getLogger("mcs.commands.start_server")
+from app.core.identity import IDENTITY
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.start_server")
 
 
 class StartServerCommand(Command):

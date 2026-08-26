@@ -23,9 +23,10 @@ from app.modules.server.infrastructure.providers.base import (
     ProviderFactory,
     ServerHandle,
 )
+from app.core.identity import IDENTITY
 from app.modules.shared.value_objects import ServerId
 
-logger = logging.getLogger("mcs.runtime_ownership")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.runtime_ownership")
 
 MINECRAFT_CMDLINE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"-jar\s+\S*server\.jar"),
@@ -328,7 +329,7 @@ class RuntimeOwnershipManager:
 
         for sid, server in server_map.items():
             ext_id = server.runtime.external_id if server.runtime else ""
-            session_name = ext_id or f"mcs-{sid}"
+            session_name = ext_id or f"{IDENTITY.temp_prefix_new}{sid}"
             port = (server.properties.port.value if hasattr(server.properties, "port") and isinstance(server.properties.port, int) else 25565) if server.properties else 25565
 
             is_running = server.status in (ServerStatus.RUNNING, ServerStatus.STARTING)
@@ -396,7 +397,11 @@ class RuntimeOwnershipManager:
                     "detail": f"DB marks {server.status.value} but no tmux session found ({session_name})",
                 })
 
-        checked_session_names: set[str] = {f"mcs-{s}" for s in server_map} | checked_tmux_names
+        checked_session_names: set[str] = (
+            {f"{IDENTITY.temp_prefix_new}{s}" for s in server_map}
+            | {f"{IDENTITY.temp_prefix_legacy}{s}" for s in server_map}
+            | checked_tmux_names
+        )
 
         for tmux_name, pane_pid in all_tmux:
             if tmux_name not in checked_session_names:
@@ -775,7 +780,7 @@ class RuntimeOwnershipManager:
             sid = str(server.id)
             result.server_name = server.name
             ext_id = server.runtime.external_id if server.runtime else ""
-            session_name = ext_id or f"mcs-{sid}"
+            session_name = ext_id or f"{IDENTITY.temp_prefix_new}{sid}"
             port = (server.properties.port.value if hasattr(server.properties, "port") else 25565) if server.properties else 25565
 
             result.db_ok = server.status in (ServerStatus.RUNNING, ServerStatus.STARTING)

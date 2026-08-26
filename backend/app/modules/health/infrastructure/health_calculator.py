@@ -12,7 +12,9 @@ from app.modules.health.domain.value_objects import (
     SignalSeverity,
 )
 
-logger = logging.getLogger("mcs.health.calculator")
+from app.core.identity import IDENTITY
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.calculator")
 
 WINDOW_SECONDS: float = 300.0
 RECENT_THRESHOLD: float = 60.0

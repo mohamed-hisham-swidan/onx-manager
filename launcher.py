@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MC Server Manager — Development Environment Launcher
-=====================================================
+onx-manager — Development Environment Launcher
+=============================================
 Enterprise-grade launcher that prepares and starts the entire
 development environment with a single command.
 
@@ -80,9 +80,10 @@ for _stream_name in ("stdout", "stderr"):
 # Constants
 # ═══════════════════════════════════════════════════════════════════════
 
-PROJECT_NAME = "MC Server Manager"
+PROJECT_NAME = "onx-manager"
 PROJECT_VERSION = "4.0.0"
-MCS_DIR_NAME = ".mcs"
+ONX_DIR_NAME = ".onx"
+MCS_DIR_NAME = ONX_DIR_NAME  # alias for backward compat
 BACKEND_PORT = 8000
 FRONTEND_PORT = 5173
 BACKEND_HEALTH_URL = f"http://localhost:{BACKEND_PORT}/health"
@@ -192,11 +193,12 @@ def detect_project_root() -> Path:
 
 
 PROJECT_ROOT = detect_project_root()
-MCS_DIR = PROJECT_ROOT / MCS_DIR_NAME
+ONX_DIR = PROJECT_ROOT / ONX_DIR_NAME
+MCS_DIR = ONX_DIR  # alias for backward compat
 BACKEND_DIR = PROJECT_ROOT / "backend"
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VENV_DIR = BACKEND_DIR / ".venv"
-LOGS_DIR = MCS_DIR / "logs"
+LOGS_DIR = ONX_DIR / "logs"
 BACKEND_LOG = LOGS_DIR / "backend.log"
 FRONTEND_LOG = LOGS_DIR / "frontend.log"
 
@@ -1707,7 +1709,7 @@ def download_file(url: str, dest: Path, description: str = "Downloading") -> boo
             import ssl
             import urllib.request
             ctx = ssl.create_default_context() if verify_ssl else ssl._create_unverified_context()
-            req = urllib.request.Request(url, headers={"User-Agent": "MCS-Launcher/1.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "onx-launcher/1.0"})
             with urllib.request.urlopen(req, context=ctx, timeout=60) as resp, open(dest, "wb") as f:
                 total_size = int(resp.headers.get("Content-Length", 0))
                 downloaded = 0
@@ -1967,7 +1969,7 @@ def check_backend_health() -> bool:
         import urllib.request
         req = urllib.request.Request(
             BACKEND_HEALTH_URL,
-            headers={"User-Agent": "MCS-Launcher/1.0"},
+            headers={"User-Agent": "onx-launcher/1.0"},
         )
         with urllib.request.urlopen(req, timeout=2) as resp:
             return resp.status == 200

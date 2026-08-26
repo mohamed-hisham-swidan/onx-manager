@@ -23,7 +23,9 @@ from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 from app.core.persistence.unit_of_work import UnitOfWork
 
-logger = logging.getLogger("mcs.commands.stop_server")
+from app.core.identity import IDENTITY
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.stop_server")
 
 
 class StopServerCommand(Command):

@@ -1,6 +1,6 @@
 """Per-release database revision compatibility floor.
 
-MCS Manager refuses to start against a database whose schema revision is older
+onx-manager refuses to start against a database whose schema revision is older
 than the minimum required by the release. Migrations are NEVER run automatically
 from this module — the operator is responsible for ``alembic upgrade head``
 before starting the application (see ``backend/Dockerfile``).
@@ -22,9 +22,11 @@ from alembic.script.base import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from app.core.identity import IDENTITY
+
 logger = logging.getLogger(__name__)
 
-#: Single authoritative declaration of the DB schema floor for MCS Manager 4.0.0.
+#: Single authoritative declaration of the DB schema floor for onx-manager 4.0.0.
 RELEASE_MINIMUM_DB_REVISION = "b1e2100000008"
 
 
@@ -79,7 +81,7 @@ def evaluate_revision(
             ok=False,
             message=(
                 f"The database has no schema revision recorded (missing or empty "
-                f"alembic_version). MCS Manager requires at least revision "
+                f"alembic_version). {IDENTITY.project_name} requires at least revision "
                 f"'{minimum_revision}'. Run the migrations before starting: "
                 f"alembic upgrade head"
             ),
@@ -92,7 +94,7 @@ def evaluate_revision(
             ok=False,
             message=(
                 f"The database reports multiple schema revisions ({heads}). "
-                f"MCS Manager requires a single revision >= "
+                f"{IDENTITY.project_name} requires a single revision >= "
                 f"'{minimum_revision}'. Resolve the migration heads before "
                 f"starting: alembic upgrade head"
             ),
@@ -104,7 +106,7 @@ def evaluate_revision(
             ok=False,
             message=(
                 f"The database has an unknown schema revision '{current}'. "
-                f"MCS Manager requires revision '{minimum_revision}' or a "
+                f"{IDENTITY.project_name} requires revision '{minimum_revision}' or a "
                 f"compatible descendant. Run the migrations before starting: "
                 f"alembic upgrade head"
             ),
@@ -131,7 +133,7 @@ def evaluate_revision(
         ok=False,
         message=(
             f"The database is at schema revision '{current}', which is behind the "
-            f"minimum required by MCS Manager ('{minimum_revision}'). Run the "
+            f"minimum required by {IDENTITY.project_name} ('{minimum_revision}'). Run the "
             f"migrations before starting: alembic upgrade head"
         ),
     )

@@ -4,9 +4,10 @@ from pathlib import Path
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.core.config import AppSettings
+from app.core.identity import IDENTITY
 from app.core.persistence.db import database
 
-logger = logging.getLogger("mcs.migrate_import_arch")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.migrate_import_arch")
 
 MIGRATION_FLAG_KEY = "_import_arch_migrated"
 

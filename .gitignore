@@ -57,7 +57,10 @@ logs/
 /run/
 data/run/
 backend/data/run/
+.onx/
 .mcs/
+**/.onx-manager/
+**/.mcsmanager/
 *.pid
 *.sock
 *.lock

@@ -4,15 +4,15 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: mcs-backend
+    container_name: onx-backend
     restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
       - .env
     volumes:
-      - mcs-db-data:/data
-      - mcs-server-data:/app/data/servers
+      - onx-db-data:/data
+      - onx-server-data:/app/data/servers
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\" || exit 1"]
       interval: 30s
@@ -24,7 +24,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: mcs-frontend
+    container_name: onx-frontend
     restart: unless-stopped
     ports:
       - "80:80"
@@ -33,5 +33,5 @@ services:
         condition: service_healthy
 
 volumes:
-  mcs-db-data:
-  mcs-server-data:
+  onx-db-data:
+  onx-server-data:

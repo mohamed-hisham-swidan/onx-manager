@@ -302,9 +302,15 @@ class CloudflaredSupervisor:
             logger.warning("cloudflared terminate failed", exc_info=True)
 
     # -- token file management ---------------------------------------------
-
+ 
     def _write_token_file(self, token: bytes) -> Path:
-        prefix = f"mcs-cf-srv-{self._server_id[:8]}-" if self._server_id else "mcs-cloudflared-"
+        from app.core.identity import IDENTITY
+
+        prefix = (
+            f"{IDENTITY.temp_prefix_new}cf-srv-{self._server_id[:8]}-"
+            if self._server_id
+            else f"{IDENTITY.temp_prefix_new}cloudflared-"
+        )
         fd, path = tempfile.mkstemp(prefix=prefix, suffix=".token")
         os.close(fd)
         token_file = Path(path)

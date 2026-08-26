@@ -6,8 +6,9 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from app.core.event_bus import DomainEvent
+from app.core.identity import IDENTITY
 
-logger = logging.getLogger("mcs.lifecycle")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.lifecycle")
 
 
 def format_event(event: DomainEvent, server_name: str | None = None) -> str:
@@ -46,7 +47,7 @@ def progress_phase(
     total: int,
     server_name: str | None = None,
     server_id: str | None = None,
-    logger_name: str = "mcs.lifecycle",
+    logger_name: str = f"{IDENTITY.logger_prefix_new}.lifecycle",
 ) -> Iterator[None]:
     log = logging.getLogger(logger_name)
     pct = int((phase - 1) / total * 100)
@@ -76,7 +77,7 @@ def progress_phase(
 def startup_timeline(
     server_name: str,
     server_id: str,
-    logger_name: str = "mcs.lifecycle",
+    logger_name: str = f"{IDENTITY.logger_prefix_new}.lifecycle",
 ) -> Iterator[list[dict[str, Any]]]:
     log = logging.getLogger(logger_name)
     milestones: list[dict[str, Any]] = []
@@ -99,7 +100,7 @@ def startup_timeline(
 def shutdown_timeline(
     server_name: str,
     server_id: str,
-    logger_name: str = "mcs.lifecycle",
+    logger_name: str = f"{IDENTITY.logger_prefix_new}.lifecycle",
 ) -> Iterator[list[dict[str, Any]]]:
     log = logging.getLogger(logger_name)
     milestones: list[dict[str, Any]] = []

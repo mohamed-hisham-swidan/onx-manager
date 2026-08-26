@@ -37,10 +37,10 @@ def validate_plugin_providers(providers: str) -> list[str]:
     if unknown:
         raise ValueError(f"Unknown plugin catalog provider(s): {', '.join(unknown)}")
     if not names:
-        raise ValueError("MCS_PLUGIN_PROVIDERS must name at least one provider")
+        raise ValueError("plugin_providers setting must name at least one provider")
     if len(names) > 1:
         raise ValueError(
-            "MCS_PLUGIN_PROVIDERS must name exactly one provider "
+            "plugin_providers setting must name exactly one provider "
             f"(got {len(names)}: {', '.join(names)})"
         )
     return names
@@ -52,7 +52,7 @@ def build_plugin_catalog_provider(
 ) -> PluginCatalogProvider:
     """Factory mirroring ``build_storage_backend`` (app/api/deps.py).
 
-    Provider selection is configuration-driven: ``MCS_PLUGIN_PROVIDERS``
+    Provider selection is configuration-driven: ``plugin_providers``
     (default ``modrinth``). An explicit ``name`` wins over settings when given.
     """
     if name is None:

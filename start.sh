@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# MC Server Manager — Development Launcher (Unix)
-# ===============================================
+# onx-manager — Development Launcher (Unix)
+# =========================================
 # Wrapper around launcher.py for convenience.
 # Usage: ./start.sh [--stop|--restart|--status|--code|--help]
 #

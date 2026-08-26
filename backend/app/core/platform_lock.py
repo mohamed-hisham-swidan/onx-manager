@@ -8,7 +8,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("mcs.core.platform_lock")
+from app.core.identity import IDENTITY
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.core.platform_lock")
 
 
 def set_cloexec_on_all_fds() -> None:

@@ -5,6 +5,7 @@ import platform
 from typing import Any
 
 from app.core.exceptions import ProviderError
+from app.core.identity import IDENTITY
 from app.modules.server.infrastructure.providers.base import (
     DeploymentResult,
     ServerHandle,
@@ -33,7 +34,7 @@ class LocalWindowsProvider(ServerProvider):
         server_dir = config.get("server_dir", f"C:\\minecraft\\servers\\{server_id}")
 
         jvm_args = " ".join(java_args) if isinstance(java_args, list) else java_args
-        job_name = f"mcs-{server_id}"
+        job_name = f"{IDENTITY.temp_prefix_new}{server_id}"
         cmd = (
             f"java {jvm_args} -Xms{memory_min}M -Xmx{memory_max}M "
             f"-jar {jar_path} nogui"

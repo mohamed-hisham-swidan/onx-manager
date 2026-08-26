@@ -10,7 +10,9 @@ import time
 import uuid
 from typing import Any
 
-logger = logging.getLogger("mcs.provider.local")
+from app.core.identity import IDENTITY
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.provider.local")
 
 from app.core.exceptions import ProviderError
 from app.modules.server.domain.diagnostics import FailureCode, RuntimeDiagnostics
@@ -131,7 +133,7 @@ class LocalLinuxProvider(ServerProvider):
         deployment: ServerDeployment | None = None,
         launch_config: LaunchConfiguration | None = None,
     ) -> DeploymentResult:
-        session_name = f"mcs-{server_id}"
+        session_name = f"{IDENTITY.temp_prefix_new}{server_id}"
 
         if deployment:
             server_dir = deployment.server_directory()
@@ -205,7 +207,7 @@ class LocalLinuxProvider(ServerProvider):
                 )
 
         instance_id = uuid.uuid4().hex[:16]
-        marker_prefix = f"export MCS_MANAGED=1 MCS_INSTANCE_ID={instance_id}; "
+        marker_prefix = f"export {IDENTITY.process_marker_new}=1 {IDENTITY.env_prefix_new}INSTANCE_ID={instance_id}; "
         cmd = f"{marker_prefix}{cmd}"
 
         server_label = f'"{server_id}"' if server_id else server_id

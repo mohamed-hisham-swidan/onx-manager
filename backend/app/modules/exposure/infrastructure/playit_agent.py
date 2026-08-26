@@ -25,9 +25,10 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from app.core.config import AppSettings
+from app.core.identity import IDENTITY
 from app.modules.exposure.domain.value_objects import ExposureStatus
 
-logger = logging.getLogger("mcs.exposure.playit")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.exposure.playit")
 
 HEALTH_INTERVAL_SECONDS = 30.0
 STALE_AFTER_SECONDS = 90.0

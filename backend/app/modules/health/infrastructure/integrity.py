@@ -5,11 +5,12 @@ import re
 from pathlib import Path
 
 from app.core.config import AppSettings
+from app.core.identity import IDENTITY
 from app.modules.health.domain.services import IntegrityChecker
 from app.modules.health.domain.value_objects import IntegrityCheck, IntegrityReport
 from app.modules.server.application.services.jar_service import resolve_server_dir
 
-logger = logging.getLogger("mcs.health.integrity")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.integrity")
 
 
 def _default_data_dir() -> Path:

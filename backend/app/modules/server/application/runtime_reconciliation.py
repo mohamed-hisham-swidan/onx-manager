@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, Literal
 
 from app.core.config import AppSettings
+from app.core.identity import IDENTITY
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerFilters, ServerRepository
@@ -22,7 +23,7 @@ from app.modules.server.infrastructure.providers.base import (
 )
 from app.modules.shared.value_objects import ServerId
 
-logger = logging.getLogger("mcs.runtime_reconciliation")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.runtime_reconciliation")
 
 
 class MismatchType(Enum):
@@ -74,7 +75,8 @@ class ReconciliationOutcome:
     error: str | None = None
 
 
-MCS_MARKER = "MCS_MANAGED"
+MCS_MARKER = IDENTITY.process_marker_legacy
+ONX_MARKER = IDENTITY.process_marker_new
 
 
 def _get_process_cwd(pid: int) -> str | None:
@@ -123,7 +125,7 @@ def _get_servers_data_dir() -> str:
 
 def _is_project_owned_process(pid: int, servers_data_dir: str | None = None) -> bool:
     env = _get_process_env(pid)
-    if env.get(MCS_MARKER) == "1":
+    if env.get(ONX_MARKER) == "1" or env.get(MCS_MARKER) == "1":
         return True
     if servers_data_dir is not None:
         cwd = _get_process_cwd(pid)
@@ -155,7 +157,12 @@ def _find_all_tmux_sessions() -> list[str]:
         proc.close()
         if not output:
             return []
-        return [s.strip() for s in output.strip().splitlines() if s.strip().startswith("mcs-")]
+        return [
+            s.strip()
+            for s in output.strip().splitlines()
+            if s.strip().startswith(IDENTITY.temp_prefix_new)
+            or s.strip().startswith(IDENTITY.temp_prefix_legacy)
+        ]
     except Exception:
         return []
 
@@ -211,7 +218,7 @@ async def _get_server_state(
     pid_alive = False
 
     external_id = server.runtime.external_id if server.runtime else ""
-    session_name = external_id or f"mcs-{sid}"
+    session_name = external_id or f"{IDENTITY.temp_prefix_new}{sid}"
 
     if provider is not None:
         handle = ServerHandle(
@@ -343,7 +350,7 @@ async def _auto_repair(
             server.mark_running(
                 pid=state.tmux_pid or state.runtime_pid or 0,
                 port=state.port,
-                external_id=state.external_id or f"mcs-{state.server_id}",
+                external_id=state.external_id or f"{IDENTITY.temp_prefix_new}{state.server_id}",
             )
             await repo.save(server)
             actions.append(f"Transitioned STARTING → RUNNING (process is alive on port {state.port})")
@@ -458,7 +465,8 @@ async def reconcile_orphans(
 
         for s in active_servers:
             sid = str(s.id)
-            expected_sessions.add(f"mcs-{sid}")
+            expected_sessions.add(f"{IDENTITY.temp_prefix_new}{sid}")
+            expected_sessions.add(f"{IDENTITY.temp_prefix_legacy}{sid}")
             if s.runtime and s.runtime.external_id:
                 expected_sessions.add(s.runtime.external_id)
             if s.runtime and s.runtime.pid:
@@ -480,7 +488,12 @@ async def reconcile_orphans(
                 actions.append({"type": "orphan_tmux_skipped", "session": session, "pid": pid, "reason": "ownership-check-error"})
                 continue
             if not is_owned:
-                env_marker = _get_process_env(pid).get(MCS_MARKER) if pid else None
+                env_marker = (
+                    _get_process_env(pid).get(ONX_MARKER)
+                    or _get_process_env(pid).get(MCS_MARKER)
+                    if pid
+                    else None
+                )
                 proc_cwd = _get_process_cwd(pid) if pid else None
                 logger.info(
                     "KILL_DECISION session=%s pid=%s scope=%s marker=%s cwd=%s decision=SKIP reason='not-project-owned'",
@@ -490,7 +503,12 @@ async def reconcile_orphans(
                 continue
 
         reason = f"orphan tmux session {session} — no matching running/starting server in database"
-        env_marker = _get_process_env(pid).get(MCS_MARKER) if pid else None
+        env_marker = (
+            _get_process_env(pid).get(ONX_MARKER)
+            or _get_process_env(pid).get(MCS_MARKER)
+            if pid
+            else None
+        )
         proc_cwd = _get_process_cwd(pid) if pid else None
         proc_start = _get_process_start_time(pid) if pid else None
         logger.info(
@@ -521,7 +539,7 @@ async def reconcile_orphans(
                 logger.warning("KILL_DECISION pid=%s scope=%s decision=SKIP reason='ownership-check-failed'", pid, scope)
                 continue
             if not is_owned:
-                env_marker = _get_process_env(pid).get(MCS_MARKER)
+                env_marker = _get_process_env(pid).get(ONX_MARKER) or _get_process_env(pid).get(MCS_MARKER)
                 proc_cwd = _get_process_cwd(pid)
                 logger.info(
                     "KILL_DECISION pid=%s scope=%s marker=%s cwd=%s decision=SKIP reason='not-project-owned'",
@@ -530,7 +548,7 @@ async def reconcile_orphans(
                 continue
 
         reason = f"orphan Java process (Minecraft) pid={pid} — not attached to any managed server"
-        env_marker = _get_process_env(pid).get(MCS_MARKER)
+        env_marker = _get_process_env(pid).get(ONX_MARKER) or _get_process_env(pid).get(MCS_MARKER)
         proc_cwd = _get_process_cwd(pid)
         proc_start = _get_process_start_time(pid)
         logger.info(

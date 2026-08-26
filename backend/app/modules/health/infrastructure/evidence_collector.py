@@ -8,10 +8,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.core.identity import IDENTITY
 from app.modules.health.domain.value_objects import EvidenceBundle
 from app.modules.health.infrastructure.environment import HostEnvironmentScanner
 
-logger = logging.getLogger("mcs.health.evidence")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.evidence")
 
 
 class LogBasedEvidenceCollector:

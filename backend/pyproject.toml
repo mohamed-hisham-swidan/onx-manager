@@ -1,8 +1,12 @@
 [project]
-name = "mcs-manager"
+name = "onx-manager"
 version = "4.0.0"
-description = "Minecraft Server Manager — backend engine"
+description = "onx-manager — backend engine"
 requires-python = ">=3.12"
+
+[project.scripts]
+onx = "launcher:main"
+mcs = "launcher:main"
 dependencies = [
     "aiohttp>=3.9.0",
     "aioboto3>=15.5.0",

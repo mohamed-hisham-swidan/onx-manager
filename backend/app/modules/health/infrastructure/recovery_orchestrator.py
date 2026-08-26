@@ -9,9 +9,10 @@ from app.modules.health.domain.events import (
     RecoverySucceededEvent,
     RecoveryTriggeredEvent,
 )
+from app.core.identity import IDENTITY
 from app.modules.server.domain.diagnostics import FailureCode
 
-logger = logging.getLogger("mcs.health.recovery")
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.recovery")
 
 MIN_RESTART_INTERVAL: float = 30.0
 MAX_RESTART_ATTEMPTS: int = 3
