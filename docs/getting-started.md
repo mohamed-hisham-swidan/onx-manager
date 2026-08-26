@@ -13,7 +13,7 @@ A 5-minute quickstart for running the Minecraft Server Manager on your local mac
 
 ```bash
 # 1. Clone the repository
-git clone <repo-url> onx-manager
+git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
 cd onx-manager
 
 # 2. Start everything (bootstraps venv, deps, migrations automatically)

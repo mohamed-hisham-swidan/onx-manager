@@ -76,7 +76,7 @@ It's built for people who want full control over their servers without relying o
 **Prerequisites:** Python 3.12+, Node.js 20+
 
 ```bash
-git clone <repo-url> onx-manager
+git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
 cd onx-manager
 python launcher.py
 ```

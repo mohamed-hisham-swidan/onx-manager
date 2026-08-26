@@ -16,7 +16,8 @@ docker compose version
 
 ```bash
 # 1. Clone the repo
-git clone <repo-url> && cd mcs-manager
+git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
+cd onx-manager
 
 # 2. Set up environment
 cp .env.example .env
