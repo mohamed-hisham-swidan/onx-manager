@@ -159,7 +159,7 @@ class LauncherConfig:
     backend_port: int = BACKEND_PORT
     frontend_port: int = FRONTEND_PORT
     open_browser: bool = True
-    open_swagger: bool = True
+    open_swagger: bool = False
     open_vscode: bool = False
     auto_install_deps: bool = True
     startup_timeout: int = STARTUP_TIMEOUT
@@ -438,6 +438,7 @@ def print_usage() -> None:
     print(f"    python launcher.py --self-test  {c('dim', 'Verify prerequisites')}")
     print(f"    python launcher.py --install-cpp{c('dim', '  Install C++ Build Tools (Win)')}")
     print(f"    python launcher.py --code       {c('dim', 'Also open VS Code')}")
+    print(f"    python launcher.py --swagger    {c('dim', 'Also open Swagger API docs')}")
     print(f"    python launcher.py --help       {c('dim', 'Show this help')}")
     print()
 
@@ -473,7 +474,7 @@ class ConfigManager:
             backend_port=raw.get("backend_port", BACKEND_PORT),
             frontend_port=raw.get("frontend_port", FRONTEND_PORT),
             open_browser=raw.get("open_browser", True),
-            open_swagger=raw.get("open_swagger", True),
+            open_swagger=raw.get("open_swagger", False),
             open_vscode=raw.get("open_vscode", False),
             auto_install_deps=raw.get("auto_install_deps", True),
             startup_timeout=raw.get("startup_timeout", STARTUP_TIMEOUT),
@@ -2425,6 +2426,11 @@ def main() -> int:
     if "--code" in args or "--vscode" in args:
         cfg = ConfigManager.instance().load()
         cfg.open_vscode = True
+        ConfigManager.instance().save()
+
+    if "--swagger" in args:
+        cfg = ConfigManager.instance().load()
+        cfg.open_swagger = True
         ConfigManager.instance().save()
 
     return cmd_start()

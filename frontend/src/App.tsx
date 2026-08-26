@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { queryClient } from "@/services/queryClient";
@@ -55,7 +55,7 @@ export default function App() {
                 <Route path="settings/api-keys" element={<ApiKeysPage />} />
               </Route>
               <Route path="servers/:serverId" element={<ServerShell />}>
-                <Route index element={<Navigate to="console" replace />} />
+                <Route index element={<ServerDetailPage />} />
                 <Route path="console" element={<ServerDetailPage />} />
                 <Route path="files" element={<ServerFilesPage />} />
                 <Route path="network" element={<ServerExposurePage />} />

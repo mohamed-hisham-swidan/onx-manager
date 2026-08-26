@@ -112,6 +112,8 @@ coverage/
 dist/
 build/
 *.egg-info/
+*.exe
+*.spec
 
 # ──────────────────────────────────────────────
 # Docker
