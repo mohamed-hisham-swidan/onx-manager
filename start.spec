@@ -47,7 +47,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='mcs',
+    name='onx',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -1,3 +1,3 @@
 @echo off
-rem MC Server Manager Windows Launcher wrapper
-"%~dp0mcs.exe" %*
+rem onx-manager Windows Launcher wrapper
+"%~dp0onx.exe" %*

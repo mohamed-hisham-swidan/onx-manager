@@ -43,7 +43,31 @@ class DatabaseEngine:
             kw["max_overflow"] = 10
             kw["pool_pre_ping"] = True
         else:
+            import os
+            import shutil
+            from sqlalchemy.engine.url import make_url
+            from app.core.identity import IDENTITY
+
             kw["connect_args"] = {"timeout": 30.0, "check_same_thread": False}
+            try:
+                parsed_url = make_url(self._settings.database_url)
+                if parsed_url.database and parsed_url.database != ":memory:":
+                    target_path = os.path.abspath(parsed_url.database)
+                    db_dir = os.path.dirname(target_path)
+                    if db_dir:
+                        os.makedirs(db_dir, exist_ok=True)
+                    if not os.path.exists(target_path) or os.path.getsize(target_path) == 0:
+                        legacy_candidates = [
+                            os.path.join(db_dir, IDENTITY.db_filename_legacy),
+                            os.path.join(os.path.dirname(db_dir), IDENTITY.db_filename_legacy),
+                            IDENTITY.db_filename_legacy,
+                        ]
+                        for legacy_path in legacy_candidates:
+                            if os.path.isfile(legacy_path) and os.path.getsize(legacy_path) > 0:
+                                shutil.copy2(legacy_path, target_path)
+                                break
+            except Exception:
+                pass
 
         self._engine = create_async_engine(self._settings.database_url, **kw)
 

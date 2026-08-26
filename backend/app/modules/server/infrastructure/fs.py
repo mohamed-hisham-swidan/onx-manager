@@ -69,6 +69,10 @@ class FileSystem(ABC):
         ...
 
     @abstractmethod
+    def rename(self, source: str, dest: str) -> None:
+        ...
+
+    @abstractmethod
     def is_file(self, path: str) -> bool:
         ...
 
@@ -116,6 +120,9 @@ class LocalFileSystem(FileSystem):
 
     def copy_dir(self, source: str, dest: str) -> None:
         shutil.copytree(source, dest, symlinks=False, dirs_exist_ok=True)
+
+    def rename(self, source: str, dest: str) -> None:
+        os.replace(source, dest)
 
     def chmod(self, path: str, mode: int) -> None:
         os.chmod(path, mode)

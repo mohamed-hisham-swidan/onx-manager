@@ -1,18 +1,18 @@
-# Test Database — `test_mcs.db`
+# Test Database — `test_onx.db`
 
 ## Connection mechanism
 
 The app reads its database URL from `AppSettings.database_url`, which
-defaults to `"sqlite+aiosqlite:///./mcs.db"`. Because `AppSettings`
-extends `pydantic-settings.BaseSettings` with `env_prefix = "MCS_"`,
-you can override this at runtime via the environment variable:
+defaults to `"sqlite+aiosqlite:///data/onx.db"`. Because `AppSettings`
+extends `pydantic-settings.BaseSettings`, you can override this at runtime
+via the environment variable:
 
 ```
-MCS_DATABASE_URL=sqlite+aiosqlite:///./data/servers_test/test_mcs.db
+ONX_DATABASE_URL=sqlite+aiosqlite:///./data/servers_test/test_onx.db
 ```
 
 **Alembic also respects this env var.** `alembic/env.py` checks
-`MCS_DATABASE_URL` first, falling back to `alembic.ini`'s hardcoded
+`ONX_DATABASE_URL` / `MCS_DATABASE_URL` first, falling back to `alembic.ini`'s hardcoded
 value. Alembic prints which database it's targeting at the start of
 every migration run — always check that line before confirming.
 
@@ -20,14 +20,14 @@ every migration run — always check that line before confirming.
 
 ## One-time setup — create the schema
 
-A fresh `test_mcs.db` is an empty SQLite file with no tables. You must
+A fresh `test_onx.db` is an empty SQLite file with no tables. You must
 create the schema before starting the app:
 
 ```bash
 cd backend/
 
 # Create all ORM tables and Alembic-only tables, then stamp Alembic head
-MCS_DATABASE_URL="sqlite+aiosqlite:///./data/servers_test/test_mcs.db" \
+ONX_DATABASE_URL="sqlite+aiosqlite:///./data/servers_test/test_onx.db" \
   python3 -c "
 import asyncio, os
 from sqlalchemy import text
@@ -53,7 +53,8 @@ ALEMBIC_ONLY_DDL = [
 ]
 
 async def main():
-    engine = create_async_engine(os.environ[\"MCS_DATABASE_URL\"])
+    db_url = os.environ.get(\"ONX_DATABASE_URL\") or os.environ.get(\"MCS_DATABASE_URL\")
+    engine = create_async_engine(db_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         for ddl in ALEMBIC_ONLY_DDL:
@@ -63,60 +64,67 @@ async def main():
 asyncio.run(main())
 "
 
-# Stamp Alembic so it knows the schema is current
-MCS_DATABASE_URL="sqlite+aiosqlite:///./data/servers_test/test_mcs.db" \
-  python -m alembic stamp head
+# Stamp the test DB so Alembic knows it is at the latest schema version
+ONX_DATABASE_URL="sqlite+aiosqlite:///./data/servers_test/test_onx.db" \
+  alembic stamp head
 ```
-
-After this, the test DB has the same tables as production.
 
 ---
 
-## How to use
+## Running with the test DB
 
-### Start the backend with the test DB
+### Run pytest against the test DB
 
 ```bash
 cd backend/
-MCS_DATABASE_URL="sqlite+aiosqlite:///./data/servers_test/test_mcs.db" \
-MCS_SERVERS_DATA_DIR="data/servers_test" \
+ONX_DATABASE_URL="sqlite+aiosqlite:///./data/servers_test/test_onx.db" \
+ONX_SERVERS_DATA_DIR="data/servers_test" \
+  pytest
+```
+
+### Start the backend against the test DB
+
+```bash
+cd backend/
+ONX_DATABASE_URL="sqlite+aiosqlite:///./data/servers_test/test_onx.db" \
+ONX_SERVERS_DATA_DIR="data/servers_test" \
   ./run.sh
 ```
 
-### Start the backend with the production DB (normal)
+### Start the backend with the default DB (normal)
 
 ```bash
 cd backend/
 ./run.sh
 ```
 
-No env var needed — production uses `backend/mcs.db` by default.
+No env var needed — default uses `backend/data/onx.db`.
 
 ---
 
 ## Safety — Alembic targets the right DB
 
-`alembic/env.py` checks `MCS_DATABASE_URL` before reading `alembic.ini`.
+`alembic/env.py` checks `ONX_DATABASE_URL` / `MCS_DATABASE_URL` before reading `alembic.ini`.
 Every migration run prints a line like:
 
 ```
-Alembic target DB: sqlite+aiosqlite:///./data/servers_test/test_mcs.db  (test_mcs.db)
+Alembic target DB: sqlite+aiosqlite:///./data/servers_test/test_onx.db  (test_onx.db)
 ```
 
-or, for production:
+or, for default:
 
 ```
-Alembic target DB: sqlite+aiosqlite:///./mcs.db  (mcs.db)
+Alembic target DB: sqlite+aiosqlite:///data/onx.db  (onx.db)
 ```
 
 Always check this line before confirming a migration. If you see the
-wrong database, stop — `MCS_DATABASE_URL` is not set correctly.
+wrong database, stop — `ONX_DATABASE_URL` is not set correctly.
 
 ---
 
 ## Rules
 
-1. **Any server created while `MCS_DATABASE_URL` is set** must have its
+1. **Any server created while `ONX_DATABASE_URL` is set** must have its
    filesystem directory created under `backend/data/servers_test/`,
    **never** under `backend/data/servers/`. This is enforced by setting
    `MCS_SERVERS_DATA_DIR=data/servers_test` alongside

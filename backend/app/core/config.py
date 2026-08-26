@@ -19,7 +19,7 @@ class AppSettings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
     log_json: bool = True
-    database_url: str = f"sqlite+aiosqlite:///./{IDENTITY.db_filename_new}"
+    database_url: str = f"sqlite+aiosqlite:///data/{IDENTITY.db_filename_new}"
     database_echo: bool = False
     secret_key: str = "change-me-in-production"
     cors_origins: list[str] = ["*"]

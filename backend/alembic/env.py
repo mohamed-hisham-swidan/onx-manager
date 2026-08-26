@@ -24,8 +24,8 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Resolve database URL: MCS_DATABASE_URL env var overrides alembic.ini
-_db_url = os.environ.get("MCS_DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+# Resolve database URL: ONX_DATABASE_URL / MCS_DATABASE_URL env var overrides alembic.ini
+_db_url = os.environ.get("ONX_DATABASE_URL") or os.environ.get("MCS_DATABASE_URL") or config.get_main_option("sqlalchemy.url")
 _db_label = _db_url.rsplit("/", 1)[-1] if "/" in _db_url else _db_url
 print(f"Alembic target DB: {_db_url}  ({_db_label})", file=sys.stderr)
 
