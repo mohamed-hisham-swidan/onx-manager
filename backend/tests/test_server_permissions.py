@@ -1,5 +1,6 @@
 import pytest
 import pytest_asyncio
+from typing import AsyncGenerator
 from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
