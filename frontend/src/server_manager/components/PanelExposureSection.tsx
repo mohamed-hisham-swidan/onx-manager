@@ -208,7 +208,7 @@ export function PanelExposureSection() {
             Panel Network Exposure
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Configure external network access to this MCS Manager web interface.
+            Configure external network access to this onx-manager web interface.
           </p>
         </div>
         <div>

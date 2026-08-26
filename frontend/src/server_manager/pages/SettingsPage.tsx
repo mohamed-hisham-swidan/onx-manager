@@ -108,7 +108,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
   const updateSettings = useUpdateSettings();
 
   const [formData, setFormData] = useState<FormState>({
-    app_name: settings.app_name ?? "MCS Manager",
+    app_name: settings.app_name ?? "onx-manager",
     log_level: settings.log_level ?? "INFO",
     debug: Boolean(settings.debug),
     rate_limit_per_minute: settings.rate_limit_per_minute ?? 60,
@@ -167,7 +167,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
 
   const handleReset = () => {
     setFormData({
-      app_name: settings.app_name ?? "MCS Manager",
+      app_name: settings.app_name ?? "onx-manager",
       log_level: settings.log_level ?? "INFO",
       debug: Boolean(settings.debug),
       rate_limit_per_minute: settings.rate_limit_per_minute ?? 60,
@@ -291,7 +291,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
           {settings.version ? (
             <p className="mt-2 inline-flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-1.5 text-xs text-gray-600 dark:bg-gray-700/50 dark:text-gray-300">
               <Icon name="info" size={14} className="text-gray-400 dark:text-gray-500" />
-              {settings.app_name ?? "MCS Manager"} {settings.version}
+              {settings.app_name ?? "onx-manager"} {settings.version}
             </p>
           ) : null}
         </div>
@@ -314,7 +314,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <p id="app_name-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Display name for this MCS Manager instance.
+              Display name for this onx-manager instance.
             </p>
           </div>
 

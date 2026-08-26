@@ -1,4 +1,4 @@
-# MCS Frontend
+# onx-manager Frontend
 
 React 19 + TypeScript + Vite + Tailwind CSS v4 single-page application for managing Minecraft servers. Dark-theme-first with a consistent design system.
 

@@ -221,14 +221,14 @@ describe("PanelExposureSection Component", () => {
       public_address: "192.168.1.100:8000",
       tls: false,
       protocol: "http",
-      security_advisory: "MCS Manager is operating in LOCAL mode with open self-registration. Exposing the panel over unencrypted HTTP allows anyone on the internet to register accounts.",
+      security_advisory: "onx-manager is operating in LOCAL mode with open self-registration. Exposing the panel over unencrypted HTTP allows anyone on the internet to register accounts.",
     });
 
     renderPanelExposureSection();
 
     expect(await screen.findByText("Security Advisory")).toBeInTheDocument();
     expect(
-      screen.getByText(/MCS Manager is operating in LOCAL mode with open self-registration/i)
+      screen.getByText(/onx-manager is operating in LOCAL mode with open self-registration/i)
     ).toBeInTheDocument();
   });
 

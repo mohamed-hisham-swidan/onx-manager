@@ -59,7 +59,7 @@ export function AccessModeCard() {
           Instance Access Control
         </h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Configure how new users register and access this MCS Manager instance.
+          Configure how new users register and access this onx-manager instance.
         </p>
       </div>
 
