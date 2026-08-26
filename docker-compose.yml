@@ -10,15 +10,21 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      # Bind to all interfaces inside the container so nginx can reach it
+      MCS_PANEL_BIND_HOST: "0.0.0.0"
+      MCS_PANEL_BIND_PORT: "8000"
+      # SQLite database inside the named volume
+      MCS_DATABASE_URL: "sqlite+aiosqlite:////app/data/onx.db"
     volumes:
-      - onx-db-data:/data
+      - onx-db-data:/app/data
       - onx-server-data:/app/data/servers
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\" || exit 1"]
       interval: 30s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
+      timeout: 10s
+      start_period: 30s
+      retries: 5
 
   frontend:
     build:
