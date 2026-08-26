@@ -13,10 +13,17 @@ A 5-minute quickstart for running the Minecraft Server Manager on your local mac
 
 ```bash
 # 1. Clone the repository
-git clone <repo-url> mcs-manager
-cd mcs-manager
+git clone <repo-url> onx-manager
+cd onx-manager
 
-# 2. Bootstrap everything (venv, deps, migrations)
+# 2. Start everything (bootstraps venv, deps, migrations automatically)
+python launcher.py
+```
+
+Or for manual step-by-step setup:
+
+```bash
+# Bootstrap only (venv, deps, migrations — no server start)
 ./scripts/bootstrap
 ```
 
