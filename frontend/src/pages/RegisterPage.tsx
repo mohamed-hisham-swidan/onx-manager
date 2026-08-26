@@ -120,7 +120,7 @@ export function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-bold text-center mb-6 text-gray-900 dark:text-gray-100">
-          MC Server Manager
+          onx-manager
         </h1>
 
         <form

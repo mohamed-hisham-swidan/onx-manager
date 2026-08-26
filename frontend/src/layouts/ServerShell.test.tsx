@@ -103,7 +103,7 @@ describe("ServerShell", () => {
   it("renders top bar, contextual server sidebar with Mods for fabric server", () => {
     renderServerShell("/servers/srv-123/console");
 
-    expect(screen.getByText("MC Server Manager")).toBeInTheDocument();
+    expect(screen.getByText("onx-manager")).toBeInTheDocument();
     expect(screen.getByText("Back to Servers")).toBeInTheDocument();
     expect(screen.getByText("Server Management")).toBeInTheDocument();
 

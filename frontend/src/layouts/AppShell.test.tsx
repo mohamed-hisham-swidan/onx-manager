@@ -21,7 +21,7 @@ function renderShell() {
 describe("AppShell", () => {
   it("renders top bar, sidebar and content", () => {
     renderShell();
-    expect(screen.getByText("MC Server Manager")).toBeInTheDocument();
+    expect(screen.getByText("onx-manager")).toBeInTheDocument();
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(screen.getByText("Servers")).toBeInTheDocument();
     expect(screen.getByText("Content")).toBeInTheDocument();

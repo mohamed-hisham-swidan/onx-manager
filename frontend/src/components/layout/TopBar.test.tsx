@@ -54,7 +54,7 @@ describe("TopBar", () => {
 
   it("renders app title", () => {
     renderTopBar();
-    expect(screen.getByText("MC Server Manager")).toBeInTheDocument();
+    expect(screen.getByText("onx-manager")).toBeInTheDocument();
   });
 
   it("shows hamburger and logout when authenticated", () => {

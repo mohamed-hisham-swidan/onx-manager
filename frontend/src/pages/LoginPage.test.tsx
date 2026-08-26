@@ -50,7 +50,7 @@ describe("LoginPage", () => {
 
   it("renders sign-in form", () => {
     renderPage();
-    expect(screen.getByText("MC Server Manager")).toBeInTheDocument();
+    expect(screen.getByText("onx-manager")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();

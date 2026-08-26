@@ -63,7 +63,7 @@ export function TopBar() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white">
             <Icon name="server" size={18} />
           </div>
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">MC Server Manager</h1>
+          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">onx-manager</h1>
         </div>
       </div>
 

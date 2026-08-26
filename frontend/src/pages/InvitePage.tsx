@@ -109,7 +109,7 @@ export function InvitePage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            MC Server Manager
+            onx-manager
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Redeem Invitation
