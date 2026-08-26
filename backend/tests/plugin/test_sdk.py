@@ -15,7 +15,7 @@ class TestSDKManifestIntegration:
         yaml_content = """
 name: "backup-to-s3"
 version: "1.0.0"
-min_app_version: "4.0.0"
+min_app_version: "0.1.0"
 isolation: "subprocess"
 permissions:
   filesystem:

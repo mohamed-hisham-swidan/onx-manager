@@ -49,22 +49,22 @@ def _write_fixtures(  # noqa: PLR0913
 
 
 def test_matching_versions_pass(checker) -> None:
-    agree, report = checker.check("4.0.0", "4.0.0", "4.0.0")
+    agree, report = checker.check("0.1.0", "0.1.0", "0.1.0")
     assert agree is True
-    assert "pyproject.toml: 4.0.0" in report
-    assert "package.json: 4.0.0" in report
-    assert "runtime: 4.0.0" in report
+    assert "pyproject.toml: 0.1.0" in report
+    assert "package.json: 0.1.0" in report
+    assert "runtime: 0.1.0" in report
     assert report.endswith("PASS")
 
 
 def test_pyproject_package_mismatch_fails(checker) -> None:
-    agree, report = checker.check("4.1.0", "4.0.0", "4.0.0")
+    agree, report = checker.check("0.2.0", "0.1.0", "0.1.0")
     assert agree is False
     assert report.endswith("FAIL")
 
 
 def test_runtime_mismatch_fails(checker) -> None:
-    agree, report = checker.check("4.0.0", "4.0.0", "4.1.0")
+    agree, report = checker.check("0.1.0", "0.1.0", "0.2.0")
     assert agree is False
     assert report.endswith("FAIL")
 
@@ -81,20 +81,20 @@ def _args(pyproject: Path, package: Path, runtime: str) -> list[str]:
 
 
 def test_main_ok_on_matching_fixtures(tmp_path: Path, checker) -> None:
-    pyproject, package = _write_fixtures(tmp_path, "4.0.0", "4.0.0")
-    rc = checker.main(_args(pyproject, package, "4.0.0"))
+    pyproject, package = _write_fixtures(tmp_path, "0.1.0", "0.1.0")
+    rc = checker.main(_args(pyproject, package, "0.1.0"))
     assert rc == 0
 
 
 def test_main_fails_on_pyproject_package_mismatch(tmp_path: Path, checker) -> None:
-    pyproject, package = _write_fixtures(tmp_path, "4.1.0", "4.0.0")
-    rc = checker.main(_args(pyproject, package, "4.0.0"))
+    pyproject, package = _write_fixtures(tmp_path, "0.2.0", "0.1.0")
+    rc = checker.main(_args(pyproject, package, "0.1.0"))
     assert rc == 1
 
 
 def test_main_fails_on_runtime_mismatch(tmp_path: Path, checker) -> None:
-    pyproject, package = _write_fixtures(tmp_path, "4.0.0", "4.0.0")
-    rc = checker.main(_args(pyproject, package, "4.1.0"))
+    pyproject, package = _write_fixtures(tmp_path, "0.1.0", "0.1.0")
+    rc = checker.main(_args(pyproject, package, "0.2.0"))
     assert rc == 1
 
 

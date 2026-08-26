@@ -44,7 +44,7 @@ class HookDeclaration(BaseModel):
 class PluginManifest(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     version: str = Field(..., pattern=r"^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?(?:\+[a-zA-Z0-9.]+)?$")
-    min_app_version: str = Field(default="4.0.0", pattern=r"^\d+\.\d+\.\d+")
+    min_app_version: str = Field(default="0.1.0", pattern=r"^\d+\.\d+\.\d+")
     isolation: Literal["subprocess", "container"] = "subprocess"
     permissions: PluginPermissions = Field(default_factory=PluginPermissions)
     hooks: dict[str, HookDeclaration] = Field(default_factory=dict)

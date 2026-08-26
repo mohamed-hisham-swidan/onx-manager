@@ -6,7 +6,7 @@ import { SettingsPage } from "./SettingsPage";
 
 const mockSettings = {
   app_name: "onx-manager",
-  version: "4.0.0",
+  version: "0.1.0",
   debug: false,
   log_level: "INFO",
   rate_limit_per_minute: 60,
@@ -240,14 +240,14 @@ describe("SettingsPage", () => {
 
   it("(v1) displays the application version reported by the settings API", () => {
     renderPage();
-    expect(screen.getByText("onx-manager 4.0.0")).toBeInTheDocument();
+    expect(screen.getByText("onx-manager 0.1.0")).toBeInTheDocument();
   });
 
   it("(v2) sources the version from settings.version, not a frontend constant", () => {
     mockData = { ...mockSettings, version: "5.7.2" };
     renderPage();
     expect(screen.getByText("onx-manager 5.7.2")).toBeInTheDocument();
-    expect(screen.queryByText(/4\.0\.0/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0\.1\.0/)).not.toBeInTheDocument();
   });
 
   it("(v3) reflects a changed backend version in the UI", () => {

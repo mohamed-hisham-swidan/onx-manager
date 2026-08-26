@@ -38,7 +38,7 @@ def test_emergency_fallback_when_both_unavailable(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(version, "_read_pyproject_version", lambda: None)
     monkeypatch.setattr(version.importlib.metadata, "version", _raise)
-    assert get_app_version() == "4.0.0"
+    assert get_app_version() == "0.1.0"
 
 
 def test_resolver_is_cached() -> None:
@@ -48,12 +48,12 @@ def test_resolver_is_cached() -> None:
 def test_shipped_pyproject_parses_with_tomllib() -> None:
     pyproject_path = version._pyproject_path()
     assert pyproject_path.exists()
-    assert version._read_pyproject_version() == "4.0.0"
+    assert version._read_pyproject_version() == "0.1.0"
 
 
 def test_single_source_matches_installed_metadata() -> None:
     assert get_app_version() == importlib.metadata.version("onx-manager")
-    assert get_app_version() == "4.0.0"
+    assert get_app_version() == "0.1.0"
 
 
 @pytest.mark.parametrize("path", [p for p in (_APP_DIR).rglob("*.py")])
@@ -62,4 +62,4 @@ def test_no_hardcoded_version_literal_outside_allowed_files(path: Path) -> None:
     if rel in _EXCLUDED_FILES:
         pytest.skip(reason=f"allows a centralized fallback/plugin floor: {rel}")
     content = path.read_text()
-    assert re.search(r'"4\.0\.0"', content) is None, f"hardcoded app version in {rel}"
+    assert re.search(r'"0\.1\.0"', content) is None, f"hardcoded app version in {rel}"

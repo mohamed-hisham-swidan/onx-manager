@@ -8,7 +8,7 @@ from pathlib import Path
 from app.core.identity import IDENTITY
 
 _DISTRIBUTION_NAME = IDENTITY.dist_name
-_FALLBACK_VERSION = "4.0.0"
+_FALLBACK_VERSION = "0.1.0"
 
 
 def _pyproject_path() -> Path:

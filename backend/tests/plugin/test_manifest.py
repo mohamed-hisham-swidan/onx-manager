@@ -16,11 +16,11 @@ class TestPluginManifest:
         manifest = PluginManifest(
             name="test-plugin",
             version="1.0.0",
-            min_app_version="4.0.0",
+            min_app_version="0.1.0",
         )
         assert manifest.name == "test-plugin"
         assert manifest.parsed_version().major == 1
-        assert manifest.parsed_min_app_version().major == 4
+        assert manifest.parsed_min_app_version().minor == 1
         assert manifest.isolation == "subprocess"
 
     def test_manifest_with_permissions(self) -> None:
@@ -83,7 +83,7 @@ class TestManifestLoader:
         data = {
             "name": "test-plugin",
             "version": "1.0.0",
-            "min_app_version": "4.0.0",
+            "min_app_version": "0.1.0",
         }
         manifest = ManifestLoader.from_dict(data)
         assert manifest.name == "test-plugin"

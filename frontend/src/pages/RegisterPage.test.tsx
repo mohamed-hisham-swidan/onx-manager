@@ -52,7 +52,7 @@ describe("RegisterPage", () => {
       initialized: true,
       access_mode: "LOCAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderRegisterPage();
