@@ -3,7 +3,7 @@ import { Icon } from "@/components/ui/Icon";
 import {
   environmentLabels,
   getLoaderDisplay,
-} from "@/server_manager/components/CompatibilityCard";
+} from "@/server_manager/utils/compatibility";
 import { formatDownloads, formatRelativeTime } from "@/server_manager/utils/format";
 import type { PluginSearchResultResponse } from "@/types";
 

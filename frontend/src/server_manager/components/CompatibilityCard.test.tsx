@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { CompatibilityCard, groupGameVersions, environmentLabels } from "./CompatibilityCard";
+import { CompatibilityCard } from "./CompatibilityCard";
+import { groupGameVersions, environmentLabels } from "@/server_manager/utils/compatibility";
 import { platformProjectType } from "@/server_manager/data/platforms";
 
 describe("groupGameVersions", () => {

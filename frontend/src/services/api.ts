@@ -12,7 +12,6 @@ import type {
   LoginResponse,
   PluginResponse,
   PluginProjectResponse,
-  PluginSearchResultResponse,
   PluginSearchResultsResponse,
   PluginVersionsResponse,
   RefreshTokenRequest,

@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/Skeleton";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { InstallModal } from "@/server_manager/components/InstallModal";
 import { ProjectCard } from "@/server_manager/components/ProjectCard";
-import { getLoaderDisplay } from "@/server_manager/components/CompatibilityCard";
+import { getLoaderDisplay } from "@/server_manager/utils/compatibility";
 import type { PluginSearchResultResponse } from "@/types";
 
 export function PluginMarketplacePage() {

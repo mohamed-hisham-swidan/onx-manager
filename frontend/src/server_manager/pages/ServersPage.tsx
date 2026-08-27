@@ -38,7 +38,7 @@ export function ServersPage() {
 
   const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending || retryProvisioning.isPending;
   const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
-  const [now, setNow] = useState<number>(() => Date.now());
+  const [now, setNow] = useState<number>(0);
 
   useEffect(() => {
     if (!isFilterOpen) return;
@@ -59,14 +59,11 @@ export function ServersPage() {
   }, [isFilterOpen]);
 
   useEffect(() => {
-    const hasActive = Object.values(startCooldowns).some((t) => t > Date.now());
-    if (!hasActive) return;
     const timer = setInterval(() => {
-      const current = Date.now();
-      setNow(current);
+      setNow(Date.now());
     }, 200);
     return () => clearInterval(timer);
-  }, [startCooldowns]);
+  }, []);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -84,8 +81,7 @@ export function ServersPage() {
   }, [servers, search, statusFilter, sortKey]);
 
   function handleStart(server: ServerResponse) {
-    setStartCooldowns((prev) => ({ ...prev, [server.server_id]: Date.now() + 3000 }));
-    setNow(Date.now());
+    setStartCooldowns((prev) => ({ ...prev, [server.server_id]: now + 3000 }));
     startServer.mutate(server.server_id, {
       onSuccess: () => toast("success", "Server started", `"${server.name}" is starting.`),
       onError: (err) => toast("error", "Start failed", errorMessage(err)),

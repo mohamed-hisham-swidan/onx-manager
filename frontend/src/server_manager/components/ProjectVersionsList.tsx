@@ -9,7 +9,7 @@ import { useServersList } from "@/server_manager/hooks/useServers";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import { formatBytes, formatDateTime } from "@/server_manager/utils/format";
 import { selectRecommendedVersion } from "@/server_manager/utils/versionMatching";
-import { getLoaderDisplay } from "@/server_manager/components/CompatibilityCard";
+import { getLoaderDisplay } from "@/server_manager/utils/compatibility";
 import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/ui/Icon";
@@ -29,7 +29,7 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
   // G1: key on server_id, NOT id
   const lastUsedServer = servers?.find((s) => s.server_id === lastUsedServerId);
 
-  const versions = versionsData?.versions ?? [];
+  const versions = useMemo(() => versionsData?.versions ?? [], [versionsData?.versions]);
   const totalVersions = versionsData?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalVersions / MARKETPLACE_PAGE_SIZE));
 
