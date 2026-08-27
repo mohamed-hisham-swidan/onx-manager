@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.modules.storage.base import StorageBackend, StorageFileInfo, StorageResult
@@ -93,7 +92,7 @@ class LocalStorage(StorageBackend):
             path=str(full_path.relative_to(self._base_path)),
             size_bytes=stat.st_size,
             checksum="",
-            modified_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+            modified_at=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
             is_directory=full_path.is_dir(),
         )
 

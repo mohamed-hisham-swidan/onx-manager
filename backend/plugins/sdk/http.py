@@ -5,7 +5,9 @@ from typing import Any
 
 
 class HttpResponse:
-    def __init__(self, status_code: int, body: bytes, headers: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, status_code: int, body: bytes, headers: dict[str, str] | None = None
+    ) -> None:
         self.status_code = status_code
         self.body = body
         self._headers = headers or {}
@@ -53,8 +55,8 @@ class HttpClient:
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> HttpResponse:
         import asyncio
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         data = kwargs.get("data")
         headers = copy.copy(kwargs.get("headers", {}))

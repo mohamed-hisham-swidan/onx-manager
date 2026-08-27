@@ -5,10 +5,8 @@ import logging
 import time
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -25,8 +23,7 @@ class DomainEvent(BaseModel):
 
 class EventHandler(ABC):
     @abstractmethod
-    async def handle(self, event: DomainEvent) -> None:
-        ...
+    async def handle(self, event: DomainEvent) -> None: ...
 
 
 class Priority(IntEnum):
@@ -87,6 +84,7 @@ class EventBus:
             return self._retry_attempts
         try:
             from app.core.settings_store import get_live_settings
+
             return get_live_settings().event_bus_retry_attempts
         except RuntimeError:
             return 3
@@ -107,10 +105,7 @@ class EventBus:
         if not active:
             return
 
-        tasks = [
-            self._dispatch_with_retry(event, sub)
-            for sub in active
-        ]
+        tasks = [self._dispatch_with_retry(event, sub) for sub in active]
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _dispatch_with_retry(
@@ -122,9 +117,7 @@ class EventBus:
         max_attempts = self.retry_attempts
         # Use per-subscription timeout override when set; otherwise use the global.
         effective_timeout = (
-            subscription.timeout
-            if subscription.timeout is not None
-            else self._subscriber_timeout
+            subscription.timeout if subscription.timeout is not None else self._subscriber_timeout
         )
         for attempt in range(max_attempts):
             try:

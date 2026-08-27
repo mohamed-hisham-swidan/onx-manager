@@ -6,9 +6,7 @@ import re
 import secrets
 import string
 import time
-import zipfile
 from dataclasses import dataclass
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +16,6 @@ from app.core.exceptions import (
     CorruptedDownloadError,
     DownloadError,
     DownloadTimeoutError,
-    FilesystemOperationError,
     VersionNotFoundError,
 )
 from app.modules.server.domain.runtime_exceptions import (
@@ -61,6 +58,7 @@ def clear_metadata_cache(provider: str | None = None) -> None:
     else:
         _METADATA_CACHE.clear()
 
+
 JAR_DOWNLOAD_TIMEOUT: int = 120
 JAR_MIN_SIZE_BYTES: int = 1_048_576
 JAR_MAX_RETRIES: int = 2
@@ -73,13 +71,19 @@ PAPER_BUILDS_URL = "https://fill.papermc.io/v3/projects/paper/versions/{version}
 
 FABRIC_LOADER_URL = "https://meta.fabricmc.net/v2/versions/loader/{version}"
 
-FORGE_MAVEN_METADATA_URL = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"
+FORGE_MAVEN_METADATA_URL = (
+    "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml"
+)
 
 FORGE_MAVEN_BASE_URL = "https://maven.minecraftforge.net/net/minecraftforge/forge"
 
-NEOFORGE_MAVEN_METADATA_URL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
+NEOFORGE_MAVEN_METADATA_URL = (
+    "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
+)
 NEOFORGE_MAVEN_BASE_URL = "https://maven.neoforged.net/releases/net/neoforged/neoforge"
-NEOFORGE_FORGE_MAVEN_METADATA_URL = "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml"
+NEOFORGE_FORGE_MAVEN_METADATA_URL = (
+    "https://maven.neoforged.net/releases/net/neoforged/forge/maven-metadata.xml"
+)
 NEOFORGE_FORGE_MAVEN_BASE_URL = "https://maven.neoforged.net/releases/net/neoforged/forge"
 
 FORGE_INSTALLER_MIN_VERSION = MinecraftVersion(1, 17, 0)
@@ -158,6 +162,7 @@ def server_dir_name(name: str, server_id: str) -> str:
 
 def _default_data_dir() -> Path:
     from app.core.config import AppSettings
+
     return Path(AppSettings().servers_data_dir)
 
 
@@ -189,72 +194,85 @@ def eula_path(server_id: str) -> Path:
     return server_dir(server_id) / "eula.txt"
 
 
-def resolver(deployment: ServerDeployment | None = None, server_id: str | None = None):
+def _resolve_properties_dest(deployment: ServerDeployment | None, server_id: str | None) -> str:
     if deployment and deployment.root_path:
-        return deployment
-    return None
+        return deployment.properties_path()
+    return str(properties_path(server_id or "unknown"))
+
+
+def _resolve_eula_dest(deployment: ServerDeployment | None, server_id: str | None) -> str:
+    if deployment and deployment.root_path:
+        return deployment.eula_path()
+    return str(eula_path(server_id or "unknown"))
 
 
 async def fetch_vanilla_versions() -> list[str]:
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(VANILLA_MANIFEST_URL, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with session.get(
+                VANILLA_MANIFEST_URL, timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp:
                 if resp.status != 200:
                     return []
                 data = await resp.json()
                 versions = data.get("versions", [])
                 return [v["id"] for v in versions if v["type"] == "release"]
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+    except (TimeoutError, aiohttp.ClientError, ValueError):
         return []
 
 
 async def fetch_paper_versions() -> list[str]:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                PAPER_PROJECT_URL, timeout=aiohttp.ClientTimeout(total=15)
-            ) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
-                groups = data.get("versions", {})
-                versions: list[str] = []
-                seen: set[str] = set()
-                for group in groups.values():
-                    for vid in group:
-                        if vid not in seen:
-                            seen.add(vid)
-                            versions.append(vid)
-                return versions
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(PAPER_PROJECT_URL, timeout=aiohttp.ClientTimeout(total=15)) as resp,
+        ):
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+            groups = data.get("versions", {})
+            versions: list[str] = []
+            seen: set[str] = set()
+            for group in groups.values():
+                for vid in group:
+                    if vid not in seen:
+                        seen.add(vid)
+                        versions.append(vid)
+            return versions
+    except (TimeoutError, aiohttp.ClientError, ValueError):
         return []
 
 
 async def fetch_purpur_versions() -> list[str]:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
                 "https://api.purpurmc.org/v2/purpur", timeout=aiohttp.ClientTimeout(total=15)
-            ) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
-                return data.get("versions", [])[::-1]
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+            ) as resp,
+        ):
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+            return data.get("versions", [])[::-1]
+    except (TimeoutError, aiohttp.ClientError, ValueError):
         return []
 
 
 async def fetch_fabric_versions() -> list[str]:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                "https://meta.fabricmc.net/v2/versions/game", timeout=aiohttp.ClientTimeout(total=15)
-            ) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
-                return [v["version"] for v in data if v.get("stable")]
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
+                "https://meta.fabricmc.net/v2/versions/game",
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp,
+        ):
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+            return [v["version"] for v in data if v.get("stable")]
+    except (TimeoutError, aiohttp.ClientError, ValueError):
         return []
 
 
@@ -293,16 +311,23 @@ async def _fetch_xml_with_retries(url: str, max_retries: int = JAR_MAX_RETRIES) 
         except Exception as exc:
             last_exc = exc
             if attempt < max_retries:
-                wait = 1.0 * (2 ** attempt)
+                wait = 1.0 * (2**attempt)
                 logger.warning(
                     "Metadata fetch attempt %d failed for %s (%s: %s), retrying in %.1fs",
-                    attempt + 1, url, type(exc).__name__, exc, wait,
+                    attempt + 1,
+                    url,
+                    type(exc).__name__,
+                    exc,
+                    wait,
                 )
                 await asyncio.sleep(wait)
                 continue
             logger.error(
                 "Metadata fetch permanently failed for %s (%s: %s) after %d attempts",
-                url, type(exc).__name__, exc, max_retries + 1,
+                url,
+                type(exc).__name__,
+                exc,
+                max_retries + 1,
             )
             raise MetadataFetchError(
                 detail=f"Failed to fetch metadata from {url}: {exc}",
@@ -426,7 +451,9 @@ class NeoForgeVersionEntry:
     version: str
 
 
-def _parse_neoforge_metadata(xml_text: str, *, is_forge_artifact: bool = False) -> list[NeoForgeVersionEntry]:
+def _parse_neoforge_metadata(
+    xml_text: str, *, is_forge_artifact: bool = False
+) -> list[NeoForgeVersionEntry]:
     entries: list[NeoForgeVersionEntry] = []
     for full in re.findall(r"<version>([^<]+)</version>", xml_text):
         if is_forge_artifact:
@@ -450,10 +477,7 @@ def _parse_neoforge_metadata(xml_text: str, *, is_forge_artifact: bool = False) 
             if maj >= 26:
                 mc = f"{maj}.{min_}"
             elif maj in (20, 21):
-                if maj == 21 and min_ == 0:
-                    mc = "1.21.0"
-                else:
-                    mc = f"1.{maj}.{min_}"
+                mc = "1.21.0" if maj == 21 and min_ == 0 else f"1.{maj}.{min_}"
             else:
                 continue
             entries.append(
@@ -475,7 +499,9 @@ async def _fetch_neoforge_metadata() -> list[NeoForgeVersionEntry]:
     except Exception as exc:
         logger.warning(
             "Failed to fetch secondary NeoForge Forge metadata from %s (%s: %s)",
-            NEOFORGE_FORGE_MAVEN_METADATA_URL, type(exc).__name__, exc,
+            NEOFORGE_FORGE_MAVEN_METADATA_URL,
+            type(exc).__name__,
+            exc,
         )
     return entries
 
@@ -574,9 +600,21 @@ def neoforge_installer_url(full_version: str) -> str:
 
 async def fetch_spigot_versions() -> list[str]:
     return [
-        "1.21.5", "1.21.4", "1.21.3", "1.21.1", "1.21",
-        "1.20.6", "1.20.4", "1.20.2", "1.20.1", "1.20",
-        "1.19.4", "1.19.3", "1.19.2", "1.19.1", "1.19",
+        "1.21.5",
+        "1.21.4",
+        "1.21.3",
+        "1.21.1",
+        "1.21",
+        "1.20.6",
+        "1.20.4",
+        "1.20.2",
+        "1.20.1",
+        "1.20",
+        "1.19.4",
+        "1.19.3",
+        "1.19.2",
+        "1.19.1",
+        "1.19",
     ]
 
 
@@ -616,11 +654,7 @@ def parse_server_dir_name(dirname: str) -> str | None:
     if re.match(r"^[0-9a-f]{32}$", dirname):
         return dirname
     parts = dirname.split("-")
-    if (
-        len(parts) > 1
-        and len(parts[-1]) == 8
-        and all(c in "0123456789abcdef" for c in parts[-1])
-    ):
+    if len(parts) > 1 and len(parts[-1]) == 8 and all(c in "0123456789abcdef" for c in parts[-1]):
         return parts[-1]
     return None
 
@@ -629,9 +663,6 @@ def _resolve_jar_dest(deployment: ServerDeployment | None, server_id: str | None
     if deployment and deployment.root_path:
         return deployment.jar_path()
     return str(jar_path(server_id or "unknown"))
-
-
-
 
 
 def _resolve_properties_dest(deployment: ServerDeployment | None, server_id: str | None) -> str:
@@ -664,9 +695,7 @@ def validate_jar(path: str, fs: FileSystem | None = None) -> None:
     except OSError as e:
         raise CorruptedDownloadError(path, f"cannot read: {e}") from e
     if header != _JAR_MAGIC:
-        raise CorruptedDownloadError(
-            path, f"invalid ZIP/JAR header: {header.hex()!r}"
-        )
+        raise CorruptedDownloadError(path, f"invalid ZIP/JAR header: {header.hex()!r}")
 
 
 async def download_server_jar(
@@ -691,7 +720,10 @@ async def download_server_jar(
             fs.ensure_dir(parent)
             logger.info(
                 "Server %s (%s %s) requires manual JAR installation at %s",
-                server_id, server_type, minecraft_version, dest,
+                server_id,
+                server_type,
+                minecraft_version,
+                dest,
             )
             return dest
 
@@ -703,8 +735,13 @@ async def download_server_jar(
             content = await _do_download(jar_url)
         except (DownloadError, DownloadTimeoutError) as e:
             if attempt < JAR_MAX_RETRIES:
-                wait = 1.0 * (2 ** attempt)
-                logger.warning("Download attempt %d failed for %s, retrying in %.1fs", attempt + 1, jar_url, wait)
+                wait = 1.0 * (2**attempt)
+                logger.warning(
+                    "Download attempt %d failed for %s, retrying in %.1fs",
+                    attempt + 1,
+                    jar_url,
+                    wait,
+                )
                 await asyncio.sleep(wait)
                 continue
             raise e
@@ -732,17 +769,25 @@ async def download_installer_jar(
     for attempt in range(JAR_MAX_RETRIES + 1):
         try:
             content = await _do_download(url)
-        except (DownloadError, DownloadTimeoutError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, DownloadError, DownloadTimeoutError) as exc:
             if attempt < JAR_MAX_RETRIES:
-                wait = 1.0 * (2 ** attempt)
+                wait = 1.0 * (2**attempt)
                 logger.warning(
                     "Download attempt %d failed for %s (%s: %s), retrying in %.1fs",
-                    attempt + 1, url, type(exc).__name__, exc, wait,
+                    attempt + 1,
+                    url,
+                    type(exc).__name__,
+                    exc,
+                    wait,
                 )
                 await asyncio.sleep(wait)
                 continue
-            logger.error("Download permanently failed for %s (%s: %s)", url, type(exc).__name__, exc)
-            raise InstallerDownloadError(detail=f"Download failed for {url}: {exc}", url=url) from exc
+            logger.error(
+                "Download permanently failed for %s (%s: %s)", url, type(exc).__name__, exc
+            )
+            raise InstallerDownloadError(
+                detail=f"Download failed for {url}: {exc}", url=url
+            ) from exc
         else:
             break
 
@@ -754,21 +799,23 @@ async def download_installer_jar(
 
 async def _do_download(url: str) -> bytes:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=JAR_DOWNLOAD_TIMEOUT),
-            ) as resp:
-                if resp.status != 200:
-                    raise DownloadError(url, resp.status)
-                buffer = bytearray()
-                while True:
-                    chunk = await resp.content.read(8192)
-                    if not chunk:
-                        break
-                    buffer.extend(chunk)
-                return bytes(buffer)
-    except asyncio.TimeoutError as e:
+            ) as resp,
+        ):
+            if resp.status != 200:
+                raise DownloadError(url, resp.status)
+            buffer = bytearray()
+            while True:
+                chunk = await resp.content.read(8192)
+                if not chunk:
+                    break
+                buffer.extend(chunk)
+            return bytes(buffer)
+    except TimeoutError as e:
         raise DownloadTimeoutError(url, JAR_DOWNLOAD_TIMEOUT) from e
     except aiohttp.ClientError as e:
         raise DownloadError(url, 0, str(e)) from e
@@ -804,7 +851,9 @@ async def _resolve_vanilla_url(version: str) -> str:
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 if resp.status != 200:
-                    raise DownloadError(VANILLA_MANIFEST_URL, resp.status, "cannot fetch version manifest")
+                    raise DownloadError(
+                        VANILLA_MANIFEST_URL, resp.status, "cannot fetch version manifest"
+                    )
                 data = await resp.json()
                 for entry in data.get("versions", []):
                     if entry["id"] == version:
@@ -814,13 +863,17 @@ async def _resolve_vanilla_url(version: str) -> str:
                             timeout=aiohttp.ClientTimeout(total=15),
                         ) as vresp:
                             if vresp.status != 200:
-                                raise DownloadError(version_url, vresp.status, "cannot fetch version metadata")
+                                raise DownloadError(
+                                    version_url, vresp.status, "cannot fetch version metadata"
+                                )
                             vdata = await vresp.json()
                             jar_hash = vdata.get("downloads", {}).get("server", {}).get("sha1")
                             if not jar_hash:
                                 raise VersionNotFoundError(version, "vanilla")
-                            return f"https://piston-data.mojang.com/v1/objects/{jar_hash}/server.jar"
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+                            return (
+                                f"https://piston-data.mojang.com/v1/objects/{jar_hash}/server.jar"
+                            )
+    except (TimeoutError, aiohttp.ClientError, ValueError) as e:
         raise DownloadError(VANILLA_MANIFEST_URL, 0, str(e)) from e
     raise VersionNotFoundError(version, "vanilla")
 
@@ -837,15 +890,12 @@ async def _resolve_paper_url(version: str) -> str:
                     raise VersionNotFoundError(version, "paper")
                 latest = builds[0]
                 downloads = latest.get("downloads", {})
-                download = (
-                    downloads.get("server:default")
-                    or next(iter(downloads.values()), None)
-                )
+                download = downloads.get("server:default") or next(iter(downloads.values()), None)
                 download_url = download.get("url") if download else None
                 if not download_url:
                     raise VersionNotFoundError(version, "paper")
                 return download_url
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+    except (TimeoutError, aiohttp.ClientError, ValueError) as e:
         raise DownloadError(url, 0, str(e)) from e
 
 
@@ -870,7 +920,7 @@ async def _resolve_fabric_url(version: str) -> str:
                     f"https://meta.fabricmc.net/v2/versions/loader/{version}"
                     f"/{loader_ver}/{installer_ver}/server/jar"
                 )
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+    except (TimeoutError, aiohttp.ClientError, ValueError) as e:
         raise DownloadError(url, 0, str(e)) from e
 
 
@@ -956,33 +1006,32 @@ def write_server_properties(
     name_val = props.get("server_name") or props.get("server-name") or props.get("name")
     if name_val:
         lines.append(f"server-name={name_val}")
-    lines.extend([
-        f"server-port={props.get('port', 25565)}",
-        f"motd={props.get('motd', 'A Minecraft Server')}",
-        f"max-players={props.get('max_players', 20)}",
-        f"gamemode={props.get('gamemode', 'survival')}",
-        f"difficulty={props.get('difficulty', 'easy')}",
-        f"spawn-protection={props.get('spawn_protection', 16)}",
-        f"pvp={str(props.get('pvp', True)).lower()}",
-        f"enable-command-block={str(props.get('enable_command_block', False)).lower()}",
-        f"online-mode={str(props.get('online_mode', True)).lower()}",
-        f"white-list={str(props.get('whitelist', False)).lower()}",
-        f"view-distance={props.get('view_distance', 10)}",
-        f"simulation-distance={props.get('simulation_distance', 10)}",
-        # Auto-enable RCON for metrics collection (TPS, player count)
-        "enable-rcon=true",
-        f"rcon.port={props.get('rcon_port', 25575)}",
-        f"rcon.password={props.get('rcon_password', _generate_rcon_password())}",
-        "",
-    ])
+    lines.extend(
+        [
+            f"server-port={props.get('port', 25565)}",
+            f"motd={props.get('motd', 'A Minecraft Server')}",
+            f"max-players={props.get('max_players', 20)}",
+            f"gamemode={props.get('gamemode', 'survival')}",
+            f"difficulty={props.get('difficulty', 'easy')}",
+            f"spawn-protection={props.get('spawn_protection', 16)}",
+            f"pvp={str(props.get('pvp', True)).lower()}",
+            f"enable-command-block={str(props.get('enable_command_block', False)).lower()}",
+            f"online-mode={str(props.get('online_mode', True)).lower()}",
+            f"white-list={str(props.get('whitelist', False)).lower()}",
+            f"view-distance={props.get('view_distance', 10)}",
+            f"simulation-distance={props.get('simulation_distance', 10)}",
+            # Auto-enable RCON for metrics collection (TPS, player count)
+            "enable-rcon=true",
+            f"rcon.port={props.get('rcon_port', 25575)}",
+            f"rcon.password={props.get('rcon_password', _generate_rcon_password())}",
+            "",
+        ]
+    )
     fs.write_text(dest, "\n".join(lines))
     return dest
 
 
 def _generate_rcon_password() -> str:
     """Generate a secure random RCON password."""
-    import secrets
-    import string
     alphabet = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(alphabet) for _ in range(32))
-
+    return "".join(secrets.choice(alphabet) for _ in range(32))

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -89,7 +89,7 @@ class RuntimeDiagnostics:
         import traceback
 
         d = cls(
-            failure_timestamp=datetime.now(timezone.utc).timestamp(),
+            failure_timestamp=datetime.now(UTC).timestamp(),
             provider=provider,
             runtime_handle=runtime_handle,
             pid=pid,

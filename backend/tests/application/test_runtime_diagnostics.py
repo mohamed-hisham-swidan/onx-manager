@@ -11,7 +11,7 @@ from app.modules.server.application.queries.get_runtime_diagnostics import (
     GetServerRuntimeDiagnosticsQuery,
 )
 from app.modules.server.application.supervisor import RuntimeSupervisor
-from app.modules.server.domain.aggregate import Server, ServerStatus
+from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.value_objects import (
     JavaArguments,
     MemoryAllocation,
@@ -51,14 +51,20 @@ class TestRuntimeDiagnosticsUptime:
         mock_supervisor.last_heartbeat = time.time()
         mock_supervisor.start_duration = 2.5
 
-        with patch.object(RuntimeSupervisor, "get_for", return_value=mock_supervisor), \
-             patch.object(RuntimeSupervisor, "is_supervised", return_value=True), \
-             patch("app.modules.server.application.runtime_ownership.RuntimeOwnershipManager") as mock_mgr:
+        with (
+            patch.object(RuntimeSupervisor, "get_for", return_value=mock_supervisor),
+            patch.object(RuntimeSupervisor, "is_supervised", return_value=True),
+            patch(
+                "app.modules.server.application.runtime_ownership.RuntimeOwnershipManager"
+            ) as mock_mgr,
+        ):
             mock_mgr.return_value.validate_runtime = AsyncMock(return_value=MagicMock(chain=[]))
             mock_mgr.return_value.detect_owner_conflicts = AsyncMock(return_value=[])
 
             handler = GetServerRuntimeDiagnosticsHandler()
-            result = await handler.handle(GetServerRuntimeDiagnosticsQuery(server_id="srv-diag-sup"))
+            result = await handler.handle(
+                GetServerRuntimeDiagnosticsQuery(server_id="srv-diag-sup")
+            )
 
         assert result.data["uptime_seconds"] == 123.45
         assert result.data["supervised"] is True
@@ -85,14 +91,20 @@ class TestRuntimeDiagnosticsUptime:
             await repo.save(server)
             await session.commit()
 
-        with patch.object(RuntimeSupervisor, "get_for", return_value=None), \
-             patch.object(RuntimeSupervisor, "is_supervised", return_value=False), \
-             patch("app.modules.server.application.runtime_ownership.RuntimeOwnershipManager") as mock_mgr:
+        with (
+            patch.object(RuntimeSupervisor, "get_for", return_value=None),
+            patch.object(RuntimeSupervisor, "is_supervised", return_value=False),
+            patch(
+                "app.modules.server.application.runtime_ownership.RuntimeOwnershipManager"
+            ) as mock_mgr,
+        ):
             mock_mgr.return_value.validate_runtime = AsyncMock(return_value=MagicMock(chain=[]))
             mock_mgr.return_value.detect_owner_conflicts = AsyncMock(return_value=[])
 
             handler = GetServerRuntimeDiagnosticsHandler()
-            result = await handler.handle(GetServerRuntimeDiagnosticsQuery(server_id="srv-diag-unsup"))
+            result = await handler.handle(
+                GetServerRuntimeDiagnosticsQuery(server_id="srv-diag-unsup")
+            )
 
         assert 48.0 <= result.data["uptime_seconds"] <= 55.0
         assert result.data["supervised"] is False
@@ -115,13 +127,19 @@ class TestRuntimeDiagnosticsUptime:
             await repo.save(server)
             await session.commit()
 
-        with patch.object(RuntimeSupervisor, "get_for", return_value=None), \
-             patch.object(RuntimeSupervisor, "is_supervised", return_value=False), \
-             patch("app.modules.server.application.runtime_ownership.RuntimeOwnershipManager") as mock_mgr:
+        with (
+            patch.object(RuntimeSupervisor, "get_for", return_value=None),
+            patch.object(RuntimeSupervisor, "is_supervised", return_value=False),
+            patch(
+                "app.modules.server.application.runtime_ownership.RuntimeOwnershipManager"
+            ) as mock_mgr,
+        ):
             mock_mgr.return_value.validate_runtime = AsyncMock(return_value=MagicMock(chain=[]))
             mock_mgr.return_value.detect_owner_conflicts = AsyncMock(return_value=[])
 
             handler = GetServerRuntimeDiagnosticsHandler()
-            result = await handler.handle(GetServerRuntimeDiagnosticsQuery(server_id="srv-diag-stopped"))
+            result = await handler.handle(
+                GetServerRuntimeDiagnosticsQuery(server_id="srv-diag-stopped")
+            )
 
         assert result.data["uptime_seconds"] == 0.0

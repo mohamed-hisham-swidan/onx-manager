@@ -1,10 +1,13 @@
 from typing import Any
+
 from fastapi import APIRouter, Body, Depends
 
 from app.api.deps import require_permission
 from app.core.settings_store import (
     RESTART_REQUIRED_FIELDS,
     get_live_settings,
+)
+from app.core.settings_store import (
     update_settings as update_settings_store,
 )
 from app.core.version import get_app_version
@@ -14,7 +17,7 @@ router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 @router.get("", response_model=dict)
 async def get_settings_endpoint(
-    current_user: dict = Depends(require_permission("settings:read")),
+    _current_user: dict = Depends(require_permission("settings:read")),
 ) -> dict:
     live = get_live_settings()
     return {
@@ -37,7 +40,7 @@ async def get_settings_endpoint(
 @router.patch("", response_model=dict)
 async def update_settings(
     body: dict[str, Any] = Body(...),
-    current_user: dict = Depends(require_permission("settings:write")),
+    _current_user: dict = Depends(require_permission("settings:write")),
 ) -> dict:
     live, restart_fields = update_settings_store(body)
 
@@ -45,11 +48,13 @@ async def update_settings(
     if "metrics_interval_seconds" in body:
         try:
             from app.websocket.endpoint import get_metrics_batcher
+
             batcher = get_metrics_batcher()
             if batcher:
                 batcher.set_window_seconds(live.metrics_interval_seconds)
 
             from app.tasks.scheduler import get_scheduler
+
             scheduler = get_scheduler()
             if scheduler:
                 await scheduler.update_job_expression(

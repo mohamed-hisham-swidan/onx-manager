@@ -16,7 +16,9 @@ class Identity:
 
     # On-disk identity directory & file (per-server)
     identity_dir_legacy: str = ".mcsmanager"  # OLD — read & write during transition
-    identity_dir_new: str = ".onx-manager"  # NEW — write alongside legacy; becomes primary after transition
+    identity_dir_new: str = (
+        ".onx-manager"  # NEW — write alongside legacy; becomes primary after transition
+    )
     identity_file: str = "server.json"
 
     # Identity document schema

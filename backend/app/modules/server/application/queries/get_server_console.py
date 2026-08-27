@@ -1,11 +1,10 @@
-from app.core.exceptions import ProviderError, ServerNotRunningError
+from app.core.exceptions import ProviderError
+from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.db import database
-
 
 RUNNING_STATUSES = {ServerStatus.RUNNING, ServerStatus.STARTING}
 
@@ -27,14 +26,20 @@ class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
             repo: ServerRepository = SQLServerRepository(session)
             server = await repo.get(ServerId(query.server_id))
 
-            if not server.runtime or not server.runtime.external_id or server.status not in RUNNING_STATUSES:
+            if (
+                not server.runtime
+                or not server.runtime.external_id
+                or server.status not in RUNNING_STATUSES
+            ):
                 # Server not running — return empty list (no crash log lines stored in RuntimeInfo)
                 return ConsoleReadModel(server_id=query.server_id, lines=[])
 
             provider_type = server.runtime.provider
             from app.modules.server.infrastructure.providers import provider_factory
+
             provider = provider_factory.get(provider_type)
             from app.modules.server.infrastructure.providers.base import ServerHandle
+
             handle = ServerHandle(
                 provider=provider_type,
                 server_id=str(server.id),
@@ -45,4 +50,3 @@ class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
             except ProviderError:
                 return ConsoleReadModel(server_id=query.server_id, lines=[])
             return ConsoleReadModel(server_id=query.server_id, lines=lines)
-

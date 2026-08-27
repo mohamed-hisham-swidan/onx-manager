@@ -26,4 +26,6 @@ class RevokeInviteHandler(CommandHandler[RevokeInviteCommand]):
             await repo.save(invitation)
             await uow.commit()
 
-        return CommandResult(success=True, data={"revoked": True, "invitation_id": command.invitation_id})
+        return CommandResult(
+            success=True, data={"revoked": True, "invitation_id": command.invitation_id}
+        )

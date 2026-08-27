@@ -24,9 +24,7 @@ from alembic import command
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _ALEMBIC_DIR = _BACKEND_DIR / "alembic"
-_MIGRATION_FILE = (
-    _ALEMBIC_DIR / "versions" / "b1e2100000002_add_panel_cloudflare_columns.py"
-)
+_MIGRATION_FILE = _ALEMBIC_DIR / "versions" / "b1e2100000002_add_panel_cloudflare_columns.py"
 
 _EXPECTED_PANEL_EXPOSURE_COLUMNS = {
     "cloudflare_tunnel_id",

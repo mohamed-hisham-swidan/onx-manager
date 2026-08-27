@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import AsyncIterator
 
 
 @dataclass(frozen=True)
@@ -26,32 +26,25 @@ class StorageResult:
 
 class StorageBackend(ABC):
     @abstractmethod
-    async def write(self, path: str, data: bytes) -> StorageResult:
-        ...
+    async def write(self, path: str, data: bytes) -> StorageResult: ...
 
     @abstractmethod
-    async def read(self, path: str) -> bytes:
-        ...
+    async def read(self, path: str) -> bytes: ...
 
     @abstractmethod
-    async def delete(self, path: str) -> bool:
-        ...
+    async def delete(self, path: str) -> bool: ...
 
     @abstractmethod
-    async def exists(self, path: str) -> bool:
-        ...
+    async def exists(self, path: str) -> bool: ...
 
     @abstractmethod
-    async def list_files(self, prefix: str) -> list[StorageFileInfo]:
-        ...
+    async def list_files(self, prefix: str) -> list[StorageFileInfo]: ...
 
     @abstractmethod
-    async def info(self, path: str) -> StorageFileInfo | None:
-        ...
+    async def info(self, path: str) -> StorageFileInfo | None: ...
 
     @abstractmethod
-    async def copy(self, source: str, destination: str) -> StorageResult:
-        ...
+    async def copy(self, source: str, destination: str) -> StorageResult: ...
 
     async def stream_read(self, path: str, chunk_size: int = 65536) -> AsyncIterator[bytes]:
         data = await self.read(path)

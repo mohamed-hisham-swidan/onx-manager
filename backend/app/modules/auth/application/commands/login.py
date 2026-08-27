@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import AuthenticationError, InvalidCredentialsError
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.security import verify_password
 from app.modules.auth.infrastructure.audit import AuditLogger
 from app.modules.auth.infrastructure.jwt import (
@@ -14,8 +15,6 @@ from app.modules.auth.infrastructure.jwt import (
 from app.modules.auth.infrastructure.models import RefreshTokenModel
 from app.modules.auth.infrastructure.permissions import PermissionEvaluator
 from app.modules.auth.infrastructure.repository import SQLUserRepository
-from app.modules.shared.value_objects import EmailAddress
-from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class LoginCommand(Command):
@@ -54,14 +53,14 @@ class LoginHandler(CommandHandler[LoginCommand]):
                 scope=scope,
             )
             refresh_token = create_refresh_token()
-            from app.core.security import hash_api_key
-
             from datetime import timedelta
+
+            from app.core.security import hash_api_key
 
             rt_model = RefreshTokenModel(
                 user_id=str(user.user_id),
                 token_hash=hash_api_key(refresh_token),
-                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+                expires_at=datetime.now(UTC) + timedelta(days=7),
             )
             uow.session.add(rt_model)
 
@@ -78,13 +77,16 @@ class LoginHandler(CommandHandler[LoginCommand]):
 
             await uow.commit()
 
-        return CommandResult(success=True, data={
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer",
-            "expires_in": 900,
-            "user_id": str(user.user_id),
-            "display_name": user.display_name,
-            "roles": [r.name for r in user.roles],
-            "permissions": user_perms,
-        })
+        return CommandResult(
+            success=True,
+            data={
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "bearer",
+                "expires_in": 900,
+                "user_id": str(user.user_id),
+                "display_name": user.display_name,
+                "roles": [r.name for r in user.roles],
+                "permissions": user_perms,
+            },
+        )

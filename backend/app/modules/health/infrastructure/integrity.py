@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 
 from app.core.config import AppSettings
@@ -47,20 +46,24 @@ class FilesystemIntegrityChecker(IntegrityChecker):
         srvd = _resolve_path(server_id, root_path)
 
         if srvd is None:
-            checks.append(IntegrityCheck(
-                check_name="server_directory",
-                severity="critical",
-                status="error",
-                detail=f"Server directory not found for {server_id}",
-            ))
+            checks.append(
+                IntegrityCheck(
+                    check_name="server_directory",
+                    severity="critical",
+                    status="error",
+                    detail=f"Server directory not found for {server_id}",
+                )
+            )
             return IntegrityReport(server_id=server_id, checks=checks, overall_status="fail")
 
-        checks.append(IntegrityCheck(
-            check_name="server_directory",
-            severity="critical",
-            status="pass",
-            detail=str(srvd),
-        ))
+        checks.append(
+            IntegrityCheck(
+                check_name="server_directory",
+                severity="critical",
+                status="pass",
+                detail=str(srvd),
+            )
+        )
 
         _check_jar(srvd, checks)
         _check_properties(srvd, checks)
@@ -86,19 +89,23 @@ def _check_jar(srvd: Path, checks: list[IntegrityCheck]) -> None:
         return
     server_jars = [f for f in jar_files if "server" in f.name.lower()]
     if server_jars:
-        checks.append(IntegrityCheck(
-            check_name="server_jar",
-            severity="critical",
-            status="pass",
-            detail=f"Found server jar: {server_jars[0].name}",
-        ))
+        checks.append(
+            IntegrityCheck(
+                check_name="server_jar",
+                severity="critical",
+                status="pass",
+                detail=f"Found server jar: {server_jars[0].name}",
+            )
+        )
     else:
-        checks.append(IntegrityCheck(
-            check_name="server_jar",
-            severity="warning",
-            status="warn",
-            detail=f"Found jar(s): {', '.join(f.name for f in jar_files[:3])} — none named 'server'",
-        ))
+        checks.append(
+            IntegrityCheck(
+                check_name="server_jar",
+                severity="warning",
+                status="warn",
+                detail=f"Found jar(s): {', '.join(f.name for f in jar_files[:3])} — none named 'server'",
+            )
+        )
 
 
 def _check_modern_forge_layout(srvd: Path, checks: list[IntegrityCheck]) -> None:
@@ -109,30 +116,36 @@ def _check_modern_forge_layout(srvd: Path, checks: list[IntegrityCheck]) -> None
     run_sh = srvd / "run.sh"
     libraries = srvd / "libraries"
     if run_sh.is_file() and libraries.is_dir():
-        checks.append(IntegrityCheck(
-            check_name="server_jar",
-            severity="critical",
-            status="pass",
-            detail="Forge-style install detected: run.sh + libraries/ (no top-level jar)",
-        ))
+        checks.append(
+            IntegrityCheck(
+                check_name="server_jar",
+                severity="critical",
+                status="pass",
+                detail="Forge-style install detected: run.sh + libraries/ (no top-level jar)",
+            )
+        )
     else:
-        checks.append(IntegrityCheck(
-            check_name="server_jar",
-            severity="critical",
-            status="fail",
-            detail="No .jar files and no run.sh + libraries/ layout found in server directory",
-        ))
+        checks.append(
+            IntegrityCheck(
+                check_name="server_jar",
+                severity="critical",
+                status="fail",
+                detail="No .jar files and no run.sh + libraries/ layout found in server directory",
+            )
+        )
 
 
 def _check_properties(srvd: Path, checks: list[IntegrityCheck]) -> None:
     props_path = srvd / "server.properties"
     if not props_path.is_file():
-        checks.append(IntegrityCheck(
-            check_name="server_properties",
-            severity="critical",
-            status="fail",
-            detail="server.properties not found",
-        ))
+        checks.append(
+            IntegrityCheck(
+                check_name="server_properties",
+                severity="critical",
+                status="fail",
+                detail="server.properties not found",
+            )
+        )
         return
 
     try:
@@ -140,60 +153,74 @@ def _check_properties(srvd: Path, checks: list[IntegrityCheck]) -> None:
         required_keys = ["server-port", "level-name", "gamemode"]
         missing = [k for k in required_keys if f"{k}=" not in content]
         if missing:
-            checks.append(IntegrityCheck(
-                check_name="server_properties",
-                severity="warning",
-                status="warn",
-                detail=f"Missing keys: {', '.join(missing)}",
-            ))
+            checks.append(
+                IntegrityCheck(
+                    check_name="server_properties",
+                    severity="warning",
+                    status="warn",
+                    detail=f"Missing keys: {', '.join(missing)}",
+                )
+            )
         else:
-            checks.append(IntegrityCheck(
+            checks.append(
+                IntegrityCheck(
+                    check_name="server_properties",
+                    severity="critical",
+                    status="pass",
+                )
+            )
+    except (FileNotFoundError, PermissionError) as exc:
+        checks.append(
+            IntegrityCheck(
                 check_name="server_properties",
                 severity="critical",
-                status="pass",
-            ))
-    except (FileNotFoundError, PermissionError) as exc:
-        checks.append(IntegrityCheck(
-            check_name="server_properties",
-            severity="critical",
-            status="error",
-            detail=str(exc),
-        ))
+                status="error",
+                detail=str(exc),
+            )
+        )
 
 
 def _check_eula(srvd: Path, checks: list[IntegrityCheck]) -> None:
     eula_path = srvd / "eula.txt"
     if not eula_path.is_file():
-        checks.append(IntegrityCheck(
-            check_name="eula",
-            severity="warning",
-            status="warn",
-            detail="eula.txt not found — server may prompt on first start",
-        ))
+        checks.append(
+            IntegrityCheck(
+                check_name="eula",
+                severity="warning",
+                status="warn",
+                detail="eula.txt not found — server may prompt on first start",
+            )
+        )
         return
     try:
         content = eula_path.read_text(encoding="utf-8", errors="replace")
         if "eula=true" in content:
-            checks.append(IntegrityCheck(
-                check_name="eula",
-                severity="warning",
-                status="pass",
-                detail="EULA accepted",
-            ))
+            checks.append(
+                IntegrityCheck(
+                    check_name="eula",
+                    severity="warning",
+                    status="pass",
+                    detail="EULA accepted",
+                )
+            )
         else:
-            checks.append(IntegrityCheck(
+            checks.append(
+                IntegrityCheck(
+                    check_name="eula",
+                    severity="warning",
+                    status="warn",
+                    detail="EULA not accepted (eula=false or not set)",
+                )
+            )
+    except (FileNotFoundError, PermissionError) as exc:
+        checks.append(
+            IntegrityCheck(
                 check_name="eula",
                 severity="warning",
-                status="warn",
-                detail="EULA not accepted (eula=false or not set)",
-            ))
-    except (FileNotFoundError, PermissionError) as exc:
-        checks.append(IntegrityCheck(
-            check_name="eula",
-            severity="warning",
-            status="error",
-            detail=str(exc),
-        ))
+                status="error",
+                detail=str(exc),
+            )
+        )
 
 
 def _check_world(srvd: Path, checks: list[IntegrityCheck]) -> None:
@@ -212,62 +239,77 @@ def _check_world(srvd: Path, checks: list[IntegrityCheck]) -> None:
     if world_dir.is_dir():
         level_dat = world_dir / "level.dat"
         if level_dat.is_file():
-            checks.append(IntegrityCheck(
-                check_name="world_data",
-                severity="warning",
-                status="pass",
-                detail=f"World '{level_name}' found with level.dat",
-            ))
+            checks.append(
+                IntegrityCheck(
+                    check_name="world_data",
+                    severity="warning",
+                    status="pass",
+                    detail=f"World '{level_name}' found with level.dat",
+                )
+            )
         else:
-            checks.append(IntegrityCheck(
-                check_name="world_data",
-                severity="warning",
-                status="warn",
-                detail=f"World directory '{level_name}' exists but missing level.dat",
-            ))
+            checks.append(
+                IntegrityCheck(
+                    check_name="world_data",
+                    severity="warning",
+                    status="warn",
+                    detail=f"World directory '{level_name}' exists but missing level.dat",
+                )
+            )
     else:
-        checks.append(IntegrityCheck(
-            check_name="world_data",
-            severity="info",
-            status="pass",
-            detail="No world directory yet (first start pending)",
-        ))
+        checks.append(
+            IntegrityCheck(
+                check_name="world_data",
+                severity="info",
+                status="pass",
+                detail="No world directory yet (first start pending)",
+            )
+        )
 
 
 def _check_disk_space(srvd: Path, checks: list[IntegrityCheck]) -> None:
     try:
         stat = srvd.stat()
         import shutil
+
         usage = shutil.disk_usage(srvd.anchor if srvd.anchor else srvd.root)
-        free_gb = usage.free / (1024 ** 3)
+        free_gb = usage.free / (1024**3)
         if free_gb < 1:
-            checks.append(IntegrityCheck(
-                check_name="disk_space",
-                severity="critical",
-                status="fail",
-                detail=f"Only {free_gb:.1f} GB free on {srvd.anchor}",
-            ))
+            checks.append(
+                IntegrityCheck(
+                    check_name="disk_space",
+                    severity="critical",
+                    status="fail",
+                    detail=f"Only {free_gb:.1f} GB free on {srvd.anchor}",
+                )
+            )
         elif free_gb < 5:
-            checks.append(IntegrityCheck(
+            checks.append(
+                IntegrityCheck(
+                    check_name="disk_space",
+                    severity="warning",
+                    status="warn",
+                    detail=f"Low disk space: {free_gb:.1f} GB free on {srvd.anchor}",
+                )
+            )
+        else:
+            checks.append(
+                IntegrityCheck(
+                    check_name="disk_space",
+                    severity="info",
+                    status="pass",
+                    detail=f"{free_gb:.1f} GB free on disk",
+                )
+            )
+    except (FileNotFoundError, PermissionError, OSError) as exc:
+        checks.append(
+            IntegrityCheck(
                 check_name="disk_space",
                 severity="warning",
-                status="warn",
-                detail=f"Low disk space: {free_gb:.1f} GB free on {srvd.anchor}",
-            ))
-        else:
-            checks.append(IntegrityCheck(
-                check_name="disk_space",
-                severity="info",
-                status="pass",
-                detail=f"{free_gb:.1f} GB free on disk",
-            ))
-    except (FileNotFoundError, PermissionError, OSError) as exc:
-        checks.append(IntegrityCheck(
-            check_name="disk_space",
-            severity="warning",
-            status="error",
-            detail=str(exc),
-        ))
+                status="error",
+                detail=str(exc),
+            )
+        )
 
 
 def _compute_overall(checks: list[IntegrityCheck]) -> str:

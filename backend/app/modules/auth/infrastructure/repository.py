@@ -1,13 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.modules.auth.domain.aggregate import AccessMode, ApiKey, Invitation, InviteStatus, Role, SystemState, User
-from app.modules.auth.infrastructure.models import ApiKeyModel, InvitationModel, RoleModel, SystemStateModel, UserModel
+from app.modules.auth.domain.aggregate import (
+    AccessMode,
+    ApiKey,
+    Invitation,
+    InviteStatus,
+    Role,
+    SystemState,
+    User,
+)
+from app.modules.auth.infrastructure.models import (
+    ApiKeyModel,
+    InvitationModel,
+    RoleModel,
+    SystemStateModel,
+    UserModel,
+)
 from app.modules.shared.value_objects import ApiKeyId, EmailAddress, Permission, RoleId, UserId
 
 
@@ -19,6 +31,7 @@ class SQLUserRepository:
         model = await self._session.get(UserModel, str(user_id))
         if model is None:
             from app.core.exceptions import NotFoundError
+
             raise NotFoundError(f"User '{user_id}' not found")
         return await self._model_to_domain_user(model)
 
@@ -39,7 +52,11 @@ class SQLUserRepository:
         return users
 
     async def save(self, user: User) -> None:
-        stmt = select(UserModel).where(UserModel.id == str(user.user_id)).options(selectinload(UserModel.roles))
+        stmt = (
+            select(UserModel)
+            .where(UserModel.id == str(user.user_id))
+            .options(selectinload(UserModel.roles))
+        )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         if model is None:
@@ -107,6 +124,7 @@ class SQLUserRepository:
 
     async def count_users(self) -> int:
         from sqlalchemy import func
+
         stmt = select(func.count(UserModel.id))
         result = await self._session.execute(stmt)
         return result.scalar() or 0
@@ -206,7 +224,9 @@ class SQLSystemStateRepository:
 
         model.initialized = system_state.initialized
         model.access_mode = str(
-            system_state.access_mode.value if isinstance(system_state.access_mode, AccessMode) else system_state.access_mode
+            system_state.access_mode.value
+            if isinstance(system_state.access_mode, AccessMode)
+            else system_state.access_mode
         )
         await self._session.flush()
 
@@ -256,7 +276,11 @@ class SQLInvitationRepository:
         model.global_role = invitation.global_role
         model.server_id = invitation.server_id
         model.server_role = invitation.server_role
-        model.status = str(invitation.status.value if isinstance(invitation.status, InviteStatus) else invitation.status)
+        model.status = str(
+            invitation.status.value
+            if isinstance(invitation.status, InviteStatus)
+            else invitation.status
+        )
         model.max_uses = invitation.max_uses
         model.use_count = invitation.use_count
         model.expires_at = invitation.expires_at
@@ -277,7 +301,9 @@ class SQLInvitationRepository:
 
         domain.consume()
         model.use_count = domain.use_count
-        model.status = str(domain.status.value if isinstance(domain.status, InviteStatus) else domain.status)
+        model.status = str(
+            domain.status.value if isinstance(domain.status, InviteStatus) else domain.status
+        )
         model.used_at = domain.used_at
         await self._session.flush()
         return True

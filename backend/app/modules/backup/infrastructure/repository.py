@@ -23,6 +23,7 @@ class SQLBackupRepository(BackupRepository):
         model = await self._session.get(BackupJobModel, str(backup_id))
         if model is None:
             from app.core.exceptions import NotFoundError
+
             raise NotFoundError(f"Backup job '{backup_id}' not found")
         return self._job_model_to_domain(model)
 

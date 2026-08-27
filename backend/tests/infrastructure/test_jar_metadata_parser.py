@@ -1,5 +1,4 @@
 import zipfile
-import pytest
 
 from app.modules.plugin.infrastructure.jar_metadata_parser import parse_jar_version
 
@@ -55,10 +54,13 @@ modId = "testmod"
 version = "${file.jarVersion}"
 """
     manifest_content = "Manifest-Version: 1.0\nImplementation-Version: 3.4.5\n"
-    _create_jar(jar, {
-        "META-INF/mods.toml": toml_content,
-        "META-INF/MANIFEST.MF": manifest_content,
-    })
+    _create_jar(
+        jar,
+        {
+            "META-INF/mods.toml": toml_content,
+            "META-INF/MANIFEST.MF": manifest_content,
+        },
+    )
     assert parse_jar_version(str(jar)) == "3.4.5"
 
 

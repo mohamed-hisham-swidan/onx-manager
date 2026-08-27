@@ -76,27 +76,27 @@ async def mcs_error_handler(request: Request, exc: MCSError) -> JSONResponse:
     )
 
 
-async def validation_error_handler(request: Request, exc: ValidationError) -> JSONResponse:
+async def validation_error_handler(_request: Request, exc: ValidationError) -> JSONResponse:
     return _error_response(status=422, error=exc.message, code=exc.code, detail=exc.details)
 
 
-async def authentication_error_handler(request: Request, exc: AuthenticationError) -> JSONResponse:
+async def authentication_error_handler(_request: Request, exc: AuthenticationError) -> JSONResponse:
     return _error_response(status=401, error=exc.message, code=exc.code)
 
 
-async def permission_denied_handler(request: Request, exc: PermissionDenied) -> JSONResponse:
+async def permission_denied_handler(_request: Request, exc: PermissionDenied) -> JSONResponse:
     return _error_response(status=403, error=exc.message, code=exc.code)
 
 
-async def not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
+async def not_found_handler(_request: Request, exc: NotFoundError) -> JSONResponse:
     return _error_response(status=404, error=exc.message, code=exc.code)
 
 
-async def conflict_error_handler(request: Request, exc: ConflictError) -> JSONResponse:
+async def conflict_error_handler(_request: Request, exc: ConflictError) -> JSONResponse:
     return _error_response(status=409, error=exc.message, code=exc.code)
 
 
-async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+async def rate_limit_handler(_request: Request, exc: RateLimitExceeded) -> JSONResponse:
     retry_after = exc.details.get("retry_after", 60) if exc.details else 60
     return JSONResponse(
         status_code=429,
@@ -120,7 +120,7 @@ async def internal_error_handler(request: Request, exc: InternalError) -> JSONRe
     return _error_response(status=500, error=exc.message, code=exc.code)
 
 
-async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+async def unhandled_error_handler(request: Request, _exc: Exception) -> JSONResponse:
     logger.exception("Unhandled exception: path=%s", request.url.path)
     return _error_response(status=500, error="Internal server error", code="INTERNAL_ERROR")
 

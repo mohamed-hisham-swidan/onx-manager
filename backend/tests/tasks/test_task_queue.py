@@ -1,11 +1,8 @@
 import asyncio
-import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.tasks.base import TaskQueue, TaskStatus
 from app.tasks.queue import InProcessQueue, TaskModel
@@ -16,13 +13,13 @@ class FakeSession:
         self._store: dict[str, object] = {}
         self._committed = False
 
-    async def get(self, model_class: type, pk: object) -> object | None:
+    async def get(self, _model_class: type, pk: object) -> object | None:
         for obj in self._store.values():
             if getattr(obj, "task_id", None) == pk:
                 return obj
         return None
 
-    async def execute(self, stmt: object) -> MagicMock:
+    async def execute(self, _stmt: object) -> MagicMock:
         result = MagicMock()
         result.scalars.return_value.all.return_value = list(self._store.values())
         return result
@@ -94,16 +91,16 @@ async def test_cancel_nonexistent_task() -> None:
 @pytest.mark.asyncio
 async def test_interface_contract() -> None:
     class TestQueue(TaskQueue):
-        async def enqueue(self, name: str, params: dict | None = None, delay: int = 0) -> str:
+        async def enqueue(self, _name: str, _params: dict | None = None, _delay: int = 0) -> str:
             return "tid"
 
-        async def cancel(self, task_id: str) -> bool:
+        async def cancel(self, _task_id: str) -> bool:
             return True
 
-        async def get_status(self, task_id: str) -> TaskStatus:
+        async def get_status(self, _task_id: str) -> TaskStatus:
             return TaskStatus.PENDING
 
-        async def get_result(self, task_id: str) -> object:
+        async def get_result(self, _task_id: str) -> object:
             return None
 
     queue = TestQueue()

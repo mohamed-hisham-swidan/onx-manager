@@ -27,7 +27,11 @@ class InMemoryRateLimitStore:
             return
         self._last_cleanup = now
         cutoff = now - window_seconds
-        self._hits = {k: [t for t in v if t > cutoff] for k, v in self._hits.items() if any(t > cutoff for t in v)}
+        self._hits = {
+            k: [t for t in v if t > cutoff]
+            for k, v in self._hits.items()
+            if any(t > cutoff for t in v)
+        }
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -41,7 +45,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """Hot-reload: update the rate limit without a restart."""
         self._max_requests = max_requests
 
-
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         client_ip = request.client.host if request.client else "unknown"
         key = f"{client_ip}:{request.url.path}"
@@ -49,6 +52,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         max_requests = self._max_requests
         try:
             from app.core.settings_store import get_live_settings
+
             max_requests = get_live_settings().rate_limit_per_minute
         except RuntimeError:
             pass

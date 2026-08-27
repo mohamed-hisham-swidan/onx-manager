@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +39,7 @@ async def _resolve_api_key(token: str, db: AsyncSession) -> dict:
         from app.core.exceptions import AuthenticationError
 
         raise AuthenticationError("API key is revoked")
-    if api_key_model.expires_at and api_key_model.expires_at < datetime.now(timezone.utc):
+    if api_key_model.expires_at and api_key_model.expires_at < datetime.now(UTC):
         from app.core.exceptions import AuthenticationError
 
         raise AuthenticationError("API key has expired")

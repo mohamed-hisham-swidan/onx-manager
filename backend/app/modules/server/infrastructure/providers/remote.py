@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import tempfile
+import contextlib
 from typing import Any
 
 from app.core.exceptions import ProviderError
@@ -59,7 +58,9 @@ class SSHProvider(ServerProvider):
 
         mkdir_result = await conn.run(f"mkdir -p {server_dir}", check=False)
         if mkdir_result.returncode != 0:
-            raise ProviderError("ssh", "start", f"Failed to create server dir: {mkdir_result.stderr}")
+            raise ProviderError(
+                "ssh", "start", f"Failed to create server dir: {mkdir_result.stderr}"
+            )
 
         start_cmd = (
             f"cd {server_dir} && java {jvm_args} "
@@ -67,9 +68,7 @@ class SSHProvider(ServerProvider):
             f"-jar {jar_path} nogui"
         )
 
-        tmux_cmd = (
-            f"tmux new-session -d -s {session_name} '{start_cmd}'"
-        )
+        tmux_cmd = f"tmux new-session -d -s {session_name} '{start_cmd}'"
 
         result = await conn.run(tmux_cmd, check=False)
         if result.returncode != 0:
@@ -186,16 +185,12 @@ class SSHProvider(ServerProvider):
 
     async def _get_connection(self) -> Any:
         if self._connection is not None:
-            try:
+            with contextlib.suppress(Exception):
                 result = await self._connection.run("echo ping", check=False)
                 if result.returncode == 0:
                     return self._connection
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 self._connection.close()
-            except Exception:
-                pass
             self._connection = None
 
         kwargs: dict[str, Any] = {
@@ -209,8 +204,8 @@ class SSHProvider(ServerProvider):
 
         try:
             import asyncssh
-        except ImportError:
-            raise ProviderError("ssh", "connect", "asyncssh is not installed")
+        except ImportError as e:
+            raise ProviderError("ssh", "connect", "asyncssh is not installed") from e
 
         self._connection = await asyncssh.connect(**kwargs)
         return self._connection
@@ -229,9 +224,11 @@ class SSHProvider(ServerProvider):
     ) -> None:
         conn = await self._get_connection()
         try:
+            import asyncssh
+
             await asyncssh.scp(local_path, (conn, remote_path))
         except Exception as e:
-            raise ProviderError("ssh", "upload", str(e))
+            raise ProviderError("ssh", "upload", str(e)) from e
 
     async def download_file(
         self,
@@ -241,6 +238,8 @@ class SSHProvider(ServerProvider):
     ) -> None:
         conn = await self._get_connection()
         try:
+            import asyncssh
+
             await asyncssh.scp((conn, remote_path), local_path)
         except Exception as e:
-            raise ProviderError("ssh", "download", str(e))
+            raise ProviderError("ssh", "download", str(e)) from e

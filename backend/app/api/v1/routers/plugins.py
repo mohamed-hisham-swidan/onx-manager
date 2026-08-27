@@ -57,7 +57,7 @@ async def list_plugins(
     server_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ) -> list[PluginResponse]:
     await command_bus.send(ReconcilePluginsCommand(server_id=server_id))
     q = ListPluginsQuery(server_id=server_id)
@@ -67,13 +67,13 @@ async def list_plugins(
 
 @router.get("/marketplace/search", response_model=PluginSearchResultsResponse)
 async def search_marketplace(
-    server_id: str,
+    server_id: str,  # noqa: ARG001 - path parameter in route prefix
     query: str = Query(default="", max_length=100),
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
     project_type: str = Query(default="plugin"),
     loader: str = Query(default="", max_length=50),
-    current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginSearchResultsResponse:
     provider = build_plugin_catalog_provider()
     page = await provider.search(
@@ -98,7 +98,7 @@ async def get_project_versions(
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginVersionsResponse:
     server = await query_bus.ask(GetServerQuery(server_id=server_id))
     provider = build_plugin_catalog_provider()
@@ -122,7 +122,7 @@ async def get_project_versions(
 
     return PluginVersionsResponse(
         project_id=project_id,
-        versions=versions_response[offset:offset + limit],
+        versions=versions_response[offset : offset + limit],
         selected=selected,
         notice=notice,
         notice_kind=notice_kind,
@@ -135,7 +135,7 @@ async def install_from_marketplace(
     server_id: str,
     body: InstallModrinthPluginRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> InstallModrinthPluginResponse:
     cmd = InstallModrinthPluginCommand(
         server_id=server_id,
@@ -150,10 +150,10 @@ async def install_from_marketplace(
 
 @router.get("/{plugin_id}", response_model=PluginResponse)
 async def get_plugin(
-    server_id: str,
+    server_id: str,  # noqa: ARG001 - path parameter in route prefix
     plugin_id: str,
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ) -> PluginResponse:
     result = await query_bus.ask(GetPluginQuery(plugin_id=plugin_id))
     return PluginResponse(**result.__dict__)
@@ -161,10 +161,10 @@ async def get_plugin(
 
 @router.delete("/{plugin_id}", status_code=204)
 async def uninstall_plugin(
-    server_id: str,
+    server_id: str,  # noqa: ARG001 - path parameter in route prefix
     plugin_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> None:
     cmd = UninstallPluginCommand(plugin_id=plugin_id)
     result = await command_bus.send(cmd)
@@ -173,10 +173,10 @@ async def uninstall_plugin(
 
 @router.post("/{plugin_id}/enable", response_model=dict)
 async def enable_plugin(
-    server_id: str,
+    server_id: str,  # noqa: ARG001 - path parameter in route prefix
     plugin_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> dict:
     cmd = EnablePluginCommand(plugin_id=plugin_id)
     result = await command_bus.send(cmd)
@@ -185,10 +185,10 @@ async def enable_plugin(
 
 @router.post("/{plugin_id}/disable", response_model=dict)
 async def disable_plugin(
-    server_id: str,
+    server_id: str,  # noqa: ARG001 - path parameter in route prefix
     plugin_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> dict:
     cmd = DisablePluginCommand(plugin_id=plugin_id)
     result = await command_bus.send(cmd)

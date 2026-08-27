@@ -39,9 +39,7 @@ async def test_ws_console_viewer_can_subscribe(ws_client: TestClient) -> None:
     with ws_client.websocket_connect(f"/ws?token={token}") as ws:
         ws.send_text('{"type": "subscribe", "channels": ["server:s01:console"]}')
 
-        subs = ws_client.portal.call(
-            ws_endpoint._registry.get_by_channel, "server:s01:console"
-        )
+        subs = ws_client.portal.call(ws_endpoint._registry.get_by_channel, "server:s01:console")
         assert len(subs) == 1, "viewer with server:read must be subscribed to console channel"
 
 
@@ -54,9 +52,7 @@ async def test_ws_console_writer_without_read_denied(ws_client: TestClient) -> N
         msg = ws.receive_bytes()
         assert b"PERMISSION_DENIED" in msg
 
-        subs = ws_client.portal.call(
-            ws_endpoint._registry.get_by_channel, "server:s01:console"
-        )
+        subs = ws_client.portal.call(ws_endpoint._registry.get_by_channel, "server:s01:console")
         assert len(subs) == 0, "writer without server:read must not be subscribed"
 
 
@@ -69,9 +65,7 @@ async def test_ws_console_unrelated_permission_denied(ws_client: TestClient) -> 
         msg = ws.receive_bytes()
         assert b"PERMISSION_DENIED" in msg
 
-        subs = ws_client.portal.call(
-            ws_endpoint._registry.get_by_channel, "server:s01:console"
-        )
+        subs = ws_client.portal.call(ws_endpoint._registry.get_by_channel, "server:s01:console")
         assert len(subs) == 0
 
 

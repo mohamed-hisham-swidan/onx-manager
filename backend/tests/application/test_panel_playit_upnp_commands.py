@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,7 +16,7 @@ from app.core.persistence.base import Base
 from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.settings_store import get_live_settings, init_settings_store
-from app.modules.auth.domain.aggregate import AccessMode, SystemState
+from app.modules.auth.domain.aggregate import AccessMode
 from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
 from app.modules.exposure.application.commands import (
     SetPanelExposureCommand,
@@ -39,7 +38,6 @@ from app.modules.exposure.infrastructure.repository import (
 )
 from app.modules.exposure.infrastructure.upnp import UPnPResult
 from app.modules.storage.encryption import build_backup_encryption
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -137,7 +135,6 @@ class TestPlayitHttpPanelExposure:
             assert data["protocol"] == "http"
             sup.start.assert_awaited_once()
             assert sup.start.await_args[0][0] == b"existing-playit-secret"
-
 
     async def test_enable_playit_http_when_unclaimed(self) -> None:
         handler = SetPanelExposureHandler(EventBus())

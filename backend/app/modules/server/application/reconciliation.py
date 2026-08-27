@@ -2,22 +2,27 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 
-from app.modules.server.application.services.jar_service import server_dir_name
-from app.modules.server.domain.aggregate import Server, ServerStatus
-from app.modules.server.domain.repository import ServerRepository, ServerFilters
-from app.modules.server.infrastructure.fs import local_fs
 from app.core.identity import IDENTITY
+from app.modules.server.application.services.jar_service import server_dir_name
+from app.modules.server.domain.aggregate import ServerStatus
+from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.providers import provider_factory
-from app.modules.server.infrastructure.providers.base import ServerHandle, ServerProvider, ServerRuntimeStatus
-from app.modules.shared.value_objects import ServerId
+from app.modules.server.infrastructure.providers.base import (
+    ServerHandle,
+    ServerProvider,
+    ServerRuntimeStatus,
+)
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.reconciliation")
 
+
 def _servers_data_dir() -> str:
     from app.core.config import AppSettings
+
     return AppSettings().servers_data_dir
+
 
 SERVERS_DATA_DIR = _servers_data_dir()
 
@@ -27,7 +32,9 @@ async def reconcile_filesystem(repo: ServerRepository) -> list[dict]:
     data_dir = os.path.abspath(SERVERS_DATA_DIR)
 
     if not os.path.isdir(data_dir):
-        logger.info("Servers data directory %s does not exist — skipping fs reconciliation", data_dir)
+        logger.info(
+            "Servers data directory %s does not exist — skipping fs reconciliation", data_dir
+        )
         return results
 
     try:
@@ -51,11 +58,13 @@ async def reconcile_filesystem(repo: ServerRepository) -> list[dict]:
             continue
         orphan_count += 1
         logger.warning("Orphan directory detected: %s (no matching DB record)", entry_path)
-        results.append({
-            "path": entry_path,
-            "server_id": entry,
-            "action": "pending",
-        })
+        results.append(
+            {
+                "path": entry_path,
+                "server_id": entry,
+                "action": "pending",
+            }
+        )
 
     logger.info(
         "Filesystem reconciliation complete: %d orphan directories found",
@@ -108,7 +117,11 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
             provider_type = server.runtime.provider if server.runtime else "local"
             provider = provider_factory.get(provider_type)
 
-            ext_id = server.runtime.external_id if (server.runtime and server.runtime.external_id) else f"{IDENTITY.temp_prefix_new}{sid}"
+            ext_id = (
+                server.runtime.external_id
+                if (server.runtime and server.runtime.external_id)
+                else f"{IDENTITY.temp_prefix_new}{sid}"
+            )
             handle = ServerHandle(
                 provider=provider_type,
                 server_id=sid,
@@ -126,13 +139,11 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
 
             if server.status == ServerStatus.PROVISIONING:
                 logger.info(
-                    'Server %s was PROVISIONING — marking BROKEN (incomplete install)',
+                    "Server %s was PROVISIONING — marking BROKEN (incomplete install)",
                     label,
                 )
                 provisioning_dir = (
-                    server.deployment.server_directory()
-                    if server.deployment is not None
-                    else None
+                    server.deployment.server_directory() if server.deployment is not None else None
                 )
                 if provisioning_dir:
                     try:
@@ -147,18 +158,20 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
                     fatal=True,
                 )
                 await repo.save(server)
-                results.append({
-                    "server_id": sid,
-                    "old_status": old_status,
-                    "new_status": "broken",
-                    "action": "repaired",
-                    "reason": "stale PROVISIONING state — backend restarted mid-install",
-                })
+                results.append(
+                    {
+                        "server_id": sid,
+                        "old_status": old_status,
+                        "new_status": "broken",
+                        "action": "repaired",
+                        "reason": "stale PROVISIONING state — backend restarted mid-install",
+                    }
+                )
 
             elif server.status == ServerStatus.STARTING:
                 if status == ServerRuntimeStatus.RUNNING:
                     logger.info(
-                        'Server %s was STARTING but found RUNNING — updating',
+                        "Server %s was STARTING but found RUNNING — updating",
                         label,
                     )
                     server.mark_running(
@@ -168,15 +181,17 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
                         external_id=server.runtime.external_id,
                     )
                     await repo.save(server)
-                    results.append({
-                        "server_id": sid,
-                        "old_status": old_status,
-                        "new_status": "running",
-                        "action": "corrected",
-                    })
+                    results.append(
+                        {
+                            "server_id": sid,
+                            "old_status": old_status,
+                            "new_status": "running",
+                            "action": "corrected",
+                        }
+                    )
                 else:
                     logger.info(
-                        'Server %s was STARTING but no runtime — marking CRASHED',
+                        "Server %s was STARTING but no runtime — marking CRASHED",
                         label,
                     )
                     server.crash(
@@ -186,26 +201,30 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
                         ],
                     )
                     await repo.save(server)
-                    results.append({
-                        "server_id": sid,
-                        "old_status": old_status,
-                        "new_status": "crashed",
-                        "action": "repaired",
-                        "reason": "stale STARTING state — no runtime process detected",
-                    })
+                    results.append(
+                        {
+                            "server_id": sid,
+                            "old_status": old_status,
+                            "new_status": "crashed",
+                            "action": "repaired",
+                            "reason": "stale STARTING state — no runtime process detected",
+                        }
+                    )
 
             elif server.status == ServerStatus.RUNNING:
                 if status == ServerRuntimeStatus.RUNNING:
-                    logger.info('Server %s confirmed RUNNING during reconciliation', label)
-                    results.append({
-                        "server_id": sid,
-                        "old_status": old_status,
-                        "new_status": "running",
-                        "action": "confirmed",
-                    })
+                    logger.info("Server %s confirmed RUNNING during reconciliation", label)
+                    results.append(
+                        {
+                            "server_id": sid,
+                            "old_status": old_status,
+                            "new_status": "running",
+                            "action": "confirmed",
+                        }
+                    )
                 else:
                     logger.info(
-                        'Server %s was RUNNING but no runtime — marking CRASHED',
+                        "Server %s was RUNNING but no runtime — marking CRASHED",
                         label,
                     )
                     server.crash(
@@ -215,18 +234,20 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
                         ],
                     )
                     await repo.save(server)
-                    results.append({
-                        "server_id": sid,
-                        "old_status": old_status,
-                        "new_status": "crashed",
-                        "action": "repaired",
-                        "reason": "stale RUNNING state — no runtime process detected",
-                    })
+                    results.append(
+                        {
+                            "server_id": sid,
+                            "old_status": old_status,
+                            "new_status": "crashed",
+                            "action": "repaired",
+                            "reason": "stale RUNNING state — no runtime process detected",
+                        }
+                    )
 
             elif server.status == ServerStatus.CRASHED:
                 if status == ServerRuntimeStatus.RUNNING:
                     logger.info(
-                        'Server %s was CRASHED in DB but runtime is RUNNING — recovering to RUNNING',
+                        "Server %s was CRASHED in DB but runtime is RUNNING — recovering to RUNNING",
                         label,
                     )
                     server.mark_running(
@@ -236,37 +257,43 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
                         external_id=server.runtime.external_id,
                     )
                     await repo.save(server)
-                    results.append({
-                        "server_id": sid,
-                        "old_status": old_status,
-                        "new_status": "running",
-                        "action": "recovered",
-                    })
+                    results.append(
+                        {
+                            "server_id": sid,
+                            "old_status": old_status,
+                            "new_status": "running",
+                            "action": "recovered",
+                        }
+                    )
 
             elif server.status == ServerStatus.STOPPING:
                 logger.info(
-                    'Server %s was STOPPING — marking STOPPED',
+                    "Server %s was STOPPING — marking STOPPED",
                     label,
                 )
                 server.mark_stopped()
                 await repo.save(server)
-                results.append({
-                    "server_id": sid,
-                    "old_status": old_status,
-                    "new_status": "stopped",
-                    "action": "repaired",
-                    "reason": "stale STOPPING state — backend restarted",
-                })
+                results.append(
+                    {
+                        "server_id": sid,
+                        "old_status": old_status,
+                        "new_status": "stopped",
+                        "action": "repaired",
+                        "reason": "stale STOPPING state — backend restarted",
+                    }
+                )
 
         except Exception:
             logger.exception("Reconciliation failed for server %s", label)
-            results.append({
-                "server_id": sid,
-                "old_status": server.status.value if server.status else "unknown",
-                "new_status": "error",
-                "action": "failed",
-                "reason": "reconciliation error",
-            })
+            results.append(
+                {
+                    "server_id": sid,
+                    "old_status": server.status.value if server.status else "unknown",
+                    "new_status": "error",
+                    "action": "failed",
+                    "reason": "reconciliation error",
+                }
+            )
 
     logger.info(
         "Reconciliation complete: %d servers processed",

@@ -11,38 +11,30 @@ from app.modules.server.infrastructure.fs import FileSystem, local_fs
 
 class LocationHandler(ABC):
     @abstractmethod
-    def resolve_server_dir(self, deployment: ServerDeployment) -> str:
-        ...
+    def resolve_server_dir(self, deployment: ServerDeployment) -> str: ...
 
     @abstractmethod
-    def resolve_jar_path(self, deployment: ServerDeployment) -> str:
-        ...
+    def resolve_jar_path(self, deployment: ServerDeployment) -> str: ...
 
     @abstractmethod
-    def resolve_properties_path(self, deployment: ServerDeployment) -> str:
-        ...
+    def resolve_properties_path(self, deployment: ServerDeployment) -> str: ...
 
     @abstractmethod
-    def resolve_eula_path(self, deployment: ServerDeployment) -> str:
-        ...
+    def resolve_eula_path(self, deployment: ServerDeployment) -> str: ...
 
     @abstractmethod
     def resolve_world_path(
         self, deployment: ServerDeployment, world_name: str | None = None
-    ) -> str:
-        ...
+    ) -> str: ...
 
     @abstractmethod
-    def ensure_server_dir(self, deployment: ServerDeployment) -> str:
-        ...
+    def ensure_server_dir(self, deployment: ServerDeployment) -> str: ...
 
     @abstractmethod
-    def remove_server_dir(self, deployment: ServerDeployment) -> None:
-        ...
+    def remove_server_dir(self, deployment: ServerDeployment) -> None: ...
 
     @abstractmethod
-    def supports(self, location_type: LocationType) -> bool:
-        ...
+    def supports(self, location_type: LocationType) -> bool: ...
 
 
 class LocalLocationHandler(LocationHandler):
@@ -91,9 +83,7 @@ class LocationHandlerRegistry:
     def get(self, location_type: LocationType) -> LocationHandler:
         handler = self._handlers.get(location_type)
         if handler is None:
-            raise ValueError(
-                f"No LocationHandler registered for {location_type.value}"
-            )
+            raise ValueError(f"No LocationHandler registered for {location_type.value}")
         return handler
 
     def get_for_deployment(self, deployment: ServerDeployment) -> LocationHandler:

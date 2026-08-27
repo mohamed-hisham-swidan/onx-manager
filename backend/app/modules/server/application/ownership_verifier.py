@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
-
 
 from app.core.identity import IDENTITY
 
@@ -25,9 +23,9 @@ class OwnershipStatus(Enum):
 class OwnershipResult:
     status: OwnershipStatus
     has_marker: bool = False
-    cwd: Optional[str] = None
+    cwd: str | None = None
     cwd_matches: bool = False
-    start_time: Optional[int] = None
+    start_time: int | None = None
     detail: str = ""
 
 
@@ -45,21 +43,21 @@ def _get_process_env(pid: int) -> dict[str, str]:
     return env
 
 
-def _get_process_cwd(pid: int) -> Optional[str]:
+def _get_process_cwd(pid: int) -> str | None:
     try:
         return os.readlink(f"/proc/{pid}/cwd")
     except OSError:
         return None
 
 
-def _get_process_start_time(pid: int) -> Optional[int]:
+def _get_process_start_time(pid: int) -> int | None:
     try:
-        with open(f"/proc/{pid}/stat", "r") as f:
+        with open(f"/proc/{pid}/stat") as f:
             data = f.read()
         paren_end = data.rfind(")")
         if paren_end == -1:
             return None
-        fields = data[paren_end + 2:].split()
+        fields = data[paren_end + 2 :].split()
         if len(fields) >= 20:
             return int(fields[19])
         return None
@@ -78,6 +76,7 @@ def _is_pid_alive(pid: int) -> bool:
 def _get_servers_data_dir() -> str:
     try:
         from app.core.config import AppSettings
+
         settings = AppSettings()
         return os.path.abspath(settings.servers_data_dir)
     except Exception:
@@ -86,8 +85,8 @@ def _get_servers_data_dir() -> str:
 
 def verify_ownership(
     pid: int,
-    servers_data_dir: Optional[str] = None,
-    stored_start_time: Optional[int] = None,
+    servers_data_dir: str | None = None,
+    stored_start_time: int | None = None,
 ) -> OwnershipResult:
     if not _is_pid_alive(pid):
         return OwnershipResult(
@@ -97,8 +96,7 @@ def verify_ownership(
 
     env = _get_process_env(pid)
     has_marker = (
-        env.get(ONX_MARKER) == MCS_MARKER_ENV_VAL
-        or env.get(MCS_MARKER) == MCS_MARKER_ENV_VAL
+        env.get(ONX_MARKER) == MCS_MARKER_ENV_VAL or env.get(MCS_MARKER) == MCS_MARKER_ENV_VAL
     )
     cwd = _get_process_cwd(pid)
 
@@ -151,13 +149,14 @@ def log_ownership_decision(
     logger: logging.Logger,
     decision: str,
     label: str,
-    pid: Optional[int],
+    pid: int | None,
     result: OwnershipResult,
     reason: str = "",
 ):
     logger.info(
         "KILL_DECISION label=%s pid=%s marker=%s cwd=%s start_time=%s status=%s decision=%s reason=%s",
-        label, pid,
+        label,
+        pid,
         result.has_marker,
         result.cwd or "",
         result.start_time or "",

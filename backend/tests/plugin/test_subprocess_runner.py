@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 
 import pytest
@@ -36,7 +35,9 @@ class TestJsonRpcClient:
     def test_parse_error(self) -> None:
         client = JsonRpcClient()
         with pytest.raises(JsonRpcError) as exc:
-            client.parse_response('{"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "Method not found"}}')
+            client.parse_response(
+                '{"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "Method not found"}}'
+            )
         assert exc.value.code == -32601
         assert "Method not found" in str(exc.value)
 

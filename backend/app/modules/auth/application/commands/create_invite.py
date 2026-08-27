@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
@@ -11,7 +11,10 @@ from app.core.exceptions import InvalidValueError, PermissionDenied
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.auth.domain.aggregate import Invitation
 from app.modules.auth.infrastructure.repository import SQLInvitationRepository, SQLUserRepository
-from app.modules.server.infrastructure.repository import SQLServerMembershipRepository, SQLServerRepository
+from app.modules.server.infrastructure.repository import (
+    SQLServerMembershipRepository,
+    SQLServerRepository,
+)
 from app.modules.shared.value_objects import UserId
 
 
@@ -31,7 +34,9 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
 
     async def handle(self, command: CreateInviteCommand) -> CommandResult:
         if command.server_role and command.server_role not in ("admin", "dev", "viewer"):
-            raise InvalidValueError("server_role", command.server_role, "Server role must be admin, dev, or viewer")
+            raise InvalidValueError(
+                "server_role", command.server_role, "Server role must be admin, dev, or viewer"
+            )
 
         raw_secret = secrets.token_urlsafe(24)
         raw_token = f"mcis_{raw_secret}"
@@ -39,7 +44,7 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
         token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
         expires_at = (
-            datetime.now(timezone.utc) + timedelta(hours=command.expires_in_hours)
+            datetime.now(UTC) + timedelta(hours=command.expires_in_hours)
             if command.expires_in_hours
             else None
         )
@@ -61,12 +66,16 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
 
         async with UnitOfWork(self._event_bus) as uow:
             user_repo = SQLUserRepository(uow.session)
-            creator = await user_repo.get(UserId(command.creator_id)) if command.creator_id else None
+            creator = (
+                await user_repo.get(UserId(command.creator_id)) if command.creator_id else None
+            )
             if creator is None:
                 raise PermissionDenied("Invalid or missing invitation creator")
 
             creator_role_names = {r.name for r in creator.roles}
-            is_owner = "owner" in creator_role_names or any(r.has_permission("global", "*") for r in creator.roles)
+            is_owner = "owner" in creator_role_names or any(
+                r.has_permission("global", "*") for r in creator.roles
+            )
             is_global_admin = (
                 is_owner
                 or "admin" in creator_role_names
@@ -75,9 +84,13 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
 
             target_global = (command.global_role or "member").lower()
             if target_global == "owner" and not is_owner:
-                raise PermissionDenied("Cannot create invitation with global_role 'owner' without owner privileges")
+                raise PermissionDenied(
+                    "Cannot create invitation with global_role 'owner' without owner privileges"
+                )
             if target_global == "admin" and not is_global_admin:
-                raise PermissionDenied("Cannot create invitation with global_role 'admin' without admin privileges")
+                raise PermissionDenied(
+                    "Cannot create invitation with global_role 'admin' without admin privileges"
+                )
 
             if command.server_id:
                 server_repo = SQLServerRepository(uow.session)
@@ -90,7 +103,9 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
 
                 if not has_server_admin:
                     membership_repo = SQLServerMembershipRepository(uow.session)
-                    membership = await membership_repo.get_membership(command.server_id, str(creator.user_id))
+                    membership = await membership_repo.get_membership(
+                        command.server_id, str(creator.user_id)
+                    )
                     if membership:
                         if membership.role == "admin":
                             has_server_admin = True
@@ -99,11 +114,17 @@ class CreateInviteHandler(CommandHandler[CreateInviteCommand]):
 
                 target_server_role = (command.server_role or "viewer").lower()
                 if target_server_role == "admin" and not has_server_admin:
-                    raise PermissionDenied("Cannot grant server_role 'admin' without server admin privileges")
+                    raise PermissionDenied(
+                        "Cannot grant server_role 'admin' without server admin privileges"
+                    )
                 if target_server_role == "dev" and not (has_server_admin or has_server_dev):
-                    raise PermissionDenied("Cannot grant server_role 'dev' without server dev/admin privileges")
+                    raise PermissionDenied(
+                        "Cannot grant server_role 'dev' without server dev/admin privileges"
+                    )
                 if target_server_role == "viewer" and not (has_server_admin or has_server_dev):
-                    raise PermissionDenied("Cannot grant server_role 'viewer' without server access")
+                    raise PermissionDenied(
+                        "Cannot grant server_role 'viewer' without server access"
+                    )
 
             repo = SQLInvitationRepository(uow.session)
             await repo.save(invitation)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -17,10 +16,9 @@ from app.core.platform_lock import (
 
 class TestSetCloexecOnAllFds:
     def test_non_posix_does_nothing(self) -> None:
-        with patch("os.name", "nt"):
-            with patch("os.listdir") as mock_listdir:
-                set_cloexec_on_all_fds()
-                mock_listdir.assert_not_called()
+        with patch("os.name", "nt"), patch("os.listdir") as mock_listdir:
+            set_cloexec_on_all_fds()
+            mock_listdir.assert_not_called()
 
     def test_posix_sets_cloexec(self) -> None:
         with patch("os.name", "posix"):
@@ -34,12 +32,11 @@ class TestSetCloexecOnAllFds:
 
 class TestPlatformLockDispatch:
     def test_lock_posix(self) -> None:
-        with patch("sys.platform", "linux"):
-            with patch("fcntl.flock") as mock_flock:
-                import fcntl
+        with patch("sys.platform", "linux"), patch("fcntl.flock") as mock_flock:
+            import fcntl
 
-                lock_file_nonblocking(10)
-                mock_flock.assert_called_once_with(10, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_file_nonblocking(10)
+            mock_flock.assert_called_once_with(10, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def test_lock_windows(self) -> None:
         mock_msvcrt = MagicMock()
@@ -52,12 +49,11 @@ class TestPlatformLockDispatch:
                     mock_msvcrt.locking.assert_called_once_with(10, 1, 1)
 
     def test_unlock_posix(self) -> None:
-        with patch("sys.platform", "linux"):
-            with patch("fcntl.flock") as mock_flock:
-                import fcntl
+        with patch("sys.platform", "linux"), patch("fcntl.flock") as mock_flock:
+            import fcntl
 
-                unlock_file(10)
-                mock_flock.assert_called_once_with(10, fcntl.LOCK_UN)
+            unlock_file(10)
+            mock_flock.assert_called_once_with(10, fcntl.LOCK_UN)
 
     def test_unlock_windows(self) -> None:
         mock_msvcrt = MagicMock()
@@ -127,12 +123,16 @@ class TestFileLock:
 
                 lock.release()
                 assert lock._fd is None
-                mock_msvcrt.locking.assert_called_with(pytest.approx(mock_msvcrt.locking.call_args[0][0]), 2, 1)
+                mock_msvcrt.locking.assert_called_with(
+                    pytest.approx(mock_msvcrt.locking.call_args[0][0]), 2, 1
+                )
 
     def test_acquire_timeout_cleanup(self, tmp_path: Path) -> None:
         lock_file = tmp_path / "timeout.lock"
         lock = FileLock(lock_file)
 
-        with patch("app.core.platform_lock.lock_file_nonblocking", side_effect=OSError("Resource locked")):
+        with patch(
+            "app.core.platform_lock.lock_file_nonblocking", side_effect=OSError("Resource locked")
+        ):
             assert lock.acquire(timeout=0.05) is False
             assert lock._fd is None

@@ -7,6 +7,7 @@ import pytest
 from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
 from app.core.exceptions import ServerNotFoundError
+from app.core.persistence.db import database
 from app.modules.server.application.commands.create_server import (
     CreateServerCommand,
     CreateServerHandler,
@@ -51,7 +52,6 @@ from app.modules.server.domain.value_objects import (
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
-from app.core.persistence.db import database
 
 
 def _mock_provisioning():
@@ -210,6 +210,7 @@ class TestStartServerHandler:
             DeploymentResult,
             ServerRuntimeStatus,
         )
+
         mock_provider = AsyncMock()
         mock_provider.provider_type = "local"
         mock_provider.start.return_value = DeploymentResult(
@@ -221,7 +222,10 @@ class TestStartServerHandler:
         )
 
         handler = StartServerHandler(event_bus)
-        with patch("app.modules.server.application.commands.start_server.provider_factory.get", return_value=mock_provider):
+        with patch(
+            "app.modules.server.application.commands.start_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
             result = await handler.handle(StartServerCommand(server_id="test-start-deploy-1"))
 
         assert result.success is True
@@ -236,6 +240,7 @@ class TestStartServerHandler:
             DeploymentResult,
             ServerRuntimeStatus,
         )
+
         mock_provider = AsyncMock()
         mock_provider.provider_type = "local"
         mock_provider.start.return_value = DeploymentResult(
@@ -247,7 +252,10 @@ class TestStartServerHandler:
         )
 
         handler = StartServerHandler(event_bus)
-        with patch("app.modules.server.application.commands.start_server.provider_factory.get", return_value=mock_provider):
+        with patch(
+            "app.modules.server.application.commands.start_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
             result = await handler.handle(StartServerCommand(server_id="test-start-runtime-1"))
 
         assert result.success is True
@@ -264,6 +272,7 @@ class TestStartServerHandler:
             DeploymentResult,
             ServerRuntimeStatus,
         )
+
         mock_provider = AsyncMock()
         mock_provider.provider_type = "local"
         mock_provider.start.return_value = DeploymentResult(
@@ -277,7 +286,10 @@ class TestStartServerHandler:
         mock_consume = AsyncMock(return_value=[])
         handler = StartServerHandler(event_bus)
         with (
-            patch("app.modules.server.application.commands.start_server.provider_factory.get", return_value=mock_provider),
+            patch(
+                "app.modules.server.application.commands.start_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
             patch(
                 "app.modules.server.application.commands.start_server.consume_pending_plugin_deletions",
                 mock_consume,
@@ -328,6 +340,7 @@ class TestRestartServerHandler:
             DeploymentResult,
             ServerRuntimeStatus,
         )
+
         mock_provider = AsyncMock()
         mock_provider.provider_type = "local"
         mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
@@ -340,7 +353,10 @@ class TestRestartServerHandler:
         )
 
         handler = RestartServerHandler(event_bus)
-        with patch("app.modules.server.application.commands.restart_server.provider_factory.get", return_value=mock_provider):
+        with patch(
+            "app.modules.server.application.commands.restart_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
             result = await handler.handle(RestartServerCommand(server_id="test-restart-deploy-1"))
 
         assert result.success is True
@@ -355,6 +371,7 @@ class TestRestartServerHandler:
             DeploymentResult,
             ServerRuntimeStatus,
         )
+
         mock_provider = AsyncMock()
         mock_provider.provider_type = "local"
         mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
@@ -369,7 +386,10 @@ class TestRestartServerHandler:
         mock_consume = AsyncMock(return_value=[])
         handler = RestartServerHandler(event_bus)
         with (
-            patch("app.modules.server.application.commands.restart_server.provider_factory.get", return_value=mock_provider),
+            patch(
+                "app.modules.server.application.commands.restart_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
             patch(
                 "app.modules.server.application.commands.restart_server.consume_pending_plugin_deletions",
                 mock_consume,
@@ -391,12 +411,14 @@ class TestUpdateServerConfigHandler:
         await _create_test_server("test-upd-1")
 
         handler = UpdateServerConfigHandler(event_bus)
-        result = await handler.handle(UpdateServerConfigCommand(
-            server_id="test-upd-1",
-            properties={"motd": "Updated MOTD", "max_players": 50},
-            min_memory_mb=2048,
-            max_memory_mb=4096,
-        ))
+        result = await handler.handle(
+            UpdateServerConfigCommand(
+                server_id="test-upd-1",
+                properties={"motd": "Updated MOTD", "max_players": 50},
+                min_memory_mb=2048,
+                max_memory_mb=4096,
+            )
+        )
 
         assert result.success is True
 
@@ -410,10 +432,12 @@ class TestUpdateServerConfigHandler:
     async def test_update_nonexistent_server(self, event_bus: EventBus) -> None:
         bus = _bus(event_bus)
         bus.register(UpdateServerConfigCommand, UpdateServerConfigHandler(event_bus))
-        result = await bus.send(UpdateServerConfigCommand(
-            server_id="nonexistent",
-            properties={"motd": "test"},
-        ))
+        result = await bus.send(
+            UpdateServerConfigCommand(
+                server_id="nonexistent",
+                properties={"motd": "test"},
+            )
+        )
 
         assert result.success is False
 
@@ -422,7 +446,9 @@ class TestUpdateServerConfigHandler:
 @pytest.mark.usefixtures("init_test_db")
 class TestDeleteServerFS:
     @pytest.mark.asyncio
-    async def test_delete_removes_directory(self, mock_delete_dir: AsyncMock, event_bus: EventBus) -> None:
+    async def test_delete_removes_directory(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
         await _create_test_server("test-del-fs-1", with_deployment=True)
 
         handler = DeleteServerHandler(event_bus)
@@ -434,7 +460,9 @@ class TestDeleteServerFS:
         assert "test-del-fs-1" in call_arg
 
     @pytest.mark.asyncio
-    async def test_double_delete_idempotent(self, mock_delete_dir: AsyncMock, event_bus: EventBus) -> None:
+    async def test_double_delete_idempotent(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
         await _create_test_server("test-del-double-1", with_deployment=True)
 
         handler = DeleteServerHandler(event_bus)
@@ -446,7 +474,9 @@ class TestDeleteServerFS:
         assert r2.error_code == "NOT_FOUND"
 
     @pytest.mark.asyncio
-    async def test_delete_without_deployment_skips_fs(self, mock_delete_dir: AsyncMock, event_bus: EventBus) -> None:
+    async def test_delete_without_deployment_skips_fs(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
         await _create_test_server("test-del-nodeploy-1", with_deployment=False)
 
         handler = DeleteServerHandler(event_bus)
@@ -469,19 +499,28 @@ class TestImportServerHandler:
                 f.write(b"fake jar")
 
             with (
-                patch("app.modules.server.application.commands.import_server.SERVERS_DATA_DIR", servers_root),
-                patch("app.modules.server.application.commands.import_server.local_fs.delete_dir") as mock_delete,
-                patch("app.modules.server.infrastructure.repository.SQLServerRepository.save",
-                      side_effect=Exception("DB save failed")),
+                patch(
+                    "app.modules.server.application.commands.import_server.SERVERS_DATA_DIR",
+                    servers_root,
+                ),
+                patch(
+                    "app.modules.server.application.commands.import_server.local_fs.delete_dir"
+                ) as mock_delete,
+                patch(
+                    "app.modules.server.infrastructure.repository.SQLServerRepository.save",
+                    side_effect=Exception("DB save failed"),
+                ),
             ):
                 handler = ImportServerHandler(event_bus)
                 with pytest.raises(Exception, match="DB save failed"):
-                    await handler.handle(ImportServerCommand(
-                        source_path=src_dir,
-                        name="ImportFailTest",
-                        minecraft_version="1.21",
-                        server_type="vanilla",
-                    ))
+                    await handler.handle(
+                        ImportServerCommand(
+                            source_path=src_dir,
+                            name="ImportFailTest",
+                            minecraft_version="1.21",
+                            server_type="vanilla",
+                        )
+                    )
 
             assert mock_delete.called, "delete_dir should be called to clean up on rollback"
 
@@ -496,16 +535,23 @@ class TestImportServerHandler:
                 f.write(b"fake jar")
 
             with (
-                patch("app.modules.server.application.commands.import_server.SERVERS_DATA_DIR", servers_root),
-                patch("app.modules.server.application.commands.import_server.local_fs.delete_dir") as mock_delete,
+                patch(
+                    "app.modules.server.application.commands.import_server.SERVERS_DATA_DIR",
+                    servers_root,
+                ),
+                patch(
+                    "app.modules.server.application.commands.import_server.local_fs.delete_dir"
+                ) as mock_delete,
             ):
                 handler = ImportServerHandler(event_bus)
-                result = await handler.handle(ImportServerCommand(
-                    source_path=src_dir,
-                    name="ImportSuccessTest",
-                    minecraft_version="1.21",
-                    server_type="vanilla",
-                ))
+                result = await handler.handle(
+                    ImportServerCommand(
+                        source_path=src_dir,
+                        name="ImportSuccessTest",
+                        minecraft_version="1.21",
+                        server_type="vanilla",
+                    )
+                )
 
             assert result.success is True
             mock_delete.assert_not_called()
@@ -514,9 +560,13 @@ class TestImportServerHandler:
 @pytest.mark.usefixtures("init_test_db")
 class TestUpdateServerConfigHandler:
     @pytest.mark.asyncio
-    async def test_update_name_updates_db_and_properties_file(self, event_bus: EventBus, tmp_path) -> None:
+    async def test_update_name_updates_db_and_properties_file(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
         props_file = tmp_path / "server.properties"
-        props_file.write_text("#Minecraft server properties\nserver-name=OldName\nmotd=Initial\n", encoding="utf-8")
+        props_file.write_text(
+            "#Minecraft server properties\nserver-name=OldName\nmotd=Initial\n", encoding="utf-8"
+        )
 
         async with database.session_factory() as session:
             repo = SQLServerRepository(session)
@@ -540,11 +590,13 @@ class TestUpdateServerConfigHandler:
             await session.commit()
 
         handler = UpdateServerConfigHandler(event_bus)
-        result = await handler.handle(UpdateServerConfigCommand(
-            server_id="test-upd-name",
-            name="NewRenamedServer",
-            properties={"motd": "Updated MOTD", "max_players": 40},
-        ))
+        result = await handler.handle(
+            UpdateServerConfigCommand(
+                server_id="test-upd-name",
+                name="NewRenamedServer",
+                properties={"motd": "Updated MOTD", "max_players": 40},
+            )
+        )
 
         assert result.success is True
         loaded = await _get_server("test-upd-name")
@@ -597,7 +649,9 @@ class TestRetryProvisioningHandler:
         assert "expected 'provisioning_failed'" in result.error
 
     @pytest.mark.asyncio
-    async def test_retry_forge_provisioning_succeeds_and_reinvokes(self, event_bus: EventBus, tmp_path) -> None:
+    async def test_retry_forge_provisioning_succeeds_and_reinvokes(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
         async with database.session_factory() as session:
             repo = SQLServerRepository(session)
             deployment = ServerDeployment(
@@ -622,7 +676,9 @@ class TestRetryProvisioningHandler:
             await session.commit()
 
         handler = RetryProvisioningHandler(event_bus)
-        with patch("app.modules.server.application.services.forge_provisioner.provision_forge_server") as mock_prov:
+        with patch(
+            "app.modules.server.application.services.forge_provisioner.provision_forge_server"
+        ) as mock_prov:
             result = await handler.handle(RetryProvisioningCommand(server_id="test-retry-forge"))
             assert result.success is True
             assert result.data["status"] == "provisioning"
@@ -638,7 +694,9 @@ class TestRetryProvisioningHandler:
         assert loaded.provisioning_retryable is False
 
     @pytest.mark.asyncio
-    async def test_retry_neoforge_provisioning_succeeds_and_reinvokes(self, event_bus: EventBus, tmp_path) -> None:
+    async def test_retry_neoforge_provisioning_succeeds_and_reinvokes(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
         async with database.session_factory() as session:
             repo = SQLServerRepository(session)
             deployment = ServerDeployment(
@@ -663,7 +721,9 @@ class TestRetryProvisioningHandler:
             await session.commit()
 
         handler = RetryProvisioningHandler(event_bus)
-        with patch("app.modules.server.application.services.neoforge_provisioner.provision_neoforge_server") as mock_prov:
+        with patch(
+            "app.modules.server.application.services.neoforge_provisioner.provision_neoforge_server"
+        ) as mock_prov:
             result = await handler.handle(RetryProvisioningCommand(server_id="test-retry-neoforge"))
             assert result.success is True
             assert result.data["status"] == "provisioning"
@@ -675,5 +735,3 @@ class TestRetryProvisioningHandler:
 
         loaded = await _get_server("test-retry-neoforge")
         assert loaded.status == ServerStatus.PROVISIONING
-
-

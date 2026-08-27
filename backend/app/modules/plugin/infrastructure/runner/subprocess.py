@@ -27,18 +27,22 @@ class JsonRpcClient:
 
     def build_request(self, method: str, params: dict[str, Any] | None = None) -> str:
         self._request_id += 1
-        return json.dumps({
-            "jsonrpc": "2.0",
-            "id": self._request_id,
-            "method": method,
-            "params": params or {},
-        })
+        return json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": self._request_id,
+                "method": method,
+                "params": params or {},
+            }
+        )
 
     def parse_response(self, raw: str) -> Any:
         data = json.loads(raw)
         if "error" in data:
             err = data["error"]
-            raise JsonRpcError(err.get("code", -1), err.get("message", "Unknown error"), err.get("data"))
+            raise JsonRpcError(
+                err.get("code", -1), err.get("message", "Unknown error"), err.get("data")
+            )
         return data.get("result")
 
 
@@ -59,8 +63,10 @@ class SubprocessPluginRunner(PluginRunner):
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
             script_path,
-            "--plugin-id", plugin_id,
-            "--plugin-dir", plugin_dir,
+            "--plugin-id",
+            plugin_id,
+            "--plugin-dir",
+            plugin_dir,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -91,13 +97,13 @@ class SubprocessPluginRunner(PluginRunner):
                 await asyncio.wait_for(proc.wait(), timeout=5.0)
                 logger.info("Plugin %s shut down gracefully", plugin_id)
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
             proc.send_signal(signal.SIGTERM)
             try:
                 await asyncio.wait_for(proc.wait(), timeout=3.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 await proc.wait()
         except ProcessLookupError:
@@ -126,7 +132,7 @@ class SubprocessPluginRunner(PluginRunner):
             if raw:
                 result = self._rpc.parse_response(raw)
                 return result is True or result == "pong"
-        except (asyncio.TimeoutError, JsonRpcError, Exception) as e:
+        except (TimeoutError, JsonRpcError, Exception) as e:
             logger.debug("Health check failed for plugin %s: %s", plugin_id, str(e))
 
         return False

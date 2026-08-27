@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from app.modules.plugin.infrastructure.dependency_resolver import DependencyResolver
 
 
@@ -66,10 +64,16 @@ class TestDependencyResolver:
 
     def test_batch_register(self) -> None:
         resolver = DependencyResolver()
-        resolver.register_plugins([
-            {"name": "a", "version": "1.0.0", "dependencies": []},
-            {"name": "b", "version": "1.0.0", "dependencies": [{"name": "a", "min_version": "1.0.0"}]},
-        ])
+        resolver.register_plugins(
+            [
+                {"name": "a", "version": "1.0.0", "dependencies": []},
+                {
+                    "name": "b",
+                    "version": "1.0.0",
+                    "dependencies": [{"name": "a", "min_version": "1.0.0"}],
+                },
+            ]
+        )
         result = resolver.resolve("b")
         assert result.success
 

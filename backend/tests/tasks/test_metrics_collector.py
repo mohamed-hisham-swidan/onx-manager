@@ -17,9 +17,11 @@ async def test_metrics_task_without_collector_skips() -> None:
 async def test_metrics_task_with_collector() -> None:
     mock_collector = AsyncMock()
     mock_collector.collect_all.return_value = {}
-    result = await run_metrics_collection_task({
-        "collector": mock_collector,
-    })
+    result = await run_metrics_collection_task(
+        {
+            "collector": mock_collector,
+        }
+    )
     assert result["server_count"] == 0
 
 
@@ -64,11 +66,17 @@ def test_collect_process_metrics_fresh_pid_takes_real_cpu_sample() -> None:
     fake_proc.memory_info.return_value = MagicMock(rss=1024 * 1024 * 300)
     fake_proc.cpu_percent.return_value = 42.0
 
-    with patch.object(mod, "_HAS_PSUTIL", True), \
-         patch.object(mod, "_psutil", MagicMock(
-             Process=lambda _pid: fake_proc,
-             cpu_count=lambda: 2,
-         )):
+    with (
+        patch.object(mod, "_HAS_PSUTIL", True),
+        patch.object(
+            mod,
+            "_psutil",
+            MagicMock(
+                Process=lambda _pid: fake_proc,
+                cpu_count=lambda: 2,
+            ),
+        ),
+    ):
         cache: dict[int, tuple[float, object]] = {}
         ram_mb, cpu = mod._collect_process_metrics(777, cache)
 
@@ -87,8 +95,10 @@ def test_collect_process_metrics_cached_pid_uses_instant_baseline() -> None:
     fake_proc.memory_info.return_value = MagicMock(rss=1024 * 1024 * 300)
     fake_proc.cpu_percent.return_value = 7.0
 
-    with patch.object(mod, "_HAS_PSUTIL", True), \
-         patch.object(mod, "_psutil", MagicMock(cpu_count=lambda: 2)):
+    with (
+        patch.object(mod, "_HAS_PSUTIL", True),
+        patch.object(mod, "_psutil", MagicMock(cpu_count=lambda: 2)),
+    ):
         cache: dict[int, tuple[float, object]] = {777: (123.0, fake_proc)}
         ram_mb, cpu = mod._collect_process_metrics(777, cache)
 
@@ -108,11 +118,17 @@ def test_collect_process_metrics_stale_pid_refreshes_and_resamples() -> None:
     new_proc.memory_info.return_value = MagicMock(rss=0)
     new_proc.cpu_percent.return_value = 12.0
 
-    with patch.object(mod, "_HAS_PSUTIL", True), \
-         patch.object(mod, "_psutil", MagicMock(
-             Process=lambda _pid: new_proc,
-             cpu_count=lambda: 2,
-         )):
+    with (
+        patch.object(mod, "_HAS_PSUTIL", True),
+        patch.object(
+            mod,
+            "_psutil",
+            MagicMock(
+                Process=lambda _pid: new_proc,
+                cpu_count=lambda: 2,
+            ),
+        ),
+    ):
         cache: dict[int, tuple[float, object]] = {777: (100.0, old_proc)}
         ram_mb, cpu = mod._collect_process_metrics(777, cache)
 
@@ -207,15 +223,17 @@ async def test_collect_rebuilds_rcon_client_when_config_changes() -> None:
         fake_db.session_factory = lambda: session_ctx
         fake_repo = MagicMock()
         fake_repo.get = AsyncMock(return_value=fake_server)
-        with patch.object(mod, "database", fake_db), \
-             patch.object(mod, "SQLServerRepository", return_value=fake_repo), \
-             patch.object(mod, "_read_server_properties", side_effect=lambda _p: props), \
-             patch.object(
-                 mod,
-                 "PersistentRCONClient",
-                 side_effect=lambda h, p, pw: make_client(h, p, pw),
-             ), \
-             patch.object(mod, "_collect_rcon_metrics", new=AsyncMock(return_value=(20.0, 0))):
+        with (
+            patch.object(mod, "database", fake_db),
+            patch.object(mod, "SQLServerRepository", return_value=fake_repo),
+            patch.object(mod, "_read_server_properties", side_effect=lambda _p: props),
+            patch.object(
+                mod,
+                "PersistentRCONClient",
+                side_effect=lambda h, p, pw: make_client(h, p, pw),
+            ),
+            patch.object(mod, "_collect_rcon_metrics", new=AsyncMock(return_value=(20.0, 0))),
+        ):
             await instance.collect("s1")
         return instance._rcon_clients["s1"]
 
@@ -261,11 +279,13 @@ async def test_collect_evicts_rcon_client_when_rcon_disabled() -> None:
     fake_db.session_factory = lambda: session_ctx
     fake_repo = MagicMock()
     fake_repo.get = AsyncMock(return_value=fake_server)
-    with patch.object(mod, "database", fake_db), \
-         patch.object(mod, "SQLServerRepository", return_value=fake_repo), \
-         patch.object(mod, "_read_server_properties", side_effect=fake_props), \
-         patch.object(mod, "PersistentRCONClient"), \
-         patch.object(mod, "_collect_rcon_metrics", new=AsyncMock(return_value=(20.0, 0))):
+    with (
+        patch.object(mod, "database", fake_db),
+        patch.object(mod, "SQLServerRepository", return_value=fake_repo),
+        patch.object(mod, "_read_server_properties", side_effect=fake_props),
+        patch.object(mod, "PersistentRCONClient"),
+        patch.object(mod, "_collect_rcon_metrics", new=AsyncMock(return_value=(20.0, 0))),
+    ):
         await instance.collect("s1")
 
     assert "s1" not in instance._rcon_clients

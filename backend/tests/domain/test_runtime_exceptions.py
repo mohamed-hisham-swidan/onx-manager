@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from app.modules.server.domain.runtime_exceptions import (
     InvalidDeployment,
     InvalidLaunchConfiguration,
@@ -11,9 +9,9 @@ from app.modules.server.domain.runtime_exceptions import (
     ProviderRestartFailed,
     ProviderStopFailed,
     ReadinessProbeFailed,
+    RuntimeError_,
     RuntimeHandleMissing,
     RuntimeProcessLost,
-    RuntimeError_,
     StartupTimeoutError,
     TmuxSessionLost,
     UnknownRuntimeFailure,
@@ -41,7 +39,9 @@ class TestRuntimeExceptions:
         assert "30s" in str(exc)
 
     def test_readiness_probe_failed(self) -> None:
-        exc = ReadinessProbeFailed(server_id="srv-1", probe="port_check", detail="Port 25565 not listening")
+        exc = ReadinessProbeFailed(
+            server_id="srv-1", probe="port_check", detail="Port 25565 not listening"
+        )
         assert "port_check" in str(exc)
         assert exc.code == "READINESS_PROBE_FAILED"
         assert exc.diagnostics["probe"] == "port_check"
@@ -67,12 +67,16 @@ class TestRuntimeExceptions:
         assert exc.diagnostics["force"] is True
 
     def test_provider_restart_failed(self) -> None:
-        exc = ProviderRestartFailed(provider="local", server_id="srv-1", stage="STOP", detail="process still alive")
+        exc = ProviderRestartFailed(
+            provider="local", server_id="srv-1", stage="STOP", detail="process still alive"
+        )
         assert "STOP" in str(exc)
         assert exc.code == "PROVIDER_RESTART_FAILED"
 
     def test_provider_console_unavailable(self) -> None:
-        exc = ProviderConsoleUnavailable(provider="local", server_id="srv-1", detail="tmux session gone")
+        exc = ProviderConsoleUnavailable(
+            provider="local", server_id="srv-1", detail="tmux session gone"
+        )
         assert "console unavailable" in str(exc).lower()
 
     def test_tmux_session_lost(self) -> None:
@@ -109,10 +113,18 @@ class TestRuntimeExceptions:
 
     def test_all_exceptions_have_nonempty_code(self) -> None:
         for exc_cls in [
-            StartupTimeoutError, ReadinessProbeFailed, RuntimeHandleMissing,
-            RuntimeProcessLost, ProviderLaunchFailed, ProviderStopFailed,
-            ProviderRestartFailed, ProviderConsoleUnavailable, TmuxSessionLost,
-            JavaProcessNotFound, InvalidDeployment, InvalidLaunchConfiguration,
+            StartupTimeoutError,
+            ReadinessProbeFailed,
+            RuntimeHandleMissing,
+            RuntimeProcessLost,
+            ProviderLaunchFailed,
+            ProviderStopFailed,
+            ProviderRestartFailed,
+            ProviderConsoleUnavailable,
+            TmuxSessionLost,
+            JavaProcessNotFound,
+            InvalidDeployment,
+            InvalidLaunchConfiguration,
             UnknownRuntimeFailure,
         ]:
             exc = exc_cls()

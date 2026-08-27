@@ -16,7 +16,12 @@ from app.modules.health.domain.events import (
     StartupValidationPassedEvent,
 )
 from app.modules.health.domain.repository import DiagnosticsRepository, HealthRepository
-from app.modules.health.domain.services import CrashClassifier, EnvironmentScanner, HealthCalculatorService, IntegrityChecker
+from app.modules.health.domain.services import (
+    CrashClassifier,
+    EnvironmentScanner,
+    HealthCalculatorService,
+    IntegrityChecker,
+)
 from app.modules.health.domain.value_objects import (
     CrashClassification,
     EnvironmentReport,

@@ -99,7 +99,9 @@ class ConfigFactory:
                 raw = yaml.safe_load(f) or {}
             base = _merge_config(base, raw)
 
-        env_prefix_legacy = f"{IDENTITY.env_prefix_legacy}SERVER_{server_id.upper().replace('-', '_')}_"
+        env_prefix_legacy = (
+            f"{IDENTITY.env_prefix_legacy}SERVER_{server_id.upper().replace('-', '_')}_"
+        )
         env_prefix_new = f"{IDENTITY.env_prefix_new}SERVER_{server_id.upper().replace('-', '_')}_"
         env_overrides = _read_env_overrides(env_prefix_legacy)
         env_overrides_new = _read_env_overrides(env_prefix_new)
@@ -173,9 +175,7 @@ _ACTIVE_PANEL_BIND_HOST: str | None = None
 _ACTIVE_PANEL_BIND_PORT: int | None = None
 
 
-def init_active_panel_bind(
-    host: str | None = None, port: int | None = None
-) -> tuple[str, int]:
+def init_active_panel_bind(host: str | None = None, port: int | None = None) -> tuple[str, int]:
     """Capture or override the frozen boot-time panel socket bind (Decision 5 / F-72B-06).
 
     This captures the physical bind address established when the Uvicorn TCP server
@@ -233,14 +233,16 @@ def panel_ingress_target() -> str:
     host = host.strip().lower()
     if host in ("0.0.0.0", "::", "::0", "0:0:0:0:0:0:0:0", ""):
         raise InvalidValueError(
-            "panel_bind_host", host,
+            "panel_bind_host",
+            host,
             "0.0.0.0 is not a valid tunnel ingress target; must be loopback (127.0.0.0/8 or ::1)",
         )
     if host in ("localhost", "::1"):
         host = "127.0.0.1"
     if not host.startswith("127."):
         raise InvalidValueError(
-            "panel_bind_host", host,
+            "panel_bind_host",
+            host,
             "must resolve to loopback (127.0.0.0/8 or ::1) for Cloudflare ingress",
         )
     return f"http://{host}:{port}"

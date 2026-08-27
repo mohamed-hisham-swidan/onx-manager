@@ -1,11 +1,11 @@
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
-from app.modules.plugin.domain.aggregate import Plugin, PluginRegistry
+from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.plugin.domain.aggregate import PluginRegistry
 from app.modules.plugin.domain.repository import PluginRepository
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
-from app.modules.shared.value_objects import PluginId, ServerId
-from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.shared.value_objects import PluginId
 
 
 class EnablePluginCommand(Command):

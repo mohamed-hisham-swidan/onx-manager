@@ -21,9 +21,13 @@ async def _get_server(server_id: str):
 
 async def _mock_jar_download() -> AsyncMock:
     """Write server.jar to whatever root_path the deployment carries."""
+
     def write_jar(
-        server_id: str, server_type: str,
-        minecraft_version: str, deployment=None, fs=None,
+        server_id: str,
+        server_type: str,  # noqa: ARG001 - mock signature
+        minecraft_version: str,  # noqa: ARG001 - mock signature
+        deployment=None,
+        fs=None,  # noqa: ARG001 - mock signature
     ) -> str:
         dest = deployment.jar_path() if deployment else f"{server_id}/server.jar"
         p = Path(dest)
@@ -37,7 +41,9 @@ async def _mock_jar_download() -> AsyncMock:
 class TestCreateServerProvisioning:
     @pytest.mark.asyncio
     async def test_vanilla_creates_all_files(
-        self, event_bus: EventBus, init_test_db: None,
+        self,
+        event_bus: EventBus,
+        init_test_db: None,  # noqa: ARG002 - fixture execution required
     ) -> None:
         mock = await _mock_jar_download()
 
@@ -66,7 +72,9 @@ class TestCreateServerProvisioning:
 
     @pytest.mark.asyncio
     async def test_forge_creates_no_jar_but_has_eula_and_props(
-        self, event_bus: EventBus, init_test_db: None,
+        self,
+        event_bus: EventBus,
+        init_test_db: None,  # noqa: ARG002 - fixture execution required
     ) -> None:
         handler = CreateServerHandler(event_bus)
         cmd = CreateServerCommand(
@@ -90,7 +98,9 @@ class TestCreateServerProvisioning:
 
     @pytest.mark.asyncio
     async def test_neoforge_creates_server_and_begins_provisioning(
-        self, event_bus: EventBus, init_test_db: None,
+        self,
+        event_bus: EventBus,
+        init_test_db: None,  # noqa: ARG002 - fixture execution required
     ) -> None:
         handler = CreateServerHandler(event_bus)
         cmd = CreateServerCommand(
@@ -114,16 +124,20 @@ class TestCreateServerProvisioning:
 
     @pytest.mark.asyncio
     async def test_provisioning_failure_cleans_up_directory(
-        self, event_bus: EventBus, init_test_db: None,
+        self,
+        event_bus: EventBus,
+        init_test_db: None,  # noqa: ARG002 - fixture execution required
     ) -> None:
         from app.core.exceptions import ProvisioningError
 
         with patch(
             "app.modules.server.application.services.jar_service.download_server_jar",
-            AsyncMock(side_effect=ProvisioningError(
-                message="cleanup test failure",
-                server_id="fail",
-            )),
+            AsyncMock(
+                side_effect=ProvisioningError(
+                    message="cleanup test failure",
+                    server_id="fail",
+                )
+            ),
         ):
             handler = CreateServerHandler(event_bus)
             cmd = CreateServerCommand(
@@ -137,16 +151,20 @@ class TestCreateServerProvisioning:
 
     @pytest.mark.asyncio
     async def test_provisioning_failure_does_not_commit_server(
-        self, event_bus: EventBus, init_test_db: None,
+        self,
+        event_bus: EventBus,
+        init_test_db: None,  # noqa: ARG002 - fixture execution required
     ) -> None:
         from app.core.exceptions import ProvisioningError
 
         with patch(
             "app.modules.server.application.services.jar_service.download_server_jar",
-            AsyncMock(side_effect=ProvisioningError(
-                message="no-commit test",
-                server_id="nocommit",
-            )),
+            AsyncMock(
+                side_effect=ProvisioningError(
+                    message="no-commit test",
+                    server_id="nocommit",
+                )
+            ),
         ):
             handler = CreateServerHandler(event_bus)
             cmd = CreateServerCommand(
@@ -169,7 +187,9 @@ class TestCreateServerProvisioning:
 
     @pytest.mark.asyncio
     async def test_unknown_server_type_rejected(
-        self, event_bus: EventBus, init_test_db: None,
+        self,
+        event_bus: EventBus,
+        init_test_db: None,  # noqa: ARG002 - fixture execution required
     ) -> None:
         handler = CreateServerHandler(event_bus)
         cmd = CreateServerCommand(
@@ -183,7 +203,9 @@ class TestCreateServerProvisioning:
 
     @pytest.mark.asyncio
     async def test_paper_purpur_fabric_creates_files(
-        self, event_bus: EventBus, init_test_db: None,
+        self,
+        event_bus: EventBus,
+        init_test_db: None,  # noqa: ARG002 - fixture execution required
     ) -> None:
         for stype in ("paper", "purpur", "fabric"):
             mock = await _mock_jar_download()
@@ -211,7 +233,9 @@ class TestCreateServerProvisioning:
 
     @pytest.mark.asyncio
     async def test_unexpected_exception_cleans_up(
-        self, event_bus: EventBus, init_test_db: None,
+        self,
+        event_bus: EventBus,
+        init_test_db: None,  # noqa: ARG002 - fixture execution required
     ) -> None:
         from app.core.exceptions import ProvisioningError
 
@@ -231,7 +255,9 @@ class TestCreateServerProvisioning:
 
     @pytest.mark.asyncio
     async def test_provisioning_failure_unknown_type_also_cleans_up(
-        self, event_bus: EventBus, init_test_db: None,
+        self,
+        event_bus: EventBus,
+        init_test_db: None,  # noqa: ARG002 - fixture execution required
     ) -> None:
         handler = CreateServerHandler(event_bus)
         cmd = CreateServerCommand(

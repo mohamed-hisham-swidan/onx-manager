@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import shutil
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 import aiohttp
 
@@ -25,7 +24,6 @@ from app.modules.server.domain.runtime_exceptions import (
     BuildResolutionError,
     InstallerDownloadError,
     InstallerExecutionError,
-    InstallerProvisionError,
     InsufficientDiskError,
     MetadataFetchError,
 )
@@ -171,24 +169,43 @@ class InstallerProvisioner(ABC):
                 await _save_server(server, self._event_bus)
                 logger.info(
                     '%s provisioning complete for server "%s" (%s) — start_command="bash %s nogui"',
-                    self.provider_name, server.name, sid, self._run_sh_name(),
+                    self.provider_name,
+                    server.name,
+                    sid,
+                    self._run_sh_name(),
                 )
                 return
             except Exception as exc:
                 disp = self._classify_failure(exc)
-                if disp.classification == FailureClass.TRANSIENT and attempt < self._max_retries - 1:
-                    backoff = 1.0 * (2 ** attempt)
+                if (
+                    disp.classification == FailureClass.TRANSIENT
+                    and attempt < self._max_retries - 1
+                ):
+                    backoff = 1.0 * (2**attempt)
                     logger.warning(
                         "%s provisioning attempt %d/%d for server %s failed transiently (%s: %s). Retrying in %.1fs...",
-                        self.provider_name, attempt + 1, self._max_retries, sid, type(exc).__name__, exc, backoff,
+                        self.provider_name,
+                        attempt + 1,
+                        self._max_retries,
+                        sid,
+                        type(exc).__name__,
+                        exc,
+                        backoff,
                     )
                     await asyncio.sleep(backoff)
                     continue
 
-                if disp.classification == FailureClass.TRANSIENT and attempt >= self._max_retries - 1:
+                if (
+                    disp.classification == FailureClass.TRANSIENT
+                    and attempt >= self._max_retries - 1
+                ):
                     logger.error(
                         "%s provisioning exhausted %d attempts for server %s (%s: %s). Manual intervention required.",
-                        self.provider_name, self._max_retries, sid, type(exc).__name__, exc,
+                        self.provider_name,
+                        self._max_retries,
+                        sid,
+                        type(exc).__name__,
+                        exc,
                     )
                     await self._fail_provisioning(sid, server_dir, exc, force_retryable=False)
                     raise
@@ -269,7 +286,10 @@ class InstallerProvisioner(ABC):
         except Exception as exc:
             logger.warning(
                 "Could not remove installer jar %s after successful install (server %s, %s: %s)",
-                installer_dest, sid, type(exc).__name__, exc,
+                installer_dest,
+                sid,
+                type(exc).__name__,
+                exc,
             )
 
         self._write_user_jvm_args(server, server_dir)
@@ -311,7 +331,11 @@ class InstallerProvisioner(ABC):
 
         logger.error(
             "%s provisioning failed for server %s (%s) — %s: %s",
-            self.provider_name, sid, disp.classification.value, type(exc).__name__, exc,
+            self.provider_name,
+            sid,
+            disp.classification.value,
+            type(exc).__name__,
+            exc,
         )
 
         if not disp.preserve_directory and server_dir:
@@ -320,7 +344,9 @@ class InstallerProvisioner(ABC):
             except Exception as cleanup_exc:
                 logger.exception(
                     "Failed to clean up server directory %s after fatal provisioning error (%s: %s)",
-                    server_dir, type(cleanup_exc).__name__, cleanup_exc,
+                    server_dir,
+                    type(cleanup_exc).__name__,
+                    cleanup_exc,
                 )
 
         try:
@@ -334,7 +360,9 @@ class InstallerProvisioner(ABC):
         except Exception as state_exc:
             logger.exception(
                 "Failed to persist failed provisioning state for server %s (%s: %s)",
-                sid, type(state_exc).__name__, state_exc,
+                sid,
+                type(state_exc).__name__,
+                state_exc,
             )
 
 

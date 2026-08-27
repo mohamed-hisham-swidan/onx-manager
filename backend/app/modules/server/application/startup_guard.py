@@ -19,8 +19,8 @@ async def check_startup_readiness(
     server_id: str,
     root_path: str | None = None,
 ) -> StartupGuardResult:
-    from app.modules.health.infrastructure.integrity import FilesystemIntegrityChecker
     from app.modules.health.infrastructure.environment import HostEnvironmentScanner
+    from app.modules.health.infrastructure.integrity import FilesystemIntegrityChecker
 
     reasons: list[str] = []
     warnings: list[str] = []
@@ -49,9 +49,13 @@ async def check_startup_readiness(
             for err in env_report.errors:
                 reasons.append(f"Environment: {err}")
         if env_report.available_disk_mb < 1024:
-            reasons.append(f"Environment: low disk space ({env_report.available_disk_mb:.0f} MB free)")
+            reasons.append(
+                f"Environment: low disk space ({env_report.available_disk_mb:.0f} MB free)"
+            )
         elif env_report.available_disk_mb < 5120:
-            warnings.append(f"Environment: disk space warning ({env_report.available_disk_mb:.0f} MB free)")
+            warnings.append(
+                f"Environment: disk space warning ({env_report.available_disk_mb:.0f} MB free)"
+            )
         if not env_report.java_versions:
             reasons.append("Environment: no Java runtime detected")
     except Exception as exc:

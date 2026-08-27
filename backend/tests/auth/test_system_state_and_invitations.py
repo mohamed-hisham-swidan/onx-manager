@@ -1,14 +1,17 @@
-import pytest
 import uuid
-from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
+
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.exceptions import InvalidValueError
 from app.core.persistence.base import Base
 from app.modules.auth.domain.aggregate import AccessMode, Invitation, InviteStatus, SystemState
-from app.modules.auth.infrastructure.repository import SQLInvitationRepository, SQLSystemStateRepository
-from app.modules.server.infrastructure.models import ServerModel
+from app.modules.auth.infrastructure.repository import (
+    SQLInvitationRepository,
+    SQLSystemStateRepository,
+)
 
 
 @pytest.fixture
@@ -54,7 +57,7 @@ class TestInvitationDomain:
         assert invitation.is_expired is False
 
     def test_invitation_expiration(self):
-        past_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        past_time = datetime.now(UTC) - timedelta(hours=1)
         invitation = Invitation(
             invitation_id=uuid.uuid4().hex,
             token_hash="hash123",
@@ -144,4 +147,3 @@ class TestInvitationRepository:
         # Second attempt should return False
         consumed_again = await repo.atomic_consume(inv_id)
         assert consumed_again is False
-

@@ -46,14 +46,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if ct and "application/json" not in ct and "multipart/form-data" not in ct:
                 return JSONResponse(
                     status_code=415,
-                    content={"error": "Content-Type must be application/json or multipart/form-data", "error_code": "VALIDATION_ERROR"},
+                    content={
+                        "error": "Content-Type must be application/json or multipart/form-data",
+                        "error_code": "VALIDATION_ERROR",
+                    },
                 )
 
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return JSONResponse(
                 status_code=401,
-                content={"error": "Missing or invalid Authorization header", "error_code": "AUTHENTICATION_ERROR"},
+                content={
+                    "error": "Missing or invalid Authorization header",
+                    "error_code": "AUTHENTICATION_ERROR",
+                },
             )
 
         token = auth_header.removeprefix("Bearer ")

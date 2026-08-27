@@ -1,11 +1,11 @@
 import hashlib
+from datetime import UTC
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.core.command_bus import CommandBus
-from app.core.config import AppSettings
 from app.core.event_bus import EventBus
 from app.core.query_bus import QueryBus
 from app.main import app
@@ -57,9 +57,10 @@ def _override_deps(buses) -> None:
 async def client(tmp_path) -> AsyncClient:
     import os
 
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     from app.core.persistence.base import Base
     from app.core.persistence.db import database
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     _reset_rate_limits()
 
@@ -68,10 +69,13 @@ async def client(tmp_path) -> AsyncClient:
         await conn.run_sync(Base.metadata.create_all)
 
     database._engine = engine
-    database._session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    database._session_factory = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     async with database._session_factory() as sess:
         from app.modules.auth.infrastructure.models import SystemStateModel
+
         sess.add(SystemStateModel(id="default", initialized=True, access_mode="LOCAL"))
         await sess.commit()
 
@@ -109,7 +113,9 @@ async def created_user(client: AsyncClient) -> dict:
 
 @pytest.fixture
 async def auth_token(client: AsyncClient, created_user: dict) -> str:
-    resp = await client.post("/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"})
+    resp = await client.post(
+        "/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"}
+    )
     assert resp.status_code == 200
     return resp.json()["access_token"]
 
@@ -156,13 +162,13 @@ async def _seed_plugin(
     status: str = "installed",
 ) -> str:
     import uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.core.persistence.db import database
     from app.modules.plugin.infrastructure.models import PluginModel
 
     plugin_id = "plg-" + uuid.uuid4().hex[:12]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with database._session_factory() as session:
         session.add(
             PluginModel(
@@ -228,6 +234,7 @@ async def created_server(client: AsyncClient, privileged_header: dict[str, str])
     data = resp.json()
 
     import os
+
     from app.core.persistence.db import database
     from app.modules.server.infrastructure.repository import SQLServerRepository
     from app.modules.shared.value_objects import ServerId
@@ -265,14 +272,18 @@ class TestAuth:
             json={"email": "new@test.com", "password": "password123", "display_name": "New User"},
         )
         assert resp.status_code == 201
-        resp = await client.post("/api/v1/auth/login", json={"email": "new@test.com", "password": "password123"})
+        resp = await client.post(
+            "/api/v1/auth/login", json={"email": "new@test.com", "password": "password123"}
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["access_token"]
         assert data["token_type"] == "bearer"
 
     async def test_login_invalid_credentials(self, client: AsyncClient) -> None:
-        resp = await client.post("/api/v1/auth/login", json={"email": "nonexistent@test.com", "password": "wrong"})
+        resp = await client.post(
+            "/api/v1/auth/login", json={"email": "nonexistent@test.com", "password": "wrong"}
+        )
         assert resp.status_code == 401
 
     async def test_login_missing_fields(self, client: AsyncClient) -> None:
@@ -280,11 +291,15 @@ class TestAuth:
         assert resp.status_code == 422
 
     async def test_login_invalid_email_format(self, client: AsyncClient) -> None:
-        resp = await client.post("/api/v1/auth/login", json={"email": "not-an-email", "password": "password"})
+        resp = await client.post(
+            "/api/v1/auth/login", json={"email": "not-an-email", "password": "password"}
+        )
         assert resp.status_code == 422
 
     async def test_refresh_token(self, client: AsyncClient, created_user: dict) -> None:
-        login_resp = await client.post("/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"}
+        )
         assert login_resp.status_code == 200
         refresh_token = login_resp.json()["refresh_token"]
         resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
@@ -298,7 +313,9 @@ class TestAuth:
         assert resp.status_code == 401
 
     async def test_logout(self, client: AsyncClient, created_user: dict) -> None:
-        login_resp = await client.post("/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"})
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"}
+        )
         assert login_resp.status_code == 200
         login_data = login_resp.json()
         headers = {"Authorization": f"Bearer {login_data['access_token']}"}
@@ -309,12 +326,18 @@ class TestAuth:
         )
         assert resp.status_code == 200
 
-    async def test_logout_requires_refresh_token(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_logout_requires_refresh_token(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
         resp = await client.post("/api/v1/auth/logout", headers=auth_header)
         assert resp.status_code == 422
 
-    async def test_logout_revokes_refresh_token(self, client: AsyncClient, created_user: dict) -> None:
-        login_resp = await client.post("/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"})
+    async def test_logout_revokes_refresh_token(
+        self, client: AsyncClient, created_user: dict
+    ) -> None:
+        login_resp = await client.post(
+            "/api/v1/auth/login", json={"email": "test@test.com", "password": "password123"}
+        )
         assert login_resp.status_code == 200
         login_data = login_resp.json()
         headers = {"Authorization": f"Bearer {login_data['access_token']}"}
@@ -324,7 +347,9 @@ class TestAuth:
             json={"refresh_token": login_data["refresh_token"]},
         )
         assert resp.status_code == 200
-        refresh_resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": login_data["refresh_token"]})
+        refresh_resp = await client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": login_data["refresh_token"]}
+        )
         assert refresh_resp.status_code == 401
 
     async def test_list_api_keys(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
@@ -332,16 +357,24 @@ class TestAuth:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    async def test_create_api_key(self, client: AsyncClient, privileged_header: dict[str, str]) -> None:
-        resp = await client.post("/api/v1/auth/api-keys", json={"name": "test-key"}, headers=privileged_header)
+    async def test_create_api_key(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        resp = await client.post(
+            "/api/v1/auth/api-keys", json={"name": "test-key"}, headers=privileged_header
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "test-key"
         assert data["key"] is not None
         assert data["key"].startswith("mcs_")
 
-    async def test_revoke_api_key(self, client: AsyncClient, privileged_header: dict[str, str]) -> None:
-        resp = await client.post("/api/v1/auth/api-keys", json={"name": "test-key"}, headers=privileged_header)
+    async def test_revoke_api_key(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
+        resp = await client.post(
+            "/api/v1/auth/api-keys", json={"name": "test-key"}, headers=privileged_header
+        )
         assert resp.status_code == 201
         key_id = resp.json()["api_key_id"]
         resp = await client.delete(f"/api/v1/auth/api-keys/{key_id}", headers=privileged_header)
@@ -349,12 +382,16 @@ class TestAuth:
 
 
 class TestServers:
-    async def test_list_servers_empty(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_list_servers_empty(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
         resp = await client.get("/api/v1/servers", headers=auth_header)
         assert resp.status_code == 200
         assert resp.json() == []
 
-    async def test_create_server(self, client: AsyncClient, privileged_header: dict[str, str]) -> None:
+    async def test_create_server(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
         payload = {
             "name": "My Server",
             "minecraft_version": "1.21",
@@ -369,7 +406,9 @@ class TestServers:
         data = resp.json()
         assert "server_id" in data
 
-    async def test_create_and_get_server(self, client: AsyncClient, privileged_header: dict[str, str]) -> None:
+    async def test_create_and_get_server(
+        self, client: AsyncClient, privileged_header: dict[str, str]
+    ) -> None:
         payload = {
             "name": "Get Test",
             "minecraft_version": "1.21",
@@ -387,11 +426,17 @@ class TestServers:
         assert data["name"] == "Get Test"
         assert data["status"] == "created"
 
-    async def test_update_server(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_update_server(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         resp = await client.patch(
             f"/api/v1/servers/{server_id}",
-            json={"name": "Renamed Via API", "properties": {"motd": "Updated MOTD"}, "min_memory_mb": 2048},
+            json={
+                "name": "Renamed Via API",
+                "properties": {"motd": "Updated MOTD"},
+                "min_memory_mb": 2048,
+            },
             headers=privileged_header,
         )
         assert resp.status_code == 200
@@ -400,11 +445,14 @@ class TestServers:
         assert data["name"] == "Renamed Via API"
         assert data["min_memory_mb"] == 2048
 
-    async def test_start_server(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_start_server(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
         from app.modules.server.infrastructure.providers.base import (
             DeploymentResult,
             ServerRuntimeStatus,
         )
+
         mock_provider = AsyncMock()
         mock_provider.provider_type = "local"
         mock_provider.start.return_value = DeploymentResult(
@@ -416,8 +464,13 @@ class TestServers:
         )
 
         server_id = created_server["server_id"]
-        with patch("app.modules.server.application.commands.start_server.provider_factory.get", return_value=mock_provider):
-            resp = await client.post(f"/api/v1/servers/{server_id}/start", headers=privileged_header)
+        with patch(
+            "app.modules.server.application.commands.start_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
+            resp = await client.post(
+                f"/api/v1/servers/{server_id}/start", headers=privileged_header
+            )
         assert resp.status_code == 200
         data = resp.json()
         assert data["server_id"] == server_id
@@ -429,8 +482,9 @@ class TestServers:
         privileged_header: dict[str, str],
         created_server: dict,
     ) -> None:
-        from app.core.persistence.db import database
         from sqlalchemy import text
+
+        from app.core.persistence.db import database
         from app.modules.server.infrastructure.providers.base import (
             DeploymentResult,
             ServerRuntimeStatus,
@@ -449,13 +503,25 @@ class TestServers:
         mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
         mock_provider.stop.return_value = None
 
-        with patch("app.modules.server.application.commands.start_server.provider_factory.get", return_value=mock_provider):
+        with patch(
+            "app.modules.server.application.commands.start_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
             await client.post(f"/api/v1/servers/{server_id}/start", headers=privileged_header)
         async with database._session_factory() as session:
-            await session.execute(text("UPDATE servers SET status = 'running' WHERE id = :id"), {"id": server_id})
+            await session.execute(
+                text("UPDATE servers SET status = 'running' WHERE id = :id"), {"id": server_id}
+            )
             await session.commit()
-        with patch("app.modules.server.application.commands.stop_server.provider_factory.get", return_value=mock_provider):
-            resp = await client.post(f"/api/v1/servers/{server_id}/stop", json={"reason": "test"}, headers=privileged_header)
+        with patch(
+            "app.modules.server.application.commands.stop_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
+            resp = await client.post(
+                f"/api/v1/servers/{server_id}/stop",
+                json={"reason": "test"},
+                headers=privileged_header,
+            )
         assert resp.status_code == 200
 
     async def test_delete_server(
@@ -496,9 +562,10 @@ class TestServers:
         privileged_header: dict[str, str],
         created_server: dict,
     ) -> None:
+        from sqlalchemy import update
+
         from app.core.persistence.db import database
         from app.modules.server.infrastructure.models import ServerModel
-        from sqlalchemy import update
 
         server_id = created_server["server_id"]
         # Update server to forge server in PROVISIONING_FAILED status
@@ -515,7 +582,9 @@ class TestServers:
             )
             await session.commit()
 
-        with patch("app.modules.server.application.services.forge_provisioner.provision_forge_server") as mock_prov:
+        with patch(
+            "app.modules.server.application.services.forge_provisioner.provision_forge_server"
+        ) as mock_prov:
             resp = await client.post(
                 f"/api/v1/servers/{server_id}/retry-provisioning",
                 headers=privileged_header,
@@ -528,12 +597,16 @@ class TestServers:
 
 
 class TestBackups:
-    async def test_list_backups_empty(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_list_backups_empty(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
         resp = await client.get("/api/v1/backups", headers=auth_header)
         assert resp.status_code == 200
         assert resp.json() == []
 
-    async def test_create_backup(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_create_backup(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         resp = await client.post(
             "/api/v1/backups",
@@ -543,7 +616,9 @@ class TestBackups:
         assert resp.status_code == 201
         assert "backup_id" in resp.json()
 
-    async def test_create_and_get_backup(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_create_and_get_backup(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         create_resp = await client.post(
             "/api/v1/backups",
@@ -554,7 +629,9 @@ class TestBackups:
         get_resp = await client.get(f"/api/v1/backups/{backup_id}", headers=privileged_header)
         assert get_resp.status_code == 200
 
-    async def test_verify_backup(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_verify_backup(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         create_resp = await client.post(
             "/api/v1/backups",
@@ -562,7 +639,9 @@ class TestBackups:
             headers=privileged_header,
         )
         backup_id = create_resp.json()["backup_id"]
-        verify_resp = await client.post(f"/api/v1/backups/{backup_id}/verify", headers=privileged_header)
+        verify_resp = await client.post(
+            f"/api/v1/backups/{backup_id}/verify", headers=privileged_header
+        )
         assert verify_resp.status_code == 200
         data = verify_resp.json()
         assert "valid" in data
@@ -620,7 +699,9 @@ class TestBackups:
 
 
 class TestPlugins:
-    async def test_list_plugins_empty(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_list_plugins_empty(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         resp = await client.get(f"/api/v1/servers/{server_id}/plugins", headers=auth_header)
         assert resp.status_code == 200
@@ -655,14 +736,20 @@ class TestPlugins:
         assert body[0]["source"] == "detected"
         assert body[0]["pending_deletion"] is False
 
-    async def test_get_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_get_plugin(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         plugin_id = await _seed_plugin(server_id, "WorldEdit")
-        resp = await client.get(f"/api/v1/servers/{server_id}/plugins/{plugin_id}", headers=privileged_header)
+        resp = await client.get(
+            f"/api/v1/servers/{server_id}/plugins/{plugin_id}", headers=privileged_header
+        )
         assert resp.status_code == 200
         assert resp.json()["name"] == "WorldEdit"
 
-    async def test_enable_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_enable_plugin(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         plugin_id = await _seed_plugin(server_id, "LuckPerms")
         resp = await client.post(
@@ -671,7 +758,9 @@ class TestPlugins:
         )
         assert resp.status_code == 200
 
-    async def test_disable_plugin(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_disable_plugin(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         plugin_id = await _seed_plugin(server_id, "Vault")
         resp = await client.post(
@@ -693,13 +782,17 @@ class TestPlugins:
             headers=privileged_header,
         )
         assert resp.status_code == 204
-        list_resp = await client.get(f"/api/v1/servers/{server_id}/plugins", headers=privileged_header)
+        list_resp = await client.get(
+            f"/api/v1/servers/{server_id}/plugins", headers=privileged_header
+        )
         assert list_resp.status_code == 200
         assert list_resp.json() == []
 
 
 class TestPluginMarketplace:
-    async def test_marketplace_search(self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict) -> None:
+    async def test_marketplace_search(
+        self, client: AsyncClient, privileged_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         resp = await client.get(
             f"/api/v1/servers/{server_id}/plugins/marketplace/search",
@@ -724,7 +817,9 @@ class TestPluginMarketplace:
 
         class _FakeProvider:
             async def search(
-                self, _query: str, **kwargs: object  # noqa: ARG002
+                self,
+                _query: str,
+                **kwargs: object,  # noqa: ARG002
             ) -> PluginSearchPage:
                 return PluginSearchPage(
                     items=[
@@ -796,9 +891,7 @@ class TestPluginMarketplace:
         passed_kwargs = {}
 
         class _FakeProvider:
-            async def search(
-                self, _query: str, **kwargs: object
-            ) -> PluginSearchPage:
+            async def search(self, _query: str, **kwargs: object) -> PluginSearchPage:
                 nonlocal passed_kwargs
                 passed_kwargs = kwargs
                 return PluginSearchPage(items=[], total_hits=0, offset=0, limit=20)
@@ -823,9 +916,7 @@ class TestPluginMarketplace:
         passed_kwargs = {}
 
         class _FakeProvider:
-            async def search(
-                self, _query: str, **kwargs: object
-            ) -> PluginSearchPage:
+            async def search(self, _query: str, **kwargs: object) -> PluginSearchPage:
                 nonlocal passed_kwargs
                 passed_kwargs = kwargs
                 return PluginSearchPage(items=[], total_hits=0, offset=0, limit=20)
@@ -948,7 +1039,9 @@ class TestPluginMarketplace:
             name = "modrinth"
 
             async def get_project_versions(
-                self, _project_id: str, **kwargs: object  # noqa: ARG002
+                self,
+                _project_id: str,
+                **kwargs: object,  # noqa: ARG002
             ) -> PluginVersionsPage:
                 return PluginVersionsPage(
                     items=[
@@ -1015,7 +1108,9 @@ class TestPluginMarketplace:
             name = "modrinth"
 
             async def get_project_versions(
-                self, _project_id: str, **kwargs: object  # noqa: ARG002
+                self,
+                _project_id: str,
+                **kwargs: object,  # noqa: ARG002
             ) -> PluginVersionsPage:
                 return PluginVersionsPage(
                     items=[
@@ -1202,7 +1297,9 @@ class TestPluginMarketplace:
 
 
 class TestUsers:
-    async def test_list_users(self, client: AsyncClient, auth_header: dict[str, str], created_user: dict) -> None:
+    async def test_list_users(
+        self, client: AsyncClient, auth_header: dict[str, str], created_user: dict
+    ) -> None:
         resp = await client.get("/api/v1/users", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()
@@ -1225,7 +1322,9 @@ class TestUsers:
         )
         assert resp.status_code == 409
 
-    async def test_get_user(self, client: AsyncClient, auth_header: dict[str, str], created_user: dict) -> None:
+    async def test_get_user(
+        self, client: AsyncClient, auth_header: dict[str, str], created_user: dict
+    ) -> None:
         user_id = created_user["user_id"]
         resp = await client.get(f"/api/v1/users/{user_id}", headers=auth_header)
         assert resp.status_code == 200
@@ -1258,13 +1357,19 @@ class TestUsers:
 
 
 class TestMonitoring:
-    async def test_get_metrics(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_get_metrics(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
-        resp = await client.get(f"/api/v1/monitoring/metrics?server_id={server_id}", headers=auth_header)
+        resp = await client.get(
+            f"/api/v1/monitoring/metrics?server_id={server_id}", headers=auth_header
+        )
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
-    async def test_get_metrics_with_nullable_tps(self, client: AsyncClient, auth_header: dict[str, str], created_server: dict) -> None:
+    async def test_get_metrics_with_nullable_tps(
+        self, client: AsyncClient, auth_header: dict[str, str], created_server: dict
+    ) -> None:
         from app.core.persistence.db import database
         from app.modules.monitoring.domain.aggregate import MetricPoint
         from app.modules.monitoring.infrastructure.repository import SQLMetricRepository
@@ -1273,10 +1378,15 @@ class TestMonitoring:
         server_id = created_server["server_id"]
         async with database.session_factory() as session:
             repo = SQLMetricRepository(session)
-            await repo.record(ServerId(server_id), MetricPoint(tps=None, players=0, ram_used_mb=256, cpu_percent=5))
+            await repo.record(
+                ServerId(server_id),
+                MetricPoint(tps=None, players=0, ram_used_mb=256, cpu_percent=5),
+            )
             await session.commit()
 
-        resp = await client.get(f"/api/v1/monitoring/metrics?server_id={server_id}&limit=5", headers=auth_header)
+        resp = await client.get(
+            f"/api/v1/monitoring/metrics?server_id={server_id}&limit=5", headers=auth_header
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) >= 1
@@ -1286,7 +1396,9 @@ class TestMonitoring:
         resp = await client.get("/api/v1/monitoring/alerts", headers=auth_header)
         assert resp.status_code == 200
 
-    async def test_create_alert_rule_unauthorized(self, client: AsyncClient, created_server: dict) -> None:
+    async def test_create_alert_rule_unauthorized(
+        self, client: AsyncClient, created_server: dict
+    ) -> None:
         from app.core.persistence.db import database
         from app.modules.auth.infrastructure.models import UserModel
 
@@ -1316,7 +1428,9 @@ class TestMonitoring:
         )
         assert resp.status_code == 403
 
-    async def test_create_alert_rule_authorized(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
+    async def test_create_alert_rule_authorized(
+        self, client: AsyncClient, admin_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         resp = await client.post(
             f"/api/v1/monitoring/alerts/{server_id}",
@@ -1330,7 +1444,9 @@ class TestMonitoring:
         )
         assert resp.status_code == 201
 
-    async def test_delete_alert_rule(self, client: AsyncClient, auth_header: dict[str, str], admin_header: dict[str, str]) -> None:
+    async def test_delete_alert_rule(
+        self, client: AsyncClient, auth_header: dict[str, str], admin_header: dict[str, str]
+    ) -> None:
         resp = await client.delete("/api/v1/monitoring/alerts/rule-1", headers=auth_header)
         assert resp.status_code == 403
 
@@ -1347,7 +1463,9 @@ class TestSettings:
         assert "requires_restart" in data
 
     async def test_update_settings(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
-        resp = await client.patch("/api/v1/settings", json={"rate_limit_per_minute": 100}, headers=admin_header)
+        resp = await client.patch(
+            "/api/v1/settings", json={"rate_limit_per_minute": 100}, headers=admin_header
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -1359,25 +1477,35 @@ class TestSchedules:
         resp = await client.get("/api/v1/schedules", headers=auth_header)
         assert resp.status_code == 200
 
-    async def test_create_schedule_unauthorized(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_create_schedule_unauthorized(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
         resp = await client.post("/api/v1/schedules", json={}, headers=auth_header)
         assert resp.status_code == 403
 
-    async def test_create_schedule_authorized(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
+    async def test_create_schedule_authorized(
+        self, client: AsyncClient, admin_header: dict[str, str]
+    ) -> None:
         resp = await client.post("/api/v1/schedules", json={}, headers=admin_header)
         assert resp.status_code == 201
 
-    async def test_delete_schedule_unauthorized(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_delete_schedule_unauthorized(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
         resp = await client.delete("/api/v1/schedules/sched-1", headers=auth_header)
         assert resp.status_code == 403
 
-    async def test_delete_schedule_authorized(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
+    async def test_delete_schedule_authorized(
+        self, client: AsyncClient, admin_header: dict[str, str]
+    ) -> None:
         resp = await client.delete("/api/v1/schedules/sched-1", headers=admin_header)
         assert resp.status_code == 204
 
 
 class TestHealthEvaluatePermissions:
-    async def test_evaluate_health_unauthorized(self, client: AsyncClient, created_server: dict) -> None:
+    async def test_evaluate_health_unauthorized(
+        self, client: AsyncClient, created_server: dict
+    ) -> None:
         from app.core.persistence.db import database
         from app.modules.auth.infrastructure.models import UserModel
 
@@ -1398,11 +1526,12 @@ class TestHealthEvaluatePermissions:
         resp = await client.post(f"/api/v1/health/evaluate/{server_id}", headers=outsider_header)
         assert resp.status_code == 403
 
-    async def test_evaluate_health_authorized(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
+    async def test_evaluate_health_authorized(
+        self, client: AsyncClient, admin_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         resp = await client.post(f"/api/v1/health/evaluate/{server_id}", headers=admin_header)
         assert resp.status_code == 200
-
 
 
 class TestEdgeCases:
@@ -1410,7 +1539,9 @@ class TestEdgeCases:
         resp = await client.get("/api/v1/schedules")
         assert resp.status_code == 401
 
-    async def test_send_command(self, client: AsyncClient, admin_header: dict[str, str], created_server: dict) -> None:
+    async def test_send_command(
+        self, client: AsyncClient, admin_header: dict[str, str], created_server: dict
+    ) -> None:
         server_id = created_server["server_id"]
         resp = await client.post(
             f"/api/v1/servers/{server_id}/command",
@@ -1425,35 +1556,43 @@ class TestEdgeCases:
 
 
 class TestRuntimeOwnershipAPI:
-    async def test_runtime_ownership_empty(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+    async def test_runtime_ownership_empty(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
                 return_value=[],
-            ):
-                resp = await client.get("/api/v1/servers/runtime/ownership", headers=auth_header)
+            ),
+        ):
+            resp = await client.get("/api/v1/servers/runtime/ownership", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_orphans"] == 0
         assert len(data["active_servers"]) == 0
 
-    async def test_runtime_ownership_with_orphan(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("onx-orphan-x", 12345)],
-        ):
-            with patch(
+    async def test_runtime_ownership_with_orphan(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[("onx-orphan-x", 12345)],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
                 return_value=[],
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_ownership._find_all_java_pids",
-                    return_value=[12345],
-                ):
-                    resp = await client.get("/api/v1/servers/runtime/ownership", headers=auth_header)
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_java_pids",
+                return_value=[12345],
+            ),
+        ):
+            resp = await client.get("/api/v1/servers/runtime/ownership", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_orphans"] >= 1
@@ -1487,7 +1626,9 @@ class TestErrorHandling:
         assert resp.status_code == 401
 
     async def test_expired_token_returns_401(self, client: AsyncClient) -> None:
-        resp = await client.get("/api/v1/servers", headers={"Authorization": "Bearer invalid.token.here"})
+        resp = await client.get(
+            "/api/v1/servers", headers={"Authorization": "Bearer invalid.token.here"}
+        )
         assert resp.status_code == 401
 
 
@@ -1527,18 +1668,26 @@ class TestAuthorizationEnforcement:
         outsider_header = await _seed_api_key_header(client, "u_outsider_stop", [])
 
         server_id = created_server["server_id"]
-        resp = await client.post(f"/api/v1/servers/{server_id}/stop", json={"reason": "test"}, headers=outsider_header)
+        resp = await client.post(
+            f"/api/v1/servers/{server_id}/stop", json={"reason": "test"}, headers=outsider_header
+        )
         assert resp.status_code == 403
         err_text = resp.json().get("detail") or resp.json().get("error") or ""
         assert "permission" in err_text.lower()
 
-    async def test_reconcile_without_permission_denied(self, client: AsyncClient, auth_header: dict[str, str]) -> None:
+    async def test_reconcile_without_permission_denied(
+        self, client: AsyncClient, auth_header: dict[str, str]
+    ) -> None:
         resp = await client.post("/api/v1/servers/reconcile", json={}, headers=auth_header)
         assert resp.status_code == 403
         assert resp.json()["error_code"] == "PERMISSION_DENIED"
 
     async def test_delete_backup_without_permission_denied(
-        self, client: AsyncClient, auth_header: dict[str, str], privileged_header: dict[str, str], created_server: dict
+        self,
+        client: AsyncClient,
+        auth_header: dict[str, str],
+        privileged_header: dict[str, str],
+        created_server: dict,
     ) -> None:
         server_id = created_server["server_id"]
         # setup with privileges: create the backup
@@ -1567,7 +1716,11 @@ class TestAuthorizationEnforcement:
         assert resp.status_code == 204
 
     async def test_restore_backup_without_permission_denied(
-        self, client: AsyncClient, auth_header: dict[str, str], privileged_header: dict[str, str], created_server: dict
+        self,
+        client: AsyncClient,
+        auth_header: dict[str, str],
+        privileged_header: dict[str, str],
+        created_server: dict,
     ) -> None:
         server_id = created_server["server_id"]
         # setup with privileges: create the backup
@@ -1613,7 +1766,9 @@ class TestAuthorizationEnforcement:
         assert resp.status_code == 403
         assert resp.json()["error_code"] == "PERMISSION_DENIED"
 
-    async def test_create_api_key_admin_allowed(self, client: AsyncClient, admin_header: dict[str, str]) -> None:
+    async def test_create_api_key_admin_allowed(
+        self, client: AsyncClient, admin_header: dict[str, str]
+    ) -> None:
         resp = await client.post(
             "/api/v1/auth/api-keys",
             json={"name": "test-key"},
@@ -1622,7 +1777,11 @@ class TestAuthorizationEnforcement:
         assert resp.status_code == 201
 
     async def test_uninstall_plugin_without_permission_denied(
-        self, client: AsyncClient, privileged_header: dict[str, str], auth_header: dict[str, str], created_server: dict
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        auth_header: dict[str, str],
+        created_server: dict,
     ) -> None:
         server_id = created_server["server_id"]
         plugin_id = await _seed_plugin(server_id, "Dynmap")
@@ -1634,7 +1793,11 @@ class TestAuthorizationEnforcement:
         assert resp.json()["error_code"] == "PERMISSION_DENIED"
 
     async def test_enable_plugin_without_permission_denied(
-        self, client: AsyncClient, privileged_header: dict[str, str], auth_header: dict[str, str], created_server: dict
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        auth_header: dict[str, str],
+        created_server: dict,
     ) -> None:
         server_id = created_server["server_id"]
         plugin_id = await _seed_plugin(server_id, "LuckPerms")
@@ -1646,7 +1809,11 @@ class TestAuthorizationEnforcement:
         assert resp.json()["error_code"] == "PERMISSION_DENIED"
 
     async def test_disable_plugin_without_permission_denied(
-        self, client: AsyncClient, privileged_header: dict[str, str], auth_header: dict[str, str], created_server: dict
+        self,
+        client: AsyncClient,
+        privileged_header: dict[str, str],
+        auth_header: dict[str, str],
+        created_server: dict,
     ) -> None:
         server_id = created_server["server_id"]
         plugin_id = await _seed_plugin(server_id, "Vault")

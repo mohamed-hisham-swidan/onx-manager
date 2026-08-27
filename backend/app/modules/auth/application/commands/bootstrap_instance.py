@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import ConflictError, InvalidValueError
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.security import hash_api_key, hash_password
-from app.modules.auth.infrastructure.jwt import create_access_token, create_refresh_token
 from app.modules.auth.domain.aggregate import AccessMode, Role, User
+from app.modules.auth.infrastructure.jwt import create_access_token, create_refresh_token
 from app.modules.auth.infrastructure.models import RefreshTokenModel
 from app.modules.auth.infrastructure.permissions import PermissionEvaluator
 from app.modules.auth.infrastructure.repository import SQLSystemStateRepository, SQLUserRepository
@@ -30,11 +30,15 @@ class BootstrapInstanceHandler(CommandHandler[BootstrapInstanceCommand]):
 
     async def handle(self, command: BootstrapInstanceCommand) -> CommandResult:
         if len(command.password) < 8:
-            raise InvalidValueError("password", "too short", "Password must be at least 8 characters")
+            raise InvalidValueError(
+                "password", "too short", "Password must be at least 8 characters"
+            )
 
         mode_str = command.access_mode.upper()
         if mode_str not in ("LOCAL", "GLOBAL"):
-            raise InvalidValueError("access_mode", command.access_mode, "Access mode must be LOCAL or GLOBAL")
+            raise InvalidValueError(
+                "access_mode", command.access_mode, "Access mode must be LOCAL or GLOBAL"
+            )
 
         async with UnitOfWork(self._event_bus) as uow:
             sys_repo = SQLSystemStateRepository(uow.session)
@@ -91,7 +95,7 @@ class BootstrapInstanceHandler(CommandHandler[BootstrapInstanceCommand]):
             rt_model = RefreshTokenModel(
                 user_id=str(user.user_id),
                 token_hash=hash_api_key(refresh_token),
-                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+                expires_at=datetime.now(UTC) + timedelta(days=7),
             )
             uow.session.add(rt_model)
 

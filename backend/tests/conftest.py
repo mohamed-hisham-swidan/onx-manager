@@ -1,6 +1,5 @@
 import asyncio
 import os
-from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
@@ -84,16 +83,16 @@ def _init_stub_task_queue() -> None:
     from app.tasks.queue import init_task_queue
 
     class StubTaskQueue(TaskQueue):
-        async def enqueue(self, name: str, params: dict | None = None, delay: int = 0) -> str:
+        async def enqueue(self, _name: str, _params: dict | None = None, _delay: int = 0) -> str:
             return "stub-task-id"
 
-        async def cancel(self, task_id: str) -> bool:
+        async def cancel(self, _task_id: str) -> bool:
             return True
 
-        async def get_status(self, task_id: str) -> TaskStatus:
+        async def get_status(self, _task_id: str) -> TaskStatus:
             return TaskStatus.PENDING
 
-        async def get_result(self, task_id: str) -> object:
+        async def get_result(self, _task_id: str) -> object:
             return None
 
     init_task_queue(StubTaskQueue())

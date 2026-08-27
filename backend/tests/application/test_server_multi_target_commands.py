@@ -22,7 +22,6 @@ from app.core.event_bus import EventBus
 from app.core.exceptions import InvalidValueError, NotFoundError
 from app.core.persistence.base import Base
 from app.core.persistence.db import database
-from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.settings_store import init_settings_store
 from app.modules.exposure.application import commands as exposure_commands
 from app.modules.exposure.application.commands import (
@@ -502,9 +501,7 @@ async def test_multi_target_coexistence_same_server():
         CreateExposureTargetCommand(server_id="srv-1", service_type="voice")
     )
 
-    targets = await ListExposureTargetsHandler().handle(
-        ListExposureTargetsQuery(server_id="srv-1")
-    )
+    targets = await ListExposureTargetsHandler().handle(ListExposureTargetsQuery(server_id="srv-1"))
     assert len(targets) == 3
     types = {t["service_type"] for t in targets}
     assert types == {"java", "bedrock", "voice"}
@@ -869,9 +866,7 @@ async def test_single_method_per_server_enforced():
 
     # Switch method to port_forward
     res = await SetServerExposureHandler(bus).handle(
-        SetServerExposureCommand(
-            server_id="srv-1", method="port_forward", desired_state="DISABLED"
-        )
+        SetServerExposureCommand(server_id="srv-1", method="port_forward", desired_state="DISABLED")
     )
     assert res.data["method"] == ExposureMethod.PORT_FORWARD.value
 

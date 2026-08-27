@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Awaitable, Callable
+import contextlib
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +33,7 @@ class UnitOfWork:
     def defer_cleanup(self, fn: Callable[[], Awaitable[None]]) -> None:
         self._cleanups.append(fn)
 
-    async def __aenter__(self) -> "UnitOfWork":
+    async def __aenter__(self) -> UnitOfWork:
         self._session = await database.session_factory().__aenter__()
         return self
 
@@ -67,8 +68,6 @@ class UnitOfWork:
             await self._session.rollback()
         self._events.clear()
         for fn in reversed(self._cleanups):
-            try:
+            with contextlib.suppress(Exception):
                 await fn()
-            except Exception:
-                pass
         self._cleanups.clear()

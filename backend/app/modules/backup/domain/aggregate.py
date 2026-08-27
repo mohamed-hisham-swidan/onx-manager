@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from app.modules.backup.domain.events import (
@@ -55,7 +55,7 @@ class BackupJob(AggregateRoot):
         self._checksum = checksum
         self._storage_path = storage_path
         self._error_message = error_message
-        self._created_at = created_at or datetime.now(timezone.utc)
+        self._created_at = created_at or datetime.now(UTC)
         self._completed_at = completed_at
 
     @property
@@ -99,7 +99,9 @@ class BackupJob(AggregateRoot):
         return self._completed_at
 
     @classmethod
-    def create(cls, backup_id: BackupJobId, server_id: ServerId, backup_type: BackupType = BackupType.FULL) -> BackupJob:
+    def create(
+        cls, backup_id: BackupJobId, server_id: ServerId, backup_type: BackupType = BackupType.FULL
+    ) -> BackupJob:
         job = cls(backup_id=backup_id, server_id=server_id, backup_type=backup_type)
         job._add_event(BackupStartedEvent(backup_id=str(backup_id), server_id=str(server_id)))
         return job
@@ -110,7 +112,7 @@ class BackupJob(AggregateRoot):
         self._checksum = checksum
         if storage_path:
             self._storage_path = storage_path
-        self._completed_at = datetime.now(timezone.utc)
+        self._completed_at = datetime.now(UTC)
         self._add_event(
             BackupCompletedEvent(
                 backup_id=str(self._backup_id),
@@ -124,7 +126,7 @@ class BackupJob(AggregateRoot):
     def mark_failed(self, reason: str) -> None:
         self._status = BackupStatus.FAILED
         self._error_message = reason
-        self._completed_at = datetime.now(timezone.utc)
+        self._completed_at = datetime.now(UTC)
         self._add_event(
             BackupFailedEvent(
                 backup_id=str(self._backup_id),
@@ -136,7 +138,7 @@ class BackupJob(AggregateRoot):
     def mark_failed_timeout(self, reason: str = "Backup timed out") -> None:
         self._status = BackupStatus.FAILED_TIMEOUT
         self._error_message = reason
-        self._completed_at = datetime.now(timezone.utc)
+        self._completed_at = datetime.now(UTC)
         self._add_event(
             BackupFailedEvent(
                 backup_id=str(self._backup_id),

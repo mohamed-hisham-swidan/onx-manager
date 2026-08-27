@@ -83,7 +83,7 @@ class ModrinthProvider(PluginCatalogProvider):
             "query": query,
             "limit": str(limit),
             "offset": str(offset),
-            "facets": f'[{facet_type},{facet_loaders}]',
+            "facets": f"[{facet_type},{facet_loaders}]",
         }
         data = await self._get_json("/search", params=params)
         hits = data.get("hits") or []
@@ -195,7 +195,9 @@ class ModrinthProvider(PluginCatalogProvider):
                     wait = 1.0 * (2**attempt)
                     logger.warning(
                         "Modrinth download attempt %d failed for %s, retrying in %.1fs",
-                        attempt + 1, url, wait,
+                        attempt + 1,
+                        url,
+                        wait,
                     )
                     await asyncio.sleep(wait)
                     continue
@@ -261,7 +263,9 @@ class ModrinthProvider(PluginCatalogProvider):
                     wait = 1.0 * (2**attempt)
                     logger.warning(
                         "Modrinth API attempt %d failed for %s, retrying in %.1fs",
-                        attempt + 1, url, wait,
+                        attempt + 1,
+                        url,
+                        wait,
                     )
                     await asyncio.sleep(wait)
                     continue
@@ -298,9 +302,7 @@ class ModrinthProvider(PluginCatalogProvider):
                 ),
             )
         deps = [
-            d.get("project_id", "")
-            for d in (data.get("dependencies") or [])
-            if d.get("project_id")
+            d.get("project_id", "") for d in (data.get("dependencies") or []) if d.get("project_id")
         ]
         return PluginVersionInfo(
             version_id=data.get("id", ""),

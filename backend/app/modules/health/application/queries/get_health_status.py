@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.health.infrastructure.repository import SQLHealthRepository
-from app.core.persistence.db import database
 
 
 class HealthStatusReadModel:
@@ -41,7 +41,9 @@ class GetHealthStatusHandler(QueryHandler[GetHealthStatusQuery]):
             return HealthStatusReadModel(
                 server_id=status.server_id,
                 status=status.classification.value,
-                previous_status=status.previous_classification.value if status.previous_classification else None,
+                previous_status=status.previous_classification.value
+                if status.previous_classification
+                else None,
                 contributing_factors=status.contributing_factors,
                 trend=status.trend.value,
                 confidence=status.confidence,

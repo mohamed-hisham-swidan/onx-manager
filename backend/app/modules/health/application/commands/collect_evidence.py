@@ -3,13 +3,13 @@ from __future__ import annotations
 import logging
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
-from app.core.identity import IDENTITY
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.identity import IDENTITY
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.health.domain.aggregate import DiagnosticsReport
 from app.modules.health.infrastructure.evidence_collector import LogBasedEvidenceCollector
 from app.modules.health.infrastructure.repository import SQLDiagnosticsRepository
-from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.collect_evidence")
 

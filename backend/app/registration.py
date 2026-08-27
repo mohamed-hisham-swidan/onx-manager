@@ -102,7 +102,9 @@ from app.modules.health.application import (
     GetHealthTimelineQuery,
 )
 from app.modules.health.application.event_handlers.health_signal_handler import HealthSignalHandler
-from app.modules.health.application.event_handlers.server_crashed_handler import HandleServerCrashHandler
+from app.modules.health.application.event_handlers.server_crashed_handler import (
+    HandleServerCrashHandler,
+)
 from app.modules.monitoring.application import (
     CreateAlertRuleCommand,
     CreateAlertRuleHandler,

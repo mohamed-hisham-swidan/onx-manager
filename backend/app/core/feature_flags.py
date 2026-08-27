@@ -4,7 +4,6 @@ import hashlib
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
@@ -19,20 +18,16 @@ class FlagDefinition:
 
 class FlagStorage(ABC):
     @abstractmethod
-    async def get_flag(self, key: str) -> FlagDefinition | None:
-        ...
+    async def get_flag(self, key: str) -> FlagDefinition | None: ...
 
     @abstractmethod
-    async def set_flag(self, flag: FlagDefinition) -> None:
-        ...
+    async def set_flag(self, flag: FlagDefinition) -> None: ...
 
     @abstractmethod
-    async def list_flags(self) -> list[FlagDefinition]:
-        ...
+    async def list_flags(self) -> list[FlagDefinition]: ...
 
     @abstractmethod
-    async def delete_flag(self, key: str) -> None:
-        ...
+    async def delete_flag(self, key: str) -> None: ...
 
 
 class InMemoryFlagStorage(FlagStorage):

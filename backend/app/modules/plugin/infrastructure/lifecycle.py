@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from enum import Enum
 from typing import Any
@@ -22,7 +23,12 @@ class RuntimeStatus(Enum):
 
 
 _RUNTIME_TRANSITIONS: dict[RuntimeStatus, set[RuntimeStatus]] = {
-    RuntimeStatus.INSTALLED: {RuntimeStatus.DISABLED, RuntimeStatus.ENABLING, RuntimeStatus.UNINSTALLING, RuntimeStatus.FAILED},
+    RuntimeStatus.INSTALLED: {
+        RuntimeStatus.DISABLED,
+        RuntimeStatus.ENABLING,
+        RuntimeStatus.UNINSTALLING,
+        RuntimeStatus.FAILED,
+    },
     RuntimeStatus.DISABLED: {RuntimeStatus.ENABLING, RuntimeStatus.UNINSTALLING},
     RuntimeStatus.ENABLING: {RuntimeStatus.ENABLED, RuntimeStatus.FAILED, RuntimeStatus.DISABLED},
     RuntimeStatus.ENABLED: {RuntimeStatus.DISABLING},
@@ -142,10 +148,8 @@ class PluginLifecycleManager:
 
         self._stop_heartbeat(plugin_id)
 
-        try:
+        with contextlib.suppress(Exception):
             await self._runner.stop(plugin_id)
-        except Exception:
-            pass
 
         async with self._lock:
             await self._transition(plugin_id, RuntimeStatus.DISABLED)

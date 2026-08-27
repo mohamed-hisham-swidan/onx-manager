@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import pytest
 import pytest_asyncio
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.exceptions import NotFoundError, ServerNotFoundError
+from app.core.persistence.base import Base
 from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy, BackupType
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.monitoring.domain.aggregate import (
@@ -42,15 +39,6 @@ from app.modules.shared.value_objects import (
     PluginVersion,
     ServerId,
 )
-from app.core.persistence.base import Base
-
-from app.modules.server.infrastructure.models import ServerModel
-from app.modules.backup.infrastructure.models import BackupJobModel, BackupPolicyModel
-from app.modules.plugin.infrastructure.models import PluginModel
-from app.modules.monitoring.infrastructure.models import AlertRuleModel, MetricPointModel
-from app.modules.event_store.models import StoredEventModel, DeadLetterEventModel
-from app.modules.auth.infrastructure.models import UserModel, RoleModel, ApiKeyModel, UserRoleModel
-
 
 TEST_DB_URL = "sqlite+aiosqlite://"
 
@@ -110,18 +98,22 @@ class TestSQLServerRepository:
     @pytest.mark.asyncio
     async def test_save_and_list(self, server_repo: SQLServerRepository) -> None:
         s1 = Server.create(
-            server_id=ServerId("s1"), name="Alpha",
+            server_id=ServerId("s1"),
+            name="Alpha",
             server_type=ServerType.VANILLA,
             minecraft_version=MinecraftVersion.parse("1.21"),
             memory=MemoryAllocation(1024, 2048),
-            java_args=JavaArguments(), properties=ServerProperties(port=PortNumber(25565)),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25565)),
         )
         s2 = Server.create(
-            server_id=ServerId("s2"), name="Beta",
+            server_id=ServerId("s2"),
+            name="Beta",
             server_type=ServerType.VANILLA,
             minecraft_version=MinecraftVersion.parse("1.20"),
             memory=MemoryAllocation(1024, 2048),
-            java_args=JavaArguments(), properties=ServerProperties(port=PortNumber(25566)),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25566)),
         )
         s1.collect_events()
         s2.collect_events()
@@ -134,11 +126,13 @@ class TestSQLServerRepository:
     @pytest.mark.asyncio
     async def test_save_and_delete(self, server_repo: SQLServerRepository) -> None:
         server = Server.create(
-            server_id=ServerId("del"), name="ToDelete",
+            server_id=ServerId("del"),
+            name="ToDelete",
             server_type=ServerType.VANILLA,
             minecraft_version=MinecraftVersion.parse("1.21"),
             memory=MemoryAllocation(1024, 2048),
-            java_args=JavaArguments(), properties=ServerProperties(port=PortNumber(25565)),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25565)),
         )
         server.collect_events()
         await server_repo.save(server)
@@ -149,11 +143,13 @@ class TestSQLServerRepository:
     @pytest.mark.asyncio
     async def test_save_updates_existing(self, server_repo: SQLServerRepository) -> None:
         server = Server.create(
-            server_id=ServerId("upd"), name="Original",
+            server_id=ServerId("upd"),
+            name="Original",
             server_type=ServerType.VANILLA,
             minecraft_version=MinecraftVersion.parse("1.21"),
             memory=MemoryAllocation(1024, 2048),
-            java_args=JavaArguments(), properties=ServerProperties(port=PortNumber(25565)),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25565)),
         )
         server.collect_events()
         await server_repo.save(server)
@@ -313,12 +309,16 @@ class TestSQLPluginRepository:
     @pytest.mark.asyncio
     async def test_list_by_server(self, plugin_repo: SQLPluginRepository) -> None:
         p1 = Plugin.install(
-            plugin_id=PluginId("a"), server_id=ServerId("s1"),
-            name="A", version=PluginVersion.parse("1.0.0"),
+            plugin_id=PluginId("a"),
+            server_id=ServerId("s1"),
+            name="A",
+            version=PluginVersion.parse("1.0.0"),
         )
         p2 = Plugin.install(
-            plugin_id=PluginId("b"), server_id=ServerId("s1"),
-            name="B", version=PluginVersion.parse("1.0.0"),
+            plugin_id=PluginId("b"),
+            server_id=ServerId("s1"),
+            name="B",
+            version=PluginVersion.parse("1.0.0"),
         )
         p1.collect_events()
         p2.collect_events()
@@ -331,8 +331,10 @@ class TestSQLPluginRepository:
     @pytest.mark.asyncio
     async def test_delete(self, plugin_repo: SQLPluginRepository) -> None:
         plugin = Plugin.install(
-            plugin_id=PluginId("del"), server_id=ServerId("s1"),
-            name="Del", version=PluginVersion.parse("1.0.0"),
+            plugin_id=PluginId("del"),
+            server_id=ServerId("s1"),
+            name="Del",
+            version=PluginVersion.parse("1.0.0"),
         )
         plugin.collect_events()
         await plugin_repo.save(plugin)
@@ -382,8 +384,18 @@ class TestSQLAlertRuleRepository:
     @pytest.mark.asyncio
     async def test_list_by_server(self, db_session: AsyncSession) -> None:
         repo = SQLAlertRuleRepository(db_session)
-        r1 = AlertRule(server_id=ServerId("s1"), metric_name="tps", condition=AlertCondition.LESS_THAN, threshold=10.0)
-        r2 = AlertRule(server_id=ServerId("s1"), metric_name="players", condition=AlertCondition.GREATER_THAN, threshold=50.0)
+        r1 = AlertRule(
+            server_id=ServerId("s1"),
+            metric_name="tps",
+            condition=AlertCondition.LESS_THAN,
+            threshold=10.0,
+        )
+        r2 = AlertRule(
+            server_id=ServerId("s1"),
+            metric_name="players",
+            condition=AlertCondition.GREATER_THAN,
+            threshold=50.0,
+        )
         await repo.save(r1)
         await repo.save(r2)
 
@@ -393,7 +405,12 @@ class TestSQLAlertRuleRepository:
     @pytest.mark.asyncio
     async def test_delete(self, db_session: AsyncSession) -> None:
         repo = SQLAlertRuleRepository(db_session)
-        rule = AlertRule(server_id=ServerId("s1"), metric_name="tps", condition=AlertCondition.LESS_THAN, threshold=10.0)
+        rule = AlertRule(
+            server_id=ServerId("s1"),
+            metric_name="tps",
+            condition=AlertCondition.LESS_THAN,
+            threshold=10.0,
+        )
         await repo.save(rule)
         await repo.delete(rule._alert_rule_id)
 

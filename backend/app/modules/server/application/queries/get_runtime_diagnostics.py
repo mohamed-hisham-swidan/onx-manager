@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import time
 
+from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.repository import ServerRepository
@@ -9,7 +11,6 @@ from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.db import database
 
 
 class GetServerRuntimeDiagnosticsQuery(Query):
@@ -71,37 +72,40 @@ class GetServerRuntimeDiagnosticsHandler(QueryHandler[GetServerRuntimeDiagnostic
         if pid and alive:
             try:
                 from app.modules.server.application.runtime_ownership import _get_java_cmdline
+
                 jvm_command = _get_java_cmdline(pid)
             except Exception:
                 pass
 
         port_owner = None
         if port:
-            try:
-                from app.modules.server.application.runtime_ownership import _pid_for_port, _port_is_listening
+            with contextlib.suppress(Exception):
+                from app.modules.server.application.runtime_ownership import (
+                    _pid_for_port,
+                    _port_is_listening,
+                )
+
                 if _port_is_listening(port):
                     port_pid = _pid_for_port(port)
-                    if port_pid:
-                        port_owner = f"pid={port_pid}"
-                    else:
-                        port_owner = "unknown"
-            except Exception:
-                pass
+                    port_owner = f"pid={port_pid}" if port_pid else "unknown"
 
         owner_conflicts = []
         validation_chain = []
         try:
             from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
+
             async with database.session_factory() as diag_session:
                 diag_repo: ServerRepository = SQLServerRepository(diag_session)
                 mgr = RuntimeOwnershipManager(diag_repo)
                 snapshot = await mgr.discover_all()
                 for conflict in snapshot.conflicts:
-                    owner_conflicts.append({
-                        "reason": conflict.reason.value,
-                        "detail": conflict.detail,
-                        "auto_resolvable": conflict.auto_resolvable,
-                    })
+                    owner_conflicts.append(
+                        {
+                            "reason": conflict.reason.value,
+                            "detail": conflict.detail,
+                            "auto_resolvable": conflict.auto_resolvable,
+                        }
+                    )
                 validation = await mgr.validate_runtime(query.server_id)
                 validation_chain = validation.chain
         except Exception:
@@ -109,7 +113,12 @@ class GetServerRuntimeDiagnosticsHandler(QueryHandler[GetServerRuntimeDiagnostic
 
         if supervisor and supervisor.is_running:
             uptime = supervisor.uptime
-        elif server.runtime and server.runtime.start_time and server.status and server.status.value in ("running", "starting"):
+        elif (
+            server.runtime
+            and server.runtime.start_time
+            and server.status
+            and server.status.value in ("running", "starting")
+        ):
             uptime = max(0.0, time.time() - server.runtime.start_time)
         else:
             uptime = 0.0
@@ -122,8 +131,12 @@ class GetServerRuntimeDiagnosticsHandler(QueryHandler[GetServerRuntimeDiagnostic
             "pid": pid,
             "provider": provider_type,
             "uptime_seconds": uptime,
-            "heartbeat_age_seconds": (time.time() - supervisor.last_heartbeat) if (supervisor and supervisor.is_running) else None,
-            "startup_duration_seconds": supervisor.start_duration if (supervisor and supervisor.is_running) else None,
+            "heartbeat_age_seconds": (time.time() - supervisor.last_heartbeat)
+            if (supervisor and supervisor.is_running)
+            else None,
+            "startup_duration_seconds": supervisor.start_duration
+            if (supervisor and supervisor.is_running)
+            else None,
             "restart_count": server.runtime.restart_count if server.runtime else 0,
             "failure_code": None,
             "failure_reason": None,

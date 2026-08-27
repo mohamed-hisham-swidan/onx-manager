@@ -5,11 +5,11 @@ from typing import Any
 
 from app.api.deps import build_backup_encryption, build_storage_backend
 from app.core.config import ConfigFactory
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.saga import SagaOrchestrator
 from app.modules.backup.domain.aggregate import BackupType
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
-from app.core.persistence.unit_of_work import UnitOfWork
 from app.services.backup_orchestrator import (
     BackupCancelledError,
     BackupSaga,
@@ -47,7 +47,11 @@ async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
             await repo.save_job(job)
             await uow.commit()
         clear_cancelled_backup(str(backup_id))
-        return {"backup_id": str(backup_id), "server_id": str(server_id), "status": "failed_timeout"}
+        return {
+            "backup_id": str(backup_id),
+            "server_id": str(server_id),
+            "status": "failed_timeout",
+        }
     except Exception:
         logger.exception("Backup task failed: %s for server %s", backup_id, server_id)
         async with UnitOfWork() as uow:

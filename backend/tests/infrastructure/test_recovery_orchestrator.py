@@ -11,7 +11,6 @@ from app.modules.health.infrastructure.recovery_orchestrator import (
 )
 from app.modules.server.domain.diagnostics import FailureCode
 
-
 pytestmark = pytest.mark.asyncio
 
 

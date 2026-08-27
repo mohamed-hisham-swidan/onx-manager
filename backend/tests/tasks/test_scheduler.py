@@ -1,7 +1,7 @@
 import pytest
 
-from app.tasks.scheduler import Scheduler
 from app.tasks.base import TaskQueue, TaskStatus
+from app.tasks.scheduler import Scheduler
 
 
 class FakeSessionFactory:
@@ -17,11 +17,12 @@ class FakeSessionFactory:
     async def __aexit__(self, *args: object) -> None:
         pass
 
-    async def get(self, model: type, pk: str) -> object | None:
+    async def get(self, _model: type, pk: str) -> object | None:
         return self._store.get(pk)
 
-    async def execute(self, stmt: object) -> object:
+    async def execute(self, _stmt: object) -> object:
         from unittest.mock import MagicMock
+
         result = MagicMock()
         result.scalars.return_value.all.return_value = []
         return result
@@ -38,16 +39,16 @@ class FakeSessionFactory:
 
 
 class FakeQueue(TaskQueue):
-    async def enqueue(self, name: str, params: dict | None = None, delay: int = 0) -> str:
+    async def enqueue(self, _name: str, _params: dict | None = None, _delay: int = 0) -> str:
         return "tid"
 
-    async def cancel(self, task_id: str) -> bool:
+    async def cancel(self, _task_id: str) -> bool:
         return True
 
-    async def get_status(self, task_id: str) -> TaskStatus:
+    async def get_status(self, _task_id: str) -> TaskStatus:
         return TaskStatus.PENDING
 
-    async def get_result(self, task_id: str) -> object:
+    async def get_result(self, _task_id: str) -> object:
         return None
 
 

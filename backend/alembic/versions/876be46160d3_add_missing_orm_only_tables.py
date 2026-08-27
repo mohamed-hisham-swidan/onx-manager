@@ -13,17 +13,18 @@ Revision ID: 876be46160d3
 Revises: 902b076bfa36
 Create Date: 2026-07-26 20:55:44.692785
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
-from sqlalchemy import inspect
-import sqlalchemy as sa
-
 
 revision: str = "876be46160d3"
-down_revision: Union[str, None] = "902b076bfa36"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "902b076bfa36"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def _table_exists(name: str) -> bool:
@@ -54,7 +55,9 @@ def upgrade() -> None:
             sa.Column("difficulty", sa.String(16), nullable=False, server_default="easy"),
             sa.Column("spawn_protection", sa.Integer, nullable=False, server_default="16"),
             sa.Column("pvp", sa.Boolean, nullable=False, server_default=sa.text("1")),
-            sa.Column("enable_command_block", sa.Boolean, nullable=False, server_default=sa.text("0")),
+            sa.Column(
+                "enable_command_block", sa.Boolean, nullable=False, server_default=sa.text("0")
+            ),
             sa.Column("online_mode", sa.Boolean, nullable=False, server_default=sa.text("1")),
             sa.Column("whitelist_enabled", sa.Boolean, nullable=False, server_default=sa.text("0")),
             sa.Column("view_distance", sa.Integer, nullable=False, server_default="10"),
@@ -75,8 +78,18 @@ def upgrade() -> None:
             sa.Column("last_crash_time", sa.Float, nullable=True),
             sa.Column("restart_count", sa.Integer, nullable=False, server_default="0"),
             sa.Column("launch_config_json", sa.Text, nullable=True),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
         )
 
     # ── api_keys ────────────────────────────────────────────
@@ -84,15 +97,30 @@ def upgrade() -> None:
         op.create_table(
             "api_keys",
             sa.Column("id", sa.String(36), primary_key=True),
-            sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+            sa.Column(
+                "user_id",
+                sa.String(36),
+                sa.ForeignKey("users.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
             sa.Column("name", sa.String(128), nullable=False),
             sa.Column("prefix", sa.String(16), nullable=False),
             sa.Column("key_hash", sa.String(128), nullable=False),
             sa.Column("permissions", sa.Text, nullable=False, server_default=""),
             sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("is_revoked", sa.Boolean, nullable=False, server_default=sa.text("0")),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
         )
         op.create_index("ix_api_keys_user_id", "api_keys", ["user_id"])
 
@@ -130,8 +158,18 @@ def upgrade() -> None:
             sa.Column("error_message", sa.Text, nullable=True),
             sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("storage_path", sa.String(512), nullable=True),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
         )
         op.create_index("ix_backup_jobs_server_id", "backup_jobs", ["server_id"])
 
@@ -143,11 +181,23 @@ def upgrade() -> None:
             sa.Column("schedule", sa.String(128), nullable=False),
             sa.Column("retention_days", sa.Integer, nullable=False, server_default="30"),
             sa.Column("backup_type", sa.String(16), nullable=False, server_default="full"),
-            sa.Column("encryption_enabled", sa.Boolean, nullable=False, server_default=sa.text("1")),
+            sa.Column(
+                "encryption_enabled", sa.Boolean, nullable=False, server_default=sa.text("1")
+            ),
             sa.Column("max_backups", sa.Integer, nullable=False, server_default="50"),
             sa.Column("enabled", sa.Boolean, nullable=False, server_default=sa.text("1")),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
         )
 
     # ── plugins ─────────────────────────────────────────────
@@ -164,7 +214,12 @@ def upgrade() -> None:
             sa.Column("dependencies", sa.Text, nullable=False, server_default=""),
             sa.Column("status", sa.String(16), nullable=False, server_default="installed"),
             sa.Column("installed_at", sa.DateTime(timezone=True), nullable=True),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
             # PluginModel overrides TimestampMixin.updated_at to nullable
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         )
@@ -175,13 +230,28 @@ def upgrade() -> None:
         op.create_table(
             "refresh_tokens",
             sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-            sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+            sa.Column(
+                "user_id",
+                sa.String(36),
+                sa.ForeignKey("users.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
             sa.Column("token_hash", sa.String(128), nullable=False, unique=True),
             sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("is_revoked", sa.Boolean, nullable=False, server_default=sa.text("0")),
             sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
         )
         op.create_index("ix_refresh_tokens_user_id", "refresh_tokens", ["user_id"])
 
@@ -193,16 +263,36 @@ def upgrade() -> None:
             sa.Column("name", sa.String(128), nullable=False, unique=True),
             sa.Column("description", sa.Text, nullable=False, server_default=""),
             sa.Column("permissions", sa.Text, nullable=False, server_default=""),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
         )
 
     # ── user_roles (many-to-many join, no TimestampMixin) ───
     if not _table_exists("user_roles"):
         op.create_table(
             "user_roles",
-            sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
-            sa.Column("role_id", sa.String(36), sa.ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+            sa.Column(
+                "user_id",
+                sa.String(36),
+                sa.ForeignKey("users.id", ondelete="CASCADE"),
+                primary_key=True,
+            ),
+            sa.Column(
+                "role_id",
+                sa.String(36),
+                sa.ForeignKey("roles.id", ondelete="CASCADE"),
+                primary_key=True,
+            ),
         )
 
 

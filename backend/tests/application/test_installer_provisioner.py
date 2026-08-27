@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import asyncio
+from collections.abc import AsyncGenerator
 from types import SimpleNamespace
-from typing import AsyncGenerator, Union
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -11,16 +10,13 @@ import pytest
 from app.core.exceptions import DownloadError, DownloadTimeoutError
 from app.modules.server.application.services.forge_provisioner import (
     ForgeProvisioner,
-    provision_forge_server,
 )
 from app.modules.server.application.services.installer_provisioner import (
     FailureClass,
-    FailureDisposition,
     InstallerProvisioner,
 )
 from app.modules.server.application.services.neoforge_provisioner import (
     NeoForgeProvisioner,
-    provision_neoforge_server,
 )
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.installer import InstallerResult, ProgressLine
@@ -70,7 +66,7 @@ def _make_runner(result: InstallerResult) -> object:
         *,
         timeout: float,
         cwd: str | None = None,
-    ) -> AsyncGenerator[Union[ProgressLine, InstallerResult], None]:
+    ) -> AsyncGenerator[ProgressLine | InstallerResult, None]:
         _ = (command, timeout, cwd)
         yield ProgressLine(stage="installing", percent=50, message="Processing…", raw_line="")
         yield result
@@ -145,7 +141,7 @@ class TestFailureClassification:
 
     def test_network_exceptions_are_transient(self) -> None:
         for exc in (
-            asyncio.TimeoutError(),
+            TimeoutError(),
             TimeoutError(),
             aiohttp.ClientError("connection reset"),
             DownloadError("http://...", 503, "Service Unavailable"),
@@ -158,7 +154,9 @@ class TestFailureClassification:
             assert disp.target_status == ServerStatus.PROVISIONING_FAILED
 
     def test_build_resolution_underlying_fetch_failed_is_ambiguous(self) -> None:
-        exc = BuildResolutionError(server_id="s1", detail="fetch dropped", underlying_fetch_failed=True)
+        exc = BuildResolutionError(
+            server_id="s1", detail="fetch dropped", underlying_fetch_failed=True
+        )
         disp = self.provisioner._classify_failure(exc)
         assert disp.classification == FailureClass.AMBIGUOUS
         assert disp.preserve_directory is True
@@ -203,8 +201,14 @@ class TestProvisioningAutoRetry:
             return s
 
         with (
-            patch("app.modules.server.application.services.installer_provisioner._load_server", AsyncMock(return_value=server)),
-            patch("app.modules.server.application.services.installer_provisioner._save_server", AsyncMock()),
+            patch(
+                "app.modules.server.application.services.installer_provisioner._load_server",
+                AsyncMock(return_value=server),
+            ),
+            patch(
+                "app.modules.server.application.services.installer_provisioner._save_server",
+                AsyncMock(),
+            ),
             patch("asyncio.sleep", AsyncMock()) as mock_sleep,
         ):
             provisioner = ConcreteTestProvisioner(fs=fs, max_retries=3)
@@ -230,8 +234,14 @@ class TestProvisioningAutoRetry:
             raise MetadataFetchError(server_id=str(sid), detail="persistent network down")
 
         with (
-            patch("app.modules.server.application.services.installer_provisioner._load_server", AsyncMock(return_value=server)),
-            patch("app.modules.server.application.services.installer_provisioner._save_server", AsyncMock()),
+            patch(
+                "app.modules.server.application.services.installer_provisioner._load_server",
+                AsyncMock(return_value=server),
+            ),
+            patch(
+                "app.modules.server.application.services.installer_provisioner._save_server",
+                AsyncMock(),
+            ),
             patch("asyncio.sleep", AsyncMock()),
         ):
             provisioner = ConcreteTestProvisioner(fs=fs, max_retries=3)
@@ -260,8 +270,14 @@ class TestProvisioningAutoRetry:
             raise InsufficientDiskError(server_id=str(sid), free_mb=50, required_mb=4096)
 
         with (
-            patch("app.modules.server.application.services.installer_provisioner._load_server", AsyncMock(return_value=server)),
-            patch("app.modules.server.application.services.installer_provisioner._save_server", AsyncMock()),
+            patch(
+                "app.modules.server.application.services.installer_provisioner._load_server",
+                AsyncMock(return_value=server),
+            ),
+            patch(
+                "app.modules.server.application.services.installer_provisioner._save_server",
+                AsyncMock(),
+            ),
             patch("asyncio.sleep", AsyncMock()) as mock_sleep,
         ):
             provisioner = ConcreteTestProvisioner(fs=fs, max_retries=3)
@@ -281,8 +297,20 @@ class TestSubclassContractParity:
     @pytest.mark.parametrize(
         "provisioner_cls,server_type,provider_name,installer_file,installer_cmd",
         [
-            (ForgeProvisioner, ServerType.FORGE, "Forge", "forge-installer.jar", "java -jar forge-installer.jar --installServer"),
-            (NeoForgeProvisioner, ServerType.NEOFORGE, "NeoForge", "neoforge-installer.jar", "java -jar neoforge-installer.jar --installServer"),
+            (
+                ForgeProvisioner,
+                ServerType.FORGE,
+                "Forge",
+                "forge-installer.jar",
+                "java -jar forge-installer.jar --installServer",
+            ),
+            (
+                NeoForgeProvisioner,
+                ServerType.NEOFORGE,
+                "NeoForge",
+                "neoforge-installer.jar",
+                "java -jar neoforge-installer.jar --installServer",
+            ),
         ],
     )
     def test_subclass_hooks_and_properties(
@@ -303,8 +331,16 @@ class TestSubclassContractParity:
     @pytest.mark.parametrize(
         "provisioner_cls,server_type,resolve_fn",
         [
-            (ForgeProvisioner, ServerType.FORGE, "app.modules.server.application.services.forge_provisioner.resolve_forge_build"),
-            (NeoForgeProvisioner, ServerType.NEOFORGE, "app.modules.server.application.services.neoforge_provisioner.resolve_neoforge_build"),
+            (
+                ForgeProvisioner,
+                ServerType.FORGE,
+                "app.modules.server.application.services.forge_provisioner.resolve_forge_build",
+            ),
+            (
+                NeoForgeProvisioner,
+                ServerType.NEOFORGE,
+                "app.modules.server.application.services.neoforge_provisioner.resolve_neoforge_build",
+            ),
         ],
     )
     async def test_end_to_end_subclass_provision_flow(
@@ -318,11 +354,23 @@ class TestSubclassContractParity:
         fs = _make_fs()
 
         with (
-            patch("app.modules.server.application.services.installer_provisioner._load_server", AsyncMock(return_value=server)),
-            patch("app.modules.server.application.services.installer_provisioner._save_server", AsyncMock()),
+            patch(
+                "app.modules.server.application.services.installer_provisioner._load_server",
+                AsyncMock(return_value=server),
+            ),
+            patch(
+                "app.modules.server.application.services.installer_provisioner._save_server",
+                AsyncMock(),
+            ),
             patch(resolve_fn, AsyncMock(return_value="1.21.1-build-99")),
-            patch("app.modules.server.application.services.installer_provisioner.download_installer_jar", AsyncMock(return_value=f"/data/{sid}/installer.jar")),
-            patch("app.modules.server.application.services.installer_provisioner.shutil.disk_usage", return_value=SimpleNamespace(free=64 * 1024 * 1024 * 1024)),
+            patch(
+                "app.modules.server.application.services.installer_provisioner.download_installer_jar",
+                AsyncMock(return_value=f"/data/{sid}/installer.jar"),
+            ),
+            patch(
+                "app.modules.server.application.services.installer_provisioner.shutil.disk_usage",
+                return_value=SimpleNamespace(free=64 * 1024 * 1024 * 1024),
+            ),
         ):
             provisioner = provisioner_cls(
                 runner=_make_runner(InstallerResult(exit_code=0, output="Installation complete")),

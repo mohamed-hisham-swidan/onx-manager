@@ -57,12 +57,16 @@ def evaluator() -> PermissionEvaluator:
 
 
 class TestPermissionEvaluator:
-    async def test_has_permission_granted(self, evaluator: PermissionEvaluator, admin_user: User) -> None:
+    async def test_has_permission_granted(
+        self, evaluator: PermissionEvaluator, admin_user: User
+    ) -> None:
         assert await evaluator.has_permission(admin_user, "server:read") is True
         assert await evaluator.has_permission(admin_user, "server:write") is True
         assert await evaluator.has_permission(admin_user, "backup:create") is True
 
-    async def test_has_permission_denied(self, evaluator: PermissionEvaluator, viewer_user: User) -> None:
+    async def test_has_permission_denied(
+        self, evaluator: PermissionEvaluator, viewer_user: User
+    ) -> None:
         assert await evaluator.has_permission(viewer_user, "server:write") is False
         assert await evaluator.has_permission(viewer_user, "backup:create") is False
 
@@ -70,19 +74,27 @@ class TestPermissionEvaluator:
         admin_user.deactivate()
         assert await evaluator.has_permission(admin_user, "server:read") is False
 
-    async def test_invalid_permission_string(self, evaluator: PermissionEvaluator, admin_user: User) -> None:
+    async def test_invalid_permission_string(
+        self, evaluator: PermissionEvaluator, admin_user: User
+    ) -> None:
         assert await evaluator.has_permission(admin_user, "invalid") is False
 
-    async def test_get_effective_permissions_admin(self, evaluator: PermissionEvaluator, admin_user: User) -> None:
+    async def test_get_effective_permissions_admin(
+        self, evaluator: PermissionEvaluator, admin_user: User
+    ) -> None:
         perms = await evaluator.get_effective_permissions(admin_user)
         assert "server:*" in perms
         assert "backup:create" in perms
 
-    async def test_get_effective_permissions_viewer(self, evaluator: PermissionEvaluator, viewer_user: User) -> None:
+    async def test_get_effective_permissions_viewer(
+        self, evaluator: PermissionEvaluator, viewer_user: User
+    ) -> None:
         perms = await evaluator.get_effective_permissions(viewer_user)
         assert perms == ["server:list"]
 
-    async def test_filter_by_permission(self, evaluator: PermissionEvaluator, admin_user: User, viewer_user: User) -> None:
+    async def test_filter_by_permission(
+        self, evaluator: PermissionEvaluator, admin_user: User, viewer_user: User
+    ) -> None:
         result = await evaluator.filter_by_permission([admin_user, viewer_user], "server:read")
         assert len(result) == 1
         assert result[0].user_id == admin_user.user_id
@@ -90,5 +102,7 @@ class TestPermissionEvaluator:
     async def test_abac_evaluation(self, evaluator: PermissionEvaluator, admin_user: User) -> None:
         assert evaluator.evaluate_abac(admin_user, "server", "read") is True
 
-    async def test_abac_with_resource_owner(self, evaluator: PermissionEvaluator, admin_user: User) -> None:
+    async def test_abac_with_resource_owner(
+        self, evaluator: PermissionEvaluator, admin_user: User
+    ) -> None:
         assert evaluator.evaluate_abac(admin_user, "server", "read", resource_owner_id="u1") is True

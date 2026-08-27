@@ -21,7 +21,9 @@ class GetSystemStatusHandler(QueryHandler[GetSystemStatusQuery]):
 
             return {
                 "initialized": state.initialized,
-                "access_mode": state.access_mode.value if hasattr(state.access_mode, "value") else str(state.access_mode),
+                "access_mode": state.access_mode.value
+                if hasattr(state.access_mode, "value")
+                else str(state.access_mode),
                 "user_count": user_count,
                 "version": get_app_version(),
             }

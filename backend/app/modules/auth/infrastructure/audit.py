@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, text
@@ -70,7 +70,7 @@ class AuditLogger:
 
         cid = correlation_id or uuid.uuid4().hex
         previous_hash = await self._get_latest_hash()
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
 
         row_data = {
             "timestamp": _fmt_ts(timestamp),
@@ -148,20 +148,24 @@ class AuditLogger:
             computed = hashlib.sha256(_build_hash_input(row_data)).hexdigest()
 
             if row_dict.get("previous_hash", "") != previous_hash:
-                errors.append({
-                    "id": row_id,
-                    "error": "previous_hash_mismatch",
-                    "expected": previous_hash,
-                    "got": row_dict.get("previous_hash", ""),
-                })
+                errors.append(
+                    {
+                        "id": row_id,
+                        "error": "previous_hash_mismatch",
+                        "expected": previous_hash,
+                        "got": row_dict.get("previous_hash", ""),
+                    }
+                )
 
             if computed != stored_hash:
-                errors.append({
-                    "id": row_id,
-                    "error": "hash_mismatch",
-                    "expected": computed,
-                    "got": stored_hash,
-                })
+                errors.append(
+                    {
+                        "id": row_id,
+                        "error": "hash_mismatch",
+                        "expected": computed,
+                        "got": stored_hash,
+                    }
+                )
 
             previous_hash = stored_hash
             checked += 1

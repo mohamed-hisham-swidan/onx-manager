@@ -159,7 +159,10 @@ class TestWriteTarContentMatrix:
         saga = BackupSaga(SagaOrchestrator())
         tar_path = str(server_dir / "out.tar.gz")
         saga._write_tar(
-            tar_path, str(server_dir), primary_world="mypvp", backup_type=BackupType.WORLD,
+            tar_path,
+            str(server_dir),
+            primary_world="mypvp",
+            backup_type=BackupType.WORLD,
         )
         with tarfile.open(tar_path, "r:gz") as tar:
             names = tar.getnames()

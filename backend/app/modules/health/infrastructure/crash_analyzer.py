@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from app.core.identity import IDENTITY
 from app.modules.health.domain.services import CrashClassifier
 from app.modules.health.domain.value_objects import CrashClassification, EvidenceBundle
-from app.core.identity import IDENTITY
 from app.modules.server.domain.diagnostics import FailureCode
 from app.modules.server.infrastructure.providers.patterns import FAILURE_PATTERNS
 
@@ -26,12 +26,36 @@ EXIT_CODE_KEYWORDS: dict[int, list[str]] = {
 }
 
 CRASH_REPORT_PATTERNS: list[tuple[re.Pattern[str], FailureCode, str]] = [
-    (re.compile(r"java\.lang\.OutOfMemoryError"), FailureCode.MEMORY_EXHAUSTED, "OutOfMemoryError in crash report"),
-    (re.compile(r"java\.lang\.UnsupportedClassVersionError"), FailureCode.JAVA_VERSION_MISMATCH, "Java version mismatch in crash report"),
-    (re.compile(r"java\.lang\.NoSuchMethodError"), FailureCode.UNKNOWN_RUNTIME_FAILURE, "NoSuchMethodError in crash report"),
-    (re.compile(r"java\.lang\.StackOverflowError"), FailureCode.UNKNOWN_RUNTIME_FAILURE, "StackOverflowError in crash report"),
-    (re.compile(r"Failed to load main class"), FailureCode.INVALID_JAR_PATH, "Main class not found"),
-    (re.compile(r"Unable to instantiate"), FailureCode.INVALID_LAUNCH_CONFIGURATION, "Plugin instantiation failure"),
+    (
+        re.compile(r"java\.lang\.OutOfMemoryError"),
+        FailureCode.MEMORY_EXHAUSTED,
+        "OutOfMemoryError in crash report",
+    ),
+    (
+        re.compile(r"java\.lang\.UnsupportedClassVersionError"),
+        FailureCode.JAVA_VERSION_MISMATCH,
+        "Java version mismatch in crash report",
+    ),
+    (
+        re.compile(r"java\.lang\.NoSuchMethodError"),
+        FailureCode.UNKNOWN_RUNTIME_FAILURE,
+        "NoSuchMethodError in crash report",
+    ),
+    (
+        re.compile(r"java\.lang\.StackOverflowError"),
+        FailureCode.UNKNOWN_RUNTIME_FAILURE,
+        "StackOverflowError in crash report",
+    ),
+    (
+        re.compile(r"Failed to load main class"),
+        FailureCode.INVALID_JAR_PATH,
+        "Main class not found",
+    ),
+    (
+        re.compile(r"Unable to instantiate"),
+        FailureCode.INVALID_LAUNCH_CONFIGURATION,
+        "Plugin instantiation failure",
+    ),
 ]
 
 
@@ -49,7 +73,7 @@ class PatternCrashAnalyzer(CrashClassifier):
             confidence=min(confidence, 1.0),
             summary=summary,
             suggested_action=suggested_action,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     def _analyze(self, evidence: EvidenceBundle) -> tuple[FailureCode, float, str]:

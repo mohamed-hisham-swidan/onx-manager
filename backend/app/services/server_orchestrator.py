@@ -1,12 +1,12 @@
 import logging
 
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.saga import SagaOrchestrator, SagaStep
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.providers.base import ServerProvider
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +150,7 @@ class RestartSaga:
     def _verify_online(self, provider: ServerProvider, handle: object):
         async def fn() -> None:
             import asyncio
+
             for attempt in range(5):
                 status = await provider.status(handle)
                 if status.value == "running":
@@ -163,6 +164,7 @@ class RestartSaga:
 
 def _make_handle(provider: ServerProvider, server_id: ServerId) -> object:
     from app.modules.server.infrastructure.providers.base import ServerHandle
+
     return ServerHandle(
         provider=provider.provider_type,
         server_id=str(server_id),

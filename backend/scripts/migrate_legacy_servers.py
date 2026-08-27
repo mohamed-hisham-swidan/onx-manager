@@ -30,6 +30,7 @@ logger = logging.getLogger("migrate_legacy_servers")
 
 def _slugify(text: str) -> str:
     import re
+
     text = text.lower().strip()
     text = re.sub(r"[^\w\s-]", "", text)
     text = text.replace("_", "-")
@@ -82,7 +83,9 @@ async def migrate(dry_run: bool = False) -> int:
             new_path = (data_dir / new_name).resolve()
 
             logger.info(
-                "Server  %-30s  id=%s", server.name, sid,
+                "Server  %-30s  id=%s",
+                server.name,
+                sid,
             )
             logger.info("  Old:  %s", old_path)
             logger.info("  New:  %s", new_path)

@@ -85,6 +85,7 @@ def test_local_filesystem_chmod() -> None:
         fs.write_text(path, "#!/bin/sh")
         fs.chmod(path, 0o755)
         import os
+
         mode = os.stat(path).st_mode
         assert mode & 0o111
 

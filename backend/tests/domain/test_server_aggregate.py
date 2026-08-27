@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -8,8 +8,8 @@ from app.core.exceptions import InvalidValueError
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.events import (
     ServerConfigChangedEvent,
-    ServerCreatedEvent,
     ServerCrashedEvent,
+    ServerCreatedEvent,
     ServerStartedEvent,
     ServerStartingEvent,
     ServerStoppedEvent,
@@ -185,7 +185,7 @@ class TestServerConfig:
 
 class TestServerEdgeCases:
     def test_custom_created_at(self) -> None:
-        past = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        past = datetime(2024, 1, 1, tzinfo=UTC)
         props = ServerProperties(port=PortNumber(25565))
         server = Server(
             server_id=ServerId("old"),
@@ -225,4 +225,3 @@ class TestServerRename:
             valid_server.rename("")
         with pytest.raises(InvalidValueError):
             valid_server.rename("   ")
-

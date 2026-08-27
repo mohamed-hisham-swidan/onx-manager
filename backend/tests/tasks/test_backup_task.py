@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import AsyncMock, patch
 
 from app.tasks.definitions.backup_task import run_backup_task
 

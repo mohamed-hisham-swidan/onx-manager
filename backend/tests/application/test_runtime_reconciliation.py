@@ -1,4 +1,3 @@
-import os
 import signal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,7 +9,6 @@ from app.modules.server.application.runtime_reconciliation import (
     reconcile_orphans,
     reconcile_server_runtime,
 )
-from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import (
@@ -20,10 +18,6 @@ from app.modules.server.domain.value_objects import (
     RuntimeInfo,
     ServerProperties,
     ServerType,
-)
-from app.modules.server.infrastructure.providers.base import (
-    ServerHandle,
-    ServerRuntimeStatus,
 )
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
@@ -79,19 +73,21 @@ class TestReconcileServerRuntime:
         server = _make_server("s1", ServerStatus.RUNNING)
         repo = MagicMock(spec_set=["get", "list", "save", "delete"])
 
-        with patch(
-            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
-            return_value=_mock_provider(verify_process=True, tmux_pid=100),
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+                return_value=_mock_provider(verify_process=True, tmux_pid=100),
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation.os.kill",
                 return_value=None,
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
-                    return_value=MagicMock(is_running=True),
-                ):
-                    outcome = await reconcile_server_runtime(server, repo)
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                return_value=MagicMock(is_running=True),
+            ),
+        ):
+            outcome = await reconcile_server_runtime(server, repo)
 
         assert len(outcome.mismatches) == 0
         assert outcome.repaired is False
@@ -101,19 +97,21 @@ class TestReconcileServerRuntime:
         repo = MagicMock(spec_set=["get", "list", "save", "delete"])
         repo.save = AsyncMock()
 
-        with patch(
-            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
-            return_value=_mock_provider(verify_process=True, tmux_pid=100),
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+                return_value=_mock_provider(verify_process=True, tmux_pid=100),
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation.os.kill",
                 return_value=None,
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
-                    return_value=None,
-                ):
-                    outcome = await reconcile_server_runtime(server, repo)
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                return_value=None,
+            ),
+        ):
+            outcome = await reconcile_server_runtime(server, repo)
 
         assert len(outcome.mismatches) >= 1
         types = [m.mismatch_type for m in outcome.mismatches]
@@ -124,15 +122,17 @@ class TestReconcileServerRuntime:
         repo = MagicMock(spec_set=["get", "list", "save", "delete"])
         repo.save = AsyncMock()
 
-        with patch(
-            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
-            return_value=_mock_provider(verify_process=False, tmux_pid=None),
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+                return_value=_mock_provider(verify_process=False, tmux_pid=None),
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
                 return_value=None,
-            ):
-                outcome = await reconcile_server_runtime(server, repo)
+            ),
+        ):
+            outcome = await reconcile_server_runtime(server, repo)
 
         assert outcome.repaired is True
         repo.save.assert_called_once()
@@ -143,19 +143,21 @@ class TestReconcileServerRuntime:
         repo = MagicMock(spec_set=["get", "list", "save", "delete"])
         repo.save = AsyncMock()
 
-        with patch(
-            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
-            return_value=_mock_provider(verify_process=True, tmux_pid=999),
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+                return_value=_mock_provider(verify_process=True, tmux_pid=999),
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation.os.kill",
                 side_effect=ProcessLookupError,
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
-                    return_value=MagicMock(is_running=True),
-                ):
-                    outcome = await reconcile_server_runtime(server, repo)
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                return_value=MagicMock(is_running=True),
+            ),
+        ):
+            outcome = await reconcile_server_runtime(server, repo)
 
         assert outcome.repaired is True
         assert server.status == ServerStatus.CRASHED
@@ -165,19 +167,21 @@ class TestReconcileServerRuntime:
         repo = MagicMock(spec_set=["get", "list", "save", "delete"])
         repo.save = AsyncMock()
 
-        with patch(
-            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
-            return_value=_mock_provider(verify_process=False, tmux_pid=None),
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+                return_value=_mock_provider(verify_process=False, tmux_pid=None),
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
                 return_value=MagicMock(is_running=True),
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.stop_for",
-                    AsyncMock(),
-                ) as mock_stop:
-                    outcome = await reconcile_server_runtime(server, repo)
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.stop_for",
+                AsyncMock(),
+            ) as mock_stop,
+        ):
+            outcome = await reconcile_server_runtime(server, repo)
 
         assert outcome.repaired is True
         mock_stop.assert_awaited_once_with("s5")
@@ -245,19 +249,21 @@ class TestReconcileAllRuntimes:
         repo.list = AsyncMock(return_value=servers)
         repo.save = AsyncMock()
 
-        with patch(
-            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
-            return_value=_mock_provider(verify_process=True, tmux_pid=100),
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+                return_value=_mock_provider(verify_process=True, tmux_pid=100),
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation.os.kill",
                 return_value=None,
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
-                    return_value=MagicMock(is_running=True),
-                ):
-                    outcomes = await reconcile_all_runtimes(repo)
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                return_value=MagicMock(is_running=True),
+            ),
+        ):
+            outcomes = await reconcile_all_runtimes(repo)
 
         assert len(outcomes) == 3
         assert all(o.repaired is False for o in outcomes)
@@ -269,22 +275,26 @@ class TestReconcileAllRuntimes:
             _make_server("b2", ServerStatus.RUNNING),
         ]
         repo = MagicMock(spec_set=["get", "list", "save", "delete"])
-        repo.get = AsyncMock(side_effect=lambda sid: next(s for s in servers if str(s.id) == str(sid)))
+        repo.get = AsyncMock(
+            side_effect=lambda sid: next(s for s in servers if str(s.id) == str(sid))
+        )
         repo.save = AsyncMock()
 
-        with patch(
-            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
-            return_value=_mock_provider(verify_process=True, tmux_pid=100),
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+                return_value=_mock_provider(verify_process=True, tmux_pid=100),
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation.os.kill",
                 return_value=None,
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
-                    return_value=MagicMock(is_running=True),
-                ):
-                    outcomes = await reconcile_all_runtimes(repo, server_ids=["b1"])
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
+                return_value=MagicMock(is_running=True),
+            ),
+        ):
+            outcomes = await reconcile_all_runtimes(repo, server_ids=["b1"])
 
         assert len(outcomes) == 1
         assert str(outcomes[0].server_id) == "b1"
@@ -328,38 +338,42 @@ def _patch_ownership_helpers(
 @pytest.mark.asyncio
 class TestReconcileOrphans:
     async def test_no_orphans(self):
-        with patch(
-            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
                 return_value=[],
-            ):
-                actions = await reconcile_orphans()
+            ),
+        ):
+            actions = await reconcile_orphans()
 
         assert actions == []
 
     async def test_kills_orphan_tmux_system_wide(self):
-        with patch(
-            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["onx-orphan"],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+                return_value=["onx-orphan"],
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
                 return_value=12345,
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation.os.kill",
-                ) as mock_kill:
-                    with patch(
-                        "app.modules.server.application.runtime_reconciliation.os.popen",
-                    ):
-                        with patch(
-                            "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
-                            return_value=[],
-                        ):
-                            actions = await reconcile_orphans(scope="system_wide")
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+            ) as mock_kill,
+            patch(
+                "app.modules.server.application.runtime_reconciliation.os.popen",
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                return_value=[],
+            ),
+        ):
+            actions = await reconcile_orphans(scope="system_wide")
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_tmux"
@@ -427,22 +441,24 @@ class TestReconcileOrphans:
         mock_kill.assert_not_called()
 
     async def test_kills_orphan_java_pids_system_wide(self):
-        with patch(
-            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
                 return_value=[9999, 8888],
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation._is_minecraft_java_pid",
-                    return_value=True,
-                ):
-                    with patch(
-                        "app.modules.server.application.runtime_reconciliation.os.kill",
-                    ) as mock_kill:
-                        actions = await reconcile_orphans(scope="system_wide")
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation._is_minecraft_java_pid",
+                return_value=True,
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+            ) as mock_kill,
+        ):
+            actions = await reconcile_orphans(scope="system_wide")
 
         assert len(actions) == 2
         assert all(a["type"] == "orphan_java" for a in actions)
@@ -512,10 +528,12 @@ class TestReconcileOrphans:
         )
 
         mock_repo = AsyncMock(spec=ServerRepository)
-        mock_repo.list = AsyncMock(side_effect=[
-            [server],
-            [],
-        ])
+        mock_repo.list = AsyncMock(
+            side_effect=[
+                [server],
+                [],
+            ]
+        )
 
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
@@ -555,10 +573,12 @@ class TestReconcileOrphans:
         )
 
         mock_repo = AsyncMock(spec=ServerRepository)
-        mock_repo.list = AsyncMock(side_effect=[
-            [server],
-            [],
-        ])
+        mock_repo.list = AsyncMock(
+            side_effect=[
+                [server],
+                [],
+            ]
+        )
 
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
@@ -597,10 +617,12 @@ class TestReconcileOrphans:
         )
 
         mock_repo = AsyncMock(spec=ServerRepository)
-        mock_repo.list = AsyncMock(side_effect=[
-            [server],
-            [],
-        ])
+        mock_repo.list = AsyncMock(
+            side_effect=[
+                [server],
+                [],
+            ]
+        )
 
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
@@ -635,10 +657,12 @@ class TestReconcileOrphans:
         server = _make_server("srv-stopped", ServerStatus.STOPPED)
 
         mock_repo = AsyncMock(spec=ServerRepository)
-        mock_repo.list = AsyncMock(side_effect=[
-            [],
-            [],
-        ])
+        mock_repo.list = AsyncMock(
+            side_effect=[
+                [],
+                [],
+            ]
+        )
 
         with patch(
             "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
@@ -724,25 +748,27 @@ class TestReconcileOrphans:
         mock_kill.assert_not_called()
 
     async def test_system_wide_kills_without_ownership_check(self):
-        with patch(
-            "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
-            return_value=["onx-orphan"],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+                return_value=["onx-orphan"],
+            ),
+            patch(
                 "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
                 return_value=12345,
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation.os.kill",
-                ) as mock_kill:
-                    with patch(
-                        "app.modules.server.application.runtime_reconciliation.os.popen",
-                    ):
-                        with patch(
-                            "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
-                            return_value=[],
-                        ):
-                            actions = await reconcile_orphans(scope="system_wide")
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+            ) as mock_kill,
+            patch(
+                "app.modules.server.application.runtime_reconciliation.os.popen",
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                return_value=[],
+            ),
+        ):
+            actions = await reconcile_orphans(scope="system_wide")
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_tmux"
@@ -775,6 +801,13 @@ class TestReconcileOrphans:
                                     "app.modules.server.application.runtime_reconciliation.logger.info",
                                 ) as mock_log_info:
                                     await reconcile_orphans()
-                                    kill_logs = [args for args, _ in mock_log_info.call_args_list if "KILL_DECISION" in str(args)]
+                                    kill_logs = [
+                                        args
+                                        for args, _ in mock_log_info.call_args_list
+                                        if "KILL_DECISION" in str(args)
+                                    ]
                                     assert len(kill_logs) >= 1
-                                    assert all("decision=KILL" in str(args) or "decision=SKIP" in str(args) for args in kill_logs)
+                                    assert all(
+                                        "decision=KILL" in str(args) or "decision=SKIP" in str(args)
+                                        for args in kill_logs
+                                    )

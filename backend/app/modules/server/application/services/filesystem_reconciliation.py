@@ -6,7 +6,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 
@@ -192,7 +192,7 @@ class FilesystemReconciliationService:
         self,
         dry_run: bool = False,
     ) -> ReconciliationResult:
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         start_ms = time.monotonic()
         entries = self._scan_filesystem()
         if not entries:
@@ -212,14 +212,14 @@ class FilesystemReconciliationService:
             result.total_dirs_found = total_dirs
             result.total_minecraft_dirs = total_mc
             result.started_at = started_at.isoformat()
-            result.finished_at = datetime.now(timezone.utc).isoformat()
+            result.finished_at = datetime.now(UTC).isoformat()
             result.duration_ms = (time.monotonic() - start_ms) * 1000
             return result
 
         result = await self._execute_plan(self._last_plan)
         result.total_dirs_found = total_dirs
         result.total_minecraft_dirs = total_mc
-        finished_at = datetime.now(timezone.utc)
+        finished_at = datetime.now(UTC)
         result.started_at = started_at.isoformat()
         result.finished_at = finished_at.isoformat()
         result.duration_ms = (time.monotonic() - start_ms) * 1000
@@ -298,23 +298,17 @@ class FilesystemReconciliationService:
 
             # MIGRATION-ON-READ: if we read from legacy path, write new identity atomically
             legacy_path = str(
-                Path(entry.path)
-                / IDENTITY.identity_dir_legacy
-                / IDENTITY.identity_file
+                Path(entry.path) / IDENTITY.identity_dir_legacy / IDENTITY.identity_file
             )
             if path == legacy_path:
                 try:
-                    self._write_single_identity_atomic(
-                        entry.path, uid, location="new"
-                    )
+                    self._write_single_identity_atomic(entry.path, uid, location="new")
                     logger.info(
                         "Migrated identity for %s from legacy to new location",
                         uid,
                     )
                 except Exception as exc:
-                    logger.warning(
-                        "Failed to migrate identity for %s: %s", uid, exc
-                    )
+                    logger.warning("Failed to migrate identity for %s: %s", uid, exc)
 
             return IdentityResult(status=IdentityStatus.VALID, uid=uid, identity=raw)
 
@@ -400,11 +394,14 @@ class FilesystemReconciliationService:
             scan = scans[i]
 
             if scan.category == ScanCategory.SCAN_FAILED:
-                plan.actions.append(PlanAction(
-                    action=ActionType.IGNORE,
-                    fs_entry=entry, identity=identity,
-                    scan=scan,
-                ))
+                plan.actions.append(
+                    PlanAction(
+                        action=ActionType.IGNORE,
+                        fs_entry=entry,
+                        identity=identity,
+                        scan=scan,
+                    )
+                )
                 continue
 
             if identity.status == IdentityStatus.VALID:
@@ -414,33 +411,47 @@ class FilesystemReconciliationService:
                     accounted.add(uid)
                     self._classify_existing(server, entry, scan, plan)
                 else:
-                    plan.actions.append(PlanAction(
-                        action=ActionType.IMPORT,
-                        fs_entry=entry, identity=identity,
-                        scan=scan,
-                    ))
+                    plan.actions.append(
+                        PlanAction(
+                            action=ActionType.IMPORT,
+                            fs_entry=entry,
+                            identity=identity,
+                            scan=scan,
+                        )
+                    )
 
             elif identity.status == IdentityStatus.MISSING:
                 if scan.is_minecraft:
                     uid = uuid.uuid4().hex
-                    plan.actions.append(PlanAction(
-                        action=ActionType.IMPORT,
-                        fs_entry=entry, identity=IdentityResult(status=IdentityStatus.MISSING, uid=uid),
-                        scan=scan,
-                    ))
+                    plan.actions.append(
+                        PlanAction(
+                            action=ActionType.IMPORT,
+                            fs_entry=entry,
+                            identity=IdentityResult(status=IdentityStatus.MISSING, uid=uid),
+                            scan=scan,
+                        )
+                    )
                 else:
-                    plan.actions.append(PlanAction(
-                        action=ActionType.IGNORE,
-                        fs_entry=entry, identity=IdentityResult(status=IdentityStatus.MISSING, uid=uuid.uuid4().hex),
-                        scan=scan,
-                    ))
+                    plan.actions.append(
+                        PlanAction(
+                            action=ActionType.IGNORE,
+                            fs_entry=entry,
+                            identity=IdentityResult(
+                                status=IdentityStatus.MISSING, uid=uuid.uuid4().hex
+                            ),
+                            scan=scan,
+                        )
+                    )
 
             elif identity.status == IdentityStatus.INVALID:
-                plan.actions.append(PlanAction(
-                    action=ActionType.REPAIR_IDENTITY,
-                    fs_entry=entry, identity=identity,
-                    scan=scan,
-                ))
+                plan.actions.append(
+                    PlanAction(
+                        action=ActionType.REPAIR_IDENTITY,
+                        fs_entry=entry,
+                        identity=identity,
+                        scan=scan,
+                    )
+                )
 
         for sid, server in db_by_id.items():
             if sid in accounted:
@@ -448,15 +459,19 @@ class FilesystemReconciliationService:
             if self._is_outside_data_dir(server, data_dir):
                 continue
             if server.missing_since is not None:
-                plan.actions.append(PlanAction(
-                    action=ActionType.DELETE,
-                    db_server=server,
-                ))
+                plan.actions.append(
+                    PlanAction(
+                        action=ActionType.DELETE,
+                        db_server=server,
+                    )
+                )
             else:
-                plan.actions.append(PlanAction(
-                    action=ActionType.MARK_MISSING,
-                    db_server=server,
-                ))
+                plan.actions.append(
+                    PlanAction(
+                        action=ActionType.MARK_MISSING,
+                        db_server=server,
+                    )
+                )
 
         return plan
 
@@ -468,32 +483,48 @@ class FilesystemReconciliationService:
         plan: ReconciliationPlan,
     ) -> None:
         if server.status == ServerStatus.PROVISIONING:
-            plan.actions.append(PlanAction(
-                action=ActionType.UNCHANGED,
-                db_server=server,
-            ))
+            plan.actions.append(
+                PlanAction(
+                    action=ActionType.UNCHANGED,
+                    db_server=server,
+                )
+            )
             return
 
         if scan.is_broken and server.status != ServerStatus.BROKEN:
-            plan.actions.append(PlanAction(
-                action=ActionType.UPDATE_BROKEN,
-                fs_entry=entry, scan=scan, db_server=server,
-            ))
+            plan.actions.append(
+                PlanAction(
+                    action=ActionType.UPDATE_BROKEN,
+                    fs_entry=entry,
+                    scan=scan,
+                    db_server=server,
+                )
+            )
         elif not scan.is_broken and server.status == ServerStatus.BROKEN:
-            plan.actions.append(PlanAction(
-                action=ActionType.UPDATE_REPAIRED,
-                fs_entry=entry, scan=scan, db_server=server,
-            ))
+            plan.actions.append(
+                PlanAction(
+                    action=ActionType.UPDATE_REPAIRED,
+                    fs_entry=entry,
+                    scan=scan,
+                    db_server=server,
+                )
+            )
         elif self._deployment_needs_update(server, entry, scan):
-            plan.actions.append(PlanAction(
-                action=ActionType.UPDATE_DEPLOYMENT,
-                fs_entry=entry, scan=scan, db_server=server,
-            ))
+            plan.actions.append(
+                PlanAction(
+                    action=ActionType.UPDATE_DEPLOYMENT,
+                    fs_entry=entry,
+                    scan=scan,
+                    db_server=server,
+                )
+            )
         else:
-            plan.actions.append(PlanAction(
-                action=ActionType.UNCHANGED,
-                db_server=server,
-            ))
+            plan.actions.append(
+                PlanAction(
+                    action=ActionType.UNCHANGED,
+                    db_server=server,
+                )
+            )
 
     def _deployment_needs_update(self, server: Server, entry: FsEntry, scan: ScanOutcome) -> bool:
         if not server.deployment:
@@ -504,7 +535,10 @@ class FilesystemReconciliationService:
             disk_name = (scanned.get("name") or "").strip()
             if disk_name and disk_name != server.name:
                 return True
-        return server.deployment.root_path != entry.path or server.deployment.startup_jar != current_jar
+        return (
+            server.deployment.root_path != entry.path
+            or server.deployment.startup_jar != current_jar
+        )
 
     def _is_outside_data_dir(self, server: Server, data_dir: str) -> bool:
         dep = server.deployment
@@ -532,11 +566,13 @@ class FilesystemReconciliationService:
                 await handler(pa, result)
             except Exception as exc:
                 logger.exception("Action failed: %s on %s", pa.action.value, self._action_path(pa))
-                result.errors.append({
-                    "path": self._action_path(pa),
-                    "action": pa.action.value,
-                    "error": str(exc),
-                })
+                result.errors.append(
+                    {
+                        "path": self._action_path(pa),
+                        "action": pa.action.value,
+                        "error": str(exc),
+                    }
+                )
         return result
 
     def _handler_for(self, action: ActionType):
@@ -572,20 +608,24 @@ class FilesystemReconciliationService:
 
         if scan.is_broken:
             server.mark_broken()
-            result.broken.append({
+            result.broken.append(
+                {
+                    "server_id": uid,
+                    "name": server.name,
+                    "path": entry.path,
+                    "reasons": scan.broken_reasons,
+                }
+            )
+
+        await self._repo.save(server)
+        result.imported.append(
+            {
                 "server_id": uid,
                 "name": server.name,
                 "path": entry.path,
-                "reasons": scan.broken_reasons,
-            })
-
-        await self._repo.save(server)
-        result.imported.append({
-            "server_id": uid,
-            "name": server.name,
-            "path": entry.path,
-            "broken": scan.is_broken,
-        })
+                "broken": scan.is_broken,
+            }
+        )
         logger.info("Imported server %s (%s) from %s", server.name, uid, entry.path)
 
     async def _handle_update_broken(self, pa: PlanAction, result: ReconciliationResult) -> None:
@@ -595,22 +635,29 @@ class FilesystemReconciliationService:
 
         if server.deployment:
             current_jar = (scan.scanned or {}).get("server_jar") or "server.jar"
-            if server.deployment.root_path != entry.path or server.deployment.startup_jar != current_jar:
+            if (
+                server.deployment.root_path != entry.path
+                or server.deployment.startup_jar != current_jar
+            ):
                 server.update_deployment(self._build_deployment(entry, scan))
         server.mark_broken()
 
         await self._repo.save(server)
-        result.broken.append({
-            "server_id": str(server.id),
-            "name": server.name,
-            "path": entry.path,
-            "reasons": scan.broken_reasons,
-        })
-        result.updated.append({
-            "server_id": str(server.id),
-            "name": server.name,
-            "path": entry.path,
-        })
+        result.broken.append(
+            {
+                "server_id": str(server.id),
+                "name": server.name,
+                "path": entry.path,
+                "reasons": scan.broken_reasons,
+            }
+        )
+        result.updated.append(
+            {
+                "server_id": str(server.id),
+                "name": server.name,
+                "path": entry.path,
+            }
+        )
         logger.info("Marked server %s (%s) as BROKEN", server.name, server.id)
 
     async def _handle_update_repaired(self, pa: PlanAction, result: ReconciliationResult) -> None:
@@ -620,16 +667,21 @@ class FilesystemReconciliationService:
 
         if server.deployment:
             current_jar = (scan.scanned or {}).get("server_jar") or "server.jar"
-            if server.deployment.root_path != entry.path or server.deployment.startup_jar != current_jar:
+            if (
+                server.deployment.root_path != entry.path
+                or server.deployment.startup_jar != current_jar
+            ):
                 server.update_deployment(self._build_deployment(entry, scan))
         server.mark_repaired()
 
         await self._repo.save(server)
-        result.updated.append({
-            "server_id": str(server.id),
-            "name": server.name,
-            "path": entry.path,
-        })
+        result.updated.append(
+            {
+                "server_id": str(server.id),
+                "name": server.name,
+                "path": entry.path,
+            }
+        )
         logger.info("Server %s (%s) repaired — restored to CREATED", server.name, server.id)
 
     async def _handle_update_deployment(self, pa: PlanAction, result: ReconciliationResult) -> None:
@@ -645,11 +697,13 @@ class FilesystemReconciliationService:
 
         server.update_deployment(self._build_deployment(entry, scan))
         await self._repo.save(server)
-        result.updated.append({
-            "server_id": str(server.id),
-            "name": server.name,
-            "path": entry.path,
-        })
+        result.updated.append(
+            {
+                "server_id": str(server.id),
+                "name": server.name,
+                "path": entry.path,
+            }
+        )
         logger.info("Updated deployment for %s (%s)", server.name, server.id)
 
     async def _handle_mark_missing(self, pa: PlanAction, result: ReconciliationResult) -> None:
@@ -657,10 +711,12 @@ class FilesystemReconciliationService:
         sid = str(server.id)
         server.mark_missing()
         await self._repo.save(server)
-        result.missing.append({
-            "server_id": sid,
-            "name": server.name,
-        })
+        result.missing.append(
+            {
+                "server_id": sid,
+                "name": server.name,
+            }
+        )
         logger.warning("Marked server %s (%s) as missing — directory not found", server.name, sid)
 
     async def _handle_delete(self, pa: PlanAction, result: ReconciliationResult) -> None:
@@ -668,32 +724,40 @@ class FilesystemReconciliationService:
         sid = str(server.id)
         server.mark_deleted()
         await self._repo.delete(server.id)
-        result.deleted.append({
-            "server_id": sid,
-            "name": server.name,
-        })
+        result.deleted.append(
+            {
+                "server_id": sid,
+                "name": server.name,
+            }
+        )
         logger.info("Deleted MISSING server %s (%s) — second pass", server.name, sid)
 
     async def _handle_unchanged(self, pa: PlanAction, result: ReconciliationResult) -> None:
-        result.unchanged.append({
-            "server_id": str(pa.db_server.id),
-            "name": pa.db_server.name,
-        })
+        result.unchanged.append(
+            {
+                "server_id": str(pa.db_server.id),
+                "name": pa.db_server.name,
+            }
+        )
 
     async def _handle_ignore(self, pa: PlanAction, result: ReconciliationResult) -> None:
         self._write_single_identity(pa.fs_entry.path, pa.identity.uid, result)
-        result.ignored.append({
-            "path": pa.fs_entry.path,
-            "reason": "Not a Minecraft server",
-        })
+        result.ignored.append(
+            {
+                "path": pa.fs_entry.path,
+                "reason": "Not a Minecraft server",
+            }
+        )
         logger.debug("Ignored non-Minecraft directory %s", pa.fs_entry.path)
 
     async def _handle_invalid_identity(self, pa: PlanAction, result: ReconciliationResult) -> None:
-        result.invalid_identity.append({
-            "path": pa.fs_entry.path,
-            "error": pa.identity.error or "Invalid identity file",
-            "identity": pa.identity.identity,
-        })
+        result.invalid_identity.append(
+            {
+                "path": pa.fs_entry.path,
+                "error": pa.identity.error or "Invalid identity file",
+                "identity": pa.identity.identity,
+            }
+        )
         logger.warning("Invalid identity in %s: %s", pa.fs_entry.path, pa.identity.error)
 
     async def _handle_repair_identity(self, pa: PlanAction, result: ReconciliationResult) -> None:
@@ -703,38 +767,46 @@ class FilesystemReconciliationService:
 
         new_scan = self._detect_single(pa.fs_entry)
         if new_scan.category == ScanCategory.SCAN_FAILED:
-            result.ignored.append({
-                "path": pa.fs_entry.path,
-                "reason": f"Identity repaired but scan failed: {new_scan.scan_error}",
-            })
+            result.ignored.append(
+                {
+                    "path": pa.fs_entry.path,
+                    "reason": f"Identity repaired but scan failed: {new_scan.scan_error}",
+                }
+            )
             return
 
         if not new_scan.is_minecraft:
-            result.ignored.append({
-                "path": pa.fs_entry.path,
-                "reason": "Identity repaired but directory is not a Minecraft server",
-            })
+            result.ignored.append(
+                {
+                    "path": pa.fs_entry.path,
+                    "reason": "Identity repaired but directory is not a Minecraft server",
+                }
+            )
             return
 
         server = self._build_server_from_scan(ServerId(new_uid), pa.fs_entry, new_scan)
 
         if new_scan.is_broken:
             server.mark_broken()
-            result.broken.append({
+            result.broken.append(
+                {
+                    "server_id": new_uid,
+                    "name": server.name,
+                    "path": pa.fs_entry.path,
+                    "reasons": new_scan.broken_reasons,
+                }
+            )
+
+        await self._repo.save(server)
+        result.imported.append(
+            {
                 "server_id": new_uid,
                 "name": server.name,
                 "path": pa.fs_entry.path,
-                "reasons": new_scan.broken_reasons,
-            })
-
-        await self._repo.save(server)
-        result.imported.append({
-            "server_id": new_uid,
-            "name": server.name,
-            "path": pa.fs_entry.path,
-            "broken": new_scan.is_broken,
-            "repaired_identity": True,
-        })
+                "broken": new_scan.is_broken,
+                "repaired_identity": True,
+            }
+        )
         logger.info("Imported server after identity repair: %s (%s)", server.name, new_uid)
 
     # ------------------------------------------------------------------
@@ -761,8 +833,16 @@ class FilesystemReconciliationService:
     def _build_deployment(self, entry: FsEntry, scan: ScanOutcome) -> ServerDeployment:
         jar = (scan.scanned or {}).get("server_jar") or "server.jar"
         run_script = (scan.scanned or {}).get("run_script")
-        has_run = bool(run_script or self._fs.exists(str(Path(entry.path) / "run.sh")) or self._fs.exists(str(Path(entry.path) / "run.bat")))
-        startup_cmd = f"bash {run_script or 'run.sh'} nogui" if (has_run or jar.endswith((".sh", ".bat"))) else ""
+        has_run = bool(
+            run_script
+            or self._fs.exists(str(Path(entry.path) / "run.sh"))
+            or self._fs.exists(str(Path(entry.path) / "run.bat"))
+        )
+        startup_cmd = (
+            f"bash {run_script or 'run.sh'} nogui"
+            if (has_run or jar.endswith((".sh", ".bat")))
+            else ""
+        )
         return ServerDeployment(
             root_path=entry.path,
             working_directory=".",
@@ -779,7 +859,9 @@ class FilesystemReconciliationService:
     # scan output is used directly without duplicating the mapping.
     # ------------------------------------------------------------------
 
-    def _build_server_from_scan(self, server_id: ServerId, entry: FsEntry, scan: ScanOutcome) -> Server:
+    def _build_server_from_scan(
+        self, server_id: ServerId, entry: FsEntry, scan: ScanOutcome
+    ) -> Server:
         name = self._find_name(entry, scan)
         scanned_type = (scan.scanned or {}).get("server_type", "vanilla")
         try:
@@ -788,7 +870,9 @@ class FilesystemReconciliationService:
             server_type = ServerType.VANILLA
 
         mc_version_str = (scan.scanned or {}).get("minecraft_version", "")
-        mc_version = MinecraftVersion.parse(mc_version_str) if mc_version_str else MinecraftVersion(0, 0)
+        mc_version = (
+            MinecraftVersion.parse(mc_version_str) if mc_version_str else MinecraftVersion(0, 0)
+        )
 
         props = self._build_server_properties(scan.scanned)
         deployment = self._build_deployment(entry, scan)
@@ -796,8 +880,16 @@ class FilesystemReconciliationService:
         launch_config = None
         run_script = (scan.scanned or {}).get("run_script")
         server_jar = (scan.scanned or {}).get("server_jar") or ""
-        has_run = bool(run_script or self._fs.exists(str(Path(entry.path) / "run.sh")) or self._fs.exists(str(Path(entry.path) / "run.bat")))
-        if has_run or server_jar.endswith((".sh", ".bat")) or server_type in (ServerType.FORGE, ServerType.NEOFORGE):
+        has_run = bool(
+            run_script
+            or self._fs.exists(str(Path(entry.path) / "run.sh"))
+            or self._fs.exists(str(Path(entry.path) / "run.bat"))
+        )
+        if (
+            has_run
+            or server_jar.endswith((".sh", ".bat"))
+            or server_type in (ServerType.FORGE, ServerType.NEOFORGE)
+        ):
             script_cmd = f"bash {run_script or 'run.sh'} nogui"
             launch_config = LaunchConfiguration(startup_command=script_cmd)
 
@@ -841,17 +933,13 @@ class FilesystemReconciliationService:
             if location == "new":
                 identity_dir = str(Path(dir_path) / IDENTITY.identity_dir_new)
                 target_path = str(
-                    Path(dir_path)
-                    / IDENTITY.identity_dir_new
-                    / IDENTITY.identity_file
+                    Path(dir_path) / IDENTITY.identity_dir_new / IDENTITY.identity_file
                 )
                 doc = self._build_identity_doc_new(uid)
             else:
                 identity_dir = str(Path(dir_path) / IDENTITY.identity_dir_legacy)
                 target_path = str(
-                    Path(dir_path)
-                    / IDENTITY.identity_dir_legacy
-                    / IDENTITY.identity_file
+                    Path(dir_path) / IDENTITY.identity_dir_legacy / IDENTITY.identity_file
                 )
                 doc = self._build_identity_doc_legacy(uid)
 
@@ -874,9 +962,7 @@ class FilesystemReconciliationService:
             self._fs.rename(tmp_path, target_path)
 
             if result is not None:
-                result.identity_written.append(
-                    {"path": dir_path, "uid": uid, "location": location}
-                )
+                result.identity_written.append({"path": dir_path, "uid": uid, "location": location})
             logger.debug("Wrote %s identity for %s in %s", location, uid, dir_path)
 
         except Exception as exc:
@@ -899,7 +985,7 @@ class FilesystemReconciliationService:
         return {
             "version": IDENTITY.identity_version,
             "uid": uid,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "manager": IDENTITY.manager_field_new,
             "schema_version": IDENTITY.schema_version,
         }
@@ -908,7 +994,7 @@ class FilesystemReconciliationService:
         return {
             "version": IDENTITY.identity_version,
             "uid": uid,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "manager": IDENTITY.manager_field_legacy,
             "schema_version": IDENTITY.schema_version,
         }
@@ -917,56 +1003,71 @@ class FilesystemReconciliationService:
         result = ReconciliationResult()
         for pa in plan.actions:
             if pa.action == ActionType.IMPORT:
-                result.imported.append({
-                    "path": pa.fs_entry.path,
-                    "uid": pa.identity.uid,
-                    "broken": pa.scan.is_broken,
-                })
+                result.imported.append(
+                    {
+                        "path": pa.fs_entry.path,
+                        "uid": pa.identity.uid,
+                        "broken": pa.scan.is_broken,
+                    }
+                )
             elif pa.action == ActionType.UPDATE_BROKEN:
-                result.broken.append({
-                    "server_id": str(pa.db_server.id),
-                    "name": pa.db_server.name,
-                    "reasons": pa.scan.broken_reasons,
-                })
-            elif pa.action == ActionType.UPDATE_REPAIRED:
-                result.updated.append({
-                    "server_id": str(pa.db_server.id),
-                    "name": pa.db_server.name,
-                })
-            elif pa.action == ActionType.UPDATE_DEPLOYMENT:
-                result.updated.append({
-                    "server_id": str(pa.db_server.id),
-                    "name": pa.db_server.name,
-                })
+                result.broken.append(
+                    {
+                        "server_id": str(pa.db_server.id),
+                        "name": pa.db_server.name,
+                        "reasons": pa.scan.broken_reasons,
+                    }
+                )
+            elif (
+                pa.action == ActionType.UPDATE_REPAIRED or pa.action == ActionType.UPDATE_DEPLOYMENT
+            ):
+                result.updated.append(
+                    {
+                        "server_id": str(pa.db_server.id),
+                        "name": pa.db_server.name,
+                    }
+                )
             elif pa.action == ActionType.MARK_MISSING:
-                result.missing.append({
-                    "server_id": str(pa.db_server.id),
-                    "name": pa.db_server.name,
-                })
+                result.missing.append(
+                    {
+                        "server_id": str(pa.db_server.id),
+                        "name": pa.db_server.name,
+                    }
+                )
             elif pa.action == ActionType.DELETE:
-                result.deleted.append({
-                    "server_id": str(pa.db_server.id),
-                    "name": pa.db_server.name,
-                })
+                result.deleted.append(
+                    {
+                        "server_id": str(pa.db_server.id),
+                        "name": pa.db_server.name,
+                    }
+                )
             elif pa.action == ActionType.UNCHANGED:
-                result.unchanged.append({
-                    "server_id": str(pa.db_server.id),
-                    "name": pa.db_server.name,
-                })
+                result.unchanged.append(
+                    {
+                        "server_id": str(pa.db_server.id),
+                        "name": pa.db_server.name,
+                    }
+                )
             elif pa.action == ActionType.IGNORE:
-                result.ignored.append({
-                    "path": pa.fs_entry.path,
-                })
+                result.ignored.append(
+                    {
+                        "path": pa.fs_entry.path,
+                    }
+                )
             elif pa.action == ActionType.INVALID_IDENTITY:
-                result.invalid_identity.append({
-                    "path": pa.fs_entry.path,
-                    "error": pa.identity.error,
-                })
+                result.invalid_identity.append(
+                    {
+                        "path": pa.fs_entry.path,
+                        "error": pa.identity.error,
+                    }
+                )
             elif pa.action == ActionType.REPAIR_IDENTITY:
-                result.ignored.append({
-                    "path": pa.fs_entry.path,
-                    "reason": "Identity will be repaired and rescanned",
-                })
+                result.ignored.append(
+                    {
+                        "path": pa.fs_entry.path,
+                        "reason": "Identity will be repaired and rescanned",
+                    }
+                )
         return result
 
     def _log_summary(self, result: ReconciliationResult) -> None:
@@ -974,9 +1075,14 @@ class FilesystemReconciliationService:
             "Reconciliation done: %d imported, %d updated, %d deleted, "
             "%d missing, %d broken, %d unchanged, %d ignored, "
             "%d invalid_identity, %d errors",
-            result.total_imported, result.total_updated, result.total_deleted,
-            result.total_missing, result.total_broken, result.total_unchanged,
-            result.total_ignored, result.total_invalid_identity,
+            result.total_imported,
+            result.total_updated,
+            result.total_deleted,
+            result.total_missing,
+            result.total_broken,
+            result.total_unchanged,
+            result.total_ignored,
+            result.total_invalid_identity,
             result.total_errors,
         )
 

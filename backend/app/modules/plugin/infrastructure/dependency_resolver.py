@@ -81,14 +81,16 @@ class DependencyResolver:
                     DependencyConflict(
                         name=current_name,
                         required_by=list(chain),
-                        message=f"Plugin not found in registry",
+                        message="Plugin not found in registry",
                     ),
                 )
                 return None
 
             if constraint:
                 constraint_version = PluginVersion.parse(constraint)
-                matching = [v for v in versions if PluginVersion.parse(v["version"]) >= constraint_version]
+                matching = [
+                    v for v in versions if PluginVersion.parse(v["version"]) >= constraint_version
+                ]
                 if not matching:
                     result.conflicts.append(
                         DependencyConflict(

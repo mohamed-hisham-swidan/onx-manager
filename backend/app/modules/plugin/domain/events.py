@@ -44,5 +44,13 @@ class PluginUpdatedEvent(DomainEvent):
     old_version: str
     new_version: str
 
-    def __init__(self, plugin_id: str, server_id: str, old_version: str, new_version: str, **data: Any) -> None:
-        super().__init__(plugin_id=plugin_id, server_id=server_id, old_version=old_version, new_version=new_version, **data)
+    def __init__(
+        self, plugin_id: str, server_id: str, old_version: str, new_version: str, **data: Any
+    ) -> None:
+        super().__init__(
+            plugin_id=plugin_id,
+            server_id=server_id,
+            old_version=old_version,
+            new_version=new_version,
+            **data,
+        )

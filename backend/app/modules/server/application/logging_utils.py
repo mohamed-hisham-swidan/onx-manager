@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 from app.core.event_bus import DomainEvent
 from app.core.identity import IDENTITY
@@ -54,7 +55,11 @@ def progress_phase(
     info = f"server_id={server_id}" if server_id else ""
     log.info(
         "[%d/%d] %d%% — %s %s",
-        phase, total, pct, label, info,
+        phase,
+        total,
+        pct,
+        label,
+        info,
     )
     start = time.monotonic()
     try:
@@ -63,13 +68,21 @@ def progress_phase(
         elapsed = time.monotonic() - start
         log.error(
             "[%d/%d] %s FAILED after %.1fs %s",
-            phase, total, label, elapsed, info,
+            phase,
+            total,
+            label,
+            elapsed,
+            info,
         )
         raise
     elapsed = time.monotonic() - start
     log.info(
         "[%d/%d] %s done (%.1fs) %s",
-        phase, total, label, elapsed, info,
+        phase,
+        total,
+        label,
+        elapsed,
+        info,
     )
 
 
@@ -84,7 +97,8 @@ def startup_timeline(
     started_at = time.monotonic()
     log.info(
         'Startup timeline started for server "%s" server_id=%s',
-        server_name, server_id,
+        server_name,
+        server_id,
     )
     try:
         yield milestones
@@ -92,7 +106,10 @@ def startup_timeline(
         elapsed = time.monotonic() - started_at
         log.info(
             'Startup timeline complete for server "%s" — %.1fs elapsed milestones=%d server_id=%s',
-            server_name, elapsed, len(milestones), server_id,
+            server_name,
+            elapsed,
+            len(milestones),
+            server_id,
         )
 
 
@@ -107,7 +124,8 @@ def shutdown_timeline(
     started_at = time.monotonic()
     log.info(
         'Shutdown timeline started for server "%s" server_id=%s',
-        server_name, server_id,
+        server_name,
+        server_id,
     )
     try:
         yield milestones
@@ -115,7 +133,10 @@ def shutdown_timeline(
         elapsed = time.monotonic() - started_at
         log.info(
             'Shutdown timeline complete for server "%s" — %.1fs elapsed milestones=%d server_id=%s',
-            server_name, elapsed, len(milestones), server_id,
+            server_name,
+            elapsed,
+            len(milestones),
+            server_id,
         )
 
 
@@ -130,7 +151,9 @@ def add_timeline_milestone(
         milestones.append({"name": name, "timestamp": now})
     logger.info(
         'Timeline — %s server="%s" server_id=%s',
-        name, server_name, server_id,
+        name,
+        server_name,
+        server_id,
     )
 
 
@@ -147,8 +170,11 @@ def log_crash_diagnostics(
     lines_count = len(log_lines) if log_lines else 0
     logger.error(
         'CRASH — %s server="%s" server_id=%s pid=%s exit_code=%s failure=%s reason="%s" log_lines=%d',
-        message, server_name, server_id,
-        pid or "?", exit_code or "?",
+        message,
+        server_name,
+        server_id,
+        pid or "?",
+        exit_code or "?",
         failure_code or "?",
         (failure_reason or "")[:200],
         lines_count,
@@ -157,6 +183,9 @@ def log_crash_diagnostics(
         last = log_lines[-10:]
         for i, line in enumerate(last):
             logger.error(
-                'CRASH %s last_log[-%d] server_id=%s: %s',
-                server_name, len(last) - i, server_id, line.rstrip(),
+                "CRASH %s last_log[-%d] server_id=%s: %s",
+                server_name,
+                len(last) - i,
+                server_id,
+                line.rstrip(),
             )

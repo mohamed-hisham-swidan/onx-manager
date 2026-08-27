@@ -1,13 +1,14 @@
-import pytest
-from httpx import AsyncClient
 from unittest.mock import patch
 
-pytest_plugins = ["tests.api.test_api_endpoints"]
+import pytest
+from httpx import AsyncClient
 
 from app.core.persistence.db import database
 from app.modules.auth.infrastructure.models import UserModel
 from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
 from tests.api.test_api_endpoints import _seed_api_key_header
+
+pytest_plugins = ["tests.api.test_api_endpoints"]
 
 
 async def _seed_server(server_id: str, name: str, owner_id: str | None = None) -> None:
@@ -42,7 +43,9 @@ async def _seed_membership(membership_id: str, server_id: str, user_id: str, rol
 async def _seed_user(user_id: str, email: str, name: str) -> None:
     async with database._session_factory() as session:
         session.add(
-            UserModel(id=user_id, email=email, password_hash="hash", display_name=name, is_active=True)
+            UserModel(
+                id=user_id, email=email, password_hash="hash", display_name=name, is_active=True
+            )
         )
         await session.commit()
 
@@ -68,21 +71,27 @@ async def test_runtime_diagnostics_require_server_scope(
         non_member_header = await _seed_api_key_header(client, created_user["user_id"], [])
         resp = await client.get(f"/api/v1/servers/{server_id}/runtime", headers=non_member_header)
         assert resp.status_code == 403
-        resp = await client.get(f"/api/v1/servers/{server_id}/runtime/validate", headers=non_member_header)
+        resp = await client.get(
+            f"/api/v1/servers/{server_id}/runtime/validate", headers=non_member_header
+        )
         assert resp.status_code == 403
 
         # 2. Viewer membership -> 200 (server.{id}.view)
         viewer_header = await _seed_api_key_header(client, viewer_user_id, [])
         resp = await client.get(f"/api/v1/servers/{server_id}/runtime", headers=viewer_header)
         assert resp.status_code == 200
-        resp = await client.get(f"/api/v1/servers/{server_id}/runtime/validate", headers=viewer_header)
+        resp = await client.get(
+            f"/api/v1/servers/{server_id}/runtime/validate", headers=viewer_header
+        )
         assert resp.status_code == 200
 
         # 3. Owner -> 200 (implicit owner_id access)
         owner_header = await _seed_api_key_header(client, owner_user_id, [])
         resp = await client.get(f"/api/v1/servers/{server_id}/runtime", headers=owner_header)
         assert resp.status_code == 200
-        resp = await client.get(f"/api/v1/servers/{server_id}/runtime/validate", headers=owner_header)
+        resp = await client.get(
+            f"/api/v1/servers/{server_id}/runtime/validate", headers=owner_header
+        )
         assert resp.status_code == 200
 
         # 4. Global admin -> 200 (admin:full short-circuit)
@@ -96,26 +105,30 @@ async def test_runtime_diagnostics_require_server_scope(
 
 
 @pytest.mark.asyncio
-async def test_runtime_ownership_requires_server_read(client: AsyncClient, created_user: dict) -> None:
-    with patch(
-        "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-        return_value=[],
-    ):
-        with patch(
+async def test_runtime_ownership_requires_server_read(
+    client: AsyncClient, created_user: dict
+) -> None:
+    with (
+        patch(
+            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+            return_value=[],
+        ),
+        patch(
             "app.modules.server.application.runtime_ownership._find_all_java_pids",
             return_value=[],
-        ):
-            # 1. Authenticated user without server:read -> 403
-            no_read_header = await _seed_api_key_header(client, created_user["user_id"], [])
-            resp = await client.get("/api/v1/servers/runtime/ownership", headers=no_read_header)
-            assert resp.status_code == 403
+        ),
+    ):
+        # 1. Authenticated user without server:read -> 403
+        no_read_header = await _seed_api_key_header(client, created_user["user_id"], [])
+        resp = await client.get("/api/v1/servers/runtime/ownership", headers=no_read_header)
+        assert resp.status_code == 403
 
-            # 2. Authenticated user with server:read -> 200
-            read_header = await _seed_api_key_header(client, created_user["user_id"], ["server:read"])
-            resp = await client.get("/api/v1/servers/runtime/ownership", headers=read_header)
-            assert resp.status_code == 200
+        # 2. Authenticated user with server:read -> 200
+        read_header = await _seed_api_key_header(client, created_user["user_id"], ["server:read"])
+        resp = await client.get("/api/v1/servers/runtime/ownership", headers=read_header)
+        assert resp.status_code == 200
 
-            # 3. Global admin -> 200
-            admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
-            resp = await client.get("/api/v1/servers/runtime/ownership", headers=admin_header)
-            assert resp.status_code == 200
+        # 3. Global admin -> 200
+        admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+        resp = await client.get("/api/v1/servers/runtime/ownership", headers=admin_header)
+        assert resp.status_code == 200

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from collections.abc import Callable, Coroutine
@@ -50,6 +49,7 @@ class CircuitBreaker:
             return self._max_failures
         try:
             from app.core.settings_store import get_live_settings
+
             return get_live_settings().circuit_breaker_max_failures
         except RuntimeError:
             return 5
@@ -60,6 +60,7 @@ class CircuitBreaker:
             return self._timeout
         try:
             from app.core.settings_store import get_live_settings
+
             return float(get_live_settings().circuit_breaker_timeout_seconds)
         except RuntimeError:
             return 30.0
@@ -89,7 +90,7 @@ class CircuitBreaker:
             result = await coro
             self._on_success()
             return result
-        except Exception as e:
+        except Exception:
             self._on_failure()
             raise
 
@@ -104,7 +105,7 @@ class CircuitBreaker:
             result = await coro
             self._on_success()
             return result
-        except Exception as e:
+        except Exception:
             self._on_failure()
             raise
 

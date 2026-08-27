@@ -40,19 +40,23 @@ def _override_deps(buses) -> None:
 
 @pytest.fixture
 async def client() -> AsyncClient:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     from app.core.persistence.base import Base
     from app.core.persistence.db import database
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     database._engine = engine
-    database._session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    database._session_factory = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     async with database._session_factory() as sess:
         from app.modules.auth.infrastructure.models import SystemStateModel
+
         sess.add(SystemStateModel(id="default", initialized=True, access_mode="LOCAL"))
         await sess.commit()
 
@@ -94,7 +98,11 @@ class TestLoginFlow:
     async def test_login_wrong_password(self, client: AsyncClient) -> None:
         await client.post(
             "/api/v1/users",
-            json={"email": "wrongpw@test.com", "password": "CorrectPass1", "display_name": "Wrong PW"},
+            json={
+                "email": "wrongpw@test.com",
+                "password": "CorrectPass1",
+                "display_name": "Wrong PW",
+            },
         )
         resp = await client.post(
             "/api/v1/auth/login",

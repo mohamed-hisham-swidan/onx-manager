@@ -22,7 +22,9 @@ class WSAuthenticator:
     def __init__(self) -> None:
         self._connections: dict[str, WSConnectionInfo] = {}
 
-    def register_connection(self, connection_id: str, user_id: str, token: str, expires_at: float) -> WSConnectionInfo:
+    def register_connection(
+        self, connection_id: str, user_id: str, token: str, expires_at: float
+    ) -> WSConnectionInfo:
         info = WSConnectionInfo(
             connection_id=connection_id,
             user_id=user_id,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +43,7 @@ class DeadLetterService:
             return False
 
         from json import loads as json_loads
+
         payload = json_loads(entry.data_json)
         domain_event = DomainEvent(**payload)
 

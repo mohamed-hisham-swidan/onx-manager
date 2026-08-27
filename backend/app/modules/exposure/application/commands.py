@@ -18,6 +18,7 @@ from app.core.config import (
 from app.core.event_bus import EventBus
 from app.core.exceptions import InvalidValueError, NotFoundError, ValidationError
 from app.core.idempotency import IdempotencyKey
+from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.auth.domain.aggregate import AccessMode
 from app.modules.auth.infrastructure.repository import SQLSystemStateRepository
@@ -84,7 +85,6 @@ from app.modules.exposure.infrastructure.repository import (
 from app.modules.exposure.infrastructure.upnp import AsyncUPnPService
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.identity import IDENTITY
 from app.modules.storage.encryption import build_backup_encryption
 
 CLAIM_TTL_MINUTES = 10
@@ -1404,9 +1404,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                     "post-commit exposure action failed"
                 )
 
-        return CommandResult(
-            success=True, data=_panel_payload(panel, access_mode=access_mode)
-        )
+        return CommandResult(success=True, data=_panel_payload(panel, access_mode=access_mode))
 
     async def _enable_cloudflare(
         self,
@@ -1419,9 +1417,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         token = command.cloudflare_token
         hostname = command.hostname.strip().lower() if command.hostname else ""
         if not token:
-            raise ValidationError(
-                "cloudflare_token is required to enable cloudflare_tunnel"
-            )
+            raise ValidationError("cloudflare_token is required to enable cloudflare_tunnel")
 
         # Clear alternative method state
         panel.clear_playit_credentials()
@@ -1430,19 +1426,12 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
         # RECLAIM_REQUIRED recovery (design §7 credential replacement): reuse
         # the existing tunnel id, rotate the ciphertext in place, restart the
         # supervised child. No new tunnel, no new CNAME, no DNS writes.
-        if (
-            panel.status == ExposureStatus.RECLAIM_REQUIRED
-            and panel.cloudflare_tunnel_id
-        ):
-            await self._rotate_cloudflare_token(
-                panel, token, hostname, post_commit
-            )
+        if panel.status == ExposureStatus.RECLAIM_REQUIRED and panel.cloudflare_tunnel_id:
+            await self._rotate_cloudflare_token(panel, token, hostname, post_commit)
             return
 
         if not hostname:
-            raise ValidationError(
-                "hostname is required to enable cloudflare_tunnel"
-            )
+            raise ValidationError("hostname is required to enable cloudflare_tunnel")
 
         ingress = panel_ingress_target()
         client = CloudflareClient(token)

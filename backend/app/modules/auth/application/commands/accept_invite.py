@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import hashlib
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import ConflictError, InvalidValueError
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.security import hash_api_key, hash_password
-from app.modules.auth.infrastructure.jwt import create_access_token, create_refresh_token
 from app.modules.auth.domain.aggregate import Role, User
+from app.modules.auth.infrastructure.jwt import create_access_token, create_refresh_token
 from app.modules.auth.infrastructure.models import RefreshTokenModel
 from app.modules.auth.infrastructure.permissions import PermissionEvaluator
 from app.modules.auth.infrastructure.repository import SQLInvitationRepository, SQLUserRepository
-from app.modules.server.infrastructure.repository import SQLServerMembershipRepository, SQLServerRepository
+from app.modules.server.infrastructure.repository import (
+    SQLServerMembershipRepository,
+)
 from app.modules.shared.value_objects import EmailAddress, Permission, RoleId, UserId
 
 
@@ -32,7 +34,9 @@ class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
 
     async def handle(self, command: AcceptInviteCommand) -> CommandResult:
         if len(command.password) < 8:
-            raise InvalidValueError("password", "too short", "Password must be at least 8 characters")
+            raise InvalidValueError(
+                "password", "too short", "Password must be at least 8 characters"
+            )
 
         token_hash = hashlib.sha256(command.token.encode("utf-8")).hexdigest()
 
@@ -40,14 +44,20 @@ class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
             invite_repo = SQLInvitationRepository(uow.session)
             invitation = await invite_repo.get_by_token_hash(token_hash)
             if invitation is None or not invitation.is_valid:
-                raise InvalidValueError("token", command.token, "Invalid, expired, or revoked invitation token")
+                raise InvalidValueError(
+                    "token", command.token, "Invalid, expired, or revoked invitation token"
+                )
 
             if invitation.email and invitation.email.lower() != command.email.lower():
-                raise InvalidValueError("email", command.email, "Invitation email does not match token destination")
+                raise InvalidValueError(
+                    "email", command.email, "Invitation email does not match token destination"
+                )
 
             consumed = await invite_repo.atomic_consume(invitation.invitation_id)
             if not consumed:
-                raise InvalidValueError("token", command.token, "Invitation token could not be consumed")
+                raise InvalidValueError(
+                    "token", command.token, "Invitation token could not be consumed"
+                )
 
             user_repo = SQLUserRepository(uow.session)
             existing = await user_repo.get_by_email(command.email)
@@ -106,7 +116,7 @@ class AcceptInviteHandler(CommandHandler[AcceptInviteCommand]):
             rt_model = RefreshTokenModel(
                 user_id=str(user.user_id),
                 token_hash=hash_api_key(refresh_token),
-                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+                expires_at=datetime.now(UTC) + timedelta(days=7),
             )
             uow.session.add(rt_model)
 

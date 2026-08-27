@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from app.core.exceptions import InvalidValueError
@@ -77,7 +77,7 @@ class ApiKey(AggregateRoot):
         self._permissions = permissions or []
         self._expires_at = expires_at
         self._is_revoked = is_revoked
-        self._created_at = created_at or datetime.now(timezone.utc)
+        self._created_at = created_at or datetime.now(UTC)
 
     @property
     def api_key_id(self) -> ApiKeyId:
@@ -115,7 +115,7 @@ class ApiKey(AggregateRoot):
     def is_expired(self) -> bool:
         if self._expires_at is None:
             return False
-        return datetime.now(timezone.utc) > self._expires_at
+        return datetime.now(UTC) > self._expires_at
 
     def revoke(self) -> None:
         self._is_revoked = True
@@ -145,7 +145,7 @@ class User(AggregateRoot):
         self._roles = roles or []
         self._api_keys = api_keys or []
         self._is_active = is_active
-        self._created_at = created_at or datetime.now(timezone.utc)
+        self._created_at = created_at or datetime.now(UTC)
         self._last_login_at = last_login_at
 
     @property
@@ -185,7 +185,9 @@ class User(AggregateRoot):
         return self._last_login_at
 
     @classmethod
-    def create(cls, user_id: UserId, email: EmailAddress, password_hash: str, display_name: str) -> User:
+    def create(
+        cls, user_id: UserId, email: EmailAddress, password_hash: str, display_name: str
+    ) -> User:
         user = cls(
             user_id=user_id,
             email=email,
@@ -212,7 +214,7 @@ class User(AggregateRoot):
         self._display_name = display_name
 
     def record_login(self, ip_address: str) -> None:
-        self._last_login_at = datetime.now(timezone.utc)
+        self._last_login_at = datetime.now(UTC)
         self._add_event(UserLoggedInEvent(user_id=str(self._user_id), ip_address=ip_address))
 
     def record_logout(self) -> None:
@@ -258,9 +260,11 @@ class SystemState(AggregateRoot):
         super().__init__()
         self._id = id
         self._initialized = initialized
-        self._access_mode = access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
-        self._created_at = created_at or datetime.now(timezone.utc)
-        self._updated_at = updated_at or datetime.now(timezone.utc)
+        self._access_mode = (
+            access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
+        )
+        self._created_at = created_at or datetime.now(UTC)
+        self._updated_at = updated_at or datetime.now(UTC)
 
     @property
     def id(self) -> str:
@@ -285,12 +289,16 @@ class SystemState(AggregateRoot):
     def mark_initialized(self, access_mode: AccessMode | str | None = None) -> None:
         self._initialized = True
         if access_mode:
-            self._access_mode = access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
-        self._updated_at = datetime.now(timezone.utc)
+            self._access_mode = (
+                access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
+            )
+        self._updated_at = datetime.now(UTC)
 
     def set_access_mode(self, access_mode: AccessMode | str) -> None:
-        self._access_mode = access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
-        self._updated_at = datetime.now(timezone.utc)
+        self._access_mode = (
+            access_mode if isinstance(access_mode, AccessMode) else AccessMode(access_mode)
+        )
+        self._updated_at = datetime.now(UTC)
 
 
 class Invitation(AggregateRoot):
@@ -326,8 +334,8 @@ class Invitation(AggregateRoot):
         self._use_count = use_count
         self._expires_at = expires_at
         self._used_at = used_at
-        self._created_at = created_at or datetime.now(timezone.utc)
-        self._updated_at = updated_at or datetime.now(timezone.utc)
+        self._created_at = created_at or datetime.now(UTC)
+        self._updated_at = updated_at or datetime.now(UTC)
 
     @property
     def invitation_id(self) -> str:
@@ -395,8 +403,8 @@ class Invitation(AggregateRoot):
             return False
         expires_at = self._expires_at
         if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        return datetime.now(timezone.utc) > expires_at
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return datetime.now(UTC) > expires_at
 
     @property
     def is_valid(self) -> bool:
@@ -410,13 +418,15 @@ class Invitation(AggregateRoot):
 
     def consume(self) -> None:
         if not self.is_valid:
-            raise InvalidValueError("invitation", self._status, "Invitation is no longer valid or active")
+            raise InvalidValueError(
+                "invitation", self._status, "Invitation is no longer valid or active"
+            )
         self._use_count += 1
-        self._used_at = datetime.now(timezone.utc)
+        self._used_at = datetime.now(UTC)
         if self._use_count >= self._max_uses:
             self._status = InviteStatus.USED
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
     def revoke(self) -> None:
         self._status = InviteStatus.REVOKED
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)

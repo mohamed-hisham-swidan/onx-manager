@@ -52,16 +52,13 @@ from app.modules.exposure.infrastructure.playit_agent import (
 )
 from app.modules.exposure.infrastructure.playit_api import (
     PlayitAllocationFullError,
-    PlayitAuthError,
     PlayitRundataDto,
     PlayitTunnelDto,
 )
 from app.modules.exposure.infrastructure.repository import (
     SQLHostAgentRepository,
-    SQLPanelExposureRepository,
     SQLServerExposureRepository,
 )
-
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.value_objects import (
     JavaArguments,
@@ -474,8 +471,13 @@ class TestPlayitRealTunnelProvisioning:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=proc),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=mock_rundata)),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel") as mock_create,
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata",
+                AsyncMock(return_value=mock_rundata),
+            ),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel"
+            ) as mock_create,
         ):
             res = await handler.handle(
                 SetPanelExposureCommand(method="playit_http", desired_state="ENABLED")
@@ -485,7 +487,10 @@ class TestPlayitRealTunnelProvisioning:
             assert res.data["playit_tunnel_id"] == "tun-panel-existing"
             assert res.data["public_address"] == "http://existing-panel.at.ply.gg:8000"
             assert res.data["protocol"] == "http"
-            assert "Playit.gg free tier exposes the panel over raw TCP (HTTP)" in res.data["security_advisory"]
+            assert (
+                "Playit.gg free tier exposes the panel over raw TCP (HTTP)"
+                in res.data["security_advisory"]
+            )
             # create_tunnel should NOT have been called
             mock_create.assert_not_called()
 
@@ -513,8 +518,14 @@ class TestPlayitRealTunnelProvisioning:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=proc),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=mock_rundata)),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(return_value=mock_new_tunnel)) as mock_create,
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata",
+                AsyncMock(return_value=mock_rundata),
+            ),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel",
+                AsyncMock(return_value=mock_new_tunnel),
+            ) as mock_create,
         ):
             res = await handler.handle(
                 SetPanelExposureCommand(method="playit_http", desired_state="ENABLED")
@@ -532,12 +543,20 @@ class TestPlayitRealTunnelProvisioning:
         handler = SetPanelExposureHandler(event_bus)
         proc = _mock_subprocess()
 
-        mock_rundata = PlayitRundataDto(agent_id="a", agent_type="s", account_status="ready", tunnels=[])
+        mock_rundata = PlayitRundataDto(
+            agent_id="a", agent_type="s", account_status="ready", tunnels=[]
+        )
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=proc),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=mock_rundata)),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(side_effect=PlayitAllocationFullError("Limit reached"))),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata",
+                AsyncMock(return_value=mock_rundata),
+            ),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel",
+                AsyncMock(side_effect=PlayitAllocationFullError("Limit reached")),
+            ),
         ):
             res = await handler.handle(
                 SetPanelExposureCommand(method="playit_http", desired_state="ENABLED")
@@ -564,15 +583,28 @@ class TestPlayitRealTunnelProvisioning:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=proc),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=PlayitRundataDto("a", "s", "r", []))),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(return_value=mock_new_tunnel)),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.delete_tunnel", AsyncMock(return_value=True)) as mock_delete,
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata",
+                AsyncMock(return_value=PlayitRundataDto("a", "s", "r", [])),
+            ),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel",
+                AsyncMock(return_value=mock_new_tunnel),
+            ),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.delete_tunnel",
+                AsyncMock(return_value=True),
+            ) as mock_delete,
         ):
             # Enable
-            await handler.handle(SetPanelExposureCommand(method="playit_http", desired_state="ENABLED"))
+            await handler.handle(
+                SetPanelExposureCommand(method="playit_http", desired_state="ENABLED")
+            )
 
             # Disable
-            res = await handler.handle(SetPanelExposureCommand(method="playit_http", desired_state="DISABLED"))
+            res = await handler.handle(
+                SetPanelExposureCommand(method="playit_http", desired_state="DISABLED")
+            )
             assert res.success is True
             assert res.data["status"] == "DISABLED"
             assert res.data["playit_tunnel_id"] is None
@@ -601,9 +633,18 @@ class TestPlayitRealTunnelProvisioning:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=proc),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=PlayitRundataDto("a", "s", "r", []))),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(return_value=mock_created_tunnel)) as mock_create,
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.delete_tunnel", AsyncMock(return_value=True)) as mock_delete,
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata",
+                AsyncMock(return_value=PlayitRundataDto("a", "s", "r", [])),
+            ),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel",
+                AsyncMock(return_value=mock_created_tunnel),
+            ) as mock_create,
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.delete_tunnel",
+                AsyncMock(return_value=True),
+            ) as mock_delete,
         ):
             # Enable
             res = await enable_handler.handle(EnableServerExposureCommand(server_id="srv-mc-1"))
@@ -633,8 +674,14 @@ class TestPlayitRealTunnelProvisioning:
         # Step 1: Enable server exposure when creation initially fails (falls back to STARTING / PLAYIT_TUNNEL_CREATION_PENDING)
         with (
             patch("asyncio.create_subprocess_exec", return_value=proc),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=PlayitRundataDto("a", "s", "r", []))),
-            patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel", AsyncMock(side_effect=Exception("API offline"))),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata",
+                AsyncMock(return_value=PlayitRundataDto("a", "s", "r", [])),
+            ),
+            patch(
+                "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.create_tunnel",
+                AsyncMock(side_effect=Exception("API offline")),
+            ),
         ):
             res = await enable_handler.handle(EnableServerExposureCommand(server_id="srv-adopt"))
             assert res.success is True
@@ -659,7 +706,10 @@ class TestPlayitRealTunnelProvisioning:
             ],
         )
 
-        with patch("app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata", AsyncMock(return_value=mock_discovered_rundata)):
+        with patch(
+            "app.modules.exposure.infrastructure.playit_api.PlayitApiClient.get_rundata",
+            AsyncMock(return_value=mock_discovered_rundata),
+        ):
             await _reconcile_playit_tunnels()
 
             async with UnitOfWork() as uow:
@@ -670,6 +720,3 @@ class TestPlayitRealTunnelProvisioning:
                 assert exp.targets[0].status == ExposureStatus.ACTIVE
                 assert exp.targets[0].playit_tunnel_id == "tun-discovered-99"
                 assert exp.targets[0].public_address == "dash-play.at.ply.gg:25565"
-
-
-

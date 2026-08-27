@@ -3,6 +3,10 @@ import logging
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.identity import IDENTITY
+from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.server.application.services.import_service import _find_server_jar
+from app.modules.server.application.services.jar_service import resolve_server_dir
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import (
@@ -16,12 +20,7 @@ from app.modules.server.domain.value_objects import (
 )
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.repository import SQLServerRepository
-from app.modules.server.application.services.import_service import _find_server_jar
-from app.modules.server.application.services.jar_service import resolve_server_dir
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
-from app.core.persistence.unit_of_work import UnitOfWork
-
-from app.core.identity import IDENTITY
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.import_server")
 
@@ -136,7 +135,11 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
 
         logger.info(
             'Server "%s" imported from %s → %s (jar=%s server_id=%s)',
-            command.name, source, target, detected_jar, server_id,
+            command.name,
+            source,
+            target,
+            detected_jar,
+            server_id,
         )
 
         return CommandResult(success=True, data={"server_id": str(server_id)})

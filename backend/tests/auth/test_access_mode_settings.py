@@ -1,5 +1,6 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
@@ -10,7 +11,6 @@ from app.main import create_app
 from app.modules.auth.infrastructure.jwt import create_access_token
 from app.modules.auth.infrastructure.models import RoleModel, SystemStateModel, UserModel
 from app.registration import register_handlers
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
 @pytest.fixture(scope="module")
@@ -32,7 +32,9 @@ async def client(buses):
         await conn.run_sync(Base.metadata.create_all)
 
     database._engine = engine
-    database._session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    database._session_factory = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     app = create_app()
 
@@ -184,13 +186,19 @@ async def test_require_owner_semantics_boundary(client: AsyncClient):
     """
     cases = {
         "owner role only (no admin:full, no global.*)": create_access_token(
-            user_id="u_owner", roles=["owner"], permissions=[],
+            user_id="u_owner",
+            roles=["owner"],
+            permissions=[],
         ),
         "global.* only (no owner role)": create_access_token(
-            user_id="u_admin", roles=["admin"], permissions=["global.*"],
+            user_id="u_admin",
+            roles=["admin"],
+            permissions=["global.*"],
         ),
         "owner with admin:full": create_access_token(
-            user_id="u_owner", roles=["owner"], permissions=["admin:full"],
+            user_id="u_owner",
+            roles=["owner"],
+            permissions=["admin:full"],
         ),
     }
     for label, token in cases.items():
@@ -203,10 +211,14 @@ async def test_require_owner_semantics_boundary(client: AsyncClient):
 
     denied_cases = {
         "admin:full only (no owner, no global.*)": create_access_token(
-            user_id="u_admin", roles=["admin"], permissions=["admin:full"],
+            user_id="u_admin",
+            roles=["admin"],
+            permissions=["admin:full"],
         ),
         "member only": create_access_token(
-            user_id="u_member", roles=["member"], permissions=["user:read"],
+            user_id="u_member",
+            roles=["member"],
+            permissions=["user:read"],
         ),
     }
     for label, token in denied_cases.items():

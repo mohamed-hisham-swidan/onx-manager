@@ -5,7 +5,7 @@ import contextlib
 import os
 import re
 import signal
-from typing import AsyncGenerator, Union
+from collections.abc import AsyncGenerator
 
 from app.modules.server.domain.installer import InstallerResult, InstallerRunner, ProgressLine
 
@@ -42,7 +42,7 @@ def _parse_progress_line(line: str) -> tuple[str, int | None, str]:
 
 
 # Union type for generator output - either ProgressLine or final InstallerResult
-RunnerOutput = Union[ProgressLine, InstallerResult]
+RunnerOutput = ProgressLine | InstallerResult
 
 
 class SubprocessInstallerRunner(InstallerRunner):
@@ -76,7 +76,9 @@ class SubprocessInstallerRunner(InstallerRunner):
 
                 stage, percent, message = _parse_progress_line(line)
                 if stage != "unknown" or percent is not None:
-                    await stdout_queue.put(ProgressLine(stage=stage, percent=percent, message=message, raw_line=line))
+                    await stdout_queue.put(
+                        ProgressLine(stage=stage, percent=percent, message=message, raw_line=line)
+                    )
             await stdout_queue.put(None)  # Signal EOF
 
         async def wait_with_timeout() -> bool:
@@ -84,7 +86,7 @@ class SubprocessInstallerRunner(InstallerRunner):
             try:
                 await asyncio.wait_for(proc.wait(), timeout=timeout)
                 return False
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return True
 
         read_task = asyncio.create_task(read_stdout())
@@ -102,7 +104,7 @@ class SubprocessInstallerRunner(InstallerRunner):
                         # EOF reached
                         break
                     yield progress
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
                 # Check if process wait completed
@@ -141,7 +143,9 @@ class SubprocessInstallerRunner(InstallerRunner):
                 output="\n".join(all_output),
                 timed_out=True,
             )
-            yield ProgressLine(stage="timeout", percent=None, message="Installation timed out", raw_line="")
+            yield ProgressLine(
+                stage="timeout", percent=None, message="Installation timed out", raw_line=""
+            )
             yield result
             return
 
@@ -163,13 +167,15 @@ class SubprocessInstallerRunner(InstallerRunner):
             await proc.wait()
 
         exit_code = proc.returncode
-        if exit_code != 0:
-            stage = "failed"
-        else:
-            stage = "success"
+        stage = "failed" if exit_code != 0 else "success"
 
         # Yield final status
-        yield ProgressLine(stage=stage, percent=100 if exit_code == 0 else None, message=f"Process exited with code {exit_code}", raw_line="")
+        yield ProgressLine(
+            stage=stage,
+            percent=100 if exit_code == 0 else None,
+            message=f"Process exited with code {exit_code}",
+            raw_line="",
+        )
 
         result = InstallerResult(
             exit_code=exit_code,

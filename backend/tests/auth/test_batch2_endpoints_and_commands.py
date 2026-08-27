@@ -20,17 +20,20 @@ def buses():
 @pytest.fixture
 async def client(buses):
     command_bus, query_bus, event_bus = buses
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     from app.api import deps
     from app.core.persistence.base import Base
     from app.core.persistence.db import database
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     database._engine = engine
-    database._session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    database._session_factory = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     app = create_app()
 
@@ -64,10 +67,16 @@ class TestBatch2SetupAndInvites:
         assert data["access_mode"] == "LOCAL"
         assert data["user_count"] == 0
 
-    async def test_legacy_user_registration_blocked_when_uninitialized(self, client: AsyncClient) -> None:
+    async def test_legacy_user_registration_blocked_when_uninitialized(
+        self, client: AsyncClient
+    ) -> None:
         res = await client.post(
             "/api/v1/users",
-            json={"email": "early@example.com", "password": "Password123!", "display_name": "Early User"},
+            json={
+                "email": "early@example.com",
+                "password": "Password123!",
+                "display_name": "Early User",
+            },
         )
         assert res.status_code == 403
         assert "uninitialized" in res.json()["detail"].lower()
@@ -130,7 +139,11 @@ class TestBatch2SetupAndInvites:
         )
         res = await client.post(
             "/api/v1/users",
-            json={"email": "random@example.com", "password": "Password123!", "display_name": "Random User"},
+            json={
+                "email": "random@example.com",
+                "password": "Password123!",
+                "display_name": "Random User",
+            },
         )
         assert res.status_code == 403
         assert "disabled in global" in res.json()["detail"].lower()
@@ -315,7 +328,11 @@ class TestBatch2SetupAndInvites:
             json={"server_id": "nonexistent_server", "server_role": "admin"},
             headers=member_headers,
         )
-        assert esc_server_res.status_code == 403 or esc_server_res.status_code == 422 or esc_server_res.status_code == 404
+        assert (
+            esc_server_res.status_code == 403
+            or esc_server_res.status_code == 422
+            or esc_server_res.status_code == 404
+        )
 
         # 8. Owner creates an Owner invitation -> Expect success (201)
         owner_inv_res = await client.post(
@@ -324,4 +341,3 @@ class TestBatch2SetupAndInvites:
             headers=owner_headers,
         )
         assert owner_inv_res.status_code == 201
-

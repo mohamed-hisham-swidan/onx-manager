@@ -2,26 +2,27 @@
 SPEC-WS-DELIVERY-001 — Backend Acceptance Tests T-WS-01 through T-WS-14
 Pre-fix failure reasons are stated in each test docstring.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import time
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from app.core.event_bus import DomainEvent, EventBus, EventHandler, Subscription
 from app.websocket.authorization import ChannelAuthorizer
 from app.websocket.buffer import BufferedMessage, OfflineMessageBuffer
-from app.websocket.dispatcher import EventDispatcher, MetricsBatcher, WS_DISPATCH_ALLOWLIST
+from app.websocket.dispatcher import WS_DISPATCH_ALLOWLIST, EventDispatcher
 from app.websocket.manager import ConnectionRegistry
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers / stubs
 # ---------------------------------------------------------------------------
+
 
 class _MockWS:
     def __init__(self) -> None:
@@ -76,7 +77,11 @@ def _frames(ws: _MockWS) -> list[dict[str, Any]]:
 class TestTWS01:
     @pytest.mark.asyncio
     async def test_dispatcher_subscribed_after_start(self) -> None:
-        from app.websocket.endpoint import init_websocket, start_websocket_services, stop_websocket_services
+        from app.websocket.endpoint import (
+            init_websocket,
+            start_websocket_services,
+            stop_websocket_services,
+        )
 
         eb = EventBus()
         init_websocket(eb)
@@ -114,9 +119,9 @@ class TestTWS02:
         await disp.stop()
 
         event_frames = [f for f in _frames(ws) if f.get("type") == "event"]
-        assert any(f.get("event", {}).get("event_type") == "ServerStartedEvent" for f in event_frames), (
-            f"Expected ServerStartedEvent; got {_frames(ws)}"
-        )
+        assert any(
+            f.get("event", {}).get("event_type") == "ServerStartedEvent" for f in event_frames
+        ), f"Expected ServerStartedEvent; got {_frames(ws)}"
 
 
 # ---------------------------------------------------------------------------
@@ -141,9 +146,9 @@ class TestTWS03:
         await disp.stop()
 
         event_frames = [f for f in _frames(ws) if f.get("type") == "event"]
-        assert any(f.get("event", {}).get("event_type") == "ServerCrashedEvent" for f in event_frames), (
-            f"Expected ServerCrashedEvent; got {_frames(ws)}"
-        )
+        assert any(
+            f.get("event", {}).get("event_type") == "ServerCrashedEvent" for f in event_frames
+        ), f"Expected ServerCrashedEvent; got {_frames(ws)}"
 
 
 # ---------------------------------------------------------------------------
@@ -154,13 +159,17 @@ class TestTWS04:
     @pytest.mark.asyncio
     async def test_crash_handler_subscribed(self) -> None:
         from app.registration import _register_event_handlers
+
         eb = EventBus()
         _register_event_handlers(eb)
         assert "ServerCrashedEvent" in eb._subscribers, (
             "HandleServerCrashHandler must be subscribed to ServerCrashedEvent"
         )
         # Confirm the subscriber is HandleServerCrashHandler
-        from app.modules.health.application.event_handlers.server_crashed_handler import HandleServerCrashHandler
+        from app.modules.health.application.event_handlers.server_crashed_handler import (
+            HandleServerCrashHandler,
+        )
+
         handlers_for_crash = [sub.handler for sub in eb._subscribers["ServerCrashedEvent"]]
         assert any(isinstance(h, HandleServerCrashHandler) for h in handlers_for_crash)
 
@@ -173,6 +182,7 @@ class TestTWS05:
     @pytest.mark.asyncio
     async def test_crash_chain_subscriptions(self) -> None:
         from app.registration import _register_event_handlers
+
         eb = EventBus()
         _register_event_handlers(eb)
 
@@ -225,6 +235,7 @@ class TestTWS06:
         await reg.register("c2", ws2)
         await reg.link_user("alice", "c2")
         from app.websocket.serializers import MessageSerializer
+
         events = [m.data for m in buffered]
         raw = MessageSerializer.state_sync_message(events).to_json()
         await ws2.send_bytes(raw)
@@ -243,7 +254,11 @@ class TestTWS06:
 class TestTWS07:
     @pytest.mark.asyncio
     async def test_stop_clears_and_restart_no_leak(self) -> None:
-        from app.websocket.endpoint import init_websocket, start_websocket_services, stop_websocket_services
+        from app.websocket.endpoint import (
+            init_websocket,
+            start_websocket_services,
+            stop_websocket_services,
+        )
 
         eb = EventBus()
         init_websocket(eb)
@@ -290,7 +305,9 @@ class TestTWS08:
         await disp.stop()
 
         event_frames = [f for f in _frames(ws) if f.get("type") == "event"]
-        assert not event_frames, f"MetricCollectedEvent must not produce event frame; got {event_frames}"
+        assert not event_frames, (
+            f"MetricCollectedEvent must not produce event frame; got {event_frames}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -366,9 +383,13 @@ class TestTWS10:
 class TestTWS13:
     @pytest.mark.asyncio
     async def test_batcher_window_from_live_settings(self) -> None:
-        from app.core.settings_store import LiveSettings
-        from app.websocket.endpoint import init_websocket, start_websocket_services, stop_websocket_services
         import app.websocket.endpoint as _ep
+        from app.core.settings_store import LiveSettings
+        from app.websocket.endpoint import (
+            init_websocket,
+            start_websocket_services,
+            stop_websocket_services,
+        )
 
         eb = EventBus()
         init_websocket(eb)
@@ -393,23 +414,24 @@ class TestTWS13:
 class TestTWS14:
     def test_subscription_has_timeout_field(self) -> None:
         import dataclasses
+
         fields = {f.name: f for f in dataclasses.fields(Subscription)}
         assert "timeout" in fields, "Subscription must have 'timeout' field"
         assert fields["timeout"].default is None
 
     def test_crash_handler_has_60s_override(self) -> None:
         from app.registration import _register_event_handlers
+
         eb = EventBus()
         _register_event_handlers(eb)
 
         crash_subs = eb._subscribers.get("ServerCrashedEvent", [])
         assert crash_subs
-        assert crash_subs[0].timeout == 60.0, (
-            f"Expected 60 s override, got {crash_subs[0].timeout}"
-        )
+        assert crash_subs[0].timeout == 60.0, f"Expected 60 s override, got {crash_subs[0].timeout}"
 
     def test_health_handler_uses_global_default(self) -> None:
         from app.registration import _register_event_handlers
+
         eb = EventBus()
         _register_event_handlers(eb)
 
@@ -438,12 +460,12 @@ class TestTWS14:
         slow_done: list[bool] = []
 
         class _Fast(EventHandler):
-            async def handle(self, event: DomainEvent) -> None:
+            async def handle(self, _event: DomainEvent) -> None:
                 await asyncio.sleep(0.3)
                 fast_done.append(True)
 
         class _Slow(EventHandler):
-            async def handle(self, event: DomainEvent) -> None:
+            async def handle(self, _event: DomainEvent) -> None:
                 await asyncio.sleep(0.3)
                 slow_done.append(True)
 

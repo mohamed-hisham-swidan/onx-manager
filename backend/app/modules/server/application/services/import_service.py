@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from app.modules.server.infrastructure.fs import FileSystem, LocalFileSystem, local_fs
+from app.modules.server.infrastructure.fs import FileSystem, local_fs
 
 PROPERTIES_PATTERN = re.compile(r"^\s*([^#= ]+)\s*=\s*(.*?)\s*$")
 PLUGIN_YML_PATTERN = re.compile(r"^\s*([\w-]+)\s*:\s*(.*?)\s*$")
@@ -119,7 +119,19 @@ def _find_server_jar(server_dir: str, fs: FileSystem) -> str | None:
         name = entry.name
         if entry.suffix == ".jar" and entry.is_file():
             name_lower = name.lower()
-            if any(kw in name_lower for kw in ("server", "paper", "purpur", "fabric", "forge", "spigot", "bukkit", "craftbukkit")):
+            if any(
+                kw in name_lower
+                for kw in (
+                    "server",
+                    "paper",
+                    "purpur",
+                    "fabric",
+                    "forge",
+                    "spigot",
+                    "bukkit",
+                    "craftbukkit",
+                )
+            ):
                 return name
 
     jars = [e.name for e in fs.list_dir(server_dir) if e.suffix == ".jar" and e.is_file()]
@@ -152,14 +164,16 @@ def _scan_plugins(server_dir: str, fs: FileSystem) -> list[dict[str, Any]]:
         if entry.suffix != ".jar" or not entry.is_file():
             continue
         meta = _parse_jar_metadata(str(entry))
-        plugins.append({
-            "filename": entry.name,
-            "size_bytes": fs.size(str(entry)),
-            "name": meta.get("name", entry.stem),
-            "version": meta.get("version", ""),
-            "main": meta.get("main", ""),
-            "api_version": meta.get("api-version", ""),
-        })
+        plugins.append(
+            {
+                "filename": entry.name,
+                "size_bytes": fs.size(str(entry)),
+                "name": meta.get("name", entry.stem),
+                "version": meta.get("version", ""),
+                "main": meta.get("main", ""),
+                "api_version": meta.get("api-version", ""),
+            }
+        )
     return plugins
 
 
@@ -172,12 +186,14 @@ def _scan_mods(server_dir: str, fs: FileSystem) -> list[dict[str, Any]]:
         if entry.suffix != ".jar" or not entry.is_file():
             continue
         meta = _parse_jar_metadata(str(entry))
-        mods.append({
-            "filename": entry.name,
-            "size_bytes": fs.size(str(entry)),
-            "name": meta.get("name", entry.stem),
-            "version": meta.get("version", ""),
-        })
+        mods.append(
+            {
+                "filename": entry.name,
+                "size_bytes": fs.size(str(entry)),
+                "name": meta.get("name", entry.stem),
+                "version": meta.get("version", ""),
+            }
+        )
     return mods
 
 
@@ -188,22 +204,26 @@ def _detect_worlds(server_dir: str, props: dict[str, str], fs: FileSystem) -> li
 
     if fs.is_dir(world_path):
         total_size = sum(fs.size(f) for f in fs.walk(world_path))
-        worlds.append({
-            "name": level_name,
-            "path": world_path,
-            "size_bytes": total_size,
-        })
+        worlds.append(
+            {
+                "name": level_name,
+                "path": world_path,
+                "size_bytes": total_size,
+            }
+        )
 
     for entry in fs.list_dir(server_dir):
         if entry.is_dir() and entry.name != level_name:
             level_dat = str(entry / "level.dat")
             if fs.exists(level_dat):
                 total_size = sum(fs.size(f) for f in fs.walk(str(entry)))
-                worlds.append({
-                    "name": entry.name,
-                    "path": str(entry),
-                    "size_bytes": total_size,
-                })
+                worlds.append(
+                    {
+                        "name": entry.name,
+                        "path": str(entry),
+                        "size_bytes": total_size,
+                    }
+                )
 
     return worlds
 
@@ -219,7 +239,9 @@ def _read_json_list(path: str, fs: FileSystem, key: str = "name") -> list[str]:
     try:
         data = json.loads(fs.read_text(path))
         if isinstance(data, list):
-            return [entry.get(key, "") for entry in data if isinstance(entry, dict) and entry.get(key)]
+            return [
+                entry.get(key, "") for entry in data if isinstance(entry, dict) and entry.get(key)
+            ]
     except (json.JSONDecodeError, OSError):
         pass
     return []
@@ -277,7 +299,9 @@ def scan_server_directory(path: str, fs: FileSystem | None = None) -> dict[str, 
         "eula_accepted": eula,
         "server_jar": effective_jar,
         "run_script": run_script,
-        "jar_size_bytes": fs.size(jar_full_path) if jar_full_path and fs.exists(jar_full_path) else 0,
+        "jar_size_bytes": fs.size(jar_full_path)
+        if jar_full_path and fs.exists(jar_full_path)
+        else 0,
         "properties": {
             "port": _safe_parse_int(props.get("server-port", "25565"), 25565),
             "motd": props.get("motd", "A Minecraft Server"),
@@ -286,7 +310,9 @@ def scan_server_directory(path: str, fs: FileSystem | None = None) -> dict[str, 
             "difficulty": props.get("difficulty", "easy"),
             "spawn_protection": _safe_parse_int(props.get("spawn-protection", "16"), 16),
             "pvp": _safe_parse_bool(props.get("pvp", "true"), True),
-            "enable_command_block": _safe_parse_bool(props.get("enable-command-block", "false"), False),
+            "enable_command_block": _safe_parse_bool(
+                props.get("enable-command-block", "false"), False
+            ),
             "online_mode": _safe_parse_bool(props.get("online-mode", "true"), True),
             "whitelist": _safe_parse_bool(props.get("white-list", "false"), False),
             "view_distance": _safe_parse_int(props.get("view-distance", "10"), 10),

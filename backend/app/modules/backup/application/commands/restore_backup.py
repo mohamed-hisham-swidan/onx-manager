@@ -70,7 +70,9 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
                 await session.commit()
                 logger.info(
                     "Restore deferred until next start — server_id=%s backup_id=%s status=%s",
-                    server_id, command.backup_id, server.status.value,
+                    server_id,
+                    command.backup_id,
+                    server.status.value,
                 )
                 return CommandResult(
                     success=True,
@@ -83,12 +85,16 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
 
         try:
             restored_items = await perform_safe_restore(
-                backup_id, server_dir, base_world=base_world,
+                backup_id,
+                server_dir,
+                base_world=base_world,
             )
         except RestoreError as exc:
             logger.error(
                 "Restore failed — server_id=%s backup_id=%s error=%s",
-                server_id, command.backup_id, exc,
+                server_id,
+                command.backup_id,
+                exc,
             )
             return CommandResult(success=False, error=str(exc), error_code="RESTORE_FAILED")
 
@@ -103,7 +109,9 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
 
         logger.info(
             "Restore applied — server_id=%s backup_id=%s items=%s",
-            server_id, command.backup_id, restored_items,
+            server_id,
+            command.backup_id,
+            restored_items,
         )
         return CommandResult(
             success=True,

@@ -27,8 +27,7 @@ class CommandResult(BaseModel):
 
 class CommandHandler(ABC, Generic[TCommand]):
     @abstractmethod
-    async def handle(self, command: TCommand) -> CommandResult:
-        ...
+    async def handle(self, command: TCommand) -> CommandResult: ...
 
 
 class Middleware(ABC):
@@ -37,8 +36,7 @@ class Middleware(ABC):
         self,
         command: Command,
         next_middleware: Any,
-    ) -> CommandResult:
-        ...
+    ) -> CommandResult: ...
 
 
 class CommandBus:

@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from app.core.event_bus import EventBus
+from app.core.identity import IDENTITY
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.events import ServerDiscoveredEvent
 from app.modules.server.domain.repository import ServerRepository
@@ -16,7 +17,6 @@ from app.modules.server.domain.value_objects import (
     ServerProperties,
     ServerType,
 )
-from app.core.identity import IDENTITY
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.discovery.registration")
@@ -63,13 +63,17 @@ async def handle_server_discovered(
         await repo.save(server)
         logger.info(
             "Registered discovered server name=%s id=%s path=%s type=%s",
-            name, server_id, event.path, server_type_str,
+            name,
+            server_id,
+            event.path,
+            server_type_str,
         )
         return server_id
 
     except Exception as exc:
         logger.exception(
             "Failed to register discovered server path=%s: %s",
-            event.path, exc,
+            event.path,
+            exc,
         )
         return None

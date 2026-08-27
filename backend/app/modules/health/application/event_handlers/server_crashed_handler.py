@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 
 from app.core.event_bus import DomainEvent, EventBus, EventHandler
+from app.core.identity import IDENTITY
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.health.domain.events import CrashClassifiedEvent, EvidenceCollectedEvent
 from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyzer
 from app.modules.health.infrastructure.evidence_collector import LogBasedEvidenceCollector
 from app.modules.health.infrastructure.recovery_orchestrator import RecoveryOrchestrator
 from app.modules.health.infrastructure.repository import SQLDiagnosticsRepository
 from app.modules.server.domain.events import ServerCrashedEvent
-from app.core.identity import IDENTITY
-from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.crash_handler")
 
@@ -57,7 +57,8 @@ class HandleServerCrashHandler(EventHandler):
             )
 
             recovery_action = await self._recovery.trigger(
-                server_id, classification.failure_code,
+                server_id,
+                classification.failure_code,
             )
             for recovery_event in recovery_action.events:
                 uow.add_event(recovery_event)
@@ -66,5 +67,7 @@ class HandleServerCrashHandler(EventHandler):
 
         logger.info(
             "Crash handling complete server=%s failure=%s action=%s",
-            server_id, classification.failure_code, recovery_action.action,
+            server_id,
+            classification.failure_code,
+            recovery_action.action,
         )

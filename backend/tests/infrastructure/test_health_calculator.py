@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -11,7 +11,6 @@ from app.modules.health.domain.value_objects import (
     SignalSeverity,
 )
 from app.modules.health.infrastructure.health_calculator import SignalHealthCalculator
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -28,8 +27,8 @@ def _signal(
         severity=SignalSeverity(severity),
         value=value,
         timestamp=datetime.fromtimestamp(
-            datetime.now(timezone.utc).timestamp() - seconds_ago,
-            tz=timezone.utc,
+            datetime.now(UTC).timestamp() - seconds_ago,
+            tz=UTC,
         ),
     )
 
@@ -57,7 +56,9 @@ class TestSignalHealthCalculator:
 
     async def test_single_critical_becomes_critical(self):
         calc = SignalHealthCalculator()
-        result = await calc.compute(HealthStatusEnum.HEALTHY, [_signal(severity="critical", value="oom")])
+        result = await calc.compute(
+            HealthStatusEnum.HEALTHY, [_signal(severity="critical", value="oom")]
+        )
         assert result[0] == HealthStatusEnum.CRITICAL
         assert "Critical" in result[1][0]
 
@@ -81,10 +82,13 @@ class TestSignalHealthCalculator:
 
     async def test_no_skip_healthy_to_broken(self):
         calc = SignalHealthCalculator()
-        result = await calc.compute(HealthStatusEnum.HEALTHY, [
-            _signal(severity="critical", value="unexpected critical", seconds_ago=5),
-            _signal(severity="critical", value="another critical", seconds_ago=5),
-        ])
+        result = await calc.compute(
+            HealthStatusEnum.HEALTHY,
+            [
+                _signal(severity="critical", value="unexpected critical", seconds_ago=5),
+                _signal(severity="critical", value="another critical", seconds_ago=5),
+            ],
+        )
         assert result[0] in (HealthStatusEnum.CRITICAL, HealthStatusEnum.WARNING)
         assert result[0] != HealthStatusEnum.BROKEN
 
@@ -113,10 +117,13 @@ class TestSignalHealthCalculator:
     async def test_confidence_increases_with_critical_signals(self):
         calc = SignalHealthCalculator()
         result1 = await calc.compute(HealthStatusEnum.HEALTHY, [_signal(severity="info")])
-        result2 = await calc.compute(HealthStatusEnum.HEALTHY, [
-            _signal(severity="critical", value="oom", seconds_ago=5),
-            _signal(severity="critical", value="port", seconds_ago=5),
-        ])
+        result2 = await calc.compute(
+            HealthStatusEnum.HEALTHY,
+            [
+                _signal(severity="critical", value="oom", seconds_ago=5),
+                _signal(severity="critical", value="port", seconds_ago=5),
+            ],
+        )
         assert result2[2] > result1[2]
 
     async def test_factors_includes_critical_signals(self):
@@ -127,7 +134,11 @@ class TestSignalHealthCalculator:
         ]
         result = await calc.compute(HealthStatusEnum.HEALTHY, signals)
         factors_text = " ".join(result[1])
-        assert "memory" in factors_text.lower() or "port" in factors_text.lower() or "critical" in factors_text.lower()
+        assert (
+            "memory" in factors_text.lower()
+            or "port" in factors_text.lower()
+            or "critical" in factors_text.lower()
+        )
 
     async def test_trend_improving(self):
         calc = SignalHealthCalculator()

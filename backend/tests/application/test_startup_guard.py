@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from app.modules.server.application.startup_guard import check_startup_readiness
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -30,12 +29,15 @@ class TestStartupGuard:
         assert result.allowed is True
 
     async def test_blocks_on_critical_issues(self):
-        with patch(
-            "app.modules.health.infrastructure.integrity.FilesystemIntegrityChecker.check",
-        ) as mock_check, patch(
-            "app.modules.health.infrastructure.environment.HostEnvironmentScanner.scan",
+        with (
+            patch(
+                "app.modules.health.infrastructure.integrity.FilesystemIntegrityChecker.check",
+            ) as mock_check,
+            patch(
+                "app.modules.health.infrastructure.environment.HostEnvironmentScanner.scan",
+            ),
         ):
-            from app.modules.health.domain.value_objects import IntegrityReport, IntegrityCheck
+            from app.modules.health.domain.value_objects import IntegrityCheck, IntegrityReport
 
             mock_check.return_value = IntegrityReport(
                 server_id="test",
@@ -58,7 +60,7 @@ class TestStartupGuard:
         with patch(
             "app.modules.health.infrastructure.integrity.FilesystemIntegrityChecker.check",
         ) as mock_check:
-            from app.modules.health.domain.value_objects import IntegrityReport, IntegrityCheck
+            from app.modules.health.domain.value_objects import IntegrityCheck, IntegrityReport
 
             mock_check.return_value = IntegrityReport(
                 server_id="test",

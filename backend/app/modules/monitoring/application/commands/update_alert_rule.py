@@ -3,9 +3,9 @@ from typing import Any
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.monitoring.domain.aggregate import AlertCondition, AlertSeverity
 from app.modules.monitoring.infrastructure.repository import SQLAlertRuleRepository
-from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class UpdateAlertRuleCommand(Command):
@@ -51,4 +51,6 @@ class UpdateAlertRuleHandler(CommandHandler[UpdateAlertRuleCommand]):
             await repo.save(rule)
             await uow.commit()
 
-        return CommandResult(success=True, data={"alert_rule_id": command.alert_rule_id, "changes": changes})
+        return CommandResult(
+            success=True, data={"alert_rule_id": command.alert_rule_id, "changes": changes}
+        )

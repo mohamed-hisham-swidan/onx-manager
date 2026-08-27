@@ -14,7 +14,6 @@ from app.modules.health.application import (
 from app.modules.health.domain.aggregate import HealthStatus
 from app.modules.health.domain.value_objects import HealthStatusEnum
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -83,7 +82,9 @@ class TestEvaluateHealthHandler:
         assert result.success
         assert result.data["status"] == "healthy"
 
-    async def test_register_and_dispatch(self, command_bus: CommandBus, event_bus: EventBus) -> None:
+    async def test_register_and_dispatch(
+        self, command_bus: CommandBus, event_bus: EventBus
+    ) -> None:
         command_bus.register(EvaluateHealthCommand, EvaluateHealthHandler(event_bus))
         mock_repo = AsyncMock()
         mock_repo.get = AsyncMock(return_value=None)

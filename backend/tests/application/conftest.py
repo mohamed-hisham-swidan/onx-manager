@@ -11,10 +11,9 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
-from app.core.query_bus import QueryBus
 from app.core.persistence.base import Base
 from app.core.persistence.db import database
-
+from app.core.query_bus import QueryBus
 
 TEST_DB_URL = "sqlite+aiosqlite://"
 

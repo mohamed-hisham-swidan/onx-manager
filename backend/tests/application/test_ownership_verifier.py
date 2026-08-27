@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import os
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from app.modules.server.application.ownership_verifier import (
     OwnershipStatus,
@@ -195,4 +192,3 @@ class TestVerifyOwnership:
             stored_start_time=50000,
         )
         assert result.status == OwnershipStatus.VERIFIED
-

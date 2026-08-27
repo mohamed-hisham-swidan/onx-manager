@@ -55,14 +55,13 @@ class TestFilesystemSandbox:
                 sandbox.resolve_path("../etc/passwd")
 
     def test_allowed_path_outside_plugin_dir(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with tempfile.TemporaryDirectory() as allowed:
-                sandbox = FilesystemSandbox(tmp, allowed_paths=[allowed])
-                allowed_file = os.path.join(allowed, "shared.txt")
-                with open(allowed_file, "w") as f:
-                    f.write("data")
-                resolved = sandbox.resolve_path(os.path.join(allowed, "shared.txt"))
-                assert os.path.exists(str(resolved))
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as allowed:
+            sandbox = FilesystemSandbox(tmp, allowed_paths=[allowed])
+            allowed_file = os.path.join(allowed, "shared.txt")
+            with open(allowed_file, "w") as f:
+                f.write("data")
+            resolved = sandbox.resolve_path(os.path.join(allowed, "shared.txt"))
+            assert os.path.exists(str(resolved))
 
     def test_file_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

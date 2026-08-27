@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.command_bus import CommandResult
@@ -40,20 +39,16 @@ class IdempotencyKey:
 
 class IdempotencyStore(ABC):
     @abstractmethod
-    async def is_duplicate(self, key: str) -> bool:
-        ...
+    async def is_duplicate(self, key: str) -> bool: ...
 
     @abstractmethod
-    async def mark_completed(self, key: str, result: CommandResult) -> None:
-        ...
+    async def mark_completed(self, key: str, result: CommandResult) -> None: ...
 
     @abstractmethod
-    async def get_result(self, key: str) -> CommandResult | None:
-        ...
+    async def get_result(self, key: str) -> CommandResult | None: ...
 
     @abstractmethod
-    async def _init_db(self) -> None:
-        ...
+    async def _init_db(self) -> None: ...
 
 
 class InMemoryIdempotencyStore(IdempotencyStore):

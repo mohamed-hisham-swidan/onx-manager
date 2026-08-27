@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections import defaultdict
 from typing import Any
@@ -97,10 +98,8 @@ class EventDispatcher(EventHandler):
                 sent.add(cid)
                 ws = await self._registry.get(cid)
                 if ws is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         await ws.send_bytes(serialized)
-                    except Exception:
-                        pass
 
         user_ids_from_disconnected = await self._find_disconnected_user_ids(channels, sent)
         for user_id in user_ids_from_disconnected:
@@ -118,7 +117,9 @@ class EventDispatcher(EventHandler):
             conn_ids = list(self._registry._channel_connections.get(channel, set()))
         return conn_ids
 
-    async def _find_disconnected_user_ids(self, channels: set[str], sent_connections: set[str]) -> set[str]:
+    async def _find_disconnected_user_ids(
+        self, channels: set[str], sent_connections: set[str]
+    ) -> set[str]:
         """Return user IDs that have a channel binding overlapping *channels*
         but hold no live connection (and were therefore not reached by the
         send loop).  After the scan, prune stale bindings for offline users
@@ -146,8 +147,7 @@ class EventDispatcher(EventHandler):
         # Eviction pass (outside registry lock): remove bindings for offline
         # users who have no buffered data (drained or TTL-expired).
         evict: list[str] = [
-            uid for uid in offline_with_no_match
-            if self._buffer.total_buffered(uid) == 0
+            uid for uid in offline_with_no_match if self._buffer.total_buffered(uid) == 0
         ]
         if evict:
             async with self._registry._lock:
@@ -201,10 +201,8 @@ class MetricsBatcher:
         self._running = False
         if self._task is not None:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
 
     async def add_sample(self, server_id: str, sample: dict[str, Any]) -> None:
         self._samples[server_id].append(sample)

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
-from app.modules.event_store.dead_letter import DeadLetterService
 from app.core.persistence.db import database
+from app.modules.event_store.dead_letter import DeadLetterService
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +63,9 @@ class ReplayDeadLetterHandler(CommandHandler[ReplayDeadLetterCommand]):
             return CommandResult(
                 success=ok,
                 data={"replayed": ok},
-                error=None if ok else f"Dead letter {command.event_id} not found or already resolved",
+                error=None
+                if ok
+                else f"Dead letter {command.event_id} not found or already resolved",
             )
 
 

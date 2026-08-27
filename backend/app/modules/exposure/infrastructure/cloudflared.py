@@ -302,7 +302,7 @@ class CloudflaredSupervisor:
             logger.warning("cloudflared terminate failed", exc_info=True)
 
     # -- token file management ---------------------------------------------
- 
+
     def _write_token_file(self, token: bytes) -> Path:
         from app.core.identity import IDENTITY
 

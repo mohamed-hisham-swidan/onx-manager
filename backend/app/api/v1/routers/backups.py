@@ -33,7 +33,7 @@ __all__ = ["router"]
 async def list_backups(
     server_id: str | None = Query(None),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ) -> list[BackupResponse]:
     q = ListBackupsQuery(server_id=server_id)
     backups = await query_bus.ask(q)
@@ -44,7 +44,7 @@ async def list_backups(
 async def create_backup(
     body: CreateBackupRequest,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("backup:create")),
+    _current_user: dict = Depends(require_permission("backup:create")),
 ) -> dict:
     cmd = CreateBackupCommand(server_id=body.server_id, backup_type=body.backup_type)
     result = await command_bus.send(cmd)
@@ -55,7 +55,7 @@ async def create_backup(
 async def get_backup(
     backup_id: str,
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ) -> BackupResponse:
     result = await query_bus.ask(GetBackupQuery(backup_id=backup_id))
     return BackupResponse(**result.__dict__)
@@ -65,7 +65,7 @@ async def get_backup(
 async def delete_backup(
     backup_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("backup:delete")),
+    _current_user: dict = Depends(require_permission("backup:delete")),
 ) -> None:
     cmd = DeleteBackupCommand(backup_id=backup_id)
     result = await command_bus.send(cmd)
@@ -76,7 +76,7 @@ async def delete_backup(
 async def restore_backup(
     backup_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("backup:restore")),
+    _current_user: dict = Depends(require_permission("backup:restore")),
 ) -> JSONResponse:
     cmd = RestoreBackupCommand(backup_id=backup_id)
     result = await command_bus.send(cmd)
@@ -89,7 +89,7 @@ async def restore_backup(
 async def verify_backup(
     backup_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_permission("backup:read")),
+    _current_user: dict = Depends(require_permission("backup:read")),
 ) -> VerifyBackupResponse:
     cmd = VerifyBackupCommand(backup_id=backup_id)
     result = await command_bus.send(cmd)

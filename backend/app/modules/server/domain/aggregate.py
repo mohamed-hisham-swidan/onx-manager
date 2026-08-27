@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 from app.core.exceptions import InvalidValueError
 from app.modules.server.domain.events import (
     ServerConfigChangedEvent,
-    ServerCreatedEvent,
     ServerCrashedEvent,
+    ServerCreatedEvent,
     ServerDeletedEvent,
     ServerStartedEvent,
     ServerStartingEvent,
@@ -42,8 +42,17 @@ class ServerStatus(Enum):
 
 _SERVER_TRANSITIONS: dict[ServerStatus, set[ServerStatus]] = {
     ServerStatus.CREATED: {ServerStatus.STARTING, ServerStatus.BROKEN, ServerStatus.PROVISIONING},
-    ServerStatus.PROVISIONING: {ServerStatus.CREATED, ServerStatus.STARTING, ServerStatus.BROKEN, ServerStatus.PROVISIONING_FAILED},
-    ServerStatus.PROVISIONING_FAILED: {ServerStatus.PROVISIONING, ServerStatus.CREATED, ServerStatus.BROKEN},
+    ServerStatus.PROVISIONING: {
+        ServerStatus.CREATED,
+        ServerStatus.STARTING,
+        ServerStatus.BROKEN,
+        ServerStatus.PROVISIONING_FAILED,
+    },
+    ServerStatus.PROVISIONING_FAILED: {
+        ServerStatus.PROVISIONING,
+        ServerStatus.CREATED,
+        ServerStatus.BROKEN,
+    },
     ServerStatus.BROKEN: {ServerStatus.STARTING, ServerStatus.CREATED, ServerStatus.PROVISIONING},
     ServerStatus.STARTING: {ServerStatus.RUNNING, ServerStatus.CRASHED, ServerStatus.STOPPING},
     ServerStatus.RUNNING: {ServerStatus.STOPPING, ServerStatus.CRASHED},
@@ -91,7 +100,7 @@ class Server(AggregateRoot):
         self._owner_id = owner_id
         self._provisioning_error = provisioning_error
         self._provisioning_retryable = provisioning_retryable
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
 
@@ -169,19 +178,19 @@ class Server(AggregateRoot):
 
     def mark_broken(self) -> None:
         self._status = ServerStatus.BROKEN
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
     def mark_repaired(self) -> None:
         self._status = ServerStatus.CREATED
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
     def mark_missing(self) -> None:
-        self._missing_since = datetime.now(timezone.utc)
-        self._updated_at = datetime.now(timezone.utc)
+        self._missing_since = datetime.now(UTC)
+        self._updated_at = datetime.now(UTC)
 
     def clear_missing(self) -> None:
         self._missing_since = None
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
     @classmethod
     def create(
@@ -227,7 +236,7 @@ class Server(AggregateRoot):
                 reason=f"Cannot transition from {self._status.value} to {new_status.value}",
             )
         self._status = new_status
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
     def begin_provisioning(self) -> None:
         self._provisioning_error = None
@@ -239,7 +248,9 @@ class Server(AggregateRoot):
         self._provisioning_retryable = False
         self._transition_to(ServerStatus.CREATED)
 
-    def fail_provisioning(self, error: str = "", retryable: bool = False, fatal: bool = False) -> None:
+    def fail_provisioning(
+        self, error: str = "", retryable: bool = False, fatal: bool = False
+    ) -> None:
         self._provisioning_error = error or None
         self._provisioning_retryable = retryable
         if fatal:
@@ -269,9 +280,16 @@ class Server(AggregateRoot):
             restart_count=self._runtime.restart_count,
             external_id=external_id,
         )
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
-    def mark_running(self, pid: int, port: int, host: str = "127.0.0.1", external_id: str = "", start_time: int | None = None) -> None:
+    def mark_running(
+        self,
+        pid: int,
+        port: int,
+        host: str = "127.0.0.1",
+        external_id: str = "",
+        start_time: int | None = None,
+    ) -> None:
         self._transition_to(ServerStatus.RUNNING)
         self._runtime = RuntimeInfo(
             status="running",
@@ -280,7 +298,9 @@ class Server(AggregateRoot):
             port=port,
             pid=pid,
             start_time=start_time,
-            restart_count=self._runtime.restart_count + 1 if self._runtime.status in ("running", "starting") else self._runtime.restart_count,
+            restart_count=self._runtime.restart_count + 1
+            if self._runtime.status in ("running", "starting")
+            else self._runtime.restart_count,
             external_id=external_id,
         )
         self._add_event(ServerStartedEvent(server_id=self._id, pid=pid, port=port))
@@ -304,7 +324,7 @@ class Server(AggregateRoot):
         self._runtime = RuntimeInfo(
             status="crashed",
             provider=self._runtime.provider,
-            last_crash_time=datetime.now(timezone.utc).timestamp(),
+            last_crash_time=datetime.now(UTC).timestamp(),
             restart_count=self._runtime.restart_count,
             external_id="",
         )
@@ -322,18 +342,18 @@ class Server(AggregateRoot):
         new_name = name.strip()
         if self._name != new_name:
             self._name = new_name
-            self._updated_at = datetime.now(timezone.utc)
+            self._updated_at = datetime.now(UTC)
             self._add_event(
                 ServerConfigChangedEvent(server_id=self._id, changed_keys=["name"]),
             )
 
     def update_deployment(self, deployment: ServerDeployment) -> None:
         self._deployment = deployment
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
     def update_launch_config(self, config: LaunchConfiguration) -> None:
         self._launch_config = config
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
     def update_properties(self, **changes: Any) -> None:
         current = self._properties
@@ -362,14 +382,14 @@ class Server(AggregateRoot):
             if "port" in kwargs and isinstance(kwargs["port"], int):
                 kwargs["port"] = PortNumber(kwargs["port"])
             self._properties = ServerProperties(**kwargs)
-            self._updated_at = datetime.now(timezone.utc)
+            self._updated_at = datetime.now(UTC)
             self._add_event(
                 ServerConfigChangedEvent(server_id=self._id, changed_keys=changed_keys),
             )
 
     def update_memory(self, memory: MemoryAllocation) -> None:
         self._memory = memory
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
         self._add_event(
             ServerConfigChangedEvent(server_id=self._id, changed_keys=["memory"]),
         )

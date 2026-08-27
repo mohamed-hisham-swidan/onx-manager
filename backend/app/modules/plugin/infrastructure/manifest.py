@@ -68,7 +68,7 @@ class ManifestLoader:
     def from_yaml(path: str) -> PluginManifest:
         import yaml
 
-        with open(path, "r") as f:
+        with open(path) as f:
             data = yaml.safe_load(f)
 
         if not isinstance(data, dict):

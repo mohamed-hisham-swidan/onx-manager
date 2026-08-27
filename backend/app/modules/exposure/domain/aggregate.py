@@ -227,7 +227,6 @@ class ServerExposureTarget(AggregateRoot):
     def set_playit_tunnel(self, tunnel_id: str | None) -> None:
         self.playit_tunnel_id = tunnel_id
 
-
     @property
     def status(self) -> ExposureStatus:
         return self._status

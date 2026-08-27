@@ -149,9 +149,15 @@ def test_folia_chain():
 
 def test_semver_aware_sort_1_10_after_1_9():
     versions = [
-        _ver("1.2", game_versions=["1.21"], loaders=["paper"], date_published="2024-06-01T00:00:00Z"),
-        _ver("1.9", game_versions=["1.21"], loaders=["paper"], date_published="2024-01-01T00:00:00Z"),
-        _ver("1.10", game_versions=["1.21"], loaders=["paper"], date_published="2020-01-01T00:00:00Z"),
+        _ver(
+            "1.2", game_versions=["1.21"], loaders=["paper"], date_published="2024-06-01T00:00:00Z"
+        ),
+        _ver(
+            "1.9", game_versions=["1.21"], loaders=["paper"], date_published="2024-01-01T00:00:00Z"
+        ),
+        _ver(
+            "1.10", game_versions=["1.21"], loaders=["paper"], date_published="2020-01-01T00:00:00Z"
+        ),
     ]
     result = select_best_version("paper", "1.21", versions)
     assert [v.version_number for v in result.available] == ["1.10", "1.9", "1.2"]
@@ -174,6 +180,7 @@ def test_malformed_version_number_does_not_crash():
 # ────────────────────────────────────────────────────────────────────
 # §3.6 v1.3 — _game_version_matches: prefix-collision fix test cases
 # ────────────────────────────────────────────────────────────────────
+
 
 class TestGameVersionMatchesV13:
     """13 required test cases for the v1.3 two-part gate matcher."""

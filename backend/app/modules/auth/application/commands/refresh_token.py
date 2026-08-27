@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import AuthenticationError
-from app.core.security import hash_api_key, verify_api_key
+from app.core.persistence.unit_of_work import UnitOfWork
+from app.core.security import hash_api_key
 from app.modules.auth.infrastructure.jwt import (
     create_access_token,
     create_refresh_token,
@@ -16,7 +17,6 @@ from app.modules.auth.infrastructure.models import RefreshTokenModel
 from app.modules.auth.infrastructure.permissions import PermissionEvaluator
 from app.modules.auth.infrastructure.repository import SQLUserRepository
 from app.modules.shared.value_objects import UserId
-from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class RefreshTokenCommand(Command):
@@ -39,14 +39,14 @@ class RefreshTokenHandler(CommandHandler[RefreshTokenCommand]):
             rt = result.scalar_one_or_none()
             if rt is None:
                 raise AuthenticationError("Invalid or revoked refresh token")
-            now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+            now_naive = datetime.now(UTC).replace(tzinfo=None)
             expires = rt.expires_at
             if expires and expires.tzinfo is not None:
                 expires = expires.replace(tzinfo=None)
             if expires and now_naive > expires:
                 raise AuthenticationError("Refresh token has expired")
             rt.is_revoked = True
-            rt.revoked_at = datetime.now(timezone.utc)
+            rt.revoked_at = datetime.now(UTC)
 
             repo = SQLUserRepository(uow.session)
             user = await repo.get(UserId(rt.user_id))
@@ -59,7 +59,7 @@ class RefreshTokenHandler(CommandHandler[RefreshTokenCommand]):
             new_rt = RefreshTokenModel(
                 user_id=str(user.user_id),
                 token_hash=hash_api_key(new_refresh_token),
-                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+                expires_at=datetime.now(UTC) + timedelta(days=7),
             )
             uow.session.add(new_rt)
 
@@ -73,9 +73,12 @@ class RefreshTokenHandler(CommandHandler[RefreshTokenCommand]):
             )
             await uow.commit()
 
-        return CommandResult(success=True, data={
-            "access_token": access_token,
-            "refresh_token": new_refresh_token,
-            "token_type": "bearer",
-            "expires_in": 900,
-        })
+        return CommandResult(
+            success=True,
+            data={
+                "access_token": access_token,
+                "refresh_token": new_refresh_token,
+                "token_type": "bearer",
+                "expires_in": 900,
+            },
+        )

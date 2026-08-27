@@ -6,6 +6,7 @@ Strictly decoupled from exposure domain aggregates (PanelExposure, ServerExposur
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -91,10 +92,8 @@ class PlayitApiClient:
             ) as resp:
                 if resp.status == 401:
                     err_json = {}
-                    try:
+                    with contextlib.suppress(Exception):
                         err_json = await resp.json()
-                    except Exception:
-                        pass
                     raise PlayitAuthError(f"playit.gg auth failed (HTTP 401): {err_json}")
 
                 if resp.status == 429:
@@ -110,7 +109,9 @@ class PlayitApiClient:
 
                 if resp.status >= 400:
                     err_data = payload.get("data")
-                    err_msg = err_data.get("message") if isinstance(err_data, dict) else str(err_data)
+                    err_msg = (
+                        err_data.get("message") if isinstance(err_data, dict) else str(err_data)
+                    )
                     err_type = err_data.get("type") if isinstance(err_data, dict) else ""
 
                     if resp.status == 400 and (
@@ -118,7 +119,9 @@ class PlayitApiClient:
                         or "limit" in str(err_msg).lower()
                         or "over_limit" in str(err_type).lower()
                     ):
-                        raise PlayitAllocationFullError(f"playit.gg allocation limit reached: {err_msg}")
+                        raise PlayitAllocationFullError(
+                            f"playit.gg allocation limit reached: {err_msg}"
+                        )
 
                     raise PlayitApiError(
                         f"playit.gg API error (HTTP {resp.status}, type={err_type}): {err_msg}"
@@ -229,7 +232,9 @@ class PlayitApiClient:
         # Fetch updated rundata to get full assigned domain and port details
         updated_rundata = await self.get_rundata(secret)
         for t in updated_rundata.tunnels:
-            if t.id == tunnel_data.get("id") or (t.local_port == local_port and t.port_type == port_type):
+            if t.id == tunnel_data.get("id") or (
+                t.local_port == local_port and t.port_type == port_type
+            ):
                 return t
 
         return self._parse_tunnel(tunnel_data)
@@ -237,7 +242,7 @@ class PlayitApiClient:
     async def delete_tunnel(self, secret: str, tunnel_id: str) -> bool:
         """Best-effort deletion of a tunnel on playit.gg."""
         try:
-            await self._request("POST", f"/tunnels/delete", secret, json_body={"id": tunnel_id})
+            await self._request("POST", "/tunnels/delete", secret, json_body={"id": tunnel_id})
             return True
         except Exception as exc:
             logger.warning("Failed to delete remote playit tunnel %s: %s", tunnel_id, exc)

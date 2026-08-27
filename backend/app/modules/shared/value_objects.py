@@ -187,7 +187,9 @@ class CronExpression:
 class EmailAddress:
     value: str
 
-    _pattern: ClassVar[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+    _pattern: ClassVar[re.Pattern[str]] = re.compile(
+        r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    )
 
     def __post_init__(self) -> None:
         if not self._pattern.match(self.value):

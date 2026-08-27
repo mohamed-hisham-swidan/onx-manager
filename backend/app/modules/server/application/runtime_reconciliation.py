@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import signal
 import socket
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Literal
 
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
@@ -19,7 +20,6 @@ from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
     ServerProvider,
-    ServerRuntimeStatus,
 )
 from app.modules.shared.value_objects import ServerId
 
@@ -102,12 +102,12 @@ def _get_process_env(pid: int) -> dict[str, str]:
 
 def _get_process_start_time(pid: int) -> int | None:
     try:
-        with open(f"/proc/{pid}/stat", "r") as f:
+        with open(f"/proc/{pid}/stat") as f:
             data = f.read()
         paren_end = data.rfind(")")
         if paren_end == -1:
             return None
-        fields = data[paren_end + 2:].split()
+        fields = data[paren_end + 2 :].split()
         if len(fields) >= 20:
             return int(fields[19])
         return None
@@ -240,25 +240,20 @@ async def _get_server_state(
                 pid_alive = False
 
     port = server.properties.port.value if hasattr(server.properties, "port") else 25565
-    if isinstance(port, int):
-        port_listening = _port_is_listening(port)
-    else:
-        port_listening = False
+    port_listening = _port_is_listening(port) if isinstance(port, int) else False
 
     start_age_seconds: float | None = None
     if server.status == ServerStatus.STARTING:
         ref_time = None
         if server.runtime and server.runtime.start_time:
-            try:
+            with contextlib.suppress(Exception):
                 ref_time = datetime.fromisoformat(server.runtime.start_time)
-            except Exception:
-                pass
         if ref_time is None and server.updated_at:
             ref_time = server.updated_at
         if ref_time is not None:
             if ref_time.tzinfo is None:
-                ref_time = ref_time.replace(tzinfo=timezone.utc)
-            start_age_seconds = (datetime.now(timezone.utc) - ref_time).total_seconds()
+                ref_time = ref_time.replace(tzinfo=UTC)
+            start_age_seconds = (datetime.now(UTC) - ref_time).total_seconds()
 
     return ServerRuntimeState(
         server_id=sid,
@@ -282,53 +277,64 @@ def _detect_mismatches(state: ServerRuntimeState) -> list[MismatchReport]:
 
     if state.db_status in (ServerStatus.RUNNING,):
         if not state.has_supervisor:
-            mismatches.append(MismatchReport(
-                server_id=state.server_id,
-                mismatch_type=MismatchType.DB_RUNNING_NO_SUPERVISOR,
-                detail="DB marks RUNNING but no supervisor is tracking this server",
-                auto_repairable=True,
-            ))
+            mismatches.append(
+                MismatchReport(
+                    server_id=state.server_id,
+                    mismatch_type=MismatchType.DB_RUNNING_NO_SUPERVISOR,
+                    detail="DB marks RUNNING but no supervisor is tracking this server",
+                    auto_repairable=True,
+                )
+            )
         if not state.has_tmux and not state.supervisor_running:
-            mismatches.append(MismatchReport(
-                server_id=state.server_id,
-                mismatch_type=MismatchType.DB_RUNNING_NO_TMUX,
-                detail="DB marks RUNNING but no tmux session and no active supervisor",
-                auto_repairable=True,
-            ))
+            mismatches.append(
+                MismatchReport(
+                    server_id=state.server_id,
+                    mismatch_type=MismatchType.DB_RUNNING_NO_TMUX,
+                    detail="DB marks RUNNING but no tmux session and no active supervisor",
+                    auto_repairable=True,
+                )
+            )
         if state.tmux_pid and not state.pid_alive:
-            mismatches.append(MismatchReport(
-                server_id=state.server_id,
-                mismatch_type=MismatchType.TMUX_PID_DEAD,
-                detail=f"tmux pane PID {state.tmux_pid} is not alive",
-                auto_repairable=True,
-            ))
+            mismatches.append(
+                MismatchReport(
+                    server_id=state.server_id,
+                    mismatch_type=MismatchType.TMUX_PID_DEAD,
+                    detail=f"tmux pane PID {state.tmux_pid} is not alive",
+                    auto_repairable=True,
+                )
+            )
         if state.has_supervisor and not state.has_tmux:
-            mismatches.append(MismatchReport(
-                server_id=state.server_id,
-                mismatch_type=MismatchType.SUPERVISOR_NO_TMUX,
-                detail="Supervisor is running but tmux session is gone",
-                auto_repairable=True,
-            ))
+            mismatches.append(
+                MismatchReport(
+                    server_id=state.server_id,
+                    mismatch_type=MismatchType.SUPERVISOR_NO_TMUX,
+                    detail="Supervisor is running but tmux session is gone",
+                    auto_repairable=True,
+                )
+            )
 
-    if state.db_status == ServerStatus.STARTING:
-        if not state.supervisor_running:
-            if state.has_tmux and state.pid_alive:
-                mismatches.append(MismatchReport(
+    if state.db_status == ServerStatus.STARTING and not state.supervisor_running:
+        if state.has_tmux and state.pid_alive:
+            mismatches.append(
+                MismatchReport(
                     server_id=state.server_id,
                     mismatch_type=MismatchType.DB_STARTING_ALIVE,
                     detail="DB marks STARTING with no active supervisor but process is alive",
                     auto_repairable=True,
-                ))
-            else:
-                # Do not falsely crash servers that just started (within 60s grace window)
-                is_fresh = state.start_age_seconds is not None and state.start_age_seconds < 60.0
-                if not is_fresh:
-                    mismatches.append(MismatchReport(
+                )
+            )
+        else:
+            # Do not falsely crash servers that just started (within 60s grace window)
+            is_fresh = state.start_age_seconds is not None and state.start_age_seconds < 60.0
+            if not is_fresh:
+                mismatches.append(
+                    MismatchReport(
                         server_id=state.server_id,
                         mismatch_type=MismatchType.DB_STARTING_DEAD,
                         detail="DB marks STARTING with no active supervisor and process is dead",
                         auto_repairable=True,
-                    ))
+                    )
+                )
 
     return mismatches
 
@@ -353,7 +359,9 @@ async def _auto_repair(
                 external_id=state.external_id or f"{IDENTITY.temp_prefix_new}{state.server_id}",
             )
             await repo.save(server)
-            actions.append(f"Transitioned STARTING → RUNNING (process is alive on port {state.port})")
+            actions.append(
+                f"Transitioned STARTING → RUNNING (process is alive on port {state.port})"
+            )
             repaired = True
 
         elif m.mismatch_type in (
@@ -427,7 +435,7 @@ async def reconcile_all_runtimes(
     else:
         try:
             servers = await repo.list()
-        except Exception as exc:
+        except Exception:
             logger.exception("Failed to list servers for runtime reconciliation")
             return []
 
@@ -440,7 +448,9 @@ async def reconcile_all_runtimes(
     total = len(outcomes)
     logger.info(
         "Runtime reconciliation complete: %d/%d servers checked, %d repaired",
-        total, total, repaired_count,
+        total,
+        total,
+        repaired_count,
     )
     return outcomes
 
@@ -484,28 +494,49 @@ async def reconcile_orphans(
             try:
                 is_owned = pid is not None and _is_project_owned_process(pid, servers_data_dir)
             except Exception:
-                logger.warning("KILL_DECISION session=%s pid=%s scope=%s decision=SKIP reason='ownership-check-failed'", session, pid, scope)
-                actions.append({"type": "orphan_tmux_skipped", "session": session, "pid": pid, "reason": "ownership-check-error"})
+                logger.warning(
+                    "KILL_DECISION session=%s pid=%s scope=%s decision=SKIP reason='ownership-check-failed'",
+                    session,
+                    pid,
+                    scope,
+                )
+                actions.append(
+                    {
+                        "type": "orphan_tmux_skipped",
+                        "session": session,
+                        "pid": pid,
+                        "reason": "ownership-check-error",
+                    }
+                )
                 continue
             if not is_owned:
                 env_marker = (
-                    _get_process_env(pid).get(ONX_MARKER)
-                    or _get_process_env(pid).get(MCS_MARKER)
+                    _get_process_env(pid).get(ONX_MARKER) or _get_process_env(pid).get(MCS_MARKER)
                     if pid
                     else None
                 )
                 proc_cwd = _get_process_cwd(pid) if pid else None
                 logger.info(
                     "KILL_DECISION session=%s pid=%s scope=%s marker=%s cwd=%s decision=SKIP reason='not-project-owned'",
-                    session, pid, scope, env_marker, proc_cwd,
+                    session,
+                    pid,
+                    scope,
+                    env_marker,
+                    proc_cwd,
                 )
-                actions.append({"type": "orphan_tmux_skipped", "session": session, "pid": pid, "reason": "not-project-owned"})
+                actions.append(
+                    {
+                        "type": "orphan_tmux_skipped",
+                        "session": session,
+                        "pid": pid,
+                        "reason": "not-project-owned",
+                    }
+                )
                 continue
 
         reason = f"orphan tmux session {session} — no matching running/starting server in database"
         env_marker = (
-            _get_process_env(pid).get(ONX_MARKER)
-            or _get_process_env(pid).get(MCS_MARKER)
+            _get_process_env(pid).get(ONX_MARKER) or _get_process_env(pid).get(MCS_MARKER)
             if pid
             else None
         )
@@ -513,7 +544,13 @@ async def reconcile_orphans(
         proc_start = _get_process_start_time(pid) if pid else None
         logger.info(
             "KILL_DECISION session=%s pid=%s scope=%s marker=%s cwd=%s start_time=%s decision=KILL reason=%s",
-            session, pid, scope, env_marker, proc_cwd, proc_start, reason,
+            session,
+            pid,
+            scope,
+            env_marker,
+            proc_cwd,
+            proc_start,
+            reason,
         )
         if pid:
             try:
@@ -536,14 +573,23 @@ async def reconcile_orphans(
             try:
                 is_owned = _is_project_owned_process(pid, servers_data_dir)
             except Exception:
-                logger.warning("KILL_DECISION pid=%s scope=%s decision=SKIP reason='ownership-check-failed'", pid, scope)
+                logger.warning(
+                    "KILL_DECISION pid=%s scope=%s decision=SKIP reason='ownership-check-failed'",
+                    pid,
+                    scope,
+                )
                 continue
             if not is_owned:
-                env_marker = _get_process_env(pid).get(ONX_MARKER) or _get_process_env(pid).get(MCS_MARKER)
+                env_marker = _get_process_env(pid).get(ONX_MARKER) or _get_process_env(pid).get(
+                    MCS_MARKER
+                )
                 proc_cwd = _get_process_cwd(pid)
                 logger.info(
                     "KILL_DECISION pid=%s scope=%s marker=%s cwd=%s decision=SKIP reason='not-project-owned'",
-                    pid, scope, env_marker, proc_cwd,
+                    pid,
+                    scope,
+                    env_marker,
+                    proc_cwd,
                 )
                 continue
 
@@ -553,7 +599,12 @@ async def reconcile_orphans(
         proc_start = _get_process_start_time(pid)
         logger.info(
             "KILL_DECISION pid=%s scope=%s marker=%s cwd=%s start_time=%s decision=KILL reason=%s",
-            pid, scope, env_marker, proc_cwd, proc_start, reason,
+            pid,
+            scope,
+            env_marker,
+            proc_cwd,
+            proc_start,
+            reason,
         )
         try:
             os.kill(pid, signal.SIGTERM)

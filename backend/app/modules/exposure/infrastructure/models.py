@@ -64,7 +64,6 @@ class ServerExposureTargetModel(Base, TimestampMixin):
     error_message = Column(Text, nullable=True)
     playit_tunnel_id = Column(String(64), nullable=True)
 
-
     __table_args__ = (
         UniqueConstraint(
             "exposure_id",

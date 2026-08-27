@@ -19,15 +19,17 @@ def compute_hash(
     timestamp: float,
     previous_hash: str,
 ) -> str:
-    payload = b"|".join([
-        event_id.encode(),
-        event_type.encode(),
-        correlation_id.encode(),
-        data_json.encode(),
-        str(schema_version).encode(),
-        str(timestamp).encode(),
-        previous_hash.encode(),
-    ])
+    payload = b"|".join(
+        [
+            event_id.encode(),
+            event_type.encode(),
+            correlation_id.encode(),
+            data_json.encode(),
+            str(schema_version).encode(),
+            str(timestamp).encode(),
+            previous_hash.encode(),
+        ]
+    )
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -91,10 +93,7 @@ class EventChain:
         return True
 
     async def verify_chain_from_id(self, event_id: str) -> bool:
-        stmt = (
-            select(StoredEventModel)
-            .where(StoredEventModel.event_id == event_id)
-        )
+        stmt = select(StoredEventModel).where(StoredEventModel.event_id == event_id)
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         if model is None:

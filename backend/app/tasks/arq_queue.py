@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from typing import Any
 
 from app.tasks.base import TaskQueue, TaskStatus
@@ -15,6 +16,7 @@ class ArqQueue(TaskQueue):
     async def _get_redis(self) -> Any:
         if self._arq_redis is None:
             import aredis
+
             self._pool = aredis.ConnectionPool.from_url(self._redis_url)
             self._arq_redis = aredis.Redis(connection_pool=self._pool)
         return self._arq_redis
@@ -26,20 +28,23 @@ class ArqQueue(TaskQueue):
         delay: int = 0,
     ) -> str:
         import uuid
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         task_id = uuid.uuid4().hex
-        job_data = json.dumps({
-            "task_id": task_id,
-            "name": name,
-            "params": params or {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        job_data = json.dumps(
+            {
+                "task_id": task_id,
+                "name": name,
+                "params": params or {},
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+        )
 
         r = await self._get_redis()
 
         if delay > 0:
             import time
+
             await r.zadd("arq:delayed", {job_data: time.time() + delay})
         else:
             await r.lpush(f"arq:queue:{name}", job_data)

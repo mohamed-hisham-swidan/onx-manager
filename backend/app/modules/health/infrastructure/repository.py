@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.health.domain.aggregate import DiagnosticsReport, HealthStatus
@@ -40,7 +40,9 @@ class SQLHealthRepository(HealthRepository):
             self._session.add(model)
 
         model.classification = status.classification.value
-        model.previous_classification = status.previous_classification.value if status.previous_classification else None
+        model.previous_classification = (
+            status.previous_classification.value if status.previous_classification else None
+        )
         model.contributing_factors = json.dumps(status.contributing_factors)
         model.trend = status.trend.value
         model.confidence = status.confidence
@@ -158,9 +160,13 @@ class SQLDiagnosticsRepository(DiagnosticsRepository):
             server_id=bundle.server_id,
             latest_log_tail=json.dumps(bundle.latest_log_tail) if bundle.latest_log_tail else None,
             crash_reports=json.dumps(bundle.crash_reports) if bundle.crash_reports else None,
-            provider_diagnostics=json.dumps(bundle.provider_diagnostics) if bundle.provider_diagnostics else None,
+            provider_diagnostics=json.dumps(bundle.provider_diagnostics)
+            if bundle.provider_diagnostics
+            else None,
             system_snapshot=json.dumps(bundle.system_snapshot) if bundle.system_snapshot else None,
-            collection_errors=json.dumps(bundle.collection_errors) if bundle.collection_errors else None,
+            collection_errors=json.dumps(bundle.collection_errors)
+            if bundle.collection_errors
+            else None,
             recorded_at=bundle.timestamp,
         )
         self._session.add(model)
@@ -188,7 +194,9 @@ class SQLDiagnosticsRepository(DiagnosticsRepository):
             failure_code=report.classification.failure_code if report.classification else None,
             confidence=report.classification.confidence if report.classification else None,
             summary=report.classification.summary if report.classification else None,
-            suggested_action=report.classification.suggested_action if report.classification else None,
+            suggested_action=report.classification.suggested_action
+            if report.classification
+            else None,
             recorded_at=report.created_at,
         )
         self._session.add(model)

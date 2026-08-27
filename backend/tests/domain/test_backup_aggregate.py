@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy, BackupStatus, BackupType
 from app.modules.backup.domain.events import (
     BackupCompletedEvent,

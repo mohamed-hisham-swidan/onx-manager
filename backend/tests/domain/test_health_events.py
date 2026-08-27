@@ -20,7 +20,9 @@ from app.modules.health.domain.events import (
 
 def assert_event_fields(event, expected: dict) -> None:
     for key, value in expected.items():
-        assert getattr(event, key, None) == value, f"Field {key!r} expected {value!r}, got {getattr(event, key, None)!r}"
+        assert getattr(event, key, None) == value, (
+            f"Field {key!r} expected {value!r}, got {getattr(event, key, None)!r}"
+        )
 
 
 class TestHealthStatusChangedEvent:
@@ -44,7 +46,9 @@ class TestHealthStatusChangedEvent:
 class TestIntegrityCheckEvents:
     def test_passed(self) -> None:
         event = IntegrityCheckPassedEvent(server_id="srv_1", check_name="jar_exists", scope="quick")
-        assert_event_fields(event, {"server_id": "srv_1", "check_name": "jar_exists", "scope": "quick"})
+        assert_event_fields(
+            event, {"server_id": "srv_1", "check_name": "jar_exists", "scope": "quick"}
+        )
 
     def test_failed(self) -> None:
         event = IntegrityCheckFailedEvent(
@@ -54,13 +58,16 @@ class TestIntegrityCheckEvents:
             detail="server.jar not found",
             scope="full",
         )
-        assert_event_fields(event, {
-            "server_id": "srv_1",
-            "check_name": "jar_exists",
-            "severity": "critical",
-            "detail": "server.jar not found",
-            "scope": "full",
-        })
+        assert_event_fields(
+            event,
+            {
+                "server_id": "srv_1",
+                "check_name": "jar_exists",
+                "severity": "critical",
+                "detail": "server.jar not found",
+                "scope": "full",
+            },
+        )
 
 
 class TestEnvironmentDegradedEvent:
@@ -71,12 +78,15 @@ class TestEnvironmentDegradedEvent:
             threshold=1.0,
             detail="Less than 1GB available",
         )
-        assert_event_fields(event, {
-            "resource_type": "disk_space",
-            "current_value": 0.3,
-            "threshold": 1.0,
-            "detail": "Less than 1GB available",
-        })
+        assert_event_fields(
+            event,
+            {
+                "resource_type": "disk_space",
+                "current_value": 0.3,
+                "threshold": 1.0,
+                "detail": "Less than 1GB available",
+            },
+        )
 
 
 class TestStartupValidationEvents:
@@ -90,11 +100,14 @@ class TestStartupValidationEvents:
             reasons=["Port 25565 already in use", "Insufficient memory"],
             severity="critical",
         )
-        assert_event_fields(event, {
-            "server_id": "srv_1",
-            "reasons": ["Port 25565 already in use", "Insufficient memory"],
-            "severity": "critical",
-        })
+        assert_event_fields(
+            event,
+            {
+                "server_id": "srv_1",
+                "reasons": ["Port 25565 already in use", "Insufficient memory"],
+                "severity": "critical",
+            },
+        )
 
 
 class TestRuntimeHealthSignalEvent:
@@ -106,12 +119,15 @@ class TestRuntimeHealthSignalEvent:
             value="not_found",
             details={"pid": 12345},
         )
-        assert_event_fields(event, {
-            "server_id": "srv_1",
-            "signal_type": "process",
-            "severity": "critical",
-            "value": "not_found",
-        })
+        assert_event_fields(
+            event,
+            {
+                "server_id": "srv_1",
+                "signal_type": "process",
+                "severity": "critical",
+                "value": "not_found",
+            },
+        )
         assert event.details == {"pid": 12345}
 
 
@@ -122,11 +138,14 @@ class TestEvidenceEvents:
             evidence_id="ev_001",
             collection_errors=["crash-reports dir missing"],
         )
-        assert_event_fields(event, {
-            "server_id": "srv_1",
-            "evidence_id": "ev_001",
-            "collection_errors": ["crash-reports dir missing"],
-        })
+        assert_event_fields(
+            event,
+            {
+                "server_id": "srv_1",
+                "evidence_id": "ev_001",
+                "collection_errors": ["crash-reports dir missing"],
+            },
+        )
 
     def test_classified(self) -> None:
         event = CrashClassifiedEvent(
@@ -137,14 +156,17 @@ class TestEvidenceEvents:
             summary="OutOfMemoryError detected",
             suggested_action="Increase memory allocation",
         )
-        assert_event_fields(event, {
-            "server_id": "srv_1",
-            "evidence_id": "ev_001",
-            "failure_code": "MEMORY_EXHAUSTED",
-            "confidence": 0.95,
-            "summary": "OutOfMemoryError detected",
-            "suggested_action": "Increase memory allocation",
-        })
+        assert_event_fields(
+            event,
+            {
+                "server_id": "srv_1",
+                "evidence_id": "ev_001",
+                "failure_code": "MEMORY_EXHAUSTED",
+                "confidence": 0.95,
+                "summary": "OutOfMemoryError detected",
+                "suggested_action": "Increase memory allocation",
+            },
+        )
 
 
 class TestRecoveryEvents:
@@ -162,7 +184,9 @@ class TestRecoveryEvents:
             recovery_action="restart",
             failure_reason="Max restart attempts exceeded",
         )
-        assert_event_fields(event, {"server_id": "srv_1", "failure_reason": "Max restart attempts exceeded"})
+        assert_event_fields(
+            event, {"server_id": "srv_1", "failure_reason": "Max restart attempts exceeded"}
+        )
 
     def test_succeeded(self) -> None:
         event = RecoverySucceededEvent(
@@ -170,7 +194,9 @@ class TestRecoveryEvents:
             recovery_action="restart",
             duration_seconds=12.5,
         )
-        assert_event_fields(event, {"server_id": "srv_1", "recovery_action": "restart", "duration_seconds": 12.5})
+        assert_event_fields(
+            event, {"server_id": "srv_1", "recovery_action": "restart", "duration_seconds": 12.5}
+        )
 
 
 class TestHealthReportGeneratedEvent:
@@ -187,4 +213,12 @@ class TestAlertTriggeredEvent:
             current_value="95%",
             threshold="90%",
         )
-        assert_event_fields(event, {"server_id": "srv_1", "alert_type": "cpu_usage", "current_value": "95%", "threshold": "90%"})
+        assert_event_fields(
+            event,
+            {
+                "server_id": "srv_1",
+                "alert_type": "cpu_usage",
+                "current_value": "95%",
+                "threshold": "90%",
+            },
+        )

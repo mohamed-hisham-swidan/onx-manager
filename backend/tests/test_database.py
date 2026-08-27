@@ -1,7 +1,6 @@
 import pytest
-from sqlalchemy import Column, Integer, String, select
+from sqlalchemy import Column, Integer, String
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declared_attr
 
 from app.core.persistence.base import Base, BaseRepository, TimestampMixin
 
@@ -43,7 +42,7 @@ class TestBaseRepository:
 
 @pytest.fixture
 async def db_session() -> AsyncSession:
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     async with engine.begin() as conn:

@@ -6,10 +6,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from app.modules.monitoring.infrastructure.metrics import PrometheusMetricsRegistry
-from app.core.persistence.db import database
-
 import structlog
+
+from app.core.persistence.db import database
+from app.modules.monitoring.infrastructure.metrics import PrometheusMetricsRegistry
 
 logger = structlog.get_logger(__name__)
 
@@ -75,11 +75,14 @@ async def check_database() -> HealthResult:
 
 async def check_disk() -> HealthResult:
     import shutil
+
     try:
         usage = shutil.disk_usage("/")
         free_gb = usage.free / (1024**3)
         if free_gb < 0.5:
-            return HealthResult(status="degraded", detail=f"Disk space critically low: {free_gb:.1f} GB free")
+            return HealthResult(
+                status="degraded", detail=f"Disk space critically low: {free_gb:.1f} GB free"
+            )
         return HealthResult(status="up", detail=f"{free_gb:.1f} GB free")
     except Exception as e:
         return HealthResult(status="degraded", detail=str(e))

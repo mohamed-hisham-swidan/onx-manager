@@ -83,4 +83,3 @@ class UpdateServerConfigHandler(CommandHandler[UpdateServerConfigCommand]):
             await uow.commit()
 
         return CommandResult(success=True, data={"server_id": command.server_id})
-

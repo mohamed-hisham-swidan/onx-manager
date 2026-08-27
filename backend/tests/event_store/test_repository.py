@@ -1,7 +1,8 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
-from app.modules.event_store.repository import SQLEventRepository, EventFilters, StoredEvent
+import pytest
+
+from app.modules.event_store.repository import EventFilters, SQLEventRepository
 
 
 class FakeSession:
@@ -9,13 +10,13 @@ class FakeSession:
         self._store: dict[str, object] = {}
         self._id_counter = 1
 
-    async def get(self, model_class: type, pk: object) -> object | None:
+    async def get(self, _model_class: type, pk: object) -> object | None:
         for obj in self._store.values():
             if getattr(obj, "event_id", None) == pk or getattr(obj, "id", None) == pk:
                 return obj
         return None
 
-    async def execute(self, stmt: object) -> MagicMock:
+    async def execute(self, _stmt: object) -> MagicMock:
         result = MagicMock()
         result.scalars.return_value.all.return_value = list(self._store.values())
         result.scalar.return_value = len(self._store)

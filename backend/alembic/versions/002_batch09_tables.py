@@ -4,15 +4,17 @@ Revision ID: 002
 Revises: 001
 Create Date: 2026-07-23
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "002"
-down_revision: Union[str, None] = "001"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "001"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -71,11 +73,21 @@ def upgrade() -> None:
     op.create_index("ix_alert_rules_server_id", "alert_rules", ["server_id"])
 
     op.add_column("event_store", sa.Column("previous_hash", sa.String(64), nullable=True))
-    op.add_column("event_store", sa.Column("hash", sa.String(64), nullable=False, server_default=""))
+    op.add_column(
+        "event_store", sa.Column("hash", sa.String(64), nullable=False, server_default="")
+    )
 
-    op.add_column("dead_letter_events", sa.Column("replay_count", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("dead_letter_events", sa.Column("last_replay_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("dead_letter_events", sa.Column("resolved", sa.Integer(), nullable=False, server_default="0"))
+    op.add_column(
+        "dead_letter_events",
+        sa.Column("replay_count", sa.Integer(), nullable=False, server_default="0"),
+    )
+    op.add_column(
+        "dead_letter_events", sa.Column("last_replay_at", sa.DateTime(timezone=True), nullable=True)
+    )
+    op.add_column(
+        "dead_letter_events",
+        sa.Column("resolved", sa.Integer(), nullable=False, server_default="0"),
+    )
 
 
 def downgrade() -> None:

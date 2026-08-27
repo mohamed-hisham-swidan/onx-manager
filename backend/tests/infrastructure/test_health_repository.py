@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -14,7 +14,6 @@ from app.modules.health.domain.value_objects import (
     HealthTrend,
 )
 from app.modules.health.infrastructure.repository import SQLHealthRepository
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -140,7 +139,7 @@ class TestSQLHealthRepository:
         await repo.append_timeline(entry)
         await db_session.commit()
 
-        future = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        future = datetime(2099, 1, 1, tzinfo=UTC)
         entries = await repo.get_timeline("srv_tl_2", limit=10, since=future)
 
         assert len(entries) == 0

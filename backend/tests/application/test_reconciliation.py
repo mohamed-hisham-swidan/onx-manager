@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.config import AppSettings
 from app.modules.server.application.reconciliation import (
     cleanup_orphan_directory,
     reconcile_filesystem,
@@ -206,10 +205,12 @@ class TestReconcileFilesystem:
             os.makedirs(os.path.join(data_dir, "server-2"), exist_ok=True)
 
             repo = MagicMock()
-            repo.list = AsyncMock(return_value=[
-                _make_server("server-1", ServerStatus.STOPPED),
-                _make_server("server-2", ServerStatus.STOPPED),
-            ])
+            repo.list = AsyncMock(
+                return_value=[
+                    _make_server("server-1", ServerStatus.STOPPED),
+                    _make_server("server-2", ServerStatus.STOPPED),
+                ]
+            )
 
             with patch(
                 "app.modules.server.application.reconciliation.SERVERS_DATA_DIR",
@@ -229,9 +230,11 @@ class TestReconcileFilesystem:
             os.makedirs(os.path.join(data_dir, "orphan-2"), exist_ok=True)
 
             repo = MagicMock()
-            repo.list = AsyncMock(return_value=[
-                _make_server("db-server-1", ServerStatus.STOPPED),
-            ])
+            repo.list = AsyncMock(
+                return_value=[
+                    _make_server("db-server-1", ServerStatus.STOPPED),
+                ]
+            )
 
             with patch(
                 "app.modules.server.application.reconciliation.SERVERS_DATA_DIR",
@@ -285,7 +288,9 @@ class TestReconcileFilesystem:
             ):
                 results = await reconcile_filesystem(repo)
 
-            assert results == [], f"slug+uuid dir '{slug_uuid_dir}' falsely flagged as orphan: {results}"
+            assert results == [], (
+                f"slug+uuid dir '{slug_uuid_dir}' falsely flagged as orphan: {results}"
+            )
 
     async def test_slug_uuid_orphan_still_detected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -295,9 +300,13 @@ class TestReconcileFilesystem:
             os.makedirs(os.path.join(data_dir, "no-match-aaaaaaaa"), exist_ok=True)
 
             repo = MagicMock()
-            repo.list = AsyncMock(return_value=[
-                _make_server("be193e92e2aa4728a0854cad9e37cca1", ServerStatus.STOPPED, name="RealServer"),
-            ])
+            repo.list = AsyncMock(
+                return_value=[
+                    _make_server(
+                        "be193e92e2aa4728a0854cad9e37cca1", ServerStatus.STOPPED, name="RealServer"
+                    ),
+                ]
+            )
 
             with patch(
                 "app.modules.server.application.reconciliation.SERVERS_DATA_DIR",
@@ -374,10 +383,12 @@ class TestFilesystemReconciliationNameDrift:
         sid = "c82221ba2c9c49d3a4c7068a6f053944"
         server_dir = data_dir / sid
         server_dir.mkdir(parents=True, exist_ok=True)
-        (server_dir / "server.properties").write_text("server-name=Drifted Disk Name\nserver-port=25565\n", encoding="utf-8")
+        (server_dir / "server.properties").write_text(
+            "server-name=Drifted Disk Name\nserver-port=25565\n", encoding="utf-8"
+        )
         (server_dir / "eula.txt").write_text("eula=true\n", encoding="utf-8")
         (server_dir / "server.jar").write_bytes(b"fake jar content")
-        
+
         identity_dir = server_dir / ".mcsmanager"
         identity_dir.mkdir(parents=True, exist_ok=True)
         (identity_dir / "server.json").write_text(
@@ -401,7 +412,10 @@ class TestFilesystemReconciliationNameDrift:
         mock_settings.servers_data_dir = str(data_dir)
 
         service = FilesystemReconciliationService(repo=repo)
-        with patch("app.modules.server.application.services.filesystem_reconciliation.AppSettings", return_value=mock_settings):
+        with patch(
+            "app.modules.server.application.services.filesystem_reconciliation.AppSettings",
+            return_value=mock_settings,
+        ):
             result = await service.reconcile()
 
         assert result.total_updated == 1
@@ -409,7 +423,9 @@ class TestFilesystemReconciliationNameDrift:
         repo.save.assert_awaited_once_with(server)
 
     @pytest.mark.asyncio
-    async def test_reconciliation_preserves_db_name_when_no_server_name_declared(self, tmp_path) -> None:
+    async def test_reconciliation_preserves_db_name_when_no_server_name_declared(
+        self, tmp_path
+    ) -> None:
         from app.modules.server.application.services.filesystem_reconciliation import (
             FilesystemReconciliationService,
         )
@@ -421,7 +437,9 @@ class TestFilesystemReconciliationNameDrift:
         server_dir = data_dir / sid
         server_dir.mkdir(parents=True, exist_ok=True)
         # File has NO server-name property (legacy / name-less server)
-        (server_dir / "server.properties").write_text("server-port=25565\nmotd=A Minecraft Server\n", encoding="utf-8")
+        (server_dir / "server.properties").write_text(
+            "server-port=25565\nmotd=A Minecraft Server\n", encoding="utf-8"
+        )
         (server_dir / "eula.txt").write_text("eula=true\n", encoding="utf-8")
         (server_dir / "server.jar").write_bytes(b"fake jar content")
 
@@ -448,12 +466,13 @@ class TestFilesystemReconciliationNameDrift:
         mock_settings.servers_data_dir = str(data_dir)
 
         service = FilesystemReconciliationService(repo=repo)
-        with patch("app.modules.server.application.services.filesystem_reconciliation.AppSettings", return_value=mock_settings):
+        with patch(
+            "app.modules.server.application.services.filesystem_reconciliation.AppSettings",
+            return_value=mock_settings,
+        ):
             result = await service.reconcile()
 
         assert result.total_updated == 0
         assert result.total_unchanged == 1
         assert server.name == "Custom DB Server Name"
         repo.save.assert_not_called()
-
-

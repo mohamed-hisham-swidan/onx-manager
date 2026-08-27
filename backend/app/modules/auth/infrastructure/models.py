@@ -15,10 +15,15 @@ class UserModel(Base, TimestampMixin):
     display_name = Column(String(128), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
-    roles = relationship("RoleModel", secondary="user_roles", back_populates="users", lazy="selectin")
-    owned_servers = relationship("ServerModel", foreign_keys="[ServerModel.owner_id]", back_populates="owner")
-    server_memberships = relationship("ServerMembershipModel", back_populates="user", cascade="all, delete-orphan")
-
+    roles = relationship(
+        "RoleModel", secondary="user_roles", back_populates="users", lazy="selectin"
+    )
+    owned_servers = relationship(
+        "ServerModel", foreign_keys="[ServerModel.owner_id]", back_populates="owner"
+    )
+    server_memberships = relationship(
+        "ServerMembershipModel", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class RoleModel(Base, TimestampMixin):
@@ -28,7 +33,9 @@ class RoleModel(Base, TimestampMixin):
     name = Column(String(128), nullable=False, unique=True)
     description = Column(Text, nullable=False, default="")
     permissions = Column(Text, nullable=False, default="")
-    users = relationship("UserModel", secondary="user_roles", back_populates="roles", lazy="selectin")
+    users = relationship(
+        "UserModel", secondary="user_roles", back_populates="roles", lazy="selectin"
+    )
 
 
 class UserRoleModel(Base):
@@ -42,7 +49,9 @@ class ApiKeyModel(Base, TimestampMixin):
     __tablename__ = "api_keys"
 
     id = Column(String(36), primary_key=True)
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name = Column(String(128), nullable=False)
     prefix = Column(String(16), nullable=False)
     key_hash = Column(String(128), nullable=False)
@@ -55,7 +64,9 @@ class RefreshTokenModel(Base, TimestampMixin):
     __tablename__ = "refresh_tokens"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     token_hash = Column(String(128), nullable=False, unique=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     is_revoked = Column(Boolean, nullable=False, default=False)
@@ -87,6 +98,4 @@ class InvitationModel(Base, TimestampMixin):
     expires_at = Column(DateTime(timezone=True), nullable=True)
     used_at = Column(DateTime(timezone=True), nullable=True)
 
-    __table_args__ = (
-        CheckConstraint("use_count <= max_uses", name="ck_invitation_use_count"),
-    )
+    __table_args__ = (CheckConstraint("use_count <= max_uses", name="ck_invitation_use_count"),)

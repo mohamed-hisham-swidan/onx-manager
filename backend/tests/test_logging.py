@@ -1,10 +1,8 @@
-import io
 import logging
-import re
 
 import structlog
 
-from app.core.logging import configure_logging, get_correlation_id, set_correlation_id, correlation_id_var
+from app.core.logging import configure_logging, get_correlation_id, set_correlation_id
 
 
 class TestCorrelationId:
@@ -42,6 +40,3 @@ class TestLoggingConfiguration:
         assert logger is not None
         root = logging.getLogger()
         assert root.level == logging.INFO
-
-
-from app.core.logging import correlation_id_var

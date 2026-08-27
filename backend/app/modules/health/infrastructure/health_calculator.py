@@ -4,6 +4,7 @@ import logging
 import time
 from collections import Counter
 
+from app.core.identity import IDENTITY
 from app.modules.health.domain.services import HealthCalculatorService
 from app.modules.health.domain.value_objects import (
     HealthSignal,
@@ -11,8 +12,6 @@ from app.modules.health.domain.value_objects import (
     HealthTrend,
     SignalSeverity,
 )
-
-from app.core.identity import IDENTITY
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.calculator")
 
@@ -54,8 +53,18 @@ class SignalHealthCalculator(HealthCalculatorService):
             if current_status in (HealthStatusEnum.PENDING, HealthStatusEnum.UNKNOWN):
                 return current_status, [], 0.0, HealthTrend.STABLE.value
             if current_status == HealthStatusEnum.HEALTHY:
-                return current_status, ["No recent signals — status preserved"], 0.6, HealthTrend.STABLE.value
-            return HealthStatusEnum.UNKNOWN, ["No signals received within window"], 0.3, HealthTrend.DECLINING.value
+                return (
+                    current_status,
+                    ["No recent signals — status preserved"],
+                    0.6,
+                    HealthTrend.STABLE.value,
+                )
+            return (
+                HealthStatusEnum.UNKNOWN,
+                ["No signals received within window"],
+                0.3,
+                HealthTrend.DECLINING.value,
+            )
 
         severity_counts: Counter[str] = Counter(s.severity.value for s in window_signals)
         score = self._compute_weighted_score(window_signals, now)
@@ -82,7 +91,9 @@ class SignalHealthCalculator(HealthCalculatorService):
         return total
 
     def _score_to_status(
-        self, score: float, severity_counts: Counter[str],
+        self,
+        score: float,
+        severity_counts: Counter[str],
     ) -> HealthStatusEnum:
         criticals = severity_counts.get(SignalSeverity.CRITICAL.value, 0)
         warnings = severity_counts.get(SignalSeverity.WARNING.value, 0)
@@ -101,7 +112,9 @@ class SignalHealthCalculator(HealthCalculatorService):
         return HealthStatusEnum.HEALTHY
 
     def _apply_transition(
-        self, current: HealthStatusEnum, target: HealthStatusEnum,
+        self,
+        current: HealthStatusEnum,
+        target: HealthStatusEnum,
     ) -> HealthStatusEnum:
         if current == target:
             return target
@@ -119,7 +132,9 @@ class SignalHealthCalculator(HealthCalculatorService):
         bonus = min(criticals * 0.05, 0.14)
         return min(base + bonus, 0.99)
 
-    def _build_factors(self, signals: list[HealthSignal], severity_counts: Counter[str]) -> list[str]:
+    def _build_factors(
+        self, signals: list[HealthSignal], severity_counts: Counter[str]
+    ) -> list[str]:
         factors: list[str] = []
         criticals = severity_counts.get(SignalSeverity.CRITICAL.value, 0)
         warnings = severity_counts.get(SignalSeverity.WARNING.value, 0)

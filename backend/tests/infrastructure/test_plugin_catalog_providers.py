@@ -57,9 +57,7 @@ class TestBuildPluginCatalogProvider:
         from app.core.config import AppSettings
 
         with pytest.raises(ValueError, match="Unknown plugin catalog provider"):
-            build_plugin_catalog_provider(
-                settings=AppSettings(plugin_providers="curseforge")
-            )
+            build_plugin_catalog_provider(settings=AppSettings(plugin_providers="curseforge"))
 
     def test_empty_settings_value_raises(self) -> None:
         from app.core.config import AppSettings
@@ -114,9 +112,7 @@ class TestModrinthProviderSearch:
         assert "categories:paper" in captured_params.get("facets", "")
 
     @pytest.mark.asyncio
-    async def test_search_parses_new_schema_fields(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_search_parses_new_schema_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
         provider = ModrinthProvider()
 
         async def mock_get_json(_path: str, params: dict | None = None) -> dict:
@@ -214,7 +210,7 @@ class TestModrinthProviderSearch:
 
         await provider.search("worldedit", loader="paper")
         facets = captured_params.get("facets", "")
-        assert 'categories:paper' in facets
+        assert "categories:paper" in facets
         # the OR-list of all server loaders must be replaced, not combined
         assert "categories:spigot" not in facets
         assert "categories:bukkit" not in facets
@@ -372,5 +368,3 @@ class TestModrinthProviderGetProjectVersions:
         assert page.items[0].version_id == "v10"
         assert page.items[-1].version_id == "v19"
         assert page.total == 25
-
-

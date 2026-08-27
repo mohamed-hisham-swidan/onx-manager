@@ -38,7 +38,10 @@ def test_local_location_handler_resolves_properties_path() -> None:
         root_path="/opt/minecraft/servers/my-server",
     )
     handler = LocalLocationHandler()
-    assert handler.resolve_properties_path(deployment) == "/opt/minecraft/servers/my-server/server.properties"
+    assert (
+        handler.resolve_properties_path(deployment)
+        == "/opt/minecraft/servers/my-server/server.properties"
+    )
 
 
 def test_local_location_handler_resolves_eula_path() -> None:
@@ -58,7 +61,10 @@ def test_local_location_handler_resolves_world_path() -> None:
     )
     handler = LocalLocationHandler()
     assert handler.resolve_world_path(deployment) == "/opt/minecraft/servers/my-server/my-world"
-    assert handler.resolve_world_path(deployment, "other-world") == "/opt/minecraft/servers/my-server/other-world"
+    assert (
+        handler.resolve_world_path(deployment, "other-world")
+        == "/opt/minecraft/servers/my-server/other-world"
+    )
 
 
 def test_local_location_handler_ensure_dir() -> None:

@@ -35,15 +35,12 @@ class LocalWindowsProvider(ServerProvider):
 
         jvm_args = " ".join(java_args) if isinstance(java_args, list) else java_args
         job_name = f"{IDENTITY.temp_prefix_new}{server_id}"
-        cmd = (
-            f"java {jvm_args} -Xms{memory_min}M -Xmx{memory_max}M "
-            f"-jar {jar_path} nogui"
-        )
+        cmd = f"java {jvm_args} -Xms{memory_min}M -Xmx{memory_max}M -jar {jar_path} nogui"
 
         ps_script = (
             f'$job = Start-Job -Name "{job_name}" '
             f'-ScriptBlock {{ cd "{server_dir}"; {cmd} }}; '
-            f'Write-Output $job.Id'
+            f"Write-Output $job.Id"
         )
 
         returncode, stdout = await self._run_powershell(ps_script)
@@ -69,10 +66,7 @@ class LocalWindowsProvider(ServerProvider):
 
     async def stop(self, handle: ServerHandle, force: bool = False) -> None:
         job_id = handle.external_id
-        if force:
-            cmd = f"Stop-Job -Id {job_id} -Force"
-        else:
-            cmd = f"Stop-Job -Id {job_id}"
+        cmd = f"Stop-Job -Id {job_id} -Force" if force else f"Stop-Job -Id {job_id}"
         await self._run_powershell(cmd)
 
         cleanup = f"Remove-Job -Id {job_id} -Force"

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import os
-import signal
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,19 +22,13 @@ from app.modules.server.application.runtime_ownership import (
     _pid_for_port,
     _port_is_listening,
 )
-from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.value_objects import (
     JavaArguments,
     MemoryAllocation,
     PortNumber,
-    RuntimeInfo,
     ServerProperties,
     ServerType,
-)
-from app.modules.server.infrastructure.providers.base import (
-    ServerHandle,
-    ServerRuntimeStatus,
 )
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
@@ -79,11 +70,17 @@ def _make_server(
     return s
 
 
-def _verified_ownership(pid: int | None = None, servers_data_dir: str | None = None) -> OwnershipResult:
-    return OwnershipResult(status=OwnershipStatus.VERIFIED, has_marker=True, detail="marker present")
+def _verified_ownership(
+    pid: int | None = None, servers_data_dir: str | None = None
+) -> OwnershipResult:
+    return OwnershipResult(
+        status=OwnershipStatus.VERIFIED, has_marker=True, detail="marker present"
+    )
 
 
-def _cwd_verified_ownership(pid: int | None = None, servers_data_dir: str | None = None) -> OwnershipResult:
+def _cwd_verified_ownership(
+    pid: int | None = None, servers_data_dir: str | None = None
+) -> OwnershipResult:
     return OwnershipResult(
         status=OwnershipStatus.VERIFIED,
         has_marker=False,
@@ -140,9 +137,7 @@ class TestGetJavaCmdline:
     @patch("builtins.open", new_callable=MagicMock)
     def test_reads_cmdline(self, mock_open):
         mock_file = MagicMock()
-        mock_file.__enter__.return_value.read.return_value = (
-            b"java\x00-jar\x00server.jar\x00nogui"
-        )
+        mock_file.__enter__.return_value.read.return_value = b"java\x00-jar\x00server.jar\x00nogui"
         mock_open.return_value = mock_file
         result = _get_java_cmdline(12345)
         assert "java" in result and "server.jar" in result
@@ -193,15 +188,17 @@ class TestFindChildJavaPids:
 
 class TestFindMinecraftChildPids:
     def test_no_matching_children(self):
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_child_java_pids",
-            return_value=[200, 300],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_child_java_pids",
+                return_value=[200, 300],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._is_pid_alive",
                 side_effect=[True, False],
-            ):
-                result = _find_minecraft_child_pids(100)
+            ),
+        ):
+            result = _find_minecraft_child_pids(100)
         assert result == [200]
 
 
@@ -270,15 +267,17 @@ class TestRuntimeOwnershipManagerDiscover:
         repo.list = AsyncMock(return_value=[])
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
                 return_value=[],
-            ):
-                snapshot = await manager.discover_all()
+            ),
+        ):
+            snapshot = await manager.discover_all()
 
         assert len(snapshot.active_servers) == 0
         assert len(snapshot.orphan_tmux) == 0
@@ -327,15 +326,17 @@ class TestRuntimeOwnershipManagerDiscover:
         repo.list = AsyncMock(return_value=[server])
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
                 return_value=[],
-            ):
-                snapshot = await manager.discover_all()
+            ),
+        ):
+            snapshot = await manager.discover_all()
 
         assert len(snapshot.active_servers) == 0
         assert len(snapshot.stale_db_records) == 1
@@ -346,19 +347,21 @@ class TestRuntimeOwnershipManagerDiscover:
         repo.list = AsyncMock(return_value=[])
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("onx-orphan", 999)],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[("onx-orphan", 999)],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
                 return_value=[1000],
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_ownership._find_all_java_pids",
-                    return_value=[999, 1000],
-                ):
-                    snapshot = await manager.discover_all()
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_java_pids",
+                return_value=[999, 1000],
+            ),
+        ):
+            snapshot = await manager.discover_all()
 
         assert len(snapshot.orphan_tmux) == 1
         assert snapshot.orphan_tmux[0].identifier == "onx-orphan"
@@ -372,23 +375,25 @@ class TestRuntimeOwnershipManagerDiscover:
         repo.list = AsyncMock(return_value=[])
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
                 return_value=[5000],
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_ownership._get_java_cmdline",
-                    return_value="java -jar server.jar nogui",
-                ):
-                    with patch(
-                        "app.modules.server.application.runtime_ownership._is_minecraft_cmdline",
-                        return_value=True,
-                    ):
-                        snapshot = await manager.discover_all()
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership._get_java_cmdline",
+                return_value="java -jar server.jar nogui",
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership._is_minecraft_cmdline",
+                return_value=True,
+            ),
+        ):
+            snapshot = await manager.discover_all()
 
         assert len(snapshot.orphan_processes) == 1
         assert snapshot.orphan_processes[0].pid == 5000
@@ -439,15 +444,17 @@ class TestRuntimeOwnershipManagerClaim:
         repo.get = AsyncMock(return_value=server)
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
                 return_value=[],
-            ):
-                result = await manager.claim_localhost("s1")
+            ),
+        ):
+            result = await manager.claim_localhost("s1")
 
         assert result.success is True
         assert result.conflicts_resolved == 0
@@ -491,7 +498,8 @@ class TestRuntimeOwnershipManagerClaim:
                                     mock_provider = MagicMock()
                                     mock_provider.stop = AsyncMock()
                                     with patch.object(
-                                        manager._provider_factory, "get",
+                                        manager._provider_factory,
+                                        "get",
                                         return_value=mock_provider,
                                     ):
                                         result = await manager.claim_localhost("s1")
@@ -622,29 +630,31 @@ class TestRuntimeOwnershipManagerCleanup:
         repo.list = AsyncMock(return_value=[])
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[("onx-orphan", 888)],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[("onx-orphan", 888)],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_minecraft_child_pids",
                 return_value=[],
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_ownership._find_all_java_pids",
-                    return_value=[888],
-                ):
-                    with patch(
-                        "app.modules.server.application.runtime_ownership.verify_ownership",
-                        side_effect=_verified_ownership,
-                    ):
-                        with patch(
-                            "app.modules.server.application.runtime_ownership.os.kill",
-                        ):
-                            with patch(
-                                "app.modules.server.application.runtime_ownership.os.popen",
-                            ):
-                                actions = await manager.cleanup_orphans()
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_java_pids",
+                return_value=[888],
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership.verify_ownership",
+                side_effect=_verified_ownership,
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership.os.kill",
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership.os.popen",
+            ),
+        ):
+            actions = await manager.cleanup_orphans()
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_tmux"
@@ -655,30 +665,32 @@ class TestRuntimeOwnershipManagerCleanup:
         repo.list = AsyncMock(return_value=[])
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
                 return_value=[6666],
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_ownership._get_java_cmdline",
-                    return_value="java -jar server.jar",
-                ):
-                    with patch(
-                        "app.modules.server.application.runtime_ownership._is_minecraft_cmdline",
-                        return_value=True,
-                    ):
-                        with patch(
-                            "app.modules.server.application.runtime_ownership.verify_ownership",
-                            side_effect=_verified_ownership,
-                        ):
-                            with patch(
-                                "app.modules.server.application.runtime_ownership.os.kill",
-                            ):
-                                actions = await manager.cleanup_orphans()
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership._get_java_cmdline",
+                return_value="java -jar server.jar",
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership._is_minecraft_cmdline",
+                return_value=True,
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership.verify_ownership",
+                side_effect=_verified_ownership,
+            ),
+            patch(
+                "app.modules.server.application.runtime_ownership.os.kill",
+            ),
+        ):
+            actions = await manager.cleanup_orphans()
 
         assert len(actions) == 1
         assert actions[0]["type"] == "orphan_process"
@@ -691,15 +703,17 @@ class TestRuntimeOwnershipManagerCleanup:
         repo.save = AsyncMock()
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
                 return_value=[],
-            ):
-                actions = await manager.cleanup_orphans()
+            ),
+        ):
+            actions = await manager.cleanup_orphans()
 
         assert len(actions) == 1
         assert actions[0]["type"] == "stale_db_record"
@@ -712,15 +726,17 @@ class TestRuntimeOwnershipManagerCleanup:
         repo.list = AsyncMock(return_value=[])
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership._find_all_java_pids",
                 return_value=[],
-            ):
-                actions = await manager.cleanup_orphans()
+            ),
+        ):
+            actions = await manager.cleanup_orphans()
 
         assert actions == []
 
@@ -769,15 +785,17 @@ class TestRuntimeOwnershipManagerValidate:
         repo.get = AsyncMock(return_value=server)
 
         manager = RuntimeOwnershipManager(repo)
-        with patch(
-            "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
-            return_value=[],
-        ):
-            with patch(
+        with (
+            patch(
+                "app.modules.server.application.runtime_ownership._find_all_tmux_sessions",
+                return_value=[],
+            ),
+            patch(
                 "app.modules.server.application.runtime_ownership.RuntimeSupervisor.get_for",
                 return_value=MagicMock(is_running=True),
-            ):
-                result = await manager.validate_runtime("s2")
+            ),
+        ):
+            result = await manager.validate_runtime("s2")
 
         assert result.healthy is False
         assert result.db_ok is True

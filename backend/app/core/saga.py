@@ -58,12 +58,10 @@ class SagaInstance:
 
 class SagaPersistence(ABC):
     @abstractmethod
-    async def save(self, instance: SagaInstance) -> None:
-        ...
+    async def save(self, instance: SagaInstance) -> None: ...
 
     @abstractmethod
-    async def load(self, saga_id: str) -> SagaInstance | None:
-        ...
+    async def load(self, saga_id: str) -> SagaInstance | None: ...
 
     @abstractmethod
     async def update_status(
@@ -71,8 +69,7 @@ class SagaPersistence(ABC):
         saga_id: str,
         status: SagaStatus,
         error: str | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class InMemorySagaPersistence(SagaPersistence):
@@ -111,6 +108,7 @@ class SagaOrchestrator:
         if timeout_seconds is None:
             try:
                 from app.core.settings_store import get_live_settings
+
                 timeout_seconds = float(get_live_settings().saga_timeout_seconds)
             except RuntimeError:
                 timeout_seconds = 300.0
@@ -140,7 +138,9 @@ class SagaOrchestrator:
                 instance.status = SagaStatus.FAILED
                 instance.error = "Saga timed out"
                 await self._persistence.update_status(
-                    saga_id, SagaStatus.FAILED, "Saga timed out",
+                    saga_id,
+                    SagaStatus.FAILED,
+                    "Saga timed out",
                 )
                 return instance
 
@@ -173,7 +173,8 @@ class SagaOrchestrator:
     async def _compensate(self, instance: SagaInstance, failed_at: int) -> None:
         instance.status = SagaStatus.COMPENSATING
         await self._persistence.update_status(
-            instance.saga_id, SagaStatus.COMPENSATING,
+            instance.saga_id,
+            SagaStatus.COMPENSATING,
         )
 
         for i in range(failed_at, -1, -1):
@@ -195,6 +196,7 @@ class SagaOrchestrator:
 
         instance.status = SagaStatus.COMPENSATED
         await self._persistence.update_status(
-            instance.saga_id, SagaStatus.COMPENSATED,
+            instance.saga_id,
+            SagaStatus.COMPENSATED,
             error=f"Failed at step '{instance.steps[failed_at].name}'",
         )

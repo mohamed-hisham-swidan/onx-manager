@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import (
     get_command_bus,
     get_current_user,
-    get_event_bus,
     get_query_bus,
     require_server_permission,
 )
@@ -18,7 +17,6 @@ from app.api.v1.schemas.health import (
     ServerHealthSummaryResponse,
 )
 from app.core.command_bus import CommandBus
-from app.core.event_bus import EventBus
 from app.core.query_bus import QueryBus
 from app.modules.health.application import (
     EvaluateHealthCommand,
@@ -35,7 +33,7 @@ __all__ = ["router"]
 async def get_health_status(
     server_id: str,
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ) -> HealthStatusResponse:
     result = await query_bus.ask(GetHealthStatusQuery(server_id=server_id))
     if result is None:
@@ -55,7 +53,7 @@ async def get_health_status(
 async def evaluate_health(
     server_id: str,
     command_bus: CommandBus = Depends(get_command_bus),
-    current_user: dict = Depends(require_server_permission("server.{id}.view")),
+    _current_user: dict = Depends(require_server_permission("server.{id}.view")),
 ) -> dict:
     result = await command_bus.send(EvaluateHealthCommand(server_id=server_id))
     return check_command_result(result)
@@ -66,7 +64,7 @@ async def get_health_timeline(
     server_id: str,
     limit: int = Query(default=100, ge=1, le=10000),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ) -> HealthTimelineResponse:
     entries = await query_bus.ask(GetHealthTimelineQuery(server_id=server_id, limit=limit))
     return HealthTimelineResponse(
@@ -86,12 +84,12 @@ async def get_health_timeline(
 @router.get("/dashboard", response_model=HealthDashboardResponse)
 async def get_health_dashboard(
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ) -> HealthDashboardResponse:
     statuses = await query_bus.ask(GetHealthStatusQuery(server_id=""))
 
-    from app.modules.health.infrastructure.repository import SQLHealthRepository
     from app.core.persistence.db import database
+    from app.modules.health.infrastructure.repository import SQLHealthRepository
 
     async with database.session_factory() as session:
         repo = SQLHealthRepository(session)

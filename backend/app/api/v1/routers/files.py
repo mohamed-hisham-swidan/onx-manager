@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_query_bus, require_server_permission
-
 from app.api.v1.schemas.files import (
     FileContentResponse,
     FileEntryResponse,
@@ -78,7 +77,7 @@ async def list_files(
     server_id: str,
     path: str = Query(default=""),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(require_server_permission("server.{id}.files")),
+    _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> list[FileEntryResponse]:
     resolved_root, target_path, _ = await _resolve_server_file_path(
         server_id, path, query_bus, must_exist=True
@@ -115,7 +114,7 @@ async def read_file_content(
     server_id: str,
     path: str = Query(...),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(require_server_permission("server.{id}.files")),
+    _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> FileContentResponse:
     _, target_path, rel_str = await _resolve_server_file_path(
         server_id, path, query_bus, must_exist=True
@@ -135,7 +134,7 @@ async def write_file_content(
     body: WriteFileContentRequest,
     path: str = Query(...),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(require_server_permission("server.{id}.files")),
+    _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> FileContentResponse:
     _, target_path, rel_str = await _resolve_server_file_path(
         server_id, path, query_bus, must_exist=False
@@ -153,7 +152,7 @@ async def delete_file_or_dir(
     server_id: str,
     path: str = Query(...),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(require_server_permission("server.{id}.files")),
+    _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> None:
     resolved_root, target_path, _ = await _resolve_server_file_path(
         server_id, path, query_bus, must_exist=True
@@ -173,13 +172,13 @@ async def upload_file(
     path: str = Query(default=""),
     file: UploadFile = File(...),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(require_server_permission("server.{id}.files")),
+    _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> FileEntryResponse:
     filename = file.filename or "uploaded_file"
     # Clean filename of any path components
     filename = Path(filename).name
 
-    dest_rel_path = f"{path.strip('/')}/{filename}" if path.strip('/') else filename
+    dest_rel_path = f"{path.strip('/')}/{filename}" if path.strip("/") else filename
     resolved_root, target_file_path, rel_str = await _resolve_server_file_path(
         server_id, dest_rel_path, query_bus, must_exist=False
     )
@@ -200,12 +199,12 @@ async def download_file(
     server_id: str,
     path: str = Query(...),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(require_server_permission("server.{id}.files", "server.{id}.view")),
+    _current_user: dict = Depends(
+        require_server_permission("server.{id}.files", "server.{id}.view")
+    ),
 ) -> FileResponse:
 
-    _, target_path, _ = await _resolve_server_file_path(
-        server_id, path, query_bus, must_exist=True
-    )
+    _, target_path, _ = await _resolve_server_file_path(server_id, path, query_bus, must_exist=True)
     if target_path.is_dir():
         raise HTTPException(status_code=400, detail="Target path is a directory, not a file")
 
@@ -223,7 +222,7 @@ async def create_directory(
     server_id: str,
     path: str = Query(...),
     query_bus: QueryBus = Depends(get_query_bus),
-    current_user: dict = Depends(require_server_permission("server.{id}.files")),
+    _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> FileEntryResponse:
 
     _, target_path, rel_str = await _resolve_server_file_path(

@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 RELEASE_MINIMUM_DB_REVISION = "b1e2100000008"
 
 
-
 @dataclass(frozen=True)
 class RevisionStatus:
     ok: bool

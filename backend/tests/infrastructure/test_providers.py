@@ -7,8 +7,8 @@ import pytest
 
 from app.modules.server.domain.value_objects import (
     LaunchConfiguration,
-    ServerDeployment,
     LocationType,
+    ServerDeployment,
 )
 from app.modules.server.infrastructure.providers.base import (
     DeploymentResult,
@@ -87,6 +87,7 @@ class TestCircuitBreakerWrapper:
         inner = LocalLinuxProvider()
         wrapped = CircuitBreakerProviderWrapper(inner)
         import time as t
+
         wrapped.breaker._state = wrapped.breaker._state.__class__.OPEN
         wrapped.breaker._failure_count = 5
         wrapped.breaker._last_failure_time = t.time()
@@ -99,6 +100,7 @@ class TestCircuitBreakerWrapper:
         handle = ServerHandle(provider="test", server_id="x", external_id="y")
         wrapped = CircuitBreakerProviderWrapper(inner)
         import time as t
+
         wrapped.breaker._state = wrapped.breaker._state.__class__.OPEN
         wrapped.breaker._failure_count = 5
         wrapped.breaker._last_failure_time = t.time()
@@ -176,6 +178,7 @@ class TestLocalLinuxProviderStart:
         )
 
         from unittest.mock import MagicMock
+
         with patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)):
             with patch.object(provider, "_cleanup_stale_tmux", AsyncMock()):
                 with patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run:
@@ -210,6 +213,7 @@ class TestLocalLinuxProviderStart:
         }
 
         from unittest.mock import MagicMock
+
         with patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)):
             with patch.object(provider, "_cleanup_stale_tmux", AsyncMock()):
                 with patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run:
@@ -244,6 +248,7 @@ class TestLocalLinuxProviderStart:
         )
 
         from unittest.mock import MagicMock
+
         with patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)):
             with patch.object(provider, "_cleanup_stale_tmux", AsyncMock()):
                 with patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run:
@@ -261,6 +266,7 @@ class TestLocalLinuxProviderStart:
     @pytest.mark.asyncio
     async def test_start_tmux_failure_raises(self) -> None:
         from unittest.mock import MagicMock
+
         provider = LocalLinuxProvider()
         deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/x")
         with patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)):
@@ -268,6 +274,7 @@ class TestLocalLinuxProviderStart:
                 with patch.object(provider, "_run_command", AsyncMock(return_value=1)):
                     with patch.object(provider, "_fs", MagicMock()):
                         from app.core.exceptions import ProviderError
+
                         with pytest.raises(ProviderError, match="tmux session creation failed"):
                             await provider.start(server_id="fail", deployment=deployment)
 
@@ -279,7 +286,11 @@ class TestLocalLinuxProviderWaitReady:
         handle = ServerHandle(provider="local", server_id="s1", external_id="onx-s1")
 
         with patch.object(provider, "_tmux_has_session", AsyncMock(return_value=True)):
-            with patch.object(provider, "console", AsyncMock(return_value=["line1", "Done (10.234s)! For help, type \"help\""])):
+            with patch.object(
+                provider,
+                "console",
+                AsyncMock(return_value=["line1", 'Done (10.234s)! For help, type "help"']),
+            ):
                 ready = await provider.wait_ready("s1", handle, timeout=5)
         assert ready is True
 
@@ -369,7 +380,10 @@ class TestLocalLinuxProviderStop:
 
         with patch.object(provider, "_get_tmux_pid", AsyncMock(return_value=8888)):
             with patch.object(provider, "_run_command", AsyncMock(return_value=0)):
-                with patch("app.modules.server.infrastructure.providers.local.os.kill", side_effect=kill_side_effect):
+                with patch(
+                    "app.modules.server.infrastructure.providers.local.os.kill",
+                    side_effect=kill_side_effect,
+                ):
                     await provider.stop(handle, force=True)
 
 
@@ -391,6 +405,7 @@ class TestLocalLinuxProviderPreFlight:
             s.listen()
             port = s.getsockname()[1]
             from app.core.exceptions import ProviderError
+
             with pytest.raises(ProviderError, match="already in use"):
                 await provider._verify_port_free(port, "srv1")
 
@@ -416,7 +431,9 @@ class TestLocalLinuxProviderPreFlight:
     async def test_find_java_processes_found(self) -> None:
         provider = LocalLinuxProvider()
         fake_ps_output = "12345\n67890\n"
-        with patch.object(provider, "_run_command_with_output", AsyncMock(return_value=(0, fake_ps_output))):
+        with patch.object(
+            provider, "_run_command_with_output", AsyncMock(return_value=(0, fake_ps_output))
+        ):
             pids = await provider._find_java_processes("/srv/minecraft")
         assert pids == [12345, 67890]
 
@@ -430,6 +447,7 @@ class TestLocalLinuxProviderPreFlight:
     @pytest.mark.asyncio
     async def test_kill_processes(self) -> None:
         import signal
+
         provider = LocalLinuxProvider()
         with patch("app.modules.server.infrastructure.providers.local.os.kill") as mock_kill:
             await provider._kill_processes([1001, 1002])
@@ -441,7 +459,10 @@ class TestLocalLinuxProviderPreFlight:
     @pytest.mark.asyncio
     async def test_kill_processes_skips_gone(self) -> None:
         provider = LocalLinuxProvider()
-        with patch("app.modules.server.infrastructure.providers.local.os.kill", side_effect=ProcessLookupError):
+        with patch(
+            "app.modules.server.infrastructure.providers.local.os.kill",
+            side_effect=ProcessLookupError,
+        ):
             await provider._kill_processes([9999])
 
     @pytest.mark.asyncio
@@ -499,7 +520,12 @@ class TestLocalLinuxProviderPreFlight:
             jvm_flags=("-Xms1024M", "-Xmx2048M"),
         )
         from app.core.exceptions import ProviderError
-        with patch.object(provider, "_verify_port_free", AsyncMock(side_effect=ProviderError("local", "start", "Port in use"))):
+
+        with patch.object(
+            provider,
+            "_verify_port_free",
+            AsyncMock(side_effect=ProviderError("local", "start", "Port in use")),
+        ):
             with patch.object(provider, "_fs", MagicMock()):
                 with pytest.raises(ProviderError, match="Port in use"):
                     await provider.start(
@@ -519,12 +545,17 @@ class TestLocalLinuxProviderPreFlight:
             jvm_flags=("-Xms1024M", "-Xmx2048M"),
         )
         from app.core.exceptions import ProviderError
+
         with patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)):
             with patch.object(provider, "_cleanup_stale_tmux", AsyncMock()):
                 with patch.object(provider, "_run_command", AsyncMock(side_effect=[0, 0])):
                     with patch.object(provider, "_get_tmux_pid", AsyncMock(return_value=None)):
-                        with patch.object(provider, "_find_java_processes", AsyncMock(return_value=[1111, 2222])):
-                            with patch.object(provider, "_kill_processes", AsyncMock()) as mock_kill:
+                        with patch.object(
+                            provider, "_find_java_processes", AsyncMock(return_value=[1111, 2222])
+                        ):
+                            with patch.object(
+                                provider, "_kill_processes", AsyncMock()
+                            ) as mock_kill:
                                 with patch.object(provider, "_fs", MagicMock()):
                                     with pytest.raises(ProviderError, match="died immediately"):
                                         await provider.start(
@@ -603,8 +634,8 @@ class TestDockerProvider:
         with patch.object(provider, "_ensure_image", AsyncMock()) as mock_ensure:
             with patch.object(provider, "_docker_command", AsyncMock()) as mock_docker:
                 mock_docker.side_effect = [
-                    (0, ""),         # create
-                    (0, ""),         # start
+                    (0, ""),  # create
+                    (0, ""),  # start
                     (0, "12345\n"),  # inspect pid
                 ]
                 result = await provider.start(server_id="test-server-42", config=config)
@@ -619,4 +650,3 @@ class TestDockerProvider:
         assert "--label com.onx-manager.managed=true" in create_call_args
         assert "--label com.onx-manager.server_id=test-server-42" in create_call_args
         assert "--label com.onx-manager.runtime=docker" in create_call_args
-

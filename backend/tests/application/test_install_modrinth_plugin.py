@@ -55,7 +55,9 @@ class _FakeProvider:
         self.downloaded_url: str | None = None
 
     async def get_project_versions(
-        self, _project_id: str, **kwargs: object  # noqa: ARG002
+        self,
+        _project_id: str,
+        **kwargs: object,  # noqa: ARG002
     ) -> PluginVersionsPage:
         return PluginVersionsPage(
             items=[self._version] if self._version else [],
@@ -167,9 +169,7 @@ class TestInstallModrinthPluginHandler:
         assert result.error_code == "NO_DEPLOYMENT"
 
     @pytest.mark.asyncio
-    async def test_unsupported_server_type_rejected(
-        self, event_bus: EventBus, tmp_path
-    ) -> None:
+    async def test_unsupported_server_type_rejected(self, event_bus: EventBus, tmp_path) -> None:
         await _create_server(
             "srv-modrinth-vanilla",
             str(tmp_path / "srv-modrinth-vanilla"),

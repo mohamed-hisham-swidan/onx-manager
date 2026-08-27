@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from plugins.sdk.commands import _CommandExecutor
 from plugins.sdk.config import Config
@@ -48,7 +49,9 @@ class BasePlugin:
     def on(self, event: str, handler: Callable[..., Any]) -> None:
         self._events.subscribe(event, handler)
 
-    async def execute_command(self, command_type: str, payload: dict[str, Any] | None = None) -> Any:
+    async def execute_command(
+        self, command_type: str, payload: dict[str, Any] | None = None
+    ) -> Any:
         return await self._commands.execute(command_type, payload)
 
     async def run(self) -> None:
@@ -96,10 +99,12 @@ class BasePlugin:
         sys.stdout.flush()
 
     def _send_error(self, msg_id: int | str | None, code: int, message: str) -> None:
-        response = json.dumps({
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "error": {"code": code, "message": message},
-        })
+        response = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "error": {"code": code, "message": message},
+            }
+        )
         sys.stdout.write(response + "\n")
         sys.stdout.flush()

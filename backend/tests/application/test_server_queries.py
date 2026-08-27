@@ -110,7 +110,8 @@ class TestListServersHandler:
         async with database.session_factory() as session:
             repo = SQLServerRepository(session)
             s1 = Server.create(
-                server_id=ServerId("flt-1"), name="Alpha",
+                server_id=ServerId("flt-1"),
+                name="Alpha",
                 server_type=ServerType.VANILLA,
                 minecraft_version=MinecraftVersion.parse("1.21"),
                 memory=MemoryAllocation(1024, 2048),
@@ -118,7 +119,8 @@ class TestListServersHandler:
                 properties=ServerProperties(port=PortNumber(25565)),
             )
             s2 = Server.create(
-                server_id=ServerId("flt-2"), name="Beta",
+                server_id=ServerId("flt-2"),
+                name="Beta",
                 server_type=ServerType.VANILLA,
                 minecraft_version=MinecraftVersion.parse("1.20"),
                 memory=MemoryAllocation(1024, 2048),
@@ -149,14 +151,16 @@ class TestResolveDisplayName:
 
     def test_uses_server_name_from_properties_file(self, tmp_path) -> None:
         (tmp_path / "server.properties").write_text(
-            "#Minecraft server properties\nserver-name=OnxMC Test Server\n", encoding="utf-8",
+            "#Minecraft server properties\nserver-name=OnxMC Test Server\n",
+            encoding="utf-8",
         )
         server = _build_server("rdn-3", "DbName", root_path=str(tmp_path))
         assert resolve_display_name(server) == "OnxMC Test Server"
 
     def test_ignores_empty_server_name_in_properties_file(self, tmp_path) -> None:
         (tmp_path / "server.properties").write_text(
-            "#Minecraft server properties\nserver-name=\n", encoding="utf-8",
+            "#Minecraft server properties\nserver-name=\n",
+            encoding="utf-8",
         )
         server = _build_server("rdn-4", "DbName", root_path=str(tmp_path))
         assert resolve_display_name(server) == "DbName"

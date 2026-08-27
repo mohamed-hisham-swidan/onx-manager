@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 
 from app.core.event_bus import EventBus
-from app.modules.server.application.services.jar_service import server_dir_name
-from app.modules.server.domain.events import ServerDiscoveredEvent, ServerVanishedEvent
-from app.modules.server.domain.repository import ServerRepository
 from app.core.identity import IDENTITY
+from app.modules.server.application.services.jar_service import server_dir_name
+from app.modules.server.domain.events import ServerDiscoveredEvent
+from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.scanner import FilesystemScanner
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.discovery.engine")
@@ -42,24 +41,28 @@ async def run_discovery_scan(
             known_count += 1
             continue
         parsed_id = entry.properties.get("server-id", "")
-        await event_bus.publish(ServerDiscoveredEvent(
-            path=entry.path,
-            detected_type=entry.detected_type,
-            metadata={
-                "dirname": entry.dirname,
-                "has_jar": entry.has_server_jar,
-                "has_world": entry.has_world_dir,
-                "size_mb": round(entry.size_mb, 1),
-                "jar_name": entry.jar_name,
-                "level_name": entry.properties.get("level-name", "world"),
-                "server_port": entry.properties.get("server-port", "25565"),
-                "server_id_hint": parsed_id,
-            },
-        ))
+        await event_bus.publish(
+            ServerDiscoveredEvent(
+                path=entry.path,
+                detected_type=entry.detected_type,
+                metadata={
+                    "dirname": entry.dirname,
+                    "has_jar": entry.has_server_jar,
+                    "has_world": entry.has_world_dir,
+                    "size_mb": round(entry.size_mb, 1),
+                    "jar_name": entry.jar_name,
+                    "level_name": entry.properties.get("level-name", "world"),
+                    "server_port": entry.properties.get("server-port", "25565"),
+                    "server_id_hint": parsed_id,
+                },
+            )
+        )
         new_count += 1
 
     logger.info(
         "Discovery scan complete: %d new, %d already known (from %d total entries)",
-        new_count, known_count, len(discovered),
+        new_count,
+        known_count,
+        len(discovered),
     )
     return {"discovered": new_count, "vanished": 0, "already_known": known_count}

@@ -5,6 +5,7 @@ import pytest
 
 from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
+from app.core.persistence.db import database
 from app.modules.backup.application.commands.create_backup import (
     CreateBackupCommand,
     CreateBackupHandler,
@@ -25,7 +26,6 @@ from app.modules.backup.domain.aggregate import BackupJob, BackupType
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
 from app.modules.storage.base import StorageBackend, StorageResult
-from app.core.persistence.db import database
 from app.tasks.queue import get_task_queue
 
 
@@ -142,7 +142,9 @@ class TestDeleteBackupHandler:
 
 @pytest.mark.usefixtures("init_test_db")
 class TestRestoreBackupHandler:
-    async def _create_server(self, server_id: str, status: str = "created", with_deployment: bool = True) -> None:
+    async def _create_server(
+        self, server_id: str, status: str = "created", with_deployment: bool = True
+    ) -> None:
         from app.modules.server.domain.aggregate import Server
         from app.modules.server.domain.value_objects import (
             JavaArguments,
@@ -190,7 +192,9 @@ class TestRestoreBackupHandler:
             await repo.save(server)
             await session.commit()
 
-    async def _create_job(self, backup_id: str, server_id: str, storage_path: str = "bak.tar.gz.enc") -> None:
+    async def _create_job(
+        self, backup_id: str, server_id: str, storage_path: str = "bak.tar.gz.enc"
+    ) -> None:
         async with database.session_factory() as session:
             repo = SQLBackupRepository(session)
             job = BackupJob.create(

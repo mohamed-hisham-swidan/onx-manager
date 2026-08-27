@@ -8,16 +8,17 @@ NOTE: modified post-hoc to create the ``servers`` table on a fresh database
 (rather than assuming ``Base.metadata.create_all()`` was run first).
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy import inspect
 
+from alembic import op
+
 revision = "003"
-down_revision: Union[str, None] = "16f9e2a1f2d6"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "16f9e2a1f2d6"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -44,7 +45,9 @@ def upgrade() -> None:
             sa.Column("difficulty", sa.String(16), nullable=False, server_default="easy"),
             sa.Column("spawn_protection", sa.Integer, nullable=False, server_default="16"),
             sa.Column("pvp", sa.Boolean, nullable=False, server_default=sa.text("1")),
-            sa.Column("enable_command_block", sa.Boolean, nullable=False, server_default=sa.text("0")),
+            sa.Column(
+                "enable_command_block", sa.Boolean, nullable=False, server_default=sa.text("0")
+            ),
             sa.Column("online_mode", sa.Boolean, nullable=False, server_default=sa.text("1")),
             sa.Column("whitelist_enabled", sa.Boolean, nullable=False, server_default=sa.text("0")),
             sa.Column("view_distance", sa.Integer, nullable=False, server_default="10"),
@@ -65,8 +68,18 @@ def upgrade() -> None:
             sa.Column("last_crash_time", sa.Float, nullable=True),
             sa.Column("restart_count", sa.Integer, nullable=False, server_default="0"),
             sa.Column("launch_config_json", sa.Text, nullable=True),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
         )
         return
 

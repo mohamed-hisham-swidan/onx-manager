@@ -18,6 +18,7 @@ async def periodic_discovery_scan(params: dict[str, Any]) -> dict[str, Any]:
         result = await run_discovery_scan(repo, event_bus)
     logger.info(
         "Periodic discovery scan: %d new, %d already known",
-        result["discovered"], result["already_known"],
+        result["discovered"],
+        result["already_known"],
     )
     return result

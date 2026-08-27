@@ -3,17 +3,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.core.command_bus import CommandBus
-from app.core.query_bus import QueryBus
 from app.api.deps import get_command_bus, get_query_bus, require_owner
 from app.api.errors import check_command_result
+from app.core.command_bus import CommandBus
+from app.core.query_bus import QueryBus
 from app.core.version import get_app_version
 from app.modules.auth.application import (
     BootstrapInstanceCommand,
     GetSystemStatusQuery,
     UpdateAccessModeCommand,
 )
-
 
 router = APIRouter(prefix="/api/v1/setup", tags=["setup"])
 

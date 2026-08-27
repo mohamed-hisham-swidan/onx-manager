@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
 
 import pytest
-from fastapi import WebSocket
 
 from app.core.event_bus import DomainEvent, EventBus
 from app.websocket.authentication import WSAuthenticator
@@ -15,7 +13,6 @@ from app.websocket.dispatcher import EventDispatcher, MetricsBatcher
 from app.websocket.manager import ConnectionRegistry
 from app.websocket.rate_limiter import WSRateLimiter
 from app.websocket.serializers import MAX_MESSAGE_SIZE, MessageSerializer, WSMessage
-from pydantic import Field
 
 
 class _ServerEvent(DomainEvent):
@@ -352,6 +349,7 @@ class TestChannelAuthorizer:
 
     def test_max_channels_constant(self) -> None:
         from app.websocket.authorization import MAX_CHANNELS_PER_CONNECTION
+
         assert MAX_CHANNELS_PER_CONNECTION == 50
 
 
@@ -369,7 +367,7 @@ class TestWSRateLimiter:
 
     def test_separate_connections_independent(self) -> None:
         limiter = WSRateLimiter(max_messages=1, window_seconds=60)
-        assert not limiter.check("conn1") is False
+        assert limiter.check("conn1") is not False
         limiter._buckets.clear()
         assert limiter.check("conn2")
 
@@ -526,6 +524,7 @@ class TestEndpoint:
     @pytest.mark.asyncio
     async def test_websocket_router_registered(self) -> None:
         from app.websocket.endpoint import router
+
         routes = [r.path for r in router.routes]
         assert "/ws" in routes
 
@@ -548,7 +547,7 @@ class _MockWebSocket:
     async def receive_bytes(self) -> bytes:
         raise _WebSocketDisconnected()
 
-    async def close(self, code: int = 1000, reason: str = "") -> None:
+    async def close(self, _code: int = 1000, _reason: str = "") -> None:
         self.closed = True
 
     @property
@@ -622,10 +621,10 @@ class TestMetricsBridgeHandler:
 
         assert len(mock_ws.sent_bytes) > 0
         import json
+
         payload = json.loads(mock_ws.sent_bytes[0])
         assert payload["type"] == "metrics_batch"
         assert payload["server_id"] == "s01"
         assert len(payload["samples"]) == 1
         assert payload["samples"][0]["tps"] == 20.0
         assert payload["samples"][0]["ram_mb"] == 3072.0
-

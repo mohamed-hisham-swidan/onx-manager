@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
-import re
 import signal
 import socket
 import time
 import uuid
 from typing import Any
 
-from app.core.identity import IDENTITY
-
-logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.provider.local")
-
 from app.core.exceptions import ProviderError
-from app.modules.server.domain.diagnostics import FailureCode, RuntimeDiagnostics
+from app.core.identity import IDENTITY
+from app.modules.server.domain.diagnostics import RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
     LaunchConfiguration,
     ServerDeployment,
@@ -23,12 +20,13 @@ from app.modules.server.domain.value_objects import (
 from app.modules.server.infrastructure.fs import FileSystem, local_fs
 from app.modules.server.infrastructure.providers.base import (
     DeploymentResult,
-    ProviderFactory,
     ServerHandle,
     ServerProvider,
     ServerRuntimeStatus,
 )
 from app.modules.server.infrastructure.providers.patterns import detect_failure
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.provider.local")
 
 
 class LocalLinuxProvider(ServerProvider):
@@ -59,11 +57,12 @@ class LocalLinuxProvider(ServerProvider):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("", port))
             sock.close()
-        except OSError:
+        except OSError as err:
             raise ProviderError(
-                "local", "start",
+                "local",
+                "start",
                 f"Port {port} is already in use server={server_id}",
-            )
+            ) from err
 
     async def _cleanup_stale_tmux(self, session_name: str) -> None:
         if await self._tmux_has_session(session_name):
@@ -152,21 +151,21 @@ class LocalLinuxProvider(ServerProvider):
             memory_max = cfg.get("memory_max_mb", 2048)
             port = cfg.get("port", 25565)
             cmd = launch_config.effective_command()
-            is_script_launch = (
-                cmd.startswith(("bash ", "sh ", "./", "exec ")) or cmd.endswith(".sh")
+            is_script_launch = cmd.startswith(("bash ", "sh ", "./", "exec ")) or cmd.endswith(
+                ".sh"
             )
             if is_script_launch:
                 if "nogui" not in cmd and "--nogui" not in cmd:
                     cmd = f"{cmd} nogui"
                 jvm_args_file = os.path.join(server_dir, "user_jvm_args.txt")
-                if os.path.exists(jvm_args_file) or not os.path.exists(os.path.join(server_dir, jar)):
-                    try:
+                if os.path.exists(jvm_args_file) or not os.path.exists(
+                    os.path.join(server_dir, jar)
+                ):
+                    with contextlib.suppress(Exception):
                         self._fs.write_text(
                             jvm_args_file,
                             f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
                         )
-                    except Exception:
-                        pass
             else:
                 if "-Xms" not in cmd and "-Xmx" not in cmd:
                     cmd = f"{cmd} -Xms{memory_min}M -Xmx{memory_max}M"
@@ -182,22 +181,24 @@ class LocalLinuxProvider(ServerProvider):
             jvm_flags = " ".join(java_args) if isinstance(java_args, list) else str(java_args)
 
             # Auto-detect script execution vs JAR execution for discovered/unconfigured servers
-            has_run_script = self._fs.exists(os.path.join(server_dir, "run.sh")) or self._fs.exists(os.path.join(server_dir, "run.bat"))
+            has_run_script = self._fs.exists(os.path.join(server_dir, "run.sh")) or self._fs.exists(
+                os.path.join(server_dir, "run.bat")
+            )
             is_script = (
                 jar.endswith((".sh", ".bat"))
                 or jar.startswith(("bash ", "sh ", "./"))
                 or (not self._fs.exists(os.path.join(server_dir, jar)) and has_run_script)
             )
             if is_script:
-                script_name = "run.sh" if self._fs.exists(os.path.join(server_dir, "run.sh")) else jar
+                script_name = (
+                    "run.sh" if self._fs.exists(os.path.join(server_dir, "run.sh")) else jar
+                )
                 jvm_args_file = os.path.join(server_dir, "user_jvm_args.txt")
-                try:
+                with contextlib.suppress(Exception):
                     self._fs.write_text(
                         jvm_args_file,
                         f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
                     )
-                except Exception:
-                    pass
                 cmd = f"cd {server_dir} && bash {script_name} nogui"
             else:
                 cmd = (
@@ -213,7 +214,8 @@ class LocalLinuxProvider(ServerProvider):
         server_label = f'"{server_id}"' if server_id else server_id
         logger.info(
             "Phase 1/4: Cleaning up stale tmux and processes — server=%s dir=%s phase=start",
-            server_label, server_dir,
+            server_label,
+            server_dir,
         )
         await self._cleanup_stale_tmux(session_name)
         orphan_pids = await self._find_java_processes(server_dir)
@@ -222,7 +224,9 @@ class LocalLinuxProvider(ServerProvider):
         if orphan_pids:
             logger.info(
                 "Phase 1/4: Cleaning %d orphan Java processes — server=%s dir=%s phase=cleanup",
-                len(orphan_pids), server_label, server_dir,
+                len(orphan_pids),
+                server_label,
+                server_dir,
             )
             await self._kill_processes(orphan_pids)
         else:
@@ -233,20 +237,23 @@ class LocalLinuxProvider(ServerProvider):
 
         logger.info(
             "Phase 2/4: Verifying port %d is free — server=%s phase=port_check",
-            port, server_label,
+            port,
+            server_label,
         )
         await self._verify_port_free(port, server_id)
 
         logger.info(
             "Phase 3/4: Creating tmux session — server=%s session=%s phase=tmux_create",
-            server_label, session_name,
+            server_label,
+            session_name,
         )
         returncode = await self._run_command(
             f"tmux new-session -d -s {session_name} '{cmd}'",
         )
         if returncode != 0:
             raise ProviderError(
-                "local", "start",
+                "local",
+                "start",
                 f"tmux session creation failed server={server_id} session={session_name} dir={server_dir}",
             )
 
@@ -257,7 +264,8 @@ class LocalLinuxProvider(ServerProvider):
         if pid is None:
             await self._run_command(f"tmux kill-session -t {session_name}")
             raise ProviderError(
-                "local", "start",
+                "local",
+                "start",
                 f"Process died immediately after tmux creation server={server_id} session={session_name}",
             )
 
@@ -265,7 +273,11 @@ class LocalLinuxProvider(ServerProvider):
 
         logger.info(
             "Phase 4/4: Server process started — server=%s pid=%d start_time=%s port=%d session=%s phase=startup",
-            server_label, pid, start_time, port, session_name,
+            server_label,
+            pid,
+            start_time,
+            port,
+            session_name,
         )
 
         handle = ServerHandle(
@@ -280,7 +292,12 @@ class LocalLinuxProvider(ServerProvider):
             address="127.0.0.1",
             port=port,
             pid=pid,
-            metadata={"handle": str(handle), "session_name": session_name, "start_time": start_time, "port": port},
+            metadata={
+                "handle": str(handle),
+                "session_name": session_name,
+                "start_time": start_time,
+                "port": port,
+            },
         )
 
     async def stop(self, handle: ServerHandle, force: bool = False) -> None:
@@ -290,7 +307,8 @@ class LocalLinuxProvider(ServerProvider):
         if not force:
             logger.info(
                 "Phase 1/3: Graceful shutdown — server=%s session=%s phase=stop",
-                server_label, session_name,
+                server_label,
+                session_name,
             )
             await self.execute_command(handle, "say Server shutting down...")
             await asyncio.sleep(0.5)
@@ -304,31 +322,40 @@ class LocalLinuxProvider(ServerProvider):
             try:
                 logger.info(
                     "Phase 2/3: Sending SIGTERM — server=%s pid=%d session=%s phase=stop",
-                    server_label, pid, session_name,
+                    server_label,
+                    pid,
+                    session_name,
                 )
                 os.kill(pid, signal.SIGTERM)
                 await asyncio.sleep(1)
             except ProcessLookupError:
                 logger.debug(
                     "SIGTERM — process already exited server=%s pid=%d session=%s phase=stop",
-                    server_label, pid, session_name,
+                    server_label,
+                    pid,
+                    session_name,
                 )
 
             try:
                 logger.info(
                     "Phase 2/3: Sending SIGKILL — server=%s pid=%d session=%s phase=stop",
-                    server_label, pid, session_name,
+                    server_label,
+                    pid,
+                    session_name,
                 )
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 logger.debug(
                     "SIGKILL — process already exited server=%s pid=%d session=%s phase=stop",
-                    server_label, pid, session_name,
+                    server_label,
+                    pid,
+                    session_name,
                 )
 
         logger.info(
             "Phase 3/3: Cleaning up tmux session — server=%s session=%s phase=stop",
-            server_label, session_name,
+            server_label,
+            session_name,
         )
         await self._run_command(f"tmux kill-session -t {session_name}")
 
@@ -350,7 +377,8 @@ class LocalLinuxProvider(ServerProvider):
             return ServerRuntimeStatus.RUNNING
         except Exception as exc:
             raise ProviderError(
-                "local", "status",
+                "local",
+                "status",
                 f"status check failed session={session_name} handle={handle.external_id}",
             ) from exc
 
@@ -362,7 +390,8 @@ class LocalLinuxProvider(ServerProvider):
             )
             if returncode != 0:
                 raise ProviderError(
-                    "local", "console",
+                    "local",
+                    "console",
                     f"tmux capture-pane failed session={session_name} tail={tail} returncode={returncode}",
                 )
             return stdout.splitlines() if stdout else []
@@ -370,7 +399,8 @@ class LocalLinuxProvider(ServerProvider):
             raise
         except Exception as exc:
             raise ProviderError(
-                "local", "console",
+                "local",
+                "console",
                 f"console failed session={session_name} tail={tail}",
             ) from exc
 
@@ -383,7 +413,8 @@ class LocalLinuxProvider(ServerProvider):
             )
             if returncode != 0:
                 raise ProviderError(
-                    "local", "execute_command",
+                    "local",
+                    "execute_command",
                     f"tmux send-keys failed session={session_name} cmd={command[:100]} returncode={returncode}",
                 )
             return stdout
@@ -391,7 +422,8 @@ class LocalLinuxProvider(ServerProvider):
             raise
         except Exception as exc:
             raise ProviderError(
-                "local", "execute_command",
+                "local",
+                "execute_command",
                 f"send-keys failed session={session_name} cmd={command[:100]}",
             ) from exc
 
@@ -406,7 +438,8 @@ class LocalLinuxProvider(ServerProvider):
             return returncode == 0
         except Exception as exc:
             raise ProviderError(
-                "local", "_tmux_has_session",
+                "local",
+                "_tmux_has_session",
                 f"tmux has-session failed session={name}",
             ) from exc
 
@@ -423,7 +456,8 @@ class LocalLinuxProvider(ServerProvider):
             return None
         except Exception as exc:
             raise ProviderError(
-                "local", "_get_tmux_pid",
+                "local",
+                "_get_tmux_pid",
                 f"tmux list-panes failed session={session_name}",
             ) from exc
 
@@ -433,7 +467,9 @@ class LocalLinuxProvider(ServerProvider):
         except Exception:
             logger.warning(
                 "kill -0 failed pid=%d phase=_is_pid_alive provider=%s",
-                pid, self.provider_type, exc_info=True,
+                pid,
+                self.provider_type,
+                exc_info=True,
             )
             return False
 
@@ -494,7 +530,8 @@ class LocalLinuxProvider(ServerProvider):
             return proc.returncode if proc.returncode is not None else 0
         except Exception as exc:
             raise ProviderError(
-                "local", "run_command",
+                "local",
+                "run_command",
                 f"Subprocess shell command failed: {cmd[:200]}",
             ) from exc
 
@@ -507,10 +544,13 @@ class LocalLinuxProvider(ServerProvider):
                 close_fds=True,
             )
             stdout, _ = await proc.communicate()
-            return proc.returncode if proc.returncode is not None else 0, stdout.decode("utf-8", errors="replace")
+            return proc.returncode if proc.returncode is not None else 0, stdout.decode(
+                "utf-8", errors="replace"
+            )
         except Exception as exc:
             raise ProviderError(
-                "local", "run_command_with_output",
+                "local",
+                "run_command_with_output",
                 f"Subprocess shell command failed: {cmd[:200]}",
             ) from exc
 
@@ -529,16 +569,21 @@ class LocalLinuxProvider(ServerProvider):
                 has = await self._tmux_has_session(session_name)
                 if not has:
                     logger.info(
-                        'wait_ready server=%s session=%s session not found or terminated provider=%s',
-                        label, session_name, self.provider_type,
+                        "wait_ready server=%s session=%s session not found or terminated provider=%s",
+                        label,
+                        session_name,
+                        self.provider_type,
                     )
                     return False
 
                 lines = await self.console(handle, tail=50)
                 logger.info(
-                    'wait_ready server=%s session=%s iter lines=%d has_done=%s provider=%s',
-                    label, session_name, len(lines),
-                    any("Done (" in l for l in lines), self.provider_type,
+                    "wait_ready server=%s session=%s iter lines=%d has_done=%s provider=%s",
+                    label,
+                    session_name,
+                    len(lines),
+                    any("Done (" in line_str for line_str in lines),
+                    self.provider_type,
                 )
                 for line in lines:
                     if "Done (" in line:
@@ -546,27 +591,37 @@ class LocalLinuxProvider(ServerProvider):
                 pid = await self._get_tmux_pid(session_name)
                 if pid is None:
                     logger.info(
-                        'wait_ready server=%s session=%s pid is None — pane exited provider=%s',
-                        label, session_name, self.provider_type,
+                        "wait_ready server=%s session=%s pid is None — pane exited provider=%s",
+                        label,
+                        session_name,
+                        self.provider_type,
                     )
                     return False
                 alive = await self._is_pid_alive(pid)
                 if not alive:
                     logger.info(
-                        'wait_ready server=%s session=%s pid=%d dead provider=%s',
-                        label, session_name, pid, self.provider_type,
+                        "wait_ready server=%s session=%s pid=%d dead provider=%s",
+                        label,
+                        session_name,
+                        pid,
+                        self.provider_type,
                     )
                     return False
             except Exception:
                 logger.warning(
-                    'wait_ready iteration failed server=%s provider=%s session=%s handle=%s phase=wait_ready',
-                    label, self.provider_type, session_name, handle.external_id,
+                    "wait_ready iteration failed server=%s provider=%s session=%s handle=%s phase=wait_ready",
+                    label,
+                    self.provider_type,
+                    session_name,
+                    handle.external_id,
                     exc_info=True,
                 )
             await asyncio.sleep(2)
         logger.info(
-            'wait_ready server=%s session=%s deadline exceeded provider=%s',
-            label, session_name, self.provider_type,
+            "wait_ready server=%s session=%s deadline exceeded provider=%s",
+            label,
+            session_name,
+            self.provider_type,
         )
         return False
 
@@ -585,7 +640,8 @@ class LocalLinuxProvider(ServerProvider):
             return await self._is_pid_alive(pid)
         except Exception as exc:
             raise ProviderError(
-                "local", "verify_process",
+                "local",
+                "verify_process",
                 f"verify_process failed session={session_name} handle={handle.external_id}",
             ) from exc
 
@@ -604,9 +660,12 @@ class LocalLinuxProvider(ServerProvider):
             log_lines = await self.console(handle, tail=300)
         except Exception:
             logger.warning(
-                'collect_diagnostics console failed server=%s session=%s handle=%s '
-                'phase=collect_diagnostics provider=%s',
-                label, session_name, handle.external_id, self.provider_type,
+                "collect_diagnostics console failed server=%s session=%s handle=%s "
+                "phase=collect_diagnostics provider=%s",
+                label,
+                session_name,
+                handle.external_id,
+                self.provider_type,
                 exc_info=True,
             )
 
@@ -616,7 +675,7 @@ class LocalLinuxProvider(ServerProvider):
                 log_file = os.path.join(server_dir, "logs", "latest.log")
                 if os.path.isfile(log_file):
                     try:
-                        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                        with open(log_file, encoding="utf-8", errors="replace") as f:
                             log_lines = [line.rstrip("\n") for line in f.readlines()[-300:]]
                     except Exception:
                         pass
@@ -625,9 +684,12 @@ class LocalLinuxProvider(ServerProvider):
             pid = await self._get_tmux_pid(session_name)
         except Exception:
             logger.warning(
-                'collect_diagnostics get_pid failed server=%s session=%s handle=%s '
-                'phase=collect_diagnostics provider=%s',
-                label, session_name, handle.external_id, self.provider_type,
+                "collect_diagnostics get_pid failed server=%s session=%s handle=%s "
+                "phase=collect_diagnostics provider=%s",
+                label,
+                session_name,
+                handle.external_id,
+                self.provider_type,
                 exc_info=True,
             )
 

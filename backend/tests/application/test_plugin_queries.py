@@ -1,5 +1,6 @@
 import pytest
 
+from app.core.persistence.db import database
 from app.modules.plugin.application.queries.get_plugin import (
     GetPluginHandler,
     GetPluginQuery,
@@ -11,7 +12,6 @@ from app.modules.plugin.application.queries.list_plugins import (
 from app.modules.plugin.domain.aggregate import Plugin
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
 from app.modules.shared.value_objects import PluginId, PluginVersion, ServerId
-from app.core.persistence.db import database
 
 
 @pytest.mark.usefixtures("init_test_db")

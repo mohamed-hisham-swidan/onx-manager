@@ -4,11 +4,13 @@ import time
 
 import pytest
 
-from app.modules.server.domain.installer import InstallerResult, ProgressLine
+from app.modules.server.domain.installer import InstallerResult
 from app.modules.server.infrastructure.installer import SubprocessInstallerRunner
 
 
-async def _run_to_result(runner: SubprocessInstallerRunner, command: str, timeout: float) -> InstallerResult:
+async def _run_to_result(
+    runner: SubprocessInstallerRunner, command: str, timeout: float
+) -> InstallerResult:
     """Consume the async generator and return the final InstallerResult."""
     result: InstallerResult | None = None
     async for item in runner.run(command, timeout=timeout):

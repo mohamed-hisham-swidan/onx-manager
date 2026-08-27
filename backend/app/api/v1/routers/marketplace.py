@@ -24,7 +24,7 @@ async def search_marketplace(
     offset: int = Query(default=0, ge=0),
     project_type: str = Query(default="plugin"),
     loader: str = Query(default="", max_length=50),
-    current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginSearchResultsResponse:
     provider = build_plugin_catalog_provider()
     page = await provider.search(
@@ -45,7 +45,7 @@ async def search_marketplace(
 @router.get("/projects/{project_id}", response_model=PluginProjectResponse)
 async def get_marketplace_project(
     project_id: str,
-    current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginProjectResponse:
     provider = build_plugin_catalog_provider()
     project = await provider.get_project(project_id)
@@ -71,15 +71,15 @@ async def get_marketplace_project_versions(
     project_id: str,
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
-    current_user: dict = Depends(require_permission("plugin:manage")),
+    _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginVersionsResponse:
     provider = build_plugin_catalog_provider()
     page = await provider.get_project_versions(project_id, limit=limit, offset=offset)
     return PluginVersionsResponse(
         project_id=project_id,
         versions=[_to_version_response(v) for v in page.items],
-        selected=None,      # no server context — always null (D1/D6)
-        notice="",          # B2 — NOT None: strict str at plugin.py:83
-        notice_kind="",     # B2 — NOT None: strict str at plugin.py:84
+        selected=None,  # no server context — always null (D1/D6)
+        notice="",  # B2 — NOT None: strict str at plugin.py:83
+        notice_kind="",  # B2 — NOT None: strict str at plugin.py:84
         total=page.total,
     )

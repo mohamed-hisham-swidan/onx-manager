@@ -12,7 +12,7 @@ __all__ = ["router"]
 
 
 @router.get("")
-async def list_software(current_user: dict = Depends(get_current_user)) -> list[dict]:
+async def list_software(_current_user: dict = Depends(get_current_user)) -> list[dict]:
     return [
         {
             "type": key,
@@ -28,11 +28,12 @@ async def list_software(current_user: dict = Depends(get_current_user)) -> list[
 @router.get("/{software_type}/versions")
 async def list_versions(
     software_type: str,
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ) -> list[str]:
     fetcher = VERSION_FETCHERS.get(software_type)
     if fetcher is None:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail=f"Unknown software type: {software_type}")
     versions = await fetcher()
     if not versions:

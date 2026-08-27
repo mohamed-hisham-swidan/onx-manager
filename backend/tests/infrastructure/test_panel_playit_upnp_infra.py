@@ -294,7 +294,10 @@ class TestPlayitSupervisor:
             with patch("asyncio.create_subprocess_exec", return_value=proc):
                 await supervisor.start(claim_code="6cf8d96f0f", on_secret=_on_secret)
                 await asyncio.sleep(0.05)
-                assert captured_secret == "d08c824254113c9cccb943435abd2bcb70f54bcb45b56bc8ede3809988d1d88c"
+                assert (
+                    captured_secret
+                    == "d08c824254113c9cccb943435abd2bcb70f54bcb45b56bc8ede3809988d1d88c"
+                )
         finally:
             await supervisor.stop()
 
@@ -333,4 +336,3 @@ class TestPlayitSupervisor:
                 assert supervisor.status == ExposureStatus.RECLAIM_REQUIRED
         finally:
             await supervisor.stop()
-

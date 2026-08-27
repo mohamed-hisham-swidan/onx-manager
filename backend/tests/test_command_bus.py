@@ -1,5 +1,4 @@
 import pytest
-from pydantic import BaseModel
 
 from app.core.command_bus import Command, CommandBus, CommandHandler, CommandResult, Middleware
 

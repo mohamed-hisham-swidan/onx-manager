@@ -11,7 +11,9 @@ MAX_MESSAGE_SIZE = 256 * 1024
 class WSMessage:
     __slots__ = ("type", "data", "channel")
 
-    def __init__(self, type: str, data: dict[str, Any] | None = None, channel: str | None = None) -> None:
+    def __init__(
+        self, type: str, data: dict[str, Any] | None = None, channel: str | None = None
+    ) -> None:
         self.type = type
         self.data = data or {}
         self.channel = channel
@@ -43,16 +45,14 @@ class MessageSerializer:
 
     @staticmethod
     def event_to_message(event: DomainEvent, channel: str | None = None) -> WSMessage:
-        data = event.model_dump() if hasattr(event, "model_dump") else {"event_type": type(event).__name__}
+        data = (
+            event.model_dump()
+            if hasattr(event, "model_dump")
+            else {"event_type": type(event).__name__}
+        )
         serialized: dict[str, Any] = {}
         for key, value in data.items():
-            if isinstance(value, float):
-                serialized[key] = value
-            elif isinstance(value, (str, int, bool)):
-                serialized[key] = value
-            elif isinstance(value, dict):
-                serialized[key] = value
-            elif isinstance(value, list):
+            if isinstance(value, (float, str, int, bool, dict, list)):
                 serialized[key] = value
             elif value is None:
                 serialized[key] = None

@@ -92,12 +92,10 @@ class PluginCatalogProvider(ABC):
         project_type: str = "plugin",
         limit: int = 20,
         offset: int = 0,
-    ) -> PluginSearchPage:
-        ...
+    ) -> PluginSearchPage: ...
 
     @abstractmethod
-    async def get_project(self, project_id: str) -> PluginProject:
-        ...
+    async def get_project(self, project_id: str) -> PluginProject: ...
 
     @abstractmethod
     async def get_project_versions(
@@ -106,12 +104,10 @@ class PluginCatalogProvider(ABC):
         *,
         limit: int | None = None,
         offset: int = 0,
-    ) -> PluginVersionsPage:
-        ...
+    ) -> PluginVersionsPage: ...
 
     @abstractmethod
-    async def get_version(self, version_id: str) -> PluginVersionInfo:
-        ...
+    async def get_version(self, version_id: str) -> PluginVersionInfo: ...
 
     @abstractmethod
     async def download(
@@ -119,5 +115,4 @@ class PluginCatalogProvider(ABC):
         url: str,
         expected_sha1: str | None = None,
         expected_sha512: str | None = None,
-    ) -> bytes:
-        ...
+    ) -> bytes: ...

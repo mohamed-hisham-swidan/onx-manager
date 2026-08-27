@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.health.domain.value_objects import HealthStatusEnum
 from app.modules.health.infrastructure.health_calculator import SignalHealthCalculator
 from app.modules.health.infrastructure.repository import SQLHealthRepository
-from app.core.persistence.db import database
 
 
 class HealthReportReadModel:
@@ -42,8 +42,8 @@ class GenerateHealthReportQuery(Query):
 
 class GenerateHealthReportHandler(QueryHandler[GenerateHealthReportQuery]):
     async def handle(self, query: GenerateHealthReportQuery) -> HealthReportReadModel | None:
-        since = datetime.now(timezone.utc).timestamp() - (query.hours * 3600)
-        since_dt = datetime.fromtimestamp(since, tz=timezone.utc)
+        since = datetime.now(UTC).timestamp() - (query.hours * 3600)
+        since_dt = datetime.fromtimestamp(since, tz=UTC)
 
         async with database.session_factory() as session:
             repo = SQLHealthRepository(session)
@@ -59,19 +59,10 @@ class GenerateHealthReportHandler(QueryHandler[GenerateHealthReportQuery]):
             )
 
             total_entries = len(timeline)
-            crash_count = sum(
-                1 for e in timeline
-                if e.new_status == HealthStatusEnum.CRITICAL
-            )
-            broken_count = sum(
-                1 for e in timeline
-                if e.new_status == HealthStatusEnum.BROKEN
-            )
+            crash_count = sum(1 for e in timeline if e.new_status == HealthStatusEnum.CRITICAL)
+            broken_count = sum(1 for e in timeline if e.new_status == HealthStatusEnum.BROKEN)
 
-            healthy_count = sum(
-                1 for e in timeline
-                if e.new_status == HealthStatusEnum.HEALTHY
-            )
+            healthy_count = sum(1 for e in timeline if e.new_status == HealthStatusEnum.HEALTHY)
             healthy_weighted = healthy_count * 1.0
             critical_weighted = crash_count * 0.3
             uptime_pct = 0.0
@@ -81,7 +72,9 @@ class GenerateHealthReportHandler(QueryHandler[GenerateHealthReportQuery]):
             worst = HealthStatusEnum.UNKNOWN
             for e in timeline:
                 es = e.new_status
-                if SignalHealthCalculator.status_score(es) > SignalHealthCalculator.status_score(worst):
+                if SignalHealthCalculator.status_score(es) > SignalHealthCalculator.status_score(
+                    worst
+                ):
                     worst = es
 
         return HealthReportReadModel(

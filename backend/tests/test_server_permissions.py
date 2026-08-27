@@ -1,7 +1,8 @@
+from collections.abc import AsyncGenerator
+
 import pytest
 import pytest_asyncio
-from typing import AsyncGenerator
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -35,7 +36,9 @@ class MockRequest:
 async def test_repository_crud_operations(db_session: AsyncSession) -> None:
     repo = SQLServerMembershipRepository(db_session)
 
-    user = UserModel(id="u1", email="test@example.com", password_hash="hash", display_name="Test User")
+    user = UserModel(
+        id="u1", email="test@example.com", password_hash="hash", display_name="Test User"
+    )
     server = ServerModel(id="s1", name="Test Server", minecraft_version="1.20.1")
     db_session.add_all([user, server])
     await db_session.flush()
@@ -95,8 +98,12 @@ async def test_require_server_permission_non_existent_server_404(db_session: Asy
 
 @pytest.mark.asyncio
 async def test_require_server_permission_owner_access_granted(db_session: AsyncSession) -> None:
-    user_owner = UserModel(id="u_owner", email="owner@example.com", password_hash="h", display_name="Owner")
-    server = ServerModel(id="s1", name="Owner Server", minecraft_version="1.20.1", owner_id="u_owner")
+    user_owner = UserModel(
+        id="u_owner", email="owner@example.com", password_hash="h", display_name="Owner"
+    )
+    server = ServerModel(
+        id="s1", name="Owner Server", minecraft_version="1.20.1", owner_id="u_owner"
+    )
     db_session.add_all([user_owner, server])
     await db_session.flush()
 
@@ -125,8 +132,12 @@ async def test_require_server_permission_membership_role_matching(db_session: As
 
 
 @pytest.mark.asyncio
-async def test_require_server_permission_membership_role_non_matching_403(db_session: AsyncSession) -> None:
-    user = UserModel(id="u_viewer", email="viewer@example.com", password_hash="h", display_name="Viewer")
+async def test_require_server_permission_membership_role_non_matching_403(
+    db_session: AsyncSession,
+) -> None:
+    user = UserModel(
+        id="u_viewer", email="viewer@example.com", password_hash="h", display_name="Viewer"
+    )
     server = ServerModel(id="s1", name="Viewer Server", minecraft_version="1.20.1")
     mem = ServerMembershipModel(id="m1", server_id="s1", user_id="u_viewer", role="viewer")
     db_session.add_all([user, server, mem])
@@ -144,7 +155,9 @@ async def test_require_server_permission_membership_role_non_matching_403(db_ses
 
 @pytest.mark.asyncio
 async def test_require_server_permission_no_membership_403(db_session: AsyncSession) -> None:
-    user = UserModel(id="u_outsider", email="out@example.com", password_hash="h", display_name="Outsider")
+    user = UserModel(
+        id="u_outsider", email="out@example.com", password_hash="h", display_name="Outsider"
+    )
     server = ServerModel(id="s1", name="Private Server", minecraft_version="1.20.1")
     db_session.add_all([user, server])
     await db_session.flush()
@@ -160,7 +173,9 @@ async def test_require_server_permission_no_membership_403(db_session: AsyncSess
 
 
 @pytest.mark.asyncio
-async def test_require_server_permission_multiple_permissions_any_of(db_session: AsyncSession) -> None:
+async def test_require_server_permission_multiple_permissions_any_of(
+    db_session: AsyncSession,
+) -> None:
     user = UserModel(id="u_viewer", email="v@example.com", password_hash="h", display_name="Viewer")
     server = ServerModel(id="s1", name="Server", minecraft_version="1.20.1")
     mem = ServerMembershipModel(id="m1", server_id="s1", user_id="u_viewer", role="viewer")
@@ -180,4 +195,3 @@ async def test_require_server_permission_multiple_permissions_any_of(db_session:
     with pytest.raises(HTTPException) as exc_info:
         await check_fn_strict(request=req, db=db_session, current_user=current_user)
     assert exc_info.value.status_code == 403
-

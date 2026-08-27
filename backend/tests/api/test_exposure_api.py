@@ -691,7 +691,6 @@ async def test_panel_exposure_playit_http_api(exposure_client) -> None:
         assert data["protocol"] == "http"
 
 
-
 async def test_panel_exposure_port_forward_api(exposure_client) -> None:
     owner_user = await _seed_user(exposure_client)
     owner = await _owner_header(exposure_client, owner_user)

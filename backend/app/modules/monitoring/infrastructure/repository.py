@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.monitoring.domain.aggregate import AlertCondition, AlertRule, AlertSeverity, MetricPoint, MetricSeries
+from app.modules.monitoring.domain.aggregate import (
+    AlertCondition,
+    AlertRule,
+    AlertSeverity,
+    MetricPoint,
+)
 from app.modules.monitoring.infrastructure.models import AlertRuleModel, MetricPointModel
 from app.modules.shared.value_objects import ServerId
 
@@ -15,7 +20,7 @@ class SQLMetricRepository:
         self._session = session
 
     async def record(self, server_id: ServerId, point: MetricPoint) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         model = MetricPointModel(
             server_id=str(server_id),
             tps=point.tps,
@@ -67,6 +72,7 @@ class SQLAlertRuleRepository:
         model = await self._session.get(AlertRuleModel, rule_id)
         if model is None:
             from app.core.exceptions import NotFoundError
+
             raise NotFoundError(f"Alert rule '{rule_id}' not found")
         return self._model_to_domain(model)
 
@@ -80,7 +86,7 @@ class SQLAlertRuleRepository:
         return [self._model_to_domain(m) for m in result.scalars().all()]
 
     async def save(self, rule: AlertRule) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         model = await self._session.get(AlertRuleModel, rule._alert_rule_id)
         if model is None:
             model = AlertRuleModel(id=rule._alert_rule_id, created_at=now)

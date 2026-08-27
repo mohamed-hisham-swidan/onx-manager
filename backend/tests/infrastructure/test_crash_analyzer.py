@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from app.modules.health.domain.value_objects import EvidenceBundle
 from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyzer
 from app.modules.server.domain.diagnostics import FailureCode
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -24,7 +23,7 @@ def _make_bundle(
         latest_log_tail=log_lines or [],
         crash_reports=crash_reports or [],
         provider_diagnostics=provider_diagnostics,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 
@@ -61,10 +60,12 @@ class TestPatternCrashAnalyzer:
 
     async def test_classify_crash_report_oom(self):
         bundle = _make_bundle(
-            crash_reports=[{
-                "filename": "crash.txt",
-                "content": "java.lang.OutOfMemoryError\n\tat net.minecraft.server.Main.main",
-            }],
+            crash_reports=[
+                {
+                    "filename": "crash.txt",
+                    "content": "java.lang.OutOfMemoryError\n\tat net.minecraft.server.Main.main",
+                }
+            ],
         )
         result = await PatternCrashAnalyzer().classify(bundle)
         assert result.failure_code == FailureCode.MEMORY_EXHAUSTED.value

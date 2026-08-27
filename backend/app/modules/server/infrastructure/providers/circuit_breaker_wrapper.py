@@ -60,7 +60,9 @@ class CircuitBreakerProviderWrapper(ServerProvider):
         return await self._breaker.call_factory(lambda: self._wrapped.console(handle, tail=tail))
 
     async def execute_command(self, handle: ServerHandle, command: str) -> str:
-        return await self._breaker.call_factory(lambda: self._wrapped.execute_command(handle, command))
+        return await self._breaker.call_factory(
+            lambda: self._wrapped.execute_command(handle, command)
+        )
 
     async def destroy(self, handle: ServerHandle) -> None:
         await self._breaker.call_factory(lambda: self._wrapped.destroy(handle))

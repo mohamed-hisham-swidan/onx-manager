@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from app.core.config import AppSettings, ConfigFactory, ServerConfig
 
 
@@ -68,6 +70,3 @@ class TestConfigFactory:
         config = ConfigFactory.for_server("test-srv", {"auto_start": True})
         assert config.auto_start is True
         assert config.port == 25565
-
-
-import pytest

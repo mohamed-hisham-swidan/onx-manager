@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.health.domain.aggregate import HealthStatus
-from app.modules.health.domain.value_objects import HealthSignal, HealthStatusEnum, HealthTrend, SignalSeverity
-from app.core.identity import IDENTITY
+from app.modules.health.domain.value_objects import (
+    HealthSignal,
+    HealthTrend,
+    SignalSeverity,
+)
 from app.modules.health.infrastructure.health_calculator import SignalHealthCalculator
 from app.modules.health.infrastructure.repository import SQLHealthRepository
 
@@ -73,12 +77,16 @@ class EvaluateHealthHandler(CommandHandler[EvaluateHealthCommand]):
                 severity = SignalSeverity(s.get("severity", "info"))
             except ValueError:
                 severity = SignalSeverity.INFO
-            signals.append(HealthSignal(
-                server_id=command.server_id,
-                signal_type=s.get("signal_type", "unknown"),
-                severity=severity,
-                value=s.get("value", ""),
-                details=s.get("details", {}),
-                timestamp=datetime.fromisoformat(s["timestamp"]) if "timestamp" in s else datetime.now(timezone.utc),
-            ))
+            signals.append(
+                HealthSignal(
+                    server_id=command.server_id,
+                    signal_type=s.get("signal_type", "unknown"),
+                    severity=severity,
+                    value=s.get("value", ""),
+                    details=s.get("details", {}),
+                    timestamp=datetime.fromisoformat(s["timestamp"])
+                    if "timestamp" in s
+                    else datetime.now(UTC),
+                )
+            )
         return signals

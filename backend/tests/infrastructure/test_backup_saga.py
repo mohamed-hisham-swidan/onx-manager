@@ -28,12 +28,12 @@ from app.modules.server.domain.value_objects import (
     LocationType,
     MemoryAllocation,
     PortNumber,
+    RuntimeInfo,
     ServerDeployment,
     ServerProperties,
     ServerType,
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
-from app.modules.server.domain.value_objects import RuntimeInfo
 from app.modules.shared.value_objects import BackupJobId, MinecraftVersion, ServerId
 from app.modules.storage.encryption import BackupEncryption
 from app.modules.storage.local import LocalStorage
@@ -47,7 +47,9 @@ async def app_db():
         await conn.run_sync(Base.metadata.create_all)
     database._engine = engine
     database._session_factory = async_sessionmaker(
-        bind=engine, class_=AsyncSession, expire_on_commit=False,
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
     )
     yield
     await engine.dispose()
@@ -92,7 +94,9 @@ def _seed_world(server_dir: str) -> None:
 
 
 async def _seed_pending_job(
-    backup_id: BackupJobId, server_id: ServerId, backup_type: BackupType = BackupType.FULL,
+    backup_id: BackupJobId,
+    server_id: ServerId,
+    backup_type: BackupType = BackupType.FULL,
 ) -> None:
     from app.modules.backup.domain.aggregate import BackupJob
 
@@ -109,7 +113,9 @@ async def _seed_pending_job(
 class TestBackupSaga:
     @pytest.mark.asyncio
     async def test_saga_compresses_encrypts_uploads_and_verifies(
-        self, app_db, tmp_path,
+        self,
+        app_db,
+        tmp_path,
     ) -> None:
         server_dir = str(tmp_path / "server")
         _seed_world(server_dir)
@@ -159,7 +165,8 @@ class TestBackupSaga:
         server_dir = str(tmp_path / "server")
         Path(server_dir).mkdir(parents=True, exist_ok=True)
         (Path(server_dir) / "server.properties").write_text(
-            "motd=no world here\n", encoding="utf-8",
+            "motd=no world here\n",
+            encoding="utf-8",
         )
         server_id = ServerId(uuid.uuid4().hex)
         backup_id = BackupJobId()
@@ -199,7 +206,8 @@ class TestBackupSaga:
         server_dir = str(tmp_path / "server")
         Path(server_dir).mkdir(parents=True, exist_ok=True)
         (Path(server_dir) / "server.properties").write_text(
-            "motd=no world here\n", encoding="utf-8",
+            "motd=no world here\n",
+            encoding="utf-8",
         )
         server_id = ServerId(uuid.uuid4().hex)
         backup_id = BackupJobId()
@@ -230,7 +238,9 @@ class TestBackupSaga:
 
 
 class TestDeleteBackupHandler:
-    async def _seed_completed_job(self, backup_id: BackupJobId, server_id: ServerId, path: str) -> None:
+    async def _seed_completed_job(
+        self, backup_id: BackupJobId, server_id: ServerId, path: str
+    ) -> None:
         async with database.session_factory() as session:
             job = BackupJob.create(
                 backup_id=backup_id,
@@ -264,7 +274,9 @@ class TestDeleteBackupHandler:
                 await SQLBackupRepository(session).get_job(backup_id)
 
     @pytest.mark.asyncio
-    async def test_delete_backup_keeps_row_when_artifact_delete_fails(self, app_db, tmp_path) -> None:
+    async def test_delete_backup_keeps_row_when_artifact_delete_fails(
+        self, app_db, tmp_path
+    ) -> None:
         server_id = ServerId(uuid.uuid4().hex)
         backup_id = BackupJobId()
         path = f"{backup_id}.tar.gz.enc"
@@ -341,9 +353,7 @@ class TestSaveAllOnRunningServer:
         await _seed_pending_job(backup_id, server_id)
 
         saga = BackupSaga(SagaOrchestrator())
-        with patch(
-            "app.modules.server.infrastructure.providers.provider_factory"
-        ) as mock_factory:
+        with patch("app.modules.server.infrastructure.providers.provider_factory") as mock_factory:
             mock_factory.get.return_value = fake
             await saga.execute(
                 backup_id=backup_id,
@@ -376,14 +386,16 @@ class TestSaveAllOnRunningServer:
         await _seed_pending_job(backup_id, server_id)
 
         saga = BackupSaga(SagaOrchestrator())
-        with patch(
-            "app.modules.server.infrastructure.providers.provider_factory"
-        ) as mock_factory, patch(
-            "app.services.backup_orchestrator.SAVE_ALL_CONFIRMATION_TIMEOUT_S",
-            0.6,
-        ), patch(
-            "app.services.backup_orchestrator.SAVE_ALL_POLL_INTERVAL_S",
-            0.1,
+        with (
+            patch("app.modules.server.infrastructure.providers.provider_factory") as mock_factory,
+            patch(
+                "app.services.backup_orchestrator.SAVE_ALL_CONFIRMATION_TIMEOUT_S",
+                0.6,
+            ),
+            patch(
+                "app.services.backup_orchestrator.SAVE_ALL_POLL_INTERVAL_S",
+                0.1,
+            ),
         ):
             mock_factory.get.return_value = fake
             await saga.execute(

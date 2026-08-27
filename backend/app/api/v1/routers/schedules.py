@@ -9,14 +9,14 @@ __all__ = ["router"]
 
 @router.get("", response_model=list)
 async def list_schedules(
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
 ) -> list:
     return []
 
 
 @router.post("", response_model=dict, status_code=201)
 async def create_schedule(
-    current_user: dict = Depends(require_permission("global.settings")),
+    _current_user: dict = Depends(require_permission("global.settings")),
 ) -> dict:
     return {"success": True, "schedule_id": "stub-schedule-id"}
 
@@ -27,4 +27,3 @@ async def delete_schedule(
     current_user: dict = Depends(require_permission("global.settings")),
 ) -> None:
     pass
-

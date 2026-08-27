@@ -4,12 +4,12 @@ import logging
 import time
 from collections import defaultdict
 
+from app.core.identity import IDENTITY
 from app.modules.health.domain.events import (
     RecoveryFailedEvent,
     RecoverySucceededEvent,
     RecoveryTriggeredEvent,
 )
-from app.core.identity import IDENTITY
 from app.modules.server.domain.diagnostics import FailureCode
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.recovery")
@@ -40,11 +40,13 @@ class RecoveryOrchestrator:
             return RecoveryAction(
                 action="none",
                 reason=f"Non-recoverable failure: {failure_code}",
-                events=[RecoveryTriggeredEvent(
-                    server_id=server_id,
-                    recovery_action="none",
-                    reason=f"Non-recoverable failure: {failure_code}",
-                )],
+                events=[
+                    RecoveryTriggeredEvent(
+                        server_id=server_id,
+                        recovery_action="none",
+                        reason=f"Non-recoverable failure: {failure_code}",
+                    )
+                ],
             )
 
         attempts = self._attempts_in_window(server_id)
@@ -52,24 +54,30 @@ class RecoveryOrchestrator:
             return RecoveryAction(
                 action="escalate",
                 reason=f"Too many crashes ({attempts}) in window",
-                events=[RecoveryTriggeredEvent(
-                    server_id=server_id,
-                    recovery_action="escalate",
-                    reason=f"Crash loop detected: {attempts} crashes in {RESTART_WINDOW}s",
-                )],
+                events=[
+                    RecoveryTriggeredEvent(
+                        server_id=server_id,
+                        recovery_action="escalate",
+                        reason=f"Crash loop detected: {attempts} crashes in {RESTART_WINDOW}s",
+                    )
+                ],
             )
 
         return RecoveryAction(
             action="restart",
             reason=f"Auto-restart after {failure_code}",
-            events=[RecoveryTriggeredEvent(
-                server_id=server_id,
-                recovery_action="restart",
-                reason=f"Auto-restart after {failure_code}",
-            )],
+            events=[
+                RecoveryTriggeredEvent(
+                    server_id=server_id,
+                    recovery_action="restart",
+                    reason=f"Auto-restart after {failure_code}",
+                )
+            ],
         )
 
-    async def report_success(self, server_id: str, action: str, duration: float) -> RecoverySucceededEvent:
+    async def report_success(
+        self, server_id: str, action: str, duration: float
+    ) -> RecoverySucceededEvent:
         return RecoverySucceededEvent(
             server_id=server_id,
             recovery_action=action,

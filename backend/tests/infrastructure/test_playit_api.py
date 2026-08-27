@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from app.modules.exposure.infrastructure.playit_api import (
     PlayitAllocationFullError,
     PlayitApiClient,
-    PlayitApiError,
     PlayitAuthError,
     PlayitRateLimitError,
     PlayitRundataDto,
@@ -58,7 +58,10 @@ class TestPlayitApiClient:
         mock_client = MagicMock()
         mock_client.request.return_value.__aenter__.return_value = mock_resp
 
-        with patch("app.modules.exposure.infrastructure.playit_api.get_http_client", return_value=mock_client):
+        with patch(
+            "app.modules.exposure.infrastructure.playit_api.get_http_client",
+            return_value=mock_client,
+        ):
             client = PlayitApiClient()
             rundata = await client.get_rundata(SECRET_HEX)
 
@@ -89,7 +92,10 @@ class TestPlayitApiClient:
         mock_client = MagicMock()
         mock_client.request.return_value.__aenter__.return_value = mock_resp
 
-        with patch("app.modules.exposure.infrastructure.playit_api.get_http_client", return_value=mock_client):
+        with patch(
+            "app.modules.exposure.infrastructure.playit_api.get_http_client",
+            return_value=mock_client,
+        ):
             client = PlayitApiClient()
             tunnel = await client.create_tunnel(
                 secret=SECRET_HEX,
@@ -121,7 +127,10 @@ class TestPlayitApiClient:
         mock_client = MagicMock()
         mock_client.request.return_value.__aenter__.return_value = mock_resp
 
-        with patch("app.modules.exposure.infrastructure.playit_api.get_http_client", return_value=mock_client):
+        with patch(
+            "app.modules.exposure.infrastructure.playit_api.get_http_client",
+            return_value=mock_client,
+        ):
             client = PlayitApiClient()
             with pytest.raises(PlayitAllocationFullError):
                 await client.create_tunnel(
@@ -139,7 +148,10 @@ class TestPlayitApiClient:
         mock_client = MagicMock()
         mock_client.request.return_value.__aenter__.return_value = mock_resp
 
-        with patch("app.modules.exposure.infrastructure.playit_api.get_http_client", return_value=mock_client):
+        with patch(
+            "app.modules.exposure.infrastructure.playit_api.get_http_client",
+            return_value=mock_client,
+        ):
             client = PlayitApiClient()
             with pytest.raises(PlayitAuthError):
                 await client.get_rundata(SECRET_HEX)
@@ -151,7 +163,10 @@ class TestPlayitApiClient:
         mock_client = MagicMock()
         mock_client.request.return_value.__aenter__.return_value = mock_resp
 
-        with patch("app.modules.exposure.infrastructure.playit_api.get_http_client", return_value=mock_client):
+        with patch(
+            "app.modules.exposure.infrastructure.playit_api.get_http_client",
+            return_value=mock_client,
+        ):
             client = PlayitApiClient()
             with pytest.raises(PlayitRateLimitError):
                 await client.list_tunnels(SECRET_HEX)
@@ -164,7 +179,10 @@ class TestPlayitApiClient:
         mock_client = MagicMock()
         mock_client.request.return_value.__aenter__.return_value = mock_resp
 
-        with patch("app.modules.exposure.infrastructure.playit_api.get_http_client", return_value=mock_client):
+        with patch(
+            "app.modules.exposure.infrastructure.playit_api.get_http_client",
+            return_value=mock_client,
+        ):
             client = PlayitApiClient()
             deleted = await client.delete_tunnel(SECRET_HEX, "tun-123")
             assert deleted is True
@@ -177,7 +195,10 @@ class TestPlayitApiClient:
         mock_client = MagicMock()
         mock_client.request.return_value.__aenter__.return_value = mock_resp
 
-        with patch("app.modules.exposure.infrastructure.playit_api.get_http_client", return_value=mock_client):
+        with patch(
+            "app.modules.exposure.infrastructure.playit_api.get_http_client",
+            return_value=mock_client,
+        ):
             client = PlayitApiClient()
             deleted = await client.delete_tunnel(SECRET_HEX, "tun-nonexistent")
             assert deleted is False

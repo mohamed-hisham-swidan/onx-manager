@@ -27,15 +27,23 @@ class TestIdempotencyKey:
 
 @pytest.mark.asyncio
 class TestInMemoryIdempotencyStore:
-    async def test_not_duplicate_on_first_call(self, idempotency_store: InMemoryIdempotencyStore) -> None:
+    async def test_not_duplicate_on_first_call(
+        self, idempotency_store: InMemoryIdempotencyStore
+    ) -> None:
         result = await idempotency_store.is_duplicate("key-1")
         assert result is False
 
-    async def test_detects_duplicate_after_mark(self, idempotency_store: InMemoryIdempotencyStore) -> None:
-        await idempotency_store.mark_completed("key-1", CommandResult(success=True, data={"done": True}))
+    async def test_detects_duplicate_after_mark(
+        self, idempotency_store: InMemoryIdempotencyStore
+    ) -> None:
+        await idempotency_store.mark_completed(
+            "key-1", CommandResult(success=True, data={"done": True})
+        )
         assert await idempotency_store.is_duplicate("key-1") is True
 
-    async def test_get_result_returns_cached(self, idempotency_store: InMemoryIdempotencyStore) -> None:
+    async def test_get_result_returns_cached(
+        self, idempotency_store: InMemoryIdempotencyStore
+    ) -> None:
         original = CommandResult(success=True, data={"result": 42})
         await idempotency_store.mark_completed("key-1", original)
         cached = await idempotency_store.get_result("key-1")
@@ -43,7 +51,9 @@ class TestInMemoryIdempotencyStore:
         assert cached.success is True
         assert cached.data["result"] == 42
 
-    async def test_get_result_none_for_missing(self, idempotency_store: InMemoryIdempotencyStore) -> None:
+    async def test_get_result_none_for_missing(
+        self, idempotency_store: InMemoryIdempotencyStore
+    ) -> None:
         result = await idempotency_store.get_result("missing")
         assert result is None
 
@@ -52,7 +62,9 @@ class TestInMemoryIdempotencyStore:
         await store.mark_completed("expired", CommandResult(success=True))
         assert await store.is_duplicate("expired") is False
 
-    async def test_multiple_keys_independent(self, idempotency_store: InMemoryIdempotencyStore) -> None:
+    async def test_multiple_keys_independent(
+        self, idempotency_store: InMemoryIdempotencyStore
+    ) -> None:
         await idempotency_store.mark_completed("a", CommandResult(success=True, data={"x": 1}))
         await idempotency_store.mark_completed("b", CommandResult(success=True, data={"x": 2}))
         assert (await idempotency_store.get_result("a")).data["x"] == 1

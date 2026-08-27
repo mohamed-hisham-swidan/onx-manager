@@ -21,7 +21,6 @@ from app.modules.server.domain.value_objects import (
     ServerType,
 )
 from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
-
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 
@@ -33,6 +32,7 @@ class SQLServerRepository(ServerRepository):
         model = await self._session.get(ServerModel, str(id))
         if model is None:
             from app.core.exceptions import ServerNotFoundError
+
             raise ServerNotFoundError(str(id))
         return self._model_to_domain(model)
 
@@ -199,6 +199,7 @@ class SQLServerRepository(ServerRepository):
         )
 
         from app.modules.server.domain.aggregate import ServerStatus
+
         status_map: dict[str, Any] = {s.value: s for s in ServerStatus}
         server._status = status_map.get(model.status, ServerStatus.CREATED)
 
@@ -209,7 +210,9 @@ class SQLServerMembershipRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def add_membership(self, id: str, server_id: str, user_id: str, role: str) -> ServerMembershipModel:
+    async def add_membership(
+        self, id: str, server_id: str, user_id: str, role: str
+    ) -> ServerMembershipModel:
         model = ServerMembershipModel(
             id=id,
             server_id=server_id,
@@ -246,7 +249,9 @@ class SQLServerMembershipRepository:
         await self._session.flush()
         return True
 
-    async def update_membership_role(self, server_id: str, user_id: str, role: str) -> ServerMembershipModel | None:
+    async def update_membership_role(
+        self, server_id: str, user_id: str, role: str
+    ) -> ServerMembershipModel | None:
         membership = await self.get_membership(server_id, user_id)
         if membership is None:
             return None

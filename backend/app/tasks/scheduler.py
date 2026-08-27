@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid
 from collections.abc import Callable, Coroutine
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, select
@@ -45,8 +44,10 @@ class Scheduler:
             return
         self._running = True
 
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
         import logging
+
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
         logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
         self._aps = AsyncIOScheduler()
 
@@ -69,7 +70,7 @@ class Scheduler:
         params: dict[str, Any] | None = None,
     ) -> None:
         job_id = uuid.uuid4().hex
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         async with await self._session_factory() as session:
             model = CronJobModel(
@@ -136,7 +137,7 @@ class Scheduler:
             return
 
         params = json.loads(model.params_json) if model.params_json else {}
-        
+
         is_subminute_interval = False
         if model.cron_expression.startswith("interval:"):
             secs_str = model.cron_expression.split(":")[1].rstrip("s")
@@ -150,7 +151,11 @@ class Scheduler:
             trigger_kwargs = self._parse_cron(model.cron_expression)
 
         async def run_job() -> None:
-            if is_subminute_interval and self._task_queue and hasattr(self._task_queue, "_handlers"):
+            if (
+                is_subminute_interval
+                and self._task_queue
+                and hasattr(self._task_queue, "_handlers")
+            ):
                 handler = self._task_queue._handlers.get(model.task_name)
                 if handler:
                     try:
@@ -170,7 +175,7 @@ class Scheduler:
                     async with await self._session_factory() as session:
                         m = await session.get(CronJobModel, model.id)
                         if m:
-                            m.last_run_at = datetime.now(timezone.utc)
+                            m.last_run_at = datetime.now(UTC)
                             await session.commit()
                 except Exception:
                     pass

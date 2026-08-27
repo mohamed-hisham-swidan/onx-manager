@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
@@ -15,7 +16,6 @@ from app.modules.auth.application import (
     RevokeInviteCommand,
     VerifyInviteQuery,
 )
-
 
 router = APIRouter(prefix="/api/v1/invites", tags=["invites"])
 
@@ -87,7 +87,7 @@ async def create_invite(
 
 @router.get("", response_model=list[dict[str, Any]])
 async def list_invites(
-    current_user: dict = Depends(require_permission("user:write")),
+    _current_user: dict = Depends(require_permission("user:write")),
     query_bus: QueryBus = Depends(get_query_bus),
 ) -> list[dict[str, Any]]:
     return await query_bus.ask(ListInvitesQuery())
@@ -96,7 +96,7 @@ async def list_invites(
 @router.delete("/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_invite(
     invite_id: str,
-    current_user: dict = Depends(require_permission("user:write")),
+    _current_user: dict = Depends(require_permission("user:write")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> None:
     result = await command_bus.send(RevokeInviteCommand(invitation_id=invite_id))

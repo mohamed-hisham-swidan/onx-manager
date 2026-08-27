@@ -21,14 +21,14 @@ class FailingHandler(EventHandler):
     fail_count: int = 0
     call_count: int = 0
 
-    async def handle(self, event: DomainEvent) -> None:
+    async def handle(self, _event: DomainEvent) -> None:
         self.call_count += 1
         if self.call_count <= self.fail_count:
             raise RuntimeError("handler failed")
 
 
 class SlowHandler(EventHandler):
-    async def handle(self, event: DomainEvent) -> None:
+    async def handle(self, _event: DomainEvent) -> None:
         await asyncio.sleep(5)
 
 
@@ -103,7 +103,7 @@ class TestEventBus:
             def __init__(self, name: str) -> None:
                 self.name = name
 
-            async def handle(self, event: DomainEvent) -> None:
+            async def handle(self, _event: DomainEvent) -> None:
                 order.append(self.name)
 
         event_bus.subscribe("TestEvent", OrderedHandler("low"), priority=Priority.LOW)

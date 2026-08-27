@@ -10,8 +10,9 @@ import time
 from pathlib import Path
 
 from app.core.identity import IDENTITY
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.saga import SagaOrchestrator, SagaStep
-from app.modules.backup.domain.aggregate import BackupStatus, BackupType
+from app.modules.backup.domain.aggregate import BackupType
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.server.infrastructure.providers.base import ServerHandle
@@ -19,7 +20,6 @@ from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
 from app.modules.storage.base import StorageBackend
 from app.modules.storage.encryption import BackupEncryption
-from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,11 @@ class BackupSaga:
                         checksum=self._result_checksum,
                         storage_path=self._result_storage_path,
                     )
-                elif is_backup_cancelled(str(backup_id)) or (result.error and "cancelled" in result.error.lower()) or (result.error and "timeout" in result.error.lower()):
+                elif (
+                    is_backup_cancelled(str(backup_id))
+                    or (result.error and "cancelled" in result.error.lower())
+                    or (result.error and "timeout" in result.error.lower())
+                ):
                     job.mark_failed_timeout(result.error or "Backup cancelled due to timeout")
                 else:
                     job.mark_failed(result.error or "Backup saga failed")
@@ -161,7 +165,11 @@ class BackupSaga:
             if is_backup_cancelled(str(backup_id)):
                 raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             if not await self._server_is_running(server_id):
-                logger.info("World save not required — server %s is not running (backup %s)", server_id, backup_id)
+                logger.info(
+                    "World save not required — server %s is not running (backup %s)",
+                    server_id,
+                    backup_id,
+                )
                 return
 
             server = await self._load_server(server_id)
@@ -183,7 +191,8 @@ class BackupSaga:
             await self._wait_for_save_confirmed(backup_id, server_id, provider, handle)
             logger.info(
                 "Save-all confirmed for server %s (backup %s) — proceeding with backup",
-                server_id, backup_id,
+                server_id,
+                backup_id,
             )
 
         return fn
@@ -219,14 +228,19 @@ class BackupSaga:
             if is_backup_cancelled(str(backup_id)):
                 raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             server_dir, primary_world = await self._resolve_server_dir(server_id)
-            self._temp_dir = tempfile.mkdtemp(prefix=f"{IDENTITY.temp_prefix_new}backup-{str(backup_id)[:8]}-")
+            self._temp_dir = tempfile.mkdtemp(
+                prefix=f"{IDENTITY.temp_prefix_new}backup-{str(backup_id)[:8]}-"
+            )
             self._tar_path = os.path.join(self._temp_dir, f"{backup_id}.tar.gz")
-            self._write_tar(self._tar_path, server_dir, primary_world, backup_type, backup_id=str(backup_id))
+            self._write_tar(
+                self._tar_path, server_dir, primary_world, backup_type, backup_id=str(backup_id)
+            )
             if is_backup_cancelled(str(backup_id)):
                 raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             logger.info(
                 "Backup compressed: %s (%d bytes)",
-                backup_id, os.path.getsize(self._tar_path),
+                backup_id,
+                os.path.getsize(self._tar_path),
             )
 
         return fn
@@ -250,7 +264,9 @@ class BackupSaga:
                 raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             logger.info(
                 "Backup encrypted: %s (%d bytes plaintext -> %d bytes ciphertext)",
-                backup_id, len(plaintext), len(encrypted),
+                backup_id,
+                len(plaintext),
+                len(encrypted),
             )
 
         return fn
@@ -271,11 +287,18 @@ class BackupSaga:
             path = artifact_path(backup_id)
             await storage.write(path, encrypted)
             self._result_size = len(encrypted)
-            self._result_checksum = encryption.checksum(encrypted) if encryption else hashlib.sha256(encrypted).hexdigest()
+            self._result_checksum = (
+                encryption.checksum(encrypted)
+                if encryption
+                else hashlib.sha256(encrypted).hexdigest()
+            )
             self._result_storage_path = path
             logger.info(
                 "Backup uploaded: %s -> %s (%d bytes, sha256=%s)",
-                backup_id, path, self._result_size, self._result_checksum[:16],
+                backup_id,
+                path,
+                self._result_size,
+                self._result_checksum[:16],
             )
             self._cleanup_temp_dir()
 
@@ -293,7 +316,9 @@ class BackupSaga:
             path = artifact_path(backup_id)
             data = await storage.read(path)
             actual_size = len(data)
-            actual_checksum = encryption.checksum(data) if encryption else hashlib.sha256(data).hexdigest()
+            actual_checksum = (
+                encryption.checksum(data) if encryption else hashlib.sha256(data).hexdigest()
+            )
             if actual_size != self._result_size:
                 raise RuntimeError(
                     f"Backup {backup_id} size mismatch: expected {self._result_size}, got {actual_size}",
@@ -302,7 +327,12 @@ class BackupSaga:
                 raise RuntimeError(
                     f"Backup {backup_id} checksum mismatch: expected {self._result_checksum}, got {actual_checksum}",
                 )
-            logger.info("Backup verified: %s (%d bytes, sha256=%s)", backup_id, actual_size, actual_checksum[:16])
+            logger.info(
+                "Backup verified: %s (%d bytes, sha256=%s)",
+                backup_id,
+                actual_size,
+                actual_checksum[:16],
+            )
 
         return fn
 

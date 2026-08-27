@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal
 
+from app.core.identity import IDENTITY
 from app.modules.server.application.ownership_verifier import (
     OwnershipStatus,
     log_ownership_decision,
@@ -23,7 +24,6 @@ from app.modules.server.infrastructure.providers.base import (
     ProviderFactory,
     ServerHandle,
 )
-from app.core.identity import IDENTITY
 from app.modules.shared.value_objects import ServerId
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.runtime_ownership")
@@ -330,7 +330,16 @@ class RuntimeOwnershipManager:
         for sid, server in server_map.items():
             ext_id = server.runtime.external_id if server.runtime else ""
             session_name = ext_id or f"{IDENTITY.temp_prefix_new}{sid}"
-            port = (server.properties.port.value if hasattr(server.properties, "port") and isinstance(server.properties.port, int) else 25565) if server.properties else 25565
+            port = (
+                (
+                    server.properties.port.value
+                    if hasattr(server.properties, "port")
+                    and isinstance(server.properties.port, int)
+                    else 25565
+                )
+                if server.properties
+                else 25565
+            )
 
             is_running = server.status in (ServerStatus.RUNNING, ServerStatus.STARTING)
             matching_tmux = [t for t in all_tmux if t[0] == session_name]
@@ -344,11 +353,13 @@ class RuntimeOwnershipManager:
                 actual_pid = mc_pid if mc_pid else pane_pid
 
                 if actual_pid and actual_pid in seen_pids:
-                    conflicts.append(ConflictInfo(
-                        reason=ConflictReason.DUPLICATE_PID,
-                        detail=f"PID {actual_pid} claimed by multiple servers (conflict with {sid})",
-                        auto_resolvable=True,
-                    ))
+                    conflicts.append(
+                        ConflictInfo(
+                            reason=ConflictReason.DUPLICATE_PID,
+                            detail=f"PID {actual_pid} claimed by multiple servers (conflict with {sid})",
+                            auto_resolvable=True,
+                        )
+                    )
                 if actual_pid:
                     seen_pids.add(actual_pid)
 
@@ -356,26 +367,32 @@ class RuntimeOwnershipManager:
                 if port not in port_to_server:
                     port_to_server[port] = sid
                 elif port_to_server[port] != sid:
-                    conflicts.append(ConflictInfo(
-                        reason=ConflictReason.DUPLICATE_PORT,
-                        detail=f"Port {port} claimed by {sid} but already owned by {port_to_server[port]}",
-                        auto_resolvable=True,
-                        resource=RuntimeResource(resource_type="port", identifier=str(port), port=port),
-                    ))
+                    conflicts.append(
+                        ConflictInfo(
+                            reason=ConflictReason.DUPLICATE_PORT,
+                            detail=f"Port {port} claimed by {sid} but already owned by {port_to_server[port]}",
+                            auto_resolvable=True,
+                            resource=RuntimeResource(
+                                resource_type="port", identifier=str(port), port=port
+                            ),
+                        )
+                    )
 
-                active_servers_list.append({
-                    "server_id": sid,
-                    "server_name": server.name,
-                    "status": server.status.value,
-                    "tmux_session": tmux_name,
-                    "pane_pid": pane_pid,
-                    "minecraft_pid": mc_pid,
-                    "actual_pid": actual_pid,
-                    "port": port,
-                    "port_listening": port_listening,
-                    "port_owner": port_to_server.get(port),
-                    "supervised": RuntimeSupervisor.is_supervised(sid),
-                })
+                active_servers_list.append(
+                    {
+                        "server_id": sid,
+                        "server_name": server.name,
+                        "status": server.status.value,
+                        "tmux_session": tmux_name,
+                        "pane_pid": pane_pid,
+                        "minecraft_pid": mc_pid,
+                        "actual_pid": actual_pid,
+                        "port": port,
+                        "port_listening": port_listening,
+                        "port_owner": port_to_server.get(port),
+                        "supervised": RuntimeSupervisor.is_supervised(sid),
+                    }
+                )
 
                 for mcp in mc_pids:
                     java_pid_set.discard(mcp)
@@ -384,18 +401,22 @@ class RuntimeOwnershipManager:
 
                 has_supervisor = RuntimeSupervisor.is_supervised(sid)
                 if is_running and not has_supervisor:
-                    stale_supervisors.append({
+                    stale_supervisors.append(
+                        {
+                            "server_id": sid,
+                            "server_name": server.name,
+                            "detail": f"Server is {server.status.value} with active tmux but no supervisor tracking it",
+                        }
+                    )
+            elif is_running:
+                stale_records.append(
+                    {
                         "server_id": sid,
                         "server_name": server.name,
-                        "detail": f"Server is {server.status.value} with active tmux but no supervisor tracking it",
-                    })
-            elif is_running:
-                stale_records.append({
-                    "server_id": sid,
-                    "server_name": server.name,
-                    "status": server.status.value,
-                    "detail": f"DB marks {server.status.value} but no tmux session found ({session_name})",
-                })
+                        "status": server.status.value,
+                        "detail": f"DB marks {server.status.value} but no tmux session found ({session_name})",
+                    }
+                )
 
         checked_session_names: set[str] = (
             {f"{IDENTITY.temp_prefix_new}{s}" for s in server_map}
@@ -406,12 +427,14 @@ class RuntimeOwnershipManager:
         for tmux_name, pane_pid in all_tmux:
             if tmux_name not in checked_session_names:
                 mc_pids = _find_minecraft_child_pids(pane_pid) if pane_pid else []
-                orphan_tmux_list.append(RuntimeResource(
-                    resource_type="tmux",
-                    identifier=tmux_name,
-                    pid=pane_pid,
-                    details={"minecraft_child_pids": mc_pids},
-                ))
+                orphan_tmux_list.append(
+                    RuntimeResource(
+                        resource_type="tmux",
+                        identifier=tmux_name,
+                        pid=pane_pid,
+                        details={"minecraft_child_pids": mc_pids},
+                    )
+                )
                 for mcp in mc_pids:
                     java_pid_set.discard(mcp)
                 if pane_pid:
@@ -420,34 +443,42 @@ class RuntimeOwnershipManager:
         for jpid in list(java_pid_set):
             cmdline = _get_java_cmdline(jpid)
             if _is_minecraft_cmdline(cmdline):
-                orphan_process_list.append(RuntimeResource(
-                    resource_type="process",
-                    identifier=str(jpid),
-                    pid=jpid,
-                    details={"cmdline": cmdline[:200]},
-                ))
+                orphan_process_list.append(
+                    RuntimeResource(
+                        resource_type="process",
+                        identifier=str(jpid),
+                        pid=jpid,
+                        details={"cmdline": cmdline[:200]},
+                    )
+                )
 
         active_count = len(active_servers_list)
         if active_count > 1:
-            conflicts.append(ConflictInfo(
-                reason=ConflictReason.MULTIPLE_SERVERS_ACTIVE,
-                detail=f"{active_count} servers are actively running: {', '.join(a['server_name'] for a in active_servers_list)}",
-                auto_resolvable=True,
-            ))
+            conflicts.append(
+                ConflictInfo(
+                    reason=ConflictReason.MULTIPLE_SERVERS_ACTIVE,
+                    detail=f"{active_count} servers are actively running: {', '.join(a['server_name'] for a in active_servers_list)}",
+                    auto_resolvable=True,
+                )
+            )
 
         if orphan_tmux_list:
-            conflicts.append(ConflictInfo(
-                reason=ConflictReason.ORPHAN_TMUX,
-                detail=f"{len(orphan_tmux_list)} orphan tmux sessions: {', '.join(r.identifier for r in orphan_tmux_list)}",
-                auto_resolvable=True,
-            ))
+            conflicts.append(
+                ConflictInfo(
+                    reason=ConflictReason.ORPHAN_TMUX,
+                    detail=f"{len(orphan_tmux_list)} orphan tmux sessions: {', '.join(r.identifier for r in orphan_tmux_list)}",
+                    auto_resolvable=True,
+                )
+            )
 
         if orphan_process_list:
-            conflicts.append(ConflictInfo(
-                reason=ConflictReason.ORPHAN_PROCESS,
-                detail=f"{len(orphan_process_list)} orphan Minecraft processes: PIDs {', '.join(str(r.pid) for r in orphan_process_list if r.pid)}",
-                auto_resolvable=True,
-            ))
+            conflicts.append(
+                ConflictInfo(
+                    reason=ConflictReason.ORPHAN_PROCESS,
+                    detail=f"{len(orphan_process_list)} orphan Minecraft processes: PIDs {', '.join(str(r.pid) for r in orphan_process_list if r.pid)}",
+                    auto_resolvable=True,
+                )
+            )
 
         localhost_owner = None
         for a in active_servers_list:
@@ -474,19 +505,28 @@ class RuntimeOwnershipManager:
         snapshot = await self.discover_all()
 
         server = await self._repo.get(ServerId(requesting_server_id))
-        requesting_port = (server.properties.port.value if hasattr(server.properties, "port") else 25565) if server.properties else 25565
+        requesting_port = (
+            (server.properties.port.value if hasattr(server.properties, "port") else 25565)
+            if server.properties
+            else 25565
+        )
         requesting_name = server.name
 
         logger.info(
             'Claiming localhost — server="%s" sid=%s port=%d reason="ownership transfer requested"',
-            requesting_name, requesting_server_id, requesting_port,
+            requesting_name,
+            requesting_server_id,
+            requesting_port,
         )
 
-        other_servers = [a for a in snapshot.active_servers if a["server_id"] != requesting_server_id]
+        other_servers = [
+            a for a in snapshot.active_servers if a["server_id"] != requesting_server_id
+        ]
         if other_servers:
             logger.warning(
                 'Displacing %d competing server(s) for "%s" — reason="single owner required"',
-                len(other_servers), requesting_name,
+                len(other_servers),
+                requesting_name,
             )
 
         for other in other_servers:
@@ -502,11 +542,15 @@ class RuntimeOwnershipManager:
                 logger.warning("Displacing competing server — %s", log_reason)
 
                 await RuntimeSupervisor.stop_for(sid)
-                actions.append(f"Stopped supervisor for displaced server '{sname}' ({sid}) — {log_reason}")
+                actions.append(
+                    f"Stopped supervisor for displaced server '{sname}' ({sid}) — {log_reason}"
+                )
                 resolved += 1
 
                 displaced_server = await self._repo.get(ServerId(sid))
-                provider_type = displaced_server.runtime.provider if displaced_server.runtime else "local"
+                provider_type = (
+                    displaced_server.runtime.provider if displaced_server.runtime else "local"
+                )
                 provider = self._provider_factory.get(provider_type)
                 ext_id = displaced_server.runtime.external_id if displaced_server.runtime else ""
                 if ext_id:
@@ -517,30 +561,44 @@ class RuntimeOwnershipManager:
                         metadata={"server_name": sname},
                     )
                     await provider.stop(handle, force=True)
-                    actions.append(f"Force-stopped displaced server '{sname}' ({sid}) via provider — {log_reason}")
+                    actions.append(
+                        f"Force-stopped displaced server '{sname}' ({sid}) via provider — {log_reason}"
+                    )
                     resolved += 1
 
                 if sport and _port_is_listening(sport):
                     released = _wait_for_port_free(sport, timeout=3.0)
                     if released:
-                        actions.append(f"Port {sport} released by displaced server '{sname}' ({sid})")
+                        actions.append(
+                            f"Port {sport} released by displaced server '{sname}' ({sid})"
+                        )
                     else:
-                        warnings.append(f"Port {sport} still listening after stopping '{sname}' ({sid})")
+                        warnings.append(
+                            f"Port {sport} still listening after stopping '{sname}' ({sid})"
+                        )
 
                 if spid and _is_pid_alive(spid):
                     killed, reason = _try_kill_process(spid)
                     if killed:
-                        actions.append(f"Process PID {spid} terminated for displaced server '{sname}' ({sid}) — {reason}")
+                        actions.append(
+                            f"Process PID {spid} terminated for displaced server '{sname}' ({sid}) — {reason}"
+                        )
                     else:
-                        warnings.append(f"Could not terminate PID {spid} for '{sname}' ({sid}) — {reason}")
+                        warnings.append(
+                            f"Could not terminate PID {spid} for '{sname}' ({sid}) — {reason}"
+                        )
                         resolved += 1
 
                 displaced_server.crash(
                     exit_code=-1,
-                    last_log_lines=[f"Displaced by runtime ownership claim from '{requesting_name}' ({requesting_server_id})"],
+                    last_log_lines=[
+                        f"Displaced by runtime ownership claim from '{requesting_name}' ({requesting_server_id})"
+                    ],
                 )
                 await self._repo.save(displaced_server)
-                actions.append(f"DB record for displaced server '{sname}' ({sid}) marked CRASHED — {log_reason}")
+                actions.append(
+                    f"DB record for displaced server '{sname}' ({sid}) marked CRASHED — {log_reason}"
+                )
                 resolved += 1
 
             except Exception as exc:
@@ -551,7 +609,8 @@ class RuntimeOwnershipManager:
         if snapshot.orphan_tmux:
             logger.warning(
                 'Cleaning %d orphan tmux sessions before starting "%s"',
-                len(snapshot.orphan_tmux), requesting_name,
+                len(snapshot.orphan_tmux),
+                requesting_name,
             )
         for orphan in snapshot.orphan_tmux:
             try:
@@ -559,8 +618,12 @@ class RuntimeOwnershipManager:
                 if orphan.pid:
                     ownership = verify_ownership(orphan.pid)
                     log_ownership_decision(
-                        logger, "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
-                        f"session={orphan.identifier}", orphan.pid, ownership, reason,
+                        logger,
+                        "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
+                        f"session={orphan.identifier}",
+                        orphan.pid,
+                        ownership,
+                        reason,
                     )
                     if ownership.status != OwnershipStatus.VERIFIED:
                         warnings.append(
@@ -580,7 +643,8 @@ class RuntimeOwnershipManager:
         if snapshot.orphan_processes:
             logger.warning(
                 'Cleaning %d orphan Minecraft processes before starting "%s"',
-                len(snapshot.orphan_processes), requesting_name,
+                len(snapshot.orphan_processes),
+                requesting_name,
             )
         for orphan in snapshot.orphan_processes:
             try:
@@ -588,8 +652,12 @@ class RuntimeOwnershipManager:
                 if orphan.pid:
                     ownership = verify_ownership(orphan.pid)
                     log_ownership_decision(
-                        logger, "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
-                        f"pid={orphan.pid}", orphan.pid, ownership, reason,
+                        logger,
+                        "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
+                        f"pid={orphan.pid}",
+                        orphan.pid,
+                        ownership,
+                        reason,
                     )
                     if ownership.status != OwnershipStatus.VERIFIED:
                         warnings.append(
@@ -599,7 +667,9 @@ class RuntimeOwnershipManager:
                         continue
                     killed, info = _try_kill_process(orphan.pid)
                     if killed:
-                        actions.append(f"Killed orphan Minecraft process PID {orphan.pid} — {reason}")
+                        actions.append(
+                            f"Killed orphan Minecraft process PID {orphan.pid} — {reason}"
+                        )
                     else:
                         warnings.append(f"Could not kill orphan process PID {orphan.pid} — {info}")
                 resolved += 1
@@ -610,26 +680,41 @@ class RuntimeOwnershipManager:
             port_pid = _pid_for_port(requesting_port)
             logger.warning(
                 'Port %d occupied by PID %s before starting "%s" — reason="port must be free"',
-                requesting_port, port_pid, requesting_name,
+                requesting_port,
+                port_pid,
+                requesting_name,
             )
             if port_pid:
                 killed, info = _try_kill_process(port_pid)
                 if killed:
-                    actions.append(f"Killed process PID {port_pid} occupying port {requesting_port} — {info}")
+                    actions.append(
+                        f"Killed process PID {port_pid} occupying port {requesting_port} — {info}"
+                    )
                     released = _wait_for_port_free(requesting_port, timeout=3.0)
                     if released:
-                        actions.append(f"Port {requesting_port} verified free after killing occupant PID {port_pid}")
+                        actions.append(
+                            f"Port {requesting_port} verified free after killing occupant PID {port_pid}"
+                        )
                     else:
-                        warnings.append(f"Port {requesting_port} still occupied after killing PID {port_pid}")
+                        warnings.append(
+                            f"Port {requesting_port} still occupied after killing PID {port_pid}"
+                        )
                         resolved += 1
                 else:
-                    warnings.append(f"Could not kill PID {port_pid} occupying port {requesting_port} — {info}")
+                    warnings.append(
+                        f"Could not kill PID {port_pid} occupying port {requesting_port} — {info}"
+                    )
             else:
-                warnings.append(f"Port {requesting_port} is listening but owner PID could not be determined")
+                warnings.append(
+                    f"Port {requesting_port} is listening but owner PID could not be determined"
+                )
 
         logger.info(
             'Localhost claim for "%s" completed — actions=%d warnings=%d resolved=%d',
-            requesting_name, len(actions), len(warnings), resolved,
+            requesting_name,
+            len(actions),
+            len(warnings),
+            resolved,
         )
 
         return ClaimResult(
@@ -650,6 +735,7 @@ class RuntimeOwnershipManager:
         if scope == "project_owned":
             try:
                 from app.modules.server.application.ownership_verifier import _get_servers_data_dir
+
                 servers_data_dir = _get_servers_data_dir()
             except Exception:
                 pass
@@ -660,41 +746,61 @@ class RuntimeOwnershipManager:
                 if scope == "project_owned" and orphan.pid:
                     ownership = verify_ownership(orphan.pid, servers_data_dir)
                     log_ownership_decision(
-                        logger, "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
-                        f"session={orphan.identifier}", orphan.pid, ownership, reason,
+                        logger,
+                        "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
+                        f"session={orphan.identifier}",
+                        orphan.pid,
+                        ownership,
+                        reason,
                     )
                     if ownership.status != OwnershipStatus.VERIFIED:
-                        cleanup_actions.append({
-                            "type": "orphan_tmux",
-                            "identifier": orphan.identifier,
-                            "pid": orphan.pid,
-                            "action": "skipped",
-                            "reason": f"not verified as project-owned ({ownership.detail})",
-                        })
+                        cleanup_actions.append(
+                            {
+                                "type": "orphan_tmux",
+                                "identifier": orphan.identifier,
+                                "pid": orphan.pid,
+                                "action": "skipped",
+                                "reason": f"not verified as project-owned ({ownership.detail})",
+                            }
+                        )
                         continue
                 logger.warning("Cleaning orphan tmux — %s", reason)
                 killed, info = _try_kill_tmux_session(orphan.identifier)
-                cleanup_actions.append({
-                    "type": "orphan_tmux",
-                    "identifier": orphan.identifier,
-                    "pid": orphan.pid,
-                    "action": "killed" if killed else "failed",
-                    "reason": reason,
-                    "result": info,
-                })
+                cleanup_actions.append(
+                    {
+                        "type": "orphan_tmux",
+                        "identifier": orphan.identifier,
+                        "pid": orphan.pid,
+                        "action": "killed" if killed else "failed",
+                        "reason": reason,
+                        "result": info,
+                    }
+                )
                 if killed:
-                    logger.info("Cleaned orphan tmux — session=%s pid=%s reason=%s", orphan.identifier, orphan.pid, reason)
+                    logger.info(
+                        "Cleaned orphan tmux — session=%s pid=%s reason=%s",
+                        orphan.identifier,
+                        orphan.pid,
+                        reason,
+                    )
                 else:
-                    logger.error("Failed to clean orphan tmux — session=%s reason=%s result=%s", orphan.identifier, reason, info)
+                    logger.error(
+                        "Failed to clean orphan tmux — session=%s reason=%s result=%s",
+                        orphan.identifier,
+                        reason,
+                        info,
+                    )
             except Exception as exc:
                 logger.exception("Exception cleaning orphan tmux %s", orphan.identifier)
-                cleanup_actions.append({
-                    "type": "orphan_tmux",
-                    "identifier": orphan.identifier,
-                    "pid": orphan.pid,
-                    "action": "error",
-                    "reason": str(exc),
-                })
+                cleanup_actions.append(
+                    {
+                        "type": "orphan_tmux",
+                        "identifier": orphan.identifier,
+                        "pid": orphan.pid,
+                        "action": "error",
+                        "reason": str(exc),
+                    }
+                )
 
         for orphan in snapshot.orphan_processes:
             try:
@@ -702,31 +808,44 @@ class RuntimeOwnershipManager:
                 if scope == "project_owned" and orphan.pid:
                     ownership = verify_ownership(orphan.pid, servers_data_dir)
                     log_ownership_decision(
-                        logger, "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
-                        f"pid={orphan.pid}", orphan.pid, ownership, reason,
+                        logger,
+                        "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
+                        f"pid={orphan.pid}",
+                        orphan.pid,
+                        ownership,
+                        reason,
                     )
                     if ownership.status != OwnershipStatus.VERIFIED:
-                        cleanup_actions.append({
-                            "type": "orphan_process",
-                            "pid": orphan.pid,
-                            "action": "skipped",
-                            "reason": f"not verified as project-owned ({ownership.detail})",
-                        })
+                        cleanup_actions.append(
+                            {
+                                "type": "orphan_process",
+                                "pid": orphan.pid,
+                                "action": "skipped",
+                                "reason": f"not verified as project-owned ({ownership.detail})",
+                            }
+                        )
                         continue
                 logger.warning("Cleaning orphan process — %s", reason)
                 if orphan.pid:
                     killed, info = _try_kill_process(orphan.pid)
-                    cleanup_actions.append({
-                        "type": "orphan_process",
-                        "pid": orphan.pid,
-                        "action": "killed" if killed else "failed",
-                        "reason": reason,
-                        "result": info,
-                    })
+                    cleanup_actions.append(
+                        {
+                            "type": "orphan_process",
+                            "pid": orphan.pid,
+                            "action": "killed" if killed else "failed",
+                            "reason": reason,
+                            "result": info,
+                        }
+                    )
                     if killed:
                         logger.info("Cleaned orphan process — pid=%s reason=%s", orphan.pid, reason)
                     else:
-                        logger.error("Failed to clean orphan process — pid=%s reason=%s result=%s", orphan.pid, reason, info)
+                        logger.error(
+                            "Failed to clean orphan process — pid=%s reason=%s result=%s",
+                            orphan.pid,
+                            reason,
+                            info,
+                        )
             except Exception:
                 logger.exception("Exception cleaning orphan process PID %s", orphan.pid)
 
@@ -736,36 +855,45 @@ class RuntimeOwnershipManager:
             try:
                 logger.warning("Cleaning stale DB record — server=%s reason=%s", sid, reason)
                 server = await self._repo.get(ServerId(sid))
-                server.crash(exit_code=-1, last_log_lines=[f"Stale DB record cleaned by orphan cleanup — {reason}"])
+                server.crash(
+                    exit_code=-1,
+                    last_log_lines=[f"Stale DB record cleaned by orphan cleanup — {reason}"],
+                )
                 await self._repo.save(server)
-                cleanup_actions.append({
-                    "type": "stale_db_record",
-                    "server_id": sid,
-                    "server_name": stale.get("server_name", ""),
-                    "action": "crashed",
-                    "reason": reason,
-                })
+                cleanup_actions.append(
+                    {
+                        "type": "stale_db_record",
+                        "server_id": sid,
+                        "server_name": stale.get("server_name", ""),
+                        "action": "crashed",
+                        "reason": reason,
+                    }
+                )
                 logger.info("Cleaned stale DB record — server=%s reason=%s", sid, reason)
             except Exception as exc:
                 logger.exception("Failed to clean stale DB record %s", sid)
-                cleanup_actions.append({
-                    "type": "stale_db_record",
-                    "server_id": sid,
-                    "action": "error",
-                    "reason": str(exc),
-                })
+                cleanup_actions.append(
+                    {
+                        "type": "stale_db_record",
+                        "server_id": sid,
+                        "action": "error",
+                        "reason": str(exc),
+                    }
+                )
 
         for stale_sup in snapshot.stale_supervisors:
             sid = stale_sup["server_id"]
             reason = "server has active tmux but no supervisor — restarting supervisor"
             try:
                 logger.warning("Repairing missing supervisor — server=%s reason=%s", sid, reason)
-                cleanup_actions.append({
-                    "type": "stale_supervisor",
-                    "server_id": sid,
-                    "action": "detected",
-                    "reason": reason,
-                })
+                cleanup_actions.append(
+                    {
+                        "type": "stale_supervisor",
+                        "server_id": sid,
+                        "action": "detected",
+                        "reason": reason,
+                    }
+                )
             except Exception:
                 logger.exception("Failed handling stale supervisor %s", sid)
 
@@ -781,7 +909,11 @@ class RuntimeOwnershipManager:
             result.server_name = server.name
             ext_id = server.runtime.external_id if server.runtime else ""
             session_name = ext_id or f"{IDENTITY.temp_prefix_new}{sid}"
-            port = (server.properties.port.value if hasattr(server.properties, "port") else 25565) if server.properties else 25565
+            port = (
+                (server.properties.port.value if hasattr(server.properties, "port") else 25565)
+                if server.properties
+                else 25565
+            )
 
             result.db_ok = server.status in (ServerStatus.RUNNING, ServerStatus.STARTING)
             chain.append(f"db={'ok' if result.db_ok else 'stale'}")
@@ -829,10 +961,16 @@ class RuntimeOwnershipManager:
                 chain.append("minecraft=degraded")
 
             result.chain = chain
-            result.healthy = all([
-                result.db_ok, result.supervisor_ok, result.tmux_ok,
-                result.pid_ok, result.port_ok, result.minecraft_ok,
-            ])
+            result.healthy = all(
+                [
+                    result.db_ok,
+                    result.supervisor_ok,
+                    result.tmux_ok,
+                    result.pid_ok,
+                    result.port_ok,
+                    result.minecraft_ok,
+                ]
+            )
 
         except Exception as exc:
             result.chain.append(f"error={exc}")

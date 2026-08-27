@@ -5,15 +5,12 @@ from pathlib import Path
 
 import pytest
 
+from app.modules.health.domain.value_objects import IntegrityCheck
 from app.modules.health.infrastructure.integrity import (
     FilesystemIntegrityChecker,
     _check_jar,
-    _check_properties,
-    _check_eula,
-    _check_world,
     _compute_overall,
 )
-from app.modules.health.domain.value_objects import IntegrityCheck
 
 
 def _make_server_dir(tmp: str, server_id: str) -> Path:
@@ -65,10 +62,7 @@ class TestFilesystemIntegrityChecker:
                 report = await checker.check("srv-nojar")
 
         assert report.overall_status == "fail"
-        assert any(
-            c.check_name == "server_jar" and c.status == "fail"
-            for c in report.checks
-        )
+        assert any(c.check_name == "server_jar" and c.status == "fail" for c in report.checks)
 
     async def test_forge_run_sh_layout_passes(self):
         checker = FilesystemIntegrityChecker()
@@ -86,10 +80,7 @@ class TestFilesystemIntegrityChecker:
                 report = await checker.check("srv-forge")
 
         assert report.overall_status != "fail"
-        assert any(
-            c.check_name == "server_jar" and c.status == "pass"
-            for c in report.checks
-        )
+        assert any(c.check_name == "server_jar" and c.status == "pass" for c in report.checks)
 
     async def test_no_jar_and_no_run_sh_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

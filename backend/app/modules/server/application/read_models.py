@@ -133,10 +133,19 @@ class ServerDetailReadModel(ServerReadModel):
         provisioning_retryable: bool = False,
     ) -> None:
         super().__init__(
-            server_id=server_id, name=name, server_type=server_type,
-            minecraft_version=minecraft_version, status=status, group_id=group_id,
-            port=port, motd=motd, max_players=max_players, gamemode=gamemode,
-            difficulty=difficulty, created_at=created_at, updated_at=updated_at,
+            server_id=server_id,
+            name=name,
+            server_type=server_type,
+            minecraft_version=minecraft_version,
+            status=status,
+            group_id=group_id,
+            port=port,
+            motd=motd,
+            max_players=max_players,
+            gamemode=gamemode,
+            difficulty=difficulty,
+            created_at=created_at,
+            updated_at=updated_at,
             provisioning_error=provisioning_error,
             provisioning_retryable=provisioning_retryable,
         )

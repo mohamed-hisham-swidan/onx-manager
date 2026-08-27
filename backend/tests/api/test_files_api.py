@@ -1,19 +1,21 @@
+import contextlib
 import io
 import os
 
 import pytest
 from httpx import AsyncClient
 
-pytest_plugins = ["tests.api.test_api_endpoints"]
-
 from app.core.persistence.db import database
 from app.modules.auth.infrastructure.models import UserModel
 from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
 from tests.api.test_api_endpoints import _seed_api_key_header
 
+pytest_plugins = ["tests.api.test_api_endpoints"]
 
 
-async def _seed_server(server_id: str, name: str, root_path: str | None, owner_id: str | None = None) -> None:
+async def _seed_server(
+    server_id: str, name: str, root_path: str | None, owner_id: str | None = None
+) -> None:
     async with database._session_factory() as session:
         server = ServerModel(
             id=server_id,
@@ -44,7 +46,6 @@ async def _seed_membership(membership_id: str, server_id: str, user_id: str, rol
         )
         session.add(mem)
         await session.commit()
-
 
 
 async def _seed_user(user_id: str, email: str, name: str) -> None:
@@ -80,7 +81,6 @@ async def test_files_missing_root_path(client: AsyncClient, created_user: dict):
     data = resp.json()
     err_text = data.get("detail") or data.get("error") or ""
     assert "root path is not configured" in err_text
-
 
 
 @pytest.mark.asyncio
@@ -217,10 +217,8 @@ async def test_files_path_traversal_prevention(client: AsyncClient, created_user
 
     # Create symlink inside server root pointing to outside secret
     symlink_path = server_root / "escaped_link"
-    try:
+    with contextlib.suppress(OSError):
         os.symlink(secret_file, symlink_path)
-    except OSError:
-        pass
 
     await _seed_server(server_id, "Secure Server", root_path=str(server_root))
 
@@ -283,36 +281,71 @@ async def test_files_permissions_enforcement(client: AsyncClient, created_user: 
     non_member_header = await _seed_api_key_header(client, created_user["user_id"], [])
     resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=non_member_header)
     assert resp.status_code == 403
-    resp = await client.get(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, headers=non_member_header)
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "test.txt"},
+        headers=non_member_header,
+    )
     assert resp.status_code == 403
-    resp = await client.put(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, json={"content": "x"}, headers=non_member_header)
+    resp = await client.put(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "test.txt"},
+        json={"content": "x"},
+        headers=non_member_header,
+    )
     assert resp.status_code == 403
-    resp = await client.delete(f"/api/v1/servers/{server_id}/files", params={"path": "test.txt"}, headers=non_member_header)
+    resp = await client.delete(
+        f"/api/v1/servers/{server_id}/files", params={"path": "test.txt"}, headers=non_member_header
+    )
     assert resp.status_code == 403
-    resp = await client.get(f"/api/v1/servers/{server_id}/files/download", params={"path": "test.txt"}, headers=non_member_header)
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/download",
+        params={"path": "test.txt"},
+        headers=non_member_header,
+    )
     assert resp.status_code == 403
 
     # 3. Viewer role member -> 200 on GET /files/download, 403 on other 6 routes
     viewer_header = await _seed_api_key_header(client, viewer_user_id, [])
-    resp = await client.get(f"/api/v1/servers/{server_id}/files/download", params={"path": "test.txt"}, headers=viewer_header)
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/download",
+        params={"path": "test.txt"},
+        headers=viewer_header,
+    )
     assert resp.status_code == 200
     resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=viewer_header)
     assert resp.status_code == 403
-    resp = await client.get(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, headers=viewer_header)
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "test.txt"},
+        headers=viewer_header,
+    )
     assert resp.status_code == 403
-    resp = await client.put(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, json={"content": "x"}, headers=viewer_header)
+    resp = await client.put(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "test.txt"},
+        json={"content": "x"},
+        headers=viewer_header,
+    )
     assert resp.status_code == 403
-    resp = await client.delete(f"/api/v1/servers/{server_id}/files", params={"path": "test.txt"}, headers=viewer_header)
+    resp = await client.delete(
+        f"/api/v1/servers/{server_id}/files", params={"path": "test.txt"}, headers=viewer_header
+    )
     assert resp.status_code == 403
-    resp = await client.post(f"/api/v1/servers/{server_id}/files/mkdir", params={"path": "dir"}, headers=viewer_header)
+    resp = await client.post(
+        f"/api/v1/servers/{server_id}/files/mkdir", params={"path": "dir"}, headers=viewer_header
+    )
     assert resp.status_code == 403
-
 
     # 4. Dev role member -> 200/201/204 on files routes (dev has server.{id}.files)
     dev_header = await _seed_api_key_header(client, dev_user_id, [])
     resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=dev_header)
     assert resp.status_code == 200
-    resp = await client.get(f"/api/v1/servers/{server_id}/files/content", params={"path": "test.txt"}, headers=dev_header)
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "test.txt"},
+        headers=dev_header,
+    )
     assert resp.status_code == 200
 
     # 5. Server Owner -> 200/201/204 on all routes (owner_id implicit access)
@@ -336,7 +369,7 @@ async def _seed_secrets_server(tmp_path, owner_id: str | None = None) -> tuple[s
     )
     (server_root / "eula.txt").write_text("eula=true")
     (server_root / "config").mkdir(exist_ok=True)
-    (server_root / "config" / "ops.json").write_text('[]')
+    (server_root / "config" / "ops.json").write_text("[]")
     await _seed_server(server_id, "Secrets Server", root_path=str(server_root), owner_id=owner_id)
     return server_id, server_root
 
@@ -471,23 +504,15 @@ async def test_server_properties_role_matrix_and_isolation(client, created_user,
     # Dev: ordinary files fine, server.properties read blocked
     resp = await client.get(content_url, params={"path": "eula.txt"}, headers=dev_header)
     assert resp.status_code == 200
-    resp = await client.get(
-        content_url, params={"path": "server.properties"}, headers=dev_header
-    )
+    resp = await client.get(content_url, params={"path": "server.properties"}, headers=dev_header)
     assert resp.status_code == 403
-    resp = await client.get(
-        download_url, params={"path": "server.properties"}, headers=dev_header
-    )
+    resp = await client.get(download_url, params={"path": "server.properties"}, headers=dev_header)
     assert resp.status_code == 403
 
     # Viewer: no file write rights (403 on content); download of ordinary file ok, props blocked
-    resp = await client.get(
-        content_url, params={"path": "eula.txt"}, headers=viewer_header
-    )
+    resp = await client.get(content_url, params={"path": "eula.txt"}, headers=viewer_header)
     assert resp.status_code == 403
-    resp = await client.get(
-        download_url, params={"path": "eula.txt"}, headers=viewer_header
-    )
+    resp = await client.get(download_url, params={"path": "eula.txt"}, headers=viewer_header)
     assert resp.status_code == 200
     resp = await client.get(
         download_url, params={"path": "server.properties"}, headers=viewer_header

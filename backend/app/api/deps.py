@@ -162,7 +162,11 @@ def require_server_permission(*permissions: str):
         current_user: dict = Depends(get_current_user),  # noqa: B008
     ) -> dict:
         user_perms = set(current_user.get("permissions", []))
-        if "admin:full" in user_perms or "global.*" in user_perms or "global.servers.manage" in user_perms:
+        if (
+            "admin:full" in user_perms
+            or "global.*" in user_perms
+            or "global.servers.manage" in user_perms
+        ):
             return current_user
 
         path_id = request.path_params.get("server_id")
@@ -183,7 +187,6 @@ def require_server_permission(*permissions: str):
 
         if not server_id:
             raise HTTPException(status_code=400, detail="Missing server_id parameter")
-
 
         from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
 
@@ -214,7 +217,12 @@ def require_server_permission(*permissions: str):
             return current_user
 
         for perm in permissions:
-            norm_action = perm.replace("server.{id}.", "").replace("server.", "").replace("server:", "").strip()
+            norm_action = (
+                perm.replace("server.{id}.", "")
+                .replace("server.", "")
+                .replace("server:", "")
+                .strip()
+            )
             required_node = f"server.{{id}}.{norm_action}"
             if required_node in role_perms:
                 return current_user
@@ -222,8 +230,6 @@ def require_server_permission(*permissions: str):
         raise HTTPException(status_code=403, detail="Permission denied")
 
     return _check
-
-
 
 
 def require_exposure_grant(permission: str):

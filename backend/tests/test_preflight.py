@@ -3,13 +3,14 @@
 import os
 import subprocess
 from pathlib import Path
-import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 PREFLIGHT_SCRIPT = PROJECT_ROOT / "scripts" / "preflight.sh"
 
 
-def run_bash_preflight_fn(fn_name: str, *args: str, env_override: dict | None = None) -> tuple[int, str]:
+def run_bash_preflight_fn(
+    fn_name: str, *args: str, env_override: dict | None = None
+) -> tuple[int, str]:
     """Source preflight.sh and invoke a specific bash function with args."""
     env = os.environ.copy()
     env["MCS_PROJECT_ROOT"] = str(PROJECT_ROOT)
@@ -50,7 +51,9 @@ def test_preflight_dry_run_success():
         text=True,
         timeout=15,
     )
-    assert proc.returncode == 0, f"preflight.sh failed with stdout/err:\n{proc.stdout}\n{proc.stderr}"
+    assert proc.returncode == 0, (
+        f"preflight.sh failed with stdout/err:\n{proc.stdout}\n{proc.stderr}"
+    )
     assert "onx-manager — Preflight" in proc.stdout
     assert "Smart reconciliation" in proc.stdout
     assert "Preflight Summary" in proc.stdout

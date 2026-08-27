@@ -22,16 +22,20 @@ class _CommandExecutor:
         self._request_id = 0
 
     async def execute(self, command_type: str, payload: dict[str, Any] | None = None) -> Any:
-        return await self._send_request("command", {"command_type": command_type, "payload": payload})
+        return await self._send_request(
+            "command", {"command_type": command_type, "payload": payload}
+        )
 
     async def _send_request(self, method: str, params: dict[str, Any]) -> Any:
         self._request_id += 1
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": f"sdk-{self._request_id}",
-            "method": method,
-            "params": params,
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": f"sdk-{self._request_id}",
+                "method": method,
+                "params": params,
+            }
+        )
         import sys
 
         sys.stdout.write(request + "\n")

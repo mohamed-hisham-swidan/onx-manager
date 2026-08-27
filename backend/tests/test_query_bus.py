@@ -1,5 +1,4 @@
 import pytest
-from pydantic import BaseModel
 
 from app.core.query_bus import Query, QueryBus, QueryHandler, QueryMiddleware
 

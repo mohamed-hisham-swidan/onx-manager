@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.modules.event_store.dead_letter import DeadLetterService
 
@@ -8,13 +9,13 @@ class FakeSession:
     def __init__(self) -> None:
         self._store: dict[str, object] = {}
 
-    async def get(self, model_class: type, pk: object) -> object | None:
+    async def get(self, _model_class: type, pk: object) -> object | None:
         for obj in self._store.values():
             if getattr(obj, "id", None) == pk:
                 return obj
         return None
 
-    async def execute(self, stmt: object) -> MagicMock:
+    async def execute(self, _stmt: object) -> MagicMock:
         from app.modules.event_store.models import DeadLetterEventModel
 
         result = MagicMock()
@@ -27,7 +28,7 @@ class FakeSession:
                 break
         result.scalar_one_or_none.return_value = scalar
 
-        unresolved = [v for v in values if hasattr(v, "resolved") and getattr(v, "resolved") == 0]
+        unresolved = [v for v in values if hasattr(v, "resolved") and v.resolved == 0]
         result.scalars.return_value.all.return_value = unresolved
         return result
 

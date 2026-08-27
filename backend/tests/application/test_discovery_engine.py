@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.modules.server.application.discovery.engine import run_discovery_scan
 from app.modules.server.infrastructure.scanner import DiscoveredDirectory
-
 
 pytestmark = pytest.mark.asyncio
 

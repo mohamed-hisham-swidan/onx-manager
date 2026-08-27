@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from app.core.exceptions import InvalidValueError
@@ -76,7 +76,7 @@ class Plugin(AggregateRoot):
         self._external_version_id = external_version_id
         self._external_url = external_url
         self._checksum = checksum
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self._installed_at = installed_at or now
         self._updated_at = updated_at or now
         self._project_type = project_type
@@ -228,15 +228,19 @@ class Plugin(AggregateRoot):
                 reason=f"Cannot transition from {self._status.value} to {new_status.value}",
             )
         self._status = new_status
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
     def enable(self) -> None:
         self._transition_to(PluginStatus.ENABLED)
-        self._add_event(PluginEnabledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id)))
+        self._add_event(
+            PluginEnabledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id))
+        )
 
     def disable(self) -> None:
         self._transition_to(PluginStatus.DISABLED)
-        self._add_event(PluginDisabledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id)))
+        self._add_event(
+            PluginDisabledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id))
+        )
 
     def mark_error(self) -> None:
         self._transition_to(PluginStatus.ERROR)
@@ -245,7 +249,7 @@ class Plugin(AggregateRoot):
         old = self._version
         self._version = new_version
         self._version_raw = version_raw
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
         self._add_event(
             PluginUpdatedEvent(
                 plugin_id=str(self._plugin_id),
@@ -268,8 +272,8 @@ class Plugin(AggregateRoot):
         so a running JVM never has its .jar removed out from under it.
         """
         self._pending_deletion = True
-        self._pending_deletion_requested_at = datetime.now(timezone.utc)
-        self._updated_at = datetime.now(timezone.utc)
+        self._pending_deletion_requested_at = datetime.now(UTC)
+        self._updated_at = datetime.now(UTC)
         self._add_event(
             PluginUninstalledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id)),
         )

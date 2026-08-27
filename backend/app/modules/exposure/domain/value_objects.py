@@ -105,4 +105,3 @@ def exposure_status_to_process_status(status: ExposureStatus | str) -> AgentProc
             return AgentProcessStatus.ERROR
         case _:
             return AgentProcessStatus.STOPPED
-

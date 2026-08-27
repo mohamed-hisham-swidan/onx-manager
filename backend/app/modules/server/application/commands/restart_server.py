@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
-from app.core.idempotency import IdempotencyKey
 from app.core.exceptions import ServerNotRunningError
+from app.core.idempotency import IdempotencyKey
+from app.core.identity import IDENTITY
 from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.backup.application.restore_service import RestoreError, consume_pending_restore
+from app.modules.backup.domain.aggregate import BackupStatus
+from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.plugin.application.services.plugin_deletion_service import (
     consume_pending_plugin_deletions,
 )
@@ -23,16 +27,12 @@ from app.modules.server.application.logging_utils import (
 )
 from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
 from app.modules.server.application.supervisor import RuntimeSupervisor
-from app.modules.backup.domain.aggregate import BackupStatus
-from app.modules.backup.infrastructure.repository import SQLBackupRepository
-from app.modules.server.domain.aggregate import ServerStatus
+from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle, ServerRuntimeStatus
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-
-from app.core.identity import IDENTITY
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.restart_server")
 
@@ -59,7 +59,8 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             async with database.session_factory() as bkp_session:
                 bkp_repo = SQLBackupRepository(bkp_session)
                 active_backups = [
-                    b for b in await bkp_repo.list_jobs(server_id)
+                    b
+                    for b in await bkp_repo.list_jobs(server_id)
                     if b.status in (BackupStatus.PENDING, BackupStatus.IN_PROGRESS)
                 ]
             if not active_backups:
@@ -67,9 +68,12 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             if time.monotonic() >= backup_deadline:
                 logger.warning(
                     'Restart backup-wait cap (%.1fs) exceeded for server "%s" — cancelling in-flight backup(s) and proceeding server_id=%s',
-                    _BACKUP_WAIT_CAP_S, sid, sid,
+                    _BACKUP_WAIT_CAP_S,
+                    sid,
+                    sid,
                 )
                 from app.services.backup_orchestrator import cancel_backup
+
                 for bkp in active_backups:
                     cancel_backup(str(bkp.backup_id))
                 break
@@ -91,7 +95,8 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
 
         logger.info(
             'Server "%s" restarting — server_id=%s',
-            server_name, sid,
+            server_name,
+            sid,
         )
 
         stop_errors: list[str] = []
@@ -123,30 +128,37 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                         stop_errors.append(f"Force stop failed: {exc}")
                 except Exception as exc:
                     stop_errors.append(f"Stop failed: {exc}")
-                    try:
+                    with contextlib.suppress(Exception):
                         await asyncio.wait_for(provider.stop(handle, force=True), timeout=10)
-                    except Exception:
-                        pass
 
                 try:
-                    server_port = server.properties.port.value if hasattr(server.properties, "port") else 25565
+                    server_port = (
+                        server.properties.port.value
+                        if hasattr(server.properties, "port")
+                        else 25565
+                    )
                     from app.modules.server.application.runtime_ownership import (
                         _port_is_listening,
                         _wait_for_port_free,
                     )
+
                     if _port_is_listening(server_port):
                         released = _wait_for_port_free(server_port, timeout=5.0)
                         if released:
                             logger.info(
                                 'Port %d released during restart — server="%s" server_id=%s',
-                                server_port, server_name, sid,
+                                server_port,
+                                server_name,
+                                sid,
                             )
                         else:
                             stop_errors.append(f"Port {server_port} still listening after stop")
                     else:
                         logger.info(
                             'Port %d already free — server="%s" server_id=%s',
-                            server_port, server_name, sid,
+                            server_port,
+                            server_name,
+                            sid,
                         )
                 except Exception as port_exc:
                     stop_errors.append(f"Port verification failed: {port_exc}")
@@ -156,7 +168,9 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
         if stop_errors:
             logger.warning(
                 'Server "%s" restart stop phase had %d issues — server_id=%s',
-                server_name, len(stop_errors), sid,
+                server_name,
+                len(stop_errors),
+                sid,
             )
 
         # A restore deferred while the server was running must be applied now
@@ -171,7 +185,9 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             except RestoreError as exc:
                 logger.error(
                     'Pending restore failed during restart — server="%s" server_id=%s error=%s',
-                    server_name, sid, exc,
+                    server_name,
+                    sid,
+                    exc,
                 )
                 return CommandResult(
                     success=False,
@@ -181,7 +197,9 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             if restored_backup_id:
                 logger.info(
                     'Pending restore %s applied before restart — server="%s" server_id=%s',
-                    restored_backup_id, server_name, sid,
+                    restored_backup_id,
+                    server_name,
+                    sid,
                 )
 
             # Deferred plugin deletions are applied the same way: the process is
@@ -196,8 +214,10 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             except Exception as exc:
                 logger.warning(
                     'Pending plugin deletions failed during restart — server="%s" '
-                    'server_id=%s error=%s',
-                    server_name, sid, exc,
+                    "server_id=%s error=%s",
+                    server_name,
+                    sid,
+                    exc,
                 )
 
         async with UnitOfWork(self._event_bus) as uow:
@@ -222,7 +242,8 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
 
         logger.info(
             'Claiming localhost ownership during restart — server="%s" server_id=%s',
-            server_name, sid,
+            server_name,
+            sid,
         )
         try:
             async with database.session_factory() as claim_session:
@@ -232,12 +253,16 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             if claim_result.actions:
                 logger.info(
                     'Localhost claim during restart for "%s" completed %d actions — server_id=%s',
-                    server_name, len(claim_result.actions), sid,
+                    server_name,
+                    len(claim_result.actions),
+                    sid,
                 )
         except Exception as exc:
             logger.warning(
                 'Localhost claim during restart for "%s" failed — error=%s server_id=%s',
-                server_name, exc, sid,
+                server_name,
+                exc,
+                sid,
             )
 
         with startup_timeline(server_name, sid):
@@ -255,12 +280,15 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             except TimeoutError:
                 logger.error(
                     'Server "%s" restart start timed out — server_id=%s',
-                    server_name, sid,
+                    server_name,
+                    sid,
                 )
                 async with UnitOfWork(self._event_bus) as uow:
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)
-                    server.crash(exit_code=-1, last_log_lines=["Provider start timed out during restart"])
+                    server.crash(
+                        exit_code=-1, last_log_lines=["Provider start timed out during restart"]
+                    )
                     await repo.save(server)
                     for event in server.collect_events():
                         uow.add_event(event)
@@ -274,7 +302,9 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             except Exception as exc:
                 logger.exception(
                     'Server "%s" restart start failed — provider=%s server_id=%s',
-                    server_name, provider_type, sid,
+                    server_name,
+                    provider_type,
+                    sid,
                 )
                 async with UnitOfWork(self._event_bus) as uow:
                     repo = SQLServerRepository(uow.session)
@@ -310,7 +340,10 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
 
             logger.info(
                 'Server "%s" restarted process spawned — pid=%s port=%s server_id=%s',
-                server_name, result.pid, result.port, sid,
+                server_name,
+                result.pid,
+                result.port,
+                sid,
             )
 
             handle = ServerHandle(

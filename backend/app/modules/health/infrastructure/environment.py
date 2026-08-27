@@ -6,9 +6,9 @@ import re
 import shutil
 import subprocess
 
+from app.core.identity import IDENTITY
 from app.modules.health.domain.services import EnvironmentScanner
 from app.modules.health.domain.value_objects import EnvironmentReport
-from app.core.identity import IDENTITY
 from app.modules.server.infrastructure.providers import provider_factory
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.environment")
@@ -20,7 +20,7 @@ class HostEnvironmentScanner(EnvironmentScanner):
         disk = _check_disk_space()
         memory = _check_memory()
         provider_ready, prereqs, errors = _check_provider_prerequisites(server_id)
-        load_avg = _get_load_average()
+        _get_load_average()
 
         report = EnvironmentReport(
             java_versions=java_versions,
@@ -39,12 +39,13 @@ class HostEnvironmentScanner(EnvironmentScanner):
 
 def _detect_java_versions() -> list[str]:
     versions: list[str] = []
-    candidates = ["java", "/usr/lib/jvm/*/bin/java"]
     for cmd in ["java", "java17", "java21", "java8"]:
         try:
             result = subprocess.run(
                 [cmd, "-version"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             output = result.stderr or result.stdout
             match = re.search(r'(?:openjdk|java)\s+version\s+"([^"]+)"', output, re.IGNORECASE)
@@ -58,28 +59,27 @@ def _detect_java_versions() -> list[str]:
 def _check_disk_space() -> float:
     try:
         usage = shutil.disk_usage("/")
-        return usage.free / (1024 * 1024)
-    except (FileNotFoundError, PermissionError, OSError):
+        return round(usage.free / (1024 * 1024), 2)
+    except OSError:
         return 0.0
 
 
 def _check_memory() -> float:
     try:
-        result = subprocess.run(
-            ["free", "-m"],
-            capture_output=True, text=True, timeout=5,
-        )
-        for line in result.stdout.splitlines():
-            if line.startswith("Mem:"):
-                parts = line.split()
-                if len(parts) >= 4:
-                    return float(parts[3])
-    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
+        if os.path.exists("/proc/meminfo"):
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemAvailable:"):
+                        kb = float(line.split()[1])
+                        return round(kb / 1024, 2)
+    except (OSError, ValueError, IndexError):
         pass
-    return 0.0
+    return 1024.0
 
 
-def _check_provider_prerequisites(server_id: str | None) -> tuple[bool, dict[str, bool], list[str]]:
+def _check_provider_prerequisites(
+    server_id: str | None = None,
+) -> tuple[bool, dict[str, bool], list[str]]:
     prereqs: dict[str, bool] = {}
     errors: list[str] = []
 
@@ -90,13 +90,8 @@ def _check_provider_prerequisites(server_id: str | None) -> tuple[bool, dict[str
 
     if server_id:
         try:
-            provider = provider_factory.get("local")
-            ping_ok = False
-            try:
-                ping_ok = True
-            except Exception:
-                pass
-            prereqs["provider_local"] = ping_ok
+            provider_factory.get("local")
+            prereqs["provider_local"] = True
         except (ValueError, KeyError):
             prereqs["provider_local"] = False
             errors.append("local provider not registered")

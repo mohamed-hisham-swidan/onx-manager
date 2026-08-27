@@ -13,22 +13,20 @@ from app.core.query_bus import QueryBus
 from app.modules.auth.application.commands.create_user import CreateUserCommand
 from app.modules.auth.application.commands.delete_user import DeleteUserCommand
 from app.modules.auth.application.commands.update_user import UpdateUserCommand
-from app.modules.auth.application.queries.list_users import ListUsersQuery
 from app.modules.auth.application.queries.get_current_user import GetCurrentUserQuery
+from app.modules.auth.application.queries.get_system_status import GetSystemStatusQuery
+from app.modules.auth.application.queries.list_users import ListUsersQuery
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
 
 @router.get("", response_model=list[UserResponse])
 async def list_users(
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
     query_bus: QueryBus = Depends(get_query_bus),
 ) -> list[UserResponse]:
     users = await query_bus.ask(ListUsersQuery())
     return [UserResponse(**u) for u in users]
-
-
-from app.modules.auth.application.queries.get_system_status import GetSystemStatusQuery
 
 
 @router.post("", response_model=UserResponse, status_code=201)
@@ -59,7 +57,7 @@ async def create_user(
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: str,
-    current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_user),
     query_bus: QueryBus = Depends(get_query_bus),
 ) -> UserResponse:
     user_data = await query_bus.ask(GetCurrentUserQuery(user_id=user_id))
@@ -72,7 +70,7 @@ async def get_user(
 async def update_user(
     user_id: str,
     body: UpdateUserRequest,
-    current_user: dict = Depends(require_permission("user:write")),
+    _current_user: dict = Depends(require_permission("user:write")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> UserResponse:
     result = await command_bus.send(
@@ -90,7 +88,7 @@ async def update_user(
 @router.delete("/{user_id}", status_code=204)
 async def delete_user(
     user_id: str,
-    current_user: dict = Depends(require_permission("user:delete")),
+    _current_user: dict = Depends(require_permission("user:delete")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> None:
     result = await command_bus.send(DeleteUserCommand(user_id=user_id))

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import AsyncGenerator, Protocol, Union
+from typing import Protocol
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,7 @@ class ProgressLine:
     raw_line: str
 
 
-RunnerOutput = Union[ProgressLine, InstallerResult]
+RunnerOutput = ProgressLine | InstallerResult
 
 
 class InstallerRunner(Protocol):
@@ -36,5 +37,4 @@ class InstallerRunner(Protocol):
         *,
         timeout: float,
         cwd: str | None = None,
-    ) -> AsyncGenerator[RunnerOutput, None]:
-        ...
+    ) -> AsyncGenerator[RunnerOutput, None]: ...

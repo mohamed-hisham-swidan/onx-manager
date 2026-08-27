@@ -1,5 +1,6 @@
 import pytest
 
+from app.core.persistence.db import database
 from app.modules.backup.application.queries.get_backup import (
     GetBackupHandler,
     GetBackupQuery,
@@ -11,7 +12,6 @@ from app.modules.backup.application.queries.list_backups import (
 from app.modules.backup.domain.aggregate import BackupJob
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
-from app.core.persistence.db import database
 
 
 @pytest.mark.usefixtures("init_test_db")

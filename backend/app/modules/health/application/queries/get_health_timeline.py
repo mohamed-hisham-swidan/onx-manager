@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.health.infrastructure.repository import SQLHealthRepository
-from app.core.persistence.db import database
 
 
 class HealthTimelineReadModel:

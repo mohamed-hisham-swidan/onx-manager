@@ -1,9 +1,9 @@
+from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.plugin.application.queries.list_plugins import PluginReadModel
 from app.modules.plugin.domain.repository import PluginRepository
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
 from app.modules.shared.value_objects import PluginId
-from app.core.persistence.db import database
 
 
 class GetPluginQuery(Query):

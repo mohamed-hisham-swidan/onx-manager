@@ -1,6 +1,6 @@
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -86,7 +86,9 @@ class TestRuntimeSupervisor:
         await supervisor.stop()
         assert not supervisor.is_running
 
-    async def test_health_check_detects_process_death(self, mock_provider, mock_server, server_handle):
+    async def test_health_check_detects_process_death(
+        self, mock_provider, mock_server, server_handle
+    ):
         mock_provider.verify_process = AsyncMock(side_effect=[True, True, False])
         mock_provider.status = AsyncMock(return_value=ServerRuntimeStatus.ERROR)
         mock_provider.collect_diagnostics = AsyncMock()
@@ -139,12 +141,18 @@ class TestRuntimeSupervisor:
         repo_save = AsyncMock()
 
         s1 = RuntimeSupervisor.start_for(
-            server=mock_server, provider=mock_provider, handle=server_handle,
-            repo_get=repo_get, repo_save=repo_save,
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=repo_get,
+            repo_save=repo_save,
         )
         s2 = RuntimeSupervisor.start_for(
-            server=mock_server, provider=mock_provider, handle=server_handle,
-            repo_get=repo_get, repo_save=repo_save,
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=repo_get,
+            repo_save=repo_save,
         )
 
         assert s1 is s2
@@ -177,7 +185,9 @@ class TestRuntimeSupervisor:
 
         await supervisor.stop()
 
-    async def test_handle_crash_properly_awaits_repo(self, mock_provider, mock_server, server_handle):
+    async def test_handle_crash_properly_awaits_repo(
+        self, mock_provider, mock_server, server_handle
+    ):
         crash_spy = MagicMock(wraps=mock_server.crash)
 
         async def repo_get(sid):
@@ -210,7 +220,9 @@ class TestRuntimeSupervisor:
         crash_spy.assert_called_once_with(exit_code=-1, last_log_lines=["test log"])
         repo_save.assert_awaited_once()
 
-    async def test_crash_path_persists_state_via_real_async_path(self, mock_provider, mock_server, server_handle):
+    async def test_crash_path_persists_state_via_real_async_path(
+        self, mock_provider, mock_server, server_handle
+    ):
         sentinel = {"persisted": False}
 
         async def fake_get(sid):
@@ -242,7 +254,9 @@ class TestRuntimeSupervisor:
         assert mock_server.status.value == "crashed"
         assert sentinel["persisted"] is True
 
-    async def test_race_stop_for_vs_in_flight_health_check(self, mock_provider, mock_server, server_handle):
+    async def test_race_stop_for_vs_in_flight_health_check(
+        self, mock_provider, mock_server, server_handle
+    ):
         verify_busy = asyncio.Event()
 
         async def cancellable_verify(handle):
@@ -281,7 +295,9 @@ class TestRuntimeSupervisor:
         assert not supervisor.is_running
         crash_spy.assert_not_called()
 
-    async def test_race_health_check_completes_during_stop(self, mock_provider, mock_server, server_handle):
+    async def test_race_health_check_completes_during_stop(
+        self, mock_provider, mock_server, server_handle
+    ):
         status_busy = asyncio.Event()
 
         async def cancellable_status(handle):

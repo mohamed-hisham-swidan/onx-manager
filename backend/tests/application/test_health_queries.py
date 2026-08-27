@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
 from app.modules.health.application import (
     GetHealthStatusHandler,
@@ -18,8 +19,6 @@ from app.modules.health.domain.value_objects import (
     HealthTimelineEntry,
     HealthTrend,
 )
-from app.core.persistence.db import database
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -86,7 +85,9 @@ class TestGetHealthStatusHandler:
         query_bus.register(GetHealthStatusQuery, GetHealthStatusHandler())
 
         status = HealthStatus.create("srv_q_reg")
-        status.update(new_classification=HealthStatusEnum.WARNING, contributing_factors=["high cpu"])
+        status.update(
+            new_classification=HealthStatusEnum.WARNING, contributing_factors=["high cpu"]
+        )
 
         mock_repo = AsyncMock()
         mock_repo.get = AsyncMock(return_value=status)
@@ -116,14 +117,14 @@ class TestGetHealthTimelineHandler:
                 previous_status=HealthStatusEnum.PENDING,
                 new_status=HealthStatusEnum.HEALTHY,
                 contributing_factors=["ok"],
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             ),
             HealthTimelineEntry(
                 server_id="srv_tl_q",
                 previous_status=HealthStatusEnum.HEALTHY,
                 new_status=HealthStatusEnum.WARNING,
                 contributing_factors=["cpu"],
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             ),
         ]
 

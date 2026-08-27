@@ -66,11 +66,11 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
         )
 
         server_id = ServerId()
-        is_forge_installer = (
-            command.server_type == "forge" and forge_requires_installer(command.minecraft_version)
+        is_forge_installer = command.server_type == "forge" and forge_requires_installer(
+            command.minecraft_version
         )
-        is_neoforge_installer = (
-            command.server_type == "neoforge" and neoforge_requires_installer(command.minecraft_version)
+        is_neoforge_installer = command.server_type == "neoforge" and neoforge_requires_installer(
+            command.minecraft_version
         )
         server_dir_path = resolve_server_dir(
             server_id=str(server_id),
@@ -195,8 +195,11 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
 
         logger.info(
             'Server "%s" created — type=%s version=%s port=%d server_id=%s',
-            server.name, command.server_type, command.minecraft_version,
-            command.port, server_id,
+            server.name,
+            command.server_type,
+            command.minecraft_version,
+            command.port,
+            server_id,
         )
 
         return CommandResult(success=True, data={"server_id": str(server_id)})

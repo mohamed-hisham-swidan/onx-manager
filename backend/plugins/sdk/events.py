@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ async def _stdin_listener(stream: Any, handler: Callable[[str], Any]) -> None:
             raw = line.decode("utf-8").strip()
             if raw:
                 await handler(raw)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
         except Exception as e:
             logger.error("stdin listener error: %s", str(e))

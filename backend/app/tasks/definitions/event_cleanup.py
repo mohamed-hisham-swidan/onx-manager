@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.event_store.models import StoredEventModel
 from app.core.persistence.db import database
+from app.modules.event_store.models import StoredEventModel
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +24,7 @@ async def run_event_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
         results: dict[str, int] = {}
 
         for resolution, ttl_hours in retention_policies:
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=ttl_hours)
+            cutoff = datetime.now(UTC) - timedelta(hours=ttl_hours)
             stmt = (
                 select(StoredEventModel)
                 .where(

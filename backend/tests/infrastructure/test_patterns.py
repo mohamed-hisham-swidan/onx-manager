@@ -25,7 +25,9 @@ class TestFailurePatterns:
         assert code == FailureCode.PORT_ALREADY_BOUND
 
     def test_detect_unsupported_class_version(self) -> None:
-        logs = ["java.lang.UnsupportedClassVersionError: org/bukkit/craftbukkit/Main has been compiled by a more recent version of the Java Runtime"]
+        logs = [
+            "java.lang.UnsupportedClassVersionError: org/bukkit/craftbukkit/Main has been compiled by a more recent version of the Java Runtime"
+        ]
         code, name = detect_failure(logs)
         assert code == FailureCode.JAVA_VERSION_MISMATCH
 
@@ -45,7 +47,9 @@ class TestFailurePatterns:
         assert code == FailureCode.NETWORK_BIND_FAILURE
 
     def test_detect_file_not_found(self) -> None:
-        logs = ["java.io.FileNotFoundException: /opt/minecraft/server.properties (No such file or directory)"]
+        logs = [
+            "java.io.FileNotFoundException: /opt/minecraft/server.properties (No such file or directory)"
+        ]
         code, name = detect_failure(logs)
         assert code == FailureCode.FILE_NOT_FOUND
 

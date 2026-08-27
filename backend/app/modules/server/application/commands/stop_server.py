@@ -5,8 +5,10 @@ import logging
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
-from app.core.idempotency import IdempotencyKey
 from app.core.exceptions import ServerNotRunningError
+from app.core.idempotency import IdempotencyKey
+from app.core.identity import IDENTITY
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
     format_event,
@@ -21,9 +23,6 @@ from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle, ServerRuntimeStatus
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.unit_of_work import UnitOfWork
-
-from app.core.identity import IDENTITY
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.stop_server")
 
@@ -57,7 +56,9 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
 
         logger.info(
             'Server "%s" stopping — reason="%s" server_id=%s',
-            server_name, command.reason, sid,
+            server_name,
+            command.reason,
+            sid,
         )
 
         provider_errors: list[str] = []
@@ -83,7 +84,8 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
                 except TimeoutError:
                     logger.warning(
                         'Server "%s" provider stop timed out — forcing stop server_id=%s',
-                        server_name, sid,
+                        server_name,
+                        sid,
                     )
                     provider_errors.append("Stop timed out after 15s, force applied")
                     add_timeline_milestone(None, "Provider stop (force)", server_name, sid)
@@ -94,7 +96,9 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
                             provider_errors.append(f"Force stop failed: {exc}")
                 except Exception as exc:
                     provider_errors.append(f"Provider stop failed: {exc}")
-                    add_timeline_milestone(None, "Provider stop (force after error)", server_name, sid)
+                    add_timeline_milestone(
+                        None, "Provider stop (force after error)", server_name, sid
+                    )
                     with progress_phase("Force stop (after error)", 2, 2, server_name, sid):
                         try:
                             await asyncio.wait_for(provider.stop(handle, force=True), timeout=10)
@@ -106,7 +110,9 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
                     if status != ServerRuntimeStatus.STOPPED:
                         logger.warning(
                             'Server "%s" still running after stop (status=%s server_id=%s)',
-                            server_name, status.value, sid,
+                            server_name,
+                            status.value,
+                            sid,
                         )
                         provider_errors.append(f"Runtime still {status.value} after stop")
                     else:
@@ -114,24 +120,32 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
                 except Exception:
                     pass
 
-                server_port = server.properties.port.value if hasattr(server.properties, "port") else 25565
+                server_port = (
+                    server.properties.port.value if hasattr(server.properties, "port") else 25565
+                )
                 if _port_is_listening(server_port):
                     released = _wait_for_port_free(server_port, timeout=5.0)
                     if released:
                         logger.info(
                             'Port %d released after stop — server="%s" server_id=%s',
-                            server_port, server_name, sid,
+                            server_port,
+                            server_name,
+                            sid,
                         )
                     else:
                         logger.warning(
                             'Port %d still listening after stop — server="%s" server_id=%s',
-                            server_port, server_name, sid,
+                            server_port,
+                            server_name,
+                            sid,
                         )
                         provider_errors.append(f"Port {server_port} still listening after stop")
                 else:
                     logger.info(
                         'Port %d already free — server="%s" server_id=%s',
-                        server_port, server_name, sid,
+                        server_port,
+                        server_name,
+                        sid,
                     )
 
             async with UnitOfWork(self._event_bus) as uow:
@@ -148,7 +162,8 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
 
         logger.info(
             'Server "%s" stopped — server_id=%s',
-            server_name, sid,
+            server_name,
+            sid,
         )
 
         result_data: dict = {"server_id": command.server_id}
@@ -156,8 +171,10 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
             result_data["warnings"] = provider_errors
             logger.warning(
                 'Server "%s" stop had %d issues — %s server_id=%s',
-                server_name, len(provider_errors),
-                "; ".join(provider_errors), sid,
+                server_name,
+                len(provider_errors),
+                "; ".join(provider_errors),
+                sid,
             )
 
         return CommandResult(success=True, data=result_data)

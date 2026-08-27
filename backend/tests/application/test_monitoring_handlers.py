@@ -1,6 +1,7 @@
 import pytest
 
 from app.core.event_bus import EventBus
+from app.core.persistence.db import database
 from app.modules.monitoring.application.commands.create_alert_rule import (
     CreateAlertRuleCommand,
     CreateAlertRuleHandler,
@@ -19,7 +20,6 @@ from app.modules.monitoring.infrastructure.repository import (
     SQLMetricRepository,
 )
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.db import database
 
 
 @pytest.mark.usefixtures("init_test_db")
@@ -61,7 +61,11 @@ class TestUpdateAlertRuleHandler:
     async def test_update_alert_rule(self, event_bus: EventBus) -> None:
         async with database.session_factory() as session:
             repo = SQLAlertRuleRepository(session)
-            from app.modules.monitoring.domain.aggregate import AlertCondition, AlertRule, AlertSeverity
+            from app.modules.monitoring.domain.aggregate import (
+                AlertCondition,
+                AlertRule,
+            )
+
             rule = AlertRule(
                 server_id=ServerId("srv-1"),
                 metric_name="tps",
@@ -73,11 +77,13 @@ class TestUpdateAlertRuleHandler:
             rule_id = rule._alert_rule_id
 
         handler = UpdateAlertRuleHandler(event_bus)
-        result = await handler.handle(UpdateAlertRuleCommand(
-            alert_rule_id=rule_id,
-            threshold=5.0,
-            enabled=False,
-        ))
+        result = await handler.handle(
+            UpdateAlertRuleCommand(
+                alert_rule_id=rule_id,
+                threshold=5.0,
+                enabled=False,
+            )
+        )
 
         assert result.success is True
         assert result.data["changes"]["threshold"] == 5.0

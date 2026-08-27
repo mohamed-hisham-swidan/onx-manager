@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Generic, TypeVar
 
-from sqlalchemy import Column, DateTime, String, func
+from sqlalchemy import Column, DateTime, String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import DeclarativeBase, declared_attr
+from sqlalchemy.orm import DeclarativeBase
 
 
 class Base(DeclarativeBase):
@@ -58,6 +58,3 @@ class BaseRepository(Generic[T]):
     async def delete(self, entity: T) -> None:
         await self._session.delete(entity)
         await self._session.flush()
-
-
-from sqlalchemy import select

@@ -5,12 +5,11 @@ import json
 import logging
 import secrets
 import time
+from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
-
-from pathlib import Path
 
 from app.core.config import AppSettings
 from app.core.exceptions import AuthenticationError, TokenExpiredError

@@ -56,7 +56,13 @@ class ServerCrashedEvent(DomainEvent):
     exit_code: int
     last_log_lines: list[str]
 
-    def __init__(self, server_id: ServerId, exit_code: int, last_log_lines: list[str] | None = None, **data: Any) -> None:
+    def __init__(
+        self,
+        server_id: ServerId,
+        exit_code: int,
+        last_log_lines: list[str] | None = None,
+        **data: Any,
+    ) -> None:
         super().__init__(
             server_id=str(server_id),
             exit_code=exit_code,
@@ -85,7 +91,13 @@ class ServerDiscoveredEvent(DomainEvent):
     detected_type: str
     metadata: dict[str, Any]
 
-    def __init__(self, path: str, detected_type: str = "unknown", metadata: dict[str, Any] | None = None, **data: Any) -> None:
+    def __init__(
+        self,
+        path: str,
+        detected_type: str = "unknown",
+        metadata: dict[str, Any] | None = None,
+        **data: Any,
+    ) -> None:
         super().__init__(path=path, detected_type=detected_type, metadata=metadata or {}, **data)
 
 

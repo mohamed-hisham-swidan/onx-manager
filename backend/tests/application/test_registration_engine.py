@@ -9,7 +9,6 @@ from app.modules.server.application.discovery.registration import (
 )
 from app.modules.server.domain.events import ServerDiscoveredEvent
 
-
 pytestmark = pytest.mark.asyncio
 
 

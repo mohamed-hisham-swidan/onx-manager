@@ -7,7 +7,6 @@ from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
 from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
-from app.modules.health.domain.aggregate import DiagnosticsReport
 from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyzer
 from app.modules.health.infrastructure.repository import SQLDiagnosticsRepository
 
@@ -29,7 +28,8 @@ class ClassifyCrashHandler(CommandHandler[ClassifyCrashCommand]):
     async def handle(self, command: ClassifyCrashCommand) -> CommandResult:
         logger.info(
             "Classifying crash for server %s evidence=%s",
-            command.server_id, command.evidence_id,
+            command.server_id,
+            command.evidence_id,
         )
 
         async with UnitOfWork(self._event_bus) as uow:

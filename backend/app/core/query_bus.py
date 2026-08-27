@@ -20,8 +20,7 @@ TQuery = TypeVar("TQuery", bound=Query)
 
 class QueryHandler(ABC, Generic[TQuery]):
     @abstractmethod
-    async def handle(self, query: TQuery) -> Any:
-        ...
+    async def handle(self, query: TQuery) -> Any: ...
 
 
 class QueryMiddleware(ABC):
@@ -30,8 +29,7 @@ class QueryMiddleware(ABC):
         self,
         query: Query,
         next_middleware: Any,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
 
 class QueryBus:

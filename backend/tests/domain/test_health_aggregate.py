@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from app.modules.health.domain.aggregate import DiagnosticsReport, HealthStatus
 from app.modules.health.domain.events import (
     CrashClassifiedEvent,
@@ -69,7 +67,9 @@ class TestHealthStatus:
         status.update(new_classification=HealthStatusEnum.HEALTHY, contributing_factors=["ok"])
         status.collect_events()
 
-        status.update(new_classification=HealthStatusEnum.WARNING, contributing_factors=["high memory"])
+        status.update(
+            new_classification=HealthStatusEnum.WARNING, contributing_factors=["high memory"]
+        )
         assert status.previous_classification == HealthStatusEnum.HEALTHY
         assert status.classification == HealthStatusEnum.WARNING
 
@@ -96,7 +96,9 @@ class TestHealthStatus:
 
     def test_update_no_factors_keeps_existing(self) -> None:
         status = HealthStatus.create("srv_abc123")
-        status.update(new_classification=HealthStatusEnum.WARNING, contributing_factors=["disk full"])
+        status.update(
+            new_classification=HealthStatusEnum.WARNING, contributing_factors=["disk full"]
+        )
         status.collect_events()
 
         status.update(new_classification=HealthStatusEnum.CRITICAL)

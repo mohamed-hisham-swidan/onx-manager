@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +52,9 @@ class FilesystemSandbox:
 
 
 class NetworkSandbox:
-    def __init__(self, allowed_hosts: list[str] | None = None, allowed_ports: list[int] | None = None) -> None:
+    def __init__(
+        self, allowed_hosts: list[str] | None = None, allowed_ports: list[int] | None = None
+    ) -> None:
         self._allowed_hosts = set(allowed_hosts or [])
         self._allowed_ports = set(allowed_ports or [])
 

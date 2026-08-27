@@ -5,7 +5,7 @@ import json
 import time
 import uuid
 from collections.abc import Callable, Coroutine
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, or_, select, update
@@ -50,10 +50,10 @@ class InProcessQueue(TaskQueue):
         delay: int = 0,
     ) -> str:
         task_id = uuid.uuid4().hex
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         delay_until = None
         if delay > 0:
-            delay_until = datetime.fromtimestamp(time.time() + delay, tz=timezone.utc)
+            delay_until = datetime.fromtimestamp(time.time() + delay, tz=UTC)
 
         async with await self._session_factory() as session:
             model = TaskModel(
@@ -109,7 +109,7 @@ class InProcessQueue(TaskQueue):
             if model is None:
                 return
             model.status = TaskStatus.RUNNING
-            model.started_at = datetime.now(timezone.utc)
+            model.started_at = datetime.now(UTC)
             await session.commit()
 
         try:
@@ -120,7 +120,7 @@ class InProcessQueue(TaskQueue):
                     return
                 model.status = TaskStatus.SUCCESS
                 model.result_json = json.dumps(result) if result is not None else None
-                model.completed_at = datetime.now(timezone.utc)
+                model.completed_at = datetime.now(UTC)
                 await session.commit()
         except Exception as e:
             async with await self._session_factory() as session:
@@ -129,7 +129,7 @@ class InProcessQueue(TaskQueue):
                     return
                 model.status = TaskStatus.FAILED
                 model.error = f"{type(e).__name__}: {e}"
-                model.completed_at = datetime.now(timezone.utc)
+                model.completed_at = datetime.now(UTC)
                 await session.commit()
 
     async def reclaim_pending(self) -> dict[str, int]:
@@ -161,7 +161,7 @@ class InProcessQueue(TaskQueue):
                         TaskModel.task_id == model.task_id,
                         TaskModel.status == TaskStatus.PENDING,
                     )
-                    .values(status=TaskStatus.RUNNING, started_at=datetime.now(timezone.utc))
+                    .values(status=TaskStatus.RUNNING, started_at=datetime.now(UTC))
                 )
                 claimed = await session.execute(stmt)
                 await session.commit()
@@ -183,7 +183,7 @@ class InProcessQueue(TaskQueue):
         started more than ``max_age_minutes`` ago. Only these rows are touched;
         healthy short-running tasks are never affected.
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+        cutoff = datetime.now(UTC) - timedelta(minutes=max_age_minutes)
         async with await self._session_factory() as session:
             stmt = (
                 update(TaskModel)
@@ -197,7 +197,7 @@ class InProcessQueue(TaskQueue):
                 .values(
                     status=TaskStatus.FAILED,
                     error="interrupted by process restart",
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
             )
             result = await session.execute(stmt)

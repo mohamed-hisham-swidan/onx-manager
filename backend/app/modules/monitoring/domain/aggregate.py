@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
 import math
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
 
 from app.modules.monitoring.domain.events import (
     AlertResolvedEvent,
@@ -40,7 +41,7 @@ class MetricPoint:
         self.players = players
         self.ram_used_mb = ram_used_mb
         self.cpu_percent = cpu_percent
-        self.timestamp = timestamp or datetime.now(timezone.utc)
+        self.timestamp = timestamp or datetime.now(UTC)
 
 
 class MetricSeries(AggregateRoot):
@@ -85,9 +86,6 @@ class AlertCondition(Enum):
     GREATER_THAN = "gt"
     LESS_THAN = "lt"
     EQUAL = "eq"
-
-
-import uuid
 
 
 class AlertRule(AggregateRoot):
@@ -152,7 +150,7 @@ class AlertRule(AggregateRoot):
         return False
 
     def trigger(self, value: float) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if self._last_triggered_at:
             elapsed = (now - self._last_triggered_at).total_seconds() / 60
             if elapsed < self._cooldown_minutes:

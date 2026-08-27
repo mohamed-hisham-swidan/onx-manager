@@ -1,9 +1,9 @@
+from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.server.application.read_models import ServerDetailReadModel
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.db import database
 
 
 class GetServerQuery(Query):

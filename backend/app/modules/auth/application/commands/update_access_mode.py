@@ -27,7 +27,9 @@ class UpdateAccessModeHandler(CommandHandler[UpdateAccessModeCommand]):
 
         mode_str = command.access_mode.upper()
         if mode_str not in ("LOCAL", "GLOBAL"):
-            raise InvalidValueError("access_mode", command.access_mode, "Access mode must be LOCAL or GLOBAL")
+            raise InvalidValueError(
+                "access_mode", command.access_mode, "Access mode must be LOCAL or GLOBAL"
+            )
 
         target_mode = AccessMode.GLOBAL if mode_str == "GLOBAL" else AccessMode.LOCAL
 
@@ -36,7 +38,9 @@ class UpdateAccessModeHandler(CommandHandler[UpdateAccessModeCommand]):
             state = await sys_repo.get_with_lock("default")
 
             if not state.initialized:
-                raise InvalidValueError("access_mode", command.access_mode, "Instance is not initialized")
+                raise InvalidValueError(
+                    "access_mode", command.access_mode, "Instance is not initialized"
+                )
 
             state.set_access_mode(target_mode)
             await sys_repo.save(state)
@@ -51,7 +55,9 @@ class UpdateAccessModeHandler(CommandHandler[UpdateAccessModeCommand]):
             success=True,
             data={
                 "initialized": True,
-                "access_mode": target_mode.value if hasattr(target_mode, "value") else str(target_mode),
+                "access_mode": target_mode.value
+                if hasattr(target_mode, "value")
+                else str(target_mode),
                 "user_count": user_count,
                 "version": get_app_version(),
             },

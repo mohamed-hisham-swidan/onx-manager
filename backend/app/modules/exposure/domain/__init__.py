@@ -59,4 +59,3 @@ __all__ = [
     "aggregate_precedence",
     "exposure_status_to_process_status",
 ]
-

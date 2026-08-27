@@ -1,11 +1,11 @@
 import logging
 from pathlib import Path
 
-from app.modules.server.domain.repository import ServerRepository
-from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
 from app.core.persistence.db import database
+from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.infrastructure.repository import SQLServerRepository
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.migrate_import_arch")
 
@@ -24,7 +24,6 @@ async def migrate_old_import_arch(repo: ServerRepository | None = None) -> int:
 
 
 async def _do_migration(repo: ServerRepository) -> int:
-    from app.modules.server.domain.repository import ServerFilters
 
     all_servers = await repo.list()
     new_data_dir = Path(AppSettings().servers_data_dir).resolve()
@@ -46,7 +45,10 @@ async def _do_migration(repo: ServerRepository) -> int:
 
         logger.warning(
             "Removing old-arch server %s (%s) — root_path=%s (outside %s)",
-            server.id, server.name, root, new_data_dir,
+            server.id,
+            server.name,
+            root,
+            new_data_dir,
         )
         await repo.delete(server.id)
         removed += 1

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 import uuid
@@ -9,11 +8,11 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.websocket.authentication import WSAuthenticator
-from app.websocket.authorization import ChannelAuthorizer, MAX_CHANNELS_PER_CONNECTION
+from app.websocket.authorization import MAX_CHANNELS_PER_CONNECTION, ChannelAuthorizer
 from app.websocket.buffer import OfflineMessageBuffer
 from app.websocket.manager import ConnectionRegistry
 from app.websocket.rate_limiter import WSRateLimiter
-from app.websocket.serializers import MAX_MESSAGE_SIZE, MessageSerializer, WSMessage
+from app.websocket.serializers import MessageSerializer, WSMessage
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +55,9 @@ class WSConnectionHandler:
                 if not self._rate_limiter.check(connection_id):
                     await self._send_json(
                         ws,
-                        MessageSerializer.error_message("RATE_LIMITED", "Rate limit exceeded").to_dict(),
+                        MessageSerializer.error_message(
+                            "RATE_LIMITED", "Rate limit exceeded"
+                        ).to_dict(),
                     )
                     continue
 
@@ -96,7 +97,9 @@ class WSConnectionHandler:
             await self._send_json(ws, msg.to_dict())
         self._buffer.clear(user_id)
 
-    async def _handle_message(self, ws: WebSocket, connection_id: str, user_id: str, data: dict[str, Any]) -> None:
+    async def _handle_message(
+        self, ws: WebSocket, connection_id: str, user_id: str, data: dict[str, Any]
+    ) -> None:
         msg_type = data.get("type", "")
 
         if msg_type == "ping":
@@ -107,7 +110,9 @@ class WSConnectionHandler:
             if not isinstance(channels, list):
                 await self._send_json(
                     ws,
-                    MessageSerializer.error_message("INVALID_PAYLOAD", "channels must be a list").to_dict(),
+                    MessageSerializer.error_message(
+                        "INVALID_PAYLOAD", "channels must be a list"
+                    ).to_dict(),
                 )
                 return
 
@@ -115,7 +120,9 @@ class WSConnectionHandler:
             if len(current_subs) + len(channels) > MAX_CHANNELS_PER_CONNECTION:
                 await self._send_json(
                     ws,
-                    MessageSerializer.error_message("CHANNEL_LIMIT", "Maximum 50 channel subscriptions").to_dict(),
+                    MessageSerializer.error_message(
+                        "CHANNEL_LIMIT", "Maximum 50 channel subscriptions"
+                    ).to_dict(),
                 )
                 return
 
@@ -123,7 +130,9 @@ class WSConnectionHandler:
                 if not self._authorizer.validate_channel(channel):
                     await self._send_json(
                         ws,
-                        MessageSerializer.error_message("INVALID_CHANNEL", f"Invalid channel: {channel}").to_dict(),
+                        MessageSerializer.error_message(
+                            "INVALID_CHANNEL", f"Invalid channel: {channel}"
+                        ).to_dict(),
                     )
                     continue
                 if not self._authorizer.can_subscribe(user_id, channel):
@@ -144,7 +153,9 @@ class WSConnectionHandler:
             if not isinstance(channels, list):
                 await self._send_json(
                     ws,
-                    MessageSerializer.error_message("INVALID_PAYLOAD", "channels must be a list").to_dict(),
+                    MessageSerializer.error_message(
+                        "INVALID_PAYLOAD", "channels must be a list"
+                    ).to_dict(),
                 )
                 return
             for channel in channels:
@@ -158,7 +169,9 @@ class WSConnectionHandler:
             if not new_token:
                 await self._send_json(
                     ws,
-                    MessageSerializer.error_message("INVALID_PAYLOAD", "token is required").to_dict(),
+                    MessageSerializer.error_message(
+                        "INVALID_PAYLOAD", "token is required"
+                    ).to_dict(),
                 )
                 return
             self._authenticator.refresh_token(connection_id, new_token, time.time() + 3600)
@@ -166,12 +179,17 @@ class WSConnectionHandler:
         else:
             await self._send_json(
                 ws,
-                MessageSerializer.error_message("UNKNOWN_TYPE", f"Unknown message type: {msg_type}").to_dict(),
+                MessageSerializer.error_message(
+                    "UNKNOWN_TYPE", f"Unknown message type: {msg_type}"
+                ).to_dict(),
             )
 
     async def _send_json(self, ws: WebSocket, data: dict[str, Any]) -> None:
         try:
-            msg = WSMessage(type=data.get("type", "unknown"), data={k: v for k, v in data.items() if k != "type"})
+            msg = WSMessage(
+                type=data.get("type", "unknown"),
+                data={k: v for k, v in data.items() if k != "type"},
+            )
             raw = msg.to_json()
             await ws.send_bytes(raw)
         except Exception:

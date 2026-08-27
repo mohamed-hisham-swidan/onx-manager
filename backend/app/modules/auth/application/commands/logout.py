@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from app.core.command_bus import Command, CommandHandler, CommandResult
-from app.core.event_bus import EventBus
-from app.core.security import hash_api_key
-from app.modules.auth.infrastructure.models import RefreshTokenModel
-from app.core.persistence.unit_of_work import UnitOfWork
+from datetime import UTC
 
 from sqlalchemy import select
+
+from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.event_bus import EventBus
+from app.core.persistence.unit_of_work import UnitOfWork
+from app.core.security import hash_api_key
+from app.modules.auth.infrastructure.models import RefreshTokenModel
 
 
 class LogoutCommand(Command):
@@ -29,8 +31,9 @@ class LogoutHandler(CommandHandler[LogoutCommand]):
                 result = await uow.session.execute(stmt)
                 rt = result.scalar_one_or_none()
                 if rt:
-                    from datetime import datetime, timezone
+                    from datetime import datetime
+
                     rt.is_revoked = True
-                    rt.revoked_at = datetime.now(timezone.utc)
+                    rt.revoked_at = datetime.now(UTC)
             await uow.commit()
         return CommandResult(success=True, data={"logout": True})

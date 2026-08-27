@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from types import SimpleNamespace
-from typing import AsyncGenerator, Union
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -55,9 +55,11 @@ def _make_runner(result: InstallerResult) -> object:
         *,
         timeout: float,
         cwd: str | None = None,
-    ) -> AsyncGenerator[Union[ProgressLine, InstallerResult], None]:
+    ) -> AsyncGenerator[ProgressLine | InstallerResult, None]:
         _ = (command, timeout, cwd)
-        yield ProgressLine(stage="success", percent=100, message="Process exited with code 0", raw_line="")
+        yield ProgressLine(
+            stage="success", percent=100, message="Process exited with code 0", raw_line=""
+        )
         yield result
         return
 
@@ -163,9 +165,7 @@ class TestForgeProvisioner:
         fs = _make_fs()
         try:
             provisioner = ForgeProvisioner(
-                runner=_make_runner(
-                    InstallerResult(exit_code=None, output="", timed_out=True)
-                ),
+                runner=_make_runner(InstallerResult(exit_code=None, output="", timed_out=True)),
                 fs=fs,
             )
             with pytest.raises(InstallerExecutionError):
@@ -231,6 +231,7 @@ class TestForgeProvisioner:
             with patch(
                 "app.modules.server.application.services.forge_provisioner.ForgeProvisioner"
             ) as mock_cls:
+
                 async def provision(server_id: str, minecraft_version: str) -> None:
                     _ = (server_id, minecraft_version)
                     return None
@@ -254,6 +255,7 @@ class TestForgeProvisioner:
         with patch(
             "app.modules.server.application.services.forge_provisioner.ForgeProvisioner"
         ) as mock_cls:
+
             async def provision(server_id: str, minecraft_version: str) -> None:
                 _ = (server_id, minecraft_version)
                 await asyncio.sleep(0)
@@ -276,6 +278,7 @@ class TestForgeProvisioner:
         with patch(
             "app.modules.server.application.services.forge_provisioner.ForgeProvisioner"
         ) as mock_cls:
+
             async def provision(server_id: str, minecraft_version: str) -> None:
                 _ = (server_id, minecraft_version)
                 raise RuntimeError("boom")

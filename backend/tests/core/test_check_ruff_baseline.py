@@ -58,29 +58,21 @@ class TestCompareCounts:
         assert reduced == ["B008", "E501"]
 
     def test_empty_current_all_reduced_passes(self, checker) -> None:
-        regressions, fixed, reduced = checker.compare_counts(
-            {"E501": 20, "I001": 3}, {}
-        )
+        regressions, fixed, reduced = checker.compare_counts({"E501": 20, "I001": 3}, {})
         assert regressions == []
         assert fixed == ["E501", "I001"]
         assert reduced == ["E501", "I001"]
 
     def test_new_violation_existing_rule_fails(self, checker) -> None:
-        regressions, _fixed, _reduced = checker.compare_counts(
-            {"I001": 1}, {"I001": 2}
-        )
+        regressions, _fixed, _reduced = checker.compare_counts({"I001": 1}, {"I001": 2})
         assert regressions == ["I001"]
 
     def test_new_rule_not_in_baseline_fails(self, checker) -> None:
-        regressions, _fixed, _reduced = checker.compare_counts(
-            {"I001": 1}, {"I001": 1, "X999": 4}
-        )
+        regressions, _fixed, _reduced = checker.compare_counts({"I001": 1}, {"I001": 1, "X999": 4})
         assert regressions == ["X999"]
 
     def test_header_of_regression_message_reports_counts(self, checker) -> None:
-        regressions, _fixed, _reduced = checker.compare_counts(
-            {"I001": 1}, {"I001": 3, "X999": 1}
-        )
+        regressions, _fixed, _reduced = checker.compare_counts({"I001": 1}, {"I001": 3, "X999": 1})
         assert regressions == ["I001", "X999"]
 
 
@@ -126,9 +118,7 @@ class TestRuffExecutionFailure:
         def _run(*_args, **_kwargs) -> FakeResult:
             return FakeResult()
 
-        monkeypatch.setattr(
-            checker, "subprocess", type("Fake", (), {"run": _run})()
-        )
+        monkeypatch.setattr(checker, "subprocess", type("Fake", (), {"run": _run})())
         with pytest.raises(SystemExit) as exc_info:
             checker._current_counts()
         assert exc_info.value.code == 2
@@ -142,7 +132,5 @@ class TestRuffExecutionFailure:
         def _run(*_args, **_kwargs) -> FakeResult:
             return FakeResult()
 
-        monkeypatch.setattr(
-            checker, "subprocess", type("Fake", (), {"run": _run})()
-        )
+        monkeypatch.setattr(checker, "subprocess", type("Fake", (), {"run": _run})())
         assert checker._current_counts() == {}

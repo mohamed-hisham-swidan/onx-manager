@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import math
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from app.core.event_bus import EventBus
 from app.core.persistence.db import database
-from app.modules.auth.infrastructure.models import UserModel
-from app.modules.monitoring.domain.aggregate import MetricPoint, MetricSeries
-from app.modules.monitoring.domain.events import MetricRecordedEvent
+from app.modules.monitoring.domain.aggregate import MetricPoint
 from app.modules.monitoring.infrastructure.collector import MetricsCollector
-from app.modules.monitoring.infrastructure.models import MetricPointModel
 from app.modules.monitoring.infrastructure.rcon_client import parse_tps
 from app.modules.monitoring.infrastructure.repository import SQLMetricRepository
-from app.modules.server.domain.aggregate import Server, ServerStatus
+from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.value_objects import (
     JavaArguments,
     MemoryAllocation,
@@ -22,7 +18,6 @@ from app.modules.server.domain.value_objects import (
     ServerProperties,
     ServerType,
 )
-from app.modules.server.infrastructure.models import ServerModel
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
@@ -124,6 +119,7 @@ class TestMetricsCollectorAndRepositoryIntegration:
     @pytest.mark.asyncio
     async def test_collector_persists_clamped_tps_and_emits_event(self) -> None:
         from app.modules.server.domain.value_objects import ServerDeployment
+
         server_id = ServerId("srv-tps-1")
         server = Server.create(
             server_id=server_id,
@@ -145,7 +141,7 @@ class TestMetricsCollectorAndRepositoryIntegration:
 
         events: list[object] = []
         event_bus = EventBus()
-        from app.core.event_bus import EventHandler, DomainEvent
+        from app.core.event_bus import DomainEvent, EventHandler
         from app.modules.monitoring.infrastructure.collector import MetricCollectedEvent
 
         class TestHandler(EventHandler):
@@ -157,9 +153,20 @@ class TestMetricsCollectorAndRepositoryIntegration:
         collector = MetricsCollector(event_bus=event_bus)
 
         # Mock _collect_rcon_metrics returning 20.1 TPS and process metrics returning 15% CPU / 1024MB RAM
-        with patch("app.modules.monitoring.infrastructure.collector._collect_rcon_metrics", return_value=(20.1, 5)), \
-             patch("app.modules.monitoring.infrastructure.collector._read_server_properties", return_value={"enable-rcon": "true", "rcon.password": "secret"}), \
-             patch("app.modules.monitoring.infrastructure.collector._collect_process_metrics", return_value=(1024.0, 15.0)):
+        with (
+            patch(
+                "app.modules.monitoring.infrastructure.collector._collect_rcon_metrics",
+                return_value=(20.1, 5),
+            ),
+            patch(
+                "app.modules.monitoring.infrastructure.collector._read_server_properties",
+                return_value={"enable-rcon": "true", "rcon.password": "secret"},
+            ),
+            patch(
+                "app.modules.monitoring.infrastructure.collector._collect_process_metrics",
+                return_value=(1024.0, 15.0),
+            ),
+        ):
             metric = await collector.collect("srv-tps-1")
 
         # Verify ServerMetrics returned has clamped 20.0 TPS (or point clamped)
@@ -187,6 +194,7 @@ class TestMetricsCollectorAndRepositoryIntegration:
     async def test_garbage_tps_isolated_and_does_not_abort_other_servers(self) -> None:
         # Server 1 has garbage RCON response (e.g. 999.0)
         from app.modules.server.domain.value_objects import ServerDeployment
+
         s1 = Server.create(
             server_id=ServerId("srv-bad-1"),
             name="Bad Server",
@@ -220,7 +228,9 @@ class TestMetricsCollectorAndRepositoryIntegration:
             await repo.save(s2)
             await session.commit()
 
-        collector = MetricsCollector(event_bus=EventBus(), known_servers=["srv-bad-1", "srv-good-1"])
+        collector = MetricsCollector(
+            event_bus=EventBus(), known_servers=["srv-bad-1", "srv-good-1"]
+        )
 
         async def mock_collect_rcon(client: any) -> tuple[float, int]:
             if client.password == "secret-bad":
@@ -232,9 +242,20 @@ class TestMetricsCollectorAndRepositoryIntegration:
                 return {"enable-rcon": "true", "rcon.password": "secret-bad"}
             return {"enable-rcon": "true", "rcon.password": "secret-good"}
 
-        with patch("app.modules.monitoring.infrastructure.collector._collect_rcon_metrics", side_effect=mock_collect_rcon), \
-             patch("app.modules.monitoring.infrastructure.collector._read_server_properties", side_effect=mock_read_properties), \
-             patch("app.modules.monitoring.infrastructure.collector._collect_process_metrics", return_value=(500.0, 10.0)):
+        with (
+            patch(
+                "app.modules.monitoring.infrastructure.collector._collect_rcon_metrics",
+                side_effect=mock_collect_rcon,
+            ),
+            patch(
+                "app.modules.monitoring.infrastructure.collector._read_server_properties",
+                side_effect=mock_read_properties,
+            ),
+            patch(
+                "app.modules.monitoring.infrastructure.collector._collect_process_metrics",
+                return_value=(500.0, 10.0),
+            ),
+        ):
             results = await collector.collect_all()
 
         # srv-bad-1 returned default/fallback metrics and did not persist anything due to real collector swallow
@@ -271,7 +292,7 @@ class TestMetricsCollectorAndRepositoryIntegration:
 
         events: list[object] = []
         event_bus = EventBus()
-        from app.core.event_bus import EventHandler, DomainEvent
+        from app.core.event_bus import DomainEvent, EventHandler
         from app.modules.monitoring.infrastructure.collector import MetricCollectedEvent
 
         class TestHandler(EventHandler):
@@ -281,8 +302,16 @@ class TestMetricsCollectorAndRepositoryIntegration:
         event_bus.subscribe("MetricCollectedEvent", TestHandler())
         collector = MetricsCollector(event_bus=event_bus)
 
-        with patch("app.modules.monitoring.infrastructure.collector._read_server_properties", return_value={"enable-rcon": "false"}), \
-             patch("app.modules.monitoring.infrastructure.collector._collect_process_metrics", return_value=(512.0, 5.0)):
+        with (
+            patch(
+                "app.modules.monitoring.infrastructure.collector._read_server_properties",
+                return_value={"enable-rcon": "false"},
+            ),
+            patch(
+                "app.modules.monitoring.infrastructure.collector._collect_process_metrics",
+                return_value=(512.0, 5.0),
+            ),
+        ):
             metric = await collector.collect("srv-no-rcon")
 
         assert metric.tps is None
@@ -325,9 +354,20 @@ class TestMetricsCollectorAndRepositoryIntegration:
         async def fail_rcon(_client: any) -> tuple[float, int]:
             raise ConnectionRefusedError("RCON not yet up")
 
-        with patch("app.modules.monitoring.infrastructure.collector._collect_rcon_metrics", side_effect=fail_rcon), \
-             patch("app.modules.monitoring.infrastructure.collector._read_server_properties", return_value={"enable-rcon": "true", "rcon.password": "pass"}), \
-             patch("app.modules.monitoring.infrastructure.collector._collect_process_metrics", return_value=(256.0, 2.0)):
+        with (
+            patch(
+                "app.modules.monitoring.infrastructure.collector._collect_rcon_metrics",
+                side_effect=fail_rcon,
+            ),
+            patch(
+                "app.modules.monitoring.infrastructure.collector._read_server_properties",
+                return_value={"enable-rcon": "true", "rcon.password": "pass"},
+            ),
+            patch(
+                "app.modules.monitoring.infrastructure.collector._collect_process_metrics",
+                return_value=(256.0, 2.0),
+            ),
+        ):
             metric = await collector.collect("srv-rcon-fail")
 
         assert metric.tps is None

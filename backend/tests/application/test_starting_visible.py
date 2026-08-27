@@ -1,22 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-import os
-import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.core.event_bus import EventBus
 from app.core.persistence.db import database
-from app.core.persistence.unit_of_work import UnitOfWork
-from app.modules.backup.application.commands.create_backup import CreateBackupCommand, CreateBackupHandler
-from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy, BackupStatus, BackupType
-from app.modules.backup.infrastructure.models import BackupJobModel
+from app.modules.backup.domain.aggregate import BackupJob, BackupStatus, BackupType
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
-from app.modules.server.application.commands.restart_server import RestartServerCommand, RestartServerHandler
-from app.modules.server.application.commands.start_server import StartServerCommand, StartServerHandler
+from app.modules.server.application.commands.restart_server import (
+    RestartServerCommand,
+    RestartServerHandler,
+)
+from app.modules.server.application.commands.start_server import (
+    StartServerCommand,
+    StartServerHandler,
+)
 from app.modules.server.application.commands.stop_server import StopServerCommand, StopServerHandler
 from app.modules.server.application.runtime_reconciliation import (
     MismatchType,
@@ -45,7 +45,6 @@ from app.modules.server.infrastructure.providers.base import (
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import BackupJobId, MinecraftVersion, ServerId
 from app.services.backup_orchestrator import (
-    BackupCancelledError,
     cancel_backup,
     clear_cancelled_backup,
     is_backup_cancelled,
@@ -164,8 +163,15 @@ class TestStartAndRestartCommandsLeaveStarting:
         )
 
         handler = StartServerHandler(event_bus)
-        with patch("app.modules.server.application.commands.start_server.provider_factory.get", return_value=mock_provider), \
-             patch("app.modules.server.application.commands.start_server.RuntimeSupervisor.start_for"):
+        with (
+            patch(
+                "app.modules.server.application.commands.start_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch(
+                "app.modules.server.application.commands.start_server.RuntimeSupervisor.start_for"
+            ),
+        ):
             result = await handler.handle(StartServerCommand(server_id="srv-start-1"))
 
         assert result.success is True
@@ -192,8 +198,15 @@ class TestStartAndRestartCommandsLeaveStarting:
         )
 
         handler = RestartServerHandler(event_bus)
-        with patch("app.modules.server.application.commands.restart_server.provider_factory.get", return_value=mock_provider), \
-             patch("app.modules.server.application.commands.restart_server.RuntimeSupervisor.start_for"):
+        with (
+            patch(
+                "app.modules.server.application.commands.restart_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch(
+                "app.modules.server.application.commands.restart_server.RuntimeSupervisor.start_for"
+            ),
+        ):
             result = await handler.handle(RestartServerCommand(server_id="srv-restart-1"))
 
         assert result.success is True
@@ -209,7 +222,9 @@ class TestStartAndRestartCommandsLeaveStarting:
         await _create_server("srv-stop-starting-1", status=ServerStatus.STARTING)
 
         handler = StopServerHandler(event_bus)
-        result = await handler.handle(StopServerCommand(server_id="srv-stop-starting-1", reason="test"))
+        result = await handler.handle(
+            StopServerCommand(server_id="srv-stop-starting-1", reason="test")
+        )
 
         assert result.success is True
         async with database.session_factory() as session:
@@ -233,8 +248,15 @@ class TestStartAndRestartCommandsLeaveStarting:
         )
 
         handler = RestartServerHandler(event_bus)
-        with patch("app.modules.server.application.commands.restart_server.provider_factory.get", return_value=mock_provider), \
-             patch("app.modules.server.application.commands.restart_server.RuntimeSupervisor.start_for"):
+        with (
+            patch(
+                "app.modules.server.application.commands.restart_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch(
+                "app.modules.server.application.commands.restart_server.RuntimeSupervisor.start_for"
+            ),
+        ):
             result = await handler.handle(RestartServerCommand(server_id="srv-restart-starting-1"))
 
         assert result.success is True
@@ -249,7 +271,9 @@ class TestStartAndRestartCommandsLeaveStarting:
 @pytest.mark.usefixtures("init_test_db")
 class TestSupervisorVerifyStartup:
     @pytest.mark.asyncio
-    async def test_supervisor_verify_startup_transitions_to_running_when_wait_ready_true(self) -> None:
+    async def test_supervisor_verify_startup_transitions_to_running_when_wait_ready_true(
+        self,
+    ) -> None:
         server = await _create_server("srv-sup-1", status=ServerStatus.STARTING)
 
         mock_provider = MagicMock(spec=ServerProvider)
@@ -260,6 +284,7 @@ class TestSupervisorVerifyStartup:
 
         repo_get = AsyncMock(return_value=server)
         saved_server_holder: list[Server] = []
+
         async def mock_repo_save(s: Server) -> None:
             saved_server_holder.append(s)
 
@@ -286,7 +311,9 @@ class TestSupervisorVerifyStartup:
         assert any(s.status == ServerStatus.RUNNING for s in saved_server_holder)
 
     @pytest.mark.asyncio
-    async def test_supervisor_verify_startup_transitions_to_running_on_deadline_passed_process_alive(self) -> None:
+    async def test_supervisor_verify_startup_transitions_to_running_on_deadline_passed_process_alive(
+        self,
+    ) -> None:
         server = await _create_server("srv-sup-2", status=ServerStatus.STARTING)
 
         mock_provider = MagicMock(spec=ServerProvider)
@@ -298,6 +325,7 @@ class TestSupervisorVerifyStartup:
 
         repo_get = AsyncMock(return_value=server)
         saved_server_holder: list[Server] = []
+
         async def mock_repo_save(s: Server) -> None:
             saved_server_holder.append(s)
 
@@ -345,6 +373,7 @@ class TestSupervisorVerifyStartup:
 
         repo_get = AsyncMock(return_value=server)
         saved_server_holder: list[Server] = []
+
         async def mock_repo_save(s: Server) -> None:
             saved_server_holder.append(s)
 
@@ -387,6 +416,7 @@ class TestSupervisorVerifyStartup:
 
         repo_get = AsyncMock(return_value=server)
         saved_server_holder: list[Server] = []
+
         async def mock_repo_save(s: Server) -> None:
             saved_server_holder.append(s)
 
@@ -506,7 +536,9 @@ class TestBackupCooperativeCancellation:
             assert not is_backup_cancelled(bid)
 
     @pytest.mark.asyncio
-    async def test_restart_server_waits_for_backup_and_cancels_on_timeout(self, event_bus: EventBus) -> None:
+    async def test_restart_server_waits_for_backup_and_cancels_on_timeout(
+        self, event_bus: EventBus
+    ) -> None:
         server = await _create_server("srv-bkp-restart", status=ServerStatus.RUNNING)
         bid = BackupJobId("bkp-restart-job-1")
 
@@ -534,9 +566,16 @@ class TestBackupCooperativeCancellation:
 
         handler = RestartServerHandler(event_bus)
         # Patch _BACKUP_WAIT_CAP_S to 0.1s for fast test
-        with patch("app.modules.server.application.commands.restart_server._BACKUP_WAIT_CAP_S", 0.1), \
-             patch("app.modules.server.application.commands.restart_server.provider_factory.get", return_value=mock_provider), \
-             patch("app.modules.server.application.commands.restart_server.RuntimeSupervisor.start_for"):
+        with (
+            patch("app.modules.server.application.commands.restart_server._BACKUP_WAIT_CAP_S", 0.1),
+            patch(
+                "app.modules.server.application.commands.restart_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch(
+                "app.modules.server.application.commands.restart_server.RuntimeSupervisor.start_for"
+            ),
+        ):
             result = await handler.handle(RestartServerCommand(server_id="srv-bkp-restart"))
 
         assert result.success is True

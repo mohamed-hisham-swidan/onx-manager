@@ -9,7 +9,7 @@ from app.core.event_bus import DomainEvent
 class AggregateRoot(ABC):
     _domain_events: list[DomainEvent]
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         self._domain_events = []
 
     def collect_events(self) -> list[DomainEvent]:

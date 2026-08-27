@@ -4,11 +4,11 @@ import uuid
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.security import hash_password
 from app.modules.auth.domain.aggregate import User
 from app.modules.auth.infrastructure.repository import SQLUserRepository
 from app.modules.shared.value_objects import EmailAddress, UserId
-from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class CreateUserCommand(Command):
@@ -25,7 +25,9 @@ class CreateUserHandler(CommandHandler[CreateUserCommand]):
         from app.core.exceptions import ConflictError, InvalidValueError
 
         if len(command.password) < 8:
-            raise InvalidValueError("password", "too short", "Password must be at least 8 characters")
+            raise InvalidValueError(
+                "password", "too short", "Password must be at least 8 characters"
+            )
 
         async with UnitOfWork(self._event_bus) as uow:
             repo = SQLUserRepository(uow.session)
@@ -49,6 +51,7 @@ class CreateUserHandler(CommandHandler[CreateUserCommand]):
             if viewer_role is None:
                 from app.modules.auth.domain.aggregate import Role
                 from app.modules.shared.value_objects import Permission, RoleId
+
                 viewer_role = Role(
                     role_id=RoleId(uuid.uuid4().hex),
                     name="viewer",
@@ -64,12 +67,15 @@ class CreateUserHandler(CommandHandler[CreateUserCommand]):
                 uow.add_event(event)
             await uow.commit()
 
-        return CommandResult(success=True, data={
-            "user_id": str(user.user_id),
-            "email": str(user.email),
-            "display_name": user.display_name,
-            "is_active": user.is_active,
-            "roles": [r.name for r in user.roles],
-            "created_at": user.created_at,
-            "last_login_at": user.last_login_at,
-        })
+        return CommandResult(
+            success=True,
+            data={
+                "user_id": str(user.user_id),
+                "email": str(user.email),
+                "display_name": user.display_name,
+                "is_active": user.is_active,
+                "roles": [r.name for r in user.roles],
+                "created_at": user.created_at,
+                "last_login_at": user.last_login_at,
+            },
+        )

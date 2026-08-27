@@ -47,9 +47,12 @@ async def consume_pending_plugin_deletions(
                     fs.delete(path)
                 except OSError as exc:
                     logger.error(
-                        'Pending plugin deletion failed — plugin_id=%s filename=%s '
-                        'error=%s server_id=%s',
-                        plugin.plugin_id, filename, exc, server_id,
+                        "Pending plugin deletion failed — plugin_id=%s filename=%s "
+                        "error=%s server_id=%s",
+                        plugin.plugin_id,
+                        filename,
+                        exc,
+                        server_id,
                     )
                     results.append(
                         {
@@ -75,8 +78,10 @@ async def consume_pending_plugin_deletions(
             },
         )
         logger.info(
-            'Pending plugin deletion applied — plugin_id=%s filename=%s server_id=%s',
-            plugin.plugin_id, filename, server_id,
+            "Pending plugin deletion applied — plugin_id=%s filename=%s server_id=%s",
+            plugin.plugin_id,
+            filename,
+            server_id,
         )
 
     return results

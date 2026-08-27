@@ -1,9 +1,16 @@
 from __future__ import annotations
 
-import json
-
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
-
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 
 from app.core.persistence.base import Base, TimestampMixin
@@ -55,23 +62,29 @@ class ServerModel(Base, TimestampMixin):
     restart_count = Column(Integer, nullable=False, default=0)
     launch_config_json = Column(Text, nullable=True)
     missing_since = Column(DateTime, nullable=True)
-    owner_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner_id = Column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     owner = relationship("UserModel", foreign_keys=[owner_id], back_populates="owned_servers")
-    memberships = relationship("ServerMembershipModel", back_populates="server", cascade="all, delete-orphan")
+    memberships = relationship(
+        "ServerMembershipModel", back_populates="server", cascade="all, delete-orphan"
+    )
 
 
 class ServerMembershipModel(Base, TimestampMixin):
     __tablename__ = "server_memberships"
 
     id = Column(String(36), primary_key=True)
-    server_id = Column(String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    server_id = Column(
+        String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id = Column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     role = Column(String(32), nullable=False)
 
     server = relationship("ServerModel", back_populates="memberships")
     user = relationship("UserModel", back_populates="server_memberships")
 
-    __table_args__ = (
-        UniqueConstraint("server_id", "user_id", name="uq_server_user_membership"),
-    )
+    __table_args__ = (UniqueConstraint("server_id", "user_id", name="uq_server_user_membership"),)

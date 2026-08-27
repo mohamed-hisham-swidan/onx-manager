@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from app.modules.health.domain.value_objects import (
     CrashClassification,
     EnvironmentReport,

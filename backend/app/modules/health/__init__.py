@@ -1,6 +1,4 @@
-from app.modules.health import domain
-from app.modules.health import application
-from app.modules.health import infrastructure
+from app.modules.health import application, domain, infrastructure
 
 __all__ = [
     "domain",

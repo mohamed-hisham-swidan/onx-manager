@@ -1,15 +1,10 @@
 import logging
-import os
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
-from app.core.platform_lock import set_cloexec_on_all_fds
-
-set_cloexec_on_all_fds()
 
 from app.api.deps import init_buses, init_storage
 from app.api.errors import register_error_handlers
@@ -38,8 +33,10 @@ from app.core.command_bus import CommandBus
 from app.core.config import ConfigFactory, init_active_panel_bind
 from app.core.event_bus import EventBus
 from app.core.http_client import close_http_client, init_http_client
+from app.core.identity import IDENTITY
 from app.core.persistence.db import database
 from app.core.persistence.db_revision import check_database_compatibility
+from app.core.platform_lock import set_cloexec_on_all_fds
 from app.core.query_bus import QueryBus
 from app.core.settings_store import get_live_settings, init_settings_store
 from app.core.version import get_app_version
@@ -59,7 +56,7 @@ from app.registration import register_handlers
 from app.websocket.endpoint import init_websocket, start_websocket_services, stop_websocket_services
 from app.websocket.endpoint import router as ws_router
 
-from app.core.identity import IDENTITY
+set_cloexec_on_all_fds()
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.main")
 
@@ -156,13 +153,13 @@ async def lifespan(_app: FastAPI):
             logger.exception("Import architecture migration failed")
 
         try:
-            from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
-            from app.modules.exposure.infrastructure.repository import SQLHostAgentRepository
             from app.modules.exposure.application.commands import (
                 _panel_encryption,
                 _persist_playit_status,
                 _reconcile_playit_tunnels,
             )
+            from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
+            from app.modules.exposure.infrastructure.repository import SQLHostAgentRepository
 
             supervisor = get_playit_supervisor()
             reconciled_playit = await supervisor.reconcile_startup()
@@ -258,6 +255,7 @@ async def lifespan(_app: FastAPI):
 
     # Scheduler — loads cron_jobs from DB and fires them on schedule
     from app.tasks.scheduler import init_global_scheduler
+
     scheduler = Scheduler(_session_factory)
     scheduler.set_task_queue(task_queue)
     init_global_scheduler(scheduler)
@@ -277,12 +275,14 @@ async def lifespan(_app: FastAPI):
             # Look for existing metrics collection job under any known name
             existing = await sess.execute(
                 select(CronJobModel).where(
-                    CronJobModel.name.in_((
-                        "metrics_collect",
-                        "metrics_collect_every_0.2s",
-                        "metrics_collect_every_0.5s",
-                        "metrics_collect_every_1s",
-                    ))
+                    CronJobModel.name.in_(
+                        (
+                            "metrics_collect",
+                            "metrics_collect_every_0.2s",
+                            "metrics_collect_every_0.5s",
+                            "metrics_collect_every_1s",
+                        )
+                    )
                 )
             )
             existing_jobs = list(existing.scalars().all())

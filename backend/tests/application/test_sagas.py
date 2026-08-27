@@ -2,8 +2,9 @@ import os
 
 import pytest
 
-from app.core.saga import SagaOrchestrator, SagaStatus
-from app.modules.backup.domain.aggregate import BackupJob, BackupType
+from app.core.persistence.db import database
+from app.core.saga import SagaOrchestrator
+from app.modules.backup.domain.aggregate import BackupJob
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.value_objects import (
@@ -27,7 +28,6 @@ from app.modules.storage.encryption import BackupEncryption
 from app.services.backup_orchestrator import BackupSaga
 from app.services.deployment_orchestrator import DeploymentOrchestrator
 from app.services.server_orchestrator import DeploymentSaga, RestartSaga
-from app.core.persistence.db import database
 
 
 class FakeProvider(ServerProvider):
@@ -46,6 +46,7 @@ class FakeProvider(ServerProvider):
     async def start(self, server_id: str, config: dict) -> object:
         self.started.append(server_id)
         from app.modules.server.infrastructure.providers.base import DeploymentResult
+
         return DeploymentResult(
             status=ServerRuntimeStatus.RUNNING,
             address="localhost",

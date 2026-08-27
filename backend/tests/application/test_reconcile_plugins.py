@@ -258,9 +258,7 @@ class TestReconcilePluginsHandler:
             assert plugins[0].display_version == "2.5.0"
 
     @pytest.mark.asyncio
-    async def test_preserves_already_versioned_row(
-        self, event_bus: EventBus, tmp_path
-    ) -> None:
+    async def test_preserves_already_versioned_row(self, event_bus: EventBus, tmp_path) -> None:
         server_dir = str(tmp_path / "rec-known")
         await _create_server("rec-known", server_dir)
         await _seed_plugin_row("rec-known-1", "rec-known", "KnownPlugin.jar")
@@ -276,4 +274,3 @@ class TestReconcilePluginsHandler:
             plugins = await repo.list_all_by_server(ServerId("rec-known"))
             assert len(plugins) == 1
             assert plugins[0].display_version == "1.0.0"
-

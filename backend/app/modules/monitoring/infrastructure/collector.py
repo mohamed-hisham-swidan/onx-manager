@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -160,7 +159,10 @@ def _parse_tick_query(response: str) -> float | None:
     - "The average tick time is 12.3ms, with 19.8 ticks per second"
     """
     import re
-    match = re.search(r"Target tick rate:?\s*(?:is\s*)?([\d.]+)\s*per second", response, re.IGNORECASE)
+
+    match = re.search(
+        r"Target tick rate:?\s*(?:is\s*)?([\d.]+)\s*per second", response, re.IGNORECASE
+    )
     if match:
         try:
             return float(match.group(1))
@@ -195,6 +197,7 @@ def _parse_forge_tps(response: str) -> float | None:
     Overall: 20.000 TPS (0.246 ms/tick)
     """
     import re
+
     # Forge: Mean TPS: 20.000
     matches = re.findall(r"Mean TPS:\s*([\d.]+)", response)
     if matches:
@@ -297,7 +300,7 @@ class MetricsCollector:
                 players=players,
                 ram_used_mb=ram_used_mb,
                 cpu_percent=cpu_percent,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
 
             metric = ServerMetrics(

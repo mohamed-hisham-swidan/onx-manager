@@ -14,8 +14,7 @@ from app.modules.health.domain.value_objects import (
 
 class CrashClassifier(ABC):
     @abstractmethod
-    async def classify(self, evidence: EvidenceBundle) -> CrashClassification:
-        ...
+    async def classify(self, evidence: EvidenceBundle) -> CrashClassification: ...
 
 
 class HealthCalculatorService(ABC):
@@ -24,8 +23,7 @@ class HealthCalculatorService(ABC):
         self,
         current_status: HealthStatusEnum,
         signals: list[HealthSignal],
-    ) -> tuple[HealthStatusEnum, list[str], float, str]:
-        ...
+    ) -> tuple[HealthStatusEnum, list[str], float, str]: ...
 
 
 class IntegrityChecker(ABC):
@@ -35,11 +33,9 @@ class IntegrityChecker(ABC):
         server_id: str,
         scope: str = "full",
         root_path: str | None = None,
-    ) -> IntegrityReport:
-        ...
+    ) -> IntegrityReport: ...
 
 
 class EnvironmentScanner(ABC):
     @abstractmethod
-    async def scan(self, server_id: str | None = None) -> EnvironmentReport:
-        ...
+    async def scan(self, server_id: str | None = None) -> EnvironmentReport: ...

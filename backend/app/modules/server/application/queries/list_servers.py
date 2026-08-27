@@ -1,8 +1,8 @@
+from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.server.application.read_models import ServerReadModel
 from app.modules.server.domain.repository import ServerFilters, ServerRepository
 from app.modules.server.infrastructure.repository import SQLServerRepository
-from app.core.persistence.db import database
 
 
 class ListServersQuery(Query):

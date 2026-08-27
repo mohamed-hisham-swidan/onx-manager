@@ -42,7 +42,11 @@ def parse_jar_version(jar_path: str) -> str | None:
                     try:
                         raw_content = zf.read(name_map[candidate]).decode("utf-8", errors="replace")
                         data = yaml.safe_load(raw_content)
-                        if isinstance(data, dict) and "version" in data and data["version"] is not None:
+                        if (
+                            isinstance(data, dict)
+                            and "version" in data
+                            and data["version"] is not None
+                        ):
                             ver = str(data["version"]).strip()
                             if ver and not ver.startswith("${"):
                                 return ver
@@ -55,7 +59,11 @@ def parse_jar_version(jar_path: str) -> str | None:
                     try:
                         raw_content = zf.read(name_map[candidate]).decode("utf-8", errors="replace")
                         data = json.loads(raw_content)
-                        if isinstance(data, dict) and "version" in data and data["version"] is not None:
+                        if (
+                            isinstance(data, dict)
+                            and "version" in data
+                            and data["version"] is not None
+                        ):
                             ver = str(data["version"]).strip()
                             if ver and not ver.startswith("${"):
                                 return ver
@@ -68,9 +76,18 @@ def parse_jar_version(jar_path: str) -> str | None:
                     try:
                         raw_content = zf.read(name_map[candidate]).decode("utf-8", errors="replace")
                         data = tomllib.loads(raw_content)
-                        if isinstance(data, dict) and "mods" in data and isinstance(data["mods"], list) and len(data["mods"]) > 0:
+                        if (
+                            isinstance(data, dict)
+                            and "mods" in data
+                            and isinstance(data["mods"], list)
+                            and len(data["mods"]) > 0
+                        ):
                             first_mod = data["mods"][0]
-                            if isinstance(first_mod, dict) and "version" in first_mod and first_mod["version"] is not None:
+                            if (
+                                isinstance(first_mod, dict)
+                                and "version" in first_mod
+                                and first_mod["version"] is not None
+                            ):
                                 ver = str(first_mod["version"]).strip()
                                 if ver and not ver.startswith("${"):
                                     return ver
@@ -80,7 +97,9 @@ def parse_jar_version(jar_path: str) -> str | None:
             # 4. META-INF/MANIFEST.MF
             if "meta-inf/manifest.mf" in name_map:
                 try:
-                    raw_content = zf.read(name_map["meta-inf/manifest.mf"]).decode("utf-8", errors="replace")
+                    raw_content = zf.read(name_map["meta-inf/manifest.mf"]).decode(
+                        "utf-8", errors="replace"
+                    )
                     ver = _parse_manifest_version(raw_content)
                     if ver:
                         return ver
@@ -99,7 +118,11 @@ def parse_jar_version(jar_path: str) -> str | None:
                         mod_list = data.get("modList") or data.get("modlist")  # type: ignore
                     if isinstance(mod_list, list) and len(mod_list) > 0:
                         first_mod = mod_list[0]
-                        if isinstance(first_mod, dict) and "version" in first_mod and first_mod["version"] is not None:
+                        if (
+                            isinstance(first_mod, dict)
+                            and "version" in first_mod
+                            and first_mod["version"] is not None
+                        ):
                             ver = str(first_mod["version"]).strip()
                             if ver and not ver.startswith("${"):
                                 return ver

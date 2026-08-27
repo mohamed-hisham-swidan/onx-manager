@@ -88,7 +88,9 @@ async def _pending(server_id: str) -> tuple[str, datetime] | None:
 @pytest.mark.usefixtures("init_test_db")
 class TestPerformSafeRestore:
     async def _build_artifact(
-        self, source_dir: str, names: list[str],
+        self,
+        source_dir: str,
+        names: list[str],
     ) -> tuple[FakeStorage, BackupEncryption, str, int, str]:
         encryption = BackupEncryption()
         plaintext = _make_archive(source_dir, names)

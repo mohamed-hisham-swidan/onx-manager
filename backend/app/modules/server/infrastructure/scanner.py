@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from dataclasses import dataclass, field
@@ -50,9 +51,13 @@ def _detect_server_type(dir_path: Path) -> str:
         return "spigot"
     if (dir_path / "bukkit.yml").exists():
         return "bukkit"
-    if (dir_path / "libraries" / "net" / "neoforged").exists() or (dir_path / "neoforge.jar").exists():
+    if (dir_path / "libraries" / "net" / "neoforged").exists() or (
+        dir_path / "neoforge.jar"
+    ).exists():
         return "neoforge"
-    if (dir_path / "libraries" / "net" / "minecraftforge").exists() or (dir_path / "forge.jar").exists():
+    if (dir_path / "libraries" / "net" / "minecraftforge").exists() or (
+        dir_path / "forge.jar"
+    ).exists():
         return "forge"
     if (dir_path / "fabric-server-launch.jar").exists() or (dir_path / ".fabric").exists():
         return "fabric"
@@ -81,10 +86,8 @@ def _dir_size_mb(path: Path) -> float:
     try:
         for entry in path.rglob("*"):
             if entry.is_file():
-                try:
+                with contextlib.suppress(FileNotFoundError, PermissionError, OSError):
                     total += entry.stat().st_size
-                except (FileNotFoundError, PermissionError, OSError):
-                    pass
         return total / (1024 * 1024)
     except (FileNotFoundError, PermissionError, OSError):
         return 0.0
@@ -118,11 +121,17 @@ class FilesystemScanner:
                 continue
 
             try:
-                props = _read_properties(entry / "server.properties") if (entry / "server.properties").is_file() else {}
+                props = (
+                    _read_properties(entry / "server.properties")
+                    if (entry / "server.properties").is_file()
+                    else {}
+                )
                 level_name = props.get("level-name", "world")
                 has_world = (entry / level_name).is_dir()
 
-                jar_candidates = [f for f in entry.iterdir() if f.is_file() and f.name.endswith(".jar")]
+                jar_candidates = [
+                    f for f in entry.iterdir() if f.is_file() and f.name.endswith(".jar")
+                ]
                 jar_name = ""
                 for jc in jar_candidates:
                     jc_lower = jc.name.lower()
@@ -137,18 +146,20 @@ class FilesystemScanner:
                     elif (entry / "run.bat").is_file():
                         jar_name = "run.bat"
 
-                results.append(DiscoveredDirectory(
-                    path=str(entry),
-                    dirname=entry.name,
-                    detected_type=_detect_server_type(entry),
-                    has_server_jar=bool(jar_name),
-                    has_world_dir=has_world,
-                    has_server_properties=(entry / "server.properties").is_file(),
-                    has_eula=(entry / "eula.txt").is_file(),
-                    size_mb=_dir_size_mb(entry),
-                    jar_name=jar_name,
-                    properties=props,
-                ))
+                results.append(
+                    DiscoveredDirectory(
+                        path=str(entry),
+                        dirname=entry.name,
+                        detected_type=_detect_server_type(entry),
+                        has_server_jar=bool(jar_name),
+                        has_world_dir=has_world,
+                        has_server_properties=(entry / "server.properties").is_file(),
+                        has_eula=(entry / "eula.txt").is_file(),
+                        size_mb=_dir_size_mb(entry),
+                        jar_name=jar_name,
+                        properties=props,
+                    )
+                )
             except (PermissionError, OSError) as exc:
                 logger.warning("Cannot scan %s: %s", entry, exc)
                 continue

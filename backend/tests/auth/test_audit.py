@@ -4,8 +4,8 @@ import pytest
 from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.modules.auth.infrastructure.audit import AuditLogger
 from app.core.persistence.base import Base
+from app.modules.auth.infrastructure.audit import AuditLogger
 
 
 @pytest.fixture

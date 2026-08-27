@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ class SQLPluginRepository(PluginRepository):
         model = await self._session.get(PluginModel, str(plugin_id))
         if model is None:
             from app.core.exceptions import NotFoundError
+
             raise NotFoundError(f"Plugin '{plugin_id}' not found")
         return self._model_to_domain(model)
 
@@ -76,7 +77,7 @@ class SQLPluginRepository(PluginRepository):
         model.checksum = plugin.checksum
         model.icon_url = plugin.icon_url
         model.installed_at = plugin.installed_at
-        model.updated_at = datetime.now(timezone.utc)
+        model.updated_at = datetime.now(UTC)
         await self._session.flush()
 
     async def delete(self, plugin_id: PluginId) -> None:

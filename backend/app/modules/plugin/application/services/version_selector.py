@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.modules.plugin.infrastructure.providers.base import PluginVersionInfo
 
@@ -65,8 +65,10 @@ def _game_version_matches(server_version: str, listed_version: str) -> bool:
         #       truncates anything longer (e.g. "1.21.11.2" → (1,21,11)).
         return len(segments) in (2, 3) and all(seg.isdigit() for seg in segments)
 
-    if not (_is_safe_numeric_version(server_raw_segments)
-            and _is_safe_numeric_version(listed_raw_segments)):
+    if not (
+        _is_safe_numeric_version(server_raw_segments)
+        and _is_safe_numeric_version(listed_raw_segments)
+    ):
         # Any suffix, wrong segment count, or non-numeric value on either
         # side: exact string equality only. Do NOT run it through _parse_mc.
         return server_version.strip() == listed_version.strip()
@@ -93,6 +95,7 @@ def _version_sort_key(version: PluginVersionInfo) -> tuple[int, Any, str, str]:
     v_str = version.version_number or ""
     try:
         from packaging.version import parse as parse_version
+
         return (1, parse_version(v_str), "", _published_at(version))
     except Exception:
         return (0, "", v_str, _published_at(version))
@@ -126,9 +129,7 @@ def select_best_version(
             notice_kind="no_versions",
         )
 
-    available = tuple(
-        sorted(versions, key=_version_sort_key, reverse=True)
-    )
+    available = tuple(sorted(versions, key=_version_sort_key, reverse=True))
     server_type = (server_type or "").strip().lower()
     chain = LOADER_COMPATIBILITY.get(server_type, (server_type,))
     server_version = (minecraft_version or "").strip()

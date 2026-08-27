@@ -28,7 +28,11 @@ class WSRateLimiter:
         cutoff = now - self._window_seconds * 2
         self._buckets = defaultdict(
             list,
-            {k: [t for t in v if t > cutoff] for k, v in self._buckets.items() if any(t > cutoff for t in v)},
+            {
+                k: [t for t in v if t > cutoff]
+                for k, v in self._buckets.items()
+                if any(t > cutoff for t in v)
+            },
         )
 
     @property

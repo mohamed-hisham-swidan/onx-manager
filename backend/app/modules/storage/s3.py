@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC
 from typing import Any
 
 from app.modules.storage.base import StorageBackend, StorageFileInfo, StorageResult
@@ -104,7 +104,7 @@ class S3Storage(StorageBackend):
                         path=obj["Key"],
                         size_bytes=obj["Size"],
                         checksum=obj.get("ETag", "").strip('"'),
-                        modified_at=obj["LastModified"].replace(tzinfo=timezone.utc),
+                        modified_at=obj["LastModified"].replace(tzinfo=UTC),
                     ),
                 )
         return files
@@ -118,7 +118,7 @@ class S3Storage(StorageBackend):
                 path=key,
                 size_bytes=response["ContentLength"],
                 checksum=response.get("ETag", "").strip('"'),
-                modified_at=response["LastModified"].replace(tzinfo=timezone.utc),
+                modified_at=response["LastModified"].replace(tzinfo=UTC),
             )
         except Exception:
             return None

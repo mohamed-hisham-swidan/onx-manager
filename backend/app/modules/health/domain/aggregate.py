@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from app.modules.health.domain.events import (
     CrashClassifiedEvent,
@@ -37,7 +36,7 @@ class HealthStatus(AggregateRoot):
         self._contributing_factors = contributing_factors or []
         self._trend = trend
         self._confidence = confidence
-        self._last_updated = last_updated or datetime.now(timezone.utc)
+        self._last_updated = last_updated or datetime.now(UTC)
 
     @property
     def server_id(self) -> str:
@@ -83,7 +82,7 @@ class HealthStatus(AggregateRoot):
         self._contributing_factors = contributing_factors or self._contributing_factors
         self._trend = trend
         self._confidence = confidence
-        self._last_updated = datetime.now(timezone.utc)
+        self._last_updated = datetime.now(UTC)
 
         if new_classification != old_status:
             self._add_event(
@@ -102,7 +101,7 @@ class HealthStatus(AggregateRoot):
         self._contributing_factors = []
         self._trend = HealthTrend.STABLE
         self._confidence = 0.0
-        self._last_updated = datetime.now(timezone.utc)
+        self._last_updated = datetime.now(UTC)
 
     def to_timeline_entry(self) -> HealthTimelineEntry:
         return HealthTimelineEntry(
@@ -136,7 +135,7 @@ class DiagnosticsReport(AggregateRoot):
         self._server_id = server_id
         self._evidence = evidence
         self._classification = classification
-        self._created_at = created_at or datetime.now(timezone.utc)
+        self._created_at = created_at or datetime.now(UTC)
 
     @property
     def report_id(self) -> str:

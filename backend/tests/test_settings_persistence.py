@@ -1,18 +1,13 @@
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
 from httpx import ASGITransport, AsyncClient
 
-from app.api.deps import require_permission
-from app.core.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
+from app.core.circuit_breaker import CircuitBreaker
 from app.core.event_bus import DomainEvent, EventBus, EventHandler
 from app.core.saga import SagaOrchestrator, SagaStep
 from app.core.settings_store import (
-    RESTART_REQUIRED_FIELDS,
     get_live_settings,
     init_settings_store,
     update_settings,
@@ -26,7 +21,7 @@ class MockHandler(EventHandler):
         self.calls = 0
         self.fail_count = fail_count
 
-    async def handle(self, event: DomainEvent) -> None:
+    async def handle(self, _event: DomainEvent) -> None:
         self.calls += 1
         if self.calls <= self.fail_count:
             raise RuntimeError("Mock failure")
@@ -42,7 +37,7 @@ def setup_temp_settings(tmp_path, monkeypatch):
 
 
 class TestSettingsPersistenceStore:
-    def test_init_and_get_defaults(self, setup_temp_settings):
+    def test_init_and_get_defaults(self):
         live = get_live_settings()
         assert live.app_name == "onx-manager"
         assert live.rate_limit_per_minute == 60
@@ -70,10 +65,12 @@ class TestSettingsPersistenceStore:
 
     def test_update_persists_to_file(self, setup_temp_settings):
         test_yaml = setup_temp_settings
-        live, restart_fields = update_settings({
-            "rate_limit_per_minute": 120,
-            "log_level": "DEBUG",
-        })
+        live, restart_fields = update_settings(
+            {
+                "rate_limit_per_minute": 120,
+                "log_level": "DEBUG",
+            }
+        )
         assert live.rate_limit_per_minute == 120
         assert live.log_level == "DEBUG"
         assert "log_level" in restart_fields
@@ -98,14 +95,14 @@ class TestSettingsPersistenceStore:
 
 
 class TestConsumerHotReload:
-    def test_circuit_breaker_max_failures_hot_reload(self, setup_temp_settings):
+    def test_circuit_breaker_max_failures_hot_reload(self):
         cb = CircuitBreaker("test-cb")
         assert cb.max_failures == 5
 
         update_settings({"circuit_breaker_max_failures": 2})
         assert cb.max_failures == 2
 
-    def test_circuit_breaker_timeout_seconds_hot_reload(self, setup_temp_settings):
+    def test_circuit_breaker_timeout_seconds_hot_reload(self):
         cb = CircuitBreaker("test-cb")
         assert cb.timeout_seconds == 30.0
 
@@ -113,7 +110,7 @@ class TestConsumerHotReload:
         assert cb.timeout_seconds == 15.0
 
     @pytest.mark.asyncio
-    async def test_event_bus_retry_attempts_hot_reload(self, setup_temp_settings):
+    async def test_event_bus_retry_attempts_hot_reload(self):
         eb = EventBus()
         handler = MockHandler(fail_count=5)
         eb.subscribe("test_event", handler)
@@ -131,7 +128,7 @@ class TestConsumerHotReload:
         assert handler.calls == 1
 
     @pytest.mark.asyncio
-    async def test_saga_timeout_seconds_hot_reload(self, setup_temp_settings):
+    async def test_saga_timeout_seconds_hot_reload(self):
         orchestrator = SagaOrchestrator()
         steps = [SagaStep("step1", forward=lambda: None)]
 
@@ -145,8 +142,9 @@ class TestConsumerHotReload:
         assert instance2.timeout_seconds == 150.0
 
     @pytest.mark.asyncio
-    async def test_cleanup_task_idempotency_ttl_hot_reload(self, setup_temp_settings, monkeypatch):
+    async def test_cleanup_task_idempotency_ttl_hot_reload(self, monkeypatch):
         from unittest.mock import MagicMock
+
         mock_session = AsyncMock()
         mock_session.execute = AsyncMock(return_value=AsyncMock(rowcount=0))
 
@@ -177,8 +175,9 @@ class TestSettingsAPIEndpoints:
     @pytest.fixture(autouse=True)
     async def setup_db(self):
         from app.core.config import ConfigFactory
-        from app.core.persistence.db import database
         from app.core.persistence.base import Base
+        from app.core.persistence.db import database
+
         database.init(ConfigFactory.global_settings())
         async with database.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -186,6 +185,7 @@ class TestSettingsAPIEndpoints:
     @pytest.mark.asyncio
     async def test_permission_denied_without_permission(self):
         from app.modules.auth.infrastructure.jwt import create_access_token
+
         app_instance = create_app()
 
         token = create_access_token(user_id="u1", permissions=[])
@@ -195,12 +195,15 @@ class TestSettingsAPIEndpoints:
             res_get = await client.get("/api/v1/settings", headers=headers)
             assert res_get.status_code == 403
 
-            res_patch = await client.patch("/api/v1/settings", json={"rate_limit_per_minute": 100}, headers=headers)
+            res_patch = await client.patch(
+                "/api/v1/settings", json={"rate_limit_per_minute": 100}, headers=headers
+            )
             assert res_patch.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_get_and_patch_settings_with_permission(self, setup_temp_settings):
+    async def test_get_and_patch_settings_with_permission(self):
         from app.modules.auth.infrastructure.jwt import create_access_token
+
         app_instance = create_app()
 
         token = create_access_token(user_id="u1", permissions=["admin:full"])
@@ -220,7 +223,11 @@ class TestSettingsAPIEndpoints:
             # Update settings via PATCH
             res_patch = await client.patch(
                 "/api/v1/settings",
-                json={"rate_limit_per_minute": 90, "log_level": "WARNING", "metrics_interval_seconds": 1.0},
+                json={
+                    "rate_limit_per_minute": 90,
+                    "log_level": "WARNING",
+                    "metrics_interval_seconds": 1.0,
+                },
                 headers=headers,
             )
             assert res_patch.status_code == 200

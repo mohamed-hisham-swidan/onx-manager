@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.event_bus import DomainEvent
@@ -51,8 +51,14 @@ class SQLEventRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def append(self, event: DomainEvent, *, hash_value: str = "", previous_hash: str = "") -> StoredEvent:
-        now = datetime.fromtimestamp(event.timestamp, tz=timezone.utc) if event.timestamp else datetime.now(timezone.utc)
+    async def append(
+        self, event: DomainEvent, *, hash_value: str = "", previous_hash: str = ""
+    ) -> StoredEvent:
+        now = (
+            datetime.fromtimestamp(event.timestamp, tz=UTC)
+            if event.timestamp
+            else datetime.now(UTC)
+        )
         model = StoredEventModel(
             event_id=event.event_id,
             event_type=event.event_type,
@@ -89,7 +95,11 @@ class SQLEventRepository:
         if conditions:
             stmt = stmt.where(and_(*conditions))
 
-        stmt = stmt.order_by(desc(StoredEventModel.created_at)).offset(filters.offset).limit(filters.limit)
+        stmt = (
+            stmt.order_by(desc(StoredEventModel.created_at))
+            .offset(filters.offset)
+            .limit(filters.limit)
+        )
         result = await self._session.execute(stmt)
         return [self._model_to_dto(m) for m in result.scalars().all()]
 
@@ -103,11 +113,7 @@ class SQLEventRepository:
         return await self.query(filters)
 
     async def list_recent(self, limit: int = 100) -> list[StoredEvent]:
-        stmt = (
-            select(StoredEventModel)
-            .order_by(desc(StoredEventModel.created_at))
-            .limit(limit)
-        )
+        stmt = select(StoredEventModel).order_by(desc(StoredEventModel.created_at)).limit(limit)
         result = await self._session.execute(stmt)
         return [self._model_to_dto(m) for m in result.scalars().all()]
 
@@ -117,11 +123,7 @@ class SQLEventRepository:
         return result.scalar() or 0
 
     async def get_last_event(self) -> StoredEvent | None:
-        stmt = (
-            select(StoredEventModel)
-            .order_by(desc(StoredEventModel.id))
-            .limit(1)
-        )
+        stmt = select(StoredEventModel).order_by(desc(StoredEventModel.id)).limit(1)
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         return self._model_to_dto(model) if model else None
@@ -137,7 +139,7 @@ class SQLEventRepository:
             event_type=event.event_type,
             data_json=event.model_dump_json(),
             error=error,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         self._session.add(model)
         await self._session.flush()
@@ -169,7 +171,7 @@ class SQLEventRepository:
         model = result.scalar_one_or_none()
         if model:
             model.resolved = 1
-            model.last_replay_at = datetime.now(timezone.utc)
+            model.last_replay_at = datetime.now(UTC)
             await self._session.flush()
 
     async def increment_replay_count(self, event_id: str) -> None:
@@ -178,11 +180,12 @@ class SQLEventRepository:
         model = result.scalar_one_or_none()
         if model:
             model.replay_count += 1
-            model.last_replay_at = datetime.now(timezone.utc)
+            model.last_replay_at = datetime.now(UTC)
             await self._session.flush()
 
     async def replay_dead_letter(self, event_id: str) -> bool:
         from json import loads as json_loads
+
         entry = await self.get_dead_letter(event_id)
         if entry is None or entry.resolved:
             return False
@@ -192,7 +195,6 @@ class SQLEventRepository:
         event.event_type = entry.event_type
 
         try:
-            from app.core.persistence.db import database
             from app.core.event_bus import EventBus
 
             bus = EventBus()

@@ -1,4 +1,4 @@
-from app.tasks.base import TaskQueue, TaskStatus, TaskResult
+from app.tasks.base import TaskQueue, TaskResult, TaskStatus
 from app.tasks.queue import InProcessQueue
 
 __all__ = [

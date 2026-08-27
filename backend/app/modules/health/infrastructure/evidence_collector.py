@@ -5,7 +5,7 @@ import logging
 import os
 import shutil
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.identity import IDENTITY
@@ -45,7 +45,7 @@ class LogBasedEvidenceCollector:
             provider_diagnostics=provider_diag,
             system_snapshot=snapshot,
             collection_errors=errors,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     def _read_log_tail(self, server_dir: Path) -> list[str]:
@@ -55,9 +55,9 @@ class LogBasedEvidenceCollector:
             return []
         try:
             lines: list[str] = []
-            with open(latest_log, "r", encoding="utf-8", errors="replace") as f:
+            with open(latest_log, encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()
-            return [l.rstrip("\n\r") for l in lines[-self.MAX_LOG_LINES:]]
+            return [l.rstrip("\n\r") for l in lines[-self.MAX_LOG_LINES :]]
         except (FileNotFoundError, PermissionError, OSError) as exc:
             logger.warning("Cannot read log %s: %s", latest_log, exc)
             return []
@@ -69,21 +69,25 @@ class LogBasedEvidenceCollector:
         try:
             reports: list[dict] = []
             files = sorted(crash_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
-            for f in files[:self.MAX_CRASH_REPORTS]:
+            for f in files[: self.MAX_CRASH_REPORTS]:
                 if f.is_file() and f.suffix == ".txt":
                     try:
                         content = f.read_text(encoding="utf-8", errors="replace")
-                        reports.append({
-                            "filename": f.name,
-                            "size_bytes": f.stat().st_size,
-                            "content": content,
-                            "collected_at": datetime.now(timezone.utc).isoformat(),
-                        })
+                        reports.append(
+                            {
+                                "filename": f.name,
+                                "size_bytes": f.stat().st_size,
+                                "content": content,
+                                "collected_at": datetime.now(UTC).isoformat(),
+                            }
+                        )
                     except (FileNotFoundError, PermissionError, OSError) as exc:
-                        reports.append({
-                            "filename": f.name,
-                            "error": str(exc),
-                        })
+                        reports.append(
+                            {
+                                "filename": f.name,
+                                "error": str(exc),
+                            }
+                        )
             return reports
         except (FileNotFoundError, PermissionError, OSError) as exc:
             logger.warning("Cannot read crash-reports directory %s: %s", crash_dir, exc)
@@ -130,7 +134,7 @@ class LogBasedEvidenceCollector:
         except Exception:
             pass
 
-        snapshot["captured_at"] = datetime.now(timezone.utc).isoformat()
+        snapshot["captured_at"] = datetime.now(UTC).isoformat()
         return snapshot
 
     def _read_provider_diagnostics(self, server_dir: Path) -> dict | None:

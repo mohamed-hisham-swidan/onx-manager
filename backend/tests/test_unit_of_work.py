@@ -1,6 +1,6 @@
 import pytest
 
-from app.core.event_bus import DomainEvent, EventBus
+from app.core.event_bus import DomainEvent
 from app.core.persistence.unit_of_work import UnitOfWork
 
 

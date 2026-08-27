@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import tempfile
-
 import pytest
 
 from app.modules.plugin.infrastructure.manifest import (

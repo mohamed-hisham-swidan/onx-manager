@@ -186,6 +186,7 @@ async def test_live_db_compatible_descendant_starts(live_db, monkeypatch) -> Non
     real_graph = db_revision.load_revision_parents(_MIGRATIONS_DIR)
     extended = dict(real_graph)
     extended["future-01"] = RELEASE_MINIMUM_DB_REVISION
+
     def fake_load(_scripts_dir=None):
         return extended
 
@@ -221,10 +222,7 @@ async def test_no_automatic_migration_runs(live_db) -> None:
 
     async with live_db.connect() as conn:
         exists = await conn.execute(
-            text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
-            )
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'")
         )
         assert exists.fetchone() is None
     await live_db.dispose()
-

@@ -15,7 +15,7 @@ class _MockRunner:
         self.stopped: list[str] = []
         self.healthy = True
 
-    async def start(self, plugin_id: str, plugin_dir: str, manifest: dict) -> None:
+    async def start(self, plugin_id: str, _plugin_dir: str, _manifest: dict) -> None:
         self.started.append(plugin_id)
 
     async def stop(self, plugin_id: str) -> None:
@@ -24,10 +24,10 @@ class _MockRunner:
     async def restart(self, plugin_id: str) -> None:
         pass
 
-    async def health(self, plugin_id: str) -> bool:
+    async def health(self, _plugin_id: str) -> bool:
         return self.healthy
 
-    async def execute_hook(self, plugin_id: str, hook: str, payload: dict) -> None:
+    async def execute_hook(self, _plugin_id: str, _hook: str, _payload: dict) -> None:
         pass
 
 
@@ -72,7 +72,7 @@ class TestPluginLifecycleManager:
     @pytest.mark.asyncio
     async def test_enable_failure_sets_failed(self) -> None:
         class _FailingRunner(_MockRunner):
-            async def start(self, plugin_id: str, plugin_dir: str, manifest: dict) -> None:
+            async def start(self, _plugin_id: str, _plugin_dir: str, _manifest: dict) -> None:
                 raise RuntimeError("Start failed")
 
         mgr = PluginLifecycleManager(_FailingRunner())

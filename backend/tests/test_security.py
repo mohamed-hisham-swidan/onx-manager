@@ -55,5 +55,6 @@ class TestEncryption:
         key2 = generate_encryption_key()
         encrypted = encrypt_data(b"secret", key1)
         import pytest
+
         with pytest.raises(Exception):
             decrypt_data(encrypted, key2)

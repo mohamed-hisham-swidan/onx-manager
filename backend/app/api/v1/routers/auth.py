@@ -26,7 +26,6 @@ from app.modules.auth.application.commands.logout import LogoutCommand
 from app.modules.auth.application.commands.refresh_token import RefreshTokenCommand
 from app.modules.auth.application.commands.revoke_api_key import RevokeApiKeyCommand
 from app.modules.auth.application.queries.get_current_user import GetCurrentUserQuery
-from app.modules.auth.application.queries.list_users import ListUsersQuery
 from app.modules.auth.infrastructure.models import ApiKeyModel
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])

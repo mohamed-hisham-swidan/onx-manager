@@ -5,7 +5,6 @@ import tempfile
 
 import pytest
 
-from app.modules.storage.base import StorageBackend
 from app.modules.storage.encryption import (
     BackupEncryption,
     build_backup_encryption,

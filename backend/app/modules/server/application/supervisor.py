@@ -2,31 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
 
-import os
-import signal
-
+from app.core.identity import IDENTITY
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
     log_crash_diagnostics,
 )
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.diagnostics import FailureCode, RuntimeDiagnostics
-from app.modules.server.domain.repository import ServerRepository
-from app.modules.server.domain.runtime_exceptions import (
-    RuntimeProcessLost,
-    StartupTimeoutError,
-    TmuxSessionLost,
-)
 from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
     ServerProvider,
     ServerRuntimeStatus,
 )
-from app.core.identity import IDENTITY
 from app.modules.shared.value_objects import ServerId
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.supervisor")
@@ -93,7 +84,8 @@ class RuntimeSupervisor:
         if self._task is not None and not self._task.done():
             logger.warning(
                 'Supervisor already running for server "%s" (%s)',
-                self._server_name, self._server_id,
+                self._server_name,
+                self._server_id,
             )
             return
         self._stop_event.clear()
@@ -114,8 +106,11 @@ class RuntimeSupervisor:
             except Exception:
                 logger.warning(
                     'Supervisor stop task raised server="%s" sid=%s provider=%s handle=%s phase=stop',
-                    self._server_name, self._server_id,
-                    self._provider.provider_type if hasattr(self._provider, "provider_type") else "?",
+                    self._server_name,
+                    self._server_id,
+                    self._provider.provider_type
+                    if hasattr(self._provider, "provider_type")
+                    else "?",
                     self._handle.external_id if hasattr(self._handle, "external_id") else "?",
                     exc_info=True,
                 )
@@ -124,10 +119,13 @@ class RuntimeSupervisor:
     async def _run(self) -> None:
         logger.info(
             'Supervisor started for server "%s" (%s)',
-            self._server_name, self._server_id,
+            self._server_name,
+            self._server_id,
         )
         try:
-            add_timeline_milestone(None, "Supervisor _run started", self._server_name, self._server_id)
+            add_timeline_milestone(
+                None, "Supervisor _run started", self._server_name, self._server_id
+            )
             await self._verify_startup()
             health_checks = 0
             while not self._stop_event.is_set():
@@ -136,17 +134,21 @@ class RuntimeSupervisor:
                 await asyncio.sleep(self._health_interval)
             logger.info(
                 'Supervisor exiting run loop — server="%s" health_checks=%d sid=%s',
-                self._server_name, health_checks, self._server_id,
+                self._server_name,
+                health_checks,
+                self._server_id,
             )
         except asyncio.CancelledError:
             logger.info(
                 'Supervisor cancelled for server "%s" (%s)',
-                self._server_name, self._server_id,
+                self._server_name,
+                self._server_id,
             )
         except Exception:
             logger.exception(
                 'Supervisor crashed server="%s" sid=%s provider=%s handle=%s phase=_run',
-                self._server_name, self._server_id,
+                self._server_name,
+                self._server_id,
                 self._provider.provider_type if hasattr(self._provider, "provider_type") else "?",
                 self._handle.external_id if hasattr(self._handle, "external_id") else "?",
             )
@@ -155,7 +157,8 @@ class RuntimeSupervisor:
             self._instances.pop(self._server_id, None)
             logger.info(
                 'Supervisor stopped for server "%s" (%s)',
-                self._server_name, self._server_id,
+                self._server_name,
+                self._server_id,
             )
 
     async def _verify_startup(self) -> None:
@@ -177,21 +180,35 @@ class RuntimeSupervisor:
                 self._last_heartbeat = time.time()
                 logger.info(
                     'Server "%s" ready after %.1fs — sid=%s',
-                    self._server_name, elapsed, self._server_id,
+                    self._server_name,
+                    elapsed,
+                    self._server_id,
                 )
                 add_timeline_milestone(
-                    None, "Startup verification passed", self._server_name, self._server_id,
+                    None,
+                    "Startup verification passed",
+                    self._server_name,
+                    self._server_id,
                 )
                 try:
                     server = await self._repo_get(ServerId(self._server_id))
                     if self._stop_event.is_set():
                         logger.info(
                             'Concurrent stop detected after wait_ready for server "%s" — skipping RUNNING transition sid=%s',
-                            self._server_name, self._server_id,
+                            self._server_name,
+                            self._server_id,
                         )
                         return
-                    pid = self._handle.metadata.get("pid", 0) if hasattr(self._handle, "metadata") and self._handle.metadata else (server.runtime.pid or 0)
-                    port = self._handle.metadata.get("port", server.properties.port.value) if hasattr(self._handle, "metadata") and self._handle.metadata else (server.runtime.port or server.properties.port.value)
+                    pid = (
+                        self._handle.metadata.get("pid", 0)
+                        if hasattr(self._handle, "metadata") and self._handle.metadata
+                        else (server.runtime.pid or 0)
+                    )
+                    port = (
+                        self._handle.metadata.get("port", server.properties.port.value)
+                        if hasattr(self._handle, "metadata") and self._handle.metadata
+                        else (server.runtime.port or server.properties.port.value)
+                    )
                     external_id = self._handle.external_id or server.runtime.external_id
                     start_time = server.runtime.start_time
                     host = server.runtime.host or "127.0.0.1"
@@ -204,11 +221,14 @@ class RuntimeSupervisor:
                             start_time=start_time,
                         )
                         await self._repo_save(server)
-                        add_timeline_milestone(None, "Server marked running", self._server_name, self._server_id)
+                        add_timeline_milestone(
+                            None, "Server marked running", self._server_name, self._server_id
+                        )
                 except Exception:
                     logger.exception(
                         'Failed to transition server "%s" to RUNNING after startup verification — sid=%s',
-                        self._server_name, self._server_id,
+                        self._server_name,
+                        self._server_id,
                     )
                 return
 
@@ -216,17 +236,24 @@ class RuntimeSupervisor:
             alive = await self._provider.verify_process(self._handle)
             logger.info(
                 'Server "%s" verify_process=%s remaining=%.0fs iter=%d sid=%s',
-                self._server_name, alive, remaining, iteration, self._server_id,
+                self._server_name,
+                alive,
+                remaining,
+                iteration,
+                self._server_id,
             )
             if not alive:
                 diag = await self._provider.collect_diagnostics(self._handle)
                 logger.info(
                     'Server "%s" crash diag: pid=%s exit=%s lines=%d sid=%s',
-                    self._server_name, diag.pid, diag.exit_code,
-                    len(diag.last_log_lines or []), self._server_id,
+                    self._server_name,
+                    diag.pid,
+                    diag.exit_code,
+                    len(diag.last_log_lines or []),
+                    self._server_id,
                 )
                 diag.failure_code = FailureCode.STARTUP_TIMEOUT
-                diag.failure_reason = f"Process died during startup verification"
+                diag.failure_reason = "Process died during startup verification"
                 await self._handle_crash(diag)
                 return
             await asyncio.sleep(2)
@@ -236,7 +263,9 @@ class RuntimeSupervisor:
         if alive:
             logger.info(
                 'Server "%s" startup deadline elapsed=%.1fs but process still alive — continuing sid=%s',
-                self._server_name, elapsed, self._server_id,
+                self._server_name,
+                elapsed,
+                self._server_id,
             )
             # TODO(STARTING-001): deadline-passed + process-alive -> transition to RUNNING best-effort
             try:
@@ -244,11 +273,20 @@ class RuntimeSupervisor:
                 if self._stop_event.is_set():
                     logger.info(
                         'Concurrent stop detected at startup deadline for server "%s" — skipping RUNNING transition sid=%s',
-                        self._server_name, self._server_id,
+                        self._server_name,
+                        self._server_id,
                     )
                     return
-                pid = self._handle.metadata.get("pid", 0) if hasattr(self._handle, "metadata") and self._handle.metadata else (server.runtime.pid or 0)
-                port = self._handle.metadata.get("port", server.properties.port.value) if hasattr(self._handle, "metadata") and self._handle.metadata else (server.runtime.port or server.properties.port.value)
+                pid = (
+                    self._handle.metadata.get("pid", 0)
+                    if hasattr(self._handle, "metadata") and self._handle.metadata
+                    else (server.runtime.pid or 0)
+                )
+                port = (
+                    self._handle.metadata.get("port", server.properties.port.value)
+                    if hasattr(self._handle, "metadata") and self._handle.metadata
+                    else (server.runtime.port or server.properties.port.value)
+                )
                 external_id = self._handle.external_id or server.runtime.external_id
                 start_time = server.runtime.start_time
                 host = server.runtime.host or "127.0.0.1"
@@ -261,11 +299,17 @@ class RuntimeSupervisor:
                         start_time=start_time,
                     )
                     await self._repo_save(server)
-                    add_timeline_milestone(None, "Server marked running (deadline continue)", self._server_name, self._server_id)
+                    add_timeline_milestone(
+                        None,
+                        "Server marked running (deadline continue)",
+                        self._server_name,
+                        self._server_id,
+                    )
             except Exception:
                 logger.exception(
                     'Failed to transition server "%s" to RUNNING on deadline continue — sid=%s',
-                    self._server_name, self._server_id,
+                    self._server_name,
+                    self._server_id,
                 )
             return
         diag = await self._provider.collect_diagnostics(self._handle)
@@ -280,7 +324,9 @@ class RuntimeSupervisor:
             failure_reason=f"Startup timeout after {elapsed:.1f}s",
         )
         diag.failure_code = FailureCode.STARTUP_TIMEOUT
-        diag.failure_reason = f"Startup timeout after {elapsed:.1f}s while waiting for readiness probe"
+        diag.failure_reason = (
+            f"Startup timeout after {elapsed:.1f}s while waiting for readiness probe"
+        )
         diag.startup_duration = elapsed
         await self._handle_crash(diag)
 
@@ -292,19 +338,26 @@ class RuntimeSupervisor:
                 if status == ServerRuntimeStatus.STOPPED:
                     logger.info(
                         'health_check server="%s" sid=%s provider=%s handle=%s phase=health_check status=stopped',
-                        self._server_name, self._server_id,
-                        self._provider.provider_type if hasattr(self._provider, "provider_type") else "?",
+                        self._server_name,
+                        self._server_id,
+                        self._provider.provider_type
+                        if hasattr(self._provider, "provider_type")
+                        else "?",
                         self._handle.external_id if hasattr(self._handle, "external_id") else "?",
                     )
                     add_timeline_milestone(
-                        None, "Health check — process stopped",
-                        self._server_name, self._server_id,
+                        None,
+                        "Health check — process stopped",
+                        self._server_name,
+                        self._server_id,
                     )
                     self._stop_event.set()
                     return
                 diag = await self._provider.collect_diagnostics(self._handle)
                 diag.failure_code = FailureCode.RUNTIME_PROCESS_LOST
-                pid = self._handle.metadata.get("pid") if hasattr(self._handle, "metadata") else None
+                pid = (
+                    self._handle.metadata.get("pid") if hasattr(self._handle, "metadata") else None
+                )
                 diag.failure_reason = f"Runtime process lost during RUNNING state (pid={pid})"
                 await self._handle_crash(diag)
                 return
@@ -312,7 +365,8 @@ class RuntimeSupervisor:
         except Exception:
             logger.exception(
                 'health_check failed server="%s" sid=%s provider=%s handle=%s phase=health_check',
-                self._server_name, self._server_id,
+                self._server_name,
+                self._server_id,
                 self._provider.provider_type if hasattr(self._provider, "provider_type") else "?",
                 self._handle.external_id if hasattr(self._handle, "external_id") else "?",
             )
@@ -326,24 +380,30 @@ class RuntimeSupervisor:
             if has:
                 logger.info(
                     'Cleaning up tmux session after crash — server="%s" session=%s sid=%s',
-                    self._server_name, session_name, self._server_id,
+                    self._server_name,
+                    session_name,
+                    self._server_id,
                 )
                 os.popen(f"tmux kill-session -t {session_name} 2>/dev/null")
         except Exception:
             logger.debug(
                 'tmux cleanup after crash failed server="%s" sid=%s',
-                self._server_name, self._server_id,
+                self._server_name,
+                self._server_id,
             )
 
     async def _handle_crash(self, diag: RuntimeDiagnostics) -> None:
         if self._stop_event.is_set():
             logger.info(
                 'Server "%s" stop already requested — crash suppressed (%s)',
-                self._server_name, self._server_id,
+                self._server_name,
+                self._server_id,
             )
             return
 
-        prov_type = self._provider.provider_type if hasattr(self._provider, "provider_type") else "?"
+        prov_type = (
+            self._provider.provider_type if hasattr(self._provider, "provider_type") else "?"
+        )
         handle_ext = self._handle.external_id if hasattr(self._handle, "external_id") else "?"
 
         log_crash_diagnostics(
@@ -369,9 +429,11 @@ class RuntimeSupervisor:
         except Exception:
             logger.critical(
                 'Failed to persist crash state for server "%s" — crash data will be LOST. '
-                'sid=%s provider=%s handle=%s phase=_handle_crash persist diag=%s',
-                self._server_name, self._server_id,
-                prov_type, handle_ext,
+                "sid=%s provider=%s handle=%s phase=_handle_crash persist diag=%s",
+                self._server_name,
+                self._server_id,
+                prov_type,
+                handle_ext,
                 diag.to_dict(),
                 exc_info=True,
             )
@@ -382,7 +444,10 @@ class RuntimeSupervisor:
             except Exception:
                 logger.exception(
                     'Crash callback failed server="%s" sid=%s provider=%s handle=%s phase=_handle_crash callback',
-                    self._server_name, self._server_id, prov_type, handle_ext,
+                    self._server_name,
+                    self._server_id,
+                    prov_type,
+                    handle_ext,
                 )
 
         self._stop_event.set()
@@ -404,7 +469,8 @@ class RuntimeSupervisor:
         if existing and existing._active:
             logger.warning(
                 'Supervisor already active for server "%s" (%s), returning existing',
-                server.name, sid,
+                server.name,
+                sid,
             )
             return existing
 

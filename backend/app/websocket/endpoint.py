@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, WebSocket, status
 
 from app.api.deps import get_event_bus
 from app.core.event_bus import DomainEvent, EventBus, EventHandler
@@ -12,7 +11,7 @@ from app.modules.auth.infrastructure.jwt import verify_ws_token
 from app.websocket.authentication import WSAuthenticator
 from app.websocket.authorization import ChannelAuthorizer
 from app.websocket.buffer import OfflineMessageBuffer
-from app.websocket.dispatcher import EventDispatcher, MetricsBatcher, WS_DISPATCH_ALLOWLIST
+from app.websocket.dispatcher import WS_DISPATCH_ALLOWLIST, EventDispatcher, MetricsBatcher
 from app.websocket.handlers import WSConnectionHandler
 from app.websocket.manager import ConnectionRegistry
 from app.websocket.rate_limiter import WSRateLimiter
@@ -29,7 +28,7 @@ _rate_limiter: WSRateLimiter | None = None
 _handler: WSConnectionHandler | None = None
 _event_bus: EventBus | None = None
 _batcher: MetricsBatcher | None = None
-_bridge: "MetricsBridgeHandler | None" = None
+_bridge: MetricsBridgeHandler | None = None
 _dispatcher: EventDispatcher | None = None
 
 
@@ -79,8 +78,11 @@ async def start_websocket_services() -> None:
     # Decision 1: instantiate and start EventDispatcher with the 31-type allowlist.
     _dispatcher = EventDispatcher(_registry, _buffer, _event_bus)
     await _dispatcher.start(event_types=WS_DISPATCH_ALLOWLIST)
-    logger.info("WebSocket services started (batcher window=%.2fs, dispatcher subscribed %d types)",
-                live.metrics_interval_seconds, len(WS_DISPATCH_ALLOWLIST))
+    logger.info(
+        "WebSocket services started (batcher window=%.2fs, dispatcher subscribed %d types)",
+        live.metrics_interval_seconds,
+        len(WS_DISPATCH_ALLOWLIST),
+    )
 
 
 async def stop_websocket_services() -> None:

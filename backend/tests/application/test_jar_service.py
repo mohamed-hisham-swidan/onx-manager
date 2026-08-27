@@ -44,7 +44,6 @@ from app.modules.server.application.services.jar_service import (
     validate_jar,
 )
 from app.modules.server.domain.runtime_exceptions import (
-    BuildResolutionError,
     MetadataFetchError,
 )
 
@@ -68,16 +67,22 @@ class TestURLResolvers:
     @pytest.mark.asyncio
     async def test_vanilla_success(self) -> None:
         with patch("aiohttp.ClientSession.get") as mock_get:
-            manifest_resp = _mock_aresponse(200, {
-                "versions": [
-                    {"id": "1.21", "type": "release", "url": "https://example.com/1.21.json"},
-                ],
-            })
-            version_resp = _mock_aresponse(200, {
-                "downloads": {
-                    "server": {"sha1": "abc123"},
+            manifest_resp = _mock_aresponse(
+                200,
+                {
+                    "versions": [
+                        {"id": "1.21", "type": "release", "url": "https://example.com/1.21.json"},
+                    ],
                 },
-            })
+            )
+            version_resp = _mock_aresponse(
+                200,
+                {
+                    "downloads": {
+                        "server": {"sha1": "abc123"},
+                    },
+                },
+            )
             mock_get.side_effect = [manifest_resp, version_resp]
 
             url = await _resolve_vanilla_url("1.21")
@@ -97,11 +102,14 @@ class TestURLResolvers:
     @pytest.mark.asyncio
     async def test_vanilla_no_server_download(self) -> None:
         with patch("aiohttp.ClientSession.get") as mock_get:
-            manifest_resp = _mock_aresponse(200, {
-                "versions": [
-                    {"id": "1.21", "type": "release", "url": "https://example.com/1.21.json"},
-                ],
-            })
+            manifest_resp = _mock_aresponse(
+                200,
+                {
+                    "versions": [
+                        {"id": "1.21", "type": "release", "url": "https://example.com/1.21.json"},
+                    ],
+                },
+            )
             version_resp = _mock_aresponse(200, {"downloads": {}})
             mock_get.side_effect = [manifest_resp, version_resp]
 
@@ -111,16 +119,19 @@ class TestURLResolvers:
     @pytest.mark.asyncio
     async def test_paper_success(self) -> None:
         with patch("aiohttp.ClientSession.get") as mock_get:
-            resp = _mock_aresponse(200, [
-                {
-                    "id": 427,
-                    "downloads": {
-                        "server:default": {
-                            "url": "https://fill-data.papermc.io/v1/objects/abc/paper-1.21-427.jar",
+            resp = _mock_aresponse(
+                200,
+                [
+                    {
+                        "id": 427,
+                        "downloads": {
+                            "server:default": {
+                                "url": "https://fill-data.papermc.io/v1/objects/abc/paper-1.21-427.jar",
+                            },
                         },
                     },
-                },
-            ])
+                ],
+            )
             mock_get.return_value = resp
 
             url = await _resolve_paper_url("1.21")
@@ -139,9 +150,12 @@ class TestURLResolvers:
     @pytest.mark.asyncio
     async def test_fabric_success(self) -> None:
         with patch("aiohttp.ClientSession.get") as mock_get:
-            resp = _mock_aresponse(200, [
-                {"loader": {"version": "0.16.10"}, "launcher": {"version": "1.0.1"}},
-            ])
+            resp = _mock_aresponse(
+                200,
+                [
+                    {"loader": {"version": "0.16.10"}, "launcher": {"version": "1.0.1"}},
+                ],
+            )
             mock_get.return_value = resp
 
             url = await _resolve_fabric_url("1.21")
@@ -221,14 +235,17 @@ class TestFetchVersions:
     @pytest.mark.asyncio
     async def test_vanilla_versions(self) -> None:
         with patch("aiohttp.ClientSession.get") as mock_get:
-            resp = _mock_aresponse(200, {
-                "versions": [
-                    {"id": "1.21", "type": "release"},
-                    {"id": "1.21-rc1", "type": "snapshot"},
-                    {"id": "1.20.4", "type": "release"},
-                    {"id": "1.20.1", "type": "release"},
-                ],
-            })
+            resp = _mock_aresponse(
+                200,
+                {
+                    "versions": [
+                        {"id": "1.21", "type": "release"},
+                        {"id": "1.21-rc1", "type": "snapshot"},
+                        {"id": "1.20.4", "type": "release"},
+                        {"id": "1.20.1", "type": "release"},
+                    ],
+                },
+            )
             mock_get.return_value = resp
 
             versions = await fetch_vanilla_versions()
@@ -237,12 +254,15 @@ class TestFetchVersions:
     @pytest.mark.asyncio
     async def test_paper_versions(self) -> None:
         with patch("aiohttp.ClientSession.get") as mock_get:
-            resp = _mock_aresponse(200, {
-                "versions": {
-                    "1.21": ["1.21.5", "1.21.4", "1.21"],
-                    "1.20": ["1.20.6"],
+            resp = _mock_aresponse(
+                200,
+                {
+                    "versions": {
+                        "1.21": ["1.21.5", "1.21.4", "1.21"],
+                        "1.20": ["1.20.6"],
+                    },
                 },
-            })
+            )
             mock_get.return_value = resp
 
             versions = await fetch_paper_versions()
@@ -262,12 +282,15 @@ class TestFetchVersions:
     @pytest.mark.asyncio
     async def test_fabric_versions(self) -> None:
         with patch("aiohttp.ClientSession.get") as mock_get:
-            resp = _mock_aresponse(200, [
-                {"version": "1.21", "stable": True},
-                {"version": "1.21.1", "stable": True},
-                {"version": "24w14", "stable": False},
-                {"version": "1.20.4", "stable": True},
-            ])
+            resp = _mock_aresponse(
+                200,
+                [
+                    {"version": "1.21", "stable": True},
+                    {"version": "1.21.1", "stable": True},
+                    {"version": "24w14", "stable": False},
+                    {"version": "1.20.4", "stable": True},
+                ],
+            )
             mock_get.return_value = resp
 
             versions = await fetch_fabric_versions()
@@ -626,10 +649,14 @@ class TestDownloadServerJar:
         )
         mock_download = AsyncMock(return_value=jar_bytes)
         with (
-            patch("app.modules.server.application.services.jar_service._fetch_forge_metadata",
-                  new=AsyncMock(return_value=entries)),
-            patch("app.modules.server.application.services.jar_service._do_download",
-                  new=mock_download),
+            patch(
+                "app.modules.server.application.services.jar_service._fetch_forge_metadata",
+                new=AsyncMock(return_value=entries),
+            ),
+            patch(
+                "app.modules.server.application.services.jar_service._do_download",
+                new=mock_download,
+            ),
             patch("app.modules.server.application.services.jar_service.local_fs") as mock_fs,
         ):
             mock_fs.exists.return_value = True
@@ -659,10 +686,14 @@ class TestDownloadServerJar:
         )
         mock_download = AsyncMock(return_value=jar_bytes)
         with (
-            patch("app.modules.server.application.services.jar_service._fetch_forge_metadata",
-                  new=AsyncMock(return_value=entries)),
-            patch("app.modules.server.application.services.jar_service._do_download",
-                  new=mock_download),
+            patch(
+                "app.modules.server.application.services.jar_service._fetch_forge_metadata",
+                new=AsyncMock(return_value=entries),
+            ),
+            patch(
+                "app.modules.server.application.services.jar_service._do_download",
+                new=mock_download,
+            ),
             patch("app.modules.server.application.services.jar_service.local_fs") as mock_fs,
         ):
             mock_fs.exists.return_value = True
@@ -720,21 +751,28 @@ class TestDownloadServerJar:
             patch("aiohttp.ClientSession.get") as mock_get,
             patch("app.modules.server.application.services.jar_service.local_fs") as mock_fs,
         ):
-            manifest_resp = _mock_aresponse(200, {
-                "versions": [
-                    {"id": "1.21", "type": "release", "url": "https://example.com/1.21.json"},
-                ],
-            })
-            version_resp = _mock_aresponse(200, {
-                "downloads": {"server": {"sha1": "abc123"}},
-            })
+            manifest_resp = _mock_aresponse(
+                200,
+                {
+                    "versions": [
+                        {"id": "1.21", "type": "release", "url": "https://example.com/1.21.json"},
+                    ],
+                },
+            )
+            version_resp = _mock_aresponse(
+                200,
+                {
+                    "downloads": {"server": {"sha1": "abc123"}},
+                },
+            )
             download_resp = _mock_aresponse(200, None)
 
             reader = AsyncChunkReader(jar_bytes)
             download_resp.content.read = reader.read
 
             mock_get.side_effect = [
-                manifest_resp, version_resp,
+                manifest_resp,
+                version_resp,
                 download_resp,
             ]
 
@@ -769,14 +807,20 @@ class TestDownloadServerJar:
             patch("aiohttp.ClientSession.get") as mock_get,
             patch("app.modules.server.application.services.jar_service.local_fs") as mock_fs,
         ):
-            manifest_resp = _mock_aresponse(200, {
-                "versions": [
-                    {"id": "1.21", "type": "release", "url": "https://example.com/1.21.json"},
-                ],
-            })
-            version_resp = _mock_aresponse(200, {
-                "downloads": {"server": {"sha1": "abc123"}},
-            })
+            manifest_resp = _mock_aresponse(
+                200,
+                {
+                    "versions": [
+                        {"id": "1.21", "type": "release", "url": "https://example.com/1.21.json"},
+                    ],
+                },
+            )
+            version_resp = _mock_aresponse(
+                200,
+                {
+                    "downloads": {"server": {"sha1": "abc123"}},
+                },
+            )
             download_resp = _mock_aresponse(200, None)
 
             truncated = b"truncated data"
@@ -784,7 +828,8 @@ class TestDownloadServerJar:
             download_resp.content.read = reader.read
 
             mock_get.side_effect = [
-                manifest_resp, version_resp,
+                manifest_resp,
+                version_resp,
                 download_resp,
             ]
 
@@ -835,7 +880,10 @@ class TestMetadataCacheAndRetries:
           </versioning>
         </metadata>
         """
-        with patch("app.modules.server.application.services.jar_service._fetch_xml_with_retries", AsyncMock(return_value=xml_forge)) as mock_fetch:
+        with patch(
+            "app.modules.server.application.services.jar_service._fetch_xml_with_retries",
+            AsyncMock(return_value=xml_forge),
+        ) as mock_fetch:
             # 1. Wizard fetches versions:
             versions = await fetch_forge_versions()
             assert versions == ["1.20.1"]
@@ -851,7 +899,10 @@ class TestMetadataCacheAndRetries:
     async def test_cache_expiry_triggers_new_fetch(self) -> None:
         xml_forge = "<metadata><versioning><versions><version>1.20.1-47.4.23</version></versions></versioning></metadata>"
         with (
-            patch("app.modules.server.application.services.jar_service._fetch_xml_with_retries", AsyncMock(return_value=xml_forge)) as mock_fetch,
+            patch(
+                "app.modules.server.application.services.jar_service._fetch_xml_with_retries",
+                AsyncMock(return_value=xml_forge),
+            ) as mock_fetch,
             patch("time.monotonic") as mock_time,
         ):
             mock_time.return_value = 1000.0
@@ -866,7 +917,10 @@ class TestMetadataCacheAndRetries:
     @pytest.mark.asyncio
     async def test_clear_metadata_cache(self) -> None:
         xml_forge = "<metadata><versioning><versions><version>1.20.1-47.4.23</version></versions></versioning></metadata>"
-        with patch("app.modules.server.application.services.jar_service._fetch_xml_with_retries", AsyncMock(return_value=xml_forge)) as mock_fetch:
+        with patch(
+            "app.modules.server.application.services.jar_service._fetch_xml_with_retries",
+            AsyncMock(return_value=xml_forge),
+        ) as mock_fetch:
             await fetch_forge_versions()
             assert mock_fetch.call_count == 1
 
@@ -900,7 +954,9 @@ class TestMetadataCacheAndRetries:
             mock_get.side_effect = aiohttp.ClientError("connection refused")
 
             with pytest.raises(MetadataFetchError) as exc_info:
-                await _fetch_xml_with_retries("https://example.com/maven-metadata.xml", max_retries=2)
+                await _fetch_xml_with_retries(
+                    "https://example.com/maven-metadata.xml", max_retries=2
+                )
 
             assert "Failed to fetch metadata" in str(exc_info.value)
             assert "connection refused" in str(exc_info.value)

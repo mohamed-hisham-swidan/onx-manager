@@ -128,7 +128,9 @@ class ReconcilePluginsHandler(CommandHandler[ReconcilePluginsCommand]):
         if added or removed:
             logger.info(
                 "Plugin reconciliation changed filesystem state — server_id=%s added=%s removed=%s",
-                str(server_id), added, removed,
+                str(server_id),
+                added,
+                removed,
             )
 
         return CommandResult(

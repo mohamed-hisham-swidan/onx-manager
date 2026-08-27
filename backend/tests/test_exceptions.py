@@ -1,5 +1,3 @@
-import pytest
-
 from app.core.exceptions import (
     AuthenticationError,
     ConflictError,
@@ -31,7 +29,9 @@ class TestMCSError:
         assert err.retryable is False
 
     def test_base_error_custom(self) -> None:
-        err = MCSError("test", code="CUSTOM", details={"key": "val"}, http_status=400, retryable=True)
+        err = MCSError(
+            "test", code="CUSTOM", details={"key": "val"}, http_status=400, retryable=True
+        )
         assert err.code == "CUSTOM"
         assert err.message == "test"
         assert err.details == {"key": "val"}

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -34,7 +34,7 @@ class HealthSignal:
     severity: SignalSeverity
     value: str
     details: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ class IntegrityReport:
     checks: list[IntegrityCheck]
     overall_status: str
     scope: str = "full"
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def passed(self) -> bool:
@@ -74,7 +74,7 @@ class EnvironmentReport:
     provider_ready: bool = False
     prerequisites: dict[str, bool] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def is_capable(self) -> bool:
@@ -90,7 +90,7 @@ class EvidenceBundle:
     provider_diagnostics: dict[str, Any] | None = None
     system_snapshot: dict[str, Any] = field(default_factory=dict)
     collection_errors: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(frozen=True)
@@ -101,7 +101,7 @@ class CrashClassification:
     summary: str
     suggested_action: str = ""
     evidence_references: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(frozen=True)
@@ -110,4 +110,4 @@ class HealthTimelineEntry:
     previous_status: HealthStatusEnum | None
     new_status: HealthStatusEnum
     contributing_factors: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))

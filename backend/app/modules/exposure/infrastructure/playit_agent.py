@@ -26,6 +26,7 @@ from pathlib import Path
 
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
+from app.core.platform_lock import FileLock
 from app.modules.exposure.domain.value_objects import ExposureStatus
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.exposure.playit")
@@ -179,9 +180,6 @@ async def _probe_unix_socket(
         return True
     except Exception:
         return False
-
-
-from app.core.platform_lock import FileLock
 
 
 class PlayitAgentSupervisor:

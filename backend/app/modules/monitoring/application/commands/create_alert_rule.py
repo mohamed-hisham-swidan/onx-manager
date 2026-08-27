@@ -1,12 +1,10 @@
-import uuid
-
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.monitoring.domain.aggregate import AlertCondition, AlertRule, AlertSeverity
 from app.modules.monitoring.infrastructure.repository import SQLAlertRuleRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class CreateAlertRuleCommand(Command):

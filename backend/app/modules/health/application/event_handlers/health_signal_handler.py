@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.event_bus import DomainEvent, EventBus, EventHandler
+from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.health.domain.aggregate import HealthStatus
 from app.modules.health.domain.events import (
@@ -13,11 +14,9 @@ from app.modules.health.domain.events import (
 )
 from app.modules.health.domain.value_objects import (
     HealthSignal,
-    HealthStatusEnum,
     HealthTrend,
     SignalSeverity,
 )
-from app.core.identity import IDENTITY
 from app.modules.health.infrastructure.health_calculator import SignalHealthCalculator
 from app.modules.health.infrastructure.repository import SQLHealthRepository
 
@@ -44,7 +43,7 @@ class HealthSignalHandler(EventHandler):
             severity=SignalSeverity(event.severity),
             value=event.value,
             details=event.details or {},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         await self._recompute(event.server_id, [signal])
 
@@ -55,7 +54,7 @@ class HealthSignalHandler(EventHandler):
             severity=SignalSeverity(event.severity),
             value=event.detail,
             details={"check_name": event.check_name, "scope": event.scope},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         await self._recompute(event.server_id, [signal])
 
@@ -70,7 +69,7 @@ class HealthSignalHandler(EventHandler):
                 "confidence": event.confidence,
                 "summary": event.summary,
             },
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         await self._recompute(event.server_id, [signal])
 
@@ -108,11 +107,13 @@ class HealthSignalHandler(EventHandler):
         signals: list[HealthSignal] = []
         for entry in timeline:
             for factor in entry.contributing_factors:
-                signals.append(HealthSignal(
-                    server_id=entry.server_id,
-                    signal_type="timeline",
-                    severity=SignalSeverity.INFO,
-                    value=factor,
-                    timestamp=entry.timestamp,
-                ))
+                signals.append(
+                    HealthSignal(
+                        server_id=entry.server_id,
+                        signal_type="timeline",
+                        severity=SignalSeverity.INFO,
+                        value=factor,
+                        timestamp=entry.timestamp,
+                    )
+                )
         return signals

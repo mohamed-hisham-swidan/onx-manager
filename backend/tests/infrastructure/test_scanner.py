@@ -3,8 +3,6 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from app.modules.server.infrastructure.scanner import (
     FilesystemScanner,
     _detect_server_type,
@@ -94,7 +92,10 @@ class TestDirLooksLikeServer:
 
 class TestParseDirname:
     def test_full_uuid(self):
-        assert parse_dirname_for_id("be193e92e2aa4728a0854cad9e37cca1") == "be193e92e2aa4728a0854cad9e37cca1"
+        assert (
+            parse_dirname_for_id("be193e92e2aa4728a0854cad9e37cca1")
+            == "be193e92e2aa4728a0854cad9e37cca1"
+        )
 
     def test_slug_with_uuid(self):
         assert parse_dirname_for_id("my-server-be193e92") == "be193e92"

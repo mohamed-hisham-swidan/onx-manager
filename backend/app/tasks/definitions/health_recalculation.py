@@ -23,6 +23,7 @@ async def periodic_health_recalculation(params: dict[str, Any]) -> dict[str, Any
 
     async with database.session_factory() as session:
         from sqlalchemy import select
+
         from app.modules.health.infrastructure.models import HealthStatusModel
 
         stmt = select(HealthStatusModel.server_id)

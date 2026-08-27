@@ -3,10 +3,10 @@ from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.config import ConfigFactory
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId
-from app.core.persistence.unit_of_work import UnitOfWork
 
 
 class DeleteBackupCommand(Command):
@@ -33,9 +33,7 @@ class DeleteBackupHandler(CommandHandler[DeleteBackupCommand]):
             except Exception as exc:
                 return CommandResult(
                     success=False,
-                    error=(
-                        f"Failed to delete backup artifact at {storage_path}: {exc}"
-                    ),
+                    error=(f"Failed to delete backup artifact at {storage_path}: {exc}"),
                 )
 
         async with UnitOfWork(self._event_bus) as uow:

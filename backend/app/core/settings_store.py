@@ -10,11 +10,12 @@ The store is intentionally separate from ``AppSettings`` (which remains
 read-only/env-var backed) so that the non-editable infrastructure fields
 (secret_key, database_url, …) are never touched by the PATCH endpoint.
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -103,7 +104,9 @@ def _coerce(field: str, value: Any) -> Any:
     try:
         return target_type(value)
     except (TypeError, ValueError):
-        logger.warning("Could not coerce setting %r=%r to %s — using default", field, value, target_type)
+        logger.warning(
+            "Could not coerce setting %r=%r to %s — using default", field, value, target_type
+        )
         return default
 
 

@@ -1,7 +1,7 @@
 import pytest
 
-from app.core.command_bus import Command, CommandBus, CommandHandler, CommandResult
 from app.core.circuit_breaker import CircuitBreaker
+from app.core.command_bus import Command, CommandBus, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus, EventHandler
 from app.core.idempotency import IdempotencyKey, IdempotencyMiddleware, InMemoryIdempotencyStore
 from app.core.saga import SagaOrchestrator, SagaStatus, SagaStep

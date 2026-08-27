@@ -5,11 +5,11 @@ from app.core.event_bus import EventBus
 from app.core.exceptions import ServerNotFoundError
 from app.core.idempotency import IdempotencyKey
 from app.core.identity import IDENTITY
+from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-from app.core.persistence.unit_of_work import UnitOfWork
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.delete_server")
 
@@ -33,7 +33,7 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                 server = await repo.get(server_id)
             except ServerNotFoundError:
                 logger.warning(
-                    'Delete called for nonexistent server %s — returning 404',
+                    "Delete called for nonexistent server %s — returning 404",
                     command.server_id,
                 )
                 return CommandResult(
@@ -55,7 +55,8 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
 
         logger.info(
             'Server "%s" deleted — server_id=%s',
-            server_name, command.server_id,
+            server_name,
+            command.server_id,
         )
 
         if server_dir:
@@ -63,12 +64,15 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                 local_fs.delete_dir(server_dir)
                 logger.info(
                     'Server "%s" filesystem directory removed — path=%s',
-                    server_name, server_dir,
+                    server_name,
+                    server_dir,
                 )
             except Exception:
                 logger.exception(
                     'Failed to remove filesystem directory for server "%s" — path=%s server_id=%s',
-                    server_name, server_dir, command.server_id,
+                    server_name,
+                    server_dir,
+                    command.server_id,
                 )
 
         return CommandResult(success=True, data={"server_id": command.server_id})
