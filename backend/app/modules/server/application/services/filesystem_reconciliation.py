@@ -890,7 +890,7 @@ class FilesystemReconciliationService:
             or server_jar.endswith((".sh", ".bat"))
             or server_type in (ServerType.FORGE, ServerType.NEOFORGE)
         ):
-            script_cmd = f"bash {run_script or 'run.sh'} nogui"
+            script_cmd = ["bash", run_script or "run.sh", "nogui"]
             launch_config = LaunchConfiguration(startup_command=script_cmd)
 
         return Server(

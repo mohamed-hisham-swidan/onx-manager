@@ -19,6 +19,7 @@ from app.modules.server.domain.value_objects import (
     ServerDeployment,
     ServerProperties,
     ServerType,
+    default_provider_for_platform,
 )
 from app.modules.server.infrastructure.models import ServerMembershipModel, ServerModel
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
@@ -78,11 +79,16 @@ class SQLServerRepository(ServerRepository):
         model.view_distance = server.properties.view_distance
         model.simulation_distance = server.properties.simulation_distance
 
-        model.provider = server.runtime.provider if server.runtime else "local"
+        model.provider = (
+            server.runtime.provider
+            if (server.runtime and server.runtime.provider)
+            else default_provider_for_platform()
+        )
         model.deployment_host = server.runtime.host if server.runtime else None
         model.deployment_port = server.runtime.port if server.runtime else None
         model.deployment_pid = server.runtime.pid if server.runtime else None
         model.deployment_start_time = server.runtime.start_time if server.runtime else None
+        model.running_start_time = server.runtime.running_start_time if server.runtime else None
         model.external_id = server.runtime.external_id if server.runtime else None
 
         if server.deployment:
@@ -139,11 +145,12 @@ class SQLServerRepository(ServerRepository):
 
         runtime = RuntimeInfo(
             status=model.status or "created",
-            provider=model.provider or "local",
+            provider=model.provider or default_provider_for_platform(),
             host=model.deployment_host or "",
             port=model.deployment_port or model.port or 25565,
             pid=model.deployment_pid,
             start_time=model.deployment_start_time,
+            running_start_time=model.running_start_time,
             uptime_seconds=model.uptime_seconds or 0.0,
             last_crash_time=model.last_crash_time,
             restart_count=model.restart_count or 0,
@@ -154,15 +161,22 @@ class SQLServerRepository(ServerRepository):
         if model.launch_config_json:
             try:
                 raw = json.loads(model.launch_config_json)
+                raw_cmd = raw.get("startup_command")
+                if isinstance(raw_cmd, list):
+                    startup_cmd = [str(x) for x in raw_cmd if str(x).strip()] or None
+                elif isinstance(raw_cmd, str) and raw_cmd.strip():
+                    startup_cmd = raw_cmd.split()
+                else:
+                    startup_cmd = None
                 launch_config = LaunchConfiguration(
                     java_executable=raw.get("java_executable", "java"),
-                    startup_command=raw.get("startup_command", ""),
+                    startup_command=startup_cmd,
                     startup_jar=raw.get("startup_jar", "server.jar"),
                     jvm_flags=tuple(raw.get("jvm_flags", [])),
                     environment=raw.get("environment", {}),
                     working_directory=raw.get("working_directory", ""),
                 )
-            except (json.JSONDecodeError, TypeError, KeyError):
+            except (json.JSONDecodeError, TypeError, KeyError, ValueError):
                 launch_config = None
 
         server = Server(

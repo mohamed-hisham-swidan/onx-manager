@@ -5,6 +5,9 @@ import pytest
 
 from app.modules.server.application.runtime_reconciliation import (
     MismatchType,
+    ServerRuntimeState,
+    _detect_mismatches,
+    _get_server_state,
     reconcile_all_runtimes,
     reconcile_orphans,
     reconcile_server_runtime,
@@ -811,3 +814,189 @@ class TestReconcileOrphans:
                                         "decision=KILL" in str(args) or "decision=SKIP" in str(args)
                                         for args in kill_logs
                                     )
+
+
+class TestRuntimeReconciliationGraceWindow:
+    def test_scenario_1_fresh_posix_start_no_crash_mismatch(self):
+        # 1. Fresh POSIX start (<60s, STARTING): has_tmux=True, pid_alive=True -> no crash mismatch
+        state = ServerRuntimeState(
+            server_id="s1",
+            server_name="S1",
+            db_status=ServerStatus.STARTING,
+            has_supervisor=False,
+            supervisor_running=False,
+            has_tmux=True,
+            tmux_pid=1001,
+            pid_alive=True,
+            start_age_seconds=15.0,
+        )
+        mismatches = _detect_mismatches(state)
+        assert len(mismatches) == 1
+        assert mismatches[0].mismatch_type == MismatchType.DB_STARTING_ALIVE
+
+    def test_scenario_2_healthy_running_no_mismatches(self):
+        # 2. Healthy RUNNING: has_tmux=True, pid_alive=True -> no crash mismatch
+        state = ServerRuntimeState(
+            server_id="s1",
+            server_name="S1",
+            db_status=ServerStatus.RUNNING,
+            has_supervisor=True,
+            supervisor_running=True,
+            has_tmux=True,
+            tmux_pid=1001,
+            pid_alive=True,
+            running_age_seconds=100.0,
+        )
+        mismatches = _detect_mismatches(state)
+        assert len(mismatches) == 0
+
+    def test_scenario_3_running_tmux_dead_jvm_alive_no_crash_mismatch(self):
+        # 3. RUNNING, tmux dead but JVM still alive: has_tmux=False, pid_alive=True
+        # -> SUPERVISOR_NO_TMUX only, no DB_RUNNING_NO_TMUX
+        state = ServerRuntimeState(
+            server_id="s1",
+            server_name="S1",
+            db_status=ServerStatus.RUNNING,
+            has_supervisor=True,
+            supervisor_running=True,
+            has_tmux=False,
+            tmux_pid=None,
+            pid_alive=True,
+            running_age_seconds=100.0,
+        )
+        mismatches = _detect_mismatches(state)
+        types = [m.mismatch_type for m in mismatches]
+        assert MismatchType.SUPERVISOR_NO_TMUX in types
+        assert MismatchType.DB_RUNNING_NO_TMUX not in types
+
+    def test_scenario_4_running_in_grace_tmux_dead_pid_dead_protected(self):
+        # 4. RUNNING, just transitioned (<30s via running_start_time), tmux dead, PID dead:
+        # running_age_seconds small, in_grace=True -> no DB_RUNNING_NO_TMUX mismatch
+        # but SUPERVISOR_NO_TMUX mismatch still fires
+        state = ServerRuntimeState(
+            server_id="s1",
+            server_name="S1",
+            db_status=ServerStatus.RUNNING,
+            has_supervisor=True,
+            supervisor_running=True,
+            has_tmux=False,
+            tmux_pid=None,
+            pid_alive=False,
+            running_age_seconds=10.0,  # in grace (< 30.0)
+        )
+        mismatches = _detect_mismatches(state)
+        types = [m.mismatch_type for m in mismatches]
+        assert MismatchType.SUPERVISOR_NO_TMUX in types
+        assert MismatchType.DB_RUNNING_NO_TMUX not in types
+
+    def test_scenario_5_running_past_grace_tmux_dead_pid_dead_crashes(self):
+        # 5. RUNNING, stable (well past grace window), tmux dead, PID dead:
+        # in_grace=False -> DB_RUNNING_NO_TMUX mismatch generated
+        state = ServerRuntimeState(
+            server_id="s1",
+            server_name="S1",
+            db_status=ServerStatus.RUNNING,
+            has_supervisor=True,
+            supervisor_running=True,
+            has_tmux=False,
+            tmux_pid=None,
+            pid_alive=False,
+            running_age_seconds=45.0,  # past grace (> 30.0)
+        )
+        mismatches = _detect_mismatches(state)
+        types = [m.mismatch_type for m in mismatches]
+        assert MismatchType.SUPERVISOR_NO_TMUX in types
+        assert MismatchType.DB_RUNNING_NO_TMUX in types
+
+    def test_scenario_6_running_start_time_none_fail_safe_not_in_grace(self):
+        # 6. running_start_time is None -> running_age_seconds is None -> in_grace is False
+        state = ServerRuntimeState(
+            server_id="s1",
+            server_name="S1",
+            db_status=ServerStatus.RUNNING,
+            has_supervisor=True,
+            supervisor_running=True,
+            has_tmux=False,
+            tmux_pid=None,
+            pid_alive=False,
+            running_age_seconds=None,
+        )
+        mismatches = _detect_mismatches(state)
+        types = [m.mismatch_type for m in mismatches]
+        assert MismatchType.SUPERVISOR_NO_TMUX in types
+        assert MismatchType.DB_RUNNING_NO_TMUX in types
+
+    def test_scenario_7_custom_post_running_grace_setting_respected(self):
+        # 7. Confirm post_running_grace_seconds setting is respected (shifts boundary)
+        state = ServerRuntimeState(
+            server_id="s1",
+            server_name="S1",
+            db_status=ServerStatus.RUNNING,
+            has_supervisor=True,
+            supervisor_running=True,
+            has_tmux=False,
+            tmux_pid=None,
+            pid_alive=False,
+            running_age_seconds=40.0,
+        )
+        # Default 30s grace -> 40s is out of grace
+        with patch(
+            "app.modules.server.application.runtime_reconciliation._get_post_running_grace_seconds",
+            return_value=30.0,
+        ):
+            mismatches = _detect_mismatches(state)
+            types = [m.mismatch_type for m in mismatches]
+            assert MismatchType.DB_RUNNING_NO_TMUX in types
+
+        # Custom 50s grace -> 40s is in grace
+        with patch(
+            "app.modules.server.application.runtime_reconciliation._get_post_running_grace_seconds",
+            return_value=50.0,
+        ):
+            mismatches = _detect_mismatches(state)
+            types = [m.mismatch_type for m in mismatches]
+            assert MismatchType.DB_RUNNING_NO_TMUX not in types
+
+    @pytest.mark.asyncio
+    async def test_scenario_8_get_server_state_computes_start_age_and_running_age(self):
+        # 8. Explicitly test datetime.fromtimestamp fix and running_age_seconds computation
+        now_ts = 1700000100
+        start_ts = 1700000050  # 50 seconds ago
+
+        server_starting = _make_server("s-starting", ServerStatus.STARTING)
+        server_starting._runtime = RuntimeInfo(
+            status="starting",
+            start_time=start_ts,
+            running_start_time=None,
+        )
+
+        mock_provider = AsyncMock()
+        mock_provider.verify_process.return_value = False
+        mock_provider.get_runtime_pid.return_value = None
+
+        with patch("app.modules.server.application.runtime_reconciliation.datetime") as mock_dt:
+            from datetime import UTC
+            from datetime import datetime as real_dt
+
+            mock_dt.fromtimestamp = real_dt.fromtimestamp
+            mock_dt.now.return_value = real_dt.fromtimestamp(now_ts, tz=UTC)
+            mock_dt.fromisoformat.side_effect = ValueError("Should not be called")
+
+            state_starting = await _get_server_state(server_starting, mock_provider)
+            assert state_starting.start_age_seconds == pytest.approx(50.0, 0.1)
+            assert state_starting.running_age_seconds is None
+
+        # RUNNING server
+        server_running = _make_server("s-running", ServerStatus.RUNNING)
+        server_running._runtime = RuntimeInfo(
+            status="running",
+            start_time=start_ts,
+            running_start_time=float(start_ts + 10),
+        )
+
+        with patch(
+            "app.modules.server.application.runtime_reconciliation.time.time",
+            return_value=float(now_ts),
+        ):
+            state_running = await _get_server_state(server_running, mock_provider)
+            assert state_running.running_age_seconds == pytest.approx(40.0, 0.1)

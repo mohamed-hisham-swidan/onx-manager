@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings
 from app.core.exceptions import InvalidValueError
 from app.core.identity import IDENTITY
 from app.core.version import get_app_version
+from app.modules.server.domain.value_objects import default_provider_for_platform
 
 
 class AppSettings(BaseSettings):
@@ -45,6 +46,7 @@ class AppSettings(BaseSettings):
     panel_bind_host: str = "127.0.0.1"
     panel_bind_port: int = 8000
     metrics_interval_seconds: float = 1.5
+    post_running_grace_seconds: float = 30.0
 
     model_config = {"env_prefix": "MCS_", "extra": "ignore"}
 
@@ -61,7 +63,7 @@ class ServerConfig:
     auto_restart: bool = True
     backup_enabled: bool = True
     backup_interval_minutes: int = 60
-    provider: str = "local"
+    provider: str = field(default_factory=default_provider_for_platform)
     java_args: list[str] = field(default_factory=lambda: ["-XX:+UseG1GC"])
     env_vars: dict[str, str] = field(default_factory=dict)
 

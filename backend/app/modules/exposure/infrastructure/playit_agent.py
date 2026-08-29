@@ -27,6 +27,7 @@ from pathlib import Path
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
 from app.core.platform_lock import FileLock
+from app.core.process_utils import platform_pid_alive
 from app.modules.exposure.domain.value_objects import ExposureStatus
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.exposure.playit")
@@ -134,13 +135,7 @@ def _is_pid_alive(pid: int) -> bool:
     """Check if process with given PID exists and is accessible."""
     if pid <= 0:
         return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except (ProcessLookupError, PermissionError):
-        return False
-    except OSError:
-        return False
+    return platform_pid_alive(pid)
 
 
 def _is_pid_alive_and_playit(pid: int) -> bool:

@@ -90,11 +90,15 @@ def _check_provider_prerequisites(
 
     if server_id:
         try:
-            provider_factory.get("local")
-            prereqs["provider_local"] = True
+            from app.modules.server.domain.value_objects import default_provider_for_platform
+
+            prov_name = default_provider_for_platform()
+            provider_factory.get(prov_name)
+            prereqs[f"provider_{prov_name}"] = True
         except (ValueError, KeyError):
-            prereqs["provider_local"] = False
-            errors.append("local provider not registered")
+            prov_name = default_provider_for_platform()
+            prereqs[f"provider_{prov_name}"] = False
+            errors.append(f"{prov_name} provider not registered")
 
     provider_ready = tmux_ok
     return provider_ready, prereqs, errors

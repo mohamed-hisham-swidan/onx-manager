@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import socket
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -13,9 +14,11 @@ from typing import Literal
 
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
+from app.core.process_utils import platform_pid_alive
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerFilters, ServerRepository
+from app.modules.server.domain.value_objects import default_provider_for_platform
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
@@ -24,6 +27,16 @@ from app.modules.server.infrastructure.providers.base import (
 from app.modules.shared.value_objects import ServerId
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.runtime_reconciliation")
+
+
+def _get_post_running_grace_seconds() -> float:
+    """Get post-RUNNING grace window from live settings, with 30s hardcoded fallback."""
+    try:
+        from app.core.settings_store import get_live_settings
+
+        return get_live_settings().post_running_grace_seconds
+    except Exception:
+        return 30.0
 
 
 class MismatchType(Enum):
@@ -55,6 +68,7 @@ class ServerRuntimeState:
     runtime_pid: int | None = None
     external_id: str = ""
     start_age_seconds: float | None = None
+    running_age_seconds: float | None = None
 
 
 @dataclass
@@ -222,7 +236,9 @@ async def _get_server_state(
 
     if provider is not None:
         handle = ServerHandle(
-            provider=server.runtime.provider or "local" if server.runtime else "local",
+            provider=server.runtime.provider or default_provider_for_platform()
+            if server.runtime
+            else default_provider_for_platform(),
             server_id=sid,
             external_id=session_name,
         )
@@ -233,11 +249,7 @@ async def _get_server_state(
         except Exception as exc:
             logger.debug("State check failed for %s: %s", sid, exc)
         if tmux_pid:
-            try:
-                os.kill(tmux_pid, 0)
-                pid_alive = True
-            except OSError:
-                pid_alive = False
+            pid_alive = platform_pid_alive(tmux_pid)
 
     port = server.properties.port.value if hasattr(server.properties, "port") else 25565
     port_listening = _port_is_listening(port) if isinstance(port, int) else False
@@ -247,13 +259,18 @@ async def _get_server_state(
         ref_time = None
         if server.runtime and server.runtime.start_time:
             with contextlib.suppress(Exception):
-                ref_time = datetime.fromisoformat(server.runtime.start_time)
+                ref_time = datetime.fromtimestamp(server.runtime.start_time, tz=UTC)
         if ref_time is None and server.updated_at:
             ref_time = server.updated_at
         if ref_time is not None:
             if ref_time.tzinfo is None:
                 ref_time = ref_time.replace(tzinfo=UTC)
             start_age_seconds = (datetime.now(UTC) - ref_time).total_seconds()
+
+    running_age_seconds: float | None = None
+    if server.status == ServerStatus.RUNNING:
+        if server.runtime and server.runtime.running_start_time:
+            running_age_seconds = max(0.0, time.time() - server.runtime.running_start_time)
 
     return ServerRuntimeState(
         server_id=sid,
@@ -269,6 +286,7 @@ async def _get_server_state(
         runtime_pid=server.runtime.pid if server.runtime else None,
         external_id=external_id,
         start_age_seconds=start_age_seconds,
+        running_age_seconds=running_age_seconds,
     )
 
 
@@ -285,7 +303,7 @@ def _detect_mismatches(state: ServerRuntimeState) -> list[MismatchReport]:
                     auto_repairable=True,
                 )
             )
-        if not state.has_tmux and not state.supervisor_running:
+        if not state.has_tmux and not state.supervisor_running and not state.pid_alive:
             mismatches.append(
                 MismatchReport(
                     server_id=state.server_id,
@@ -312,6 +330,21 @@ def _detect_mismatches(state: ServerRuntimeState) -> list[MismatchReport]:
                     auto_repairable=True,
                 )
             )
+            if not state.pid_alive:
+                grace = _get_post_running_grace_seconds()
+                in_grace = (
+                    state.running_age_seconds is not None
+                    and state.running_age_seconds < grace
+                )
+                if not in_grace:
+                    mismatches.append(
+                        MismatchReport(
+                            server_id=state.server_id,
+                            mismatch_type=MismatchType.DB_RUNNING_NO_TMUX,
+                            detail="Supervisor running but tmux gone and PID dead",
+                            auto_repairable=True,
+                        )
+                    )
 
     if state.db_status == ServerStatus.STARTING and not state.supervisor_running:
         if state.has_tmux and state.pid_alive:
@@ -399,7 +432,11 @@ async def reconcile_server_runtime(
     outcome = ReconciliationOutcome(server_id=sid, server_name=server.name)
 
     try:
-        provider_type = server.runtime.provider if server.runtime else "local"
+        provider_type = (
+            server.runtime.provider
+            if (server.runtime and server.runtime.provider)
+            else default_provider_for_platform()
+        )
         provider = provider_factory.get(provider_type)
     except Exception as exc:
         outcome.error = f"Failed to get provider: {exc}"

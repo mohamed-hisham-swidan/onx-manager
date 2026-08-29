@@ -4,8 +4,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.core.exceptions import ProviderError
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server
+from app.modules.server.domain.diagnostics import FailureCode, RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
     JavaArguments,
     MemoryAllocation,
@@ -335,3 +337,173 @@ class TestRuntimeSupervisor:
 
         assert not supervisor.is_running
         crash_spy.assert_not_called()
+
+
+@pytest.mark.asyncio
+class TestHealthCheckExceptionBoundary:
+    async def test_health_check_healthy_updates_heartbeat(
+        self, mock_provider, mock_server, server_handle
+    ):
+        mock_provider.verify_process = AsyncMock(return_value=True)
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+        )
+        old_heartbeat = supervisor._last_heartbeat - 10.0
+        supervisor._last_heartbeat = old_heartbeat
+
+        await supervisor._health_check()
+
+        assert supervisor._last_heartbeat > old_heartbeat
+        assert not supervisor._stop_event.is_set()
+
+    async def test_health_check_stopped_graceful_exit(
+        self, mock_provider, mock_server, server_handle
+    ):
+        mock_provider.verify_process = AsyncMock(return_value=False)
+        mock_provider.status = AsyncMock(return_value=ServerRuntimeStatus.STOPPED)
+        mock_provider.collect_diagnostics = AsyncMock()
+
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+        )
+        supervisor._handle_crash = AsyncMock()
+
+        await supervisor._health_check()
+
+        assert supervisor._stop_event.is_set()
+        supervisor._handle_crash.assert_not_called()
+        mock_provider.collect_diagnostics.assert_not_called()
+
+    async def test_health_check_not_alive_collects_diag_and_crashes(
+        self, mock_provider, mock_server, server_handle
+    ):
+        mock_provider.verify_process = AsyncMock(return_value=False)
+        mock_provider.status = AsyncMock(return_value=ServerRuntimeStatus.ERROR)
+        diag = RuntimeDiagnostics(provider="local")
+        mock_provider.collect_diagnostics = AsyncMock(return_value=diag)
+
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+        )
+        supervisor._handle_crash = AsyncMock()
+
+        await supervisor._health_check()
+
+        supervisor._handle_crash.assert_awaited_once()
+        crashed_diag = supervisor._handle_crash.call_args[0][0]
+        assert crashed_diag.failure_code == FailureCode.RUNTIME_PROCESS_LOST
+        assert "Runtime process lost" in crashed_diag.failure_reason
+
+    async def test_health_check_provider_error_with_successful_diagnostics(
+        self, mock_provider, mock_server, server_handle
+    ):
+        mock_provider.verify_process = AsyncMock(
+            side_effect=ProviderError("local", "verify_process", "tmux session lost")
+        )
+        diag = RuntimeDiagnostics(provider="local")
+        mock_provider.collect_diagnostics = AsyncMock(return_value=diag)
+
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+        )
+        supervisor._handle_crash = AsyncMock()
+
+        await supervisor._health_check()
+
+        supervisor._handle_crash.assert_awaited_once()
+        crashed_diag = supervisor._handle_crash.call_args[0][0]
+        assert crashed_diag.failure_code == FailureCode.RUNTIME_PROCESS_LOST
+        assert "Provider error during health check" in crashed_diag.failure_reason
+        assert "tmux session lost" in crashed_diag.failure_reason
+
+    async def test_health_check_provider_error_with_failing_diagnostics(
+        self, mock_provider, mock_server, server_handle
+    ):
+        mock_provider.verify_process = AsyncMock(
+            side_effect=ProviderError("local", "verify_process", "tmux missing")
+        )
+        mock_provider.collect_diagnostics = AsyncMock(
+            side_effect=RuntimeError("collect_diagnostics crashed")
+        )
+
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+        )
+        supervisor._handle_crash = AsyncMock()
+
+        await supervisor._health_check()
+
+        supervisor._handle_crash.assert_awaited_once()
+        crashed_diag = supervisor._handle_crash.call_args[0][0]
+        assert crashed_diag.provider == "local"
+        assert crashed_diag.failure_code == FailureCode.RUNTIME_PROCESS_LOST
+        assert "Provider error during health check" in crashed_diag.failure_reason
+        assert "tmux missing" in crashed_diag.failure_reason
+
+    async def test_health_check_unexpected_exception_with_successful_diagnostics(
+        self, mock_provider, mock_server, server_handle
+    ):
+        mock_provider.verify_process = AsyncMock(side_effect=RuntimeError("Kernel error"))
+        diag = RuntimeDiagnostics(provider="local")
+        mock_provider.collect_diagnostics = AsyncMock(return_value=diag)
+
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+        )
+        supervisor._handle_crash = AsyncMock()
+
+        await supervisor._health_check()
+
+        supervisor._handle_crash.assert_awaited_once()
+        crashed_diag = supervisor._handle_crash.call_args[0][0]
+        assert crashed_diag.failure_code == FailureCode.RUNTIME_PROCESS_LOST
+        assert "Unexpected error during health check" in crashed_diag.failure_reason
+
+    async def test_health_check_unexpected_exception_with_failing_diagnostics(
+        self, mock_provider, mock_server, server_handle
+    ):
+        mock_provider.verify_process = AsyncMock(side_effect=RuntimeError("Kernel error"))
+        mock_provider.collect_diagnostics = AsyncMock(
+            side_effect=Exception("Disk error during diag")
+        )
+
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+        )
+        supervisor._handle_crash = AsyncMock()
+
+        await supervisor._health_check()
+
+        supervisor._handle_crash.assert_awaited_once()
+        crashed_diag = supervisor._handle_crash.call_args[0][0]
+        assert crashed_diag.provider == "local"
+        assert crashed_diag.failure_code == FailureCode.RUNTIME_PROCESS_LOST
+        assert "Unexpected error during health check" in crashed_diag.failure_reason

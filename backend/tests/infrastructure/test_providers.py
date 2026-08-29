@@ -168,7 +168,7 @@ class TestLocalLinuxProviderStart:
         provider = LocalLinuxProvider()
         lc = LaunchConfiguration(
             java_executable="java",
-            startup_command="",
+            startup_command=None,
             startup_jar="server.jar",
             jvm_flags=("-Xms1024M", "-Xmx2048M"),
         )
@@ -239,7 +239,7 @@ class TestLocalLinuxProviderStart:
         provider = LocalLinuxProvider()
         lc = LaunchConfiguration(
             java_executable="/usr/lib/jvm/java-21/bin/java",
-            startup_command="cd /srv && java -jar paper.jar nogui",
+            startup_command=["cd", "/srv", "&&", "java", "-jar", "paper.jar", "nogui"],
             startup_jar="irrelevant.jar",
         )
         deployment = ServerDeployment(
@@ -471,7 +471,7 @@ class TestLocalLinuxProviderPreFlight:
         deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/onx/test")
         lc = LaunchConfiguration(
             java_executable="java",
-            startup_command="",
+            startup_command=None,
             startup_jar="server.jar",
             jvm_flags=("-Xms1024M", "-Xmx2048M"),
         )
@@ -493,7 +493,7 @@ class TestLocalLinuxProviderPreFlight:
         deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/onx/test")
         lc = LaunchConfiguration(
             java_executable="java",
-            startup_command="",
+            startup_command=None,
             startup_jar="server.jar",
             jvm_flags=("-Xms1024M", "-Xmx2048M"),
         )
@@ -515,7 +515,7 @@ class TestLocalLinuxProviderPreFlight:
         deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/onx/test")
         lc = LaunchConfiguration(
             java_executable="java",
-            startup_command="",
+            startup_command=None,
             startup_jar="server.jar",
             jvm_flags=("-Xms1024M", "-Xmx2048M"),
         )
@@ -540,7 +540,7 @@ class TestLocalLinuxProviderPreFlight:
         deployment = ServerDeployment(location_type=LocationType.LOCAL, root_path="/tmp/onx/test")
         lc = LaunchConfiguration(
             java_executable="java",
-            startup_command="",
+            startup_command=None,
             startup_jar="server.jar",
             jvm_flags=("-Xms1024M", "-Xmx2048M"),
         )

@@ -6,6 +6,7 @@ import os
 import time
 from collections.abc import Awaitable, Callable
 
+from app.core.exceptions import ProviderError
 from app.core.identity import IDENTITY
 from app.modules.server.application.logging_utils import (
     add_timeline_milestone,
@@ -362,14 +363,63 @@ class RuntimeSupervisor:
                 await self._handle_crash(diag)
                 return
             self._last_heartbeat = time.time()
+        except ProviderError as exc:
+            # Provider explicitly cannot verify (e.g., tmux missing, job not found)
+            # Treat as process lost — fail-safe
+            logger.warning(
+                'health_check provider error — treating as process lost server="%s" sid=%s: %s',
+                self._server_name,
+                self._server_id,
+                exc,
+            )
+            diag = None
+            try:
+                diag = await self._provider.collect_diagnostics(self._handle)
+            except Exception as diag_exc:
+                logger.error(
+                    "collect_diagnostics failed during ProviderError handling "
+                    'server="%s" sid=%s: %s',
+                    self._server_name,
+                    self._server_id,
+                    diag_exc,
+                )
+                diag = RuntimeDiagnostics(
+                    provider=self._provider.provider_type,
+                    runtime_handle=str(self._handle),
+                )
+            diag.failure_code = FailureCode.RUNTIME_PROCESS_LOST
+            pid = self._handle.metadata.get("pid") if hasattr(self._handle, "metadata") else None
+            diag.failure_reason = f"Provider error during health check: {exc} (pid={pid})"
+            await self._handle_crash(diag)
         except Exception:
+            # Truly unexpected error — log full trace AND treat as crash (fail-safe)
             logger.exception(
-                'health_check failed server="%s" sid=%s provider=%s handle=%s phase=health_check',
+                "health_check unexpected error — treating as process lost "
+                'server="%s" sid=%s provider=%s handle=%s',
                 self._server_name,
                 self._server_id,
                 self._provider.provider_type if hasattr(self._provider, "provider_type") else "?",
                 self._handle.external_id if hasattr(self._handle, "external_id") else "?",
             )
+            diag = None
+            try:
+                diag = await self._provider.collect_diagnostics(self._handle)
+            except Exception as diag_exc:
+                logger.error(
+                    "collect_diagnostics failed during exception handling "
+                    'server="%s" sid=%s: %s',
+                    self._server_name,
+                    self._server_id,
+                    diag_exc,
+                )
+                diag = RuntimeDiagnostics(
+                    provider=self._provider.provider_type,
+                    runtime_handle=str(self._handle),
+                )
+            diag.failure_code = FailureCode.RUNTIME_PROCESS_LOST
+            pid = self._handle.metadata.get("pid") if hasattr(self._handle, "metadata") else None
+            diag.failure_reason = f"Unexpected error during health check (pid={pid})"
+            await self._handle_crash(diag)
 
     async def _cleanup_os_resources(self) -> None:
         session_name = self._handle.external_id if hasattr(self._handle, "external_id") else ""

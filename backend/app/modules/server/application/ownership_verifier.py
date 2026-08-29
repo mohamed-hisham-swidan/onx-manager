@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.core.identity import IDENTITY
+from app.core.process_utils import platform_pid_alive
 
 MCS_MARKER = IDENTITY.process_marker_legacy
 ONX_MARKER = IDENTITY.process_marker_new
@@ -66,11 +67,7 @@ def _get_process_start_time(pid: int) -> int | None:
 
 
 def _is_pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
+    return platform_pid_alive(pid)
 
 
 def _get_servers_data_dir() -> str:

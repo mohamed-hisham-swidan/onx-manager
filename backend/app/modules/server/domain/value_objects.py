@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
+
+
+def default_provider_for_platform() -> str:
+    """Return the default provider type for the current platform."""
+    if sys.platform == "win32":
+        return "local_windows"
+    return "local"
 
 
 @dataclass(frozen=True)
@@ -152,27 +160,53 @@ class ServerDeployment:
 @dataclass(frozen=True)
 class LaunchConfiguration:
     java_executable: str = "java"
-    startup_command: str = ""
+    startup_command: list[str] | tuple[str, ...] | None = None
     startup_jar: str = "server.jar"
     jvm_flags: tuple[str, ...] = ()
     environment: dict[str, str] = field(default_factory=dict)
     working_directory: str = ""
 
-    def effective_command(self) -> str:
-        if self.startup_command:
-            return self.startup_command
-        flags = " ".join(self.jvm_flags)
-        return f"{self.java_executable} {flags} -jar {self.startup_jar} nogui"
+    def __post_init__(self) -> None:
+        if self.startup_command is not None:
+            if isinstance(self.startup_command, str):
+                raise TypeError(
+                    f"startup_command must be a list[str] or tuple[str, ...], got str: {self.startup_command!r}"
+                )
+            if not isinstance(self.startup_command, (list, tuple)):
+                raise TypeError(
+                    f"startup_command must be a list[str] or tuple[str, ...], got {type(self.startup_command).__name__}"
+                )
+            if len(self.startup_command) == 0:
+                raise ValueError("startup_command cannot be empty when provided")
+            for i, arg in enumerate(self.startup_command):
+                if not isinstance(arg, str):
+                    raise TypeError(
+                        f"startup_command element at index {i} must be a str, got {type(arg).__name__}: {arg!r}"
+                    )
+                if not arg.strip():
+                    raise ValueError(
+                        f"startup_command element at index {i} cannot be empty or whitespace only: {arg!r}"
+                    )
+            object.__setattr__(self, "startup_command", tuple(self.startup_command))
+
+        if isinstance(self.jvm_flags, list):
+            object.__setattr__(self, "jvm_flags", tuple(self.jvm_flags))
+
+    def effective_command(self) -> list[str]:
+        if self.startup_command is not None:
+            return list(self.startup_command)
+        return [self.java_executable, *self.jvm_flags, "-jar", self.startup_jar, "nogui"]
 
 
 @dataclass
 class RuntimeInfo:
     status: str = "created"
-    provider: str = "local"
+    provider: str = ""
     host: str = ""
     port: int = 25565
     pid: int | None = None
     start_time: int | None = None
+    running_start_time: float | None = None
     uptime_seconds: float = 0.0
     last_crash_time: float | None = None
     restart_count: int = 0

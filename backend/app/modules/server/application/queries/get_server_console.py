@@ -34,9 +34,10 @@ class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
                 # Server not running — return empty list (no crash log lines stored in RuntimeInfo)
                 return ConsoleReadModel(server_id=query.server_id, lines=[])
 
-            provider_type = server.runtime.provider
+            from app.modules.server.domain.value_objects import default_provider_for_platform
             from app.modules.server.infrastructure.providers import provider_factory
 
+            provider_type = server.runtime.provider or default_provider_for_platform()
             provider = provider_factory.get(provider_type)
             from app.modules.server.infrastructure.providers.base import ServerHandle
 

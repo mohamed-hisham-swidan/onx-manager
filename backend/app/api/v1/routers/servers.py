@@ -293,12 +293,15 @@ class _SendConsoleCommandImpl:
                     error="Server not running",
                     error_code="SERVER_NOT_RUNNING",
                 )
+            from app.modules.server.domain.value_objects import default_provider_for_platform
+
+            provider_name = server.runtime.provider or default_provider_for_platform()
             handle = ServerHandle(
-                provider=server.runtime.provider,
+                provider=provider_name,
                 server_id=server_id,
                 external_id=server.runtime.external_id,
             )
-            provider = provider_factory.get(server.runtime.provider)
+            provider = provider_factory.get(provider_name)
             await provider.execute_command(handle, command)
             return CommandResult(success=True, data={"server_id": server_id, "command": command})
 

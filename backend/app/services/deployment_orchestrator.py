@@ -1,6 +1,7 @@
 import logging
 
 from app.modules.server.domain.aggregate import Server
+from app.modules.server.domain.value_objects import default_provider_for_platform
 from app.modules.server.infrastructure.providers.base import (
     ProviderFactory,
     ServerHandle,
@@ -25,9 +26,10 @@ class DeploymentOrchestrator:
     async def provision(
         self,
         server: Server,
-        provider_type: str = "local",
+        provider_type: str = "",
     ) -> dict:
-        provider = self.get_provider(provider_type)
+        actual_provider_type = provider_type or default_provider_for_platform()
+        provider = self.get_provider(actual_provider_type)
 
         config = {
             "name": server.name,
@@ -46,12 +48,12 @@ class DeploymentOrchestrator:
         logger.info(
             "Server %s provisioned via %s: %s:%d",
             server.id,
-            provider_type,
+            actual_provider_type,
             result.address,
             result.port,
         )
         return {
-            "provider": provider_type,
+            "provider": actual_provider_type,
             "address": result.address,
             "port": result.port,
             "pid": result.pid,
@@ -59,9 +61,15 @@ class DeploymentOrchestrator:
         }
 
     async def health_check(self, server: Server) -> ServerRuntimeStatus:
-        provider = self.get_provider(
-            server.deployment.provider if server.deployment else "local",
+        provider_type = (
+            server.runtime.provider
+            if (server.runtime and server.runtime.provider)
+            else (
+                getattr(server.deployment, "provider", None)
+                or default_provider_for_platform()
+            )
         )
+        provider = self.get_provider(provider_type)
         handle = ServerHandle(
             provider=provider.provider_type,
             server_id=str(server.id),

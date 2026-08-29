@@ -158,3 +158,14 @@ backend/config/
 # Encrypted backup artifacts (runtime data)
 # ──────────────────────────────────────────────
 backend/data/backups/
+
+# ──────────────────────────────────────────────
+# Local automation scripts & logs
+# ──────────────────────────────────────────────
+auto-continue.py
+auto-continue.sh
+auto-continue.log
+opencode.txt
+scripts/auto-continue.py
+scripts/auto-continue.sh
+

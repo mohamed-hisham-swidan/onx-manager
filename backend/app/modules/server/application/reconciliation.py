@@ -7,6 +7,7 @@ from app.core.identity import IDENTITY
 from app.modules.server.application.services.jar_service import server_dir_name
 from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.domain.value_objects import default_provider_for_platform
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import (
@@ -114,7 +115,11 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
         handle: ServerHandle | None = None
 
         try:
-            provider_type = server.runtime.provider if server.runtime else "local"
+            provider_type = (
+                server.runtime.provider
+                if (server.runtime and server.runtime.provider)
+                else default_provider_for_platform()
+            )
             provider = provider_factory.get(provider_type)
 
             ext_id = (

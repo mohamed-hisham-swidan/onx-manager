@@ -179,14 +179,16 @@ class BackupSaga:
                     f"cannot send save-all for backup {backup_id}",
                 )
 
+            from app.modules.server.domain.value_objects import default_provider_for_platform
+            from app.modules.server.infrastructure.providers import provider_factory
+
+            provider_type = server.runtime.provider or default_provider_for_platform()
             handle = ServerHandle(
-                provider=server.runtime.provider,
+                provider=provider_type,
                 server_id=str(server_id),
                 external_id=server.runtime.external_id,
             )
-            from app.modules.server.infrastructure.providers import provider_factory
-
-            provider = provider_factory.get(server.runtime.provider)
+            provider = provider_factory.get(provider_type)
             await provider.execute_command(handle, "save-all")
             await self._wait_for_save_confirmed(backup_id, server_id, provider, handle)
             logger.info(

@@ -29,6 +29,7 @@ from app.modules.server.application.runtime_ownership import RuntimeOwnershipMan
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.domain.value_objects import default_provider_for_platform
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle, ServerRuntimeStatus
 from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -231,7 +232,11 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     error_code="NO_DEPLOYMENT",
                 )
 
-            provider_type = server.runtime.provider if server.runtime else "local"
+            provider_type = (
+                server.runtime.provider
+                if (server.runtime and server.runtime.provider)
+                else default_provider_for_platform()
+            )
             provider = provider_factory.get(provider_type)
             server.start()
             await repo.save(server)

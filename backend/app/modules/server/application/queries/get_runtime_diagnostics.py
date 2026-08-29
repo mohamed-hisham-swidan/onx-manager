@@ -7,6 +7,7 @@ from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.domain.value_objects import default_provider_for_platform
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -34,7 +35,11 @@ class GetServerRuntimeDiagnosticsHandler(QueryHandler[GetServerRuntimeDiagnostic
 
         server_name = server.name
         supervisor = RuntimeSupervisor.get_for(query.server_id)
-        provider_type = server.runtime.provider if server.runtime else "local"
+        provider_type = (
+            server.runtime.provider
+            if (server.runtime and server.runtime.provider)
+            else default_provider_for_platform()
+        )
         provider = provider_factory.get(provider_type)
 
         runtime_handle: str | None = None

@@ -150,13 +150,17 @@ class LocalLinuxProvider(ServerProvider):
             memory_min = cfg.get("memory_min_mb", 1024)
             memory_max = cfg.get("memory_max_mb", 2048)
             port = cfg.get("port", 25565)
-            cmd = launch_config.effective_command()
-            is_script_launch = cmd.startswith(("bash ", "sh ", "./", "exec ")) or cmd.endswith(
-                ".sh"
-            )
+            effective_cmd = launch_config.effective_command()
+            cmd_list = effective_cmd if isinstance(effective_cmd, list) else [effective_cmd]
+            first_token = cmd_list[0].lower() if cmd_list else ""
+            is_script_launch = any(arg.endswith(".sh") for arg in cmd_list) or first_token in (
+                "bash",
+                "sh",
+                "exec",
+            ) or first_token.startswith("./")
             if is_script_launch:
-                if "nogui" not in cmd and "--nogui" not in cmd:
-                    cmd = f"{cmd} nogui"
+                if "nogui" not in cmd_list and "--nogui" not in cmd_list:
+                    cmd_list.append("nogui")
                 jvm_args_file = os.path.join(server_dir, "user_jvm_args.txt")
                 if os.path.exists(jvm_args_file) or not os.path.exists(
                     os.path.join(server_dir, jar)
@@ -167,8 +171,11 @@ class LocalLinuxProvider(ServerProvider):
                             f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
                         )
             else:
-                if "-Xms" not in cmd and "-Xmx" not in cmd:
-                    cmd = f"{cmd} -Xms{memory_min}M -Xmx{memory_max}M"
+                if not any("-Xms" in a for a in cmd_list):
+                    cmd_list.append(f"-Xms{memory_min}M")
+                if not any("-Xmx" in a for a in cmd_list):
+                    cmd_list.append(f"-Xmx{memory_max}M")
+            cmd = " ".join(cmd_list)
             if deployment:
                 cmd = f"cd {server_dir} && {cmd}"
         else:

@@ -126,7 +126,7 @@ class TestForgeProvisioner:
 
             assert server.status == ServerStatus.CREATED
             assert server.launch_config is not None
-            assert server.launch_config.startup_command == "bash run.sh nogui"
+            assert server.launch_config.startup_command == ("bash", "run.sh", "nogui")
             fs.delete.assert_called_with("/data/forge-ok/forge-installer.jar")
         finally:
             for p in patches:

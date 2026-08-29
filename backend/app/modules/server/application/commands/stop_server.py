@@ -19,6 +19,7 @@ from app.modules.server.application.runtime_ownership import _port_is_listening,
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.domain.value_objects import default_provider_for_platform
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerHandle, ServerRuntimeStatus
 from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -69,9 +70,10 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
             add_timeline_milestone(None, "Supervisor stopped", server_name, sid)
 
             if server.runtime and server.runtime.external_id:
-                provider = provider_factory.get(server.runtime.provider)
+                provider_type = server.runtime.provider or default_provider_for_platform()
+                provider = provider_factory.get(provider_type)
                 handle = ServerHandle(
-                    provider=server.runtime.provider,
+                    provider=provider_type,
                     server_id=sid,
                     external_id=server.runtime.external_id,
                     metadata={"server_name": server_name},

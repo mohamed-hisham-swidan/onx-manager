@@ -4,6 +4,7 @@ import pytest
 
 from app.modules.server.domain.value_objects import (
     JavaArguments,
+    LaunchConfiguration,
     MemoryAllocation,
     PortNumber,
     ServerProperties,
@@ -273,3 +274,77 @@ class TestServerProperties:
     def test_view_distance_out_of_range(self) -> None:
         with pytest.raises(ValueError):
             ServerProperties(port=PortNumber(25565), view_distance=1)
+
+
+class TestLaunchConfiguration:
+    def test_defaults_and_effective_command_list(self) -> None:
+        lc = LaunchConfiguration()
+        assert lc.java_executable == "java"
+        assert lc.startup_command is None
+        assert lc.startup_jar == "server.jar"
+        assert lc.jvm_flags == ()
+        assert lc.effective_command() == ["java", "-jar", "server.jar", "nogui"]
+
+    def test_custom_java_and_jvm_flags_effective_command(self) -> None:
+        lc = LaunchConfiguration(
+            java_executable="/opt/java21/bin/java",
+            jvm_flags=("-Xms2G", "-Xmx4G", "-XX:+UseG1GC"),
+            startup_jar="fabric.jar",
+        )
+        assert lc.effective_command() == [
+            "/opt/java21/bin/java",
+            "-Xms2G",
+            "-Xmx4G",
+            "-XX:+UseG1GC",
+            "-jar",
+            "fabric.jar",
+            "nogui",
+        ]
+
+    def test_custom_startup_command_list_and_tuple(self) -> None:
+        lc_list = LaunchConfiguration(startup_command=["bash", "run.sh", "nogui"])
+        assert lc_list.startup_command == ("bash", "run.sh", "nogui")
+        assert lc_list.effective_command() == ["bash", "run.sh", "nogui"]
+
+        lc_tuple = LaunchConfiguration(startup_command=("cmd.exe", "/c", "run.bat", "nogui"))
+        assert lc_tuple.startup_command == ("cmd.exe", "/c", "run.bat", "nogui")
+        assert lc_tuple.effective_command() == ["cmd.exe", "/c", "run.bat", "nogui"]
+
+    def test_windows_path_with_spaces_and_backslashes_character_preservation(self) -> None:
+        win_path = r"C:\Program Files\Java\jdk-21\bin\java.exe"
+        lc = LaunchConfiguration(
+            startup_command=[win_path, "-Xms1G", "-Xmx2G", "-jar", "server.jar", "nogui"]
+        )
+        assert lc.effective_command() == [
+            win_path,
+            "-Xms1G",
+            "-Xmx2G",
+            "-jar",
+            "server.jar",
+            "nogui",
+        ]
+        assert lc.effective_command()[0] == win_path
+
+    def test_validation_rejects_plain_string(self) -> None:
+        with pytest.raises(TypeError, match="startup_command must be a list"):
+            LaunchConfiguration(startup_command="bash run.sh nogui")  # type: ignore
+
+    def test_validation_rejects_empty_list(self) -> None:
+        with pytest.raises(ValueError, match="startup_command cannot be empty"):
+            LaunchConfiguration(startup_command=[])
+
+    def test_validation_rejects_empty_string_elements(self) -> None:
+        with pytest.raises(ValueError, match="cannot be empty or whitespace only"):
+            LaunchConfiguration(startup_command=["bash", "", "nogui"])
+
+        with pytest.raises(ValueError, match="cannot be empty or whitespace only"):
+            LaunchConfiguration(startup_command=["   "])
+
+    def test_validation_rejects_non_string_elements(self) -> None:
+        with pytest.raises(TypeError, match="must be a str"):
+            LaunchConfiguration(startup_command=["bash", 123])  # type: ignore
+
+    def test_immutable(self) -> None:
+        lc = LaunchConfiguration(startup_command=["bash", "run.sh"])
+        with pytest.raises(AttributeError):
+            lc.java_executable = "other"  # type: ignore

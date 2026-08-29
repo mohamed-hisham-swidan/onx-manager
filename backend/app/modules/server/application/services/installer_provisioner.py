@@ -295,7 +295,7 @@ class InstallerProvisioner(ABC):
         self._write_user_jvm_args(server, server_dir)
 
         server.update_launch_config(
-            LaunchConfiguration(startup_command=f"bash {self._run_sh_name()} nogui"),
+            LaunchConfiguration(startup_command=["bash", self._run_sh_name(), "nogui"]),
         )
         server.finish_provisioning()
         return server

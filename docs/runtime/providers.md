@@ -29,3 +29,4 @@ Location: `backend/app/modules/server/infrastructure/providers/local.py`
   - Forge/NeoForge Scripts: Automatically generates `user_jvm_args.txt` and executes `bash run.sh nogui`.
 - **Process Marker Tracking:** Injects `export MCS_MANAGED=1 MCS_INSTANCE_ID={uuid};` before server command to allow unambiguous process ownership verification (ADR 0011).
 - **Log Recovery:** If tmux capture-pane output is unavailable, falls back to reading the last 300 lines of `logs/latest.log`.
+- **PID liveness** (`local.py:464-472`, `_is_pid_alive()`): Uses `_run_command("kill -0 {pid} 2>/dev/null")` — a shell subprocess — rather than `os.kill()` directly. **This method is intentionally excluded from the W-06 cross-platform PID-liveness migration.** Do not refactor it to use `platform_pid_alive()`; it is part of this Linux-only provider's existing verification path and must remain as-is.

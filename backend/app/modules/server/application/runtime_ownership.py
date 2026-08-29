@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, Literal
 
 from app.core.identity import IDENTITY
+from app.core.process_utils import platform_pid_alive
 from app.modules.server.application.ownership_verifier import (
     OwnershipStatus,
     log_ownership_decision,
@@ -19,6 +20,7 @@ from app.modules.server.application.ownership_verifier import (
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.domain.value_objects import default_provider_for_platform
 from app.modules.server.infrastructure.providers import provider_factory as default_provider_factory
 from app.modules.server.infrastructure.providers.base import (
     ProviderFactory,
@@ -187,11 +189,7 @@ def _get_java_cmdline(pid: int) -> str:
 
 
 def _is_pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
+    return platform_pid_alive(pid)
 
 
 def _port_is_listening(port: int, host: str = "127.0.0.1") -> bool:
@@ -549,7 +547,9 @@ class RuntimeOwnershipManager:
 
                 displaced_server = await self._repo.get(ServerId(sid))
                 provider_type = (
-                    displaced_server.runtime.provider if displaced_server.runtime else "local"
+                    displaced_server.runtime.provider
+                    if (displaced_server.runtime and displaced_server.runtime.provider)
+                    else default_provider_for_platform()
                 )
                 provider = self._provider_factory.get(provider_type)
                 ext_id = displaced_server.runtime.external_id if displaced_server.runtime else ""

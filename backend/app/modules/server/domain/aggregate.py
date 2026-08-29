@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
@@ -23,6 +24,7 @@ from app.modules.server.domain.value_objects import (
     ServerDeployment,
     ServerProperties,
     ServerType,
+    default_provider_for_platform,
 )
 from app.modules.shared.aggregate import AggregateRoot
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
@@ -94,7 +96,7 @@ class Server(AggregateRoot):
         self._group_id = group_id
         self._status = ServerStatus.CREATED
         self._deployment = deployment
-        self._runtime = runtime or RuntimeInfo()
+        self._runtime = runtime or RuntimeInfo(provider=default_provider_for_platform())
         self._launch_config = launch_config
         self._missing_since = missing_since
         self._owner_id = owner_id
@@ -289,6 +291,7 @@ class Server(AggregateRoot):
         host: str = "127.0.0.1",
         external_id: str = "",
         start_time: int | None = None,
+        running_start_time: float | None = None,
     ) -> None:
         self._transition_to(ServerStatus.RUNNING)
         self._runtime = RuntimeInfo(
@@ -298,6 +301,9 @@ class Server(AggregateRoot):
             port=port,
             pid=pid,
             start_time=start_time,
+            running_start_time=(
+                running_start_time if running_start_time is not None else time.time()
+            ),
             restart_count=self._runtime.restart_count + 1
             if self._runtime.status in ("running", "starting")
             else self._runtime.restart_count,

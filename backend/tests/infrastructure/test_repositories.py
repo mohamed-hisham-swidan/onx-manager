@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.exceptions import NotFoundError, ServerNotFoundError
 from app.core.persistence.base import Base
+from app.modules.auth.infrastructure.models import UserModel  # noqa: F401
 from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy, BackupType
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.monitoring.domain.aggregate import (
@@ -166,7 +167,7 @@ class TestSQLServerRepositoryLaunchConfig:
     async def test_save_and_load_launch_config(self, server_repo: SQLServerRepository) -> None:
         lc = LaunchConfiguration(
             java_executable="/usr/bin/java",
-            startup_command="",
+            startup_command=None,
             startup_jar="purpur-1.21.jar",
             jvm_flags=("-Xms1024M", "-Xmx2048M", "-XX:+UseG1GC"),
             environment={"JAVA_HOME": "/usr/lib/jvm/java-21"},

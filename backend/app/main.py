@@ -1,4 +1,5 @@
 import logging
+import sys
 import time
 from contextlib import asynccontextmanager
 
@@ -88,6 +89,30 @@ async def lifespan(_app: FastAPI):
     await start_websocket_services()
 
     async with database.session_factory() as session:
+        if sys.platform == "win32":
+            try:
+                from sqlalchemy import select
+
+                from app.modules.server.domain.value_objects import default_provider_for_platform
+                from app.modules.server.infrastructure.models import ServerModel
+
+                target_provider = default_provider_for_platform()
+                stmt = select(ServerModel).where(ServerModel.provider == "local")
+                result = await session.execute(stmt)
+                servers_to_migrate = result.scalars().all()
+
+                if servers_to_migrate:
+                    for s in servers_to_migrate:
+                        s.provider = target_provider
+                    await session.commit()
+                    logger.info(
+                        "Migrated %d server(s) from provider='local' to '%s' for Windows host",
+                        len(servers_to_migrate),
+                        target_provider,
+                    )
+            except Exception as exc:
+                logger.warning("Windows provider migration failed: %s", exc)
+
         repo = SQLServerRepository(session)
         try:
             results = await reconcile_servers(repo)

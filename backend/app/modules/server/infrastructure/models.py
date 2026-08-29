@@ -43,11 +43,12 @@ class ServerModel(Base, TimestampMixin):
     view_distance = Column(Integer, nullable=False, default=10)
     simulation_distance = Column(Integer, nullable=False, default=10)
 
-    provider = Column(String(32), nullable=False, default="local")
+    provider = Column(String(32), nullable=False, default="")
     deployment_host = Column(String(255), nullable=True)
     deployment_port = Column(Integer, nullable=True)
     deployment_pid = Column(Integer, nullable=True)
     deployment_start_time = Column(Integer, nullable=True)
+    running_start_time = Column(Float, nullable=True)
     external_id = Column(String(255), nullable=True)
 
     location_type = Column(String(16), nullable=False, default="local")
