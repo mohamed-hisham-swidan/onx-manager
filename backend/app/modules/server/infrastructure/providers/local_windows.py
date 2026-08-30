@@ -101,9 +101,11 @@ class LocalWindowsProvider(ServerProvider):
             port = cfg.get("port", 25565)
             cmd_list = launch_config.effective_command()
             first_token = cmd_list[0].lower() if cmd_list else ""
-            is_script_launch = any(
-                arg.lower().endswith((".bat", ".cmd", ".ps1", ".sh")) for arg in cmd_list
-            ) or first_token in ("cmd", "cmd.exe", "powershell", "powershell.exe", "bash", "sh") or first_token.startswith("./")
+            is_script_launch = (
+                any(arg.lower().endswith((".bat", ".cmd", ".ps1", ".sh")) for arg in cmd_list)
+                or first_token in ("cmd", "cmd.exe", "powershell", "powershell.exe", "bash", "sh")
+                or first_token.startswith("./")
+            )
             if is_script_launch:
                 jvm_args_file = os.path.join(server_dir, "user_jvm_args.txt")
                 if os.path.exists(jvm_args_file) or not os.path.exists(
@@ -114,7 +116,10 @@ class LocalWindowsProvider(ServerProvider):
                             jvm_args_file,
                             f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
                         )
-                if any(arg.lower().endswith(".ps1") for arg in cmd_list) and first_token not in ("powershell", "powershell.exe"):
+                if (
+                    any(arg.lower().endswith(".ps1") for arg in cmd_list)
+                    and first_token not in ("powershell", "powershell.exe")
+                ):
                     cmd_args = [
                         "powershell.exe",
                         "-ExecutionPolicy",
@@ -122,7 +127,10 @@ class LocalWindowsProvider(ServerProvider):
                         "-File",
                         *cmd_list,
                     ]
-                elif any(arg.lower().endswith((".bat", ".cmd")) for arg in cmd_list) and first_token not in ("cmd", "cmd.exe"):
+                elif (
+                    any(arg.lower().endswith((".bat", ".cmd")) for arg in cmd_list)
+                    and first_token not in ("cmd", "cmd.exe")
+                ):
                     cmd_args = ["cmd.exe", "/c", *cmd_list]
                 elif first_token in ("powershell", "powershell.exe"):
                     if "-executionpolicy" not in [p.lower() for p in cmd_list]:

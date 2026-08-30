@@ -214,9 +214,7 @@ class TestLocalWindowsProviderStart:
         def fake_exists(path: str) -> bool:
             if path.endswith("run.bat") or path.endswith("run.cmd") or path.endswith("server.jar"):
                 return False
-            if path.endswith("run.ps1"):
-                return True
-            return False
+            return path.endswith("run.ps1")
 
         mock_fs.exists.side_effect = fake_exists
 
@@ -283,7 +281,8 @@ class TestLocalWindowsProviderStart:
 
         mock_popen.assert_called_once()
         popen_kwargs = mock_popen.call_args[1]
-        expected_flags = 0x00000200 | 0x00000008 | 0x08000000  # CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW
+        # CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW
+        expected_flags = 0x00000200 | 0x00000008 | 0x08000000
         assert popen_kwargs["creationflags"] == expected_flags
 
     @pytest.mark.asyncio

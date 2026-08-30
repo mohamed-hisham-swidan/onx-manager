@@ -268,9 +268,12 @@ async def _get_server_state(
             start_age_seconds = (datetime.now(UTC) - ref_time).total_seconds()
 
     running_age_seconds: float | None = None
-    if server.status == ServerStatus.RUNNING:
-        if server.runtime and server.runtime.running_start_time:
-            running_age_seconds = max(0.0, time.time() - server.runtime.running_start_time)
+    if (
+        server.status == ServerStatus.RUNNING
+        and server.runtime
+        and server.runtime.running_start_time
+    ):
+        running_age_seconds = max(0.0, time.time() - server.runtime.running_start_time)
 
     return ServerRuntimeState(
         server_id=sid,

@@ -170,22 +170,26 @@ class LaunchConfiguration:
         if self.startup_command is not None:
             if isinstance(self.startup_command, str):
                 raise TypeError(
-                    f"startup_command must be a list[str] or tuple[str, ...], got str: {self.startup_command!r}"
+                    "startup_command must be a list[str] or tuple[str, ...], "
+                    f"got str: {self.startup_command!r}"
                 )
             if not isinstance(self.startup_command, (list, tuple)):
                 raise TypeError(
-                    f"startup_command must be a list[str] or tuple[str, ...], got {type(self.startup_command).__name__}"
+                    "startup_command must be a list[str] or tuple[str, ...], "
+                    f"got {type(self.startup_command).__name__}"
                 )
             if len(self.startup_command) == 0:
                 raise ValueError("startup_command cannot be empty when provided")
             for i, arg in enumerate(self.startup_command):
                 if not isinstance(arg, str):
                     raise TypeError(
-                        f"startup_command element at index {i} must be a str, got {type(arg).__name__}: {arg!r}"
+                        f"startup_command element at index {i} must be a str, "
+                        f"got {type(arg).__name__}: {arg!r}"
                     )
                 if not arg.strip():
                     raise ValueError(
-                        f"startup_command element at index {i} cannot be empty or whitespace only: {arg!r}"
+                        f"startup_command element at index {i} cannot be empty "
+                        f"or whitespace only: {arg!r}"
                     )
             object.__setattr__(self, "startup_command", tuple(self.startup_command))
 
