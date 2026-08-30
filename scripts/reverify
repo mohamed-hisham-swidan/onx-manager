@@ -33,6 +33,8 @@ echo "=== Re-verification cadence: backend ==="
     python ../scripts/check-ruff-baseline
     echo "--- route/permission contract ---"
     python ../scripts/check-route-contract
+    echo "--- PowerShell BOM encoding ---"
+    python ../scripts/check-ps1-bom
     echo "--- full backend test suite ---"
     python -m pytest -q
 )
