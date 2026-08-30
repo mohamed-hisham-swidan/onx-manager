@@ -75,28 +75,38 @@ It's built for people who want full control over their servers without relying o
 
 **Prerequisites:** Python 3.12+, Node.js 20+
 
+### Windows
+
+```cmd
+git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
+cd onx-manager
+start.bat
+```
+
+### Linux / macOS
+
 ```bash
 git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
 cd onx-manager
-python launcher.py
+./start.sh
 ```
 
-That's it. The launcher:
-1. Creates a Python virtual environment
-2. Installs all dependencies
-3. Runs database migrations
-4. Starts the backend + frontend
-5. Opens your browser to `http://localhost:5173`
+Both scripts:
+1. Create a Python virtual environment
+2. Install all dependencies
+3. Run database migrations
+4. Start the backend + frontend
+5. Open your browser to `http://localhost:5173`
 
 On first run you'll be taken to the **setup wizard** to create your admin account.
 
 ```bash
-# Useful flags
-python launcher.py --stop      # Stop everything
-python launcher.py --restart   # Restart
-python launcher.py --status    # Check what's running
-python launcher.py --swagger   # Also open API docs
-python launcher.py --help      # All options
+# Useful flags (pass to start.bat or ./start.sh)
+./start.sh --stop      # Stop everything
+./start.sh --restart   # Restart
+./start.sh --status    # Check what's running
+./start.sh --swagger   # Also open API docs
+./start.sh --help      # All options
 ```
 
 ---
