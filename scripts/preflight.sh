@@ -32,8 +32,6 @@ FRONTEND_PORT="${ONX_FRONTEND_PORT:-${MCS_FRONTEND_PORT:-5173}}"
 PROJECT_ROOT="${ONX_PROJECT_ROOT:-${MCS_PROJECT_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}}"
 BACKEND_DIR="${PROJECT_ROOT}/backend"
 ONX_DB="${BACKEND_DIR}/data/onx.db"
-ONX_DB_ROOT="${BACKEND_DIR}/onx.db"
-MCS_DB="${BACKEND_DIR}/mcs.db"
 KILL_WAIT=5
 BOLD=""
 DIM=""
@@ -440,7 +438,7 @@ print_summary() {
     local be_pids fe_pids db_pids
     be_pids="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
     fe_pids="$(lsof -ti "tcp:${FRONTEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
-    db_pids="$(lsof -t "${ONX_DB}" "${ONX_DB_ROOT}" "${MCS_DB}" 2>/dev/null || true)"
+    db_pids="$(lsof -t "${ONX_DB}" 2>/dev/null || true)"
 
     local any_unclean=false
 
@@ -535,8 +533,6 @@ main() {
 
     check_services
     check_db_lock "${ONX_DB}"
-    check_db_lock "${ONX_DB_ROOT}"
-    check_db_lock "${MCS_DB}"
     scan_orphans
     cleanup_pid_files
 
