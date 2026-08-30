@@ -23,13 +23,19 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Definition) { Split-Path -Parent $MyInvocation.MyCommand.Definition } else { (Get-Location).Path }
+
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  onx-manager — Windows Launcher" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  Directory: $scriptDir"
 
 # ──────────────────────────────────────────────────────────────────────
 # 1. Fast path: pre-built onx.exe
 # ──────────────────────────────────────────────────────────────────────
 $onxExe = Join-Path $scriptDir 'onx.exe'
 if (Test-Path $onxExe) {
+    Write-Host "  Found pre-built onx.exe — launching directly..."
     & $onxExe @args
     exit $LASTEXITCODE
 }
@@ -41,6 +47,7 @@ $venvPy = Join-Path $scriptDir 'backend\.venv\Scripts\python.exe'
 
 if (Test-Path $venvPy) {
     # Venv already exists — use it directly (no sub-arg needed)
+    Write-Host "  Using virtual environment: $venvPy"
     $pyBin    = $venvPy
     $pySubArg = @()
 } else {
@@ -83,6 +90,7 @@ if (Test-Path $venvPy) {
             if ($LASTEXITCODE -eq 0) {
                 $foundCmd    = $cmds[$i]
                 $foundSubArg = $subArgs[$i]
+                Write-Host "  Detected Python interpreter: $foundCmd $foundSubArg"
                 break
             }
         } catch {}
