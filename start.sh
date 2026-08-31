@@ -80,6 +80,35 @@ if [ -z "$PYTHON" ] || ! "$PYTHON" -c "import sys; sys.exit(0 if sys.version_inf
     exit 1
 fi
 
+# 3b. Detect or auto-install Node.js 18+ and npm
+NODE_OK=0
+if command -v node &>/dev/null; then
+    NODE_VER="$(node -v 2>/dev/null || echo "")"
+    NODE_MAJOR="$(echo "$NODE_VER" | sed -E 's/^v([0-9]+).*/\1/')"
+    if [ -n "$NODE_MAJOR" ] && [ "$NODE_MAJOR" -ge 18 ]; then
+        NODE_OK=1
+    fi
+fi
+
+if [ "$NODE_OK" -eq 0 ]; then
+    echo ""
+    echo "  ⚠ Node.js 18+ not found on PATH. Attempting automatic installation..."
+
+    if command -v brew &>/dev/null; then
+        echo "  ▸ Installing Node.js via Homebrew..."
+        brew install node@22 || true
+    elif command -v apt-get &>/dev/null; then
+        echo "  ▸ Installing Node.js via NodeSource / apt..."
+        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs || true
+    elif command -v dnf &>/dev/null; then
+        echo "  ▸ Installing Node.js via dnf..."
+        sudo dnf install -y nodejs || true
+    elif command -v pacman &>/dev/null; then
+        echo "  ▸ Installing Node.js via pacman..."
+        sudo pacman -S --noconfirm nodejs npm || true
+    fi
+fi
+
 # 4. Check launcher exists
 if [ ! -f "$LAUNCHER" ]; then
     echo ""

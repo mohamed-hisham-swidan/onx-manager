@@ -71,9 +71,9 @@ It's built for people who want full control over their servers without relying o
 
 ---
 
-## Quick Start
+## Quick Start (Zero Config)
 
-**Prerequisites:** Python 3.12+, Node.js 20+
+**Automated Setup**: If Python 3.12+ or Node.js 22 LTS is missing, the launcher will **automatically install** them with zero administrator rights required.
 
 ### Windows
 
@@ -91,22 +91,25 @@ cd onx-manager
 ./start.sh
 ```
 
-Both scripts:
-1. Create a Python virtual environment
-2. Install all dependencies
-3. Run database migrations
-4. Start the backend + frontend
-5. Open your browser to `http://localhost:5173`
+### What the Launcher Does Automatically:
+1. **Prerequisite Gate**: Probes and verifies Python 3.12+, Node.js 22 LTS, and npm upfront before starting any server.
+2. **Auto-Installation**: Automatically downloads and configures Python and portable Node.js 22 LTS if not present on your system.
+3. **Dependency Management**: Creates the Python virtual environment and installs backend/frontend dependencies (`pip` & `npm install`).
+4. **Database Readiness**: Automatically reconciles and applies database schema migrations to the latest revision.
+5. **Service Lifecycle**: Starts the FastAPI async backend and React 19 frontend with real-time health checks.
+6. **Instant Launch**: Opens your browser directly to `http://localhost:5173`.
 
 On first run you'll be taken to the **setup wizard** to create your admin account.
 
 ```bash
 # Useful flags (pass to start.bat or ./start.sh)
-./start.sh --stop      # Stop everything
-./start.sh --restart   # Restart
-./start.sh --status    # Check what's running
-./start.sh --swagger   # Also open API docs
-./start.sh --help      # All options
+./start.sh --stop          # Stop all running services
+./start.sh --restart       # Restart backend and frontend
+./start.sh --status        # View live process status & ports
+./start.sh --logs          # View aggregated service logs
+./start.sh --install-node  # Install Node.js 22 LTS
+./start.sh --swagger       # Open Swagger API docs
+./start.sh --help          # Show all options
 ```
 
 ---
