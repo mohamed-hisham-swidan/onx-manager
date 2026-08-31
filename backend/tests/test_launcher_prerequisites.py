@@ -90,3 +90,21 @@ def test_prerequisites_fail_on_missing_npm():
         assert ok is False
         assert python is None
         mock_reconcile.assert_not_called()
+
+
+def test_prerequisites_fail_on_missing_frontend_deps():
+    cfg = LauncherConfig(auto_install_deps=False)
+    fake_python = Path("/fake/bin/python")
+
+    with patch("launcher.ensure_python_environment", return_value=fake_python), \
+         patch("launcher.Validator.check_python", return_value=("3.12.0", str(fake_python))), \
+         patch("launcher.Validator.check_backend_deps", return_value=True), \
+         patch("launcher.Validator.check_node", return_value="v20.11.0"), \
+         patch("launcher.Validator.check_npm", return_value="10.2.4"), \
+         patch("launcher.Validator.check_frontend_deps", return_value=False), \
+         patch("launcher.reconcile_database") as mock_reconcile:
+
+        ok, python = validate_startup_prerequisites(cfg)
+        assert ok is False
+        assert python is None
+        mock_reconcile.assert_not_called()
