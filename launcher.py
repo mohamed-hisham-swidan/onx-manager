@@ -214,7 +214,45 @@ def ansi(text: str) -> str:
     return text if _ansi_enabled else ""
 
 
-SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+def detect_unicode_support() -> bool:
+    """Detect whether stdout console reliably renders Unicode box and symbol glyphs."""
+    # 1. Explicit user override
+    if os.environ.get("ONX_FORCE_ASCII", "").lower() in ("1", "true", "yes"):
+        return False
+    if os.environ.get("ONX_FORCE_UNICODE", "").lower() in ("1", "true", "yes"):
+        return True
+
+    # 2. Modern terminal emulators (Windows Terminal, VS Code, JetBrains, ConEmu, Mintty, WezTerm)
+    if any(k in os.environ for k in ("WT_SESSION", "TERM_PROGRAM", "ConEmuPID", "WEZTERM_PANE")):
+        return True
+
+    # 3. Unix / POSIX terminal
+    if os.name != "nt":
+        encoding = getattr(sys.stdout, "encoding", "") or ""
+        return "utf" in encoding.lower()
+
+    # 4. Windows: check UTF-8 code page (65001) AND Virtual Terminal Processing support
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        cp = kernel32.GetConsoleOutputCP()
+        if cp != 65001:
+            return False
+
+        h_out = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_ulong()
+        if kernel32.GetConsoleMode(h_out, ctypes.byref(mode)):
+            # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+            return bool(mode.value & 0x0004)
+    except Exception:
+        pass
+
+    return False
+
+
+_unicode_enabled = detect_unicode_support()
+
+SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" if _unicode_enabled else "|/-\\"
 
 _GLYPH_FALLBACKS: dict[str, str] = {
     "✔": "[OK]",
@@ -252,6 +290,13 @@ _GLYPH_TRANS_TABLE = str.maketrans(_GLYPH_FALLBACKS)
 _builtin_print = print
 
 
+def _format_for_terminal(text: str) -> str:
+    """If Unicode rendering is not reliably supported, transliterate to clean ASCII."""
+    if not _unicode_enabled:
+        text = text.translate(_GLYPH_TRANS_TABLE)
+    return text
+
+
 def _safe_encode_text(text: str, encoding: str) -> str:
     """Attempt direct encoding; on failure, transliterate known unicode symbols to ASCII and encode."""
     try:
@@ -260,26 +305,34 @@ def _safe_encode_text(text: str, encoding: str) -> str:
     except UnicodeEncodeError:
         transliterated = text.translate(_GLYPH_TRANS_TABLE)
         try:
-            return transliterated.encode(encoding, errors="replace").decode(encoding, errors="replace")
+            return transliterated.encode(encoding, errors="replace").decode(
+                encoding, errors="replace"
+            )
         except Exception:
             return transliterated.encode("ascii", errors="replace").decode("ascii")
 
 
 def safe_print(*args: Any, **kwargs: Any) -> None:
-    """Resilient print function that catches UnicodeEncodeError and falls back to ASCII transliteration."""
+    """Resilient print function that applies ASCII fallback and handles encoding errors."""
+    processed_args = []
+    for arg in args:
+        s = str(arg) if not isinstance(arg, str) else arg
+        s = _format_for_terminal(s)
+        processed_args.append(s)
+
     try:
-        _builtin_print(*args, **kwargs)
+        _builtin_print(*processed_args, **kwargs)
     except UnicodeEncodeError:
         file = kwargs.get("file") or sys.stdout
         encoding = getattr(file, "encoding", None) or "ascii"
-        safe_args = [_safe_encode_text(str(a) if not isinstance(a, str) else a, encoding) for a in args]
+        safe_args = [_safe_encode_text(a, encoding) for a in processed_args]
         try:
             _builtin_print(*safe_args, **kwargs)
         except Exception:
             try:
                 ascii_args = [
-                    str(a).translate(_GLYPH_TRANS_TABLE).encode("ascii", errors="replace").decode("ascii")
-                    for a in args
+                    a.translate(_GLYPH_TRANS_TABLE).encode("ascii", errors="replace").decode("ascii")
+                    for a in processed_args
                 ]
                 _builtin_print(*ascii_args, **kwargs)
             except Exception:
@@ -287,7 +340,8 @@ def safe_print(*args: Any, **kwargs: Any) -> None:
 
 
 def safe_write(stream: Any, text: str) -> None:
-    """Safe stream write that catches UnicodeEncodeError and falls back to ASCII transliteration."""
+    """Safe stream write that applies ASCII fallback and handles encoding errors."""
+    text = _format_for_terminal(text)
     try:
         stream.write(text)
     except UnicodeEncodeError:
@@ -297,7 +351,12 @@ def safe_write(stream: Any, text: str) -> None:
             stream.write(safe_text)
         except Exception:
             try:
-                ascii_text = str(text).translate(_GLYPH_TRANS_TABLE).encode("ascii", errors="replace").decode("ascii")
+                ascii_text = (
+                    str(text)
+                    .translate(_GLYPH_TRANS_TABLE)
+                    .encode("ascii", errors="replace")
+                    .decode("ascii")
+                )
                 stream.write(ascii_text)
             except Exception:
                 pass
@@ -404,17 +463,31 @@ def format_duration(seconds: float) -> str:
 
 
 def render_line(char: str = "═", width: int = 52) -> str:
+    if not _unicode_enabled:
+        if char == "═":
+            char = "="
+        elif char == "─":
+            char = "-"
     return char * width
 
 
 def print_banner() -> None:
-    banner = r"""
+    if _unicode_enabled:
+        banner = r"""
  ██████╗ ███╗   ██╗██╗  ██╗
 ██╔═══██╗████╗  ██║╚██╗██╔╝
 ██║   ██║██╔██╗ ██║ ╚███╔╝ 
 ██║   ██║██║╚██╗██║ ██╔██╗ 
 ╚██████╔╝██║ ╚████║██╔╝ ██╗
  ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝
+"""
+    else:
+        banner = r"""
+   ____  _   ___  __
+  / __ \/ | / / |/ /
+ / / / /  |/ /|   / 
+/ /_/ / /|  //   |  
+\____/_/ |_//_/|_|  
 """
     if _ansi_enabled:
         banner = c("cyan", banner)
@@ -2691,6 +2764,12 @@ def main() -> int:
 
     raw_args = sys.argv[1:]
     args = [a.lower() for a in raw_args]
+
+    global _unicode_enabled
+    if "--ascii" in args or "--no-unicode" in args:
+        _unicode_enabled = False
+    elif "--unicode" in args or "--force-unicode" in args:
+        _unicode_enabled = True
 
     if "--help" in args or "-h" in args:
         print_banner()

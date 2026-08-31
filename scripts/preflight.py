@@ -71,10 +71,10 @@ ONX_DB = BACKEND_DIR / "data" / "onx.db"
 KILL_WAIT = 5  # seconds to wait for graceful termination before force-kill
 
 # ──────────────────────────────────────────────────────────────────────
-# ANSI colours (disabled when not a tty)
+# ANSI colours & Unicode detection
 # ──────────────────────────────────────────────────────────────────────
 
-_TTY = sys.stdout.isatty()
+_TTY = sys.stdout.isatty() if hasattr(sys.stdout, "isatty") else False
 BOLD   = "\033[1m"  if _TTY else ""
 DIM    = "\033[2m"  if _TTY else ""
 GREEN  = "\033[92m" if _TTY else ""
@@ -82,21 +82,53 @@ YELLOW = "\033[93m" if _TTY else ""
 RED    = "\033[91m" if _TTY else ""
 RESET  = "\033[0m"  if _TTY else ""
 
+
+def _detect_unicode_support() -> bool:
+    if os.environ.get("ONX_FORCE_ASCII", "").lower() in ("1", "true", "yes"):
+        return False
+    if os.environ.get("ONX_FORCE_UNICODE", "").lower() in ("1", "true", "yes"):
+        return True
+    if any(k in os.environ for k in ("WT_SESSION", "TERM_PROGRAM", "ConEmuPID")):
+        return True
+    if sys.platform != "win32":
+        return "utf" in (getattr(sys.stdout, "encoding", "") or "").lower()
+    try:
+        kernel32_temp = ctypes.windll.kernel32
+        cp = kernel32_temp.GetConsoleOutputCP()
+        if cp != 65001:
+            return False
+        h_out = kernel32_temp.GetStdHandle(-11)
+        mode = ctypes.c_ulong()
+        if kernel32_temp.GetConsoleMode(h_out, ctypes.byref(mode)):
+            return bool(mode.value & 0x0004)
+    except Exception:
+        pass
+    return False
+
+
+_UNICODE_SUPPORTED = _detect_unicode_support()
+
+SYM_OK   = "✔" if _UNICODE_SUPPORTED else "[OK]"
+SYM_INFO = "▪" if _UNICODE_SUPPORTED else "*"
+SYM_WARN = "⚠" if _UNICODE_SUPPORTED else "[!]"
+SYM_ERR  = "✖" if _UNICODE_SUPPORTED else "[X]"
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Logging helpers
 # ──────────────────────────────────────────────────────────────────────
 
 def log_info(msg: str) -> None:
-    print(f"  {DIM}▪{RESET} {msg}")
+    print(f"  {DIM}{SYM_INFO}{RESET} {msg}")
 
 def log_warn(msg: str) -> None:
-    print(f"  {YELLOW}⚠{RESET} {msg}")
+    print(f"  {YELLOW}{SYM_WARN}{RESET} {msg}")
 
 def log_ok(msg: str) -> None:
-    print(f"  {GREEN}✔{RESET} {msg}")
+    print(f"  {GREEN}{SYM_OK}{RESET} {msg}")
 
 def log_error(msg: str) -> None:
-    print(f"  {RED}✖{RESET} {msg}")
+    print(f"  {RED}{SYM_ERR}{RESET} {msg}")
 
 def log_bold(msg: str) -> None:
     print(f"{BOLD}{msg}{RESET}")
@@ -349,7 +381,15 @@ def _belongs_to_project(proc: dict) -> bool:
 # State
 # ──────────────────────────────────────────────────────────────────────
 
-_protected_pids: set[int] = set()
+_protected_pids: set[int] = {os.getpid()}
+try:
+    if hasattr(os, "getppid"):
+        _ppid = os.getppid()
+        if _ppid > 0:
+            _protected_pids.add(_ppid)
+except Exception:
+    pass
+
 _found_any    = False
 _killed_any   = False
 _failed_any   = False
@@ -550,12 +590,18 @@ def scan_orphans(all_procs: list[dict]) -> None:
             continue
         if pid in _protected_pids:
             continue
+        if pid == os.getpid() or (hasattr(os, "getppid") and pid == os.getppid()):
+            continue
+
+        cmdline_lower = proc["cmdline"].lower()
+        # Never target running preflight scripts
+        if "preflight.py" in cmdline_lower or "preflight.sh" in cmdline_lower:
+            continue
 
         name_lower = proc["name"].lower()
         if not any(pat in name_lower for pat in orphan_name_patterns):
             continue
 
-        cmdline_lower = proc["cmdline"].lower()
         # Must be recognisably related to this project
         is_project = (
             (_PROJECT_ROOT_STR and _PROJECT_ROOT_STR in cmdline_lower

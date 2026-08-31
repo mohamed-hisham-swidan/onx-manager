@@ -12,6 +12,9 @@ if str(REPO_ROOT) not in sys.path:
 from launcher import (  # noqa: E402
     LauncherConfig,
     ValidationError,
+    _format_for_terminal,
+    detect_unicode_support,
+    render_line,
     validate_startup_prerequisites,
 )
 
@@ -108,3 +111,44 @@ def test_prerequisites_fail_on_missing_frontend_deps():
         assert ok is False
         assert python is None
         mock_reconcile.assert_not_called()
+
+
+def test_detect_unicode_support_env_overrides():
+    with patch.dict("os.environ", {"ONX_FORCE_ASCII": "1"}, clear=False):
+        assert detect_unicode_support() is False
+
+    with patch.dict("os.environ", {"ONX_FORCE_ASCII": "0", "ONX_FORCE_UNICODE": "1"}, clear=False):
+        assert detect_unicode_support() is True
+
+    with patch.dict("os.environ", {"ONX_FORCE_ASCII": "0", "WT_SESSION": "some-guid"}, clear=False):
+        assert detect_unicode_support() is True
+
+
+def test_ascii_glyph_fallback():
+    with patch("launcher._unicode_enabled", False):
+        raw_text = "✔ Backend running  ▸ Step 1  ═ Line  █ Block  ✖ Error  ⚠ Warn"
+        formatted = _format_for_terminal(raw_text)
+        assert "✔" not in formatted
+        assert "▸" not in formatted
+        assert "═" not in formatted
+        assert "█" not in formatted
+        assert "✖" not in formatted
+        assert "⚠" not in formatted
+
+        assert "[OK]" in formatted
+        assert ">" in formatted
+        assert "=" in formatted
+        assert "#" in formatted
+        assert "[X]" in formatted
+        assert "[!]" in formatted
+
+        line = render_line("═", 10)
+        assert line == "=========="
+
+
+def test_unicode_glyphs_preserved_when_supported():
+    with patch("launcher._unicode_enabled", True):
+        raw_text = "✔ Backend running  ▸ Step 1"
+        formatted = _format_for_terminal(raw_text)
+        assert "✔" in formatted
+        assert "▸" in formatted

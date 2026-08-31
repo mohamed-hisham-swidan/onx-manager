@@ -430,8 +430,11 @@ function Start-OnxBootstrap {
                 Write-Warning "  [Preflight Warning] Preflight timed out after $($res.DurationMs)ms. Continuing startup..."
             } elseif ($res.NotFound) {
                 Write-Warning "  [Preflight Warning] Python interpreter '$pyBin' not found for preflight. Continuing startup..."
-            } elseif ($env:ONX_DEBUG -eq '1') {
+            } else {
                 Write-Warning "  [Preflight Warning] Preflight exited with non-zero code $($res.ExitCode). Continuing startup..."
+                if ($res.StdErr) {
+                    Write-Warning "  $($res.StdErr)"
+                }
             }
         }
     }
