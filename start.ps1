@@ -11,7 +11,7 @@
       4. Preflight cleanup via scripts/preflight.py
       5. Delegation to launcher.py
 
-    Design notes (Revision 4 — native process invocation across all phases):
+    Design notes (Revision 5 — Task-based stream draining for PowerShell 5.1):
       Fix #1: Candidate detection uses Invoke-PythonCandidateProbe with
               tokenized ProcessStartInfo arguments, locked OS-level stdin to
               prevent REPL hangs, bounded 3s timeout, and diagnostic reporting.
@@ -21,8 +21,9 @@
               system-wide install fails, with both exit codes in error message.
       Fix #4: scripts/preflight.py uses Get-CimInstance + ctypes (no wmic).
       Fix #5: Long-running launcher.py executed via Invoke-OnxPythonProcess
-              (System.Diagnostics.Process with stdin closed, live streaming
-              stdout/stderr, Ctrl+C tree cleanup, and diagnostic logging).
+              (System.Diagnostics.Process with stdin closed, Task-based live
+              stdout/stderr streaming avoiding threadpool runspace crashes,
+              Ctrl+C tree cleanup, and diagnostic logging).
       Confirmed correct: -NoProfile -ExecutionPolicy Bypass (set in start.bat).
 #>
 
@@ -168,25 +169,44 @@ function Invoke-OnxPythonProcess {
     # preventing any accidental interactive prompt or REPL hang.
     $proc.StandardInput.Close()
 
-    # Stream stdout and stderr live to the console
-    $proc.add_OutputDataReceived({
-        param($sender, $e)
-        if ($e.Data -ne $null) {
-            [Console]::Out.WriteLine($e.Data)
-        }
-    })
-    $proc.add_ErrorDataReceived({
-        param($sender, $e)
-        if ($e.Data -ne $null) {
-            [Console]::Error.WriteLine($e.Data)
-        }
-    })
-
-    $proc.BeginOutputReadLine()
-    $proc.BeginErrorReadLine()
+    $outReader = $proc.StandardOutput
+    $errReader = $proc.StandardError
+    $outTask   = $outReader.ReadLineAsync()
+    $errTask   = $errReader.ReadLineAsync()
 
     try {
-        # Wait indefinitely for launcher.py to complete
+        # Stream stdout and stderr live on the main thread while process runs
+        while ($outTask -ne $null -or $errTask -ne $null) {
+            $didWork = $false
+
+            if ($outTask -ne $null -and $outTask.IsCompleted) {
+                $line = $outTask.Result
+                if ($line -ne $null) {
+                    [Console]::Out.WriteLine($line)
+                    $outTask = $outReader.ReadLineAsync()
+                } else {
+                    $outTask = $null
+                }
+                $didWork = $true
+            }
+
+            if ($errTask -ne $null -and $errTask.IsCompleted) {
+                $line = $errTask.Result
+                if ($line -ne $null) {
+                    [Console]::Error.WriteLine($line)
+                    $errTask = $errReader.ReadLineAsync()
+                } else {
+                    $errTask = $null
+                }
+                $didWork = $true
+            }
+
+            if (-not $didWork) {
+                [System.Threading.Thread]::Sleep(10)
+            }
+        }
+
+        # Ensure process has fully exited
         $proc.WaitForExit()
     } finally {
         # If interrupted (e.g. Ctrl+C), allow child graceful exit grace window or clean up process tree
