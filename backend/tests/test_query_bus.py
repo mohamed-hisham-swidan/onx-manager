@@ -4,15 +4,18 @@ from app.core.query_bus import Query, QueryBus, QueryHandler, QueryMiddleware
 
 
 class TestQuery(Query):
+    __test__ = False
     item_id: str
 
 
 class TestQueryHandler(QueryHandler[TestQuery]):
+    __test__ = False
     async def handle(self, query: TestQuery) -> dict:
         return {"id": query.item_id, "name": "test-item"}
 
 
 class TestQueryMiddleware(QueryMiddleware):
+    __test__ = False
     def __init__(self) -> None:
         self.called = False
 

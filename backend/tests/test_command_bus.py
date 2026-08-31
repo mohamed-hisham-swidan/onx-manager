@@ -4,15 +4,18 @@ from app.core.command_bus import Command, CommandBus, CommandHandler, CommandRes
 
 
 class TestCommand(Command):
+    __test__ = False
     value: str
 
 
 class TestCommandHandler(CommandHandler[TestCommand]):
+    __test__ = False
     async def handle(self, command: TestCommand) -> CommandResult:
         return CommandResult(success=True, data={"echo": command.value})
 
 
 class TestMiddleware(Middleware):
+    __test__ = False
     def __init__(self) -> None:
         self.called = False
 

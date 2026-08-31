@@ -6,6 +6,7 @@ from app.core.event_bus import DomainEvent, EventBus, EventHandler, Priority
 
 
 class TestEvent(DomainEvent):
+    __test__ = False
     data: str = ""
 
 
