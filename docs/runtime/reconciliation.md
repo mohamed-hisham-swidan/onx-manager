@@ -123,6 +123,25 @@ async def reconcile_orphans() → list[dict]
 > working directory mismatches, the start time differs, or the process is marked
 > as system-wide rather than project-owned.
 
+## Pre-Backend Database Reconciliation
+
+Location: `backend/app/core/persistence/reconciler.py`
+
+In addition to runtime OS process reconciliation, ONX Manager executes an upfront **Pre-Backend Database Reconciler** before any FastAPI workers or child services start.
+
+### Architectural Principles:
+1. **Zero FastAPI Import Dependency**: Operates decoupled from FastAPI routes and services.
+2. **Dynamic Alembic Revision Resolution**: Resolves Alembic's latest head migration revision dynamically using Alembic `ScriptDirectory` instead of hardcoding revision numbers.
+3. **Direct SQLite WAL Inspection**: Queries `alembic_version` directly with SQLite WAL mode support.
+4. **ACID SQLite Backups**: Prior to upgrading populated databases, creates atomic SQLite snapshot backups in `backend/backups/` using `sqlite3.Connection.backup()`.
+5. **Atomic Concurrency Guard**: Acquires file lock (`.onx/locks/reconcile.lock`) to prevent concurrent migration attempts.
+6. **Classified Readiness States**:
+   - `READY`: Database is already at head revision.
+   - `RECONCILED`: Database was successfully migrated to head with backup taken.
+   - `BLOCKED_UNSAFE`: Database has unknown or conflicting revisions requiring manual intervention.
+   - `FAILED`: Migration execution encountered an unrecoverable error.
+   - `UNREACHABLE`: Database connection or file permissions error.
+
 ## Typical Mismatch Scenarios
 
 | Scenario | Mismatch | Resolution |

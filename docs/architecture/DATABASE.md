@@ -4,10 +4,11 @@
 
 | Component | Choice |
 |---|---|
-| Primary database | SQLite 3 (`aiosqlite` async) default; PostgreSQL 16 (`asyncpg`) supported |
+| Primary database | SQLite 3 (`aiosqlite` async) default (`backend/data/onx.db`); PostgreSQL 16 (`asyncpg`) supported |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (28 revisions, head `b1e2100000008`) |
+| Migrations | Alembic (29 revisions, head `b1e2100000009`) |
+| Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (ACID backups & migration gate) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
 > **Redis note:** Redis appears in the documented stack but the running system
@@ -55,10 +56,11 @@ The central aggregate. Each row represents a single Minecraft server instance wi
 | `root_path`, `working_directory`, `startup_jar`, `startup_command` | varied | — | Deployment paths |
 | `launch_config_json` | `Text` | nullable | Full launch config snapshot |
 | `uptime_seconds` | `Float` | 0 | |
+| `running_start_time` | `DateTime` | nullable | Timestamp when server entered running state (`b1e2100000009`) |
 | `external_id` | `String(255)` | nullable | Cloud provider instance ID |
 | `missing_since` | `DateTime` | nullable | When server dir was detected missing (two-pass deletion) |
 
-Server config properties (motd, difficulty, etc.) map to `server.properties` fields. The `server_type` column was added in migration `5a50140d37df`; deployment columns in `003`; `launch_config_json` in `fcc7545db19e`; `external_id` in `902b076bfa36`; `missing_since` in `a1b2c3d4e5f6`.
+Server config properties (motd, difficulty, etc.) map to `server.properties` fields. The `server_type` column was added in migration `5a50140d37df`; deployment columns in `003`; `launch_config_json` in `fcc7545db19e`; `external_id` in `902b076bfa36`; `missing_since` in `a1b2c3d4e5f6`; `running_start_time` in `b1e2100000009`.
 
 ### Backups
 

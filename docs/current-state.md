@@ -1,20 +1,11 @@
-# MCS Manager — Current State (Verified)
+# ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-08-19. Every claim below was verified against source code, the database,
-and a live test run. This document supersedes the stale counts and claims in
-`docs/status/history.md` (the historical narrative) and is the baseline that the
-Blueprint V5 governing plan is built on.
+2026-08-31. Every claim below was verified against source code, the database,
+and a live test run.
 
-**Last verified:** 2026-08-19
+**Last verified:** 2026-08-31
 **App version (code):** `4.0.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
-
-> Note on version numbers: the application reports `4.0.0` everywhere in code
-> and OpenAPI. Internal planning documents have at various times referenced
-> "7.1.0" as a project/session version; that number does **not** appear
-> anywhere in the codebase. The authoritative version is `4.0.0`, read from a
-> single source (`pyproject.toml`) via `get_app_version()` (see
-> `docs/VERSIONING.md`).
 
 ---
 
@@ -22,32 +13,32 @@ Blueprint V5 governing plan is built on.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 299 | `find backend/app -name "*.py"` |
-| Backend test files | 128 | `find backend/tests -name "test_*.py"` |
-| Frontend test files | 67 | `find frontend/src -name "*.test.*"` |
+| Backend Python source files | 300 | `find backend/app -name "*.py"` |
+| Backend test files | 131 | `find backend/tests -name "test_*.py"` |
+| Frontend test files | 69 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 15 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
-| Alembic migration revisions | 27 | `backend/alembic/versions/` (head `b1e2100000007`) |
+| Alembic migration revisions | 29 | `backend/alembic/versions/` (head `b1e2100000009`) |
 | Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 10 | `auth, backup, event_store, exposure, health, monitoring, plugin, server, shared, storage` |
-| CI workflows | 5 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml}` — full backend pytest + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence (see §7) |
+| CI workflows | 5 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml}` — full backend pytest + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence |
 
 ---
 
-## 2. Test suite (measured 2026-08-19)
+## 2. Test suite (measured 2026-08-31)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **2023** |
-| Passed | **2021** |
+| Collected | **2133** |
+| Passed | **2131** |
 | Skipped | **2** |
 | Failed | **0** |
 
 Backend CI runs the full suite on every push/PR to `master`
 (`.github/workflows/backend-tests.yml`), followed by a DB compatibility-floor
-check and a Ruff-baseline regression gate (see §5).
+check and a Ruff-baseline regression gate.
 
 ### Frontend — `frontend/` `npx vitest run`
 
@@ -56,34 +47,21 @@ check and a Ruff-baseline regression gate (see §5).
 | Test files | **69** |
 | Tests | **574 passed** across 69 test files |
 
-`npm run typecheck` (`tsc --noEmit`): **9 pre-existing errors, 0 new** — the
-frontend typecheck baseline is 15 errors at HEAD `7c12d85`; the plugin-detail-tabs
-batch reduced it to 9 (fixed 6 pre-existing, introduced none). Remaining errors all
-reside in files untouched by the batch.
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
 on every push/PR to `master`.
-Frontend `npm run lint` (`eslint src/`): **2 pre-existing errors, both in
-`ServersPage.tsx` (`react-hooks/purity` on `Date.now()`)** — none in batch files;
-baseline unchanged at HEAD.
-
 
 ---
 
 ## 3. Database state
 
-### Default DB — `backend/mcs.db` (used by default config `sqlite+aiosqlite:///./mcs.db`)
+### Default Canonical DB — `backend/data/onx.db` (used by default config `sqlite+aiosqlite:///./data/onx.db`)
 
 | Property | Value |
 |----------|-------|
-| Alembic revision | `b1e2100000007` — **at head** |
-| Head revision | `b1e2100000007` (head == current) |
-| New tables | `system_state`, `invitations`, `server_memberships` present (from `a957791492a7`); plus Phase-7 exposure tables (`host_playit_agent`, `server_exposure`, `server_exposure_target`, `panel_exposure`) and nullable `metric_points.tps` (`b1e2100000007`) |
-
-### Secondary DB — `backend/data/servers/mcs.db`
-
-Legacy/secondary SQLite file at revision `a3b2c3d4e5f6` with no
-`system_state`/`invitations` tables. Not referenced by the default config;
-confirm environment uses `backend/mcs.db` before release.
+| Alembic revision | `b1e2100000009` — **at head** |
+| Head revision | `b1e2100000009` (head == current) |
+| New tables / columns | `system_state`, `invitations`, `server_memberships`, Phase-7 exposure tables (`host_playit_agent`, `server_exposure`, `server_exposure_target`, `panel_exposure`), nullable `metric_points.tps`, and `servers.running_start_time` (`b1e2100000009`) |
+| Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` automatically inspects, backs up, and reconciles DB schema before services start |
 
 ---
 

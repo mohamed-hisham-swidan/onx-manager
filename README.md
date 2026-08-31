@@ -11,7 +11,7 @@ Manage multiple servers, monitor them live, handle backups, browse plugins, and 
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/Tests-2021_backend_%7C_574_frontend-brightgreen?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/Tests-2131_backend_%7C_574_frontend-brightgreen?style=flat-square)](#)
 
 </div>
 
@@ -130,11 +130,15 @@ On first run you'll be taken to the **setup wizard** to create your admin accoun
 ## Project Layout
 
 ```
-backend/        FastAPI app — domain modules, API, WebSocket
-frontend/       React SPA
-docs/           Architecture, API reference, guides
-scripts/        Dev utilities
-launcher.py     One-file bootstrapper and process manager
+backend/        FastAPI app — domain modules, CQRS, API, WebSocket
+frontend/       React 19 SPA — Blade Hosting dashboard
+docs/           Architecture, API reference, database schema, guides
+scripts/        Preflight cleanup, CI baseline gates, and dev utilities
+executors/      Tracing and diagnostic launchers (Windows & Unix)
+launcher.py     Unified launcher, prerequisite gate, and process manager
+start.bat       Windows launcher entry point (UTF-8, VT processing)
+start.ps1       PowerShell bootstrap engine with candidate probes
+start.sh        Linux/macOS launcher entry point (auto Node.js installer)
 ```
 
 ---
@@ -143,10 +147,12 @@ launcher.py     One-file bootstrapper and process manager
 
 | | |
 |---|---|
-| [Getting Started](docs/getting-started.md) | Full setup guide |
-| [Architecture](docs/architecture/ARCHITECTURE.md) | How it's built |
-| [API Reference](docs/API.md) | REST endpoints & WebSocket |
-| [Development Guide](docs/DEVELOPMENT.md) | Contributing & workflow |
+| [Getting Started](docs/getting-started.md) | Full setup & quickstart guide |
+| [Architecture](docs/architecture/ARCHITECTURE.md) | System architecture & DDD modular monolith |
+| [Database Architecture](docs/architecture/DATABASE.md) | Schema, migrations & pre-backend reconciliation |
+| [API Reference](docs/API.md) | REST endpoints (15 routers) & WebSocket protocols |
+| [Development Guide](docs/DEVELOPMENT.md) | Development workflow & preflight reconciliation |
+| [Testing Guide](docs/testing.md) | Test suites & CI verification gates |
 
 ---
 

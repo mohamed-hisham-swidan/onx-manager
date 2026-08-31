@@ -1,6 +1,6 @@
 # Documentation Index
 
-This is the authoritative index for MCS Manager documentation. Documents are
+This is the authoritative index for ONX Manager documentation. Documents are
 listed with their status so it is always clear what is implemented vs planned.
 
 ---
@@ -9,7 +9,7 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 4.0.0, 2021 backend tests, 574 frontend tests, 28 DB migrations). |
+| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 4.0.0, 2131 backend tests, 574 frontend tests, 29 DB migrations). |
 | [Canonical Roadmap](roadmap/ROADMAP.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 8+ (Dynamic DNS & Custom Domains). |
 | [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`4.0.0`), compatibility floor. |
 | [API Reference](API.md) | ✅ **CURRENT** | REST API reference (15 routers, 105 endpoints) & WebSocket protocols. |
@@ -22,7 +22,7 @@ listed with their status so it is always clear what is implemented vs planned.
 |---|---|---|
 | [System Architecture](architecture/ARCHITECTURE.md) | ✅ **CURRENT** | Modular monolith design, 10 DDD bounded contexts, CQRS buses, outbox, supervisor. |
 | [Technical Specs](architecture/SPECS.md) | ✅ **CURRENT** | Tech stack, repository metrics, directory layouts, feature matrices. |
-| [Database Architecture](architecture/DATABASE.md) | ✅ **CURRENT** | SQLite (aiosqlite) default & PostgreSQL models, 28 Alembic migrations (`b1e2100000008`). |
+| [Database Architecture](architecture/DATABASE.md) | ✅ **CURRENT** | SQLite (`backend/data/onx.db`) & PostgreSQL models, 29 Alembic migrations (`b1e2100000009`), pre-backend reconciler. |
 | [Security Architecture](architecture/SECURITY.md) | ✅ **CURRENT** | RS256 JWT auth, RBAC/ABAC route permissions, API keys, path sandboxing. |
 | [Frontend Architecture](architecture/FRONTEND.md) | ✅ **CURRENT** | React 19, Tailwind CSS v4, TanStack Query, WebSocket store. |
 | [Forge/NeoForge Provisioning Spec](architecture/SPEC-FORGE-PROVISIONING-001.md) | ✅ **CURRENT** | Unified InstallerProvisioner, non-destructive retry, failure classification. |
@@ -36,7 +36,8 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |---|---|---|
 | [Server Lifecycle State Machine](runtime/lifecycle.md) | ✅ **CURRENT** | 8 `ServerStatus` states, transition matrices, recovery workflows. |
-| [Server Providers](runtime/providers.md) | ✅ **CURRENT** | `LocalLinuxProvider` (tmux execution, user_jvm_args.txt), provider abstractions. |
+| [Server Providers](runtime/providers.md) | ✅ **CURRENT** | `LocalLinuxProvider` (tmux execution) & `LocalWindowsProvider` (native Win32 process tracking). |
+| [Reconciliation Engine](runtime/reconciliation.md) | ✅ **CURRENT** | Runtime server state reconciliation and Pre-Backend Database Reconciler (`reconciler.py`). |
 | [Supervision Engine](runtime/supervision.md) | ✅ **CURRENT** | `RuntimeSupervisor` heartbeats, process PID recovery, zombie pruning. |
 
 ---

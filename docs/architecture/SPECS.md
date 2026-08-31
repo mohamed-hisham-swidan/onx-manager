@@ -1,9 +1,7 @@
-# MCS Manager — Project Specs
+# ONX Manager — Project Specs
 
 A single authoritative overview of the project's **tech stack, libraries,
-repository shape, code statistics, structure, specs, and features.** Counts are
-measured against the committed tree at HEAD `869d3dd` (2026-08-19). Each table
-lists the command/metric used to obtain the value.
+repository shape, code statistics, structure, specs, and features.**
 
 > Companion docs: `docs/current-state.md` (verified state + test counts),
 > `docs/architecture/ARCHITECTURE.md` (design deep-dive), `docs/API.md`
@@ -15,26 +13,27 @@ lists the command/metric used to obtain the value.
 
 | Attribute | Value |
 |---|---|
-| Name | MCS Manager (Minecraft Server Manager) |
+| Name | ONX Manager (Development & Self-Hosted Environment) |
 | Version | `4.0.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
-| Status | Phase 7 (Post-Phase-7 fixes complete) — Roadmap: `docs/roadmap/MCS-Manager-Engineering-Blueprint-V5.md` |
-| License | N/A (private project) |
+| Status | Phase 8 Ready — Canonical Roadmap: `docs/roadmap/ROADMAP.md` |
+| License | Apache 2.0 (`LICENSE`) |
 | Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/current-state.md`, `docs/API.md` |
 
 ---
 
 ## 2. Technology stack
 
-### Backend — Python 3.12 (FastAPI modular monolith, CQRS)
+### Backend — Python 3.12+ (FastAPI modular monolith, CQRS)
 
 | Category | Choice |
 |---|---|
-| Language | Python `>=3.12` (`requires-python = ">=3.12"`, targets `py312`) |
+| Language | Python `>=3.12` (`requires-python = ">=3.12"`, targets `py312`, Python 3.14 compatible) |
 | Web framework | FastAPI `>=0.115` (ASGI, via Uvicorn) |
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |
 | DB dialect | SQLite (`aiosqlite`), PostgreSQL (`asyncpg`) |
-| Migrations | Alembic `>=1.13` |
+| Migrations | Alembic `>=1.13` (29 revisions, head `b1e2100000009`) |
+| Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (decoupled schema inspection, locks, and ACID backups) |
 | Validation / config | Pydantic v2 `>=2.5`, `pydantic-settings >=2.1` |
 | HTTP client | aiohttp `>=3.9` |
 | Object storage | aioboto3 `>=15.5` (S3) |
@@ -45,7 +44,7 @@ lists the command/metric used to obtain the value.
 | Prometheus metrics | prometheus-client `>=0.20` |
 | Logging | structlog `>=24.1` |
 | Serialization / misc | PyYAML `>=6` (config), python-multipart (uploads), packaging `>=23` |
-| Architecture | Modular monolith, 9 DDD modules, CQRS with Command/Query/Event buses |
+| Architecture | Modular monolith, 10 DDD modules, CQRS with Command/Query/Event buses |
 
 Backend dev dependencies (`[project.optional-dependencies].dev`):
 `httpx`, `pytest >=8`, `pytest-asyncio`, `pytest-cov`, `ruff`, `pyright`.

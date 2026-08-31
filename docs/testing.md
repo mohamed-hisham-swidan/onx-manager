@@ -4,17 +4,12 @@
 
 | Layer | Framework | Test Count | Location |
 |---|---|---|---|
-| Backend (unit + integration) | pytest + pytest-asyncio | **1934 passed / 2 skipped (1936 collected, 0 failures)** | `backend/tests/` |
-| Frontend (component + unit) | Vitest + jsdom | **506 across 65 files** | `frontend/src/**/*.test.*` |
+| Backend (unit + integration + lifecycle) | pytest + pytest-asyncio | **2131 passed / 2 skipped (2133 collected, 0 failures)** | `backend/tests/` |
+| Frontend (component + unit) | Vitest + jsdom | **574 passed across 69 files** | `frontend/src/**/*.test.*` |
 
-> Measured 2026-08-19 (see `docs/current-state.md` §2). `npm run typecheck`
-> (`tsc --noEmit`) reports 9 pre-existing errors (0 new at HEAD `7c12d85`).
-> `npm run lint` (`eslint src/`) reports 2 pre-existing errors in `ServersPage.tsx`
-> (0 in current work). Backend lint is enforced as a **Ruff
+> Measured 2026-08-31 (see `docs/current-state.md` §2). Backend lint is enforced as a **Ruff
 > baseline regression gate** — new violations fail CI while the pre-existing
-> baseline (1738 violations / 42 rules) remains tracked in
-> `backend/ruff-baseline.json` (see `scripts/check-ruff-baseline`). Pyright is
-> **advisory / local only — it is not a CI gate**.
+> baseline remains tracked in `scripts/ruff-baseline.json` (see `scripts/check-ruff-baseline`).
 
 ---
 

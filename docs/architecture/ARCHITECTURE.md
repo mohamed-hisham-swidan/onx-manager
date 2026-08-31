@@ -42,13 +42,13 @@ backend/app/
 │   ├── errors.py              # Global exception handlers
 │   └── v1/
 │       ├── middleware/        # Auth, audit, rate-limit, request-id
-│       ├── routers/           # 14 endpoint groups + WebSocket
+│       ├── routers/           # 15 endpoint groups + WebSocket
 │       └── schemas/           # Pydantic request/response schemas
 ├── core/                      # Foundation layer
 │   ├── command_bus.py         # CQRS command bus
 │   ├── query_bus.py           # CQRS query bus
 │   ├── event_bus.py           # Async event bus with retry + DLQ
-│   ├── persistence/           # Database engine, Base ORM, UoW ← ADR-0007
+│   ├── persistence/           # Database engine, Base ORM, UoW, reconciler
 │   ├── saga.py                # Saga orchestrator
 │   ├── circuit_breaker.py     # Circuit breaker pattern
 │   ├── idempotency.py         # Idempotency keys
@@ -56,8 +56,8 @@ backend/app/
 │   ├── config.py              # Configuration (AppSettings)
 │   ├── exceptions.py          # MCSError hierarchy
 │   └── logging.py             # Structured logging
-├── modules/                   # 9 DDD modules
-│   ├── server/                # Minecraft server domain
+├── modules/                   # 10 DDD modules
+│   ├── server/                # Minecraft server domain & lifecycle
 │   ├── backup/                # Backup/restore domain
 │   ├── auth/                  # User & auth domain
 │   ├── health/                # Health monitoring & diagnostics
@@ -65,7 +65,8 @@ backend/app/
 │   ├── monitoring/            # Health & metrics domain
 │   ├── event_store/           # Event store module
 │   ├── shared/                # Shared value objects (IDs, permissions, versions)
-│   └── storage/               # File storage backends (S3/local)
+│   ├── storage/               # File storage backends (S3/local)
+│   └── exposure/              # Playit.gg network tunneling domain
 ├── services/                  # Cross-module orchestration
 ├── tasks/                     # Task queue + scheduling
 └── websocket/                 # WebSocket connection manager

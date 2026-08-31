@@ -2,32 +2,38 @@
 
 ## Prerequisites
 
-- Python 3.12+
-- Node.js 20+
-- PostgreSQL 16+ (or SQLite for embedded mode)
-- Redis 7+ (optional — currently **not used** by the running system; the task queue is in-process and there is no Redis cache/pub-sub deployment)
+- **Python** 3.12+ (3.14+ supported)
+- **Node.js** 20+ (Node.js 22 LTS portable auto-installed on Windows if missing)
+- **PostgreSQL 16+** (optional — SQLite with WAL mode is the zero-config default)
+- **Git**
 
-## Quick Start
+## Quick Start (Automated)
 
-```bash
-# Clone and set up everything with one command
-./scripts/bootstrap
-```
-
-Which runs:
+The project includes unified launchers that handle virtual environments, dependencies, migrations, preflight process cleanup, and service supervision:
 
 ```bash
-# 1. Backend virtual environment
-python3 -m venv backend/.venv
-source backend/.venv/bin/activate
-pip install -r backend/requirements.txt
+# Windows
+start.bat
 
-# 2. Frontend dependencies
-cd frontend && npm install && cd ..
-
-# 3. Database migrations
-alembic upgrade head
+# Linux / macOS
+./start.sh
 ```
+
+### Useful Launcher Options
+```bash
+./start.sh --stop          # Stop all running services
+./start.sh --restart       # Clean restart
+./start.sh --status        # Show active processes and port allocation
+./start.sh --logs          # Show aggregated service logs
+./start.sh --self-test     # Validate prerequisites upfront
+./start.sh --ascii         # Force clean ASCII output mode
+./start.sh --swagger       # Open Swagger API documentation
+```
+
+### Debug & Tracing Launchers
+For deep troubleshooting and process tracing:
+- Windows: `executors/start-debug.bat` (or PowerShell `executors/start-debug.ps1`)
+- Unix: `executors/start-debug.sh`
 
 ## Manual Setup
 
@@ -245,18 +251,21 @@ Or build directly from `launcher.py`:
 pyinstaller --onefile --name start --clean launcher.py
 ```
 
-## Code Conventions
+## Verification & CI Quality Gates
 
-- **Python**: type hints everywhere, functions ≤ 40 lines, ruff format + ruff check
-- **TypeScript**: strict mode, no unchecked `any`, ESLint with `react-hooks` + `react-refresh` plugins
-- **Documentation**: docstrings only when the "why" isn't obvious from the code
-- **PR gate**: every PR must pass lint → typecheck → test → coverage
-
-Run the full check suite before pushing:
+Run the authoritative verification suite before pushing:
 
 ```bash
-./scripts/check         # Backend: lint + pyright + pytest
-cd frontend && npm run typecheck && npm run lint && npm test
+# Authoritative CI Verification Gates (Linux / macOS / WSL)
+python3 scripts/check-version-propagation
+python3 scripts/check-db-revision
+python3 scripts/check-ruff-baseline
+python3 scripts/check-route-contract
+python3 scripts/check-ps1-bom
+
+# Full Test Suites
+(cd backend && pytest -v)
+(cd frontend && npm run typecheck && npm run lint && npm test)
 ```
 
 ## Module Structure

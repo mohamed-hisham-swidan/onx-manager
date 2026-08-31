@@ -1,44 +1,45 @@
 # Getting Started
 
-A 5-minute quickstart for running the Minecraft Server Manager on your local machine.
+A 5-minute quickstart for running ONX Manager on your machine.
 
 ## Prerequisites
 
 - **Python** 3.12+ (3.14+ recommended)
-- **Node.js** 20+
-- **Docker** (optional — the app runs standalone on SQLite with an in-process task queue; Docker/PostgreSQL is an alternative production deployment)
+- **Node.js** 20+ (Node.js 22 LTS portable auto-installed on Windows if missing)
 - **Git**
 
-## Quick Start
+## Quick Start (Automated)
 
-```bash
-# 1. Clone the repository
+The unified launcher handles Python environment creation, dependency installation, portable Node.js setup, preflight cleanup, database migrations, and service supervision automatically:
+
+### Windows
+```cmd
 git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
 cd onx-manager
-
-# 2. Start everything (bootstraps venv, deps, migrations automatically)
-python launcher.py
+start.bat
 ```
 
-Or for manual step-by-step setup:
-
+### Linux / macOS
 ```bash
-# Bootstrap only (venv, deps, migrations — no server start)
-./scripts/bootstrap
+git clone https://github.com/mohamed-hisham-swidan/onx-manager.git
+cd onx-manager
+./start.sh
 ```
 
-The bootstrap script runs:
-1. Creates a Python virtual environment in `backend/.venv`
-2. Installs backend dependencies (including `python-multipart` for form/file endpoints)
-3. Installs frontend dependencies
-4. Runs database migrations
+---
 
-## Start the Backend
+## Manual Step-by-Step Setup
+
+If you prefer to start components individually:
+
+### 1. Backend
 
 ```bash
+python3 -m venv backend/.venv
 source backend/.venv/bin/activate
-pip install python-multipart # Note: required for FastAPI file upload & form endpoints
-uvicorn app.main:app --reload --port 8000
+pip install -r backend/requirements.txt
+alembic -c backend/alembic.ini upgrade head
+python -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 
 The API is available at `http://localhost:8000`. Auto-generated docs at `http://localhost:8000/docs`.
