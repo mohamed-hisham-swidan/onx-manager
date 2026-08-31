@@ -50,6 +50,7 @@ backend/config/
 # ──────────────────────────────────────────────
 *.log
 logs/
+executors/logs/
 
 # ──────────────────────────────────────────────
 # Runtime / Process Artifacts
