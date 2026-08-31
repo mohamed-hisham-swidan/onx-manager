@@ -16,9 +16,10 @@
 | **Phase 3** | Backend/Frontend Bug Fixing & Reliability | ✅ **VERIFIED DONE** | STARTING lifecycle, non-destructive retry, WAL busy_timeout | Complete |
 | **Phase 4** | Authorization & Security Cleanup | ✅ **VERIFIED DONE** | Server-scoped permissions, Files API path sandboxing, RS256 JWT | Complete |
 | **Phase 5** | Versioning & State Consistency | ✅ **VERIFIED DONE** | Single version source `4.0.0`, SemVer checks, DB revision floor | Complete |
-| **Phase 6** | Testing / CI / Documentation Reliability | ✅ **VERIFIED DONE** | 2,019 backend + 574 frontend tests, CI workflow configs | Complete (cadence active) |
+| **Phase 6** | Testing / CI / Documentation Reliability | ✅ **VERIFIED DONE** | 2,131 backend + 574 frontend tests, 6 CI workflow gates | Complete (cadence active) |
 | **Phase 7** | Network Access & Port Forwarding | ✅ **VERIFIED DONE** | Playit live tunnels, Cloudflare TCP/HTTP, UPnP, multi-target UI | Complete |
 | **Post-Phase 7** | Fast Fixes & Provisioner Consolidation | ✅ **VERIFIED DONE** | Commits `2f6eb36`, `3fe7190`, `ad0973e`, `ac79d65`, `a73b743` | Complete |
+| **Windows & Launcher** | Windows Lifecycle, Pre-Backend Reconciler & Upfront Prerequisite Gate | ✅ **VERIFIED DONE** | LocalWindowsProvider, reconciler.py, portable Node 22 LTS, Unicode/ASCII fallback, npm retry | Complete |
 | **Phase 8** | Dynamic Endpoints & DNS Architecture | 🔶 **PLANNED NEXT** | Cloudflare / DNS provider automation for custom domains | Ready to begin |
 | **Phase 9** | Final Stabilization & Performance | 🔶 **PLANNED** | Metric rollups, Redis/Arq queue, UI performance profiling | Post-Phase 8 |
 | **Phase 10** | AI Operations & Natural Language Tooling | 🔶 **PLANNED (DEFERRED)** | Safe NL operator commands, health diagnostics AI assistant | Deferred |

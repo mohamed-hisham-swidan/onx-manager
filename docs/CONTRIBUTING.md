@@ -72,11 +72,13 @@ Before submitting a PR, verify all of the following:
 
 | Gate | Command | Requirement |
 |---|---|---|
-| Backend lint | `./scripts/check-ruff-baseline` | No new violations |
-| Frontend lint | `cd frontend && npm run lint` | Zero errors |
-| Type check | `./scripts/typecheck` | Zero errors |
-| Backend tests | `cd backend && pytest` | All passing |
-| Frontend tests | `cd frontend && npm test` | All passing |
+| Version Propagation | `python3 scripts/check-version-propagation` | All versions match `4.0.0` |
+| Database Revision | `python3 scripts/check-db-revision` | Database matches head `b1e2100000009` |
+| Backend Lint Baseline | `python3 scripts/check-ruff-baseline` | Zero new violations beyond baseline |
+| Route/Permission Contract | `python3 scripts/check-route-contract` | 105 / 105 routes match `contracts/permissions.yaml` |
+| PowerShell UTF-8 BOM | `python3 scripts/check-ps1-bom` | All `.ps1` scripts have valid UTF-8 BOM |
+| Backend Tests | `cd backend && pytest` | All 2,131 tests passing |
+| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test` | Typecheck, lint & tests passing |
 
 ### PR Checklist
 

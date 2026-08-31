@@ -25,8 +25,9 @@
 | fabric   | `meta.fabricmc.net` (latest loader)           | Yes           |
 | spigot   | `download.getbukkit.org/spigot`               | Yes           |
 | bukkit   | `download.getbukkit.org/craftbukkit`           | Yes           |
-| forge ≥ 1.17 | Maven installer (`--installServer`)       | Auto-install  |
-| forge < 1.17 | Maven `-universal.jar`                      | Yes           |
+| forge ≥ 1.17 | Forge Maven installer (`--installServer`) | Auto-install  |
+| forge < 1.17 | Forge Maven `-universal.jar`              | Yes           |
+| neoforge | NeoForge Maven installer (`--installServer`) | Auto-install  |
 
 ## Forge Auto-Install (≥ 1.17)
 

@@ -1,33 +1,37 @@
-# Scripts
+# Development & Verification Scripts
 
-Standardized scripts for all development tasks.
-Every AI session uses these scripts — never invent ad-hoc commands.
+Authoritative scripts for quality gates, preflight cleanup, and development tasks.
 
-## Available Scripts
+## CI & Verification Gates
 
-| Script | Command | Purpose |
+| Script | Purpose |
+|---|---|
+| `scripts/check-version-propagation` | Verifies `pyproject.toml`, `package.json`, and runtime version match (`4.0.0`) |
+| `scripts/check-db-revision` | Verifies current database schema matches minimum compatibility revision |
+| `scripts/check-ruff-baseline` | Enforces zero-regression lint gate against `scripts/ruff-baseline.json` baseline |
+| `scripts/check-route-contract` | Validates all 105 live FastAPI routes against `contracts/permissions.yaml` contract |
+| `scripts/check-ps1-bom` | Verifies all `.ps1` files contain valid UTF-8 BOM encoding |
+| `scripts/reverify` | Runs the full local CI verification cadence |
+
+## Runtime & Preflight Utilities
+
+| Script | Platform | Purpose |
 |---|---|---|
-| `scripts/bootstrap` | Set up development environment | Install deps, create venv, run migrations |
-| `scripts/lint` | `ruff check .` | Python linting |
-| `scripts/format` | `ruff format .` | Python code formatting |
-| `scripts/typecheck` | `pyright` | Python type checking |
-| `scripts/test` | `pytest` | Run test suite |
-| `scripts/build` | `docker build` | Build production image |
-| `scripts/release` | Tag version, build, push | Create a release |
-| `scripts/check-version-propagation` | `python scripts/check-version-propagation` | Verify pyproject.toml, package.json, and runtime versions agree |
-| `scripts/check-route-contract` | `python scripts/check-route-contract` | Verify `contracts/permissions.yaml` route→permission matrix matches the live FastAPI route table (CI: route-permission-ci.yml) |
-| `scripts/reverify` | `./scripts/reverify` | Re-verification cadence — run the exact authoritative check set (version, DB head, ruff baseline, route contract, backend pytest, frontend typecheck/lint/test/build). Local twin of `.github/workflows/verification-cadence.yml` (weekly, see `docs/current-state.md` §7) |
+| `scripts/preflight.sh` | Linux / macOS | Smart preflight process reconciliation, zombie cleanup, and lock validation |
+| `scripts/preflight.py` | Cross-Platform / Windows | Python preflight runner with protected PID scanning and ASCII fallback |
+| `scripts/bootstrap` | Linux / macOS | One-step virtualenv creation, dependency installation, and migration runner |
+| `scripts/lint` | Cross-Platform | Runs `ruff check` |
+| `scripts/format` | Cross-Platform | Runs `ruff format` |
+| `scripts/typecheck` | Cross-Platform | Runs `pyright` |
+| `scripts/test` | Cross-Platform | Runs `pytest` |
+| `scripts/build` | Cross-Platform | Builds production Docker image |
 
-## Usage
+## Running Quality Gates
 
 ```bash
-./scripts/lint
-./scripts/test --cov
-./scripts/build
+python3 scripts/check-version-propagation
+python3 scripts/check-db-revision
+python3 scripts/check-ruff-baseline
+python3 scripts/check-route-contract
+python3 scripts/check-ps1-bom
 ```
-
-## Adding a Script
-
-1. Create the script in this directory
-2. Make it executable: `chmod +x scripts/<name>`
-3. Update this README

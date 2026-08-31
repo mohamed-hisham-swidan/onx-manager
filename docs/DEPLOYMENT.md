@@ -36,10 +36,11 @@ curl http://localhost:80/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MCS_DATABASE_URL` | `sqlite+aiosqlite:///data/mcs.db` | Database connection string |
-| `MCS_SECRET_KEY` | `change-me…` | App secret key (change in production!) |
-| `MCS_DEBUG` | `false` | Enable debug mode |
-| `MCS_LOG_LEVEL` | `INFO` | Logging level |
+| `ONX_DATABASE_URL` (or `MCS_DATABASE_URL`) | `sqlite+aiosqlite:///data/onx.db` | Database connection string |
+| `ONX_SECRET_KEY` (or `MCS_SECRET_KEY`) | `change-me…` | App secret key (change in production!) |
+| `ONX_DEBUG` | `false` | Enable debug mode |
+| `ONX_LOG_LEVEL` | `INFO` | Logging level |
+| `ONX_FORCE_ASCII` | `0` | Set `1` to force ASCII console output |
 | `MCS_JWT_PRIVATE_KEY` | *(auto-generated)* | PEM-encoded RSA private key for JWT signing. If omitted, a key is generated on first start and persisted to `config/jwt_private_key.pem` inside the container — all JWTs are invalidated if the container is recreated without preserving this file. |
 
 ## Persistent data
@@ -48,8 +49,8 @@ Docker Compose creates two named volumes:
 
 | Volume | Mount point | Contents |
 |--------|-------------|----------|
-| `mcs-db-data` | `/data/` | SQLite database (`mcs.db`) |
-| `mcs-server-data` | `/app/data/servers/` | Minecraft server files (worlds, JARs, plugins) |
+| `onx-db-data` | `/data/` | SQLite database (`onx.db`) |
+| `onx-server-data` | `/app/data/servers/` | Minecraft server files (worlds, JARs, plugins) |
 
 Data survives container restarts and upgrades. To wipe everything (including the database):
 
