@@ -1997,7 +1997,7 @@ def _refresh_windows_path() -> None:
 
 
 def auto_install_node_windows() -> bool:
-    """Download and install portable Node.js 20 LTS on Windows (zero admin privileges required)."""
+    """Download and install portable Node.js 22 LTS on Windows (zero admin privileges required)."""
     if os.name != "nt":
         log_info("Node.js auto-installer is only applicable on Windows.")
         return True
@@ -2008,9 +2008,9 @@ def auto_install_node_windows() -> bool:
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Download official portable Node.js zip archive from nodejs.org
-    zip_url = "https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip"
-    zip_path = tmp_dir / "node-v20.18.0-win-x64.zip"
-    log_step("Node.js", "Downloading official portable Node.js 20 LTS...")
+    zip_url = "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip"
+    zip_path = tmp_dir / "node-v22.14.0-win-x64.zip"
+    log_step("Node.js", "Downloading official portable Node.js 22 LTS...")
     if not download_file(zip_url, zip_path, "Downloading Node.js"):
         log_error("Failed to download Node.js zip archive")
         return False
@@ -2022,17 +2022,17 @@ def auto_install_node_windows() -> bool:
         with zipfile.ZipFile(str(zip_path), "r") as zf:
             zf.extractall(str(tmp_dir))
 
-        extracted_sub = tmp_dir / "node-v20.18.0-win-x64"
-        if extracted_sub.is_dir():
-            for item in extracted_sub.iterdir():
-                dest = node_target_dir / item.name
-                if dest.exists():
-                    if dest.is_dir():
-                        shutil.rmtree(str(dest), ignore_errors=True)
-                    else:
-                        dest.unlink()
-                shutil.move(str(item), str(node_target_dir))
-            shutil.rmtree(str(extracted_sub), ignore_errors=True)
+        for extracted_sub in tmp_dir.glob("node-v*"):
+            if extracted_sub.is_dir():
+                for item in extracted_sub.iterdir():
+                    dest = node_target_dir / item.name
+                    if dest.exists():
+                        if dest.is_dir():
+                            shutil.rmtree(str(dest), ignore_errors=True)
+                        else:
+                            dest.unlink()
+                    shutil.move(str(item), str(node_target_dir))
+                shutil.rmtree(str(extracted_sub), ignore_errors=True)
 
         try:
             zip_path.unlink()
