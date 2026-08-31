@@ -1,8 +1,9 @@
-"""Unit tests for Launcher Upfront Prerequisite Gate."""
-
+import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Ensure repository root is on sys.path when pytest runs from backend/ directory
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -12,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 from launcher import (  # noqa: E402
     LauncherConfig,
     ValidationError,
+    Validator,
     _format_for_terminal,
     detect_unicode_support,
     render_line,
@@ -152,3 +154,43 @@ def test_unicode_glyphs_preserved_when_supported():
         formatted = _format_for_terminal(raw_text)
         assert "✔" in formatted
         assert "▸" in formatted
+
+
+def test_validator_check_npm_timeout_distinction():
+    with patch("launcher.find_or_activate_node"), \
+         patch("subprocess.run", side_effect=subprocess.TimeoutExpired(["npm", "--version"], 20)):
+        with pytest.raises(ValidationError) as exc_info:
+            Validator.check_npm(timeout_sec=20)
+        assert "timed out after 20 seconds" in str(exc_info.value)
+        assert exc_info.value.fix is not None
+        assert "antivirus" in exc_info.value.fix or "npm --version" in exc_info.value.fix
+
+
+def test_validator_check_npm_not_found_distinction():
+    with patch("launcher.find_or_activate_node"), \
+         patch("subprocess.run", side_effect=FileNotFoundError):
+        with pytest.raises(ValidationError) as exc_info:
+            Validator.check_npm()
+        assert "npm is not installed" in str(exc_info.value)
+        assert "reinstall Node.js" in (exc_info.value.fix or "")
+
+
+def test_validator_check_npm_execution_failure_distinction():
+    mock_res = MagicMock(returncode=1, stdout="", stderr="npm ERR! missing script")
+    with patch("launcher.find_or_activate_node"), \
+         patch("subprocess.run", return_value=mock_res):
+        with pytest.raises(ValidationError) as exc_info:
+            Validator.check_npm()
+        assert "npm execution failed (exit code 1)" in str(exc_info.value)
+
+
+def test_validator_check_npm_retry_success():
+    mock_ok = MagicMock(returncode=0, stdout="10.8.2\n", stderr="")
+    with patch("launcher.find_or_activate_node"), \
+         patch("os.name", "nt"), \
+         patch(
+             "subprocess.run",
+             side_effect=[subprocess.TimeoutExpired(["npm", "--version"], 20), mock_ok],
+         ):
+        ver = Validator.check_npm(timeout_sec=20)
+        assert ver == "10.8.2"

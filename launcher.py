@@ -1278,16 +1278,32 @@ class Validator:
         return ver, str(python_path)
 
     @staticmethod
-    def check_node() -> str:
+    def check_node(timeout_sec: float | None = None) -> str:
         find_or_activate_node()
+        if timeout_sec is None:
+            timeout_sec = 15.0 if os.name == "nt" else 10.0
+
+        node_cmd = "node"
+        if os.name == "nt":
+            local_node = ONX_DIR / "node" / "node.exe"
+            if local_node.is_file():
+                node_cmd = str(local_node)
+            else:
+                which_node = shutil.which("node")
+                if which_node:
+                    node_cmd = which_node
+
         try:
             result = subprocess.run(
-                ["node", "--version"],
-                capture_output=True, text=True, timeout=5,
+                [node_cmd, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec,
             )
             if result.returncode != 0:
+                err_msg = (result.stderr or result.stdout or "").strip()
                 raise ValidationError(
-                    "Node.js check failed",
+                    f"Node.js check failed (exit code {result.returncode}): {err_msg}",
                     "Install Node.js 18+ from https://nodejs.org",
                 )
             ver = result.stdout.strip()
@@ -1306,27 +1322,90 @@ class Validator:
                 "Node.js is not installed",
                 "Install Node.js 18+ from https://nodejs.org",
             ) from None
+        except subprocess.TimeoutExpired as exc:
+            raise ValidationError(
+                f"Node.js version probe timed out after {int(timeout_sec)} seconds",
+                "Ensure Node.js is responsive on your system PATH",
+            ) from exc
+        except Exception as exc:
+            if isinstance(exc, ValidationError):
+                raise
+            raise ValidationError(
+                f"Failed to execute Node.js: {exc}",
+                "Install Node.js 18+ from https://nodejs.org",
+            ) from exc
 
     @staticmethod
-    def check_npm() -> str:
+    def check_npm(timeout_sec: float | None = None) -> str:
         find_or_activate_node()
-        try:
-            result = subprocess.run(
-                ["npm", "--version"],
-                capture_output=True, text=True, timeout=5,
-                shell=(os.name == "nt"),
-            )
-            if result.returncode != 0:
-                raise ValidationError(
-                    "npm check failed",
-                    "npm should come with Node.js — reinstall Node",
+        if timeout_sec is None:
+            timeout_sec = 20.0 if os.name == "nt" else 10.0
+
+        # Attempt to locate npm executable or cli script directly
+        npm_cmd = "npm"
+        if os.name == "nt":
+            local_node = ONX_DIR / "node"
+            local_npm = local_node / "npm.cmd"
+            if local_npm.is_file():
+                npm_cmd = str(local_npm)
+            else:
+                which_npm = shutil.which("npm")
+                if which_npm:
+                    npm_cmd = which_npm
+
+        attempts = 2 if os.name == "nt" else 1
+        last_timeout_exc: subprocess.TimeoutExpired | None = None
+
+        for attempt in range(1, attempts + 1):
+            try:
+                result = subprocess.run(
+                    [npm_cmd, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_sec,
+                    shell=(os.name == "nt" and npm_cmd == "npm"),
                 )
-            return result.stdout.strip()
-        except FileNotFoundError:
-            raise ValidationError(
-                "npm is not installed",
-                "npm should come with Node.js — reinstall Node",
-            ) from None
+                if result.returncode != 0:
+                    err_msg = (result.stderr or result.stdout or "").strip()
+                    raise ValidationError(
+                        f"npm execution failed (exit code {result.returncode}): {err_msg}",
+                        "npm should come with Node.js — verify your Node.js and npm installation",
+                    )
+                ver = result.stdout.strip()
+                if not ver:
+                    raise ValidationError(
+                        "npm returned empty version string",
+                        "npm installation may be corrupted — reinstall Node.js",
+                    )
+                return ver
+            except FileNotFoundError:
+                raise ValidationError(
+                    "npm is not installed",
+                    "npm should come with Node.js — reinstall Node.js or install npm",
+                ) from None
+            except subprocess.TimeoutExpired as exc:
+                last_timeout_exc = exc
+                if attempt < attempts:
+                    time.sleep(0.5)
+                    continue
+            except PermissionError as exc:
+                raise ValidationError(
+                    f"Permission denied while executing npm: {exc}",
+                    "Ensure you have permission to execute npm binary",
+                ) from None
+            except OSError as exc:
+                raise ValidationError(
+                    f"Failed to execute npm: {exc}",
+                    "Check your system PATH and Node.js installation",
+                ) from None
+
+        raise ValidationError(
+            f"npm version probe timed out after {int(timeout_sec)} seconds",
+            (
+                "npm may be slow due to cold disk cache or antivirus scan. "
+                "Run 'npm --version' in terminal to test responsiveness"
+            ),
+        ) from last_timeout_exc
 
     @staticmethod
     def check_project_structure() -> None:
