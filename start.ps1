@@ -11,7 +11,7 @@
       4. Preflight cleanup via scripts/preflight.py
       5. Delegation to launcher.py
 
-    Design notes (Revision 3 — all review blockers addressed):
+    Design notes (Revision 4 — native process invocation across all phases):
       Fix #1: Candidate detection uses Invoke-PythonCandidateProbe with
               tokenized ProcessStartInfo arguments, locked OS-level stdin to
               prevent REPL hangs, bounded 3s timeout, and diagnostic reporting.
@@ -20,11 +20,37 @@
       Fix #3: Per-user fallback (InstallAllUsers=0) actually implemented when
               system-wide install fails, with both exit codes in error message.
       Fix #4: scripts/preflight.py uses Get-CimInstance + ctypes (no wmic).
+      Fix #5: Long-running launcher.py executed via Invoke-OnxPythonProcess
+              (System.Diagnostics.Process with stdin closed, live streaming
+              stdout/stderr, Ctrl+C tree cleanup, and diagnostic logging).
       Confirmed correct: -NoProfile -ExecutionPolicy Bypass (set in start.bat).
 #>
 
 $ErrorActionPreference = 'Stop'
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Definition) { Split-Path -Parent $MyInvocation.MyCommand.Definition } else { (Get-Location).Path }
+
+# Dedicated argument escaping helper for Windows CLI (CommandLineToArgvW convention)
+# Handles: spaces/tabs, inner quotes, trailing backslashes, and empty strings.
+function Format-OnxProcessArgument {
+    param([string]$Arg)
+    if ([string]::IsNullOrEmpty($Arg)) {
+        return '""'
+    }
+    if ($Arg -notmatch '[\s\t\n\v"]') {
+        return $Arg
+    }
+    # Double backslashes preceding quotes: 2N backslashes + \"
+    $escaped = [System.Text.RegularExpressions.Regex]::Replace($Arg, '(\\*)(")', {
+        param($m)
+        return ('\' * ($m.Groups[1].Length * 2)) + '\"'
+    })
+    # Double trailing backslashes at end of string before enclosing quotes: 2N backslashes
+    $escaped = [System.Text.RegularExpressions.Regex]::Replace($escaped, '(\\+)$', {
+        param($m)
+        return '\' * ($m.Groups[1].Length * 2)
+    })
+    return '"' + $escaped + '"'
+}
 
 # Subprocess probe helper: closes stdin to prevent interactive REPL hangs,
 # enforces a bounded timeout, and captures diagnostic exit information.
@@ -38,15 +64,12 @@ function Invoke-PythonCandidateProbe {
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName               = $Command
     $psi.RedirectStandardInput  = $true
-    $psi.RedirectStandardOutput = (-not $StreamOutput)
-    $psi.RedirectStandardError  = (-not $StreamOutput)
+    $psi.RedirectStandardOutput = if ($StreamOutput) { $false } else { $true }
+    $psi.RedirectStandardError  = if ($StreamOutput) { $false } else { $true }
     $psi.UseShellExecute        = $false
-    $psi.CreateNoWindow         = (-not $StreamOutput)
+    $psi.CreateNoWindow         = if ($StreamOutput) { $false } else { $true }
 
-    $escapedArgs = $Arguments | ForEach-Object {
-        if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' }
-        else { $_ }
-    }
+    $escapedArgs = $Arguments | ForEach-Object { Format-OnxProcessArgument $_ }
     $psi.Arguments = [string]::Join(' ', $escapedArgs)
 
     $proc = [System.Diagnostics.Process]::new()
@@ -99,6 +122,92 @@ function Invoke-PythonCandidateProbe {
         StdErr     = $errText
         RawCmd     = "$Command $($psi.Arguments)"
     }
+}
+
+# Dedicated process execution helper for long-running launcher.py
+function Invoke-OnxPythonProcess {
+    param(
+        [Parameter(Mandatory=$true)][string]$Command,
+        [Parameter(Mandatory=$true)][string[]]$Arguments,
+        [string]$WorkingDirectory = $scriptDir
+    )
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName               = $Command
+    $psi.WorkingDirectory       = $WorkingDirectory
+    $psi.RedirectStandardInput  = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+
+    $escapedArgs = $Arguments | ForEach-Object { Format-OnxProcessArgument $_ }
+    $psi.Arguments = [string]::Join(' ', $escapedArgs)
+
+    Write-Host "  [Launcher] executable: $Command" -ForegroundColor Cyan
+    Write-Host "  [Launcher] arguments: $($psi.Arguments)" -ForegroundColor Cyan
+    Write-Host "  [Launcher] working directory: $WorkingDirectory" -ForegroundColor Cyan
+
+    $proc = [System.Diagnostics.Process]::new()
+    $proc.StartInfo = $psi
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+    try {
+        if (-not $proc.Start()) {
+            Write-Error "  [Launcher] Failed to start process for '$Command' with arguments '$($psi.Arguments)'"
+            return 1
+        }
+    } catch {
+        Write-Error "  [Launcher] Exception starting process '$Command' with arguments '$($psi.Arguments)' in '$WorkingDirectory': $_"
+        return 1
+    }
+
+    Write-Host "  [Launcher] PID: $($proc.Id)" -ForegroundColor Cyan
+
+    # Close stdin immediately — launcher.py does not read from stdin,
+    # preventing any accidental interactive prompt or REPL hang.
+    $proc.StandardInput.Close()
+
+    # Stream stdout and stderr live to the console
+    $proc.add_OutputDataReceived({
+        param($sender, $e)
+        if ($e.Data -ne $null) {
+            [Console]::Out.WriteLine($e.Data)
+        }
+    })
+    $proc.add_ErrorDataReceived({
+        param($sender, $e)
+        if ($e.Data -ne $null) {
+            [Console]::Error.WriteLine($e.Data)
+        }
+    })
+
+    $proc.BeginOutputReadLine()
+    $proc.BeginErrorReadLine()
+
+    try {
+        # Wait indefinitely for launcher.py to complete
+        $proc.WaitForExit()
+    } finally {
+        # If interrupted (e.g. Ctrl+C), allow child graceful exit grace window or clean up process tree
+        if (-not $proc.HasExited) {
+            $exited = $proc.WaitForExit(3000)
+            if (-not $exited -and -not $proc.HasExited) {
+                Write-Warning "  [Launcher] Process PID $($proc.Id) did not exit cleanly; terminating process tree..."
+                try {
+                    & taskkill /F /T /PID $proc.Id 2>$null | Out-Null
+                } catch {}
+                try { $proc.Kill() } catch {}
+            }
+        }
+    }
+
+    $sw.Stop()
+    $exitCode = $proc.ExitCode
+    Write-Host "  [Launcher] exit code: $exitCode" -ForegroundColor Cyan
+    Write-Host "  [Launcher] duration: $($sw.ElapsedMilliseconds)ms" -ForegroundColor Cyan
+
+    return $exitCode
 }
 
 function Start-OnxBootstrap {
@@ -242,8 +351,9 @@ function Start-OnxBootstrap {
     # ──────────────────────────────────────────────────────────────────────
     # 6. Launch
     # ──────────────────────────────────────────────────────────────────────
-    & $pyBin @pySubArg $launcher @args
-    return $LASTEXITCODE
+    $launcherArgs = @($pySubArg) + @($launcher) + @($args) | Where-Object { $_ -ne $null -and $_ -ne '' }
+    $exitCode = Invoke-OnxPythonProcess -Command $pyBin -Arguments $launcherArgs -WorkingDirectory $scriptDir
+    return $exitCode
 }
 
 # ──────────────────────────────────────────────────────────────────────
