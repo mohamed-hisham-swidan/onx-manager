@@ -346,6 +346,59 @@ function Start-OnxBootstrap {
 
         $pyBin    = $foundCmd
         $pySubArg = if ($foundSubArg) { @($foundSubArg) } else { @() }
+
+        # ──────────────────────────────────────────────────────────────────
+        # 3b. Probe for Node.js 18+ and npm
+        # ──────────────────────────────────────────────────────────────────
+        $nodeProbe = Invoke-PythonCandidateProbe -Command 'node' -Arguments @('-v') -TimeoutMs 2000
+        if ($nodeProbe.Success) {
+            $nodeVer = ($nodeProbe.StdOut).Trim()
+            Write-Host "  Detected Node.js runtime: $nodeVer"
+        } else {
+            Write-Warning "  Node.js 18+ not detected on PATH. Attempting automatic installation..."
+            $nodeInstalled = $false
+
+            $winget = Get-Command winget -ErrorAction SilentlyContinue
+            if ($winget) {
+                Write-Host "  Installing Node.js (LTS) via winget..."
+                & winget install OpenJS.NodeJS.LTS -e --silent --accept-source-agreements --accept-package-agreements
+                if ($LASTEXITCODE -eq 0) {
+                    $nodeInstalled = $true
+                } else {
+                    Write-Warning "  winget install returned code $LASTEXITCODE. Falling back to direct installer..."
+                }
+            }
+
+            if (-not $nodeInstalled) {
+                Write-Host "  Downloading official Node.js 20 LTS installer from nodejs.org..."
+                $nodeMsiUrl = 'https://nodejs.org/dist/v20.18.0/node-v20.18.0-x64.msi'
+                $nodeMsiPath = Join-Path $env:TEMP 'node-v20.18.0-x64.msi'
+                try {
+                    Invoke-WebRequest -Uri $nodeMsiUrl -OutFile $nodeMsiPath -UseBasicParsing -ErrorAction Stop
+                    Write-Host "  Running Node.js MSI installer silently..."
+                    $msiArgs = @('/i', $nodeMsiPath, '/quiet', '/norestart')
+                    $msiProc = Start-Process -FilePath 'msiexec.exe' -ArgumentList $msiArgs -Wait -PassThru
+                    if ($msiProc.ExitCode -eq 0) {
+                        $nodeInstalled = $true
+                    } else {
+                        Write-Warning "  MSI installer exited with code $($msiProc.ExitCode)."
+                    }
+                } catch {
+                    Write-Warning "  Failed to download Node.js installer: $_"
+                }
+            }
+
+            if ($nodeInstalled) {
+                Write-Host "  Node.js installed successfully."
+                # Refresh PATH in current process
+                $machinePath = [System.Environment]::GetEnvironmentVariable("Path","Machine")
+                $userPath = [System.Environment]::GetEnvironmentVariable("Path","User")
+                $defaultNodeDir = 'C:\Program Files\nodejs'
+                $env:Path = "$defaultNodeDir;$machinePath;$userPath;$($env:Path)"
+            } else {
+                Write-Warning "  Node.js automatic install could not complete. launcher.py will enforce prerequisites."
+            }
+        }
     }
 
     # ──────────────────────────────────────────────────────────────────────

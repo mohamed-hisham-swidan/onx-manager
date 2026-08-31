@@ -436,6 +436,7 @@ def print_usage() -> None:
     print(f"    python launcher.py --status --watch{c('dim', '  Live monitoring')}")
     print(f"    python launcher.py --logs       {c('dim', 'Show service logs')}")
     print(f"    python launcher.py --self-test  {c('dim', 'Verify prerequisites')}")
+    print(f"    python launcher.py --install-node{c('dim', ' Install Node.js 20 LTS (Win)')}")
     print(f"    python launcher.py --install-cpp{c('dim', '  Install C++ Build Tools (Win)')}")
     print(f"    python launcher.py --code       {c('dim', 'Also open VS Code')}")
     print(f"    python launcher.py --swagger    {c('dim', 'Also open Swagger API docs')}")
@@ -1950,6 +1951,85 @@ def auto_install_cpp_tools_windows() -> bool:
     return False
 
 
+def _refresh_windows_path() -> None:
+    """Refresh process PATH on Windows to detect newly installed software."""
+    if os.name != "nt":
+        return
+    try:
+        import winreg
+        paths = []
+        for hkey, subkey in [
+            (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+            (winreg.HKEY_CURRENT_USER, r"Environment"),
+        ]:
+            try:
+                with winreg.OpenKey(hkey, subkey) as k:
+                    val, _ = winreg.QueryValueEx(k, "Path")
+                    paths.append(val)
+            except Exception:
+                pass
+        default_node = r"C:\Program Files\nodejs"
+        if default_node not in os.environ.get("PATH", ""):
+            paths.append(default_node)
+        os.environ["PATH"] = ";".join(paths) + ";" + os.environ.get("PATH", "")
+    except Exception:
+        pass
+
+
+def auto_install_node_windows() -> bool:
+    """Download and install Node.js 20 LTS on Windows via winget or official MSI installer."""
+    if os.name != "nt":
+        log_info("Node.js auto-installer is only applicable on Windows.")
+        return True
+
+    # 1. Try winget first if available
+    if shutil.which("winget"):
+        log_step("Node.js", "Installing Node.js 20 LTS via winget...")
+        try:
+            res = subprocess.run(
+                [
+                    "winget", "install", "OpenJS.NodeJS.LTS",
+                    "-e", "--silent", "--accept-package-agreements", "--accept-source-agreements",
+                ],
+                capture_output=True, text=True, timeout=300,
+            )
+            if res.returncode == 0:
+                log_ok("Node.js installed via winget")
+                _refresh_windows_path()
+                return True
+        except Exception:
+            pass
+
+    # 2. Try direct MSI download from nodejs.org
+    tmp_dir = MCS_DIR / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    msi_url = "https://nodejs.org/dist/v20.18.0/node-v20.18.0-x64.msi"
+    msi_path = tmp_dir / "node-v20.18.0-x64.msi"
+    log_step("Node.js", "Downloading official Node.js 20 LTS installer...")
+    if download_file(msi_url, msi_path, "Downloading Node.js"):
+        try:
+            log_step("Node.js", "Running Node.js installer (silent mode)...")
+            res = subprocess.run(
+                ["msiexec.exe", "/i", str(msi_path), "/quiet", "/norestart"],
+                capture_output=True,
+                timeout=300,
+            )
+            try:
+                msi_path.unlink()
+            except OSError:
+                pass
+            if res.returncode == 0:
+                log_ok("Node.js installed successfully")
+                _refresh_windows_path()
+                return True
+            else:
+                log_error(f"Node.js installer exited with code {res.returncode}")
+        except Exception as e:
+            log_error(f"Failed to install Node.js: {e}")
+
+    return False
+
+
 def ensure_python_environment() -> Path | None:
     """Ensure a Python 3.12+ environment exists for the backend (auto-downloading and creating venv if needed)."""
     # 1. If backend/.venv already has a valid Python, use it
@@ -2169,12 +2249,122 @@ def reconcile_database(python: Path) -> bool:
         return False
 
 
+def validate_startup_prerequisites(cfg: LauncherConfig) -> tuple[bool, Path | None]:
+    """Validate all runtime prerequisites (Python, Backend venv & deps, Node.js, npm,
+    Frontend deps, and Database readiness) UPFRONT before launching any services.
+
+    Returns:
+        (success: bool, python_path: Path | None)
+    """
+    print(f"\n  {c('bold', '▸ Checking Prerequisites')} {c('dim', '──────────────────────────')}")
+
+    # 1. Python environment
+    log_step("Python", "Checking interpreter and virtual environment...")
+    python = ensure_python_environment()
+    if python is None:
+        ErrorHandler.show(
+            "No Python 3.12+ interpreter found.",
+            f"Install Python 3.12+ from https://python.org, then run:\n"
+            f"  cd {BACKEND_DIR} && python -m venv .venv\n"
+            f"  .venv/bin/pip install -r requirements.txt",
+        )
+        return False, None
+
+    try:
+        ver, _ = Validator.check_python()
+        log_ok(f"Python {ver} ({python})")
+    except ValidationError as e:
+        ErrorHandler.show(str(e), e.fix)
+        return False, None
+
+    # 2. Backend pip dependencies
+    if python.is_absolute():
+        if not Validator.check_backend_deps(python):
+            if cfg.auto_install_deps:
+                log_step("Backend", "Missing Python dependencies. Auto-installing...")
+                if not install_backend_deps(python):
+                    ErrorHandler.show(
+                        "Failed to install backend dependencies.",
+                        f"Try running manually: {python} -m pip install -r requirements.txt",
+                    )
+                    return False, None
+            else:
+                log_warn("Backend dependencies may be missing (auto_install_deps=False)")
+        else:
+            log_ok("Backend dependencies installed")
+
+    # 3. Node.js runtime
+    log_step("Node.js", "Checking runtime environment...")
+    try:
+        node_ver = Validator.check_node()
+        log_ok(f"Node.js {node_ver}")
+    except ValidationError as e:
+        if os.name == "nt" and cfg.auto_install_deps:
+            log_step("Node.js", "Node.js missing. Attempting automatic installation...")
+            if auto_install_node_windows():
+                try:
+                    node_ver = Validator.check_node()
+                    log_ok(f"Node.js {node_ver}")
+                except ValidationError:
+                    fix_msg = "Install Node.js 18+ from https://nodejs.org\nOr via PowerShell: winget install OpenJS.NodeJS.LTS"
+                    ErrorHandler.show("Node.js installation verification failed.", fix_msg)
+                    return False, None
+            else:
+                fix_msg = "Install Node.js 18+ from https://nodejs.org\nOr via PowerShell: winget install OpenJS.NodeJS.LTS"
+                ErrorHandler.show(str(e), fix_msg)
+                return False, None
+        else:
+            fix_msg = "Install Node.js 18+ from https://nodejs.org"
+            if os.name == "nt":
+                fix_msg += "\nOr via PowerShell: winget install OpenJS.NodeJS.LTS"
+            ErrorHandler.show(str(e), fix_msg)
+            return False, None
+
+    # 4. npm package manager
+    try:
+        npm_ver = Validator.check_npm()
+        log_ok(f"npm {npm_ver}")
+    except ValidationError as e:
+        ErrorHandler.show(str(e), e.fix or "npm should come with Node.js — reinstall Node")
+        return False, None
+
+    # 5. Frontend node_modules dependencies
+    if not Validator.check_frontend_deps():
+        if cfg.auto_install_deps:
+            log_step("Frontend", "Frontend node_modules missing. Auto-installing...")
+            if not install_npm_deps():
+                ErrorHandler.show(
+                    "Failed to install frontend dependencies.",
+                    f"Try running manually: cd {FRONTEND_DIR} && npm install",
+                )
+                return False, None
+        else:
+            ErrorHandler.show(
+                "Frontend dependencies not installed.",
+                f"Run: cd {FRONTEND_DIR} && npm install",
+            )
+            return False, None
+    else:
+        log_ok("Frontend dependencies installed")
+
+    # 6. Database schema readiness & reconciliation
+    if not reconcile_database(python):
+        ErrorHandler.show(
+            "Database readiness check failed.",
+            "Review .onx/logs/reconciliation.log for detailed diagnostics.\n"
+            f"Or inspect manually: cd {BACKEND_DIR} && PYTHONPATH=. {python} -m app.core.persistence.reconciler",
+        )
+        return False, None
+
+    return True, python
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Start services
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def start_backend(cfg: LauncherConfig) -> bool:
+def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
     be_pid = PIDManager.read("backend")
     if be_pid and PIDManager.is_alive(be_pid) and PortManager.is_open(cfg.backend_port):
         log_ok(f"Backend already running (PID {be_pid})")
@@ -2197,36 +2387,14 @@ def start_backend(cfg: LauncherConfig) -> bool:
             return False
         PortManager.kill_on_port(cfg.backend_port)
 
-    python = ensure_python_environment()
     if python is None:
-        ErrorHandler.show(
-            "No Python interpreter found.",
-            f"Install Python 3.12+ from https://python.org, then run:\n"
-            f"  cd {BACKEND_DIR} && python -m venv .venv\n"
-            f"  .venv/bin/pip install -r requirements.txt",
-        )
-        return False
-
-    if python.is_absolute():
-        deps_ok = Validator.check_backend_deps(python)
-        if not deps_ok:
-            if cfg.auto_install_deps:
-                log_step("Backend", "Missing dependencies detected. Auto-installing...")
-                if not install_backend_deps(python):
-                    ErrorHandler.show(
-                        "Failed to install backend dependencies.",
-                        f"Try running manually: {python} -m pip install -r requirements.txt",
-                    )
-                    return False
-            else:
-                log_warn("Dependencies may be missing (auto_install_deps=False)")
-
-        # Pre-backend database readiness & reconciliation gate
-        if not reconcile_database(python):
+        python = ensure_python_environment()
+        if python is None:
             ErrorHandler.show(
-                "Database readiness check failed.",
-                "Review .onx/logs/reconciliation.log for detailed diagnostics.\n"
-                f"Or inspect manually: cd {BACKEND_DIR} && PYTHONPATH=. {python} -m app.core.persistence.reconciler",
+                "No Python interpreter found.",
+                f"Install Python 3.12+ from https://python.org, then run:\n"
+                f"  cd {BACKEND_DIR} && python -m venv .venv\n"
+                f"  .venv/bin/pip install -r requirements.txt",
             )
             return False
 
@@ -2264,7 +2432,7 @@ def start_backend(cfg: LauncherConfig) -> bool:
                 "Backend crashed during startup.",
                 "Check the logs with: python launcher.py --logs\n"
                 "Or run: cd backend && PYTHONPATH=. python -m uvicorn app.main:app --reload",
-                lambda: start_backend(cfg),
+                lambda: start_backend(cfg, python),
             )
             break
         time.sleep(POLL_INTERVAL)
@@ -2303,32 +2471,6 @@ def start_frontend(cfg: LauncherConfig) -> bool:
             log_error(f"Port {cfg.frontend_port} is occupied. Aborting.")
             return False
         PortManager.kill_on_port(cfg.frontend_port)
-
-    try:
-        ver = Validator.check_node()
-        log_info(f"Node.js {ver}")
-    except ValidationError:
-        ErrorHandler.show(
-            "Node.js is not installed.",
-            "Install Node.js 18+ from https://nodejs.org",
-        )
-        return False
-
-    try:
-        Validator.check_npm()
-    except ValidationError:
-        ErrorHandler.show("npm is not installed.", "npm should come with Node.js")
-        return False
-
-    if not Validator.check_frontend_deps():
-        if cfg.auto_install_deps:
-            log_step("Frontend", "Frontend dependencies missing. Auto-installing...")
-            if not install_npm_deps():
-                log_error("Failed to install frontend dependencies")
-                return False
-        else:
-            log_error("node_modules not found. Run 'npm install' in frontend/")
-            return False
 
     log_step("Frontend", "Starting in new terminal...")
     pid = TerminalOpener.open_frontend()
@@ -2399,13 +2541,19 @@ def cmd_start() -> int:
     except ValidationError:
         log_warn("Not a git repository — some features disabled")
 
+    # Upfront unified prerequisite verification gate
+    prereqs_ok, python = validate_startup_prerequisites(cfg)
+    if not prereqs_ok or python is None:
+        log_error("Startup aborted: missing runtime prerequisites.")
+        return 1
+
     # VS Code
     if cfg.open_vscode:
         cmd_open_vscode()
 
     # Start backend
     print(f"\n  {c('bold', '▸ Starting Backend')} {c('dim', '───')}")
-    if not start_backend(cfg):
+    if not start_backend(cfg, python):
         log_error("Backend startup failed. Aborting.")
         return 1
 
@@ -2496,6 +2644,16 @@ def cmd_open_vscode() -> None:
         log_warn("VS Code 'code' command not found in PATH")
 
 
+def cmd_install_node() -> int:
+    print_banner()
+    print(f"  {c('bold', '▸ Installing Node.js (20 LTS)')} {c('dim', '───')}\n")
+    if os.name != "nt":
+        log_info("Node.js auto-installer is only applicable on Windows.")
+        return 0
+    ok = auto_install_node_windows()
+    return 0 if ok else 1
+
+
 def cmd_install_cpp() -> int:
     print_banner()
     print(f"  {c('bold', '▸ Installing Microsoft C++ Build Tools')} {c('dim', '───')}\n")
@@ -2530,6 +2688,9 @@ def main() -> int:
 
     if "--self-test" in args:
         return cmd_self_test()
+
+    if "--install-node" in args or "--node" in args:
+        return cmd_install_node()
 
     if "--install-cpp" in args or "--cpp-tools" in args:
         return cmd_install_cpp()
