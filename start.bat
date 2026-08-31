@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 rem onx-manager Windows Launcher — thin entry point
 rem Usage: start.bat [--stop|--restart|--status|--code|--help|--self-test|...]
 rem

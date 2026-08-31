@@ -31,6 +31,8 @@
 $ErrorActionPreference = 'Stop'
 $env:PYTHONUNBUFFERED  = '1'
 $env:PYTHONIOENCODING  = 'utf-8'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Definition) { Split-Path -Parent $MyInvocation.MyCommand.Definition } else { (Get-Location).Path }
 
 # Dedicated argument escaping helper for Windows CLI (CommandLineToArgvW convention)
