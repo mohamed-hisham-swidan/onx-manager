@@ -113,19 +113,38 @@ RECONCILIATION_LOG = LOGS_DIR / "reconciliation.log"
 RECONCILE_LOCK_FILE = LOCKS_DIR / "reconcile.lock"
 
 
+def canonicalize_db_url(url: str, anchor_dir: Path = BACKEND_DIR) -> str:
+    """Ensure relative SQLite database URLs are resolved to absolute canonical paths."""
+    if not url or "sqlite" not in url.lower() or ":memory:" in url:
+        return url
+
+    prefix, _, raw_path = url.partition(":///")
+    if not raw_path:
+        prefix, _, raw_path = url.partition("://")
+
+    if not raw_path or raw_path == ":memory:":
+        return url
+
+    p = Path(raw_path)
+    if not p.is_absolute():
+        p = (anchor_dir / p).resolve()
+
+    return f"{prefix}:///{p.as_posix()}"
+
+
 def get_configured_db_url() -> str:
-    """Resolve database URL following authoritative project precedence."""
+    """Resolve database URL following authoritative project precedence and canonicalize."""
     env_url = os.environ.get("ONX_DATABASE_URL") or os.environ.get("MCS_DATABASE_URL")
     if env_url:
-        return env_url
+        return canonicalize_db_url(env_url, BACKEND_DIR)
 
     if ALEMBIC_INI.is_file():
         cfg = AlembicConfig(str(ALEMBIC_INI))
         url = cfg.get_main_option("sqlalchemy.url")
         if url:
-            return url
+            return canonicalize_db_url(url, BACKEND_DIR)
 
-    return "sqlite+aiosqlite:///data/onx.db"
+    return canonicalize_db_url("sqlite+aiosqlite:///data/onx.db", BACKEND_DIR)
 
 
 def parse_sqlite_file_path(db_url: str) -> Path | None:
@@ -252,7 +271,8 @@ class DatabaseReconciler:
         alembic_ini_path: Path = ALEMBIC_INI,
         alembic_dir_path: Path = ALEMBIC_DIR,
     ):
-        self.db_url = db_url or get_configured_db_url()
+        raw_url = db_url or get_configured_db_url()
+        self.db_url = canonicalize_db_url(raw_url, BACKEND_DIR)
         self.alembic_ini = alembic_ini_path
         self.alembic_dir = alembic_dir_path
         self.sqlite_file = parse_sqlite_file_path(self.db_url)

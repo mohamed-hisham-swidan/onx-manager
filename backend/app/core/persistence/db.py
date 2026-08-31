@@ -42,36 +42,43 @@ class DatabaseEngine:
             kw["pool_size"] = 20
             kw["max_overflow"] = 10
             kw["pool_pre_ping"] = True
+            self._engine = create_async_engine(self._settings.database_url, **kw)
         else:
             import os
             import shutil
 
             from sqlalchemy.engine.url import make_url
 
+            from pathlib import Path
             from app.core.identity import IDENTITY
 
             kw["connect_args"] = {"timeout": 30.0, "check_same_thread": False}
+            effective_url = self._settings.database_url
             try:
                 parsed_url = make_url(self._settings.database_url)
                 if parsed_url.database and parsed_url.database != ":memory:":
-                    target_path = os.path.abspath(parsed_url.database)
-                    db_dir = os.path.dirname(target_path)
-                    if db_dir:
-                        os.makedirs(db_dir, exist_ok=True)
-                    if not os.path.exists(target_path) or os.path.getsize(target_path) == 0:
+                    target_path = Path(parsed_url.database)
+                    if not target_path.is_absolute():
+                        backend_dir = Path(__file__).resolve().parents[3]
+                        target_path = (backend_dir / target_path).resolve()
+                    db_dir = target_path.parent
+                    db_dir.mkdir(parents=True, exist_ok=True)
+                    if not target_path.is_file() or target_path.stat().st_size == 0:
                         legacy_candidates = [
-                            os.path.join(db_dir, IDENTITY.db_filename_legacy),
-                            os.path.join(os.path.dirname(db_dir), IDENTITY.db_filename_legacy),
-                            IDENTITY.db_filename_legacy,
+                            db_dir / IDENTITY.db_filename_legacy,
+                            db_dir.parent / IDENTITY.db_filename_legacy,
+                            Path(IDENTITY.db_filename_legacy),
                         ]
                         for legacy_path in legacy_candidates:
-                            if os.path.isfile(legacy_path) and os.path.getsize(legacy_path) > 0:
-                                shutil.copy2(legacy_path, target_path)
+                            if legacy_path.is_file() and legacy_path.stat().st_size > 0:
+                                shutil.copy2(str(legacy_path), str(target_path))
                                 break
+                    posix_path = target_path.as_posix()
+                    effective_url = f"{parsed_url.drivername}:///{posix_path}"
             except Exception:
                 pass
 
-        self._engine = create_async_engine(self._settings.database_url, **kw)
+            self._engine = create_async_engine(effective_url, **kw)
 
         if "sqlite" in self._settings.database_url:
             from sqlalchemy import event

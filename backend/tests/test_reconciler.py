@@ -163,3 +163,47 @@ def test_reconcile_lock():
         lock1.release()
         assert lock2.acquire() is True
         lock2.release()
+
+
+def test_canonicalize_relative_sqlite_url():
+    from app.core.persistence.reconciler import canonicalize_db_url
+    anchor = Path("/tmp/app_root/backend")
+    
+    # Relative path
+    res = canonicalize_db_url("sqlite+aiosqlite:///data/onx.db", anchor)
+    assert res == f"sqlite+aiosqlite:///{anchor.as_posix()}/data/onx.db"
+    
+    # Non-SQLite / memory
+    assert canonicalize_db_url("sqlite+aiosqlite:///:memory:", anchor) == "sqlite+aiosqlite:///:memory:"
+    assert canonicalize_db_url("postgresql+asyncpg://localhost/db", anchor) == "postgresql+asyncpg://localhost/db"
+
+
+def test_target_consistency_reconciler_and_backend_engine():
+    """Prove that after reconciler initializes a database, backend Database engine sees the exact same DB and passes."""
+    import asyncio
+    from app.core.config import AppSettings
+    from app.core.persistence.db import database
+    from app.core.persistence.db_revision import check_database_compatibility
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_db = Path(tmpdir) / "unified.db"
+        canonical_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
+        
+        # 1. Run reconciler synchronously on fresh DB (same as launcher subprocess)
+        reconciler = DatabaseReconciler(db_url=canonical_url)
+        res = reconciler.reconcile(auto_upgrade=True)
+        assert res.status == ReconcileStatus.RECONCILED
+        assert res.verified_revision is not None
+        
+        # 2. In async backend context, verify compatibility check passes on backend's engine
+        async def _check_backend():
+            settings = AppSettings(database_url=canonical_url)
+            database.init(settings=settings)
+            try:
+                status = await check_database_compatibility()
+                assert status.ok is True
+            finally:
+                await database.engine.dispose()
+                
+        asyncio.run(_check_backend())
+

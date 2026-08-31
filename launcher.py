@@ -2095,15 +2095,35 @@ def install_npm_deps() -> bool:
         return False
 
 
+def get_canonical_db_url() -> str:
+    """Resolve database URL to a canonical, unambiguous absolute target."""
+    env_url = os.environ.get("ONX_DATABASE_URL") or os.environ.get("MCS_DATABASE_URL")
+    if env_url:
+        if "sqlite" in env_url.lower() and ":memory:" not in env_url:
+            prefix, _, raw_path = env_url.partition(":///")
+            if not raw_path:
+                prefix, _, raw_path = env_url.partition("://")
+            p = Path(raw_path)
+            if not p.is_absolute():
+                p = (BACKEND_DIR / p).resolve()
+            return f"{prefix}:///{p.as_posix()}"
+        return env_url
+
+    canonical_sqlite = (BACKEND_DIR / "data" / "onx.db").resolve()
+    return f"sqlite+aiosqlite:///{canonical_sqlite.as_posix()}"
+
+
 def reconcile_database(python: Path) -> bool:
     """Run the pre-backend database readiness and reconciliation layer."""
     log_step("Database", "Checking schema readiness...")
+    canonical_db_url = get_canonical_db_url()
     env = os.environ.copy()
     env["PYTHONPATH"] = str(BACKEND_DIR)
+    env["ONX_DATABASE_URL"] = canonical_db_url
 
     try:
         proc = subprocess.run(
-            [str(python), "-m", "app.core.persistence.reconciler", "--json"],
+            [str(python), "-m", "app.core.persistence.reconciler", "--json", "--db-url", canonical_db_url],
             cwd=str(BACKEND_DIR),
             env=env,
             capture_output=True,
@@ -2210,8 +2230,16 @@ def start_backend(cfg: LauncherConfig) -> bool:
             )
             return False
 
+    canonical_db_url = get_canonical_db_url()
     log_step("Backend", "Starting in new terminal...")
-    pid = TerminalOpener.open_backend(python, cfg.backend_port, {"PYTHONPATH": str(BACKEND_DIR)})
+    pid = TerminalOpener.open_backend(
+        python,
+        cfg.backend_port,
+        {
+            "PYTHONPATH": str(BACKEND_DIR),
+            "ONX_DATABASE_URL": canonical_db_url,
+        },
+    )
     if pid is None:
         log_error("Failed to launch backend terminal")
         return False

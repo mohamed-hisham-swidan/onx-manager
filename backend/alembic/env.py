@@ -25,11 +25,27 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Resolve database URL: ONX_DATABASE_URL / MCS_DATABASE_URL env var overrides alembic.ini
-_db_url = (
+_raw_db_url = (
     os.environ.get("ONX_DATABASE_URL")
     or os.environ.get("MCS_DATABASE_URL")
     or config.get_main_option("sqlalchemy.url")
+    or "sqlite+aiosqlite:///data/onx.db"
 )
+
+if "sqlite" in _raw_db_url.lower() and ":memory:" not in _raw_db_url:
+    from pathlib import Path
+    _prefix, _, _raw_path = _raw_db_url.partition(":///")
+    if not _raw_path:
+        _prefix, _, _raw_path = _raw_db_url.partition("://")
+    _p = Path(_raw_path)
+    if not _p.is_absolute():
+        _backend_dir = Path(__file__).resolve().parents[1]
+        _p = (_backend_dir / _p).resolve()
+    _posix_path = _p.as_posix()
+    _db_url = f"{_prefix}:///{_posix_path}"
+else:
+    _db_url = _raw_db_url
+
 _db_label = _db_url.rsplit("/", 1)[-1] if "/" in _db_url else _db_url
 print(f"Alembic target DB: {_db_url}  ({_db_label})", file=sys.stderr)
 
