@@ -1165,6 +1165,23 @@ class ValidationError(Exception):
         self.fix = fix
 
 
+def find_or_activate_node() -> None:
+    """Ensure local portable or standard Node.js directory is in PATH."""
+    node_candidates = [
+        ONX_DIR / "node",
+        ONX_DIR / "node" / "node-v20.18.0-win-x64",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "nodejs",
+        Path("C:/Program Files/nodejs"),
+        Path("C:/Program Files (x86)/nodejs"),
+    ]
+    for nd in node_candidates:
+        if nd.is_dir() and ((nd / "node.exe").is_file() or (nd / "node").is_file()):
+            nd_str = str(nd.resolve())
+            current_path = os.environ.get("PATH", "")
+            if nd_str not in current_path.split(os.pathsep):
+                os.environ["PATH"] = f"{nd_str}{os.pathsep}{current_path}"
+
+
 class Validator:
     """Validates the project environment is ready to run."""
 
@@ -1189,6 +1206,7 @@ class Validator:
 
     @staticmethod
     def check_node() -> str:
+        find_or_activate_node()
         try:
             result = subprocess.run(
                 ["node", "--version"],
@@ -1218,10 +1236,12 @@ class Validator:
 
     @staticmethod
     def check_npm() -> str:
+        find_or_activate_node()
         try:
             result = subprocess.run(
                 ["npm", "--version"],
                 capture_output=True, text=True, timeout=5,
+                shell=(os.name == "nt"),
             )
             if result.returncode != 0:
                 raise ValidationError(
@@ -1977,57 +1997,54 @@ def _refresh_windows_path() -> None:
 
 
 def auto_install_node_windows() -> bool:
-    """Download and install Node.js 20 LTS on Windows via winget or official MSI installer."""
+    """Download and install portable Node.js 20 LTS on Windows (zero admin privileges required)."""
     if os.name != "nt":
         log_info("Node.js auto-installer is only applicable on Windows.")
         return True
 
-    # 1. Try winget first if available
-    if shutil.which("winget"):
-        log_step("Node.js", "Installing Node.js 20 LTS via winget...")
+    node_target_dir = ONX_DIR / "node"
+    node_target_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = ONX_DIR / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Download official portable Node.js zip archive from nodejs.org
+    zip_url = "https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip"
+    zip_path = tmp_dir / "node-v20.18.0-win-x64.zip"
+    log_step("Node.js", "Downloading official portable Node.js 20 LTS...")
+    if not download_file(zip_url, zip_path, "Downloading Node.js"):
+        log_error("Failed to download Node.js zip archive")
+        return False
+
+    # 2. Extract portable archive into .onx/node
+    log_step("Node.js", "Extracting Node.js runtime...")
+    try:
+        import zipfile
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
+            zf.extractall(str(tmp_dir))
+
+        extracted_sub = tmp_dir / "node-v20.18.0-win-x64"
+        if extracted_sub.is_dir():
+            for item in extracted_sub.iterdir():
+                dest = node_target_dir / item.name
+                if dest.exists():
+                    if dest.is_dir():
+                        shutil.rmtree(str(dest), ignore_errors=True)
+                    else:
+                        dest.unlink()
+                shutil.move(str(item), str(node_target_dir))
+            shutil.rmtree(str(extracted_sub), ignore_errors=True)
+
         try:
-            res = subprocess.run(
-                [
-                    "winget", "install", "OpenJS.NodeJS.LTS",
-                    "-e", "--silent", "--accept-package-agreements", "--accept-source-agreements",
-                ],
-                capture_output=True, text=True, timeout=300,
-            )
-            if res.returncode == 0:
-                log_ok("Node.js installed via winget")
-                _refresh_windows_path()
-                return True
-        except Exception:
+            zip_path.unlink()
+        except OSError:
             pass
 
-    # 2. Try direct MSI download from nodejs.org
-    tmp_dir = MCS_DIR / "tmp"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    msi_url = "https://nodejs.org/dist/v20.18.0/node-v20.18.0-x64.msi"
-    msi_path = tmp_dir / "node-v20.18.0-x64.msi"
-    log_step("Node.js", "Downloading official Node.js 20 LTS installer...")
-    if download_file(msi_url, msi_path, "Downloading Node.js"):
-        try:
-            log_step("Node.js", "Running Node.js installer (silent mode)...")
-            res = subprocess.run(
-                ["msiexec.exe", "/i", str(msi_path), "/quiet", "/norestart"],
-                capture_output=True,
-                timeout=300,
-            )
-            try:
-                msi_path.unlink()
-            except OSError:
-                pass
-            if res.returncode == 0:
-                log_ok("Node.js installed successfully")
-                _refresh_windows_path()
-                return True
-            else:
-                log_error(f"Node.js installer exited with code {res.returncode}")
-        except Exception as e:
-            log_error(f"Failed to install Node.js: {e}")
-
-    return False
+        find_or_activate_node()
+        log_ok("Node.js portable runtime installed successfully")
+        return True
+    except Exception as e:
+        log_error(f"Failed to extract Node.js archive: {e}")
+        return False
 
 
 def ensure_python_environment() -> Path | None:
