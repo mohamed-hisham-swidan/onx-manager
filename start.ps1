@@ -23,11 +23,14 @@
       Fix #5: Long-running launcher.py executed via Invoke-OnxPythonProcess
               (System.Diagnostics.Process with stdin closed, Task-based live
               stdout/stderr streaming avoiding threadpool runspace crashes,
-              Ctrl+C tree cleanup, and diagnostic logging).
+              unbuffered output via PYTHONUNBUFFERED=1, Ctrl+C tree cleanup,
+              and diagnostic logging).
       Confirmed correct: -NoProfile -ExecutionPolicy Bypass (set in start.bat).
 #>
 
 $ErrorActionPreference = 'Stop'
+$env:PYTHONUNBUFFERED  = '1'
+$env:PYTHONIOENCODING  = 'utf-8'
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Definition) { Split-Path -Parent $MyInvocation.MyCommand.Definition } else { (Get-Location).Path }
 
 # Dedicated argument escaping helper for Windows CLI (CommandLineToArgvW convention)
@@ -69,6 +72,8 @@ function Invoke-PythonCandidateProbe {
     $psi.RedirectStandardError  = if ($StreamOutput) { $false } else { $true }
     $psi.UseShellExecute        = $false
     $psi.CreateNoWindow         = if ($StreamOutput) { $false } else { $true }
+    $psi.EnvironmentVariables['PYTHONUNBUFFERED'] = '1'
+    $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
 
     $escapedArgs = $Arguments | ForEach-Object { Format-OnxProcessArgument $_ }
     $psi.Arguments = [string]::Join(' ', $escapedArgs)
@@ -141,6 +146,8 @@ function Invoke-OnxPythonProcess {
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute        = $false
     $psi.CreateNoWindow         = $true
+    $psi.EnvironmentVariables['PYTHONUNBUFFERED'] = '1'
+    $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
 
     $escapedArgs = $Arguments | ForEach-Object { Format-OnxProcessArgument $_ }
     $psi.Arguments = [string]::Join(' ', $escapedArgs)

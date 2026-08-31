@@ -1367,6 +1367,34 @@ class SelfTester:
         except Exception as e:
             results.append(SelfTestResult("Backend dependencies", False, str(e)))
 
+        # Database schema
+        try:
+            venv_path = find_backend_venv()
+            if venv_path:
+                env = os.environ.copy()
+                env["PYTHONPATH"] = str(BACKEND_DIR)
+                proc = subprocess.run(
+                    [str(venv_path), "-m", "app.core.persistence.reconciler", "--check-only", "--json"],
+                    cwd=str(BACKEND_DIR),
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                stdout = proc.stdout.strip()
+                res = json.loads(stdout) if stdout else {}
+                status = res.get("status", "FAILED")
+                if status in ("READY", "RECONCILED"):
+                    results.append(SelfTestResult("Database schema", True, f"Revision {res.get('target_revision', 'head')}"))
+                elif status == "BLOCKED_UNSAFE":
+                    results.append(SelfTestResult("Database schema", False, f"Blocked: {res.get('message', '')}"))
+                else:
+                    results.append(SelfTestResult("Database schema", False, res.get("message", "Needs migration")))
+            else:
+                results.append(SelfTestResult("Database schema", False, "Virtual environment not found"))
+        except Exception as e:
+            results.append(SelfTestResult("Database schema", False, str(e)))
+
         # Frontend deps
         if Validator.check_frontend_deps():
             results.append(SelfTestResult("Frontend dependencies", True))
@@ -2067,6 +2095,60 @@ def install_npm_deps() -> bool:
         return False
 
 
+def reconcile_database(python: Path) -> bool:
+    """Run the pre-backend database readiness and reconciliation layer."""
+    log_step("Database", "Checking schema readiness...")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(BACKEND_DIR)
+
+    try:
+        proc = subprocess.run(
+            [str(python), "-m", "app.core.persistence.reconciler", "--json"],
+            cwd=str(BACKEND_DIR),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        log_error("Database reconciliation timed out after 60s")
+        return False
+    except Exception as exc:
+        log_error(f"Failed to execute database reconciler: {exc}")
+        return False
+
+    try:
+        stdout = proc.stdout.strip()
+        result = json.loads(stdout) if stdout else {}
+    except Exception:
+        result = {}
+
+    status = result.get("status", "FAILED")
+    msg = result.get("message", proc.stderr.strip() or "Unknown error")
+    target_rev = result.get("target_revision", "")
+
+    if status == "READY":
+        log_ok(f"Database schema is up to date (revision {target_rev or 'head'})")
+        return True
+    elif status == "RECONCILED":
+        action = result.get("action_taken", "UPGRADE")
+        action_verb = "initialized" if action == "INITIALIZE" else "updated"
+        log_ok(f"Database schema {action_verb} to revision {target_rev}")
+        return True
+    elif status == "BLOCKED_UNSAFE":
+        log_error(f"Database reconciliation blocked: {msg}")
+        log_warn("  Automatic migration blocked to prevent data loss. See .onx/logs/reconciliation.log")
+        return False
+    elif status == "UNREACHABLE":
+        log_error(f"Database unreachable / locked: {msg}")
+        log_warn("  Check database connectivity or locks. See .onx/logs/reconciliation.log")
+        return False
+    else:
+        log_error(f"Database reconciliation failed: {msg}")
+        log_warn("  Review detailed diagnostics in .onx/logs/reconciliation.log")
+        return False
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Start services
 # ═══════════════════════════════════════════════════════════════════════
@@ -2118,6 +2200,15 @@ def start_backend(cfg: LauncherConfig) -> bool:
                     return False
             else:
                 log_warn("Dependencies may be missing (auto_install_deps=False)")
+
+        # Pre-backend database readiness & reconciliation gate
+        if not reconcile_database(python):
+            ErrorHandler.show(
+                "Database readiness check failed.",
+                "Review .onx/logs/reconciliation.log for detailed diagnostics.\n"
+                f"Or inspect manually: cd {BACKEND_DIR} && PYTHONPATH=. {python} -m app.core.persistence.reconciler",
+            )
+            return False
 
     log_step("Backend", "Starting in new terminal...")
     pid = TerminalOpener.open_backend(python, cfg.backend_port, {"PYTHONPATH": str(BACKEND_DIR)})
