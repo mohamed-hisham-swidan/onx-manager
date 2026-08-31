@@ -21,27 +21,28 @@ Design constraints:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
-import logging
 import os
 import sqlite3
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from alembic import command
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError, OperationalError
 
+from alembic import command
 
-class ReconcileStatus(str, Enum):
+
+class ReconcileStatus(StrEnum):
     READY = "READY"
     RECONCILED = "RECONCILED"
     BLOCKED_UNSAFE = "BLOCKED_UNSAFE"
@@ -49,7 +50,7 @@ class ReconcileStatus(str, Enum):
     UNREACHABLE = "UNREACHABLE"
 
 
-class ReconcileAction(str, Enum):
+class ReconcileAction(StrEnum):
     NONE = "NONE"
     INITIALIZE = "INITIALIZE"
     UPGRADE = "UPGRADE"
@@ -183,7 +184,7 @@ class ReconcileLock:
                     str(self.lock_path),
                     os.O_CREAT | os.O_EXCL | os.O_RDWR,
                 )
-                pid_info = f"pid={os.getpid()}\ntime={datetime.now(timezone.utc).isoformat()}\n"
+                pid_info = f"pid={os.getpid()}\ntime={datetime.now(UTC).isoformat()}\n"
                 os.write(self._fd, pid_info.encode("utf-8"))
                 self.acquired = True
                 return True
@@ -201,16 +202,12 @@ class ReconcileLock:
 
     def release(self) -> None:
         if self._fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(self._fd)
-            except OSError:
-                pass
             self._fd = None
         if self.acquired:
-            try:
+            with contextlib.suppress(OSError):
                 self.lock_path.unlink()
-            except OSError:
-                pass
             self.acquired = False
 
     def _is_stale(self) -> bool:
@@ -238,8 +235,8 @@ class ReconcileLock:
             try:
                 import ctypes
                 kernel32 = ctypes.windll.kernel32
-                SYNCHRONIZE = 0x00100000
-                handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+                synchronize = 0x00100000
+                handle = kernel32.OpenProcess(synchronize, False, pid)
                 if not handle:
                     return False
                 kernel32.CloseHandle(handle)
@@ -255,7 +252,11 @@ class ReconcileLock:
 
     def __enter__(self) -> ReconcileLock:
         if not self.acquire():
-            raise TimeoutError(f"Could not acquire reconciliation lock at {self.lock_path} within {self.timeout_sec}s")
+            msg = (
+                f"Could not acquire reconciliation lock at {self.lock_path} "
+                f"within {self.timeout_sec}s"
+            )
+            raise TimeoutError(msg)
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -308,9 +309,14 @@ class DatabaseReconciler:
                 return [], None
             try:
                 # Direct read via standard sqlite3 with WAL support and short busy timeout
-                with sqlite3.connect(f"file:{self.sqlite_file.as_posix()}?mode=ro", uri=True, timeout=5.0) as conn:
+                uri = f"file:{self.sqlite_file.as_posix()}?mode=ro"
+                with sqlite3.connect(uri, uri=True, timeout=5.0) as conn:
                     cursor = conn.cursor()
-                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'")
+                    q = (
+                        "SELECT name FROM sqlite_master "
+                        "WHERE type='table' AND name='alembic_version'"
+                    )
+                    cursor.execute(q)
                     if not cursor.fetchone():
                         return [], None
                     cursor.execute("SELECT version_num FROM alembic_version")
@@ -326,7 +332,8 @@ class DatabaseReconciler:
         # For PostgreSQL or non-SQLite: Use synchronous SQLAlchemy engine
         sync_url = self.db_url.replace("+aiosqlite", "").replace("+asyncpg", "")
         try:
-            engine = create_engine(sync_url, connect_args={"connect_timeout": 5} if "postgresql" in sync_url else {})
+            connect_args = {"connect_timeout": 5} if "postgresql" in sync_url else {}
+            engine = create_engine(sync_url, connect_args=connect_args)
             with engine.connect() as conn:
                 res = conn.execute(text("SELECT version_num FROM alembic_version"))
                 rows = res.fetchall()
@@ -342,17 +349,23 @@ class DatabaseReconciler:
 
     def backup_sqlite_database(self, backup_dir: Path | None = None) -> Path | None:
         """Create an ACID-consistent snapshot of the SQLite database using native backup API."""
-        if self.sqlite_file is None or not self.sqlite_file.is_file() or self.sqlite_file.stat().st_size == 0:
+        if (
+            self.sqlite_file is None
+            or not self.sqlite_file.is_file()
+            or self.sqlite_file.stat().st_size == 0
+        ):
             return None
 
         target_dir = backup_dir or (BACKEND_DIR / "backups")
         target_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
         backup_path = target_dir / f"{self.sqlite_file.stem}_backup_{timestamp}.db"
 
-        with sqlite3.connect(str(self.sqlite_file), timeout=10.0) as src_conn:
-            with sqlite3.connect(str(backup_path)) as dst_conn:
-                src_conn.backup(dst_conn)
+        with (
+            sqlite3.connect(str(self.sqlite_file), timeout=10.0) as src_conn,
+            sqlite3.connect(str(backup_path)) as dst_conn,
+        ):
+            src_conn.backup(dst_conn)
 
         return backup_path
 
@@ -380,6 +393,10 @@ class DatabaseReconciler:
         if len(all_heads) > 1 or target_head is None:
             duration = (time.perf_counter() - start_time) * 1000.0
             heads_str = ", ".join(sorted(all_heads))
+            msg = (
+                f"Migration graph contains multiple heads ({heads_str}). "
+                "Manual branch resolution required."
+            )
             return ReconcileResult(
                 status=ReconcileStatus.BLOCKED_UNSAFE,
                 action_taken=ReconcileAction.NONE,
@@ -387,7 +404,7 @@ class DatabaseReconciler:
                 target_revision=None,
                 verified_revision=None,
                 backup_path=None,
-                message=f"Migration graph contains multiple heads ({heads_str}). Manual branch resolution required.",
+                message=msg,
                 duration_ms=duration,
             )
 
@@ -415,6 +432,11 @@ class DatabaseReconciler:
             action = ReconcileAction.INITIALIZE
         elif len(initial_revs) > 1:
             duration = (time.perf_counter() - start_time) * 1000.0
+            revs_str = ", ".join(initial_revs)
+            msg = (
+                f"Database reports multiple recorded revisions ({revs_str}). "
+                "Automatic reconciliation blocked."
+            )
             return ReconcileResult(
                 status=ReconcileStatus.BLOCKED_UNSAFE,
                 action_taken=ReconcileAction.NONE,
@@ -422,7 +444,7 @@ class DatabaseReconciler:
                 target_revision=target_head,
                 verified_revision=None,
                 backup_path=None,
-                message=f"Database reports multiple recorded revisions ({', '.join(initial_revs)}). Automatic reconciliation blocked.",
+                message=msg,
                 duration_ms=duration,
             )
         else:
@@ -441,6 +463,10 @@ class DatabaseReconciler:
                 )
             elif current_rev not in parents:
                 duration = (time.perf_counter() - start_time) * 1000.0
+                msg = (
+                    f"Database contains unknown schema revision '{current_rev}' "
+                    "not in repository migration history. Automatic migration blocked."
+                )
                 return ReconcileResult(
                     status=ReconcileStatus.BLOCKED_UNSAFE,
                     action_taken=ReconcileAction.NONE,
@@ -448,7 +474,7 @@ class DatabaseReconciler:
                     target_revision=target_head,
                     verified_revision=None,
                     backup_path=None,
-                    message=f"Database contains unknown schema revision '{current_rev}' not in repository migration history. Automatic migration blocked.",
+                    message=msg,
                     duration_ms=duration,
                 )
             else:
@@ -463,6 +489,10 @@ class DatabaseReconciler:
                     action = ReconcileAction.UPGRADE
                 else:
                     duration = (time.perf_counter() - start_time) * 1000.0
+                    msg = (
+                        f"Database revision '{current_rev}' is divergent from "
+                        f"target head '{target_head}'. Automatic migration blocked."
+                    )
                     return ReconcileResult(
                         status=ReconcileStatus.BLOCKED_UNSAFE,
                         action_taken=ReconcileAction.NONE,
@@ -470,12 +500,16 @@ class DatabaseReconciler:
                         target_revision=target_head,
                         verified_revision=None,
                         backup_path=None,
-                        message=f"Database revision '{current_rev}' is divergent from target head '{target_head}'. Automatic migration blocked.",
+                        message=msg,
                         duration_ms=duration,
                     )
 
         if not auto_upgrade:
             duration = (time.perf_counter() - start_time) * 1000.0
+            msg = (
+                f"Database requires reconciliation ({action.value} to '{target_head}') "
+                "but auto_upgrade is False."
+            )
             return ReconcileResult(
                 status=ReconcileStatus.BLOCKED_UNSAFE,
                 action_taken=ReconcileAction.NONE,
@@ -483,7 +517,7 @@ class DatabaseReconciler:
                 target_revision=target_head,
                 verified_revision=None,
                 backup_path=None,
-                message=f"Database requires reconciliation ({action.value} to '{target_head}') but auto_upgrade is False.",
+                message=msg,
                 duration_ms=duration,
             )
 
@@ -495,7 +529,7 @@ class DatabaseReconciler:
                 backup_created = self.backup_sqlite_database()
 
             cfg = self.get_alembic_config()
-            # Set environment variable so alembic/env.py picks it up consistently, restoring afterwards
+            # Set environment variable so alembic/env.py picks it up consistently
             orig_onx_url = os.environ.get("ONX_DATABASE_URL")
             try:
                 os.environ["ONX_DATABASE_URL"] = self.db_url
@@ -526,6 +560,10 @@ class DatabaseReconciler:
 
         if verify_err or not verified_revs or verified_revs[0] != target_head:
             got = verified_revs[0] if verified_revs else "none"
+            msg = (
+                f"Post-migration verification failed: expected '{target_head}', "
+                f"got '{got}' (Error: {verify_err or 'mismatch'})."
+            )
             return ReconcileResult(
                 status=ReconcileStatus.FAILED,
                 action_taken=action,
@@ -533,12 +571,16 @@ class DatabaseReconciler:
                 target_revision=target_head,
                 verified_revision=got,
                 backup_path=str(backup_created) if backup_created else None,
-                message=f"Post-migration verification failed: expected '{target_head}', got '{got}' (Error: {verify_err or 'mismatch'}).",
+                message=msg,
                 duration_ms=duration,
                 error_detail=verify_err,
             )
 
-        action_desc = "initialized and upgraded" if action == ReconcileAction.INITIALIZE else "upgraded"
+        action_desc = (
+            "initialized and upgraded"
+            if action == ReconcileAction.INITIALIZE
+            else "upgraded"
+        )
         return ReconcileResult(
             status=ReconcileStatus.RECONCILED,
             action_taken=action,
@@ -551,12 +593,16 @@ class DatabaseReconciler:
         )
 
 
-def log_reconciliation_event(result: ReconcileResult, db_url: str, log_file: Path = RECONCILIATION_LOG) -> None:
+def log_reconciliation_event(
+    result: ReconcileResult,
+    db_url: str,
+    log_file: Path = RECONCILIATION_LOG,
+) -> None:
     """Append structured diagnostic log entry to .onx/logs/reconciliation.log."""
     try:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "target_db": redact_db_url(db_url),
             "status": result.status.value,
             "action_taken": result.action_taken.value,
@@ -577,7 +623,11 @@ def log_reconciliation_event(result: ReconcileResult, db_url: str, log_file: Pat
 def main() -> int:
     parser = argparse.ArgumentParser(description="onx-manager Pre-Backend Database Reconciler")
     parser.add_argument("--json", action="store_true", help="Emit result as JSON to stdout")
-    parser.add_argument("--check-only", action="store_true", help="Inspect without applying migrations")
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Inspect without applying migrations",
+    )
     parser.add_argument("--db-url", type=str, default=None, help="Explicit database connection URL")
     args = parser.parse_args()
 

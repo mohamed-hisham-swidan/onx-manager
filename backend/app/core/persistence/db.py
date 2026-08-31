@@ -44,12 +44,11 @@ class DatabaseEngine:
             kw["pool_pre_ping"] = True
             self._engine = create_async_engine(self._settings.database_url, **kw)
         else:
-            import os
             import shutil
+            from pathlib import Path
 
             from sqlalchemy.engine.url import make_url
 
-            from pathlib import Path
             from app.core.identity import IDENTITY
 
             kw["connect_args"] = {"timeout": 30.0, "check_same_thread": False}

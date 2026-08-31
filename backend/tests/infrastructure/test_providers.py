@@ -525,14 +525,13 @@ class TestLocalLinuxProviderPreFlight:
             provider,
             "_verify_port_free",
             AsyncMock(side_effect=ProviderError("local", "start", "Port in use")),
-        ):
-            with patch.object(provider, "_fs", MagicMock()):
-                with pytest.raises(ProviderError, match="Port in use"):
-                    await provider.start(
-                        server_id="srv-contested",
-                        deployment=deployment,
-                        launch_config=lc,
-                    )
+        ), patch.object(provider, "_fs", MagicMock()):
+            with pytest.raises(ProviderError, match="Port in use"):
+                await provider.start(
+                    server_id="srv-contested",
+                    deployment=deployment,
+                    launch_config=lc,
+                )
 
     @pytest.mark.asyncio
     async def test_start_process_dies_immediately(self) -> None:

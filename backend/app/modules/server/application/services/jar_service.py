@@ -208,15 +208,14 @@ def _resolve_eula_dest(deployment: ServerDeployment | None, server_id: str | Non
 
 async def fetch_vanilla_versions() -> list[str]:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                VANILLA_MANIFEST_URL, timeout=aiohttp.ClientTimeout(total=15)
-            ) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
-                versions = data.get("versions", [])
-                return [v["id"] for v in versions if v["type"] == "release"]
+        async with aiohttp.ClientSession() as session, session.get(
+            VANILLA_MANIFEST_URL, timeout=aiohttp.ClientTimeout(total=15)
+        ) as resp:
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+            versions = data.get("versions", [])
+            return [v["id"] for v in versions if v["type"] == "release"]
     except (TimeoutError, aiohttp.ClientError, ValueError):
         return []
 
@@ -845,34 +844,33 @@ def _get_resolver(server_type: str) -> callable:
 
 async def _resolve_vanilla_url(version: str) -> str:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                VANILLA_MANIFEST_URL,
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                if resp.status != 200:
-                    raise DownloadError(
-                        VANILLA_MANIFEST_URL, resp.status, "cannot fetch version manifest"
-                    )
-                data = await resp.json()
-                for entry in data.get("versions", []):
-                    if entry["id"] == version:
-                        version_url = entry["url"]
-                        async with session.get(
-                            version_url,
-                            timeout=aiohttp.ClientTimeout(total=15),
-                        ) as vresp:
-                            if vresp.status != 200:
-                                raise DownloadError(
-                                    version_url, vresp.status, "cannot fetch version metadata"
-                                )
-                            vdata = await vresp.json()
-                            jar_hash = vdata.get("downloads", {}).get("server", {}).get("sha1")
-                            if not jar_hash:
-                                raise VersionNotFoundError(version, "vanilla")
-                            return (
-                                f"https://piston-data.mojang.com/v1/objects/{jar_hash}/server.jar"
+        async with aiohttp.ClientSession() as session, session.get(
+            VANILLA_MANIFEST_URL,
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as resp:
+            if resp.status != 200:
+                raise DownloadError(
+                    VANILLA_MANIFEST_URL, resp.status, "cannot fetch version manifest"
+                )
+            data = await resp.json()
+            for entry in data.get("versions", []):
+                if entry["id"] == version:
+                    version_url = entry["url"]
+                    async with session.get(
+                        version_url,
+                        timeout=aiohttp.ClientTimeout(total=15),
+                    ) as vresp:
+                        if vresp.status != 200:
+                            raise DownloadError(
+                                version_url, vresp.status, "cannot fetch version metadata"
                             )
+                        vdata = await vresp.json()
+                        jar_hash = vdata.get("downloads", {}).get("server", {}).get("sha1")
+                        if not jar_hash:
+                            raise VersionNotFoundError(version, "vanilla")
+                        return (
+                            f"https://piston-data.mojang.com/v1/objects/{jar_hash}/server.jar"
+                        )
     except (TimeoutError, aiohttp.ClientError, ValueError) as e:
         raise DownloadError(VANILLA_MANIFEST_URL, 0, str(e)) from e
     raise VersionNotFoundError(version, "vanilla")

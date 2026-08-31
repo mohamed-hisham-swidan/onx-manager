@@ -2,16 +2,14 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 # Ensure repository root is on sys.path when pytest runs from backend/ directory
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from launcher import (
+from launcher import (  # noqa: E402
     LauncherConfig,
     ValidationError,
     validate_startup_prerequisites,
@@ -42,7 +40,10 @@ def test_prerequisites_fail_on_missing_node():
     with patch("launcher.ensure_python_environment", return_value=fake_python), \
          patch("launcher.Validator.check_python", return_value=("3.12.0", str(fake_python))), \
          patch("launcher.Validator.check_backend_deps", return_value=True), \
-         patch("launcher.Validator.check_node", side_effect=ValidationError("Node.js is not installed")), \
+         patch(
+             "launcher.Validator.check_node",
+             side_effect=ValidationError("Node.js is not installed"),
+         ), \
          patch("launcher.reconcile_database") as mock_reconcile:
 
         ok, python = validate_startup_prerequisites(cfg)
@@ -59,7 +60,10 @@ def test_prerequisites_fail_on_old_node():
     with patch("launcher.ensure_python_environment", return_value=fake_python), \
          patch("launcher.Validator.check_python", return_value=("3.12.0", str(fake_python))), \
          patch("launcher.Validator.check_backend_deps", return_value=True), \
-         patch("launcher.Validator.check_node", side_effect=ValidationError("Node.js v16.0.0 is too old (need 18+)")), \
+         patch(
+             "launcher.Validator.check_node",
+             side_effect=ValidationError("Node.js v16.0.0 is too old (need 18+)"),
+         ), \
          patch("launcher.reconcile_database") as mock_reconcile:
 
         ok, python = validate_startup_prerequisites(cfg)
@@ -76,7 +80,10 @@ def test_prerequisites_fail_on_missing_npm():
          patch("launcher.Validator.check_python", return_value=("3.12.0", str(fake_python))), \
          patch("launcher.Validator.check_backend_deps", return_value=True), \
          patch("launcher.Validator.check_node", return_value="v20.11.0"), \
-         patch("launcher.Validator.check_npm", side_effect=ValidationError("npm is not installed")), \
+         patch(
+             "launcher.Validator.check_npm",
+             side_effect=ValidationError("npm is not installed"),
+         ), \
          patch("launcher.reconcile_database") as mock_reconcile:
 
         ok, python = validate_startup_prerequisites(cfg)

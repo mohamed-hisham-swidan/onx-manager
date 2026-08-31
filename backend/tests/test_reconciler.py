@@ -8,10 +8,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
-from alembic.config import Config as AlembicConfig
 from alembic import command
-
 from app.core.persistence.reconciler import (
     DatabaseReconciler,
     ReconcileAction,
@@ -31,7 +28,7 @@ def test_reconcile_fresh_database():
     with tempfile.TemporaryDirectory() as tmpdir:
         test_db = Path(tmpdir) / "fresh.db"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
-        
+
         reconciler = DatabaseReconciler(db_url=db_url)
         parents, target_head, _ = reconciler.resolve_migration_graph()
         assert target_head is not None
@@ -53,9 +50,8 @@ def test_reconcile_fresh_database():
 def test_reconcile_outdated_database_with_backup():
     with tempfile.TemporaryDirectory() as tmpdir:
         test_db = Path(tmpdir) / "outdated.db"
-        backup_dir = Path(tmpdir) / "backups"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
-        
+
         reconciler = DatabaseReconciler(db_url=db_url)
         parents, target_head, _ = reconciler.resolve_migration_graph()
 
@@ -88,10 +84,12 @@ def test_reconcile_blocked_on_unknown_revision():
     with tempfile.TemporaryDirectory() as tmpdir:
         test_db = Path(tmpdir) / "unknown.db"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
-        
+
         # Create table with unknown revision
         with sqlite3.connect(str(test_db)) as conn:
-            conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")
+            conn.execute(
+                "CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"
+            )
             conn.execute("INSERT INTO alembic_version VALUES ('unknown_rev_xyz_999')")
             conn.commit()
 
@@ -107,7 +105,7 @@ def test_reconcile_blocked_on_multiple_heads():
     with tempfile.TemporaryDirectory() as tmpdir:
         test_db = Path(tmpdir) / "multi_head.db"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
-        
+
         # Create table with two revisions recorded
         with sqlite3.connect(str(test_db)) as conn:
             conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
@@ -153,13 +151,13 @@ def test_reconcile_cli_interface():
 def test_reconcile_lock():
     with tempfile.TemporaryDirectory() as tmpdir:
         lock_file = Path(tmpdir) / "reconcile.lock"
-        
+
         lock1 = ReconcileLock(lock_path=lock_file, timeout_sec=1.0)
         assert lock1.acquire() is True
-        
+
         lock2 = ReconcileLock(lock_path=lock_file, timeout_sec=0.2)
         assert lock2.acquire() is False
-        
+
         lock1.release()
         assert lock2.acquire() is True
         lock2.release()
@@ -168,33 +166,34 @@ def test_reconcile_lock():
 def test_canonicalize_relative_sqlite_url():
     from app.core.persistence.reconciler import canonicalize_db_url
     anchor = Path("/tmp/app_root/backend")
-    
+
     # Relative path
     res = canonicalize_db_url("sqlite+aiosqlite:///data/onx.db", anchor)
     assert res == f"sqlite+aiosqlite:///{anchor.as_posix()}/data/onx.db"
-    
+
     # Non-SQLite / memory
     assert canonicalize_db_url("sqlite+aiosqlite:///:memory:", anchor) == "sqlite+aiosqlite:///:memory:"
     assert canonicalize_db_url("postgresql+asyncpg://localhost/db", anchor) == "postgresql+asyncpg://localhost/db"
 
 
 def test_target_consistency_reconciler_and_backend_engine():
-    """Prove that after reconciler initializes a database, backend Database engine sees the exact same DB and passes."""
+    """Prove that after reconciler initializes a DB, backend engine sees the exact same DB."""
     import asyncio
+
     from app.core.config import AppSettings
     from app.core.persistence.db import database
     from app.core.persistence.db_revision import check_database_compatibility
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         test_db = Path(tmpdir) / "unified.db"
         canonical_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
-        
+
         # 1. Run reconciler synchronously on fresh DB (same as launcher subprocess)
         reconciler = DatabaseReconciler(db_url=canonical_url)
         res = reconciler.reconcile(auto_upgrade=True)
         assert res.status == ReconcileStatus.RECONCILED
         assert res.verified_revision is not None
-        
+
         # 2. In async backend context, verify compatibility check passes on backend's engine
         async def _check_backend():
             settings = AppSettings(database_url=canonical_url)
@@ -204,6 +203,6 @@ def test_target_consistency_reconciler_and_backend_engine():
                 assert status.ok is True
             finally:
                 await database.engine.dispose()
-                
+
         asyncio.run(_check_backend())
 
