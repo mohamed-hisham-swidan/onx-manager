@@ -58,6 +58,7 @@ try {
     $transcriptStarted = $true
 
     Set-PSDebug -Trace 1
+    $env:ONX_DEBUG = '1'
 
     # Execute authoritative bootstrap logic with all forwarded arguments
     $exitCode = Start-OnxBootstrap @args

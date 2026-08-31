@@ -33,6 +33,39 @@ $env:PYTHONUNBUFFERED  = '1'
 $env:PYTHONIOENCODING  = 'utf-8'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+
+# Enable Win32 Virtual Terminal Processing (ANSI color & UTF-8 control codes) on Windows
+if ($IsWindows -or $env:OS -eq 'Windows_NT') {
+    try {
+        $kernel32 = Add-Type -MemberDefinition @"
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr GetStdHandle(int nStdHandle);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool SetConsoleOutputCP(uint wCodePageID);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool SetConsoleCP(uint wCodePageID);
+"@ -Name "Win32ConsoleHelper" -Namespace "OnxWin32" -PassThru
+
+        $null = $kernel32::SetConsoleOutputCP(65001)
+        $null = $kernel32::SetConsoleCP(65001)
+
+        $stdOutHandle = $kernel32::GetStdHandle(-11) # STD_OUTPUT_HANDLE
+        $outMode = 0
+        if ($kernel32::GetConsoleMode($stdOutHandle, [ref]$outMode)) {
+            # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+            $null = $kernel32::SetConsoleMode($stdOutHandle, $outMode -bor 0x0004)
+        }
+    } catch {}
+}
+
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Definition) { Split-Path -Parent $MyInvocation.MyCommand.Definition } else { (Get-Location).Path }
 
 # Dedicated argument escaping helper for Windows CLI (CommandLineToArgvW convention)
@@ -154,9 +187,11 @@ function Invoke-OnxPythonProcess {
     $escapedArgs = $Arguments | ForEach-Object { Format-OnxProcessArgument $_ }
     $psi.Arguments = [string]::Join(' ', $escapedArgs)
 
-    Write-Host "  [Launcher] executable: $Command" -ForegroundColor Cyan
-    Write-Host "  [Launcher] arguments: $($psi.Arguments)" -ForegroundColor Cyan
-    Write-Host "  [Launcher] working directory: $WorkingDirectory" -ForegroundColor Cyan
+    if ($env:ONX_DEBUG -eq '1') {
+        Write-Host "  [Launcher] executable: $Command" -ForegroundColor Cyan
+        Write-Host "  [Launcher] arguments: $($psi.Arguments)" -ForegroundColor Cyan
+        Write-Host "  [Launcher] working directory: $WorkingDirectory" -ForegroundColor Cyan
+    }
 
     $proc = [System.Diagnostics.Process]::new()
     $proc.StartInfo = $psi
@@ -172,7 +207,9 @@ function Invoke-OnxPythonProcess {
         return 1
     }
 
-    Write-Host "  [Launcher] PID: $($proc.Id)" -ForegroundColor Cyan
+    if ($env:ONX_DEBUG -eq '1') {
+        Write-Host "  [Launcher] PID: $($proc.Id)" -ForegroundColor Cyan
+    }
 
     # Close stdin immediately — launcher.py does not read from stdin,
     # preventing any accidental interactive prompt or REPL hang.
@@ -233,24 +270,30 @@ function Invoke-OnxPythonProcess {
 
     $sw.Stop()
     $exitCode = $proc.ExitCode
-    Write-Host "  [Launcher] exit code: $exitCode" -ForegroundColor Cyan
-    Write-Host "  [Launcher] duration: $($sw.ElapsedMilliseconds)ms" -ForegroundColor Cyan
+    if ($env:ONX_DEBUG -eq '1') {
+        Write-Host "  [Launcher] exit code: $exitCode" -ForegroundColor Cyan
+        Write-Host "  [Launcher] duration: $($sw.ElapsedMilliseconds)ms" -ForegroundColor Cyan
+    }
 
     return $exitCode
 }
 
 function Start-OnxBootstrap {
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  onx-manager — Windows Launcher" -ForegroundColor Cyan
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  Directory: $scriptDir"
+    if ($env:ONX_DEBUG -eq '1') {
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host "  onx-manager — Windows Launcher" -ForegroundColor Cyan
+        Write-Host "========================================" -ForegroundColor Cyan
+        Write-Host "  Directory: $scriptDir"
+    }
 
     # ──────────────────────────────────────────────────────────────────────
     # 1. Fast path: pre-built onx.exe
     # ──────────────────────────────────────────────────────────────────────
     $onxExe = Join-Path $scriptDir 'onx.exe'
     if (Test-Path $onxExe) {
-        Write-Host "  Found pre-built onx.exe — launching directly..."
+        if ($env:ONX_DEBUG -eq '1') {
+            Write-Host "  Found pre-built onx.exe — launching directly..."
+        }
         & $onxExe @args
         return $LASTEXITCODE
     }
@@ -262,7 +305,9 @@ function Start-OnxBootstrap {
 
     if (Test-Path $venvPy) {
         # Venv already exists — use it directly (no sub-arg needed)
-        Write-Host "  Using virtual environment: $venvPy"
+        if ($env:ONX_DEBUG -eq '1') {
+            Write-Host "  Using virtual environment: $venvPy"
+        }
         $pyBin    = $venvPy
         $pySubArg = @()
     } else {
@@ -283,13 +328,14 @@ function Start-OnxBootstrap {
             if ($res.Success) {
                 $foundCmd    = $c.Cmd
                 $foundSubArg = $c.SubArg
-                Write-Host "  Detected Python interpreter: $foundCmd $foundSubArg"
+                if ($env:ONX_DEBUG -eq '1') {
+                    Write-Host "  Detected Python interpreter: $foundCmd $foundSubArg"
+                }
                 break
             } elseif ($res.TimedOut) {
                 Write-Warning "  [Probe Timeout] Candidate '$($c.Name)' timed out after $($res.DurationMs)ms (Cmd: $($res.RawCmd)). Skipped."
             } elseif ($res.NotFound) {
-                # Expected — candidate not on PATH, stay quiet (matches current
-                # behavior of trying the next candidate silently).
+                # Expected — candidate not on PATH, stay quiet
             } elseif ($res.ExitCode -ne 1 -and $res.ExitCode -ne 103) {
                 Write-Warning "  [Probe Warning] Candidate '$($c.Name)' exited with unexpected code $($res.ExitCode) (Cmd: $($res.RawCmd); Stderr: $($res.StdErr))."
             }
@@ -321,9 +367,6 @@ function Start-OnxBootstrap {
                     throw "Failed to download Python installer: $_"
                 }
 
-                # Fix #2: $installerArgs (not $args) — never clobbers the automatic
-                # $args variable that holds the user's CLI flags forwarded below.
-                # Fix #3: try system-wide first; fall back to per-user on failure.
                 Write-Host '  Attempting system-wide install (InstallAllUsers=1)...'
                 $installerArgs = @('/quiet', 'InstallAllUsers=1', 'PrependPath=1', 'Include_test=0')
                 $proc = Start-Process -FilePath $installer -ArgumentList $installerArgs -Wait -PassThru
@@ -359,11 +402,10 @@ function Start-OnxBootstrap {
 
         $nodeProbe = Invoke-PythonCandidateProbe -Command 'node' -Arguments @('-v') -TimeoutMs 2000
         if ($nodeProbe.Success) {
-            $nodeVer = ($nodeProbe.StdOut).Trim()
-            Write-Host "  Detected Node.js runtime: $nodeVer"
-        } else {
-            # Let launcher.py auto-install the portable Node.js runtime into .onx\node
-            Write-Host "  Node.js not detected on system PATH (launcher will manage portable runtime)."
+            if ($env:ONX_DEBUG -eq '1') {
+                $nodeVer = ($nodeProbe.StdOut).Trim()
+                Write-Host "  Detected Node.js runtime: $nodeVer"
+            }
         }
     }
 
@@ -380,15 +422,15 @@ function Start-OnxBootstrap {
     # ──────────────────────────────────────────────────────────────────────
     $preflight = Join-Path $scriptDir 'scripts\preflight.py'
     if (Test-Path $preflight) {
-        Write-Host '  Running preflight...'
         $preflightArgs = @($pySubArg) + @($preflight) + @($args) | Where-Object { $_ -ne $null -and $_ -ne '' }
-        $res = Invoke-PythonCandidateProbe -Command $pyBin -Arguments $preflightArgs -TimeoutMs 30000 -StreamOutput
+        $streamPreflight = ($env:ONX_DEBUG -eq '1')
+        $res = Invoke-PythonCandidateProbe -Command $pyBin -Arguments $preflightArgs -TimeoutMs 30000 -StreamOutput:$streamPreflight
         if (-not $res.Success) {
             if ($res.TimedOut) {
                 Write-Warning "  [Preflight Warning] Preflight timed out after $($res.DurationMs)ms. Continuing startup..."
             } elseif ($res.NotFound) {
                 Write-Warning "  [Preflight Warning] Python interpreter '$pyBin' not found for preflight. Continuing startup..."
-            } else {
+            } elseif ($env:ONX_DEBUG -eq '1') {
                 Write-Warning "  [Preflight Warning] Preflight exited with non-zero code $($res.ExitCode). Continuing startup..."
             }
         }
