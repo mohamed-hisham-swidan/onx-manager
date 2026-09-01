@@ -67,11 +67,6 @@ backend/data/run/
 *.lock
 
 # ──────────────────────────────────────────────
-# AI bootstrap entry point (auto-generated)
-# ──────────────────────────────────────────────
-AGENTS.md
-
-# ──────────────────────────────────────────────
 # OS / Editor
 # ──────────────────────────────────────────────
 .DS_Store
@@ -91,10 +86,12 @@ Thumbs.db
 # ──────────────────────────────────────────────
 # AI agent / session state (locks + bootstrap cache)
 # ──────────────────────────────────────────────
-# NOTE: .ai/ itself IS tracked (contains AI_RULES, TOKEN_POLICY, PROJECT_STATE)
-# Only ignore runtime lock files and generated bootstrap cache
+# NOTE: .ai/ itself IS tracked (README.md, STATE.json, RULES/, archive/).
+# AGENTS.md at repo root is also tracked — every AI agent needs it on clone.
+# .ai/STATE.json IS committed and kept current (unlike the old
+# .ai/CURRENT_STATE.json generated-cache file it replaced, which is gone —
+# its last snapshot is preserved as history in .ai/archive/CURRENT_STATE.json.old).
 .ai/locks/*.lock
-.ai/CURRENT_STATE.json
 
 # ──────────────────────────────────────────────
 # Coverage / Test Artifacts
