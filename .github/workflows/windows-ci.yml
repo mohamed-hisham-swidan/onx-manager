@@ -1,0 +1,103 @@
+name: windows-ci
+
+# Additive Windows coverage. Does NOT replace or modify the existing
+# ubuntu-latest-only workflows (backend-tests.yml, backend-version-ci.yml,
+# frontend-ci.yml, route-permission-ci.yml, verification-cadence.yml) —
+# those keep running exactly as before. This workflow closes the Windows
+# coverage gap identified by RECON on 2026-09-01: every existing workflow
+# ran on ubuntu-latest only, so nothing was ever verified against a real
+# Windows runner (the test suite mocks sys.platform=="win32" on Linux,
+# which is not the same as actually running on Windows).
+#
+# Trigger is broad (push/PR to master) for now rather than mirroring each
+# original workflow's path-based trigger — safer starting point given zero
+# prior Windows coverage. Consider splitting to match the per-concern
+# triggers once this is confirmed stable, as a follow-up D0/D1 decision.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+jobs:
+  backend-windows:
+    name: Backend tests + checks (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Run backend test suite
+        working-directory: backend
+        run: python -m pytest -q
+
+      - name: check-db-revision
+        working-directory: backend
+        run: python ../scripts/check-db-revision
+
+      - name: check-ruff-baseline
+        working-directory: backend
+        run: python ../scripts/check-ruff-baseline
+
+      - name: check-version-propagation
+        working-directory: backend
+        run: python ../scripts/check-version-propagation
+
+      - name: check-route-contract
+        working-directory: backend
+        run: python ../scripts/check-route-contract
+
+      - name: check-ps1-bom
+        run: python scripts/check-ps1-bom
+
+  frontend-windows:
+    name: Frontend checks (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Test
+        working-directory: frontend
+        run: npm run test
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build

@@ -11,7 +11,7 @@ Authoritative scripts for quality gates, preflight cleanup, and development task
 | `scripts/check-ruff-baseline` | Enforces zero-regression lint gate against `scripts/ruff-baseline.json` baseline |
 | `scripts/check-route-contract` | Validates all 105 live FastAPI routes against `contracts/permissions.yaml` contract |
 | `scripts/check-ps1-bom` | Verifies all `.ps1` files contain valid UTF-8 BOM encoding |
-| `scripts/reverify` | Runs the full local CI verification cadence |
+| `scripts/reverify` / `reverify.ps1` | Runs the full local CI verification cadence (Linux / Windows) |
 
 ## Runtime & Preflight Utilities
 
@@ -20,10 +20,11 @@ Authoritative scripts for quality gates, preflight cleanup, and development task
 | `scripts/preflight.sh` | Linux / macOS | Smart preflight process reconciliation, zombie cleanup, and lock validation |
 | `scripts/preflight.py` | Cross-Platform / Windows | Python preflight runner with protected PID scanning and ASCII fallback |
 | `scripts/bootstrap` | Linux / macOS | One-step virtualenv creation, dependency installation, and migration runner |
+| `scripts/check` / `check.ps1` | Linux / Windows | Runs lint -> typecheck -> test |
 | `scripts/lint` | Cross-Platform | Runs `ruff check` |
 | `scripts/format` | Cross-Platform | Runs `ruff format` |
 | `scripts/typecheck` | Cross-Platform | Runs `pyright` |
-| `scripts/test` | Cross-Platform | Runs `pytest` |
+| `scripts/test` / `test.ps1` | Linux / Windows | Runs `pytest` |
 | `scripts/build` | Cross-Platform | Builds production Docker image |
 
 ## Running Quality Gates
