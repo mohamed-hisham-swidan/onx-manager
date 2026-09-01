@@ -44,7 +44,7 @@ Write-Host "  Log File  : $logFile"
 Write-Host "  Tracing   : Set-PSDebug -Trace 1 enabled"
 Write-Host "========================================" -ForegroundColor Yellow
 
-# Dot-source start.ps1 (defines Start-OnxBootstrap & Invoke-PythonCandidateProbe without running)
+# Dot-source start.ps1 (defines Start-OnxBootstrap, Invoke-OnxProcessProbe, Invoke-OnxProcessSupervised without running)
 . $startScript
 
 $transcriptStarted = $false
