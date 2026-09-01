@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -17,7 +18,7 @@ class TestFilesystemSandbox:
         with tempfile.TemporaryDirectory() as tmp:
             sandbox = FilesystemSandbox(tmp)
             resolved = sandbox.resolve_path("test.txt")
-            assert str(resolved).startswith(tmp)
+            assert resolved.resolve().is_relative_to(Path(tmp).resolve())
 
     def test_read_write_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

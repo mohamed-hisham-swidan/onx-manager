@@ -74,7 +74,7 @@ class InMemoryIdempotencyStore(IdempotencyStore):
 
     def _evict_expired(self) -> None:
         now = time.time()
-        expired = [k for k, t in self._expiry.items() if t < now]
+        expired = [k for k, t in self._expiry.items() if t <= now]
         for k in expired:
             del self._store[k]
             del self._expiry[k]

@@ -101,7 +101,7 @@ def verify_ownership(
     if cwd is not None and servers_data_dir is not None:
         try:
             common = os.path.commonpath([cwd, servers_data_dir])
-            cwd_matches = common == servers_data_dir
+            cwd_matches = common == os.path.normpath(servers_data_dir)
         except ValueError:
             pass
 

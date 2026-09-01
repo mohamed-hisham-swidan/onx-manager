@@ -2,7 +2,15 @@
 
 import os
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="preflight.sh is a POSIX bash script; not executed on Windows host",
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 PREFLIGHT_SCRIPT = PROJECT_ROOT / "scripts" / "preflight.sh"

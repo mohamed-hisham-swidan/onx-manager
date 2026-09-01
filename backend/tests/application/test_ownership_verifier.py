@@ -59,12 +59,18 @@ class TestGetProcessStartTime:
 
 
 class TestIsPidAlive:
-    @patch("app.modules.server.application.ownership_verifier.os.kill")
-    def test_alive(self, mock_kill):
+    @patch(
+        "app.modules.server.application.ownership_verifier.platform_pid_alive",
+        return_value=True,
+    )
+    def test_alive(self, mock_alive):
         assert _is_pid_alive(100) is True
 
-    @patch("app.modules.server.application.ownership_verifier.os.kill", side_effect=OSError)
-    def test_dead(self, mock_kill):
+    @patch(
+        "app.modules.server.application.ownership_verifier.platform_pid_alive",
+        return_value=False,
+    )
+    def test_dead(self, mock_alive):
         assert _is_pid_alive(100) is False
 
 

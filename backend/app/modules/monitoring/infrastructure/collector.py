@@ -13,6 +13,7 @@ from app.core.persistence.db import database
 from app.modules.monitoring.domain.aggregate import MetricPoint
 from app.modules.monitoring.infrastructure.rcon_client import (
     PersistentRCONClient,
+    _clamp_tps,
     parse_player_count,
     parse_tps,
 )
@@ -165,21 +166,21 @@ def _parse_tick_query(response: str) -> float | None:
     )
     if match:
         try:
-            return float(match.group(1))
+            return _clamp_tps(float(match.group(1)))
         except ValueError:
             pass
 
     match = re.search(r"with\s+([\d.]+)\s+ticks per second", response, re.IGNORECASE)
     if match:
         try:
-            return float(match.group(1))
+            return _clamp_tps(float(match.group(1)))
         except ValueError:
             pass
 
     match = re.search(r"tick rate:?\s*(?:is\s*)?([\d.]+)\s*per second", response, re.IGNORECASE)
     if match:
         try:
-            return float(match.group(1))
+            return _clamp_tps(float(match.group(1)))
         except ValueError:
             pass
 
@@ -202,7 +203,7 @@ def _parse_forge_tps(response: str) -> float | None:
     matches = re.findall(r"Mean TPS:\s*([\d.]+)", response)
     if matches:
         try:
-            return float(matches[0])
+            return _clamp_tps(float(matches[0]))
         except ValueError:
             pass
 
@@ -210,7 +211,7 @@ def _parse_forge_tps(response: str) -> float | None:
     matches = re.findall(r"([\d.]+)\s*TPS", response, re.IGNORECASE)
     if matches:
         try:
-            return float(matches[0])
+            return _clamp_tps(float(matches[0]))
         except ValueError:
             pass
 

@@ -1,5 +1,7 @@
 import pytest
 
+from app.modules.auth.infrastructure.models import UserModel  # noqa: F401
+from app.modules.server.infrastructure.models import ServerModel  # noqa: F401
 from app.tasks.base import TaskQueue, TaskStatus
 from app.tasks.scheduler import Scheduler
 
@@ -97,5 +99,33 @@ async def test_scheduler_add_interval_and_cron_job() -> None:
 
     assert scheduler._aps is not None
     assert len(scheduler._aps.get_jobs()) == 2
+
+    # Verify misfire_grace_time is 60 on all scheduled jobs
+    for job in scheduler._aps.get_jobs():
+        assert job.misfire_grace_time == 60
+
+    await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_misfire_grace_time_allows_delayed_job() -> None:
+    """Verify jobs with misfire_grace_time=60 absorb delays > 1s without misfiring."""
+    factory = FakeSessionFactory()
+    scheduler = Scheduler(factory)
+    queue = FakeQueue()
+    scheduler.set_task_queue(queue)
+    await scheduler.start()
+
+    await scheduler.add_job(
+        name="test_grace_job",
+        cron_expression="0 * * * *",
+        task_name="run_backup_task",
+    )
+
+    job = scheduler._aps.get_job(list(factory._store.keys())[0])
+    assert job is not None
+    assert job.misfire_grace_time == 60
+    assert job.coalesce is True
+    assert job.max_instances == 1
 
     await scheduler.stop()

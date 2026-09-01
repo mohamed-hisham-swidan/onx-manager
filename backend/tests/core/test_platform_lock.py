@@ -21,22 +21,25 @@ class TestSetCloexecOnAllFds:
             mock_listdir.assert_not_called()
 
     def test_posix_sets_cloexec(self) -> None:
+        mock_fcntl = MagicMock()
+        mock_fcntl.fcntl.return_value = 0
         with patch("os.name", "posix"):
-            with patch("os.listdir", return_value=["0", "1", "2", "3", "invalid"]):
-                with patch("fcntl.fcntl") as mock_fcntl:
-                    mock_fcntl.return_value = 0
+            with patch.dict("sys.modules", {"fcntl": mock_fcntl}):
+                with patch("os.listdir", return_value=["0", "1", "2", "3", "invalid"]):
                     set_cloexec_on_all_fds()
                     # Only fd=3 (>2) should have fcntl called
-                    assert mock_fcntl.call_count >= 2
+                    assert mock_fcntl.fcntl.call_count >= 2
 
 
 class TestPlatformLockDispatch:
     def test_lock_posix(self) -> None:
-        with patch("sys.platform", "linux"), patch("fcntl.flock") as mock_flock:
-            import fcntl
-
-            lock_file_nonblocking(10)
-            mock_flock.assert_called_once_with(10, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        mock_fcntl = MagicMock()
+        mock_fcntl.LOCK_EX = 1
+        mock_fcntl.LOCK_NB = 2
+        with patch("sys.platform", "linux"):
+            with patch.dict("sys.modules", {"fcntl": mock_fcntl}):
+                lock_file_nonblocking(10)
+                mock_fcntl.flock.assert_called_once_with(10, 1 | 2)
 
     def test_lock_windows(self) -> None:
         mock_msvcrt = MagicMock()
@@ -49,11 +52,12 @@ class TestPlatformLockDispatch:
                     mock_msvcrt.locking.assert_called_once_with(10, 1, 1)
 
     def test_unlock_posix(self) -> None:
-        with patch("sys.platform", "linux"), patch("fcntl.flock") as mock_flock:
-            import fcntl
-
-            unlock_file(10)
-            mock_flock.assert_called_once_with(10, fcntl.LOCK_UN)
+        mock_fcntl = MagicMock()
+        mock_fcntl.LOCK_UN = 8
+        with patch("sys.platform", "linux"):
+            with patch.dict("sys.modules", {"fcntl": mock_fcntl}):
+                unlock_file(10)
+                mock_fcntl.flock.assert_called_once_with(10, 8)
 
     def test_unlock_windows(self) -> None:
         mock_msvcrt = MagicMock()
@@ -66,8 +70,10 @@ class TestPlatformLockDispatch:
                     mock_msvcrt.locking.assert_called_once_with(10, 2, 1)
 
     def test_unlock_suppresses_os_error(self) -> None:
+        mock_fcntl = MagicMock()
+        mock_fcntl.flock.side_effect = OSError("Bad file descriptor")
         with patch("sys.platform", "linux"):
-            with patch("fcntl.flock", side_effect=OSError("Bad file descriptor")):
+            with patch.dict("sys.modules", {"fcntl": mock_fcntl}):
                 # Should not raise
                 unlock_file(999)
 

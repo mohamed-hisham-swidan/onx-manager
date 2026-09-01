@@ -83,7 +83,7 @@ class SQLHealthRepository(HealthRepository):
         stmt = (
             select(HealthTimelineModel)
             .where(HealthTimelineModel.server_id == server_id)
-            .order_by(HealthTimelineModel.entry_timestamp.desc())
+            .order_by(HealthTimelineModel.entry_timestamp.desc(), HealthTimelineModel.id.desc())
             .limit(limit)
         )
         if since:
@@ -99,7 +99,7 @@ class SQLHealthRepository(HealthRepository):
         stmt = (
             select(HealthTimelineModel)
             .where(HealthTimelineModel.new_status == status)
-            .order_by(HealthTimelineModel.entry_timestamp.desc())
+            .order_by(HealthTimelineModel.entry_timestamp.desc(), HealthTimelineModel.id.desc())
             .limit(limit)
         )
         result = await self._session.execute(stmt)

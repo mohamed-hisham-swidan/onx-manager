@@ -97,9 +97,9 @@ class TestLogBasedEvidenceCollector:
         assert bundle.crash_reports == []
         assert bundle.collection_errors == []
 
-    async def test_system_snapshot_contains_disk_info(self):
+    async def test_system_snapshot_contains_disk_info(self, tmp_path: Path):
         collector = LogBasedEvidenceCollector()
-        bundle = await collector.collect("srv-1", "/tmp")
+        bundle = await collector.collect("srv-1", str(tmp_path))
         snapshot = bundle.system_snapshot
 
         assert "disk_total_gb" in snapshot
@@ -119,9 +119,9 @@ class TestLogBasedEvidenceCollector:
 
         assert len(bundle.crash_reports) == collector.MAX_CRASH_REPORTS
 
-    async def test_captures_host_environment_via_scanner(self):
+    async def test_captures_host_environment_via_scanner(self, tmp_path: Path):
         collector = LogBasedEvidenceCollector()
-        bundle = await collector.collect("srv-1", "/tmp")
+        bundle = await collector.collect("srv-1", str(tmp_path))
         snapshot = bundle.system_snapshot
 
         assert "host_environment" in snapshot

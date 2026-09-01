@@ -3,6 +3,7 @@ import os
 import pytest
 
 from app.core.config import AppSettings, ConfigFactory, ServerConfig
+from app.modules.server.domain.value_objects import default_provider_for_platform
 
 
 class TestAppSettings:
@@ -34,7 +35,7 @@ class TestServerConfig:
         assert config.minecraft_version == "1.20.4"
         assert config.memory_min_mb == 1024
         assert config.port == 25565
-        assert config.provider == "local"
+        assert config.provider == default_provider_for_platform()
 
     def test_frozen_immutable(self) -> None:
         config = ServerConfig(server_id="srv-1", name="test")

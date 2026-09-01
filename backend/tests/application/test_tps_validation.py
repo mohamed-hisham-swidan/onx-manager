@@ -6,8 +6,13 @@ import pytest
 
 from app.core.event_bus import EventBus
 from app.core.persistence.db import database
+from app.modules.auth.infrastructure.models import UserModel  # noqa: F401
 from app.modules.monitoring.domain.aggregate import MetricPoint
-from app.modules.monitoring.infrastructure.collector import MetricsCollector
+from app.modules.monitoring.infrastructure.collector import (
+    MetricsCollector,
+    _parse_forge_tps,
+    _parse_tick_query,
+)
 from app.modules.monitoring.infrastructure.rcon_client import parse_tps
 from app.modules.monitoring.infrastructure.repository import SQLMetricRepository
 from app.modules.server.domain.aggregate import Server
@@ -18,6 +23,7 @@ from app.modules.server.domain.value_objects import (
     ServerProperties,
     ServerType,
 )
+from app.modules.server.infrastructure.models import ServerModel  # noqa: F401
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
@@ -30,6 +36,11 @@ class TestParseTpsClamping:
 
     def test_parse_tps_overshoot_1m_clamped(self) -> None:
         raw = "TPS from last 1m, 5m, 15m: 20.05, 20.0, 20.0"
+        parsed = parse_tps(raw)
+        assert parsed == 20.0
+
+    def test_parse_tps_overclocked_30_clamped(self) -> None:
+        raw = "TPS from last 5s: 30.0, 30.0, 30.0"
         parsed = parse_tps(raw)
         assert parsed == 20.0
 
@@ -57,6 +68,29 @@ class TestParseTpsClamping:
         raw = "Average: -2.5"
         parsed = parse_tps(raw)
         assert parsed == -2.5
+
+    def test_parse_tick_query_overshoot_20_1_clamped(self) -> None:
+        raw = (
+            "The target tick rate is 20.0 per second. The average tick time is 0.1ms "
+            "(target 50.0ms), with 20.1 ticks per second (100% of target)."
+        )
+        parsed = _parse_tick_query(raw)
+        assert parsed == 20.0
+
+    def test_parse_tick_query_overclocked_30_clamped(self) -> None:
+        raw = "Target tick rate: 30.0 per second."
+        parsed = _parse_tick_query(raw)
+        assert parsed == 20.0
+
+    def test_parse_forge_tps_overshoot_20_1_clamped(self) -> None:
+        raw = "Dim minecraft:overworld: Mean tick time: 0.109 ms. Mean TPS: 20.100"
+        parsed = _parse_forge_tps(raw)
+        assert parsed == 20.0
+
+    def test_parse_forge_tps_overclocked_30_clamped(self) -> None:
+        raw = "Overworld: 30.000 TPS (0.140 ms/tick)"
+        parsed = _parse_forge_tps(raw)
+        assert parsed == 20.0
 
 
 class TestMetricPointTpsValidation:

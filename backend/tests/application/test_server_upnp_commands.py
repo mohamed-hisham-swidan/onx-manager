@@ -77,8 +77,8 @@ SAFE_SENTINEL_PID = 99999
 def _mock_os_signals():
     with (
         patch("os.kill") as mock_kill,
-        patch("os.killpg") as mock_killpg,
-        patch("os.getpgid", return_value=SAFE_SENTINEL_PID),
+        patch("os.killpg", create=True) as mock_killpg,
+        patch("os.getpgid", return_value=SAFE_SENTINEL_PID, create=True),
     ):
         yield mock_kill, mock_killpg
 

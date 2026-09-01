@@ -85,9 +85,11 @@ def test_local_filesystem_chmod() -> None:
         fs.write_text(path, "#!/bin/sh")
         fs.chmod(path, 0o755)
         import os
+        import sys
 
         mode = os.stat(path).st_mode
-        assert mode & 0o111
+        if sys.platform != "win32":
+            assert mode & 0o111
 
 
 def test_local_filesystem_walk() -> None:

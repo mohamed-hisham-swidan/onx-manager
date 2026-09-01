@@ -81,8 +81,8 @@ def _mock_playit_subprocess() -> None:
     with (
         patch("asyncio.create_subprocess_exec", return_value=mock_proc),
         patch("os.kill"),
-        patch("os.killpg"),
-        patch("os.getpgid", return_value=99999),
+        patch("os.killpg", create=True),
+        patch("os.getpgid", return_value=99999, create=True),
     ):
         yield
 

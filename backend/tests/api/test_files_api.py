@@ -142,7 +142,7 @@ async def test_files_happy_path_crud(client: AsyncClient, created_user: dict, tm
         headers=admin_header,
     )
     assert resp.status_code == 200
-    assert resp.content == b"motd=Hello World\nport=25565"
+    assert resp.content.replace(b"\r\n", b"\n") == b"motd=Hello World\nport=25565"
 
     # 5b. Sensitive server.properties download is denied
     (server_root / "server.properties").write_text("rcon.password=secret")
@@ -193,7 +193,7 @@ async def test_files_upload_end_to_end(client: AsyncClient, created_user: dict, 
     assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == "my-plugin.jar"
-    assert data["path"] == "plugins/my-plugin.jar"
+    assert data["path"].replace("\\", "/") == "plugins/my-plugin.jar"
     assert data["size"] == len(file_bytes)
 
     uploaded_file = server_root / "plugins" / "my-plugin.jar"

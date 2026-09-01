@@ -62,7 +62,8 @@ class LocalWindowsProvider(ServerProvider):
     async def _verify_port_free(self, port: int, server_id: str) -> None:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if sys.platform != "win32":
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("", port))
             sock.close()
         except OSError as err:
@@ -520,4 +521,4 @@ class LocalWindowsProvider(ServerProvider):
 
 
 def is_windows() -> bool:
-    return sys.platform == "win32" or platform.system() == "Windows"
+    return sys.platform == "win32"

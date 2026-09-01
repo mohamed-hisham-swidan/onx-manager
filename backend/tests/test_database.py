@@ -3,6 +3,8 @@ from sqlalchemy import Column, Integer, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistence.base import Base, BaseRepository, TimestampMixin
+from app.modules.auth.infrastructure.models import UserModel  # noqa: F401
+from app.modules.server.infrastructure.models import ServerModel  # noqa: F401
 
 
 class SampleModel(TimestampMixin, Base):
@@ -53,3 +55,33 @@ async def db_session() -> AsyncSession:
         yield session
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+class TestDatabaseEngineLifecycle:
+    async def test_database_engine_sqlite_pool_pre_ping_and_close(self) -> None:
+        from app.core.config import AppSettings
+        from app.core.persistence.db import DatabaseEngine
+
+        settings = AppSettings(database_url="sqlite+aiosqlite:///:memory:")
+        db = DatabaseEngine(settings)
+        db.init()
+
+        assert db.engine is not None
+        assert db.engine.pool is not None
+
+        # Verify session can be created and queried
+        async with db.session_factory() as session:
+            assert session.is_active
+
+        # Verify clean disposal on shutdown/close without raising
+        await db.close()
+        assert db._engine is None
+        assert db._session_factory is None
+
+    async def test_database_engine_close_idempotent(self) -> None:
+        from app.core.persistence.db import DatabaseEngine
+
+        db = DatabaseEngine()
+        # Closing an uninitialized engine should not raise
+        await db.close()

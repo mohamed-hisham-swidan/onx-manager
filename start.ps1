@@ -11,8 +11,27 @@
       4. Preflight cleanup via scripts/preflight.py
       5. Delegation to launcher.py
 
-    Design notes (Revision 5 — Task-based stream draining for PowerShell 5.1):
-      Fix #1: Candidate detection uses Invoke-PythonCandidateProbe with
+    Design notes (Revision 6 — Hardened Process-Execution Boundary):
+      Spec: SPEC-2026-09-01-WIN-LAUNCHER-01
+
+      New-OnxProcessStartInfo: Shared PSI factory — eliminates duplicated
+              process configuration logic; enforces RedirectStandardInput=$true,
+              RedirectStandardOutput/Error=$true, UseShellExecute=$false,
+              PYTHONUNBUFFERED=1, PYTHONIOENCODING=utf-8, and
+              CommandLineToArgvW argument escaping on every invocation.
+
+      Invoke-OnxProcessProbe (replaces Invoke-PythonCandidateProbe):
+              Bounded, buffered execution for short-lived processes (interpreter
+              probes, Node probe, preflight). Enforces mandatory stdin lockdown,
+              TimeoutMs hard limit, and process-tree kill via taskkill /F /T /PID
+              on timeout (not only $proc.Kill(), which only kills the direct PID).
+              Returns a full standardised result hashtable per spec section 7.
+
+      Invoke-OnxProcessSupervised (replaces Invoke-OnxPythonProcess):
+              Long-running launcher.py supervisor. Shares New-OnxProcessStartInfo;
+              main-thread async ReadLineAsync() pump; graceful Ctrl+C tree cleanup.
+
+      Fix #1: Candidate detection uses Invoke-OnxProcessProbe with
               tokenized ProcessStartInfo arguments, locked OS-level stdin to
               prevent REPL hangs, bounded 3s timeout, and diagnostic reporting.
       Fix #2: Installer argument array named $installerArgs (not $args) so
@@ -20,7 +39,7 @@
       Fix #3: Per-user fallback (InstallAllUsers=0) actually implemented when
               system-wide install fails, with both exit codes in error message.
       Fix #4: scripts/preflight.py uses Get-CimInstance + ctypes (no wmic).
-      Fix #5: Long-running launcher.py executed via Invoke-OnxPythonProcess
+      Fix #5: Long-running launcher.py executed via Invoke-OnxProcessSupervised
               (System.Diagnostics.Process with stdin closed, Task-based live
               stdout/stderr streaming avoiding threadpool runspace crashes,
               unbuffered output via PYTHONUNBUFFERED=1, Ctrl+C tree cleanup,
@@ -68,8 +87,12 @@ if ($IsWindows -or $env:OS -eq 'Windows_NT') {
 
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Definition) { Split-Path -Parent $MyInvocation.MyCommand.Definition } else { (Get-Location).Path }
 
-# Dedicated argument escaping helper for Windows CLI (CommandLineToArgvW convention)
-# Handles: spaces/tabs, inner quotes, trailing backslashes, and empty strings.
+# ------------------------------------------------------------------------------
+# Format-OnxProcessArgument
+# Dedicated argument escaping helper for Windows CLI (CommandLineToArgvW
+# convention). Handles: spaces/tabs, inner quotes, trailing backslashes, and
+# empty strings.
+# ------------------------------------------------------------------------------
 function Format-OnxProcessArgument {
     param([string]$Arg)
     if ([string]::IsNullOrEmpty($Arg)) {
@@ -91,44 +114,122 @@ function Format-OnxProcessArgument {
     return '"' + $escaped + '"'
 }
 
-# Subprocess probe helper: closes stdin to prevent interactive REPL hangs,
-# enforces a bounded timeout, and captures diagnostic exit information.
-function Invoke-PythonCandidateProbe {
+# ------------------------------------------------------------------------------
+# New-OnxProcessStartInfo
+# Shared PSI factory -- builds a standardised System.Diagnostics.ProcessStartInfo
+# object with mandatory stdin/stdout/stderr redirection, UseShellExecute=$false,
+# PYTHONUNBUFFERED=1, PYTHONIOENCODING=utf-8, and CommandLineToArgvW argument
+# escaping. All subprocess creation in this launcher MUST go through this factory.
+# ------------------------------------------------------------------------------
+function New-OnxProcessStartInfo {
     param(
         [Parameter(Mandatory=$true)][string]$Command,
         [Parameter(Mandatory=$true)][string[]]$Arguments,
-        [int]$TimeoutMs = 3000,
-        [switch]$StreamOutput
+        [string]$WorkingDirectory = $scriptDir,
+        [switch]$CreateNoWindow
     )
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+
+    [System.Diagnostics.ProcessStartInfo]$psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName               = $Command
+    $psi.WorkingDirectory       = $WorkingDirectory
     $psi.RedirectStandardInput  = $true
-    $psi.RedirectStandardOutput = if ($StreamOutput) { $false } else { $true }
-    $psi.RedirectStandardError  = if ($StreamOutput) { $false } else { $true }
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
     $psi.UseShellExecute        = $false
-    $psi.CreateNoWindow         = if ($StreamOutput) { $false } else { $true }
+    $psi.CreateNoWindow         = if ($CreateNoWindow) { $true } else { $false }
     $psi.EnvironmentVariables['PYTHONUNBUFFERED'] = '1'
     $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
 
     $escapedArgs = $Arguments | ForEach-Object { Format-OnxProcessArgument $_ }
     $psi.Arguments = [string]::Join(' ', $escapedArgs)
 
-    $proc = [System.Diagnostics.Process]::new()
+    return $psi
+}
+
+# ------------------------------------------------------------------------------
+# Invoke-OnxProcessProbe
+# Bounded, buffered execution for short-lived subprocesses (interpreter candidate
+# probes, Node probe, preflight). Mandatory stdin lockdown, hard TimeoutMs limit,
+# process-tree kill via taskkill /F /T /PID on timeout (reaps orphaned children
+# such as py.exe spawning python.exe). Returns a standardised result hashtable
+# per spec section 7.
+# ------------------------------------------------------------------------------
+function Invoke-OnxProcessProbe {
+    param(
+        [Parameter(Mandatory=$true)][string]$Command,
+        [Parameter(Mandatory=$true)][string[]]$Arguments,
+        [int]$TimeoutMs = 3000,
+        [string]$WorkingDirectory = $scriptDir,
+        [switch]$StreamOutput
+    )
+
+    [System.Diagnostics.ProcessStartInfo]$psi = New-OnxProcessStartInfo `
+        -Command $Command `
+        -Arguments $Arguments `
+        -WorkingDirectory $WorkingDirectory `
+        -CreateNoWindow
+
+    # When streaming is requested we still keep stdin redirected (mandatory
+    # lockdown) but allow stdout/stderr to flow directly to the console.
+    if ($StreamOutput) {
+        $psi.RedirectStandardOutput = $false
+        $psi.RedirectStandardError  = $false
+        $psi.CreateNoWindow         = $false
+    }
+
+    if ($env:ONX_DEBUG -eq '1') {
+        Write-Host "  [Probe] executable:        $Command" -ForegroundColor Cyan
+        Write-Host "  [Probe] arguments:         $($psi.Arguments)" -ForegroundColor Cyan
+        Write-Host "  [Probe] working directory: $WorkingDirectory" -ForegroundColor Cyan
+    }
+
+    [System.Diagnostics.Process]$proc = [System.Diagnostics.Process]::new()
     $proc.StartInfo = $psi
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    [System.Diagnostics.Stopwatch]$sw = [System.Diagnostics.Stopwatch]::StartNew()
 
     try {
         if (-not $proc.Start()) {
-            return @{ Success=$false; ExitCode=-1; TimedOut=$false; NotFound=$false; RawCmd="$Command $($psi.Arguments)"; StdErr='Failed to start process' }
+            return @{
+                Success    = $false
+                ExitCode   = -1
+                TimedOut   = $false
+                NotFound   = $false
+                DurationMs = $sw.ElapsedMilliseconds
+                StdOut     = ''
+                StdErr     = 'Failed to start process'
+                RawCmd     = "$Command $($psi.Arguments)"
+            }
         }
     } catch [System.ComponentModel.Win32Exception] {
-        return @{ Success=$false; ExitCode=-1; TimedOut=$false; NotFound=$true; RawCmd="$Command $($psi.Arguments)"; StdErr=$_.Exception.Message }
+        return @{
+            Success    = $false
+            ExitCode   = -1
+            TimedOut   = $false
+            NotFound   = $true
+            DurationMs = $sw.ElapsedMilliseconds
+            StdOut     = ''
+            StdErr     = $_.Exception.Message
+            RawCmd     = "$Command $($psi.Arguments)"
+        }
     } catch {
-        return @{ Success=$false; ExitCode=-1; TimedOut=$false; NotFound=$false; RawCmd="$Command $($psi.Arguments)"; StdErr=$_.Exception.Message }
+        return @{
+            Success    = $false
+            ExitCode   = -1
+            TimedOut   = $false
+            NotFound   = $false
+            DurationMs = $sw.ElapsedMilliseconds
+            StdOut     = ''
+            StdErr     = $_.Exception.Message
+            RawCmd     = "$Command $($psi.Arguments)"
+        }
     }
 
-    # Close stdin immediately at the OS level — child gets instant EOF,
-    # cannot ever block waiting on an interactive prompt of any kind.
+    if ($env:ONX_DEBUG -eq '1') {
+        Write-Host "  [Probe] PID: $($proc.Id)" -ForegroundColor Cyan
+    }
+
+    # Mandatory OS-level stdin lockdown -- child receives immediate EOF;
+    # it cannot block waiting on an interactive prompt of any kind.
     $proc.StandardInput.Close()
 
     $stdoutTask = $null
@@ -142,8 +243,20 @@ function Invoke-PythonCandidateProbe {
     $sw.Stop()
 
     if (-not $completed) {
+        # Process-tree kill: terminate the entire tree rooted at the spawned PID
+        # so orphaned child processes (e.g. py.exe spawning python.exe) are reaped.
+        try { & taskkill /F /T /PID $proc.Id 2>$null | Out-Null } catch {}
         try { $proc.Kill() } catch {}
-        return @{ Success=$false; ExitCode=-999; TimedOut=$true; NotFound=$false; DurationMs=$sw.ElapsedMilliseconds; RawCmd="$Command $($psi.Arguments)"; StdErr="Timed out after ${TimeoutMs}ms" }
+        return @{
+            Success    = $false
+            ExitCode   = -999
+            TimedOut   = $true
+            NotFound   = $false
+            DurationMs = $sw.ElapsedMilliseconds
+            StdOut     = ''
+            StdErr     = "Timed out after ${TimeoutMs}ms"
+            RawCmd     = "$Command $($psi.Arguments)"
+        }
     }
 
     $outText = ''
@@ -165,37 +278,35 @@ function Invoke-PythonCandidateProbe {
     }
 }
 
-# Dedicated process execution helper for long-running launcher.py
-function Invoke-OnxPythonProcess {
+# ------------------------------------------------------------------------------
+# Invoke-OnxProcessSupervised
+# Long-running launcher.py supervisor. Shares New-OnxProcessStartInfo factory.
+# Main-thread async ReadLineAsync() pump provides live stdout/stderr streaming
+# without PowerShell 5.1 threadpool runspace crashes. Graceful Ctrl+C cleanup
+# terminates the full process tree via taskkill /F /T /PID.
+# ------------------------------------------------------------------------------
+function Invoke-OnxProcessSupervised {
     param(
         [Parameter(Mandatory=$true)][string]$Command,
         [Parameter(Mandatory=$true)][string[]]$Arguments,
         [string]$WorkingDirectory = $scriptDir
     )
 
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName               = $Command
-    $psi.WorkingDirectory       = $WorkingDirectory
-    $psi.RedirectStandardInput  = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError  = $true
-    $psi.UseShellExecute        = $false
-    $psi.CreateNoWindow         = $true
-    $psi.EnvironmentVariables['PYTHONUNBUFFERED'] = '1'
-    $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
-
-    $escapedArgs = $Arguments | ForEach-Object { Format-OnxProcessArgument $_ }
-    $psi.Arguments = [string]::Join(' ', $escapedArgs)
+    [System.Diagnostics.ProcessStartInfo]$psi = New-OnxProcessStartInfo `
+        -Command $Command `
+        -Arguments $Arguments `
+        -WorkingDirectory $WorkingDirectory `
+        -CreateNoWindow
 
     if ($env:ONX_DEBUG -eq '1') {
-        Write-Host "  [Launcher] executable: $Command" -ForegroundColor Cyan
-        Write-Host "  [Launcher] arguments: $($psi.Arguments)" -ForegroundColor Cyan
+        Write-Host "  [Launcher] executable:        $Command" -ForegroundColor Cyan
+        Write-Host "  [Launcher] arguments:         $($psi.Arguments)" -ForegroundColor Cyan
         Write-Host "  [Launcher] working directory: $WorkingDirectory" -ForegroundColor Cyan
     }
 
-    $proc = [System.Diagnostics.Process]::new()
+    [System.Diagnostics.Process]$proc = [System.Diagnostics.Process]::new()
     $proc.StartInfo = $psi
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    [System.Diagnostics.Stopwatch]$sw = [System.Diagnostics.Stopwatch]::StartNew()
 
     try {
         if (-not $proc.Start()) {
@@ -211,8 +322,8 @@ function Invoke-OnxPythonProcess {
         Write-Host "  [Launcher] PID: $($proc.Id)" -ForegroundColor Cyan
     }
 
-    # Close stdin immediately — launcher.py does not read from stdin,
-    # preventing any accidental interactive prompt or REPL hang.
+    # Mandatory OS-level stdin lockdown -- launcher.py does not read from stdin;
+    # prevents any accidental interactive prompt or REPL hang.
     $proc.StandardInput.Close()
 
     $outReader = $proc.StandardOutput
@@ -221,7 +332,8 @@ function Invoke-OnxPythonProcess {
     $errTask   = $errReader.ReadLineAsync()
 
     try {
-        # Stream stdout and stderr live on the main thread while process runs
+        # Stream stdout and stderr live on the main thread while process runs.
+        # Task-based ReadLineAsync() avoids PowerShell 5.1 threadpool runspace bug.
         while ($outTask -ne $null -or $errTask -ne $null) {
             $didWork = $false
 
@@ -255,14 +367,13 @@ function Invoke-OnxPythonProcess {
         # Ensure process has fully exited
         $proc.WaitForExit()
     } finally {
-        # If interrupted (e.g. Ctrl+C), allow child graceful exit grace window or clean up process tree
+        # If interrupted (e.g. Ctrl+C), allow child graceful exit grace window
+        # then terminate the full process tree to prevent orphaned processes.
         if (-not $proc.HasExited) {
             $exited = $proc.WaitForExit(3000)
             if (-not $exited -and -not $proc.HasExited) {
                 Write-Warning "  [Launcher] Process PID $($proc.Id) did not exit cleanly; terminating process tree..."
-                try {
-                    & taskkill /F /T /PID $proc.Id 2>$null | Out-Null
-                } catch {}
+                try { & taskkill /F /T /PID $proc.Id 2>$null | Out-Null } catch {}
                 try { $proc.Kill() } catch {}
             }
         }
@@ -272,7 +383,7 @@ function Invoke-OnxPythonProcess {
     $exitCode = $proc.ExitCode
     if ($env:ONX_DEBUG -eq '1') {
         Write-Host "  [Launcher] exit code: $exitCode" -ForegroundColor Cyan
-        Write-Host "  [Launcher] duration: $($sw.ElapsedMilliseconds)ms" -ForegroundColor Cyan
+        Write-Host "  [Launcher] duration:  $($sw.ElapsedMilliseconds)ms" -ForegroundColor Cyan
     }
 
     return $exitCode
@@ -281,30 +392,30 @@ function Invoke-OnxPythonProcess {
 function Start-OnxBootstrap {
     if ($env:ONX_DEBUG -eq '1') {
         Write-Host "========================================" -ForegroundColor Cyan
-        Write-Host "  onx-manager — Windows Launcher" -ForegroundColor Cyan
+        Write-Host "  onx-manager -- Windows Launcher" -ForegroundColor Cyan
         Write-Host "========================================" -ForegroundColor Cyan
         Write-Host "  Directory: $scriptDir"
     }
 
-    # ──────────────────────────────────────────────────────────────────────
+    # ----------------------------------------------------------------------
     # 1. Fast path: pre-built onx.exe
-    # ──────────────────────────────────────────────────────────────────────
+    # ----------------------------------------------------------------------
     $onxExe = Join-Path $scriptDir 'onx.exe'
     if (Test-Path $onxExe) {
         if ($env:ONX_DEBUG -eq '1') {
-            Write-Host "  Found pre-built onx.exe — launching directly..."
+            Write-Host "  Found pre-built onx.exe -- launching directly..."
         }
         & $onxExe @args
         return $LASTEXITCODE
     }
 
-    # ──────────────────────────────────────────────────────────────────────
+    # ----------------------------------------------------------------------
     # 2. Resolve Python interpreter
-    # ──────────────────────────────────────────────────────────────────────
+    # ----------------------------------------------------------------------
     $venvPy = Join-Path $scriptDir 'backend\.venv\Scripts\python.exe'
 
     if (Test-Path $venvPy) {
-        # Venv already exists — use it directly (no sub-arg needed)
+        # Venv already exists -- use it directly (no sub-arg needed)
         if ($env:ONX_DEBUG -eq '1') {
             Write-Host "  Using virtual environment: $venvPy"
         }
@@ -324,7 +435,7 @@ function Start-OnxBootstrap {
         $foundSubArg = ''
 
         foreach ($c in $candidates) {
-            $res = Invoke-PythonCandidateProbe -Command $c.Cmd -Arguments $c.Args -TimeoutMs 3000
+            $res = Invoke-OnxProcessProbe -Command $c.Cmd -Arguments $c.Args -TimeoutMs 3000
             if ($res.Success) {
                 $foundCmd    = $c.Cmd
                 $foundSubArg = $c.SubArg
@@ -335,15 +446,15 @@ function Start-OnxBootstrap {
             } elseif ($res.TimedOut) {
                 Write-Warning "  [Probe Timeout] Candidate '$($c.Name)' timed out after $($res.DurationMs)ms (Cmd: $($res.RawCmd)). Skipped."
             } elseif ($res.NotFound) {
-                # Expected — candidate not on PATH, stay quiet
+                # Expected -- candidate not on PATH, stay quiet
             } elseif ($res.ExitCode -ne 1 -and $res.ExitCode -ne 103) {
                 Write-Warning "  [Probe Warning] Candidate '$($c.Name)' exited with unexpected code $($res.ExitCode) (Cmd: $($res.RawCmd); Stderr: $($res.StdErr))."
             }
         }
 
-        # ──────────────────────────────────────────────────────────────────
+        # ----------------------------------------------------------------------
         # 3. Auto-install Python if nothing found
-        # ──────────────────────────────────────────────────────────────────
+        # ----------------------------------------------------------------------
         if (-not $foundCmd) {
             Write-Warning 'Python 3.12+ not found on PATH. Attempting auto-install...'
 
@@ -392,15 +503,15 @@ function Start-OnxBootstrap {
         $pyBin    = $foundCmd
         $pySubArg = if ($foundSubArg) { @($foundSubArg) } else { @() }
 
-        # ──────────────────────────────────────────────────────────────────
+        # ----------------------------------------------------------------------
         # 3b. Probe for Node.js 18+ and npm
-        # ──────────────────────────────────────────────────────────────────
+        # ----------------------------------------------------------------------
         $localNode = Join-Path $scriptDir '.onx\node'
         if (Test-Path (Join-Path $localNode 'node.exe')) {
             $env:Path = "$localNode;$($env:Path)"
         }
 
-        $nodeProbe = Invoke-PythonCandidateProbe -Command 'node' -Arguments @('-v') -TimeoutMs 2000
+        $nodeProbe = Invoke-OnxProcessProbe -Command 'node' -Arguments @('-v') -TimeoutMs 2000
         if ($nodeProbe.Success) {
             if ($env:ONX_DEBUG -eq '1') {
                 $nodeVer = ($nodeProbe.StdOut).Trim()
@@ -409,22 +520,22 @@ function Start-OnxBootstrap {
         }
     }
 
-    # ──────────────────────────────────────────────────────────────────────
+    # ----------------------------------------------------------------------
     # 4. Validate launcher.py exists
-    # ──────────────────────────────────────────────────────────────────────
+    # ----------------------------------------------------------------------
     $launcher = Join-Path $scriptDir 'launcher.py'
     if (-not (Test-Path $launcher)) {
         throw "launcher.py not found in $scriptDir"
     }
 
-    # ──────────────────────────────────────────────────────────────────────
-    # 5. Run preflight (best-effort — failures are warnings, not fatal)
-    # ──────────────────────────────────────────────────────────────────────
+    # ----------------------------------------------------------------------
+    # 5. Run preflight (best-effort -- failures are warnings, not fatal)
+    # ----------------------------------------------------------------------
     $preflight = Join-Path $scriptDir 'scripts\preflight.py'
     if (Test-Path $preflight) {
         $preflightArgs = @($pySubArg) + @($preflight) + @($args) | Where-Object { $_ -ne $null -and $_ -ne '' }
         $streamPreflight = ($env:ONX_DEBUG -eq '1')
-        $res = Invoke-PythonCandidateProbe -Command $pyBin -Arguments $preflightArgs -TimeoutMs 30000 -StreamOutput:$streamPreflight
+        $res = Invoke-OnxProcessProbe -Command $pyBin -Arguments $preflightArgs -TimeoutMs 30000 -StreamOutput:$streamPreflight
         if (-not $res.Success) {
             if ($res.TimedOut) {
                 Write-Warning "  [Preflight Warning] Preflight timed out after $($res.DurationMs)ms. Continuing startup..."
@@ -439,17 +550,17 @@ function Start-OnxBootstrap {
         }
     }
 
-    # ──────────────────────────────────────────────────────────────────────
+    # ----------------------------------------------------------------------
     # 6. Launch
-    # ──────────────────────────────────────────────────────────────────────
+    # ----------------------------------------------------------------------
     $launcherArgs = @($pySubArg) + @($launcher) + @($args) | Where-Object { $_ -ne $null -and $_ -ne '' }
-    $exitCode = Invoke-OnxPythonProcess -Command $pyBin -Arguments $launcherArgs -WorkingDirectory $scriptDir
+    $exitCode = Invoke-OnxProcessSupervised -Command $pyBin -Arguments $launcherArgs -WorkingDirectory $scriptDir
     return $exitCode
 }
 
-# ──────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # Entry point: if invoked directly (not dot-sourced), execute immediately
-# ──────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 if ($MyInvocation.InvocationName -ne '.') {
     $exitCode = Start-OnxBootstrap @args
     exit $exitCode

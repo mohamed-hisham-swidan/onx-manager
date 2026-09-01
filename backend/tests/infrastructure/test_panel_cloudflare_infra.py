@@ -225,7 +225,7 @@ class TestCloudflaredSupervisor:
     def _mock_os_signals(self):
         with (
             patch("os.kill", return_value=None) as mock_kill,
-            patch("os.killpg", return_value=None) as mock_killpg,
+            patch("os.killpg", return_value=None, create=True) as mock_killpg,
         ):
             yield {"kill": mock_kill, "killpg": mock_killpg}
 

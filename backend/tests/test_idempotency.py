@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from app.core.command_bus import CommandResult
@@ -60,6 +62,7 @@ class TestInMemoryIdempotencyStore:
     async def test_expiry(self) -> None:
         store = InMemoryIdempotencyStore(ttl_hours=0)
         await store.mark_completed("expired", CommandResult(success=True))
+        await asyncio.sleep(0.02)
         assert await store.is_duplicate("expired") is False
 
     async def test_multiple_keys_independent(

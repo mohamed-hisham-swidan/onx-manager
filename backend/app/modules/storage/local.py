@@ -10,7 +10,7 @@ from app.modules.storage.base import StorageBackend, StorageFileInfo, StorageRes
 
 class LocalStorage(StorageBackend):
     def __init__(self, base_path: str) -> None:
-        self._base_path = Path(base_path)
+        self._base_path = Path(base_path).resolve()
         self._base_path.mkdir(parents=True, exist_ok=True)
 
     @property
@@ -88,8 +88,9 @@ class LocalStorage(StorageBackend):
         if not full_path.exists():
             return None
         stat = full_path.stat()
+        rel_path = full_path.resolve().relative_to(self._base_path)
         return StorageFileInfo(
-            path=str(full_path.relative_to(self._base_path)),
+            path=rel_path.as_posix(),
             size_bytes=stat.st_size,
             checksum="",
             modified_at=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
@@ -98,8 +99,14 @@ class LocalStorage(StorageBackend):
 
     def _resolve(self, path: str) -> Path:
         resolved = (self._base_path / path).resolve()
-        resolved_str = str(resolved)
-        base_str = str(self._base_path.resolve())
-        if not resolved_str.startswith(base_str):
+        try:
+            is_contained = resolved.is_relative_to(self._base_path)
+        except AttributeError:
+            try:
+                resolved.relative_to(self._base_path)
+                is_contained = True
+            except ValueError:
+                is_contained = False
+        if not is_contained:
             raise ValueError(f"Path traversal detected: {path}")
         return resolved

@@ -4,7 +4,7 @@
 2026-08-31. Every claim below was verified against source code, the database,
 and a live test run.
 
-**Last verified:** 2026-08-31
+**Last verified:** 2026-09-02
 **App version (code):** `4.0.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
@@ -25,14 +25,14 @@ and a live test run.
 
 ---
 
-## 2. Test suite (measured 2026-08-31)
+## 2. Test suite (measured 2026-09-01)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **2133** |
-| Passed | **2131** |
+| Collected | **2151** |
+| Passed | **2149** |
 | Skipped | **2** |
 | Failed | **0** |
 
@@ -212,7 +212,10 @@ Classification used by `Blueprint V5`:
 | — | ~~**Invitation status case mismatch:** frontend compared `"active"`/`"consumed"` while backend returns `ACTIVE`/`USED`/`REVOKED`, so the Revoke button never rendered and status badges always fell through to the gray style~~ **Resolved 2026-08-12** — `InvitationsSection.tsx` compares uppercase enum values; `InvitationItem.use_count` matches backend `use_count` | ~~Medium~~ | ~~Bug~~ |
 | — | ~~`npm run lint` fails with pre-existing errors~~ **Resolved 2026-08-13 (B6-2)** — `eslint src/` is 0 errors / 0 warnings across the codebase; typed error handling fixed without config weakening; `frontend-ci.yml` gates on lint | ~~Medium~~ | ~~Tech debt~~ |
 | — | ~~`ruff check` reports pre-existing errors across backend; no ruff CI gate~~ **Resolved 2026-08-13 (B6-2)** — `backend/ruff-baseline.json` (1738 pre-existing violations / 42 rules) + `scripts/check-ruff-baseline` + CI step in `backend-tests.yml`; **new** violations fail CI, baseline debt remains tracked | ~~Low~~ | ~~Tech debt~~ |
-| — | ~~Backend `settings.py` router hardcodes `"version": "4.0.0"` instead of reading from live settings / AppSettings~~ **Resolved 2026-08-13 (Phase 5.2)** — `backend/app/core/version.py:get_app_version()` is the single resolver (`pyproject.toml` tomllib → `importlib.metadata` fallback → `4.0.0` last resort); `settings.py`, `setup.py`, `schemas/common.py`, `main.py`/OpenAPI, `get_system_status.py`, `update_access_mode.py` all read it | ~~Low~~ | ~~Known non-blocking~~ |
+| — | ~~**Windows Launcher Hang:** `start.ps1` unconstrained Python invocation with open stdin caused REPL interactive hangs~~ **Resolved 2026-09-01 (SPEC-2026-09-01-WIN-LAUNCHER-01)** — `New-OnxProcessStartInfo` (stdin closed) + `Invoke-OnxProcessProbe` (15s timeout, taskkill /F /T) + UTF-8 BOM gate | ~~Critical~~ | ~~Bug (Lane A)~~ |
+| — | ~~**TPS Validation & Scheduler Misfires:** RCON collector crashed on >20.0 TPS overshoots; scheduler dropped jobs under 1s I/O bursts; SQLite lacked connection pre-ping~~ **Resolved 2026-09-01 (SPEC-2026-09-01-BUGTRACK2-01)** — Clamped TPS at collector boundary; expanded `misfire_grace_time=60`; added `pool_pre_ping=True` | ~~Critical~~ | ~~Bug (Lane A)~~ |
+| — | ~~**Windows CI `os.killpg` Mock Resolution:** 140 test ERRORs on Windows CI due to missing `create=True` on `patch("os.killpg")`~~ **Resolved 2026-09-01 (SPEC-2026-09-01-WIN-KILLPG-01 Issue A)** — Added `mock_os_killpg` fixture in conftest + `create=True` across 7 test files | ~~High~~ | ~~Test infra (Lane A)~~ |
+| — | ~~**55 Windows CI Test Failures:** Windows CI test suite failures across core primitives, storage containment, prerequisite checks, and mock fixtures~~ **Resolved 2026-09-02 (SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2)** — Implemented `platform_force_kill`, `platform_kill_process_tree_sync/async`, LocalStorage `Path.is_relative_to` traversal security, platform-aware environment prereqs, and test fixture portability hardening | ~~High~~ | ~~Bug (Lane A)~~ |
 | — | ServerMetricsCharts 5s REST refetchInterval vs 60s backend collection cadence | Low | Known edge case |
 | — | Non-running server writes zero metrics rows → chart renders empty state without explanatory UI message | Low | Known edge case |
 

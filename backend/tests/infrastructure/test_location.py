@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.modules.server.domain.value_objects import (
     LocationType,
     ServerDeployment,
@@ -19,7 +21,10 @@ def test_local_location_handler_resolves_server_dir() -> None:
         working_directory=".",
     )
     handler = LocalLocationHandler()
-    assert handler.resolve_server_dir(deployment) == "/opt/minecraft/servers/my-server"
+    assert (
+        Path(handler.resolve_server_dir(deployment)).as_posix()
+        == "/opt/minecraft/servers/my-server"
+    )
 
 
 def test_local_location_handler_resolves_jar_path() -> None:
@@ -29,7 +34,10 @@ def test_local_location_handler_resolves_jar_path() -> None:
         startup_jar="paper.jar",
     )
     handler = LocalLocationHandler()
-    assert handler.resolve_jar_path(deployment) == "/opt/minecraft/servers/my-server/paper.jar"
+    assert (
+        Path(handler.resolve_jar_path(deployment)).as_posix()
+        == "/opt/minecraft/servers/my-server/paper.jar"
+    )
 
 
 def test_local_location_handler_resolves_properties_path() -> None:
@@ -39,7 +47,7 @@ def test_local_location_handler_resolves_properties_path() -> None:
     )
     handler = LocalLocationHandler()
     assert (
-        handler.resolve_properties_path(deployment)
+        Path(handler.resolve_properties_path(deployment)).as_posix()
         == "/opt/minecraft/servers/my-server/server.properties"
     )
 
@@ -50,7 +58,10 @@ def test_local_location_handler_resolves_eula_path() -> None:
         root_path="/opt/minecraft/servers/my-server",
     )
     handler = LocalLocationHandler()
-    assert handler.resolve_eula_path(deployment) == "/opt/minecraft/servers/my-server/eula.txt"
+    assert (
+        Path(handler.resolve_eula_path(deployment)).as_posix()
+        == "/opt/minecraft/servers/my-server/eula.txt"
+    )
 
 
 def test_local_location_handler_resolves_world_path() -> None:
@@ -60,9 +71,12 @@ def test_local_location_handler_resolves_world_path() -> None:
         primary_world="my-world",
     )
     handler = LocalLocationHandler()
-    assert handler.resolve_world_path(deployment) == "/opt/minecraft/servers/my-server/my-world"
     assert (
-        handler.resolve_world_path(deployment, "other-world")
+        Path(handler.resolve_world_path(deployment)).as_posix()
+        == "/opt/minecraft/servers/my-server/my-world"
+    )
+    assert (
+        Path(handler.resolve_world_path(deployment, "other-world")).as_posix()
         == "/opt/minecraft/servers/my-server/other-world"
     )
 

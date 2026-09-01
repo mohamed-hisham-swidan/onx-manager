@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 from app.core.identity import IDENTITY
 from app.modules.health.domain.services import EnvironmentScanner
@@ -58,7 +59,8 @@ def _detect_java_versions() -> list[str]:
 
 def _check_disk_space() -> float:
     try:
-        usage = shutil.disk_usage("/")
+        root_path = os.path.abspath(".") if sys.platform == "win32" else "/"
+        usage = shutil.disk_usage(root_path)
         return round(usage.free / (1024 * 1024), 2)
     except OSError:
         return 0.0
@@ -83,10 +85,20 @@ def _check_provider_prerequisites(
     prereqs: dict[str, bool] = {}
     errors: list[str] = []
 
-    tmux_ok = shutil.which("tmux") is not None
-    prereqs["tmux"] = tmux_ok
-    if not tmux_ok:
-        errors.append("tmux not found in PATH")
+    if sys.platform == "win32":
+        cmd_ok = bool(shutil.which("cmd") or shutil.which("cmd.exe"))
+        ps_ok = bool(shutil.which("powershell") or shutil.which("pwsh"))
+        prereqs["cmd"] = cmd_ok
+        prereqs["powershell"] = ps_ok
+        if not cmd_ok:
+            errors.append("cmd.exe not found in PATH")
+        provider_ready = cmd_ok
+    else:
+        tmux_ok = shutil.which("tmux") is not None
+        prereqs["tmux"] = tmux_ok
+        if not tmux_ok:
+            errors.append("tmux not found in PATH")
+        provider_ready = tmux_ok
 
     if server_id:
         try:
@@ -100,7 +112,6 @@ def _check_provider_prerequisites(
             prereqs[f"provider_{prov_name}"] = False
             errors.append(f"{prov_name} provider not registered")
 
-    provider_ready = tmux_ok
     return provider_ready, prereqs, errors
 
 

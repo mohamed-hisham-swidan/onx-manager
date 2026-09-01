@@ -25,6 +25,7 @@ jobs:
   backend-windows:
     name: Backend tests + checks (Windows)
     runs-on: windows-latest
+    timeout-minutes: 15
     defaults:
       run:
         shell: pwsh
@@ -46,7 +47,7 @@ jobs:
 
       - name: Run backend test suite
         working-directory: backend
-        run: python -m pytest -q
+        run: python -m pytest -q --tb=short
 
       - name: check-db-revision
         working-directory: backend
@@ -70,6 +71,7 @@ jobs:
   frontend-windows:
     name: Frontend checks (Windows)
     runs-on: windows-latest
+    timeout-minutes: 15
     defaults:
       run:
         shell: pwsh

@@ -52,6 +52,7 @@ class DatabaseEngine:
             from app.core.identity import IDENTITY
 
             kw["connect_args"] = {"timeout": 30.0, "check_same_thread": False}
+            kw["pool_pre_ping"] = True
             effective_url = self._settings.database_url
             try:
                 parsed_url = make_url(self._settings.database_url)

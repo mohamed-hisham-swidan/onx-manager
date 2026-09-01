@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 import re
-import signal
 from collections.abc import AsyncGenerator
 
+from app.core.process_utils import platform_kill_process_tree_async
 from app.modules.server.domain.installer import InstallerResult, InstallerRunner, ProgressLine
+
+
+def is_windows() -> bool:
+    import sys
+
+    return sys.platform == "win32"
+
 
 POST_KILL_DRAIN_TIMEOUT: float = 10.0
 
@@ -113,30 +119,19 @@ class SubprocessInstallerRunner(InstallerRunner):
                     process_done = True
                     break
 
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, GeneratorExit):
             # Clean up on cancellation
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, OSError):
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
+            read_task.cancel()
+            wait_task.cancel()
+            await platform_kill_process_tree_async(proc.pid, proc=proc)
             raise
 
         # If we timed out, kill the process group
         if timed_out:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, OSError):
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-
-            # Drain remaining output
-            try:
-                async for raw_line in proc.stdout:
-                    line = raw_line.decode("utf-8", errors="replace").rstrip("\n\r")
-                    all_output.append(line)
-            except Exception:
-                pass
+            read_task.cancel()
+            await platform_kill_process_tree_async(proc.pid, proc=proc)
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await read_task
 
             result = InstallerResult(
                 exit_code=proc.returncode,

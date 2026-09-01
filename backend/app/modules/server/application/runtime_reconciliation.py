@@ -14,7 +14,7 @@ from typing import Literal
 
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
-from app.core.process_utils import platform_pid_alive
+from app.core.process_utils import platform_force_kill, platform_pid_alive
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerFilters, ServerRepository
@@ -146,7 +146,7 @@ def _is_project_owned_process(pid: int, servers_data_dir: str | None = None) -> 
         if cwd is not None:
             try:
                 common = os.path.commonpath([cwd, servers_data_dir])
-                if common == servers_data_dir:
+                if common == os.path.normpath(servers_data_dir):
                     return True
             except ValueError:
                 pass
@@ -596,9 +596,9 @@ async def reconcile_orphans(
             try:
                 os.kill(pid, signal.SIGTERM)
                 await asyncio.sleep(0.5)
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, OSError):
                 pass
+            platform_force_kill(pid)
         os.popen(f"tmux kill-session -t {session} 2>/dev/null")
         actions.append({"type": "orphan_tmux", "session": session, "pid": pid, "action": "killed"})
 
@@ -649,9 +649,9 @@ async def reconcile_orphans(
         try:
             os.kill(pid, signal.SIGTERM)
             await asyncio.sleep(0.5)
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, OSError):
             pass
+        platform_force_kill(pid)
         actions.append({"type": "orphan_java", "pid": pid, "action": "killed"})
 
     return actions

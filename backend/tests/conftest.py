@@ -98,3 +98,12 @@ def _init_stub_task_queue() -> None:
     init_task_queue(StubTaskQueue())
     yield
     init_task_queue(StubTaskQueue())
+
+
+@pytest.fixture
+def mock_os_killpg():
+    """Scoped mock for os.killpg that safely resolves on Windows where os.killpg does not exist."""
+    from unittest.mock import patch
+
+    with patch("os.killpg", create=True) as mock_killpg:
+        yield mock_killpg

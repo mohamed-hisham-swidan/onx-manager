@@ -180,6 +180,8 @@ class Scheduler:
                 except Exception:
                     pass
 
+        # misfire_grace_time=60: absorbs I/O bursts (DB queries, RCON polls, backup writes)
+        # without silently dropping scheduled jobs.
         self._aps.add_job(
             run_job,
             trigger=trigger_type,
@@ -187,7 +189,7 @@ class Scheduler:
             replace_existing=True,
             max_instances=1,
             coalesce=True,
-            misfire_grace_time=1,
+            misfire_grace_time=60,
             **trigger_kwargs,
         )
 

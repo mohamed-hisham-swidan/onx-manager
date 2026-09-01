@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -381,4 +382,8 @@ class TestSubclassContractParity:
             assert server.status == ServerStatus.CREATED
             assert server.launch_config is not None
             assert server.launch_config.startup_command == ("bash", "run.sh", "nogui")
-            fs.delete.assert_called_with(f"/data/{sid}/{provisioner._installer_filename()}")
+            assert fs.delete.call_count == 1
+            assert (
+                Path(fs.delete.call_args[0][0]).as_posix()
+                == f"/data/{sid}/{provisioner._installer_filename()}"
+            )
