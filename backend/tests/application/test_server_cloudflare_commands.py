@@ -505,10 +505,21 @@ async def test_server_cloudflare_tcp_token_never_in_argv():
     sup = CloudflaredSupervisor(server_id="srv-1")
     token_bytes = b"secret-token-123"
 
-    mock_proc = MagicMock()
+    mock_proc = AsyncMock()
     mock_proc.pid = SAFE_SENTINEL_PID
     mock_proc.returncode = None
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+    mock_proc.wait = AsyncMock(return_value=0)
+    mock_proc.terminate = MagicMock()
+    mock_proc.kill = MagicMock()
+
+    stdout = AsyncMock()
+    stdout.readline = AsyncMock(return_value=b"")
+    mock_proc.stdout = stdout
+
+    stderr = AsyncMock()
+    stderr.readline = AsyncMock(return_value=b"")
+    mock_proc.stderr = stderr
 
     with (
         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
