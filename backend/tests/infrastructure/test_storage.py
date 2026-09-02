@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -314,6 +314,25 @@ class TestS3Storage:
 
     def test_s3_missing_aioboto3_raises_import_error(self) -> None:
         storage = S3Storage(bucket="test-bucket")
-        # When aioboto3 is not installed and no session was injected
-        with pytest.raises(ImportError, match="aioboto3 is required for S3 storage"):
-            _ = storage._session
+        with patch.dict("sys.modules", {"aioboto3": None}):
+            with pytest.raises(ImportError, match="aioboto3 is required for S3 storage"):
+                _ = storage._session
+
+    def test_s3_session_creates_aioboto3_session(self) -> None:
+        mock_aioboto3 = MagicMock()
+        mock_session_inst = MagicMock()
+        mock_aioboto3.Session = MagicMock(return_value=mock_session_inst)
+        with patch.dict("sys.modules", {"aioboto3": mock_aioboto3}):
+            storage = S3Storage(
+                bucket="test-bucket",
+                access_key_id="test-key",
+                secret_access_key="test-secret",
+                region="us-west-2",
+            )
+            session = storage._session
+            assert session == mock_session_inst
+            mock_aioboto3.Session.assert_called_once_with(
+                aws_access_key_id="test-key",
+                aws_secret_access_key="test-secret",
+                region_name="us-west-2",
+            )
