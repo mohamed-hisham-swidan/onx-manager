@@ -1,4 +1,4 @@
-# SPEC-FORGE-PROVISIONING-001 — Forge Auto-Install (MCS Manager)
+# SPEC-FORGE-PROVISIONING-001 — Forge Auto-Install (ONX Manager)
 
 **Status:** Approved · **Date:** 2026-08-20 · **Implementation:** DONE
 

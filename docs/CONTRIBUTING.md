@@ -72,7 +72,7 @@ Before submitting a PR, verify all of the following:
 
 | Gate | Command | Requirement |
 |---|---|---|
-| Version Propagation | `python3 scripts/check-version-propagation` | All versions match `4.0.0` |
+| Version Propagation | `python3 scripts/check-version-propagation` | All versions match `0.1.0` |
 | Database Revision | `python3 scripts/check-db-revision` | Database matches head `b1e2100000009` |
 | Backend Lint Baseline | `python3 scripts/check-ruff-baseline` | Zero new violations beyond baseline |
 | Route/Permission Contract | `python3 scripts/check-route-contract` | 105 / 105 routes match `contracts/permissions.yaml` |

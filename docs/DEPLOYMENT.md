@@ -71,7 +71,7 @@ automatically. Create the Owner account and choose the access mode.
 ```bash
 # 1. Confirm the instance is uninitialized
 curl http://localhost:8000/api/v1/setup/status
-# → {"initialized": false, "access_mode": "LOCAL", "user_count": 0, "version": "4.0.0"}
+# → {"initialized": false, "access_mode": "LOCAL", "user_count": 0, "version": "0.1.0"}
 
 # 2. Bootstrap (single-use — this must succeed exactly once)
 curl -X POST http://localhost:8000/api/v1/setup/bootstrap \
@@ -138,8 +138,8 @@ docker compose restart backend
                         └──────┬──────┘
                                │
                     ┌──────────┴──────────┐
-                    │  mcs-db-data        │
-                    │  mcs-server-data    │  ← named volumes
+                    │  onx-db-data        │
+                    │  onx-server-data    │  ← named volumes
                     └─────────────────────┘
 ```
 
@@ -150,7 +150,7 @@ in its container command and will not start against an incompatible schema
 
 ## Database migrations & compatibility floor
 
-**MCS Manager 4.0.0 requires DB compatibility with Alembic revision
+**ONX Manager 0.1.0 requires DB compatibility with Alembic revision
 `b1e2100000007`.** The version-conditional floor is declared once in
 `backend/app/core/persistence/db_revision.py`
 (`RELEASE_MINIMUM_DB_REVISION`); it is **never auto-applied** and **never read

@@ -674,8 +674,8 @@ Prefix `/api/v1/settings`. All routes require a Bearer token.
 `GET /api/v1/settings` returns:
 ```json
 {
-  "app_name": "mcs-manager",
-  "version": "4.0.0",
+  "app_name": "onx-manager",
+  "version": "0.1.0",
   "debug": false,
   "log_level": "INFO",
   "rate_limit_per_minute": 60,
@@ -795,7 +795,7 @@ The access mode can be changed at any time after bootstrap via
   "initialized": true,
   "access_mode": "LOCAL",
   "user_count": 1,
-  "version": "4.0.0"
+  "version": "0.1.0"
 }
 ```
 
@@ -838,7 +838,7 @@ These are defined directly on the app in `backend/app/main.py` and are all publi
 
 | Method | Path | Response | Notes |
 |---|---|---|---|
-| `GET` | `/health` | `200 dict` | Liveness: `{"status": "ok", "version": "4.0.0", "database": "connected", "uptime_seconds": 0}` |
+| `GET` | `/health` | `200 dict` | Liveness: `{"status": "ok", "version": "0.1.0", "database": "connected", "uptime_seconds": 0}` |
 | `GET` | `/metrics` | `200 text/plain` | Prometheus metrics (`501` if `prometheus_client` not installed) |
 | `GET` | `/.well-known/jwks.json` | `200` | JWKS for RS256 public keys |
 | `GET` | `/docs`, `/redoc`, `/openapi.json` | — | Swagger UI / ReDoc / OpenAPI schema |

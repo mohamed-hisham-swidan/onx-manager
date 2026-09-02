@@ -87,7 +87,7 @@ describe("AccessSection Component", () => {
       initialized: true,
       access_mode: "LOCAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderAccessSection();
@@ -107,7 +107,7 @@ describe("AccessSection Component", () => {
       initialized: true,
       access_mode: "LOCAL",
       user_count: 2,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderAccessSection();
@@ -128,7 +128,7 @@ describe("AccessSection Component", () => {
       initialized: true,
       access_mode: "LOCAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderAccessSection();
@@ -154,7 +154,7 @@ describe("AccessSection Component", () => {
       initialized: true,
       access_mode: "LOCAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderAccessSection();
@@ -179,13 +179,13 @@ describe("AccessSection Component", () => {
       initialized: true,
       access_mode: "LOCAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
     mockUpdateAccessMode.mockResolvedValueOnce({
       initialized: true,
       access_mode: "GLOBAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderAccessSection();
@@ -212,7 +212,7 @@ describe("AccessSection Component", () => {
       initialized: true,
       access_mode: "LOCAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
     mockUpdateAccessMode.mockRejectedValueOnce(new Error("403 Forbidden: Only Owner can modify mode"));
 
@@ -238,7 +238,7 @@ describe("AccessSection Component", () => {
       initialized: true,
       access_mode: "GLOBAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderAccessSection();

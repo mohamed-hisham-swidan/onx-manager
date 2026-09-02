@@ -67,7 +67,7 @@ describe("RegisterPage", () => {
       initialized: true,
       access_mode: "LOCAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
     mockCreateUser.mockResolvedValueOnce({ user_id: "u-2", email: "user@test.com" });
 
@@ -97,7 +97,7 @@ describe("RegisterPage", () => {
       initialized: true,
       access_mode: "GLOBAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderRegisterPage();
@@ -111,7 +111,7 @@ describe("RegisterPage", () => {
       initialized: true,
       access_mode: "GLOBAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
     mockVerifyInvite.mockResolvedValueOnce({
       valid: true,

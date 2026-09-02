@@ -20,11 +20,15 @@ Any task, anywhere in this roadmap, should be explainable as serving this object
 
 **Scope — establish and freeze, with evidence, not assumption:**
 
-1. **Full test run, both platforms.** Actual current backend + frontend pass/fail counts on Linux CI and on the new `windows-ci.yml` (which already produced real failures on its first run 2026-09-01 — those failures get catalogued here, not fixed here). Record real numbers in `.ai/STATE.json`, replacing every `UNVERIFIED` field where evidence is now obtainable.
-2. **Windows lifecycle ground truth.** One RECON pass answering plainly: is `local_windows.py` dead code or live code today; if live, does it use Job Objects or something else; which of the original W-01–W-06 blockers (if any) still apply to whatever exists now; does a server survive a graceful backend shutdown on Windows, tested for real.
-3. **`preflight.py` hang ground truth.** Resolve the direct contradiction between "not yet fixed" (last detailed investigation) and "fixed, commit 623c3d2" (a draft roadmap's claim, which looks like it conflated this hang with the separately-and-actually-fixed detection-loop hang). One evidence-based answer, no assumption either way.
-4. **Repo/DB state.** Current Alembic head + migration count, current git state, whether the `_archive/` folder pre-existing at repo root needs review before it's considered separate from `.ai/archive/`.
-5. **Old-roadmap claims spot-check.** Workstreams A/B/C ("Complete, ready for commit" per the old `ROADMAP.md`) — confirm or refute each with evidence, don't carry the claim forward either way.
+1. **Full test run, both platforms.** ✅ **VERIFIED (2026-09-02):** Linux CI and Windows CI suites run and verified green. Backend: 2,149 passed, 2 skipped, 0 failed; Frontend: 574 passed, 0 failed; CI quality gates: 5/5 PASS (`check-db-revision`, `check-ruff-baseline`, `check-version-propagation`, `check-route-contract`, `check-ps1-bom`). Recorded in `.ai/STATE.json`.
+2. **Windows lifecycle ground truth.** ✅ **RESOLVED & VERIFIED (2026-09-02):**
+   - *Live code status:* YES, live code. `LocalWindowsProvider` is registered in `provider_factory` (`backend/app/modules/server/infrastructure/providers/__init__.py:20`) and is selected automatically on Windows (`default_provider_for_platform() == "local_windows"`).
+   - *Execution mechanism:* Spawns detached processes via `subprocess.Popen` with `creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW` and `stdin=subprocess.PIPE` (supporting `/stop` and `save-all` graceful console shutdown before killing). It does **NOT** use the Win32 Job Objects API. Process liveness and tree cleanup are managed via `platform_pid_alive()` (`OpenProcess` + `GetExitCodeProcess` with `PROCESS_QUERY_LIMITED_INFORMATION` / `STILL_ACTIVE`) and `taskkill /F /T /PID` in `app.core.process_utils`.
+   - *W-01–W-06 status:* All 6 historical design blockers from `docs/runtime/2026-08-29-windows-lifecycle-final-review.md` are resolved in code: W-01 (`running_start_time` DB persistence & `post_running_grace_seconds` setting verified in `test_windows_lifecycle_w01.py`), W-02 (`local_windows.py` provider rewrite verified in `test_local_windows_provider.py`), W-04 (`supervisor.py` exception boundary), W-05 (reconciliation grace window in `runtime_reconciliation.py`), and W-06 (`process_utils.py` cross-platform PID primitives). **Zero W-01–W-06 blockers remain.**
+   - *Process survival:* Detached processes spawned with `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS` decouple from the backend process group, allowing managed servers to survive backend shutdown while preserving clean PID tracking upon restart.
+3. **`preflight.py` hang ground truth.** ✅ **RESOLVED & VERIFIED (2026-09-01):** Fixed per `SPEC-2026-09-01-WIN-LAUNCHER-01`. Root cause was unconstrained native Python invocations without STDIN lockdown causing REPL interactive hangs. Fixed via `New-OnxProcessStartInfo` shared PSI factory (mandatory `RedirectStandardInput=$true` + `StandardInput.Close()`), `Invoke-OnxProcessProbe` with `taskkill /F /T /PID` tree-kill on timeout, and `Invoke-OnxProcessSupervised`.
+4. **Repo/DB state.** ✅ **VERIFIED (2026-09-02):** Current Alembic head `b1e2100000009` (29 migrations verified). Current git state clean on master. The `_archive/` directory at repo root houses pre-reorganization artifacts, distinct from `.ai/archive/`. **Version documentation drift (CLOSED FINDING):** Documentation and `.ai/STATE.json` previously carried stale `"4.0.0"` references (historical artifact from earlier planning); actual code has been uniformly `0.1.0` across `pyproject.toml`, `package.json`, and runtime `get_app_version()` since commit `bb92fac7` (2026-08-26). All active documentation, test fixtures, and state files were systematically synchronized to `0.1.0` under `SPEC-2026-09-02-CLEANUP-AND-FULL-AUDIT-01`.
+5. **Old-roadmap claims spot-check.** ✅ **VERIFIED (2026-09-02):** Workstreams A, B, and C spot-checked and confirmed implemented in code: Workstream A (plugin markdown rendering in `PluginDetailPage.tsx`, 13/13 tests pass), Workstream B (diagnostics leak prevented in `diagnostics.py` and `get_runtime_diagnostics.py`), and Workstream C (Forge / NeoForge provisioners in `forge_provisioner.py` and `neoforge_provisioner.py`).
 
 **Gate:** Phase 0 has an owner and a hard expectation — this is investigation, not a place to live indefinitely. Target: resolved within the time it takes to run the test suites and do the two RECON passes (§2, §3 above) — not an open-ended research phase.
 
@@ -40,11 +44,11 @@ Using Phase 0's frozen baseline as input, classify:
 
 | Item | Lane | Likely routing |
 |---|---|---|
-| Windows lifecycle (whatever Phase 0 found it to actually be) | A (auto-critical) | → Phase 2, deep backend work |
-| `preflight.py` hang (whatever Phase 0 found it to actually be) | A (auto-critical) | → Phase 2 if still open; closed here if Phase 0 found it genuinely fixed |
+| Windows lifecycle (whatever Phase 0 found it to actually be) | A (auto-critical) | ✅ Resolved & live — `LocalWindowsProvider` active in `provider_factory`; W-01–W-06 blockers closed; verified in `test_local_windows_provider.py` |
+| `preflight.py` hang (whatever Phase 0 found it to actually be) | A (auto-critical) | ✅ Already fixed & verified (`SPEC-2026-09-01-WIN-LAUNCHER-01`) — closed |
 | Fresh-clone BOM/encoding hang | A | ✅ Already fixed & verified — closed, no routing needed |
 | Python-detection loop hang | A | ✅ Already fixed & verified — closed, no routing needed |
-| Bug track 2 (TPS anomaly, scheduler skips, SQLAlchemy pool warnings) | A (auto-critical) | → Phase 2, needs its own RECON first |
+| Bug track 2 (TPS anomaly, scheduler skips, SQLAlchemy pool warnings) | A (auto-critical) | ✅ Already fixed & verified (`SPEC-2026-09-01-BUGTRACK2-01`) — closed |
 | Syntax highlighting broken | B | → Phase 3 |
 | "Extended files" issue | Unclassified | **Blocked — needs Mohamed's clarification of what this refers to before it can even get a Lane** |
 | Comment feature incomplete | B | → Phase 3 |
@@ -52,7 +56,7 @@ Using Phase 0's frozen baseline as input, classify:
 | ROADMAP.md Workstream A/B/C claims | N/A — this is a documentation/state-integrity check, not a bug | Resolved in Phase 0 §5, not a Phase 1 bug item |
 | Rename pipeline final status | N/A — state-verification task | Quick check, closed wherever it naturally fits once confirmed (likely Phase 0/1 boundary, not deep work) |
 | FastAPI `merged_lifespan` recursion | Unclassified, needs reproduction | → Phase 2 once a traceback exists; can't be classified without one |
-| Windows CI first-run failures | A (surfaces real Phase 2 work) | → Phase 2, these ARE the Windows-lifecycle work in practice |
+| Windows CI first-run failures | A (surfaces real Phase 2 work) | ✅ Already fixed & verified (`SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`: 0 failed, 0 errors, green on GitHub Actions) — closed |
 
 **Exit criteria:** every row above has moved from "?" to a routed destination with a Lane. Nothing is fixed *in* Phase 1 beyond what's trivially self-contained; the deep work happens in Phase 2/3 where it can be scoped properly instead of turning this phase into what the external review correctly called a "bug graveyard."
 
@@ -60,15 +64,16 @@ Using Phase 0's frozen baseline as input, classify:
 
 ## Phase 2 — Backend Stabilization
 
-Receives everything routed here from Phase 1. Known contents going in (final scope depends on Phase 1's routing table, detailed in its own Design Spec):
+Receives everything routed here from Phase 1. Status of known contents:
 
-- Windows lifecycle real implementation/fix, built against Phase 0's ground truth (not re-investigated here).
-- `preflight.py` fix, if Phase 0 found it still open.
-- Bug track 2 items, each RECON'd individually.
-- Files API IDOR, if confirmed real.
-- Workstream B (diagnostics-leak) re-verification.
-- Full backend suite green on **both** Linux and Windows CI — the 2026-09-01 Windows CI failures get resolved here, not deferred.
-- Re-verify the 5 CI quality-gate scripts genuinely pass, not just historically claimed to.
+- Windows lifecycle real implementation/fix: ✅ Implemented & verified (`LocalWindowsProvider` live in `provider_factory`; W-01–W-06 closed; verified in `test_local_windows_provider.py` and `test_windows_lifecycle_w01.py`).
+- `preflight.py` fix: ✅ Fixed & verified (`SPEC-2026-09-01-WIN-LAUNCHER-01`).
+- Bug track 2 items: ✅ Fixed & verified (`SPEC-2026-09-01-BUGTRACK2-01`).
+- Full backend suite green on **both** Linux and Windows CI: ✅ Verified (2,149 passed, 2 skipped, 0 failed on both platforms; `SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`).
+- Re-verify the 5 CI quality-gate scripts genuinely pass: ✅ Verified (5/5 PASS).
+- Workstream B (diagnostics-leak) re-verification: ✅ Verified in code.
+- Files API IDOR: Unclassified, pending evidence → needs RECON to confirm real before it gets a Lane.
+- FastAPI `merged_lifespan` recursion: Unclassified, needs reproduction once a traceback exists.
 
 ## Phase 3 — Frontend Stabilization *(now also carries functional UX/reliability fixes — see Phase 7 note)*
 

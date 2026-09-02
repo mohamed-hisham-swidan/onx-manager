@@ -1,4 +1,4 @@
-# MCS Manager — Versioning Strategy
+# ONX Manager — Versioning Strategy
 
 **Status:** ✅ **ADOPTED & IMPLEMENTED (policy + mechanism)** — policy adopted
 2026-08-12 (Phase 5, Workstream 5.1); the single-source **mechanism** is
@@ -23,18 +23,18 @@ consistently in the backend, frontend, docs, and state files.
 
 | # | Source | Value today | Notes |
 |---|--------|-------------|-------|
-| 1 | `backend/pyproject.toml` `[project] version` | `4.0.0` | **The canonical single source** — read via `get_app_version()` |
-| 2 | `backend/app/core/version.py:get_app_version()` | `4.0.0` | Resolver: `pyproject.toml` (tomllib) → `importlib.metadata` fallback → `_FALLBACK_VERSION` `4.0.0` last resort |
-| 3 | `backend/app/core/config.py` `AppSettings.version`, `main.py` OpenAPI + `/health`, `settings.py`, `schemas/common.py`, `setup.py`, `get_system_status.py`, `update_access_mode.py` | `4.0.0` | All consume `get_app_version()` — no hardcoded version literals remain in these files |
-| 4 | `frontend/package.json` `version` | `4.0.0` | Frontend package (build metadata; not the runtime display source) |
-| 5 | `frontend/package-lock.json` | `4.0.0` | Locks the package version |
-| 6 | Frontend runtime display (`SettingsPage`) | `4.0.0` | Read from `GET /api/v1/settings` → `version` (resolved via `get_app_version()`) |
-| 7 | Archived history docs (`docs/history/`, Blueprint v4 set) | `7.1.0` (historical) | **Stale** — kept for history only, superseded by `4.0.0` |
+| 1 | `backend/pyproject.toml` `[project] version` | `0.1.0` | **The canonical single source** — read via `get_app_version()` |
+| 2 | `backend/app/core/version.py:get_app_version()` | `0.1.0` | Resolver: `pyproject.toml` (tomllib) → `importlib.metadata` fallback → `_FALLBACK_VERSION` `0.1.0` last resort |
+| 3 | `backend/app/core/config.py` `AppSettings.version`, `main.py` OpenAPI + `/health`, `settings.py`, `schemas/common.py`, `setup.py`, `get_system_status.py`, `update_access_mode.py` | `0.1.0` | All consume `get_app_version()` — no hardcoded version literals remain in these files |
+| 4 | `frontend/package.json` `version` | `0.1.0` | Frontend package (build metadata; not the runtime display source) |
+| 5 | `frontend/package-lock.json` | `0.1.0` | Locks the package version |
+| 6 | Frontend runtime display (`SettingsPage`) | `0.1.0` | Read from `GET /api/v1/settings` → `version` (resolved via `get_app_version()`) |
+| 7 | Archived history docs (`docs/history/`, Blueprint v4 set) | `7.1.0` / `4.0.0` (historical) | **Stale** — kept for history only, superseded by `0.1.0` |
 | 8 | `backend/data/servers/server/Implementation/...` (server-content copy) | `7.1.0` | Inside a managed server's working directory — **runtime/server data, not the app** |
 
 **Findings**
 
-- The **application code is uniformly `4.0.0`** across backend package, backend
+- The **application code is uniformly `0.1.0`** across backend package, backend
   runtime, OpenAPI, settings responses, and frontend package/lock. There is no
   code path that reads `7.1.0`.
 - The version is read from **one canonical source** (`pyproject.toml`) through
@@ -104,7 +104,7 @@ Adopt **SemVer 2.0.0** with conventions stated explicitly:
 | `patch` | Bug fix, doc fix, non-breaking QoL with no new capability |
 | `-pre`/`-rc` | Pre-release / release candidate suffixes |
 
-The application is currently `4.0.0`. `v1.0` public-release naming (referenced in
+The application is currently `0.1.0`. `v1.0` public-release naming (referenced in
 older docs) is decoupled from internal app SemVer; the roadmap's "v1.0" means
 "first public release," not "version 1.0.0".
 
@@ -113,20 +113,20 @@ older docs) is decoupled from internal app SemVer; the roadmap's "v1.0" means
 The internal application SemVer and the public API contract version are **two
 independent concepts**. They must never be conflated:
 
-- **`4.0.0`** is the internal release/application version — the version of the
-  MCS Manager application itself, carried by the package, runtime, OpenAPI info,
+- **`0.1.0`** is the internal release/application version — the version of the
+  ONX Manager application itself, carried by the package, runtime, OpenAPI info,
   settings responses, and (since Phase 5.2) derived from `pyproject.toml`
   via `get_app_version()`.
 - **`/api/v1`** is the public API contract version — the version of the REST API
   surface (all routers mount under the `/api/v1` prefix; the WebSocket endpoint
   is `/ws`).
-- **Changing `4.0.0` does NOT automatically imply changing `/api/v1`.**
+- **Changing `0.1.0` does NOT automatically imply changing `/api/v1`.**
 - **Changing `/api/v1` requires an explicit API-compatibility decision**, recorded
   in the decision log (ADR) — a breaking API contract change, separate from an
   application release.
 
 These two numbers must therefore be able to move independently. A patch or minor
-app release (`4.0.1`, `4.1.0`) leaves the API at `/api/v1`. Only a deliberate,
+app release (`0.1.1`, `0.2.0`) leaves the API at `/api/v1`. Only a deliberate,
 documented breaking API change increments the API prefix/version.
 
 ### 4.3 DB compatibility floor (per release)
@@ -137,7 +137,7 @@ auto-upgraded**.
 
 | Release | Minimum DB revision |
 |---------|---------------------|
-| `4.0.0` | `b1e2100000007` (current Alembic head) |
+| `0.1.0` | `b1e2100000007` (current Alembic head) |
 
 - **Authoritative declaration:** `backend/app/core/persistence/db_revision.py`
   (`RELEASE_MINIMUM_DB_REVISION`). No other runtime source duplicates it.

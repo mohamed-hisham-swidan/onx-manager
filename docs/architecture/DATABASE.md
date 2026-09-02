@@ -234,7 +234,7 @@ the release minimum — **fail closed**, never auto-upgraded.
 
 | Release | Minimum DB revision |
 |---------|---------------------|
-| `4.0.0` | `b1e2100000007` (current head) |
+| `0.1.0` | `b1e2100000007` (current head) |
 
 - **Authoritative source:** `backend/app/core/persistence/db_revision.py`
   (`RELEASE_MINIMUM_DB_REVISION`).
@@ -395,7 +395,7 @@ backup — final schema matches production column-for-column).
   the default config (`MCS_DATABASE_URL` unset → `backend/mcs.db`). Confirm the
   environment uses `backend/mcs.db` before release.
 
-> **Compatibility floor:** this secondary DB is behind the `4.0.0` minimum
+> **Compatibility floor:** this secondary DB is behind the `0.1.0` minimum
 > (`b1e2100000007`). Starting the application against it would fail closed with an
 > actionable "run `alembic upgrade head`" error — by design. Migrate it (or point
 > `MCS_DATABASE_URL` at the primary DB) before use.

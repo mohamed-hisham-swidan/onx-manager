@@ -453,7 +453,7 @@ Pyright is **advisory / local only** — not a CI gate.
 
 ### DB compatibility floor
 
-`4.0.0` pins minimum Alembic revision `b1e2100000007`
+`0.1.0` pins minimum Alembic revision `b1e2100000007`
 (`backend/app/core/persistence/db_revision.py`, `RELEASE_MINIMUM_DB_REVISION`).
 Startup fails closed if the live DB is below the floor; the application never
 auto-runs migrations (see `docs/VERSIONING.md` §4.3).

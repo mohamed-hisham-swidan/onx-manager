@@ -326,7 +326,7 @@ Key test areas: `authStore` (9), `uiStore` (9), `api.ts` (11), `wsStore` (4), `A
 
 ### Version display source
 
-The application version shown in `SettingsPage` (`{settings.app_name ?? "MCS Manager"} {settings.version}`)
+The application version shown in `SettingsPage` (`{settings.app_name ?? "onx-manager"} {settings.version}`)
 is read from `GET /api/v1/settings` (`version` field), which the backend
 resolves via `backend/app/core/version.py:get_app_version()` from
 `backend/pyproject.toml`. `frontend/package.json` `version` is **build metadata

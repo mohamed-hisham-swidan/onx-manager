@@ -60,7 +60,7 @@ roadmap phase for UI/UX feature work.
 >
 > The investigation findings below remain accurate reference material.
 
-Browsing, searching, and installing server plugins directly from MCS Manager,
+Browsing, searching, and installing server plugins directly from ONX Manager,
 sourcing them from the Modrinth catalog (`api.modrinth.com`) and potentially
 other providers later.
 

@@ -5,7 +5,7 @@
 and a live test run.
 
 **Last verified:** 2026-09-02
-**App version (code):** `4.0.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
+**App version (code):** `0.1.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
 

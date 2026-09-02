@@ -81,7 +81,7 @@ for _stream_name in ("stdout", "stderr"):
 # ═══════════════════════════════════════════════════════════════════════
 
 PROJECT_NAME = "onx-manager"
-PROJECT_VERSION = "4.0.0"
+PROJECT_VERSION = "0.1.0"
 ONX_DIR_NAME = ".onx"
 MCS_DIR_NAME = ONX_DIR_NAME  # alias for backward compat
 BACKEND_PORT = 8000

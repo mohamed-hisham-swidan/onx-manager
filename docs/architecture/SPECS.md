@@ -14,7 +14,7 @@ repository shape, code statistics, structure, specs, and features.**
 | Attribute | Value |
 |---|---|
 | Name | ONX Manager (Development & Self-Hosted Environment) |
-| Version | `4.0.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
+| Version | `0.1.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
 | Status | Phase 8 Ready — Canonical Roadmap: `docs/roadmap/ROADMAP.md` |
 | License | Apache 2.0 (`LICENSE`) |
 | Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/current-state.md`, `docs/API.md` |

@@ -43,7 +43,7 @@ describe("SystemStatusGuard", () => {
       initialized: false,
       access_mode: "LOCAL",
       user_count: 0,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderWithRouter("/login");
@@ -55,7 +55,7 @@ describe("SystemStatusGuard", () => {
       initialized: false,
       access_mode: "LOCAL",
       user_count: 0,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderWithRouter("/register");
@@ -67,7 +67,7 @@ describe("SystemStatusGuard", () => {
       initialized: false,
       access_mode: "LOCAL",
       user_count: 0,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderWithRouter("/setup");
@@ -79,7 +79,7 @@ describe("SystemStatusGuard", () => {
       initialized: true,
       access_mode: "LOCAL",
       user_count: 1,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     renderWithRouter("/setup");
@@ -110,7 +110,7 @@ describe("SystemStatusGuard", () => {
       initialized: false,
       access_mode: "LOCAL",
       user_count: 0,
-      version: "4.0.0",
+      version: "0.1.0",
     });
 
     fireEvent.click(screen.getByRole("button", { name: /retry connection/i }));

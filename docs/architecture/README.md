@@ -1,6 +1,6 @@
 # Architecture Documentation Portal
 
-This directory contains the living architecture and system design specifications for MCS Manager.
+This directory contains the living architecture and system design specifications for ONX Manager.
 
 ---
 

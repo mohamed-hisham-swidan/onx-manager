@@ -6,7 +6,7 @@ Authoritative scripts for quality gates, preflight cleanup, and development task
 
 | Script | Purpose |
 |---|---|
-| `scripts/check-version-propagation` | Verifies `pyproject.toml`, `package.json`, and runtime version match (`4.0.0`) |
+| `scripts/check-version-propagation` | Verifies `pyproject.toml`, `package.json`, and runtime version match (`0.1.0`) |
 | `scripts/check-db-revision` | Verifies current database schema matches minimum compatibility revision |
 | `scripts/check-ruff-baseline` | Enforces zero-regression lint gate against `scripts/ruff-baseline.json` baseline |
 | `scripts/check-route-contract` | Validates all 105 live FastAPI routes against `contracts/permissions.yaml` contract |

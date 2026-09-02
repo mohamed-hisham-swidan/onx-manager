@@ -9,9 +9,9 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 4.0.0, 2131 backend tests, 574 frontend tests, 29 DB migrations). |
+| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2149 backend tests, 574 frontend tests, 29 DB migrations). |
 | [Canonical Roadmap](roadmap/ROADMAP.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 8+ (Dynamic DNS & Custom Domains). |
-| [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`4.0.0`), compatibility floor. |
+| [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`0.1.0`), compatibility floor. |
 | [API Reference](API.md) | ✅ **CURRENT** | REST API reference (15 routers, 105 endpoints) & WebSocket protocols. |
 
 ---
