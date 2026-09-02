@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+import sys
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.core.process_utils import (
     PROCESS_QUERY_LIMITED_INFORMATION,
@@ -12,12 +15,20 @@ from app.core.process_utils import (
 
 
 class TestPlatformPidAlivePosix:
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX live os.kill(pid, 0) triggers CTRL_C_EVENT on Windows",
+    )
     def test_live_process_current_pid(self) -> None:
         """Test runner's own PID is alive on POSIX."""
         current_pid = os.getpid()
         with patch("sys.platform", "linux"):
             assert platform_pid_alive(current_pid) is True
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX live os.kill(pid, 0) triggers CTRL_C_EVENT on Windows",
+    )
     def test_dead_process_nonexistent_pid(self) -> None:
         """Non-existent PID returns False on POSIX."""
         dead_pid = 4194304  # Max pid on Linux is usually <= 4194304
@@ -165,3 +176,21 @@ class TestPlatformPidAliveWindows:
 
         with patch.dict("sys.modules", {"ctypes": mock_ctypes, "ctypes.wintypes": MagicMock()}):
             assert _windows_pid_alive(12345) is False
+
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="Windows live process liveness test requires Windows",
+    )
+    def test_windows_live_process_current_pid(self) -> None:
+        """Test runner's own PID is alive on real Windows."""
+        current_pid = os.getpid()
+        assert platform_pid_alive(current_pid) is True
+
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="Windows live process liveness test requires Windows",
+    )
+    def test_windows_dead_process_nonexistent_pid(self) -> None:
+        """Non-existent PID returns False on real Windows."""
+        dead_pid = 4194304
+        assert platform_pid_alive(dead_pid) is False
