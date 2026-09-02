@@ -75,6 +75,7 @@ class TestReconcileServerRuntime:
     async def test_running_server_healthy(self):
         server = _make_server("s1", ServerStatus.RUNNING)
         repo = MagicMock(spec_set=["get", "list", "save", "delete"])
+        repo.save = AsyncMock()
 
         with (
             patch(
@@ -82,8 +83,8 @@ class TestReconcileServerRuntime:
                 return_value=_mock_provider(verify_process=True, tmux_pid=100),
             ),
             patch(
-                "app.modules.server.application.runtime_reconciliation.os.kill",
-                return_value=None,
+                "app.modules.server.application.runtime_reconciliation.platform_pid_alive",
+                return_value=True,
             ),
             patch(
                 "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
@@ -194,23 +195,25 @@ class TestReconcileServerRuntime:
         repo = MagicMock(spec_set=["get", "list", "save", "delete"])
         repo.save = AsyncMock()
 
-        with patch(
-            "app.modules.server.application.runtime_reconciliation.provider_factory.get",
-            return_value=_mock_provider(verify_process=True, tmux_pid=200),
-        ):
-            with patch(
-                "app.modules.server.application.runtime_reconciliation.os.kill",
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation.provider_factory.get",
+                return_value=_mock_provider(verify_process=True, tmux_pid=200),
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.platform_pid_alive",
+                return_value=True,
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation._port_is_listening",
+                return_value=True,
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
                 return_value=None,
-            ):
-                with patch(
-                    "app.modules.server.application.runtime_reconciliation._port_is_listening",
-                    return_value=True,
-                ):
-                    with patch(
-                        "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
-                        return_value=None,
-                    ):
-                        outcome = await reconcile_server_runtime(server, repo)
+            ),
+        ):
+            outcome = await reconcile_server_runtime(server, repo)
 
         assert outcome.repaired is True
         assert server.status == ServerStatus.RUNNING
@@ -258,8 +261,8 @@ class TestReconcileAllRuntimes:
                 return_value=_mock_provider(verify_process=True, tmux_pid=100),
             ),
             patch(
-                "app.modules.server.application.runtime_reconciliation.os.kill",
-                return_value=None,
+                "app.modules.server.application.runtime_reconciliation.platform_pid_alive",
+                return_value=True,
             ),
             patch(
                 "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",
