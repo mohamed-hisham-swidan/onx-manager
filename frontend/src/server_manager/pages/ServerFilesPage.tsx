@@ -52,7 +52,10 @@ export function ServerFilesPage() {
 
   const { data: fileContentData, isLoading: isContentLoading } = useQuery({
     queryKey: queryKeys.files.content(serverId!, editingFile?.path ?? ""),
-    queryFn: () => api.readServerFileContent(serverId!, editingFile!.path),
+    queryFn: async () => {
+      const res = await api.readServerFileContent(serverId!, editingFile!.path);
+      return typeof res === "string" ? res : res.content;
+    },
     enabled: !!serverId && !!editingFile,
   });
 
@@ -90,7 +93,10 @@ export function ServerFilesPage() {
   });
 
   const mkdirMutation = useMutation({
-    mutationFn: (folderName: string) => api.mkdirServerDirectory(serverId!, currentPath, folderName),
+    mutationFn: (folderName: string) => {
+      const fullPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+      return api.mkdirServerDirectory(serverId!, fullPath);
+    },
     onSuccess: () => {
       toast("success", "Folder created");
       queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath) });

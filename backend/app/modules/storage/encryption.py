@@ -88,23 +88,23 @@ class BackupEncryption:
         nonce = os.urandom(12)
         yield nonce
 
-        counter = 0
-        for chunk in chunks:
-            chunk_nonce = counter.to_bytes(12, "big")
-            counter += 1
+        for i, chunk in enumerate(chunks):
+            idx_bytes = i.to_bytes(12, "big")
+            chunk_nonce = bytes(a ^ b for a, b in zip(nonce, idx_bytes, strict=True))
             encrypted = aesgcm.encrypt(chunk_nonce, chunk, b"")
             yield encrypted
 
     def decrypt_stream(self, encrypted_chunks: Any) -> Any:
         aesgcm = AESGCM(self._key)
-        counter = 0
+        iterator = iter(encrypted_chunks)
+        try:
+            nonce_base = next(iterator)
+        except StopIteration:
+            return
 
-        for chunk in encrypted_chunks:
-            if counter == 0:
-                counter += 1
-                continue
-            chunk_nonce = counter.to_bytes(12, "big")
-            counter += 1
+        for i, chunk in enumerate(iterator):
+            idx_bytes = i.to_bytes(12, "big")
+            chunk_nonce = bytes(a ^ b for a, b in zip(nonce_base, idx_bytes, strict=True))
             yield aesgcm.decrypt(chunk_nonce, chunk, b"")
 
     def checksum(self, data: bytes) -> str:

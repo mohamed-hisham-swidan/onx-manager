@@ -385,9 +385,9 @@ export function createApiClient(
     listServerFiles: (serverId: string, path?: string) =>
       request<import("@/server_manager/types").FileItem[]>(`/api/v1/servers/${serverId}/files/`, { params: { path } }),
     readServerFileContent: (serverId: string, path: string) =>
-      request<string>(`/api/v1/servers/${serverId}/files/content`, { params: { path }, responseType: "text" }),
+      request<import("@/server_manager/types").FileContentResponse>(`/api/v1/servers/${serverId}/files/content`, { params: { path } }),
     writeServerFileContent: (serverId: string, path: string, content: string) =>
-      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/content`, { method: "POST", params: { path }, body: { content } }),
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/content`, { method: "PUT", params: { path }, body: { content } }),
     deleteServerFile: (serverId: string, path: string) =>
       request<void>(`/api/v1/servers/${serverId}/files/`, { method: "DELETE", params: { path } }),
     uploadServerFile: (serverId: string, path: string, file: File) => {
@@ -397,8 +397,15 @@ export function createApiClient(
     },
     downloadServerFile: (serverId: string, path: string) =>
       request<Blob>(`/api/v1/servers/${serverId}/files/download`, { params: { path }, responseType: "blob" }),
-    mkdirServerDirectory: (serverId: string, path: string, folderName: string) =>
-      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/mkdir`, { method: "POST", params: { path }, body: { folder_name: folderName } }),
+    mkdirServerDirectory: (serverId: string, path: string, folderName?: string) => {
+      const fullPath = folderName
+        ? (path ? `${path.replace(/\/+$/, "")}/${folderName.replace(/^\/+/, "")}` : folderName)
+        : path;
+      return request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/mkdir`, {
+        method: "POST",
+        params: { path: fullPath },
+      });
+    },
 
     // Setup & Invites
     getSetupStatus: () =>

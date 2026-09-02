@@ -5,8 +5,11 @@ Covers the config bind accessors (Decision 3), the Cloudflare API client
 (token-file handling, restart bound, health probe).
 """
 
+import asyncio
 import os
 import sys
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -411,6 +414,56 @@ class TestCloudflaredSupervisor:
         finally:
             if supervisor.is_running or supervisor._token_file is not None:
                 await supervisor.stop()
+
+    async def test_windows_start_does_not_hang_on_streaming_daemon(self) -> None:
+        """ISS-014: on Windows, start() must not hang when stdout/stderr never reach EOF."""
+        from app.modules.exposure.infrastructure.cloudflared import CloudflaredSupervisor
+
+        supervisor = CloudflaredSupervisor()
+        proc = AsyncMock()
+        proc.pid = 12345
+        proc.returncode = None
+        proc.wait = AsyncMock(return_value=0)
+        proc.terminate = MagicMock()
+        proc.kill = MagicMock()
+
+        # Simulate never-closing streams: readline() awaits forever (never returns EOF)
+        never_ending_event = asyncio.Event()
+
+        async def _hang_forever():
+            await never_ending_event.wait()
+            return b""
+
+        stdout = AsyncMock()
+        stdout.readline = AsyncMock(side_effect=_hang_forever)
+        proc.stdout = stdout
+
+        stderr = AsyncMock()
+        stderr.readline = AsyncMock(side_effect=_hang_forever)
+        proc.stderr = stderr
+
+        token_path = Path(tempfile.gettempdir()) / "test-cf-hang.token"
+
+        with (
+            patch("app.modules.exposure.infrastructure.cloudflared.is_windows", return_value=True),
+            patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)),
+            patch.object(supervisor, "_write_token_file", return_value=token_path),
+            patch.object(supervisor, "_probe_health", new=AsyncMock(return_value=True)),
+        ):
+            try:
+                # start() must return quickly without waiting for stdout/stderr to finish
+                await asyncio.wait_for(supervisor.start(b"dummy-token"), timeout=2.0)
+                assert supervisor.is_running
+                assert supervisor._drain_task is not None
+                assert not supervisor._drain_task.done()
+
+                # Clean stop cancels drain_task and terminates process
+                await asyncio.wait_for(supervisor.stop(), timeout=2.0)
+                assert not supervisor.is_running
+                assert supervisor._drain_task is None
+            finally:
+                never_ending_event.set()
+                token_path.unlink(missing_ok=True)
 
 
 class TestCloudflaredHealthProbe:

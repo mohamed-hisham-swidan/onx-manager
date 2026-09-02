@@ -175,4 +175,54 @@ describe("createApiClient", () => {
     );
     expect(result).toEqual({ server_id: "s1", status: "provisioning" });
   });
+
+  it("readServerFileContent makes JSON request to /files/content with path param", async () => {
+    const fileData = { path: "server.properties", content: "motd=Minecraft Server\nmax-players=20" };
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(fileData));
+    const result = await api.readServerFileContent("s1", "server.properties");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files/content?path=server.properties",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result).toEqual(fileData);
+  });
+
+  it("writeServerFileContent sends PUT to /files/content with path and content body", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ path: "server.properties", content: "motd=Updated" }));
+    const result = await api.writeServerFileContent("s1", "server.properties", "motd=Updated");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files/content?path=server.properties",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ content: "motd=Updated" }),
+      }),
+    );
+    expect(result).toEqual({ path: "server.properties", content: "motd=Updated" });
+  });
+
+  it("mkdirServerDirectory sends POST with joined full path query param and no body", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ name: "logs", path: "logs", is_dir: true, size: 0 }));
+    await api.mkdirServerDirectory("s1", "", "logs");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files/mkdir?path=logs",
+      expect.objectContaining({
+        method: "POST",
+        body: undefined,
+      }),
+    );
+
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ name: "region", path: "world/region", is_dir: true, size: 0 }));
+    await api.mkdirServerDirectory("s1", "world", "region");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files/mkdir?path=world%2Fregion",
+      expect.objectContaining({
+        method: "POST",
+        body: undefined,
+      }),
+    );
+  });
 });

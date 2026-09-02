@@ -80,6 +80,7 @@ class CloudflaredSupervisor:
         self._token_file: Path | None = None
         self._monitor_task: asyncio.Task[None] | None = None
         self._stderr_reader: asyncio.Task[None] | None = None
+        self._drain_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._restart_count = 0
         self._last_health_at = 0.0
@@ -136,6 +137,15 @@ class CloudflaredSupervisor:
                 except Exception:
                     logger.warning("cloudflared monitor task raised during stop", exc_info=True)
                 self._monitor_task = None
+            if self._drain_task is not None and not self._drain_task.done():
+                self._drain_task.cancel()
+                try:
+                    await self._drain_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    logger.warning("cloudflared drain task raised during stop", exc_info=True)
+                self._drain_task = None
             await self._delete_token_file()
             self._set_status(ExposureStatus.STOPPED)
             logger.info("cloudflared supervisor stopped")
@@ -170,7 +180,18 @@ class CloudflaredSupervisor:
 
         if is_windows():
             # Windows: bare child — no supervision/restart, dies with MCS.
-            await self._drain_output()
+            self._drain_task = asyncio.create_task(
+                self._drain_output(),
+                name="cloudflared-drain-output",
+            )
+
+            def _log_drain_exception(task: asyncio.Task[None]) -> None:
+                if not task.cancelled():
+                    exc = task.exception()
+                    if exc:
+                        logger.warning("cloudflared drain task failed: %s", exc, exc_info=exc)
+
+            self._drain_task.add_done_callback(_log_drain_exception)
 
     async def _read_stderr(self, stream: asyncio.StreamReader) -> None:
         """Continuously scan stderr for auth-failure evidence (RECLAIM_REQUIRED)."""
@@ -270,6 +291,15 @@ class CloudflaredSupervisor:
     async def _terminate_process(self) -> None:
         proc = self._process
         self._process = None
+        if self._drain_task is not None and not self._drain_task.done():
+            self._drain_task.cancel()
+            try:
+                await self._drain_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.debug("cloudflared drain task cancellation failed", exc_info=True)
+            self._drain_task = None
         if self._stderr_reader is not None and not self._stderr_reader.done():
             self._stderr_reader.cancel()
             try:

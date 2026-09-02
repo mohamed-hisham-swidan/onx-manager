@@ -257,3 +257,8 @@ export interface FileItem {
   size: number;
   path: string;
 }
+
+export interface FileContentResponse {
+  path: string;
+  content: string;
+}
