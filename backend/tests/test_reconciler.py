@@ -1,5 +1,6 @@
 """Unit tests for Pre-Backend Database Reconciler."""
 
+import contextlib
 import json
 import os
 import sqlite3
@@ -25,7 +26,7 @@ def test_redact_db_url():
 
 
 def test_reconcile_fresh_database():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         test_db = Path(tmpdir) / "fresh.db"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
 
@@ -48,7 +49,7 @@ def test_reconcile_fresh_database():
 
 
 def test_reconcile_outdated_database_with_backup():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         test_db = Path(tmpdir) / "outdated.db"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
 
@@ -81,12 +82,12 @@ def test_reconcile_outdated_database_with_backup():
 
 
 def test_reconcile_blocked_on_unknown_revision():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         test_db = Path(tmpdir) / "unknown.db"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
 
         # Create table with unknown revision
-        with sqlite3.connect(str(test_db)) as conn:
+        with contextlib.closing(sqlite3.connect(str(test_db))) as conn:
             conn.execute(
                 "CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"
             )
@@ -102,12 +103,12 @@ def test_reconcile_blocked_on_unknown_revision():
 
 
 def test_reconcile_blocked_on_multiple_heads():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         test_db = Path(tmpdir) / "multi_head.db"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
 
         # Create table with two revisions recorded
-        with sqlite3.connect(str(test_db)) as conn:
+        with contextlib.closing(sqlite3.connect(str(test_db))) as conn:
             conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
             conn.execute("INSERT INTO alembic_version VALUES ('001')")
             conn.execute("INSERT INTO alembic_version VALUES ('002')")
@@ -121,7 +122,7 @@ def test_reconcile_blocked_on_multiple_heads():
 
 
 def test_reconcile_check_only_mode():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         test_db = Path(tmpdir) / "check_only.db"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
 
@@ -133,7 +134,7 @@ def test_reconcile_check_only_mode():
 
 
 def test_reconcile_cli_interface():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         test_db = Path(tmpdir) / "cli.db"
         db_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
 
@@ -149,7 +150,7 @@ def test_reconcile_cli_interface():
 
 
 def test_reconcile_lock():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         lock_file = Path(tmpdir) / "reconcile.lock"
 
         lock1 = ReconcileLock(lock_path=lock_file, timeout_sec=1.0)
@@ -169,7 +170,8 @@ def test_canonicalize_relative_sqlite_url():
 
     # Relative path
     res = canonicalize_db_url("sqlite+aiosqlite:///data/onx.db", anchor)
-    assert res == f"sqlite+aiosqlite:///{anchor.as_posix()}/data/onx.db"
+    expected_path = (anchor / "data/onx.db").resolve().as_posix()
+    assert res == f"sqlite+aiosqlite:///{expected_path}"
 
     # Non-SQLite / memory
     assert canonicalize_db_url("sqlite+aiosqlite:///:memory:", anchor) == "sqlite+aiosqlite:///:memory:"
@@ -184,7 +186,7 @@ def test_target_consistency_reconciler_and_backend_engine():
     from app.core.persistence.db import database
     from app.core.persistence.db_revision import check_database_compatibility
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         test_db = Path(tmpdir) / "unified.db"
         canonical_url = f"sqlite+aiosqlite:///{test_db.as_posix()}"
 

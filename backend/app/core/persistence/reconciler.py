@@ -310,7 +310,7 @@ class DatabaseReconciler:
             try:
                 # Direct read via standard sqlite3 with WAL support and short busy timeout
                 uri = f"file:{self.sqlite_file.as_posix()}?mode=ro"
-                with sqlite3.connect(uri, uri=True, timeout=5.0) as conn:
+                with contextlib.closing(sqlite3.connect(uri, uri=True, timeout=5.0)) as conn:
                     cursor = conn.cursor()
                     q = (
                         "SELECT name FROM sqlite_master "
@@ -362,8 +362,8 @@ class DatabaseReconciler:
         backup_path = target_dir / f"{self.sqlite_file.stem}_backup_{timestamp}.db"
 
         with (
-            sqlite3.connect(str(self.sqlite_file), timeout=10.0) as src_conn,
-            sqlite3.connect(str(backup_path)) as dst_conn,
+            contextlib.closing(sqlite3.connect(str(self.sqlite_file), timeout=10.0)) as src_conn,
+            contextlib.closing(sqlite3.connect(str(backup_path))) as dst_conn,
         ):
             src_conn.backup(dst_conn)
 
