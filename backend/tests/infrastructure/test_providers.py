@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -162,6 +163,13 @@ class TestProviderTypes:
         assert CloudProviderStub().provider_type == "cloud"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "LocalLinuxProvider is POSIX-only; Windows uses "
+        "LocalWindowsProvider (see test_local_windows_provider.py)"
+    ),
+)
 class TestLocalLinuxProviderStart:
     @pytest.mark.asyncio
     async def test_start_with_launch_config(self) -> None:
@@ -279,6 +287,13 @@ class TestLocalLinuxProviderStart:
                             await provider.start(server_id="fail", deployment=deployment)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "LocalLinuxProvider is POSIX-only; Windows uses "
+        "LocalWindowsProvider (see test_local_windows_provider.py)"
+    ),
+)
 class TestLocalLinuxProviderWaitReady:
     @pytest.mark.asyncio
     async def test_wait_ready_done_found(self) -> None:
@@ -352,6 +367,13 @@ class TestLocalLinuxProviderWaitReady:
         assert ready is False
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "LocalLinuxProvider is POSIX-only; Windows uses "
+        "LocalWindowsProvider (see test_local_windows_provider.py)"
+    ),
+)
 class TestLocalLinuxProviderStop:
     @pytest.mark.asyncio
     async def test_stop_process_already_gone(self) -> None:
@@ -387,6 +409,13 @@ class TestLocalLinuxProviderStop:
                     await provider.stop(handle, force=True)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "LocalLinuxProvider is POSIX-only; Windows uses "
+        "LocalWindowsProvider (see test_local_windows_provider.py)"
+    ),
+)
 class TestLocalLinuxProviderPreFlight:
     @pytest.mark.asyncio
     async def test_verify_port_free_success(self) -> None:
