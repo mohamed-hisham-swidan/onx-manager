@@ -6,7 +6,8 @@ Covers the config bind accessors (Decision 3), the Cloudflare API client
 """
 
 import os
-from unittest.mock import AsyncMock, patch
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -229,6 +230,41 @@ class TestCloudflaredSupervisor:
         ):
             yield {"kill": mock_kill, "killpg": mock_killpg}
 
+    def _mock_subprocess(
+        self,
+        pid: int = 99999,
+        stdout_lines: list[bytes] | None = None,
+        stderr_lines: list[bytes] | None = None,
+    ):
+        proc = AsyncMock()
+        proc.pid = pid
+        proc.returncode = None
+        proc.wait = AsyncMock(return_value=0)
+        proc.terminate = MagicMock()
+        proc.kill = MagicMock()
+
+        out_lines = list(stdout_lines or [])
+        err_lines = list(stderr_lines or [])
+
+        async def _readline_out():
+            if out_lines:
+                return out_lines.pop(0)
+            return b""
+
+        async def _readline_err():
+            if err_lines:
+                return err_lines.pop(0)
+            return b""
+
+        stdout = AsyncMock()
+        stdout.readline = AsyncMock(side_effect=_readline_out)
+        proc.stdout = stdout
+
+        stderr = AsyncMock()
+        stderr.readline = AsyncMock(side_effect=_readline_err)
+        proc.stderr = stderr
+        return proc
+
     async def test_token_file_permissions(self) -> None:
         from pathlib import Path
 
@@ -238,7 +274,8 @@ class TestCloudflaredSupervisor:
         token_file = supervisor._write_token_file(b"secret-token")
         try:
             assert Path(token_file).exists()
-            assert Path(token_file).stat().st_mode & 0o777 == 0o600
+            if sys.platform != "win32":
+                assert Path(token_file).stat().st_mode & 0o777 == 0o600
             assert Path(token_file).read_bytes() == b"secret-token"
         finally:
             await supervisor._delete_token_file()
@@ -247,10 +284,7 @@ class TestCloudflaredSupervisor:
         from app.modules.exposure.infrastructure.cloudflared import CloudflaredSupervisor
 
         supervisor = CloudflaredSupervisor()
-        process = AsyncMock()
-        process.returncode = None
-        process.pid = 99999
-        process.stderr = None
+        process = self._mock_subprocess()
 
         def fake_create(*_args, **_kwargs):
             return process
@@ -290,17 +324,12 @@ class TestCloudflaredSupervisor:
             b"ERR  error code: 1033\n",
             b"unable to authenticate: invalid token provided\n",
         ]
-        process = AsyncMock()
-        process.returncode = None
-        process.pid = 99999
-        process.stderr = None
+        process = self._mock_subprocess()
 
         def fake_create(*_args, **_kwargs):
             return process
 
-        from unittest.mock import patch as _patch
-
-        with _patch("asyncio.create_subprocess_exec", new=AsyncMock(side_effect=fake_create)):
+        with patch("asyncio.create_subprocess_exec", new=AsyncMock(side_effect=fake_create)):
             await supervisor.start(b"tok")
         try:
             reader = AsyncMock()
@@ -333,11 +362,7 @@ class TestCloudflaredSupervisor:
 
         def fake_create(*_args, **_kwargs):
             captured.append(_args)
-            process = AsyncMock()
-            process.returncode = None
-            process.pid = 99999
-            process.stderr = None
-            return process
+            return self._mock_subprocess()
 
         supervisor = CloudflaredSupervisor()
         token = b"plaintext-tunnel-token-do-not-leak"
@@ -367,11 +392,7 @@ class TestCloudflaredSupervisor:
         supervisor = CloudflaredSupervisor()
 
         def fake_create(*_args, **_kwargs):
-            process = AsyncMock()
-            process.returncode = None
-            process.pid = 99999
-            process.stderr = None
-            return process
+            return self._mock_subprocess()
 
         with patch("asyncio.create_subprocess_exec", new=AsyncMock(side_effect=fake_create)):
             await supervisor.start(b"secret-token-value")
@@ -379,7 +400,8 @@ class TestCloudflaredSupervisor:
             token_file = supervisor._token_file
             assert token_file is not None
             assert Path(token_file).exists()
-            assert Path(token_file).stat().st_mode & 0o777 == 0o600
+            if sys.platform != "win32":
+                assert Path(token_file).stat().st_mode & 0o777 == 0o600
             assert Path(token_file).read_bytes() == b"secret-token-value"
 
             await supervisor.stop()
