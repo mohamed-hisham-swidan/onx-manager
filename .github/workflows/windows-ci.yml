@@ -47,7 +47,7 @@ jobs:
 
       - name: Run backend test suite
         working-directory: backend
-        run: python -m pytest -q --tb=short
+        run: python -m pytest -v --tb=short --durations=10
 
       - name: check-db-revision
         working-directory: backend
