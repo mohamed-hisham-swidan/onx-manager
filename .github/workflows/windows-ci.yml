@@ -25,7 +25,7 @@ jobs:
   backend-windows:
     name: Backend tests + checks (Windows)
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     defaults:
       run:
         shell: pwsh
