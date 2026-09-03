@@ -7,25 +7,24 @@ export function AuthGuard() {
   const refreshToken = useAuthStore((s) => s.refreshToken);
   const refreshAuth = useAuthStore((s) => s.refreshAuth);
 
-  const [isChecking, setIsChecking] = useState(() => !isAuthenticated && !!refreshToken);
+  const canAttemptRefresh = !isAuthenticated && !!refreshToken;
+  const [isRefreshing, setIsRefreshing] = useState(() => canAttemptRefresh);
 
   useEffect(() => {
     let mounted = true;
-    if (!isAuthenticated && refreshToken && refreshAuth) {
+    if (canAttemptRefresh && refreshAuth) {
       refreshAuth().finally(() => {
         if (mounted) {
-          setIsChecking(false);
+          setIsRefreshing(false);
         }
       });
-    } else {
-      setIsChecking(false);
     }
     return () => {
       mounted = false;
     };
-  }, [isAuthenticated, refreshToken, refreshAuth]);
+  }, [canAttemptRefresh, refreshAuth]);
 
-  if (isChecking) {
+  if (canAttemptRefresh && isRefreshing) {
     return null;
   }
 
