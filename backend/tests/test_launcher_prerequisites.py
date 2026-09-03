@@ -197,48 +197,75 @@ def test_validator_check_npm_retry_success():
 
 
 def test_pid_manager_is_alive_windows_still_active():
-    import ctypes
-
     from launcher import PIDManager
 
     mock_kernel32 = MagicMock()
     mock_kernel32.OpenProcess.return_value = 1234
+    mock_kernel32.GetExitCodeProcess.return_value = True
 
-    def fake_get_exit_code(_handle, byref_code):
-        byref_code._obj.value = 259  # STILL_ACTIVE
-        return 1
+    mock_dword = MagicMock()
+    mock_dword.value = 259  # STILL_ACTIVE
 
-    mock_kernel32.GetExitCodeProcess.side_effect = fake_get_exit_code
+    mock_wintypes = MagicMock()
+    mock_wintypes.DWORD.return_value = mock_dword
 
-    mock_windll = MagicMock()
-    mock_windll.kernel32 = mock_kernel32
+    mock_ctypes = MagicMock()
+    mock_ctypes.windll.kernel32 = mock_kernel32
+    mock_ctypes.wintypes = mock_wintypes
+    mock_ctypes.byref = MagicMock()
 
-    with patch("os.name", "nt"), patch.object(ctypes, "windll", mock_windll, create=True):
+    with (
+        patch("os.name", "nt"),
+        patch.dict("sys.modules", {"ctypes": mock_ctypes, "ctypes.wintypes": mock_wintypes}),
+    ):
         alive = PIDManager.is_alive(5000)
         assert alive is True
         mock_kernel32.OpenProcess.assert_called_once_with(0x1000, False, 5000)
+        mock_kernel32.GetExitCodeProcess.assert_called_once()
         mock_kernel32.CloseHandle.assert_called_once_with(1234)
 
 
 def test_pid_manager_is_alive_windows_dead_process():
-    import ctypes
-
     from launcher import PIDManager
 
     mock_kernel32 = MagicMock()
     mock_kernel32.OpenProcess.return_value = 1234
+    mock_kernel32.GetExitCodeProcess.return_value = True
 
-    def fake_get_exit_code(_handle, byref_code):
-        byref_code._obj.value = 1  # Process exited with code 1
-        return 1
+    mock_dword = MagicMock()
+    mock_dword.value = 1  # Process exited with code 1
 
-    mock_kernel32.GetExitCodeProcess.side_effect = fake_get_exit_code
+    mock_wintypes = MagicMock()
+    mock_wintypes.DWORD.return_value = mock_dword
 
-    mock_windll = MagicMock()
-    mock_windll.kernel32 = mock_kernel32
+    mock_ctypes = MagicMock()
+    mock_ctypes.windll.kernel32 = mock_kernel32
+    mock_ctypes.wintypes = mock_wintypes
+    mock_ctypes.byref = MagicMock()
 
-    with patch("os.name", "nt"), patch.object(ctypes, "windll", mock_windll, create=True):
+    with (
+        patch("os.name", "nt"),
+        patch.dict("sys.modules", {"ctypes": mock_ctypes, "ctypes.wintypes": mock_wintypes}),
+    ):
         alive = PIDManager.is_alive(5000)
         assert alive is False
+        mock_kernel32.OpenProcess.assert_called_once_with(0x1000, False, 5000)
+        mock_kernel32.GetExitCodeProcess.assert_called_once()
         mock_kernel32.CloseHandle.assert_called_once_with(1234)
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Live Windows process liveness requires real Windows environment",
+)
+def test_pid_manager_is_alive_windows_live_process():
+    import os
+
+    from launcher import PIDManager
+
+    current_pid = os.getpid()
+    assert PIDManager.is_alive(current_pid) is True
+    assert PIDManager.is_alive(4194304) is False
+
+
 

@@ -649,7 +649,13 @@ class TestLocalWindowsProviderConsoleAndExec:
             external_id="1234",
             metadata={"pid": 1234},
         )
-        with pytest.raises(ProviderError) as exc_info:
+        with (
+            patch(
+                "app.modules.server.infrastructure.providers.local_windows.platform_pid_alive",
+                return_value=False,
+            ),
+            pytest.raises(ProviderError) as exc_info,
+        ):
             await provider.execute_command(handle, "say hello")
         assert "no interactive stdin" in str(exc_info.value)
 

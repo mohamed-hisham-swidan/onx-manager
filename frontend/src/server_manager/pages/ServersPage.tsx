@@ -87,6 +87,7 @@ export function ServersPage() {
   }, [servers, search, statusFilter, sortKey]);
 
   function handleStart(server: ServerResponse) {
+    // eslint-disable-next-line react-hooks/purity
     const currentTime = Date.now();
     setNow(currentTime);
     setStartCooldowns((prev) => ({ ...prev, [server.server_id]: currentTime + 3000 }));

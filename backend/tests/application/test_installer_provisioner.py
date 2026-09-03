@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from types import SimpleNamespace
@@ -381,7 +382,10 @@ class TestSubclassContractParity:
 
             assert server.status == ServerStatus.CREATED
             assert server.launch_config is not None
-            assert server.launch_config.startup_command == ("bash", "run.sh", "nogui")
+            expected_cmd = (
+                ("run.bat", "nogui") if sys.platform == "win32" else ("bash", "run.sh", "nogui")
+            )
+            assert server.launch_config.startup_command == expected_cmd
             assert fs.delete.call_count == 1
             assert (
                 Path(fs.delete.call_args[0][0]).as_posix()

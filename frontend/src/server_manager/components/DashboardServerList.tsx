@@ -54,6 +54,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
   }, [hasActiveCooldown]);
 
   function handleStart(serverId: string, name: string) {
+    // eslint-disable-next-line react-hooks/purity
     const currentTime = Date.now();
     setNow(currentTime);
     setStartCooldowns((prev) => ({ ...prev, [serverId]: currentTime + 3000 }));
