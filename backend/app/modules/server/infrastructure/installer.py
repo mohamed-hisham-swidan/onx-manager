@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+import subprocess
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from app.core.process_utils import platform_kill_process_tree_async
 from app.modules.server.domain.installer import InstallerResult, InstallerRunner, ProgressLine
@@ -61,13 +63,24 @@ class SubprocessInstallerRunner(InstallerRunner):
         timeout: float,
         cwd: str | None = None,
     ) -> AsyncGenerator[RunnerOutput, None]:
+        popen_kwargs: dict[str, Any] = {}
+        if not is_windows():
+            popen_kwargs["start_new_session"] = True
+        else:
+            # On Windows, start_new_session raises ValueError.
+            # Use CREATE_NEW_PROCESS_GROUP for signal and process isolation.
+            create_new_process_group = getattr(
+                subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200
+            )
+            popen_kwargs["creationflags"] = create_new_process_group
+
         proc = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,  # Merge stderr into stdout for simpler parsing
             cwd=cwd,
             close_fds=True,
-            start_new_session=True,
+            **popen_kwargs,
         )
 
         all_output: list[str] = []

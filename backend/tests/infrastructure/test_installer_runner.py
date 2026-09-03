@@ -131,3 +131,62 @@ async def test_runner_cancelled_calls_platform_kill_process_tree() -> None:
 
     mock_kill_tree.assert_awaited_once_with(12345, proc=mock_proc)
     mock_killpg.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_runner_platform_popen_kwargs_posix() -> None:
+    """ISS-030: On POSIX platforms, start_new_session=True must be passed."""
+    mock_reader = _MockHangingReader()
+    mock_proc = AsyncMock()
+    mock_proc.pid = 12345
+    mock_proc.returncode = 0
+    mock_proc.stdout = mock_reader
+
+    runner = SubprocessInstallerRunner()
+    with (
+        patch("app.modules.server.infrastructure.installer.is_windows", return_value=False),
+        patch("asyncio.create_subprocess_shell", return_value=mock_proc) as mock_spawn,
+    ):
+        gen = runner.run("dummy-cmd", timeout=1.0)
+        task = asyncio.create_task(gen.asend(None))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        with contextlib.suppress(Exception):
+            await gen.aclose()
+
+    mock_spawn.assert_awaited_once()
+    _, kwargs = mock_spawn.await_args
+    assert kwargs.get("start_new_session") is True
+    assert "creationflags" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_runner_platform_popen_kwargs_windows() -> None:
+    """ISS-030: On Windows platforms, creationflags must include CREATE_NEW_PROCESS_GROUP."""
+    mock_reader = _MockHangingReader()
+    mock_proc = AsyncMock()
+    mock_proc.pid = 12345
+    mock_proc.returncode = 0
+    mock_proc.stdout = mock_reader
+
+    runner = SubprocessInstallerRunner()
+    with (
+        patch("app.modules.server.infrastructure.installer.is_windows", return_value=True),
+        patch("asyncio.create_subprocess_shell", return_value=mock_proc) as mock_spawn,
+    ):
+        gen = runner.run("dummy-cmd", timeout=1.0)
+        task = asyncio.create_task(gen.asend(None))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        with contextlib.suppress(Exception):
+            await gen.aclose()
+
+    mock_spawn.assert_awaited_once()
+    _, kwargs = mock_spawn.await_args
+    assert "start_new_session" not in kwargs
+    assert kwargs.get("creationflags") == 0x00000200
+

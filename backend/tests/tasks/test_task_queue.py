@@ -216,3 +216,77 @@ async def test_mark_stale_running_failed_returns_rowcount() -> None:
     queue = InProcessQueue(factory)
     count = await queue.mark_stale_running_failed(max_age_minutes=30)
     assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_delayed_task_survives_gc_and_executes() -> None:
+    """ISS-032: Delayed tasks must not be garbage collected and must execute after delay."""
+    import gc
+
+    session = FakeSession()
+
+    async def get_session() -> FakeSession:
+        return session
+
+    queue = InProcessQueue(get_session)
+    executed = asyncio.Event()
+
+    async def my_handler(_params: dict) -> dict:
+        executed.set()
+        return {"result": "done"}
+
+    queue.register("delayed_op", my_handler)
+
+    task_id = await queue.enqueue("delayed_op", {"foo": "bar"}, delay=0.05)
+
+    # Force aggressive garbage collection multiple times while task is sleeping
+    gc.collect()
+    gc.collect()
+
+    # Wait for the delayed task to execute
+    await asyncio.wait_for(executed.wait(), timeout=1.0)
+
+    # Allow session commits inside _execute to complete
+    await asyncio.sleep(0.05)
+    model = await session.get(TaskModel, task_id)
+    assert model is not None
+    assert model.status == TaskStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_task_handler_exception_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    """ISS-032: Handler exceptions must be logged and not silently swallowed."""
+    import logging
+
+    caplog.set_level(logging.ERROR)
+    session = FakeSession()
+
+    async def get_session() -> FakeSession:
+        return session
+
+    queue = InProcessQueue(get_session)
+    done_event = asyncio.Event()
+
+    async def failing_handler(_params: dict) -> None:
+        try:
+            raise ValueError("kaboom failure in handler")
+        finally:
+            done_event.set()
+
+    queue.register("fail_op", failing_handler)
+    task_id = await queue.enqueue("fail_op", {}, delay=0)
+
+    await asyncio.wait_for(done_event.wait(), timeout=1.0)
+    await asyncio.sleep(0.05)
+
+    model = await session.get(TaskModel, task_id)
+    assert model is not None
+    assert model.status == TaskStatus.FAILED
+    assert "ValueError: kaboom failure in handler" in (model.error or "")
+
+    # Assert exception was logged
+    assert any(
+        "fail_op" in record.message or "kaboom failure" in str(record.exc_info)
+        for record in caplog.records
+    )
+

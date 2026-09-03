@@ -83,6 +83,23 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
                     },
                 )
 
+        # ISS-NEW-002: Re-fetch server deployment immediately before restore to avoid stale data
+        async with UnitOfWork(self._event_bus) as uow:
+            server_repo = SQLServerRepository(uow.session)
+            try:
+                server = await server_repo.get(job.server_id)
+            except ServerNotFoundError as exc:
+                return CommandResult(success=False, error=str(exc), error_code="NOT_FOUND")
+
+            if server.deployment is None or not server.deployment.root_path:
+                return CommandResult(
+                    success=False,
+                    error="Server has no deployment; cannot resolve world directory",
+                    error_code="NO_DEPLOYMENT",
+                )
+            server_dir = server.deployment.server_directory()
+            base_world = server.deployment.primary_world or "world"
+
         try:
             restored_items = await perform_safe_restore(
                 backup_id,

@@ -531,29 +531,36 @@ async def test_server_properties_role_matrix_and_isolation(client, created_user,
 
 
 @pytest.mark.asyncio
-async def test_server_properties_write_boundary_remains_allowed(client, created_user, tmp_path):
-    """Accepted boundary: holders of server.{id}.files may manage server.properties.
-
-    Read (content/download) is blocked for everyone, but write/upload stay available
-    to files-permission holders because every such role (admin/dev) also holds
-    server.{id}.console and arbitrary-file write in the server root — protecting the
-    write path would not raise the real security boundary. See security closure report.
-    """
+async def test_server_properties_write_and_upload_blocked(client, created_user, tmp_path):
+    """ISS-035: Sensitive writes (e.g. server.properties) return 403, normal files succeed."""
     server_id, server_root = await _seed_secrets_server(tmp_path)
     admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
 
+    # Attempt write to sensitive file server.properties
     resp = await client.put(
         f"/api/v1/servers/{server_id}/files/content",
         params={"path": "server.properties"},
         json={"content": "motd=Replaced\n"},
         headers=admin_header,
     )
-    assert resp.status_code == 200
-    assert (server_root / "server.properties").read_text() == "motd=Replaced\n"
+    assert resp.status_code == 403
+    assert "File access denied for sensitive server file" in resp.json().get("detail", "")
 
-    resp = await client.get(
+    # Attempt write to case variant of sensitive file
+    resp = await client.put(
         f"/api/v1/servers/{server_id}/files/content",
-        params={"path": "server.properties"},
+        params={"path": "SERVER.PROPERTIES"},
+        json={"content": "motd=Replaced\n"},
         headers=admin_header,
     )
     assert resp.status_code == 403
+
+    # Normal non-sensitive file write still succeeds
+    resp = await client.put(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "eula.txt"},
+        json={"content": "eula=true\n"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 200
+    assert (server_root / "eula.txt").read_text() == "eula=true\n"

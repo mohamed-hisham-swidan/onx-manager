@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { resetAuthenticatedApi } from "../services/api";
+import { queryClient } from "../services/queryClient";
 
 const STORAGE_KEY = "mcs_auth";
 
@@ -72,6 +73,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     logout: () => {
       clearAuth();
       resetAuthenticatedApi();
+      queryClient.clear();
       set({ accessToken: null, refreshToken: null, expiresAt: null, isAuthenticated: false });
     },
 

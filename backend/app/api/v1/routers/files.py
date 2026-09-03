@@ -142,6 +142,8 @@ async def write_file_content(
     if target_path.exists() and target_path.is_dir():
         raise HTTPException(status_code=400, detail="Target path is a directory, not a file")
 
+    _assert_not_sensitive(target_path)
+
     # Use write_binary_atomic to prevent partial file writes on failure
     local_fs.write_binary_atomic(str(target_path), body.content.encode("utf-8"))
     return FileContentResponse(path=rel_str, content=body.content)
@@ -182,6 +184,10 @@ async def upload_file(
     resolved_root, target_file_path, rel_str = await _resolve_server_file_path(
         server_id, dest_rel_path, query_bus, must_exist=False
     )
+    if target_file_path.exists() and target_file_path.is_dir():
+        raise HTTPException(status_code=400, detail="Target path is a directory, not a file")
+
+    _assert_not_sensitive(target_file_path)
 
     contents = await file.read()
     local_fs.write_binary_atomic(str(target_file_path), contents)

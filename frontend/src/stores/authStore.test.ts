@@ -76,6 +76,20 @@ describe("authStore", () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
+  it("logout clears the queryClient cache", async () => {
+    const { queryClient } = await import("../services/queryClient");
+    const { useAuthStore } = await import("./authStore");
+
+    queryClient.setQueryData(["servers", "list"], [{ server_id: "srv-1", name: "Alpha" }]);
+    expect(queryClient.getQueryData(["servers", "list"])).toBeDefined();
+
+    useAuthStore.getState().login("a", "r", 3600);
+    useAuthStore.getState().logout();
+
+    expect(queryClient.getQueryData(["servers", "list"])).toBeUndefined();
+    expect(queryClient.getQueryCache().getAll().length).toBe(0);
+  });
+
   it("setTokens updates tokens", async () => {
     const { useAuthStore } = await import("./authStore");
     useAuthStore.getState().setTokens("newA", "newR", 7200);

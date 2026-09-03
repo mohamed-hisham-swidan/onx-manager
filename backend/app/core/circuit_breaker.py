@@ -124,11 +124,11 @@ class CircuitBreaker:
         if self._state == new_state:
             return
         logger.info(
-            "Circuit breaker state change",
-            name=self._name,
-            old=self._state.value,
-            new=new_state.value,
-            failure_count=self._failure_count,
+            "Circuit breaker state change: name=%s old=%s new=%s failure_count=%d",
+            self._name,
+            self._state.value,
+            new_state.value,
+            self._failure_count,
         )
         self._state = new_state
         self._events.append(

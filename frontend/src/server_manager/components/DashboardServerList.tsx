@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -38,17 +38,25 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
 
   const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending || retryProvisioning.isPending;
   const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
-  const [now, setNow] = useState<number>(0);
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  const hasActiveCooldown = useMemo(
+    () => Object.values(startCooldowns).some((until) => until > now),
+    [startCooldowns, now]
+  );
 
   useEffect(() => {
-    const timer = setInterval(() => {
+    if (!hasActiveCooldown) return;
+    const timer = window.setInterval(() => {
       setNow(Date.now());
-    }, 200);
-    return () => clearInterval(timer);
-  }, []);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [hasActiveCooldown]);
 
   function handleStart(serverId: string, name: string) {
-    setStartCooldowns((prev) => ({ ...prev, [serverId]: now + 3000 }));
+    const currentTime = Date.now();
+    setNow(currentTime);
+    setStartCooldowns((prev) => ({ ...prev, [serverId]: currentTime + 3000 }));
     startServer.mutate(serverId, {
       onSuccess: () => toast("success", "Server started", `"${name}" is starting.`),
       onError: (err) => toast("error", "Start failed", errorMessage(err)),

@@ -105,3 +105,27 @@ class TestCircuitBreaker:
 
         assert len(cb.events) == 1
         assert cb.events[0].state == CircuitState.OPEN
+
+    async def test_state_transition_logging_no_typeerror(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """ISS-001: Assert state transition logging does not raise TypeError."""
+        import logging
+
+        caplog.set_level(logging.INFO, logger="app.core.circuit_breaker")
+        cb = CircuitBreaker("provider:test", max_failures=2, timeout_seconds=60)
+
+        async def fail() -> None:
+            raise RuntimeError("downstream failure")
+
+        for _ in range(2):
+            with pytest.raises(RuntimeError):
+                await cb.call(fail())
+
+        assert cb.state == CircuitState.OPEN
+        assert any(
+            "Circuit breaker state change: name=provider:test old=closed new=open failure_count=2"
+            in record.message
+            for record in caplog.records
+        )
+

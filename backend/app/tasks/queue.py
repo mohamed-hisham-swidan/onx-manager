@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from collections.abc import Callable, Coroutine
@@ -11,8 +12,11 @@ from typing import Any
 from sqlalchemy import Column, DateTime, Integer, String, Text, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import IDENTITY
 from app.core.persistence.base import Base
 from app.tasks.base import TaskQueue, TaskStatus
+
+logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.tasks.queue")
 
 
 class TaskModel(Base):
@@ -35,6 +39,34 @@ class InProcessQueue(TaskQueue):
         self._session_factory = session_factory
         self._results: dict[str, Any] = {}
         self._handlers: dict[str, Callable[[dict[str, Any]], Coroutine[Any, Any, Any]]] = {}
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+
+    def _track_task(
+        self, coro: Coroutine[Any, Any, Any], task_id: str, name: str
+    ) -> asyncio.Task[Any]:
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+
+        def _on_done(t: asyncio.Task[Any]) -> None:
+            self._background_tasks.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                logger.error(
+                    "Background task %s (%s) raised unhandled exception: %s",
+                    task_id,
+                    name,
+                    t.exception(),
+                    exc_info=t.exception(),
+                )
+
+        task.add_done_callback(_on_done)
+        return task
+
+    async def _execute_with_delay(
+        self, task_id: str, name: str, params: dict[str, Any], delay: float
+    ) -> None:
+        if delay > 0:
+            await asyncio.sleep(delay)
+        await self._execute(task_id, name, params)
 
     def register(
         self,
@@ -67,8 +99,12 @@ class InProcessQueue(TaskQueue):
             session.add(model)
             await session.commit()
 
-        if delay == 0 and name in self._handlers:
-            asyncio.ensure_future(self._execute(task_id, name, params or {}))
+        if name in self._handlers:
+            self._track_task(
+                self._execute_with_delay(task_id, name, params or {}, float(delay)),
+                task_id,
+                name,
+            )
 
         return task_id
 
@@ -123,6 +159,7 @@ class InProcessQueue(TaskQueue):
                 model.completed_at = datetime.now(UTC)
                 await session.commit()
         except Exception as e:
+            logger.exception("Task %s (%s) execution failed: %s", task_id, name, e)
             async with await self._session_factory() as session:
                 model = await session.get(TaskModel, task_id)
                 if model is None:
@@ -167,7 +204,8 @@ class InProcessQueue(TaskQueue):
                 await session.commit()
             if claimed.rowcount != 1:
                 continue
-            asyncio.ensure_future(self._execute(model.task_id, model.name, params))
+            task_coro = self._execute(model.task_id, model.name, params)
+            self._track_task(task_coro, model.task_id, model.name)
             reclaimed += 1
 
         return {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardServerList } from "./DashboardServerList";
@@ -205,5 +205,41 @@ describe("DashboardServerList", () => {
     });
     renderList();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("does not start a background interval timer when no start cooldown is active (ISS-052)", () => {
+    vi.useFakeTimers();
+    try {
+      const setIntervalSpy = vi.spyOn(window, "setInterval");
+      renderList();
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts interval only during active cooldown and disables start button until cooldown expires (ISS-052)", async () => {
+    vi.useFakeTimers();
+    try {
+      renderList();
+
+      const startBtn = screen.getByLabelText("Start Stopped");
+      expect(startBtn).not.toBeDisabled();
+
+      fireEvent.click(startBtn);
+
+      // Cooldown is active: start button disabled
+      expect(startBtn).toBeDisabled();
+
+      // Advance time past 3s cooldown inside act
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3500);
+      });
+
+      // Cooldown expired: button re-enabled
+      expect(startBtn).not.toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

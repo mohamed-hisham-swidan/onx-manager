@@ -194,3 +194,87 @@ class TestPlatformPidAliveWindows:
         """Non-existent PID returns False on real Windows."""
         dead_pid = 4194304
         assert platform_pid_alive(dead_pid) is False
+
+
+class TestPlatformKillProcessTreeSafety:
+    def test_kill_process_tree_skips_when_create_time_mismatches(self) -> None:
+        """ISS-005: When target PID create_time mismatches expected, kill must be skipped."""
+        from app.core.process_utils import platform_kill_process_tree_sync
+
+        mock_target_proc = MagicMock()
+        mock_target_proc.create_time.return_value = 200.0  # Reused PID with new create_time
+
+        with (
+            patch("os.getpid", return_value=1),
+            patch("psutil.Process", return_value=mock_target_proc),
+            patch("os.killpg", create=True) as mock_killpg,
+            patch("subprocess.run") as mock_run,
+        ):
+            platform_kill_process_tree_sync(pid=5555, expected_create_time=100.0)
+
+        mock_killpg.assert_not_called()
+        mock_run.assert_not_called()
+
+    def test_kill_process_tree_refuses_to_kill_self(self) -> None:
+        """ISS-005: Target PID matching os.getpid() must never be killed."""
+        from app.core.process_utils import platform_kill_process_tree_sync
+
+        current_pid = os.getpid()
+        with (
+            patch("os.killpg", create=True) as mock_killpg,
+            patch("subprocess.run") as mock_run,
+        ):
+            platform_kill_process_tree_sync(pid=current_pid)
+
+        mock_killpg.assert_not_called()
+        mock_run.assert_not_called()
+
+    def test_kill_process_tree_refuses_to_kill_ancestor(self) -> None:
+        """ISS-005: Target PID matching an ancestor process must never be killed."""
+        from app.core.process_utils import platform_kill_process_tree_sync
+
+        mock_parent = MagicMock()
+        mock_parent.pid = 999
+
+        mock_current_proc = MagicMock()
+        mock_current_proc.parents.return_value = [mock_parent]
+
+        def proc_factory(pid: int):
+            if pid == os.getpid():
+                return mock_current_proc
+            m = MagicMock()
+            m.pid = pid
+            return m
+
+        with (
+            patch("psutil.Process", side_effect=proc_factory),
+            patch("os.killpg", create=True) as mock_killpg,
+            patch("subprocess.run") as mock_run,
+        ):
+            platform_kill_process_tree_sync(pid=999)
+
+        mock_killpg.assert_not_called()
+        mock_run.assert_not_called()
+
+    def test_kill_process_tree_same_pgrp_avoids_killpg(self) -> None:
+        """ISS-005: When target shares backend pgrp, os.killpg is bypassed to protect backend."""
+        from app.core.process_utils import platform_kill_process_tree_sync
+
+        mock_target = MagicMock()
+        mock_target.create_time.return_value = 100.0
+        mock_target.children.return_value = []
+
+        with (
+            patch("sys.platform", "linux"),
+            patch("os.getpid", return_value=100),
+            patch("os.getpgrp", return_value=500),
+            patch("os.getpgid", return_value=500),  # Target shares pgrp with backend
+            patch("os.kill") as mock_os_kill,
+            patch("os.killpg", create=True) as mock_killpg,
+            patch("psutil.Process", return_value=mock_target),
+        ):
+            platform_kill_process_tree_sync(pid=501)
+
+        mock_killpg.assert_not_called()
+        mock_os_kill.assert_called_once_with(501, pytest.importorskip("signal").SIGKILL)
+

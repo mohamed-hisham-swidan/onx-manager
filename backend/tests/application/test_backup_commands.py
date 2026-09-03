@@ -276,6 +276,49 @@ class TestRestoreBackupHandler:
         assert result.data["deferred"] is False
 
     @pytest.mark.asyncio
+    async def test_restore_uses_fresh_deployment_config(self, event_bus: EventBus) -> None:
+        """ISS-NEW-002: Re-fetch deployment before perform_safe_restore to avoid stale config."""
+        from app.modules.server.domain.value_objects import LocationType, ServerDeployment
+        from app.modules.server.infrastructure.repository import SQLServerRepository
+
+        server_id = "res-srv-fresh-config"
+        await self._create_server(server_id, status="stopped")
+        await self._create_job("res-bak-fresh", server_id)
+
+        updated_root = "/tmp/onx-test/updated-path"
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = await repo.get(ServerId(server_id))
+            server.update_deployment(
+                ServerDeployment(
+                    location_type=LocationType.LOCAL,
+                    root_path=updated_root,
+                    working_directory=".",
+                    primary_world="my_custom_world",
+                )
+            )
+            await repo.save(server)
+            await session.commit()
+
+        captured_args = {}
+
+        async def fake_restore(_backup_id, server_dir, base_world="world"):
+            captured_args["server_dir"] = server_dir
+            captured_args["base_world"] = base_world
+            return ["my_custom_world"]
+
+        with patch(
+            "app.modules.backup.application.commands.restore_backup.perform_safe_restore",
+            side_effect=fake_restore,
+        ):
+            handler = RestoreBackupHandler(event_bus)
+            result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-fresh"))
+
+        assert result.success is True
+        assert captured_args["server_dir"] == updated_root
+        assert captured_args["base_world"] == "my_custom_world"
+
+    @pytest.mark.asyncio
     async def test_restore_failure_reported(self, event_bus: EventBus) -> None:
         from app.modules.backup.application.restore_service import RestoreError
 
