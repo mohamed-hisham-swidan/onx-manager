@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import shlex
 import signal
 import socket
 import sys
@@ -69,12 +70,14 @@ class LocalLinuxProvider(ServerProvider):
     async def _cleanup_stale_tmux(self, session_name: str) -> None:
         if await self._tmux_has_session(session_name):
             logger.info("Cleaning up stale tmux session %s phase=cleanup", session_name)
-            await self._run_command(f"tmux kill-session -t {session_name}")
+            await self._run_command(f"tmux kill-session -t {shlex.quote(session_name)}")
 
     async def _find_java_processes(self, server_dir: str) -> list[int]:
-        returncode, stdout = await self._run_command_with_output(
-            f"ps aux | grep java | grep -F '{server_dir}' | grep -v grep | awk '{{print $2}}'",
+        cmd = (
+            f"ps aux | grep java | grep -F {shlex.quote(server_dir)} "
+            f"| grep -v grep | awk '{{print $2}}'"
         )
+        returncode, stdout = await self._run_command_with_output(cmd)
         if returncode != 0 or not stdout.strip():
             return []
         pids: list[int] = []
@@ -208,12 +211,12 @@ class LocalLinuxProvider(ServerProvider):
                         jvm_args_file,
                         f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
                     )
-                cmd = f"cd {server_dir} && bash {script_name} nogui"
+                cmd = f"cd {shlex.quote(server_dir)} && bash {shlex.quote(script_name)} nogui"
             else:
                 cmd = (
-                    f"cd {server_dir} && {java_exec} {jvm_flags} "
+                    f"cd {shlex.quote(server_dir)} && {java_exec} {jvm_flags} "
                     f"-Xms{memory_min}M -Xmx{memory_max}M "
-                    f"-jar {jar} nogui"
+                    f"-jar {shlex.quote(jar)} nogui"
                 )
 
         instance_id = uuid.uuid4().hex[:16]
@@ -257,7 +260,7 @@ class LocalLinuxProvider(ServerProvider):
             session_name,
         )
         returncode = await self._run_command(
-            f"tmux new-session -d -s {session_name} '{cmd}'",
+            f"tmux new-session -d -s {shlex.quote(session_name)} {shlex.quote(cmd)}",
         )
         if returncode != 0:
             raise ProviderError(
@@ -271,7 +274,7 @@ class LocalLinuxProvider(ServerProvider):
         pid = await self._resolve_server_pid(session_name)
 
         if pid is None:
-            await self._run_command(f"tmux kill-session -t {session_name}")
+            await self._run_command(f"tmux kill-session -t {shlex.quote(session_name)}")
             raise ProviderError(
                 "local",
                 "start",
@@ -366,7 +369,7 @@ class LocalLinuxProvider(ServerProvider):
             server_label,
             session_name,
         )
-        await self._run_command(f"tmux kill-session -t {session_name}")
+        await self._run_command(f"tmux kill-session -t {shlex.quote(session_name)}")
 
     async def status(self, handle: ServerHandle) -> ServerRuntimeStatus:
         session_name = handle.external_id
@@ -395,7 +398,7 @@ class LocalLinuxProvider(ServerProvider):
         session_name = handle.external_id
         try:
             returncode, stdout = await self._run_command_with_output(
-                f"tmux capture-pane -t {session_name} -p -S -{tail}",
+                f"tmux capture-pane -t {shlex.quote(session_name)} -p -S -{tail}",
             )
             if returncode != 0:
                 raise ProviderError(
@@ -418,7 +421,7 @@ class LocalLinuxProvider(ServerProvider):
         escaped = command.replace("'", "'\\''")
         try:
             returncode, stdout = await self._run_command_with_output(
-                f"tmux send-keys -t {session_name} '{escaped}' Enter",
+                f"tmux send-keys -t {shlex.quote(session_name)} '{escaped}' Enter",
             )
             if returncode != 0:
                 raise ProviderError(
@@ -442,7 +445,7 @@ class LocalLinuxProvider(ServerProvider):
     async def _tmux_has_session(self, name: str) -> bool:
         try:
             returncode, _ = await self._run_command_with_output(
-                f"tmux has-session -t {name} 2>/dev/null",
+                f"tmux has-session -t {shlex.quote(name)} 2>/dev/null",
             )
             return returncode == 0
         except Exception as exc:
@@ -455,7 +458,7 @@ class LocalLinuxProvider(ServerProvider):
     async def _get_tmux_pid(self, session_name: str) -> int | None:
         try:
             returncode, stdout = await self._run_command_with_output(
-                f"tmux list-panes -t {session_name} -F '#{{pane_pid}}' 2>/dev/null",
+                f"tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null",
             )
             if returncode != 0 or not stdout:
                 return None

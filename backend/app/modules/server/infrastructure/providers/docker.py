@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shlex
 from typing import Any
 
 from app.core.exceptions import ProviderError
@@ -41,47 +42,47 @@ class DockerProvider(ServerProvider):
 
         label_flags = [
             f"--label {IDENTITY.docker_label_prefix_new}.managed=true",
-            f"--label {IDENTITY.docker_label_prefix_new}.server_id={server_id}",
+            f"--label {IDENTITY.docker_label_prefix_new}.server_id={shlex.quote(server_id)}",
             f"--label {IDENTITY.docker_label_prefix_new}.runtime=docker",
         ]
 
         env_flags = [
-            f"-e VERSION={version}",
-            f"-e MEMORY={memory_max}M",
-            f"-e JVM_XX_OPTS='-Xms{memory_min}M'",
+            f"-e VERSION={shlex.quote(str(version))}",
+            f"-e MEMORY={shlex.quote(f'{memory_max}M')}",
+            f"-e JVM_XX_OPTS={shlex.quote(f'-Xms{memory_min}M')}",
         ]
 
         volume_flags = []
         if world_dir:
-            volume_flags.append(f"-v {world_dir}:/data/world")
+            volume_flags.append(f"-v {shlex.quote(world_dir)}:/data/world")
 
         port_flag = f"-p {port}:25565"
 
         rm_flag = "--rm" if config.get("auto_remove", False) else ""
 
         create_cmd = (
-            f"create --name {container_name} "
+            f"create --name {shlex.quote(container_name)} "
             f"{' '.join(label_flags)} "
             f"{' '.join(env_flags)} "
             f"{' '.join(volume_flags)} "
             f"{port_flag} "
             f"{rm_flag} "
-            f"{image}"
+            f"{shlex.quote(image)}"
         )
 
         returncode, _ = await self._docker_command(create_cmd)
         if returncode != 0:
             raise ProviderError("docker", "start", "Container creation failed")
 
-        returncode, _ = await self._docker_command(f"start {container_name}")
+        returncode, _ = await self._docker_command(f"start {shlex.quote(container_name)}")
         if returncode != 0:
-            await self._docker_command(f"rm {container_name}")
+            await self._docker_command(f"rm {shlex.quote(container_name)}")
             raise ProviderError("docker", "start", "Container start failed")
 
         await asyncio.sleep(0.5)
 
         _, inspect_output = await self._docker_command(
-            f"inspect {container_name} --format '{{{{.State.Pid}}}}'",
+            f"inspect {shlex.quote(container_name)} --format '{{{{.State.Pid}}}}'",
         )
         pid = int(inspect_output.strip()) if inspect_output.strip().isdigit() else None
 
@@ -103,16 +104,16 @@ class DockerProvider(ServerProvider):
     async def stop(self, handle: ServerHandle, force: bool = False) -> None:
         container_name = handle.external_id
         if force:
-            await self._docker_command(f"kill {container_name}")
+            await self._docker_command(f"kill {shlex.quote(container_name)}")
         else:
             await self.execute_command(handle, "stop")
             await asyncio.sleep(2)
-            await self._docker_command(f"stop {container_name}")
+            await self._docker_command(f"stop {shlex.quote(container_name)}")
 
     async def status(self, handle: ServerHandle) -> ServerRuntimeStatus:
         container_name = handle.external_id
         returncode, stdout = await self._docker_command(
-            f"inspect {container_name} --format '{{{{.State.Status}}}}' 2>/dev/null",
+            f"inspect {shlex.quote(container_name)} --format '{{{{.State.Status}}}}' 2>/dev/null",
         )
         if returncode != 0 or not stdout.strip():
             return ServerRuntimeStatus.STOPPED
@@ -127,7 +128,7 @@ class DockerProvider(ServerProvider):
     async def console(self, handle: ServerHandle, tail: int = 100) -> list[str]:
         container_name = handle.external_id
         returncode, stdout = await self._docker_command(
-            f"logs --tail {tail} --timestamps {container_name}",
+            f"logs --tail {tail} --timestamps {shlex.quote(container_name)}",
         )
         if returncode != 0:
             raise ProviderError("docker", "console", "Failed to get container logs")
@@ -137,7 +138,7 @@ class DockerProvider(ServerProvider):
         container_name = handle.external_id
         escaped = command.replace("'", "'\\''")
         returncode, stdout = await self._docker_command(
-            f"exec {container_name} rcon-cli '{escaped}'",
+            f"exec {shlex.quote(container_name)} rcon-cli '{escaped}'",
         )
         if returncode != 0:
             raise ProviderError("docker", "execute_command", "docker exec failed")
@@ -145,21 +146,23 @@ class DockerProvider(ServerProvider):
 
     async def destroy(self, handle: ServerHandle) -> None:
         container_name = handle.external_id
-        await self._docker_command(f"rm -f {container_name}")
+        await self._docker_command(f"rm -f {shlex.quote(container_name)}")
 
     async def get_runtime_pid(self, handle: ServerHandle) -> int | None:
         container_name = handle.external_id
         returncode, stdout = await self._docker_command(
-            f"inspect {container_name} --format '{{{{.State.Pid}}}}' 2>/dev/null",
+            f"inspect {shlex.quote(container_name)} --format '{{{{.State.Pid}}}}' 2>/dev/null",
         )
         if returncode == 0 and stdout.strip().isdigit():
             return int(stdout.strip())
         return None
 
     async def _ensure_image(self, image: str) -> None:
-        returncode, _ = await self._docker_command(f"image inspect {image} 2>/dev/null")
+        returncode, _ = await self._docker_command(
+            f"image inspect {shlex.quote(image)} 2>/dev/null"
+        )
         if returncode != 0:
-            returncode, stdout = await self._docker_command(f"pull {image}")
+            returncode, stdout = await self._docker_command(f"pull {shlex.quote(image)}")
             if returncode != 0:
                 raise ProviderError("docker", "pull", f"Failed to pull image {image}: {stdout}")
 

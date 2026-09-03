@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import logging
+import os
 import secrets
+import tempfile
 import time
 from pathlib import Path
 
@@ -70,7 +73,21 @@ def init_jwt_from_settings(settings: AppSettings) -> None:
             format=serialization.PrivateFormat.TraditionalOpenSSL,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        _DEFAULT_KEY_PATH.write_bytes(pem)
+        fd, tmp_path_str = tempfile.mkstemp(
+            prefix="jwt_key_",
+            suffix=".tmp",
+            dir=_DEFAULT_KEY_PATH.parent,
+        )
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(pem)
+            with contextlib.suppress(OSError):
+                os.chmod(tmp_path_str, 0o600)
+            os.replace(tmp_path_str, _DEFAULT_KEY_PATH)
+        except Exception:
+            if os.path.exists(tmp_path_str):
+                os.unlink(tmp_path_str)
+            raise
         logger.info("Persisted generated JWT private key to %s", _DEFAULT_KEY_PATH)
 
     _key_id = _compute_key_id(_public_key)

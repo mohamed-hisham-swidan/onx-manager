@@ -65,3 +65,26 @@ class TestJWT:
         assert len(token) > 20
         token2 = create_refresh_token()
         assert token != token2
+
+    def test_persisted_jwt_key_file_permissions_are_0600(self, tmp_path, monkeypatch) -> None:
+        import sys
+
+        from app.core.config import AppSettings
+        from app.modules.auth.infrastructure import jwt
+
+        key_file = tmp_path / "jwt_test_key.pem"
+        monkeypatch.setattr(jwt, "_DEFAULT_KEY_PATH", key_file)
+        monkeypatch.setattr(jwt, "_private_key", None)
+        monkeypatch.setattr(jwt, "_public_key", None)
+        monkeypatch.setattr(jwt, "_key_id", None)
+
+        settings = AppSettings(
+            jwt_private_key="",
+            jwt_private_key_path="",
+        )
+        jwt.init_jwt_from_settings(settings)
+
+        assert key_file.exists()
+        if sys.platform != "win32":
+            mode = key_file.stat().st_mode & 0o777
+            assert mode == 0o600

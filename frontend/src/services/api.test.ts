@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createApiClient, ApiError } from "./api";
+import { createApiClient, ApiError, createAuthenticatedApi } from "./api";
 
 function mockFetch(data: unknown, status = 200) {
   return vi.fn().mockResolvedValue({
@@ -224,5 +224,82 @@ describe("createApiClient", () => {
         body: undefined,
       }),
     );
+  });
+
+  it("ISS-043: createAuthenticatedApi returns a shared singleton instance across callers", () => {
+    const client1 = createAuthenticatedApi();
+    const client2 = createAuthenticatedApi();
+    expect(client1).toBe(client2);
+  });
+
+  it("ISS-043: concurrent 401s on shared client execute only ONE refresh call and all succeed", async () => {
+    let token = "expired-token";
+    const onRefresh = vi.fn(async () => {
+      token = "fresh-token";
+      return { accessToken: "fresh-token", refreshToken: "fresh-refresh", expiresIn: 3600 };
+    });
+
+    const client = createApiClient(
+      "http://localhost:8000",
+      () => token,
+      onRefresh,
+      () => false, // disable proactive to specifically test concurrent 401 reactive refresh
+    );
+
+    // Mock responses: initial calls return 401, retry calls return 200
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      const auth = (init?.headers as Record<string, string>)?.Authorization;
+      if (auth === "Bearer fresh-token") {
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({ status: "ok" }),
+        } as Response;
+      }
+      return {
+        status: 401,
+        ok: false,
+        json: async () => ({ detail: "Unauthorized" }),
+      } as Response;
+    });
+
+    const [res1, res2] = await Promise.all([
+      client.health(),
+      client.health(),
+    ]);
+
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(res1).toEqual({ status: "ok" });
+    expect(res2).toEqual({ status: "ok" });
+  });
+
+  it("ISS-055: proactive refresh triggers before request when token is expired/near-expiry", async () => {
+    let token: string | null = "stale-token";
+    const onRefresh = vi.fn(async () => {
+      token = "fresh-proactive-token";
+      return { accessToken: "fresh-proactive-token", refreshToken: "new-rt", expiresIn: 3600 };
+    });
+
+    // Custom isTokenExpiring returns true to simulate expired/near-expiry token
+    const client = createApiClient(
+      "http://localhost:8000",
+      () => token,
+      onRefresh,
+      () => true,
+    );
+
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      const auth = (init?.headers as Record<string, string>)?.Authorization;
+      expect(auth).toBe("Bearer fresh-proactive-token");
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({ status: "ok" }),
+      } as Response;
+    });
+
+    const res = await client.health();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(res).toEqual({ status: "ok" });
   });
 });

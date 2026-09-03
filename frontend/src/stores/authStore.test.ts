@@ -98,4 +98,17 @@ describe("authStore", () => {
     expect(state.isAuthenticated).toBe(false);
     expect(state.accessToken).toBeNull();
   });
+
+  it("logout resets sharedAuthenticatedApi singleton so next call returns new instance", async () => {
+    const { useAuthStore } = await import("./authStore");
+    const { createAuthenticatedApi } = await import("../services/api");
+
+    const clientBefore = createAuthenticatedApi();
+    expect(createAuthenticatedApi()).toBe(clientBefore);
+
+    useAuthStore.getState().logout();
+
+    const clientAfter = createAuthenticatedApi();
+    expect(clientAfter).not.toBe(clientBefore);
+  });
 });

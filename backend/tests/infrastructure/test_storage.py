@@ -219,6 +219,15 @@ class TestBackupKeyLoader:
         enc2 = build_backup_encryption(key_path)
         assert enc1.key == enc2.key
 
+    def test_key_file_permissions_are_0600(self, tmp_path) -> None:
+        import sys
+
+        key_path = os.path.join(str(tmp_path), "perm_key.bin")
+        load_or_create_backup_key(key_path)
+        if sys.platform != "win32":
+            mode = os.stat(key_path).st_mode & 0o777
+            assert mode == 0o600
+
 
 class TestS3Storage:
     @pytest.fixture
@@ -314,9 +323,11 @@ class TestS3Storage:
 
     def test_s3_missing_aioboto3_raises_import_error(self) -> None:
         storage = S3Storage(bucket="test-bucket")
-        with patch.dict("sys.modules", {"aioboto3": None}):
-            with pytest.raises(ImportError, match="aioboto3 is required for S3 storage"):
-                _ = storage._session
+        with (
+            patch.dict("sys.modules", {"aioboto3": None}),
+            pytest.raises(ImportError, match="aioboto3 is required for S3 storage"),
+        ):
+            _ = storage._session
 
     def test_s3_session_creates_aioboto3_session(self) -> None:
         mock_aioboto3 = MagicMock()

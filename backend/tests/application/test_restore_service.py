@@ -11,6 +11,7 @@ import pytest
 from app.core.persistence.db import database
 from app.modules.backup.application.restore_service import (
     RestoreError,
+    _safe_extract_tar,
     consume_pending_restore,
     perform_safe_restore,
 )
@@ -515,3 +516,63 @@ class TestConsumePendingRestore:
         pending = await _pending("srv-consume-fail")
         assert pending is not None
         assert pending[0] == "res-consume-fail"
+
+
+class TestSafeTarExtract:
+    def test_tar_slip_relative_path_traversal_raises_restore_error(self, tmp_path) -> None:
+        target_dir = tmp_path / "extract_target"
+        target_dir.mkdir()
+        evil_file = tmp_path / "evil.txt"
+
+        # Create an in-memory tar with a member attempting path traversal
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            data = b"malicious content"
+            info = tarfile.TarInfo(name="../../evil.txt")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+
+        buf.seek(0)
+        with (
+            tarfile.open(fileobj=buf, mode="r:gz") as tar,
+            pytest.raises(RestoreError, match="Path traversal detected in backup archive"),
+        ):
+            _safe_extract_tar(tar, str(target_dir))
+
+        assert not evil_file.exists()
+
+    def test_tar_slip_absolute_path_traversal_raises_restore_error(self, tmp_path) -> None:
+        target_dir = tmp_path / "extract_target"
+        target_dir.mkdir()
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            data = b"malicious content"
+            info = tarfile.TarInfo(name="/etc/passwd")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+
+        buf.seek(0)
+        with (
+            tarfile.open(fileobj=buf, mode="r:gz") as tar,
+            pytest.raises(RestoreError, match="Path traversal detected in backup archive"),
+        ):
+            _safe_extract_tar(tar, str(target_dir))
+
+    def test_tar_slip_symlink_traversal_raises_restore_error(self, tmp_path) -> None:
+        target_dir = tmp_path / "extract_target"
+        target_dir.mkdir()
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            info = tarfile.TarInfo(name="symlink_escape")
+            info.type = tarfile.SYMTYPE
+            info.linkname = "../../some_system_file"
+            tar.addfile(info)
+
+        buf.seek(0)
+        with (
+            tarfile.open(fileobj=buf, mode="r:gz") as tar,
+            pytest.raises(RestoreError, match="Symlink traversal detected in backup archive"),
+        ):
+            _safe_extract_tar(tar, str(target_dir))

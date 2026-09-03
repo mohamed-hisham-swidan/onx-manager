@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import shlex
 from typing import Any
 
 from app.core.exceptions import ProviderError
@@ -56,19 +57,19 @@ class SSHProvider(ServerProvider):
 
         jvm_args = " ".join(java_args) if isinstance(java_args, list) else java_args
 
-        mkdir_result = await conn.run(f"mkdir -p {server_dir}", check=False)
+        mkdir_result = await conn.run(f"mkdir -p {shlex.quote(server_dir)}", check=False)
         if mkdir_result.returncode != 0:
             raise ProviderError(
                 "ssh", "start", f"Failed to create server dir: {mkdir_result.stderr}"
             )
 
         start_cmd = (
-            f"cd {server_dir} && java {jvm_args} "
+            f"cd {shlex.quote(server_dir)} && java {jvm_args} "
             f"-Xms{memory_min}M -Xmx{memory_max}M "
-            f"-jar {jar_path} nogui"
+            f"-jar {shlex.quote(jar_path)} nogui"
         )
 
-        tmux_cmd = f"tmux new-session -d -s {session_name} '{start_cmd}'"
+        tmux_cmd = f"tmux new-session -d -s {shlex.quote(session_name)} {shlex.quote(start_cmd)}"
 
         result = await conn.run(tmux_cmd, check=False)
         if result.returncode != 0:
@@ -77,7 +78,7 @@ class SSHProvider(ServerProvider):
         await asyncio.sleep(1)
 
         pid_result = await conn.run(
-            f"tmux list-panes -t {session_name} -F '#{{pane_pid}}'",
+            f"tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}'",
             check=False,
         )
         pid = int(pid_result.stdout.strip()) if pid_result.stdout.strip().isdigit() else None
@@ -115,32 +116,34 @@ class SSHProvider(ServerProvider):
 
         if force:
             await conn.run(
-                f"tmux send-keys -t {session_name} C-c",
+                f"tmux send-keys -t {shlex.quote(session_name)} C-c",
                 check=False,
             )
 
-        await conn.run(f"tmux kill-session -t {session_name}", check=False)
+        await conn.run(f"tmux kill-session -t {shlex.quote(session_name)}", check=False)
 
     async def status(self, handle: ServerHandle) -> ServerRuntimeStatus:
         conn = await self._get_connection()
         session_name = self._parse_session_name(handle)
 
         result = await conn.run(
-            f"tmux has-session -t {session_name} 2>/dev/null && echo 'exists'",
+            f"tmux has-session -t {shlex.quote(session_name)} 2>/dev/null && echo 'exists'",
             check=False,
         )
         if not result.stdout or "exists" not in result.stdout:
             return ServerRuntimeStatus.STOPPED
 
         pid_result = await conn.run(
-            f"tmux list-panes -t {session_name} -F '#{{pane_pid}}'",
+            f"tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}'",
             check=False,
         )
         pid_str = pid_result.stdout.strip()
         if not pid_str.isdigit():
             return ServerRuntimeStatus.UNKNOWN
 
-        alive = await conn.run(f"kill -0 {pid_str} 2>/dev/null && echo 'alive'", check=False)
+        alive = await conn.run(
+            f"kill -0 {shlex.quote(pid_str)} 2>/dev/null && echo 'alive'", check=False
+        )
         if "alive" in (alive.stdout or ""):
             return ServerRuntimeStatus.RUNNING
         return ServerRuntimeStatus.ERROR
@@ -149,7 +152,7 @@ class SSHProvider(ServerProvider):
         conn = await self._get_connection()
         session_name = self._parse_session_name(handle)
         result = await conn.run(
-            f"tmux capture-pane -t {session_name} -p -S -{tail}",
+            f"tmux capture-pane -t {shlex.quote(session_name)} -p -S -{tail}",
             check=False,
         )
         if result.returncode != 0:
@@ -161,7 +164,7 @@ class SSHProvider(ServerProvider):
         session_name = self._parse_session_name(handle)
         escaped = command.replace("'", "'\\''")
         result = await conn.run(
-            f"tmux send-keys -t {session_name} '{escaped}' Enter",
+            f"tmux send-keys -t {shlex.quote(session_name)} '{escaped}' Enter",
             check=False,
         )
         if result.returncode != 0:
@@ -175,7 +178,7 @@ class SSHProvider(ServerProvider):
         conn = await self._get_connection()
         session_name = self._parse_session_name(handle)
         result = await conn.run(
-            f"tmux list-panes -t {session_name} -F '#{{pane_pid}}' 2>/dev/null",
+            f"tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null",
             check=False,
         )
         pid_str = result.stdout.strip()

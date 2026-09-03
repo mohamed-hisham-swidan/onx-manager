@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { resetAuthenticatedApi } from "../services/api";
 
 const STORAGE_KEY = "mcs_auth";
 
@@ -34,11 +35,14 @@ function isExpired(auth: StoredAuth): boolean {
 interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
+  expiresAt: number | null;
   isAuthenticated: boolean;
   login: (accessToken: string, refreshToken: string, expiresIn: number) => void;
   setTokens: (accessToken: string, refreshToken: string, expiresIn: number) => void;
   logout: () => void;
   getAccessToken: () => string | null;
+  isTokenExpiringSoon: (thresholdSeconds?: number) => boolean;
+  refreshAuth: () => Promise<boolean>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => {
@@ -48,25 +52,69 @@ export const useAuthStore = create<AuthState>((set, get) => {
   return {
     accessToken: valid ? stored!.accessToken : null,
     refreshToken: stored ? stored.refreshToken : null,
+    expiresAt: valid ? stored!.acquiredAt + stored!.expiresIn * 1000 : null,
     isAuthenticated: valid ?? false,
 
     login: (accessToken, refreshToken, expiresIn) => {
-      const auth: StoredAuth = { accessToken, refreshToken, expiresIn, acquiredAt: Date.now() };
+      const now = Date.now();
+      const auth: StoredAuth = { accessToken, refreshToken, expiresIn, acquiredAt: now };
       saveAuth(auth);
-      set({ accessToken, refreshToken, isAuthenticated: true });
+      set({ accessToken, refreshToken, expiresAt: now + expiresIn * 1000, isAuthenticated: true });
     },
 
     setTokens: (accessToken, refreshToken, expiresIn) => {
-      const auth: StoredAuth = { accessToken, refreshToken, expiresIn, acquiredAt: Date.now() };
+      const now = Date.now();
+      const auth: StoredAuth = { accessToken, refreshToken, expiresIn, acquiredAt: now };
       saveAuth(auth);
-      set({ accessToken, refreshToken, isAuthenticated: true });
+      set({ accessToken, refreshToken, expiresAt: now + expiresIn * 1000, isAuthenticated: true });
     },
 
     logout: () => {
       clearAuth();
-      set({ accessToken: null, refreshToken: null, isAuthenticated: false });
+      resetAuthenticatedApi();
+      set({ accessToken: null, refreshToken: null, expiresAt: null, isAuthenticated: false });
     },
 
     getAccessToken: () => get().accessToken,
+
+    isTokenExpiringSoon: (thresholdSeconds = 30) => {
+      const state = get();
+      if (!state.accessToken) return true;
+      if (state.expiresAt !== null) {
+        return Date.now() >= state.expiresAt - thresholdSeconds * 1000;
+      }
+      return false;
+    },
+
+    refreshAuth: async () => {
+      const state = get();
+      const rf = state.refreshToken || (loadAuth()?.refreshToken ?? null);
+      if (!rf) return false;
+      const origin =
+        typeof window !== "undefined" && window.location && window.location.origin
+          ? window.location.origin
+          : "http://localhost:8000";
+      try {
+        const res = await fetch(`${origin}/api/v1/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: rf }),
+        });
+        if (!res.ok) {
+          get().logout();
+          return false;
+        }
+        const data = (await res.json()) as {
+          access_token: string;
+          refresh_token: string;
+          expires_in: number;
+        };
+        get().setTokens(data.access_token, data.refresh_token, data.expires_in);
+        return true;
+      } catch {
+        get().logout();
+        return false;
+      }
+    },
   };
 });

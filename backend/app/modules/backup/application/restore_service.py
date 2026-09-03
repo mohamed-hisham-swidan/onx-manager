@@ -40,6 +40,29 @@ async def _load_job_storage(backup_id: BackupJobId) -> tuple[str, int, str]:
         return job.storage_path, job.size_bytes, job.checksum
 
 
+def _safe_extract_tar(tar: tarfile.TarFile, target_dir: str) -> None:
+    """Safely extract tar archive preventing directory traversal (tar slip / CVE-2007-4559)."""
+    resolved_target = os.path.abspath(target_dir)
+    for member in tar.getmembers():
+        member_path = os.path.abspath(os.path.join(resolved_target, member.name))
+        if os.path.commonpath([resolved_target, member_path]) != resolved_target:
+            raise RestoreError(f"Path traversal detected in backup archive: {member.name}")
+        if member.issym() or member.islnk():
+            link_target = os.path.abspath(
+                os.path.join(os.path.dirname(member_path), member.linkname)
+            )
+            if os.path.commonpath([resolved_target, link_target]) != resolved_target:
+                raise RestoreError(
+                    f"Symlink traversal detected in backup archive: "
+                    f"{member.name} -> {member.linkname}"
+                )
+
+    if hasattr(tarfile, "data_filter"):
+        tar.extractall(target_dir, filter="data")
+    else:
+        tar.extractall(target_dir)
+
+
 async def perform_safe_restore(
     backup_id: BackupJobId,
     server_dir: str,
@@ -87,7 +110,7 @@ async def perform_safe_restore(
         extract_dir = os.path.join(temp_dir, "extract")
         os.makedirs(extract_dir, exist_ok=True)
         with tarfile.open(fileobj=BytesIO(plaintext), mode="r:gz") as tar:
-            tar.extractall(extract_dir)
+            _safe_extract_tar(tar, extract_dir)
 
         restored_items: list[str] = []
 

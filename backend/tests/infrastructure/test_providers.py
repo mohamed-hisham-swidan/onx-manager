@@ -593,6 +593,54 @@ class TestLocalLinuxProviderPreFlight:
                                         )
         mock_kill.assert_awaited_once_with([1111, 2222])
 
+    @pytest.mark.asyncio
+    async def test_find_java_processes_quotes_server_dir(self) -> None:
+        import shlex
+        provider = LocalLinuxProvider()
+        tricky_dir = "/tmp/server's dir with spaces"
+        with patch.object(
+            provider, "_run_command_with_output", AsyncMock(return_value=(0, ""))
+        ) as mock_run:
+            await provider._find_java_processes(tricky_dir)
+            cmd = mock_run.call_args[0][0]
+            # Must contain properly quoted server_dir with no syntax error in shlex
+            assert shlex.quote(tricky_dir) in cmd
+
+    @pytest.mark.asyncio
+    async def test_start_quotes_server_dir_and_session_with_special_chars(self) -> None:
+        import shlex
+        provider = LocalLinuxProvider()
+        deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path="/tmp/my server's/dir with spaces",
+        )
+        lc = LaunchConfiguration(
+            java_executable="java",
+            startup_command=None,
+            startup_jar="server.jar",
+            jvm_flags=("-Xms1024M", "-Xmx2048M"),
+        )
+        with (
+            patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)),
+            patch.object(provider, "_cleanup_stale_tmux", AsyncMock()),
+            patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run,
+            patch.object(provider, "_get_tmux_pid", AsyncMock(return_value=1234)),
+            patch.object(provider, "_fs", MagicMock()),
+        ):
+            await provider.start(
+                server_id="srv-quotes",
+                deployment=deployment,
+                launch_config=lc,
+            )
+        # tmux new-session call
+        tmux_cmd = mock_run.call_args[0][0]
+        assert "tmux new-session" in tmux_cmd
+        # Ensure it parses cleanly without shell syntax error
+        parsed_tokens = shlex.split(tmux_cmd)
+        assert len(parsed_tokens) >= 5
+        assert parsed_tokens[0] == "tmux"
+        assert parsed_tokens[1] == "new-session"
+
 
 class TestProviderCapabilities:
     def test_base_provider_default_capabilities(self) -> None:
@@ -678,3 +726,70 @@ class TestDockerProvider:
         assert "--label com.onx-manager.managed=true" in create_call_args
         assert "--label com.onx-manager.server_id=test-server-42" in create_call_args
         assert "--label com.onx-manager.runtime=docker" in create_call_args
+
+    @pytest.mark.asyncio
+    async def test_docker_start_quotes_special_characters(self) -> None:
+        import shlex
+        provider = DockerProvider()
+        config = {
+            "image": "itzg/minecraft-server:latest",
+            "world_dir": "/data/my world's/dir",
+            "port": 25565,
+            "memory_min_mb": 1024,
+            "memory_max_mb": 2048,
+        }
+
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+        ):
+            mock_docker.side_effect = [
+                (0, ""),  # create
+                (0, ""),  # start
+                (0, "12345\n"),  # inspect pid
+            ]
+            await provider.start(server_id="srv 'special' 42", config=config)
+
+        create_cmd = mock_docker.call_args_list[0][0][0]
+        assert "create --name" in create_cmd
+        assert shlex.quote("/data/my world's/dir") in create_cmd
+        parsed = shlex.split(f"docker {create_cmd}")
+        assert parsed[0] == "docker"
+        assert parsed[1] == "create"
+
+
+class TestSSHProvider:
+    @pytest.mark.asyncio
+    async def test_ssh_start_quotes_special_characters(self) -> None:
+        import shlex
+        provider = SSHProvider(host="10.0.0.1")
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "9999\n"
+        mock_result.stderr = ""
+        mock_conn.run = AsyncMock(return_value=mock_result)
+
+        config = {
+            "server_dir": "/opt/minecraft/my server's/dir",
+            "jar_path": "my custom 'server'.jar",
+            "memory_min_mb": 1024,
+            "memory_max_mb": 2048,
+        }
+
+        with (
+            patch.object(provider, "_get_connection", AsyncMock(return_value=mock_conn)),
+            patch("asyncio.sleep", AsyncMock()),
+        ):
+            res = await provider.start("srv 'test' 1", config)
+
+        assert res.pid == 9999
+        calls = [call[0][0] for call in mock_conn.run.call_args_list]
+        mkdir_cmd = calls[0]
+        tmux_cmd = calls[1]
+        assert "mkdir -p" in mkdir_cmd
+        assert shlex.quote("/opt/minecraft/my server's/dir") in mkdir_cmd
+        assert "tmux new-session" in tmux_cmd
+        parsed = shlex.split(tmux_cmd)
+        assert parsed[0] == "tmux"
+        assert parsed[1] == "new-session"

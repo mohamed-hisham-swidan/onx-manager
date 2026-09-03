@@ -149,6 +149,34 @@ class TestLoginFlow:
         resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
         assert resp.status_code == 401
 
+    async def test_concurrent_refresh_with_same_token_exactly_one_succeeds(
+        self, client: AsyncClient
+    ) -> None:
+        import asyncio
+
+        await client.post(
+            "/api/v1/users",
+            json={
+                "email": "concurrent@test.com",
+                "password": "Pass12345",
+                "display_name": "Concurrent",
+            },
+        )
+        login_resp = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "concurrent@test.com", "password": "Pass12345"},
+        )
+        refresh_token = login_resp.json()["refresh_token"]
+
+        # Fire two concurrent refresh requests with the identical refresh token
+        resps = await asyncio.gather(
+            client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token}),
+            client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token}),
+        )
+
+        statuses = sorted([r.status_code for r in resps])
+        assert statuses == [200, 401]
+
     async def test_access_protected_endpoint_without_token(self, client: AsyncClient) -> None:
         resp = await client.get("/api/v1/servers")
         assert resp.status_code == 401

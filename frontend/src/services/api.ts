@@ -70,25 +70,53 @@ export class ApiError extends Error {
   }
 }
 
-export function createAuthenticatedApi() {
-  const state = useAuthStore.getState();
-  return createApiClient(
-    window.location.origin,
-    state.getAccessToken,
-    async () => {
-      const s = useAuthStore.getState();
-      if (!s.refreshToken) return null;
-      const api = createApiClient(window.location.origin, () => null);
-      try {
-        const result = await api.refreshToken({ refresh_token: s.refreshToken });
-        s.setTokens(result.access_token, result.refresh_token, result.expires_in);
-        return { accessToken: result.access_token, refreshToken: result.refresh_token, expiresIn: result.expires_in };
-      } catch {
-        s.logout();
-        return null;
+export function isTokenExpiredOrNearExpiry(token: string | null, thresholdSeconds = 30): boolean {
+  if (!token) return true;
+  try {
+    const parts = token.split(".");
+    if (parts.length === 3) {
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+      if (typeof payload.exp === "number") {
+        return Date.now() >= (payload.exp - thresholdSeconds) * 1000;
       }
-    },
-  );
+    }
+  } catch {
+    // Non-JWT token
+  }
+  return false;
+}
+
+let sharedAuthenticatedApi: ReturnType<typeof createApiClient> | null = null;
+
+export function resetAuthenticatedApi(): void {
+  sharedAuthenticatedApi = null;
+}
+
+export function createAuthenticatedApi() {
+  if (!sharedAuthenticatedApi) {
+    const origin =
+      typeof window !== "undefined" && window.location && window.location.origin
+        ? window.location.origin
+        : "http://localhost:8000";
+    sharedAuthenticatedApi = createApiClient(
+      origin,
+      () => useAuthStore.getState().getAccessToken(),
+      async () => {
+        const s = useAuthStore.getState();
+        if (!s.refreshToken) return null;
+        const api = createApiClient(origin, () => null);
+        try {
+          const result = await api.refreshToken({ refresh_token: s.refreshToken });
+          s.setTokens(result.access_token, result.refresh_token, result.expires_in);
+          return { accessToken: result.access_token, refreshToken: result.refresh_token, expiresIn: result.expires_in };
+        } catch {
+          s.logout();
+          return null;
+        }
+      },
+    );
+  }
+  return sharedAuthenticatedApi;
 }
 
 
@@ -115,6 +143,7 @@ export function createApiClient(
   baseUrl: string,
   getToken: () => string | null,
   onRefresh?: () => Promise<{ accessToken: string; refreshToken: string; expiresIn: number } | null>,
+  isTokenExpiring?: (token: string | null) => boolean,
 ) {
   let refreshing: Promise<boolean> | null = null;
 
@@ -138,8 +167,12 @@ export function createApiClient(
     let token = getToken();
 
     // Proactively refresh expired token before making authenticated request
+    const shouldProactivelyRefresh = isTokenExpiring
+      ? isTokenExpiring(token)
+      : (!token || isTokenExpiredOrNearExpiry(token, 30) || (useAuthStore.getState().isTokenExpiringSoon ? useAuthStore.getState().isTokenExpiringSoon(30) : false));
+
     if (
-      !token &&
+      shouldProactivelyRefresh &&
       onRefresh &&
       path !== "/api/v1/auth/refresh" &&
       path !== "/api/v1/auth/login" &&

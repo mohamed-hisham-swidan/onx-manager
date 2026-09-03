@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +40,21 @@ def load_or_create_backup_key(path: str | None = None) -> bytes:
 
     key = os.urandom(32)
     key_path.parent.mkdir(parents=True, exist_ok=True)
-    key_path.write_bytes(key)
+    fd, tmp_path_str = tempfile.mkstemp(
+        prefix="backup_key_",
+        suffix=".tmp",
+        dir=key_path.parent,
+    )
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(key)
+        with contextlib.suppress(OSError):
+            os.chmod(tmp_path_str, 0o600)
+        os.replace(tmp_path_str, key_path)
+    except Exception:
+        if os.path.exists(tmp_path_str):
+            os.unlink(tmp_path_str)
+        raise
     return key
 
 
