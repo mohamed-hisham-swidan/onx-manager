@@ -256,6 +256,10 @@ class TestPlatformKillProcessTreeSafety:
         mock_killpg.assert_not_called()
         mock_run.assert_not_called()
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX process groups (getpgid/getpgrp) and SIGKILL are not supported on Windows",
+    )
     def test_kill_process_tree_same_pgrp_avoids_killpg(self) -> None:
         """ISS-005: When target shares backend pgrp, os.killpg is bypassed to protect backend."""
         from app.core.process_utils import platform_kill_process_tree_sync
