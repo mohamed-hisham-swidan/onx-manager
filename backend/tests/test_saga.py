@@ -53,7 +53,7 @@ class TestSagaOrchestrator:
 
         assert result.status == SagaStatus.COMPENSATED
         assert execution == ["s1"]
-        assert compensation == ["c2", "c1"]
+        assert compensation == ["c1"]
 
     async def test_compensation_without_compensate_action(self) -> None:
         orchestrator = SagaOrchestrator()

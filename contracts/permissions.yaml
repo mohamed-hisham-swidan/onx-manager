@@ -188,7 +188,7 @@ route_permissions:
   "PUT /api/v1/servers/{server_id}/files/content": {permission: "server.{id}.files", status: enforced, note: "server.properties write allowed (accepted boundary: files role == full server file management)"}
   "DELETE /api/v1/servers/{server_id}/files": {permission: "server.{id}.files", status: enforced}
   "POST /api/v1/servers/{server_id}/files/upload": {permission: "server.{id}.files", status: enforced}
-  "GET /api/v1/servers/{server_id}/files/download": {permission: "server.{id}.files OR server.{id}.view", status: enforced, note: "viewers allowed to download files; server.properties download denied for all (holds rcon.password)"}
+  "GET /api/v1/servers/{server_id}/files/download": {permission: "server.{id}.files", status: enforced, note: "server.properties download denied for all (holds rcon.password)"}
 
   "POST /api/v1/servers/{server_id}/files/mkdir": {permission: "server.{id}.files", status: enforced}
 

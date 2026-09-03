@@ -285,7 +285,18 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                             get_server_cloudflared_supervisor(command.server_id).stop
                         )
                     for target in exposure.targets:
-                        await _attempt_server_upnp_mapping(command.server_id, target)
+                        target.mark_starting()
+
+                    async def _run_server_upnp():
+                        for target in exposure.targets:
+                            await _attempt_server_upnp_mapping(command.server_id, target)
+                        _fold_aggregate(exposure)
+                        async with UnitOfWork() as post_uow:
+                            p_repo = SQLServerExposureRepository(post_uow.session)
+                            await p_repo.save(exposure)
+                            await post_uow.commit()
+
+                    post_commit.append(_run_server_upnp)
                 elif method == ExposureMethod.PLAYIT:
                     if prev_method == ExposureMethod.PORT_FORWARD:
                         for target in exposure.targets:
@@ -308,17 +319,25 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                         await agent_repo.save(agent)
                         try:
                             secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
-                            await _sync_server_playit_targets(
-                                command.server_id, exposure, secret_bytes
-                            )
-                            post_commit.append(
-                                lambda s=secret_bytes: supervisor.start(
+                            for target in exposure.targets:
+                                target.mark_starting()
+
+                            async def _run_server_playit(s=secret_bytes):
+                                await _sync_server_playit_targets(
+                                    command.server_id, exposure, s
+                                )
+                                _fold_aggregate(exposure)
+                                async with UnitOfWork() as post_uow:
+                                    p_repo = SQLServerExposureRepository(post_uow.session)
+                                    await p_repo.save(exposure)
+                                    await post_uow.commit()
+                                await supervisor.start(
                                     s,
                                     on_status=_persist_playit_status,
                                     on_reconcile=_reconcile_playit_tunnels,
                                 )
-                            )
 
+                            post_commit.append(_run_server_playit)
                         except Exception:
                             for target in exposure.targets:
                                 target.mark_reclaim_required(
@@ -454,43 +473,64 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
                     field="hostname",
                 )
 
-            client = CloudflareClient(token)
-            ingress_rules: list[dict[str, str]] = []
-            for target in exposure.targets:
-                target_host = target.public_address or hostname
-                ingress_rules.append(
-                    {"hostname": target_host, "service": f"tcp://127.0.0.1:{target.local_port}"}
-                )
-            ingress_rules.append({"service": "http_status:404"})
-
-            try:
-                tunnel_name = f"{IDENTITY.temp_prefix_new}srv-{exposure.server_id[:8]}"
-                provisioned = await client.create_named_tunnel(name=tunnel_name)
-                await client.configure_ingress(provisioned.tunnel_id, ingress_rules)
-                for target in exposure.targets:
-                    target_host = target.public_address or hostname
-                    await client.create_cname(target_host, provisioned.tunnel_id)
-            except CloudflareAuthError as exc:
-                for target in exposure.targets:
-                    target.mark_reclaim_required(code="RECLAIM_REQUIRED", message=str(exc))
-                exposure.clear_cloudflare_credentials()
-                return
-            except CloudflareApiError as exc:
-                for target in exposure.targets:
-                    target.mark_error(code="CLOUDFLARE_API_ERROR", message=str(exc))
-                exposure.clear_cloudflare_credentials()
-                return
-
-            ciphertext = _panel_encryption().encrypt(provisioned.token.encode("utf-8"))
-            exposure.set_cloudflare_credentials(provisioned.tunnel_id, ciphertext)
             for target in exposure.targets:
                 target.mark_starting()
                 target.set_public_address(target.public_address or hostname)
 
-            token_bytes = provisioned.token.encode("utf-8")
-            post_commit.append(
-                lambda t=token_bytes: self._start_server_supervisor(supervisor, t, on_status)
-            )
+            async def _run_fresh_cloudflare(tok=token, host=hostname):
+                client = CloudflareClient(tok)
+                ingress_rules: list[dict[str, str]] = []
+                for target in exposure.targets:
+                    target_host = target.public_address or host
+                    ingress_rules.append(
+                        {"hostname": target_host, "service": f"tcp://127.0.0.1:{target.local_port}"}
+                    )
+                ingress_rules.append({"service": "http_status:404"})
+
+                try:
+                    tunnel_name = f"{IDENTITY.temp_prefix_new}srv-{exposure.server_id[:8]}"
+                    provisioned = await client.create_named_tunnel(name=tunnel_name)
+                    await client.configure_ingress(provisioned.tunnel_id, ingress_rules)
+                    for target in exposure.targets:
+                        target_host = target.public_address or host
+                        await client.create_cname(target_host, provisioned.tunnel_id)
+                except CloudflareAuthError as exc:
+                    for target in exposure.targets:
+                        target.mark_reclaim_required(code="RECLAIM_REQUIRED", message=str(exc))
+                    exposure.clear_cloudflare_credentials()
+                    _fold_aggregate(exposure)
+                    async with UnitOfWork() as post_uow:
+                        p_repo = SQLServerExposureRepository(post_uow.session)
+                        await p_repo.save(exposure)
+                        await post_uow.commit()
+                    return
+                except CloudflareApiError as exc:
+                    for target in exposure.targets:
+                        target.mark_error(code="CLOUDFLARE_API_ERROR", message=str(exc))
+                    exposure.clear_cloudflare_credentials()
+                    _fold_aggregate(exposure)
+                    async with UnitOfWork() as post_uow:
+                        p_repo = SQLServerExposureRepository(post_uow.session)
+                        await p_repo.save(exposure)
+                        await post_uow.commit()
+                    return
+
+                ciphertext = _panel_encryption().encrypt(provisioned.token.encode("utf-8"))
+                exposure.set_cloudflare_credentials(provisioned.tunnel_id, ciphertext)
+                for target in exposure.targets:
+                    target.mark_starting()
+                    target.set_public_address(target.public_address or host)
+
+                _fold_aggregate(exposure)
+                async with UnitOfWork() as post_uow:
+                    p_repo = SQLServerExposureRepository(post_uow.session)
+                    await p_repo.save(exposure)
+                    await post_uow.commit()
+
+                token_bytes = provisioned.token.encode("utf-8")
+                await self._start_server_supervisor(supervisor, token_bytes, on_status)
+
+            post_commit.append(_run_fresh_cloudflare)
             return
 
         # Case 2: No token provided (reuse existing stored credentials)
@@ -574,21 +614,41 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
 
             if exposure.method == ExposureMethod.PORT_FORWARD:
                 for t in exposure.targets:
-                    await _attempt_server_upnp_mapping(command.server_id, t)
+                    t.mark_starting()
+
+                async def _run_enable_upnp():
+                    for t in exposure.targets:
+                        await _attempt_server_upnp_mapping(command.server_id, t)
+                    _fold_aggregate(exposure)
+                    async with UnitOfWork() as post_uow:
+                        p_repo = SQLServerExposureRepository(post_uow.session)
+                        await p_repo.save(exposure)
+                        await post_uow.commit()
+
+                post_commit.append(_run_enable_upnp)
             elif exposure.method == ExposureMethod.PLAYIT:
                 if agent.is_claimed and agent.secret_ciphertext:
                     agent.set_desired_agent_running(True)
                     await agent_repo.save(agent)
                     try:
                         secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
-                        await _sync_server_playit_targets(command.server_id, exposure, secret_bytes)
-                        post_commit.append(
-                            lambda s=secret_bytes: supervisor.start(
+                        for t in exposure.targets:
+                            t.mark_starting()
+
+                        async def _run_enable_playit(s=secret_bytes):
+                            await _sync_server_playit_targets(command.server_id, exposure, s)
+                            _fold_aggregate(exposure)
+                            async with UnitOfWork() as post_uow:
+                                p_repo = SQLServerExposureRepository(post_uow.session)
+                                await p_repo.save(exposure)
+                                await post_uow.commit()
+                            await supervisor.start(
                                 s,
                                 on_status=_persist_playit_status,
                                 on_reconcile=_reconcile_playit_tunnels,
                             )
-                        )
+
+                        post_commit.append(_run_enable_playit)
 
                     except Exception:
                         for t in exposure.targets:
@@ -1434,45 +1494,61 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             raise ValidationError("hostname is required to enable cloudflare_tunnel")
 
         ingress = panel_ingress_target()
-        client = CloudflareClient(token)
-        try:
-            provisioned = await client.create_named_tunnel(
-                name=f"{IDENTITY.temp_prefix_new}panel-{hostname}"
-            )
-            await client.configure_ingress(
-                provisioned.tunnel_id,
-                [
-                    {"hostname": hostname, "service": ingress},
-                    {"service": "http_status:404"},
-                ],
-            )
-            await client.create_cname(hostname, provisioned.tunnel_id)
-        except CloudflareAuthError as exc:
-            panel.update(PanelExposureMethod.CLOUDFLARE_TUNNEL, DesiredState.ENABLED)
-            panel.set_status(ExposureStatus.RECLAIM_REQUIRED)
-            panel.set_public_address(None)
-            panel.set_error("RECLAIM_REQUIRED", str(exc))
-            panel.clear_cloudflare_credentials()
-            return
-        except CloudflareApiError as exc:
-            panel.update(PanelExposureMethod.CLOUDFLARE_TUNNEL, DesiredState.ENABLED)
-            panel.set_status(ExposureStatus.ERROR)
-            panel.set_public_address(None)
-            panel.set_error("CLOUDFLARE_API_ERROR", str(exc))
-            panel.clear_cloudflare_credentials()
-            return
-
-        ciphertext = _panel_encryption().encrypt(provisioned.token.encode("utf-8"))
         panel.update(PanelExposureMethod.CLOUDFLARE_TUNNEL, DesiredState.ENABLED)
-        panel.set_cloudflare_credentials(provisioned.tunnel_id, ciphertext)
         panel.set_public_address(hostname)
         panel.set_status(ExposureStatus.STARTING)
         panel.set_error(None)
 
-        # Start the supervised cloudflared child AFTER commit so the persisted
-        # credentials are durable before the process depends on them.
-        token_bytes = provisioned.token.encode("utf-8")
-        post_commit.append(lambda t=token_bytes: self._start_supervisor(t))
+        async def _run_panel_cf(tok=token, host=hostname, ing=ingress):
+            client = CloudflareClient(tok)
+            try:
+                provisioned = await client.create_named_tunnel(
+                    name=f"{IDENTITY.temp_prefix_new}panel-{host}"
+                )
+                await client.configure_ingress(
+                    provisioned.tunnel_id,
+                    [
+                        {"hostname": host, "service": ing},
+                        {"service": "http_status:404"},
+                    ],
+                )
+                await client.create_cname(host, provisioned.tunnel_id)
+            except CloudflareAuthError as exc:
+                panel.set_status(ExposureStatus.RECLAIM_REQUIRED)
+                panel.set_public_address(None)
+                panel.set_error("RECLAIM_REQUIRED", str(exc))
+                panel.clear_cloudflare_credentials()
+                async with UnitOfWork() as post_uow:
+                    p_repo = SQLPanelExposureRepository(post_uow.session)
+                    await p_repo.save(panel)
+                    await post_uow.commit()
+                return
+            except CloudflareApiError as exc:
+                panel.set_status(ExposureStatus.ERROR)
+                panel.set_public_address(None)
+                panel.set_error("CLOUDFLARE_API_ERROR", str(exc))
+                panel.clear_cloudflare_credentials()
+                async with UnitOfWork() as post_uow:
+                    p_repo = SQLPanelExposureRepository(post_uow.session)
+                    await p_repo.save(panel)
+                    await post_uow.commit()
+                return
+
+            ciphertext = _panel_encryption().encrypt(provisioned.token.encode("utf-8"))
+            panel.set_cloudflare_credentials(provisioned.tunnel_id, ciphertext)
+            panel.set_public_address(host)
+            panel.set_status(ExposureStatus.STARTING)
+            panel.set_error(None)
+
+            async with UnitOfWork() as post_uow:
+                p_repo = SQLPanelExposureRepository(post_uow.session)
+                await p_repo.save(panel)
+                await post_uow.commit()
+
+            token_bytes = provisioned.token.encode("utf-8")
+            await self._start_supervisor(token_bytes)
+
+        post_commit.append(_run_panel_cf)
 
     async def _rotate_cloudflare_token(
         self,
@@ -1547,72 +1623,93 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
                 return
 
             _active_host, internal_port = get_active_panel_bind()
-            api_client = PlayitApiClient()
-            tunnel_obj = None
+            panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
+            panel.set_status(ExposureStatus.STARTING)
+            panel.set_public_address(None)
+            panel.set_error(None)
 
-            # 1. Idempotency list-first check
-            try:
-                rundata = await api_client.get_rundata(secret_hex)
-                for t in rundata.tunnels:
-                    if (
-                        t.local_port == internal_port
-                        and t.port_type in ("tcp", "both")
-                        and not t.is_disabled
-                    ):
-                        tunnel_obj = t
-                        break
-            except Exception as exc:
-                logger.warning("Failed to query playit rundata on panel enable: %s", exc)
+            async def _run_panel_playit(s_hex=secret_hex, port=internal_port):
+                api_client = PlayitApiClient()
+                tunnel_obj = None
 
-            # 2. Attempt creation if not found
-            if tunnel_obj is None:
+                # 1. Idempotency list-first check
                 try:
-                    tunnel_obj = await api_client.create_tunnel(
-                        secret=secret_hex,
-                        name=f"{IDENTITY.temp_prefix_new}panel-{panel.id[:6]}",
-                        local_ip="127.0.0.1",
-                        local_port=internal_port,
-                        port_type="tcp",
-                    )
-                except PlayitAuthError:
-                    panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
-                    panel.set_status(ExposureStatus.RECLAIM_REQUIRED)
-                    panel.set_public_address(None)
-                    panel.set_error(
-                        "RECLAIM_REQUIRED",
-                        "playit.gg reported an invalid or revoked agent secret",
-                    )
-                    return
-                except PlayitAllocationFullError:
-                    panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
-                    panel.set_status(ExposureStatus.STARTING)
-                    panel.set_public_address(None)
-                    panel.set_error(
-                        "PLAYIT_ALLOCATION_FULL",
-                        "playit.gg tunnel allocation limit reached. "
-                        "Manage tunnels in playit.gg dashboard.",
-                    )
+                    rundata = await api_client.get_rundata(s_hex)
+                    for t in rundata.tunnels:
+                        if (
+                            t.local_port == port
+                            and t.port_type in ("tcp", "both")
+                            and not t.is_disabled
+                        ):
+                            tunnel_obj = t
+                            break
                 except Exception as exc:
-                    logger.warning("Automatic playit tunnel creation failed: %s", exc)
-                    panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
-                    panel.set_status(ExposureStatus.STARTING)
-                    panel.set_public_address(None)
-                    panel.set_error(
-                        "PLAYIT_TUNNEL_CREATION_PENDING",
-                        "Tunnel creation pending on playit.gg. "
-                        "The panel will auto-detect it once created.",
-                    )
+                    logger.warning("Failed to query playit rundata on panel enable: %s", exc)
 
-            if tunnel_obj is not None and tunnel_obj.display_address:
-                addr = tunnel_obj.display_address
-                address = f"http://{addr}" if not addr.startswith("http") else addr
-                panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
-                panel.set_playit_tunnel(tunnel_obj.id)
-                panel.set_public_address(address)
-                panel.set_status(ExposureStatus.ACTIVE)
-                panel.set_error(None)
+                # 2. Attempt creation if not found
+                if tunnel_obj is None:
+                    try:
+                        tunnel_obj = await api_client.create_tunnel(
+                            secret=s_hex,
+                            name=f"{IDENTITY.temp_prefix_new}panel-{panel.id[:6]}",
+                            local_ip="127.0.0.1",
+                            local_port=port,
+                            port_type="tcp",
+                        )
+                    except PlayitAuthError:
+                        panel.set_status(ExposureStatus.RECLAIM_REQUIRED)
+                        panel.set_public_address(None)
+                        panel.set_error(
+                            "RECLAIM_REQUIRED",
+                            "playit.gg reported an invalid or revoked agent secret",
+                        )
+                        async with UnitOfWork() as post_uow:
+                            p_repo = SQLPanelExposureRepository(post_uow.session)
+                            await p_repo.save(panel)
+                            await post_uow.commit()
+                        return
+                    except PlayitAllocationFullError:
+                        panel.set_status(ExposureStatus.STARTING)
+                        panel.set_public_address(None)
+                        panel.set_error(
+                            "PLAYIT_ALLOCATION_FULL",
+                            "playit.gg tunnel allocation limit reached. "
+                            "Manage tunnels in playit.gg dashboard.",
+                        )
+                        async with UnitOfWork() as post_uow:
+                            p_repo = SQLPanelExposureRepository(post_uow.session)
+                            await p_repo.save(panel)
+                            await post_uow.commit()
+                        return
+                    except Exception as exc:
+                        logger.warning("Automatic playit tunnel creation failed: %s", exc)
+                        panel.set_status(ExposureStatus.STARTING)
+                        panel.set_public_address(None)
+                        panel.set_error(
+                            "PLAYIT_TUNNEL_CREATION_PENDING",
+                            "Tunnel creation pending on playit.gg. "
+                            "The panel will auto-detect it once created.",
+                        )
+                        async with UnitOfWork() as post_uow:
+                            p_repo = SQLPanelExposureRepository(post_uow.session)
+                            await p_repo.save(panel)
+                            await post_uow.commit()
+                        return
+
+                if tunnel_obj is not None and tunnel_obj.display_address:
+                    addr = tunnel_obj.display_address
+                    address = f"http://{addr}" if not addr.startswith("http") else addr
+                    panel.set_playit_tunnel(tunnel_obj.id)
+                    panel.set_public_address(address)
+                    panel.set_status(ExposureStatus.ACTIVE)
+                    panel.set_error(None)
+                    async with UnitOfWork() as post_uow:
+                        p_repo = SQLPanelExposureRepository(post_uow.session)
+                        await p_repo.save(panel)
+                        await post_uow.commit()
 
             post_commit.append(lambda s=secret_bytes: self._start_playit_supervisor(s))
+            post_commit.append(_run_panel_playit)
         else:
             panel.update(PanelExposureMethod.PLAYIT_HTTP, DesiredState.ENABLED)
             panel.set_status(ExposureStatus.CLAIM_REQUIRED)
@@ -1700,24 +1797,33 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             panel.set_port_forward_details(requested_port, err_code, datetime.now(UTC))
             return
 
-        upnp = AsyncUPnPService()
-        result = await upnp.attempt_mapping(
-            internal_port=internal_port,
-            requested_external_port=requested_port,
-            description="MCS-Manager-Panel",
-        )
-
         panel.update(PanelExposureMethod.PORT_FORWARD, DesiredState.ENABLED)
-        if result.success:
-            panel.set_public_address(f"http://{result.external_ip}:{result.external_port}")
-            panel.set_port_forward_details(result.external_port, "SUCCEEDED", datetime.now(UTC))
-            panel.set_status(ExposureStatus.ACTIVE)
-            panel.set_error(None)
-        else:
-            panel.set_public_address(None)
-            panel.set_port_forward_details(requested_port, result.error_code, datetime.now(UTC))
-            panel.set_status(ExposureStatus.ERROR)
-            panel.set_error(result.error_code, result.error_message)
+        panel.set_status(ExposureStatus.STARTING)
+
+        async def _run_panel_upnp(in_port=internal_port, req_port=requested_port):
+            upnp = AsyncUPnPService()
+            result = await upnp.attempt_mapping(
+                internal_port=in_port,
+                requested_external_port=req_port,
+                description="MCS-Manager-Panel",
+            )
+            if result.success:
+                panel.set_public_address(f"http://{result.external_ip}:{result.external_port}")
+                panel.set_port_forward_details(result.external_port, "SUCCEEDED", datetime.now(UTC))
+                panel.set_status(ExposureStatus.ACTIVE)
+                panel.set_error(None)
+            else:
+                panel.set_public_address(None)
+                panel.set_port_forward_details(req_port, result.error_code, datetime.now(UTC))
+                panel.set_status(ExposureStatus.ERROR)
+                panel.set_error(result.error_code, result.error_message)
+
+            async with UnitOfWork() as post_uow:
+                p_repo = SQLPanelExposureRepository(post_uow.session)
+                await p_repo.save(panel)
+                await post_uow.commit()
+
+        _post_commit.append(_run_panel_upnp)
 
     async def _disable_port_forward(
         self,
@@ -2037,8 +2143,18 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                     exposure.desired_state == DesiredState.ENABLED
                     and exposure.method == ExposureMethod.PORT_FORWARD
                 ):
-                    for target in exposure.targets:
-                        await _attempt_server_upnp_mapping(exposure.server_id, target)
+                    def _make_reconcile_upnp(exp=exposure):
+                        async def _act():
+                            for target in exp.targets:
+                                await _attempt_server_upnp_mapping(exp.server_id, target)
+                            _fold_aggregate(exp)
+                            async with UnitOfWork() as post_uow:
+                                p_repo = SQLServerExposureRepository(post_uow.session)
+                                await p_repo.save(exp)
+                                await post_uow.commit()
+                        return _act
+
+                    post_commit.append(_make_reconcile_upnp())
                 elif (
                     exposure.desired_state == DesiredState.ENABLED
                     and exposure.method == ExposureMethod.CLOUDFLARE_TCP
@@ -2050,20 +2166,26 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                         and not srv_supervisor.is_running
                     )
                     if should_start:
-                        try:
-                            plaintext = _panel_encryption().decrypt(
-                                exposure.cloudflare_token_ciphertext
-                            )
-                            on_status = _make_persist_server_cloudflare_status(exposure.server_id)
-                            post_commit.append(
-                                lambda sup=srv_supervisor, pt=plaintext, ost=on_status: sup.start(
-                                    pt, on_status=ost
-                                )
-                            )
-                        except Exception:
-                            logger.exception(
-                                "Failed to decrypt server cloudflare token on reconcile"
-                            )
+                        # ISS-069: move decryption out of the transaction into post_commit
+                        def _make_reconcile_cf(
+                            sid=exposure.server_id,
+                            ctext=exposure.cloudflare_token_ciphertext,
+                        ):
+                            async def _act():
+                                sup = get_server_cloudflared_supervisor(sid)
+                                if sup.is_running:
+                                    return
+                                try:
+                                    plaintext = _panel_encryption().decrypt(ctext)
+                                    on_status = _make_persist_server_cloudflare_status(sid)
+                                    await sup.start(plaintext, on_status=on_status)
+                                except Exception:
+                                    logger.exception(
+                                        "Failed to decrypt server cloudflare token on reconcile"
+                                    )
+                            return _act
+
+                        post_commit.append(_make_reconcile_cf())
                 elif (
                     exposure.desired_state == DesiredState.DISABLED
                     and exposure.method == ExposureMethod.CLOUDFLARE_TCP
@@ -2086,13 +2208,19 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                 and agent.secret_ciphertext
                 and not supervisor.is_running
             ):
-                try:
-                    secret_bytes = _panel_encryption().decrypt(agent.secret_ciphertext)
-                    post_commit.append(
-                        lambda s=secret_bytes: supervisor.start(s, on_status=_persist_playit_status)
-                    )
-                except Exception:
-                    logger.exception("Failed to decrypt secret on reconcile")
+                def _make_reconcile_playit(ctext=agent.secret_ciphertext):
+                    async def _act():
+                        sup = get_playit_supervisor()
+                        if sup.is_running:
+                            return
+                        try:
+                            secret_bytes = _panel_encryption().decrypt(ctext)
+                            await sup.start(secret_bytes, on_status=_persist_playit_status)
+                        except Exception:
+                            logger.exception("Failed to decrypt secret on reconcile")
+                    return _act
+
+                post_commit.append(_make_reconcile_playit())
             elif not desired_running and supervisor.is_running:
                 post_commit.append(supervisor.stop)
 
@@ -2129,10 +2257,19 @@ class ReconcileExposureHandler(CommandHandler[ReconcileExposureCommand]):
                 return
             if supervisor.is_running:
                 return
-            plaintext = _panel_encryption().decrypt(panel.cloudflare_token_ciphertext)
-            post_commit.append(
-                lambda p=plaintext: supervisor.start(p, on_status=_persist_panel_status)
-            )
+            def _make_panel_cf(ctext=panel.cloudflare_token_ciphertext):
+                async def _act():
+                    sup = get_cloudflared_supervisor()
+                    if sup.is_running:
+                        return
+                    try:
+                        plaintext = _panel_encryption().decrypt(ctext)
+                        await sup.start(plaintext, on_status=_persist_panel_status)
+                    except Exception:
+                        logger.exception("Failed to decrypt panel cloudflare token on reconcile")
+                return _act
+
+            post_commit.append(_make_panel_cf())
         elif (
             panel.method == PanelExposureMethod.CLOUDFLARE_TUNNEL
             and panel.desired_state == DesiredState.DISABLED

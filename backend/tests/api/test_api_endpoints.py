@@ -1501,6 +1501,60 @@ class TestSchedules:
         resp = await client.delete("/api/v1/schedules/sched-1", headers=admin_header)
         assert resp.status_code == 204
 
+    async def test_schedules_full_crud_and_persistence(
+        self, client: AsyncClient, admin_header: dict[str, str], auth_header: dict[str, str]
+    ) -> None:
+        """ISS-034: Create a schedule, verify in list, delete, and verify gone."""
+        list_resp = await client.get("/api/v1/schedules", headers=auth_header)
+        assert list_resp.status_code == 200
+        initial_count = len(list_resp.json())
+
+        create_payload = {
+            "name": "daily-world-backup",
+            "cron_expression": "0 2 * * *",
+            "task_name": "backup",
+            "params": {"backup_type": "full"},
+            "enabled": True,
+        }
+        create_resp = await client.post(
+            "/api/v1/schedules", json=create_payload, headers=admin_header
+        )
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+        assert created["success"] is True
+        sched_id = created["schedule_id"]
+        assert sched_id is not None
+        assert created["name"] == "daily-world-backup"
+        assert created["cron_expression"] == "0 2 * * *"
+        assert created["params"] == {"backup_type": "full"}
+
+        dup_resp = await client.post(
+            "/api/v1/schedules", json=create_payload, headers=admin_header
+        )
+        assert dup_resp.status_code == 400
+        assert "already exists" in dup_resp.json()["detail"]
+
+        list_after = await client.get("/api/v1/schedules", headers=auth_header)
+        assert list_after.status_code == 200
+        jobs = list_after.json()
+        assert len(jobs) == initial_count + 1
+        matched = next((j for j in jobs if j["id"] == sched_id), None)
+        assert matched is not None
+        assert matched["name"] == "daily-world-backup"
+        assert matched["cron_expression"] == "0 2 * * *"
+        assert matched["task_name"] == "backup"
+        assert matched["params"] == {"backup_type": "full"}
+        assert matched["enabled"] is True
+
+        del_resp = await client.delete(f"/api/v1/schedules/{sched_id}", headers=admin_header)
+        assert del_resp.status_code == 204
+
+        list_final = await client.get("/api/v1/schedules", headers=auth_header)
+        assert list_final.status_code == 200
+        final_jobs = list_final.json()
+        assert len(final_jobs) == initial_count
+        assert not any(j["id"] == sched_id for j in final_jobs)
+
 
 class TestHealthEvaluatePermissions:
     async def test_evaluate_health_unauthorized(

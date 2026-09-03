@@ -212,7 +212,7 @@ async def download_file(
     path: str = Query(...),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(
-        require_server_permission("server.{id}.files", "server.{id}.view")
+        require_server_permission("server.{id}.files")
     ),
 ) -> FileResponse:
 

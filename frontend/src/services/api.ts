@@ -63,7 +63,7 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
-    public detail: Record<string, unknown> | null = null,
+    public detail: Record<string, unknown> | unknown[] | string | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -248,16 +248,35 @@ export function createApiClient(
 
     if (!response.ok) {
       const body = data as Record<string, unknown>;
+      let detailMsg: string | null = null;
+      if (typeof body?.detail === "string") {
+        detailMsg = body.detail;
+      } else if (Array.isArray(body?.detail)) {
+        detailMsg = body.detail
+          .map((item) => {
+            if (typeof item === "string") return item;
+            if (item && typeof item === "object") {
+              const obj = item as Record<string, unknown>;
+              const msg = typeof obj.msg === "string" ? obj.msg : JSON.stringify(obj);
+              const loc = Array.isArray(obj.loc) ? obj.loc.filter((l) => l !== "body").join(".") : "";
+              return loc ? `${loc}: ${msg}` : msg;
+            }
+            return String(item);
+          })
+          .join("; ");
+      } else if (body?.detail && typeof body.detail === "object") {
+        detailMsg = ((body.detail as Record<string, unknown>).error as string) ?? null;
+      }
+
       const errMsg =
-        (body.error as string) ??
-        ((body.detail as Record<string, unknown>)?.error as string) ??
-        (typeof body.detail === "string" ? body.detail : null) ??
+        (body?.error as string) ??
+        detailMsg ??
         "Request failed";
       const errCode =
-        (body.error_code as string) ??
-        ((body.detail as Record<string, unknown>)?.error_code as string) ??
-        "UNKNOWN";
-      const errDetail = (body.detail as Record<string, unknown>) ?? null;
+        (body?.error_code as string) ??
+        ((body?.detail as Record<string, unknown>)?.error_code as string) ??
+        (response.status === 422 ? "VALIDATION_ERROR" : "UNKNOWN");
+      const errDetail = (body?.detail as Record<string, unknown> | unknown[] | string | null) ?? null;
       throw new ApiError(response.status, errCode, errMsg, errDetail);
     }
 

@@ -129,3 +129,64 @@ async def test_scheduler_misfire_grace_time_allows_delayed_job() -> None:
     assert job.max_instances == 1
 
     await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_survives_restart_and_reconciles_from_db(tmp_path) -> None:
+    """ISS-034: Scheduled jobs persist in DB and are reconciled/re-registered on reboot."""
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from app.core.persistence.base import Base
+
+    db_file = tmp_path / "scheduler_test.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_file}")
+    async_session = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async def _session_factory():
+        return async_session()
+
+    # 1. Initial process lifecycle: instantiate and start scheduler
+    scheduler1 = Scheduler(_session_factory)
+    queue1 = FakeQueue()
+    scheduler1.set_task_queue(queue1)
+    await scheduler1.start()
+
+    # Add a job (persists to DB and registers in APScheduler)
+    await scheduler1.add_job(
+        name="daily_server_backup",
+        cron_expression="0 3 * * *",
+        task_name="run_backup_task",
+        params={"server_id": "srv-123"},
+    )
+
+    jobs1 = scheduler1._aps.get_jobs()
+    assert len(jobs1) == 1
+
+    # 2. Simulate process shutdown (scheduler stops, in-memory APScheduler destroyed)
+    await scheduler1.stop()
+    assert scheduler1._running is False
+
+    # 3. Simulate process restart: fresh Scheduler instance using same DB
+    scheduler2 = Scheduler(_session_factory)
+    queue2 = FakeQueue()
+    scheduler2.set_task_queue(queue2)
+    assert scheduler2._aps is None  # Nothing in memory before start
+
+    # On boot, scheduler.start() calls _load_jobs() from DB and schedules them
+    await scheduler2.start()
+    assert scheduler2._running is True
+    assert scheduler2._aps is not None
+
+    # Verify job survived restart and is active in APScheduler
+    jobs2 = scheduler2._aps.get_jobs()
+    assert len(jobs2) == 1
+    assert jobs2[0].id == jobs1[0].id
+    assert jobs2[0].misfire_grace_time == 60
+    assert jobs2[0].max_instances == 1
+    assert jobs2[0].coalesce is True
+
+    await scheduler2.stop()
+    await engine.dispose()

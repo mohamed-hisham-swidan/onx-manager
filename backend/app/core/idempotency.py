@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -48,6 +49,15 @@ class IdempotencyStore(ABC):
     async def get_result(self, key: str) -> CommandResult | None: ...
 
     @abstractmethod
+    async def reserve(self, key: str) -> bool: ...
+
+    @abstractmethod
+    async def release_reservation(self, key: str) -> None: ...
+
+    @abstractmethod
+    async def wait_for_result(self, key: str, timeout: float = 30.0) -> CommandResult | None: ...
+
+    @abstractmethod
     async def _init_db(self) -> None: ...
 
 
@@ -56,21 +66,60 @@ class InMemoryIdempotencyStore(IdempotencyStore):
         self._store: dict[str, CommandResult] = {}
         self._expiry: dict[str, float] = {}
         self._ttl = ttl_hours * 3600
+        self._lock = asyncio.Lock()
+        self._in_flight: dict[str, asyncio.Event] = {}
 
     async def _init_db(self) -> None:
         pass
 
+    async def reserve(self, key: str) -> bool:
+        async with self._lock:
+            self._evict_expired()
+            if key in self._store or key in self._in_flight:
+                return False
+            self._in_flight[key] = asyncio.Event()
+            return True
+
+    async def release_reservation(self, key: str) -> None:
+        async with self._lock:
+            event = self._in_flight.pop(key, None)
+            if event:
+                event.set()
+
+    async def wait_for_result(self, key: str, timeout: float = 30.0) -> CommandResult | None:
+        event = None
+        async with self._lock:
+            self._evict_expired()
+            if key in self._store:
+                return self._store[key]
+            event = self._in_flight.get(key)
+
+        if event is not None:
+            try:
+                await asyncio.wait_for(event.wait(), timeout=timeout)
+            except TimeoutError:
+                return None
+
+        async with self._lock:
+            return self._store.get(key)
+
     async def is_duplicate(self, key: str) -> bool:
-        self._evict_expired()
-        return key in self._store
+        async with self._lock:
+            self._evict_expired()
+            return key in self._store
 
     async def mark_completed(self, key: str, result: CommandResult) -> None:
-        self._store[key] = result
-        self._expiry[key] = time.time() + self._ttl
+        async with self._lock:
+            self._store[key] = result
+            self._expiry[key] = time.time() + self._ttl
+            event = self._in_flight.pop(key, None)
+            if event:
+                event.set()
 
     async def get_result(self, key: str) -> CommandResult | None:
-        self._evict_expired()
-        return self._store.get(key)
+        async with self._lock:
+            self._evict_expired()
+            return self._store.get(key)
 
     def _evict_expired(self) -> None:
         now = time.time()
@@ -100,7 +149,33 @@ class IdempotencyMiddleware:
                     error_code=cached.error_code,
                 )
 
-        result = await next_middleware(command)
-        if result.success:
-            await self._store.mark_completed(key_str, result)
-        return result
+        acquired = await self._store.reserve(key_str)
+        if not acquired:
+            cached = await self._store.wait_for_result(key_str)
+            if cached:
+                return CommandResult(
+                    success=cached.success,
+                    data=cached.data,
+                    error=cached.error,
+                    error_code=cached.error_code,
+                )
+            if not await self._store.reserve(key_str):
+                cached = await self._store.get_result(key_str)
+                if cached:
+                    return CommandResult(
+                        success=cached.success,
+                        data=cached.data,
+                        error=cached.error,
+                        error_code=cached.error_code,
+                    )
+
+        try:
+            result = await next_middleware(command)
+            if result.success:
+                await self._store.mark_completed(key_str, result)
+            else:
+                await self._store.release_reservation(key_str)
+            return result
+        except Exception:
+            await self._store.release_reservation(key_str)
+            raise

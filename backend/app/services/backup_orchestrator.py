@@ -50,6 +50,8 @@ _BACKUP_TYPE_DIMS: dict[BackupType, tuple[str, ...]] = {
     BackupType.CONFIG: (),
 }
 
+STREAM_CHUNK_SIZE: int = 64 * 1024
+
 # Timeout for a save-all on a running server to be confirmed via console
 # output. A normal world save completes in a few seconds even on a loaded
 # world; 30s is an order of magnitude beyond that but still well inside the
@@ -234,8 +236,13 @@ class BackupSaga:
                 prefix=f"{IDENTITY.temp_prefix_new}backup-{str(backup_id)[:8]}-"
             )
             self._tar_path = os.path.join(self._temp_dir, f"{backup_id}.tar.gz")
-            self._write_tar(
-                self._tar_path, server_dir, primary_world, backup_type, backup_id=str(backup_id)
+            await asyncio.to_thread(
+                self._write_tar,
+                self._tar_path,
+                server_dir,
+                primary_world,
+                backup_type,
+                backup_id=str(backup_id),
             )
             if is_backup_cancelled(str(backup_id)):
                 raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
@@ -256,19 +263,28 @@ class BackupSaga:
             if not self._tar_path or not os.path.exists(self._tar_path):
                 raise RuntimeError(f"Compressed artifact missing for backup {backup_id}")
             self._enc_path = f"{self._tar_path}.enc"
-            with open(self._tar_path, "rb") as f:
-                plaintext = f.read()
-            encrypted = encryption.encrypt(plaintext)
-            with open(self._enc_path, "wb") as f:
-                f.write(encrypted)
+
+            def _encrypt_file_sync() -> tuple[int, int]:
+                chunks: list[bytes] = []
+                with open(self._tar_path, "rb") as f:
+                    while chunk := f.read(STREAM_CHUNK_SIZE):
+                        chunks.append(chunk)
+                plaintext = b"".join(chunks)
+                encrypted = encryption.encrypt(plaintext)
+                with open(self._enc_path, "wb") as f:
+                    for offset in range(0, len(encrypted), STREAM_CHUNK_SIZE):
+                        f.write(encrypted[offset : offset + STREAM_CHUNK_SIZE])
+                return len(plaintext), len(encrypted)
+
+            pt_len, enc_len = await asyncio.to_thread(_encrypt_file_sync)
             os.remove(self._tar_path)
             if is_backup_cancelled(str(backup_id)):
                 raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             logger.info(
                 "Backup encrypted: %s (%d bytes plaintext -> %d bytes ciphertext)",
                 backup_id,
-                len(plaintext),
-                len(encrypted),
+                pt_len,
+                enc_len,
             )
 
         return fn
@@ -284,8 +300,15 @@ class BackupSaga:
                 raise BackupCancelledError(f"Backup {backup_id} cancelled due to timeout")
             if not self._enc_path or not os.path.exists(self._enc_path):
                 raise RuntimeError(f"Encrypted artifact missing for backup {backup_id}")
-            with open(self._enc_path, "rb") as f:
-                encrypted = f.read()
+
+            def _read_enc_chunks() -> bytes:
+                chunks: list[bytes] = []
+                with open(self._enc_path, "rb") as f:
+                    while chunk := f.read(STREAM_CHUNK_SIZE):
+                        chunks.append(chunk)
+                return b"".join(chunks)
+
+            encrypted = await asyncio.to_thread(_read_enc_chunks)
             path = artifact_path(backup_id)
             await storage.write(path, encrypted)
             self._result_size = len(encrypted)

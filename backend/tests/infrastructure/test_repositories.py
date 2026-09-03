@@ -92,6 +92,31 @@ class TestSQLServerRepository:
         assert loaded.status.value == "created"
 
     @pytest.mark.asyncio
+    async def test_save_and_reload_complex_jvm_args(self, server_repo: SQLServerRepository) -> None:
+        """ISS-009: Complex JVM args with spaces and quotes roundtrip faithfully."""
+        complex_args = [
+            "-Xmx4G",
+            '-Dproperty="hello world"',
+            '-XX:OnOutOfMemoryError="kill -9 %p"',
+            "-Dcustom.msg=welcome to minecraft",
+        ]
+        server = Server.create(
+            server_id=ServerId("test-complex-jvm"),
+            name="Complex JVM Server",
+            server_type=ServerType.VANILLA,
+            minecraft_version=MinecraftVersion.parse("1.21.4"),
+            memory=MemoryAllocation(1024, 4096),
+            java_args=JavaArguments(complex_args),
+            properties=ServerProperties(port=PortNumber(25565)),
+        )
+        await server_repo.save(server)
+
+        loaded = await server_repo.get(ServerId("test-complex-jvm"))
+        assert list(loaded.java_args.args) == complex_args, (
+            f"Expected {complex_args}, got {list(loaded.java_args.args)}"
+        )
+
+    @pytest.mark.asyncio
     async def test_get_not_found(self, server_repo: SQLServerRepository) -> None:
         with pytest.raises(ServerNotFoundError):
             await server_repo.get(ServerId("nonexistent"))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from dataclasses import asdict
 from typing import Any
 
@@ -63,7 +64,7 @@ class SQLServerRepository(ServerRepository):
         model.minecraft_version = str(server.minecraft_version)
         model.memory_min_mb = server.memory.min_mb
         model.memory_max_mb = server.memory.max_mb
-        model.java_args = " ".join(server.java_args.args)
+        model.java_args = shlex.join(server.java_args.args) if server.java_args.args else ""
         model.group_id = server.group_id
         model.status = server.status.value
         model.port = server.properties.port.value
@@ -128,7 +129,7 @@ class SQLServerRepository(ServerRepository):
             min_mb=model.memory_min_mb,
             max_mb=model.memory_max_mb,
         )
-        java_args_list = model.java_args.split() if model.java_args else []
+        java_args_list = shlex.split(model.java_args) if model.java_args else []
         java_args = JavaArguments(java_args_list)
 
         deployment: ServerDeployment | None = None

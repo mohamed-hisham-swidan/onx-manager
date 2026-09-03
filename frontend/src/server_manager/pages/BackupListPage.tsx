@@ -37,6 +37,7 @@ export function BackupListPage() {
   const [serverFilter, setServerFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<BackupResponse | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<BackupResponse | null>(null);
   const [verifyResult, setVerifyResult] = useState<Record<string, string>>({});
 
   const serverMap = useMemo(
@@ -62,10 +63,12 @@ export function BackupListPage() {
     return { total, totalBytes, lastCompleted, failed };
   }, [backups]);
 
-  function handleRestore(backup: BackupResponse) {
-    restoreBackup.mutate(backup.backup_id, {
+  function handleConfirmRestore() {
+    if (!restoreTarget) return;
+    restoreBackup.mutate(restoreTarget.backup_id, {
       onSuccess: () => toast("success", "Restore started", "Restoring the backup now."),
       onError: (err) => toast("error", "Restore failed", errorMessage(err)),
+      onSettled: () => setRestoreTarget(null),
     });
   }
 
@@ -231,7 +234,7 @@ export function BackupListPage() {
                         <div className="flex items-center justify-end gap-1">
                           {b.status === "completed" && (
                             <button
-                              onClick={() => handleRestore(b)}
+                              onClick={() => setRestoreTarget(b)}
                               disabled={restoreBackup.isPending}
                               aria-label={`Restore ${b.backup_id}`}
                               title="Restore"
@@ -281,6 +284,20 @@ export function BackupListPage() {
         cancelLabel="Cancel"
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={restoreTarget !== null}
+        title="Restore backup?"
+        description={
+          restoreTarget
+            ? `Restoring will overwrite current server files for "${serverMap.get(restoreTarget.server_id) ?? restoreTarget.server_id}". This action cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Restore"
+        cancelLabel="Cancel"
+        onConfirm={handleConfirmRestore}
+        onCancel={() => setRestoreTarget(null)}
       />
     </div>
   );

@@ -35,13 +35,15 @@ let mockData = mockBackups;
 let mockIsLoading = false;
 let mockError: Error | null = null;
 
+const mockRestoreMutate = vi.fn();
+
 vi.mock("@/server_manager/hooks/useBackups", () => ({
   useBackupsList: vi.fn(() => ({
     data: mockData,
     isLoading: mockIsLoading,
     error: mockError,
   })),
-  useRestoreBackup: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useRestoreBackup: vi.fn(() => ({ mutate: mockRestoreMutate, isPending: false })),
   useVerifyBackup: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
   useDeleteBackup: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
@@ -76,6 +78,7 @@ function getTable() {
 
 describe("BackupListPage", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockData = mockBackups;
     mockIsLoading = false;
     mockError = null;
@@ -168,5 +171,34 @@ describe("BackupListPage", () => {
     fireEvent.click(screen.getByLabelText("Delete bkp-1"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Delete backup?")).toBeInTheDocument();
+  });
+
+  it("ISS-056: clicking restore opens confirmation dialog and does not trigger restore immediately", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByLabelText("Restore bkp-1"));
+    expect(screen.getByText("Restore backup?")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Restoring will overwrite current server files/i),
+    ).toBeInTheDocument();
+    expect(mockRestoreMutate).not.toHaveBeenCalled();
+
+    // Confirm restore in dialog
+    await user.click(screen.getByRole("button", { name: "Restore" }));
+    expect(mockRestoreMutate).toHaveBeenCalledWith("bkp-1", expect.any(Object));
+  });
+
+  it("ISS-056: cancelling restore dialog dismisses without calling restore API", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByLabelText("Restore bkp-1"));
+    expect(screen.getByText("Restore backup?")).toBeInTheDocument();
+
+    // Cancel in dialog
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Restore backup?")).not.toBeInTheDocument();
+    expect(mockRestoreMutate).not.toHaveBeenCalled();
   });
 });

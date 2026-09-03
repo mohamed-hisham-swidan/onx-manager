@@ -177,7 +177,9 @@ class SagaOrchestrator:
             SagaStatus.COMPENSATING,
         )
 
-        for i in range(failed_at, -1, -1):
+        compensation_failures: list[str] = []
+
+        for i in range(failed_at - 1, -1, -1):
             step = instance.steps[i]
             if step.compensate is None:
                 continue
@@ -187,6 +189,9 @@ class SagaOrchestrator:
                     await result
                 step.status = SagaStepStatus.COMPENSATED
             except Exception as e:
+                step.status = SagaStepStatus.FAILED
+                step.error = str(e)
+                compensation_failures.append(f"{step.name}: {e}")
                 logger.error(
                     "Compensation step failed: saga=%s step=%s error=%s",
                     instance.saga_id,
@@ -194,9 +199,23 @@ class SagaOrchestrator:
                     str(e),
                 )
 
-        instance.status = SagaStatus.COMPENSATED
-        await self._persistence.update_status(
-            instance.saga_id,
-            SagaStatus.COMPENSATED,
-            error=f"Failed at step '{instance.steps[failed_at].name}'",
-        )
+        if compensation_failures:
+            instance.status = SagaStatus.FAILED
+            err_msg = (
+                f"Failed at step '{instance.steps[failed_at].name}'; "
+                f"compensation failed on: {'; '.join(compensation_failures)}"
+            )
+            instance.error = err_msg
+            await self._persistence.update_status(
+                instance.saga_id,
+                SagaStatus.FAILED,
+                error=err_msg,
+            )
+        else:
+            instance.status = SagaStatus.COMPENSATED
+            instance.error = f"Failed at step '{instance.steps[failed_at].name}'"
+            await self._persistence.update_status(
+                instance.saga_id,
+                SagaStatus.COMPENSATED,
+                error=f"Failed at step '{instance.steps[failed_at].name}'",
+            )

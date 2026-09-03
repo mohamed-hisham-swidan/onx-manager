@@ -302,4 +302,29 @@ describe("createApiClient", () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
     expect(res).toEqual({ status: "ok" });
   });
+
+  it("ISS-054: formats FastAPI 422 validation error array into a readable message", async () => {
+    const errorBody = {
+      detail: [
+        { loc: ["body", "name"], msg: "Field required", type: "missing" },
+        { loc: ["body", "port"], msg: "Input should be greater than 0", type: "greater_than" },
+      ],
+    };
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(errorBody, 422));
+
+    await expect(api.health()).rejects.toThrowError(
+      "name: Field required; port: Input should be greater than 0",
+    );
+
+    try {
+      vi.mocked(fetch).mockImplementationOnce(mockFetch(errorBody, 422));
+      await api.health();
+    } catch (e: any) {
+      expect(e).toBeInstanceOf(ApiError);
+      expect(e.status).toBe(422);
+      expect(e.code).toBe("VALIDATION_ERROR");
+      expect(e.message).toBe("name: Field required; port: Input should be greater than 0");
+      expect(e.detail).toEqual(errorBody.detail);
+    }
+  });
 });

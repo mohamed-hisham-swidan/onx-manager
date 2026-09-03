@@ -30,6 +30,9 @@ from app.modules.server.infrastructure.providers.patterns import detect_failure
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.provider.local")
 
+SHUTDOWN_GRACE_PERIOD_SECONDS: float = 30.0
+SHUTDOWN_POLL_INTERVAL_SECONDS: float = 0.5
+
 
 class LocalLinuxProvider(ServerProvider):
     def __init__(self, fs: FileSystem | None = None) -> None:
@@ -339,7 +342,7 @@ class LocalLinuxProvider(ServerProvider):
                     session_name,
                 )
                 os.kill(pid, signal.SIGTERM)
-                await asyncio.sleep(1)
+                process_exited = False
             except ProcessLookupError:
                 logger.debug(
                     "SIGTERM — process already exited server=%s pid=%d session=%s phase=stop",
@@ -347,22 +350,40 @@ class LocalLinuxProvider(ServerProvider):
                     pid,
                     session_name,
                 )
+                process_exited = True
 
-            try:
-                logger.info(
-                    "Phase 2/3: Sending SIGKILL — server=%s pid=%d session=%s phase=stop",
-                    server_label,
-                    pid,
-                    session_name,
-                )
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                logger.debug(
-                    "SIGKILL — process already exited server=%s pid=%d session=%s phase=stop",
-                    server_label,
-                    pid,
-                    session_name,
-                )
+            # Poll process liveness up to grace period before sending SIGKILL
+            if not process_exited:
+                deadline = time.monotonic() + SHUTDOWN_GRACE_PERIOD_SECONDS
+                while time.monotonic() < deadline:
+                    if not await self._is_pid_alive(pid):
+                        logger.info(
+                            "Process %d exited cleanly after SIGTERM server=%s session=%s",
+                            pid,
+                            server_label,
+                            session_name,
+                        )
+                        process_exited = True
+                        break
+                    await asyncio.sleep(SHUTDOWN_POLL_INTERVAL_SECONDS)
+
+            if not process_exited and await self._is_pid_alive(pid):
+                try:
+                    logger.info(
+                        "Phase 2/3: Process alive after grace; sending SIGKILL — "
+                        "server=%s pid=%d session=%s phase=stop",
+                        server_label,
+                        pid,
+                        session_name,
+                    )
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    logger.debug(
+                        "SIGKILL — process already exited server=%s pid=%d session=%s phase=stop",
+                        server_label,
+                        pid,
+                        session_name,
+                    )
 
         logger.info(
             "Phase 3/3: Cleaning up tmux session — server=%s session=%s phase=stop",
@@ -475,15 +496,23 @@ class LocalLinuxProvider(ServerProvider):
 
     async def _is_pid_alive(self, pid: int) -> bool:
         try:
-            return await self._run_command(f"kill -0 {pid} 2>/dev/null") == 0
-        except Exception:
-            logger.warning(
-                "kill -0 failed pid=%d phase=_is_pid_alive provider=%s",
-                pid,
-                self.provider_type,
-                exc_info=True,
-            )
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
             return False
+        except PermissionError:
+            return True
+        except Exception:
+            try:
+                return await self._run_command(f"kill -0 {pid} 2>/dev/null") == 0
+            except Exception:
+                logger.warning(
+                    "kill -0 failed pid=%d phase=_is_pid_alive provider=%s",
+                    pid,
+                    self.provider_type,
+                    exc_info=True,
+                )
+                return False
 
     async def _resolve_server_pid(self, session_name: str) -> int | None:
         """Return the PID of the actual JVM (java) process for a session.

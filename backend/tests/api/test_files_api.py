@@ -305,14 +305,14 @@ async def test_files_permissions_enforcement(client: AsyncClient, created_user: 
     )
     assert resp.status_code == 403
 
-    # 3. Viewer role member -> 200 on GET /files/download, 403 on other 6 routes
+    # 3. Viewer role member -> 403 on GET /files/download and on other 6 routes (ISS-036)
     viewer_header = await _seed_api_key_header(client, viewer_user_id, [])
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/download",
         params={"path": "test.txt"},
         headers=viewer_header,
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 403
     resp = await client.get(f"/api/v1/servers/{server_id}/files", headers=viewer_header)
     assert resp.status_code == 403
     resp = await client.get(
@@ -509,11 +509,11 @@ async def test_server_properties_role_matrix_and_isolation(client, created_user,
     resp = await client.get(download_url, params={"path": "server.properties"}, headers=dev_header)
     assert resp.status_code == 403
 
-    # Viewer: no file write rights (403 on content); download of ordinary file ok, props blocked
+    # Viewer: no file write rights (403); download blocked without .files permission (ISS-036)
     resp = await client.get(content_url, params={"path": "eula.txt"}, headers=viewer_header)
     assert resp.status_code == 403
     resp = await client.get(download_url, params={"path": "eula.txt"}, headers=viewer_header)
-    assert resp.status_code == 200
+    assert resp.status_code == 403
     resp = await client.get(
         download_url, params={"path": "server.properties"}, headers=viewer_header
     )

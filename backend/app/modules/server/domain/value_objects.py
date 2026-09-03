@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import sys
 from dataclasses import dataclass, field
 from enum import Enum
@@ -58,7 +59,7 @@ class JavaArguments:
         object.__setattr__(self, "args", validated)
 
     def __str__(self) -> str:
-        return " ".join(self.args)
+        return shlex.join(self.args)
 
     def as_list(self) -> list[str]:
         return list(self.args)
