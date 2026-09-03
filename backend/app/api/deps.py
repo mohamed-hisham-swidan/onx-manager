@@ -130,6 +130,7 @@ SERVER_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "server.{id}.backup",
         "server.{id}.players",
         "server.{id}.settings",
+        "server.{id}.plugins",
     },
     "dev": {
         "server.{id}.view",
@@ -139,6 +140,7 @@ SERVER_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "server.{id}.backup",
         "server.{id}.players",
         "server.{id}.settings",
+        "server.{id}.plugins",
     },
     "viewer": {
         "server.{id}.view",
@@ -151,9 +153,10 @@ def require_server_permission(*permissions: str):
 
     Accepts one or more required permission nodes (e.g. 'server.{id}.files', 'server.{id}.view').
     Access is granted if the caller satisfies ANY of the specified permission nodes.
-    Short-circuits if caller has global admin rights ('admin:full', 'global.*', 'global.servers.manage').
-    Otherwise, extracts `server_id` from request path/query, verifies server existence (404),
-    and checks live DB for server ownership or valid ServerMembership role (403).
+    Short-circuits if caller has global admin rights ('admin:full', 'global.*',
+    'global.servers.manage'). Otherwise, extracts `server_id` from request path/query,
+    verifies server existence (404), and checks live DB for server ownership or valid
+    ServerMembership role (403).
     """
 
     async def _check(

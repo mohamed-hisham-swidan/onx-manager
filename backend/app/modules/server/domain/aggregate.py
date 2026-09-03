@@ -40,10 +40,16 @@ class ServerStatus(Enum):
     STOPPING = "stopping"
     STOPPED = "stopped"
     CRASHED = "crashed"
+    RESTORING = "restoring"
 
 
 _SERVER_TRANSITIONS: dict[ServerStatus, set[ServerStatus]] = {
-    ServerStatus.CREATED: {ServerStatus.STARTING, ServerStatus.BROKEN, ServerStatus.PROVISIONING},
+    ServerStatus.CREATED: {
+        ServerStatus.STARTING,
+        ServerStatus.BROKEN,
+        ServerStatus.PROVISIONING,
+        ServerStatus.RESTORING,
+    },
     ServerStatus.PROVISIONING: {
         ServerStatus.CREATED,
         ServerStatus.STARTING,
@@ -59,8 +65,18 @@ _SERVER_TRANSITIONS: dict[ServerStatus, set[ServerStatus]] = {
     ServerStatus.STARTING: {ServerStatus.RUNNING, ServerStatus.CRASHED, ServerStatus.STOPPING},
     ServerStatus.RUNNING: {ServerStatus.STOPPING, ServerStatus.CRASHED},
     ServerStatus.STOPPING: {ServerStatus.STOPPED, ServerStatus.CRASHED},
-    ServerStatus.STOPPED: {ServerStatus.STARTING, ServerStatus.RUNNING},
-    ServerStatus.CRASHED: {ServerStatus.STARTING, ServerStatus.RUNNING, ServerStatus.STOPPED},
+    ServerStatus.STOPPED: {
+        ServerStatus.STARTING,
+        ServerStatus.RUNNING,
+        ServerStatus.RESTORING,
+    },
+    ServerStatus.CRASHED: {
+        ServerStatus.STARTING,
+        ServerStatus.RUNNING,
+        ServerStatus.STOPPED,
+        ServerStatus.RESTORING,
+    },
+    ServerStatus.RESTORING: {ServerStatus.STOPPED, ServerStatus.BROKEN},
 }
 
 
@@ -324,6 +340,24 @@ class Server(AggregateRoot):
             external_id="",
         )
         self._add_event(ServerStoppedEvent(server_id=self._id))
+
+    def mark_restoring(self) -> None:
+        self._transition_to(ServerStatus.RESTORING)
+        self._runtime = RuntimeInfo(
+            status="restoring",
+            provider=self._runtime.provider,
+            restart_count=self._runtime.restart_count,
+            external_id="",
+        )
+
+    def mark_restore_completed(self) -> None:
+        self._transition_to(ServerStatus.STOPPED)
+        self._runtime = RuntimeInfo(
+            status="stopped",
+            provider=self._runtime.provider,
+            restart_count=self._runtime.restart_count,
+            external_id="",
+        )
 
     def crash(self, exit_code: int, last_log_lines: list[str] | None = None) -> None:
         self._transition_to(ServerStatus.CRASHED)

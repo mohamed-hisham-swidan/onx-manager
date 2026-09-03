@@ -8,6 +8,11 @@ describe("StatusBadge", () => {
     expect(screen.getByText("Online")).toBeInTheDocument();
   });
 
+  it("maps restoring status to friendly label", () => {
+    render(<StatusBadge status="restoring" />);
+    expect(screen.getByText("Restoring")).toBeInTheDocument();
+  });
+
   it("falls back to raw status for unknown values", () => {
     render(<StatusBadge status="mystery" />);
     expect(screen.getByText("mystery")).toBeInTheDocument();

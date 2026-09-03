@@ -11,6 +11,7 @@ class FileEntryResponse(BaseModel):
 class FileContentResponse(BaseModel):
     path: str
     content: str
+    is_binary: bool = False
 
 
 class WriteFileContentRequest(BaseModel):

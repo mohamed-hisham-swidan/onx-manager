@@ -7,7 +7,7 @@ interface StatusOverviewCardsProps {
   counts: Record<string, number>;
 }
 
-const STATUS_ORDER = ["running", "stopped", "starting", "provisioning", "stopping", "crashed", "broken", "created"];
+const STATUS_ORDER = ["running", "stopped", "starting", "provisioning", "stopping", "crashed", "broken", "created", "restoring"];
 
 const STATUS_ICONS: Record<string, IconName> = {
   running: "activity",
@@ -18,6 +18,7 @@ const STATUS_ICONS: Record<string, IconName> = {
   crashed: "alert",
   broken: "alert",
   created: "server",
+  restoring: "backup",
 };
 
 const STATUS_ICON_COLORS: Record<string, string> = {
@@ -29,6 +30,7 @@ const STATUS_ICON_COLORS: Record<string, string> = {
   crashed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
   broken: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
   created: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  restoring: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
 };
 
 export function StatusOverviewCards({ counts }: StatusOverviewCardsProps) {

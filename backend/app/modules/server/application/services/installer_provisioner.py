@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import shutil
+import sys
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import NamedTuple
@@ -103,6 +104,32 @@ class InstallerProvisioner(ABC):
     def _run_sh_name(self) -> str:
         """Return the expected launcher script name."""
         return "run.sh"
+
+    def _detect_launch_script(self, server_dir: str) -> tuple[str, list[str]]:
+        """Detect whether run.sh or run.bat was produced.
+
+        Returns (script_name, startup_command).
+        """
+        run_sh = self._run_sh_name()
+        run_bat = "run.bat"
+        sh_path = os.path.join(server_dir, run_sh)
+        bat_path = os.path.join(server_dir, run_bat)
+
+        sh_exists = self._fs.exists(sh_path)
+        bat_exists = self._fs.exists(bat_path)
+
+        if sys.platform == "win32":
+            if bat_exists:
+                return run_bat, [run_bat, "nogui"]
+            if sh_exists:
+                return run_sh, ["bash", run_sh, "nogui"]
+        else:
+            if sh_exists:
+                return run_sh, ["bash", run_sh, "nogui"]
+            if bat_exists:
+                return run_bat, [run_bat, "nogui"]
+
+        return "", []
 
     def _classify_failure(self, exc: Exception) -> FailureDisposition:
         """Classify a provisioning exception into TRANSIENT, AMBIGUOUS, or FATAL."""
@@ -274,11 +301,14 @@ class InstallerProvisioner(ABC):
                 exit_code=result.exit_code,
             )
 
-        run_sh = os.path.join(server_dir, self._run_sh_name())
-        if not self._fs.exists(run_sh):
+        script_name, startup_command = self._detect_launch_script(server_dir)
+        if not script_name:
             raise InstallerExecutionError(
                 server_id=str(sid),
-                detail=f"installer finished but {self._run_sh_name()} was not produced",
+                detail=(
+                    f"installer finished but neither {self._run_sh_name()} "
+                    "nor run.bat was produced"
+                ),
             )
 
         try:
@@ -295,7 +325,7 @@ class InstallerProvisioner(ABC):
         self._write_user_jvm_args(server, server_dir)
 
         server.update_launch_config(
-            LaunchConfiguration(startup_command=["bash", self._run_sh_name(), "nogui"]),
+            LaunchConfiguration(startup_command=startup_command),
         )
         server.finish_provisioning()
         return server

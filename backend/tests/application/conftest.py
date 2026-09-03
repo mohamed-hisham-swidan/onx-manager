@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -9,6 +10,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+import app.modules.auth.infrastructure.models  # noqa: F401
+import app.modules.server.infrastructure.models  # noqa: F401
 from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
 from app.core.persistence.base import Base
@@ -27,8 +30,6 @@ def event_loop() -> asyncio.AbstractEventLoop:
 
 @pytest_asyncio.fixture
 async def init_test_db(tmp_path) -> AsyncGenerator[None, None]:
-    import os
-
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

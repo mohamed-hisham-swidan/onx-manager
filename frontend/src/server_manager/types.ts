@@ -218,6 +218,7 @@ export const STATUS_MAP: Record<string, StatusBadge> = {
   stopping: { label: "Stopping", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
   crashed: { label: "Crashed", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
   broken: { label: "Broken", color: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" },
+  restoring: { label: "Restoring", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" },
   ...Object.fromEntries(
     Object.entries(EXPOSURE_STATUS_MAP).map(([k, v]) => [k, { label: v.label, color: v.color }])
   ),
@@ -261,4 +262,5 @@ export interface FileItem {
 export interface FileContentResponse {
   path: string;
   content: string;
+  is_binary?: boolean;
 }

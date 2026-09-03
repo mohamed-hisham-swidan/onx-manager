@@ -100,14 +100,40 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
             version = selection.selected
             plugin_file = _pick_primary_file(version)
 
+            raw_filename = plugin_file.filename
+            if (
+                not raw_filename
+                or ".." in raw_filename
+                or "/" in raw_filename
+                or "\\" in raw_filename
+            ):
+                return CommandResult(
+                    success=False,
+                    error=(
+                        f"Invalid plugin filename '{raw_filename}': "
+                        "path traversal or separator detected"
+                    ),
+                    error_code="INVALID_FILENAME",
+                )
+
+            safe_filename = os.path.basename(raw_filename)
             plugin_dir = os.path.join(server.deployment.server_directory(), "plugins")
-            dest = os.path.join(plugin_dir, plugin_file.filename)
+            dest = os.path.join(plugin_dir, safe_filename)
+
+            resolved_plugin_dir = os.path.abspath(plugin_dir)
+            resolved_dest = os.path.abspath(dest)
+            if os.path.commonpath([resolved_plugin_dir, resolved_dest]) != resolved_plugin_dir:
+                return CommandResult(
+                    success=False,
+                    error=f"Invalid plugin destination path '{safe_filename}'",
+                    error_code="INVALID_FILENAME",
+                )
 
             if self._fs.exists(dest):
                 return CommandResult(
                     success=False,
                     error=(
-                        f"A file named '{plugin_file.filename}' already exists "
+                        f"A file named '{safe_filename}' already exists "
                         "in the plugins folder."
                     ),
                     error_code="FILE_CONFLICT",

@@ -387,3 +387,46 @@ class TestSubclassContractParity:
                 Path(fs.delete.call_args[0][0]).as_posix()
                 == f"/data/{sid}/{provisioner._installer_filename()}"
             )
+
+    @pytest.mark.asyncio
+    async def test_windows_run_bat_detected_and_configured_without_bash(self) -> None:
+        sid = "srv-win-forge"
+        server = _create_test_server(sid, ServerType.FORGE, f"/data/{sid}")
+        fs = MagicMock()
+        # Simulate run.bat exists, run.sh does NOT exist
+        fs.exists.side_effect = lambda path: path.endswith("run.bat")
+        fs.write_text.return_value = None
+        fs.delete.return_value = None
+
+        with (
+            patch(
+                "app.modules.server.application.services.installer_provisioner._load_server",
+                AsyncMock(return_value=server),
+            ),
+            patch(
+                "app.modules.server.application.services.installer_provisioner._save_server",
+                AsyncMock(),
+            ),
+            patch(
+                "app.modules.server.application.services.forge_provisioner.resolve_forge_build",
+                AsyncMock(return_value="1.21.1-build-99"),
+            ),
+            patch(
+                "app.modules.server.application.services.installer_provisioner.download_installer_jar",
+                AsyncMock(return_value=f"/data/{sid}/installer.jar"),
+            ),
+            patch(
+                "app.modules.server.application.services.installer_provisioner.shutil.disk_usage",
+                return_value=SimpleNamespace(free=64 * 1024 * 1024 * 1024),
+            ),
+        ):
+            provisioner = ForgeProvisioner(
+                runner=_make_runner(InstallerResult(exit_code=0, output="Installation complete")),
+                fs=fs,
+            )
+            await provisioner.provision(sid, "1.21.1")
+
+            assert server.status == ServerStatus.CREATED
+            assert server.launch_config is not None
+            assert server.launch_config.startup_command == ("run.bat", "nogui")
+            assert "bash" not in server.launch_config.startup_command

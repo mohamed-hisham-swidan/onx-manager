@@ -168,14 +168,14 @@ route_permissions:
   "POST /api/v1/backups/{backup_id}/verify": {permission: "backup:read", status: enforced, note: "integrity check; reuse existing backup:read (no new backup:verify)"}
 
   # plugins
-  "DELETE /api/v1/servers/{server_id}/plugins/{plugin_id}": {permission: "plugin:manage", status: enforced}
-  "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/enable": {permission: "plugin:manage", status: enforced}
-  "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/disable": {permission: "plugin:manage", status: enforced}
+  "DELETE /api/v1/servers/{server_id}/plugins/{plugin_id}": {permission: "plugin:manage, server.{id}.plugins", status: enforced}
+  "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/enable": {permission: "plugin:manage, server.{id}.plugins", status: enforced}
+  "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/disable": {permission: "plugin:manage, server.{id}.plugins", status: enforced}
 
   # plugins — Modrinth marketplace (verified enforced against plugins.py:73,85,120)
-  "GET /api/v1/servers/{server_id}/plugins/marketplace/search": {permission: "plugin:manage", status: enforced}
-  "GET /api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions": {permission: "plugin:manage", status: enforced}
-  "POST /api/v1/servers/{server_id}/plugins/marketplace/install": {permission: "plugin:manage", status: enforced}
+  "GET /api/v1/servers/{server_id}/plugins/marketplace/search": {permission: "plugin:manage, server.{id}.plugins, server.{id}.view", status: enforced}
+  "GET /api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions": {permission: "plugin:manage, server.{id}.plugins, server.{id}.view", status: enforced}
+  "POST /api/v1/servers/{server_id}/plugins/marketplace/install": {permission: "plugin:manage, server.{id}.plugins", status: enforced}
 
   # plugins — top-level marketplace (global search / project detail, no server context)
   "GET /api/v1/marketplace/search": {permission: "plugin:manage", status: enforced, note: "top-level global marketplace search; plugin:manage-gated (B6-4)"}
@@ -279,8 +279,8 @@ route_permissions:
   "GET /api/v1/servers/{server_id}/runtime/validate": {permission: "server.{id}.view", status: enforced, note: "server-scoped runtime validation chain via require_server_permission"}
   "GET /api/v1/backups": {permission: "backup:read", status: missing}
   "GET /api/v1/backups/{backup_id}": {permission: "backup:read", status: missing}
-  "GET /api/v1/servers/{server_id}/plugins": {permission: "plugin:read", status: missing}
-  "GET /api/v1/servers/{server_id}/plugins/{plugin_id}": {permission: "plugin:read", status: missing}
+  "GET /api/v1/servers/{server_id}/plugins": {permission: "server.{id}.plugins, server.{id}.view", status: enforced}
+  "GET /api/v1/servers/{server_id}/plugins/{plugin_id}": {permission: "server.{id}.plugins, server.{id}.view", status: enforced}
   "GET /api/v1/auth/me": {permission: "user:read", status: missing, note: "own profile; auth-only may be acceptable but classified sensitive"}
   "GET /api/v1/auth/api-keys": {permission: "user:read", status: missing, note: "API-key metadata incl. permission sets"}
   "GET /api/v1/users": {permission: "user:read", status: missing, note: "full user list — email/display names"}

@@ -124,8 +124,14 @@ async def read_file_content(
 
     _assert_not_sensitive(target_path)
 
-    content = local_fs.read_text(str(target_path))
-    return FileContentResponse(path=rel_str, content=content)
+    try:
+        raw_bytes = local_fs.read_binary(str(target_path))
+        if b"\x00" in raw_bytes[:8192]:
+            return FileContentResponse(path=rel_str, content="", is_binary=True)
+        content = raw_bytes.decode("utf-8")
+        return FileContentResponse(path=rel_str, content=content, is_binary=False)
+    except (UnicodeDecodeError, ValueError):
+        return FileContentResponse(path=rel_str, content="", is_binary=True)
 
 
 @router.put("/content", response_model=FileContentResponse)

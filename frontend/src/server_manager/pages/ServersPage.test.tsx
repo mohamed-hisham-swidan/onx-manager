@@ -179,4 +179,34 @@ describe("ServersPage", () => {
     expect(link).toHaveAttribute("title", longName);
     expect(link.className).toContain("truncate");
   });
+
+  it("ISS-022: renders Restoring badge and does not offer start button for server in restoring state", () => {
+    vi.mocked(useServersList).mockReturnValue({
+      data: [
+        {
+          server_id: "srv-restore",
+          name: "Restoring World",
+          server_type: "vanilla",
+          minecraft_version: "1.21.4",
+          status: "restoring",
+          group_id: "default",
+          port: 25568,
+          motd: "",
+          max_players: 20,
+          gamemode: "survival",
+          difficulty: "normal",
+          created_at: "",
+          updated_at: "",
+        },
+      ],
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useServersList>);
+    renderPage();
+
+    expect(screen.getByText("Restoring World")).toBeInTheDocument();
+    expect(screen.getByText("Restoring")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Start Restoring World")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start/i })).not.toBeInTheDocument();
+  });
 });

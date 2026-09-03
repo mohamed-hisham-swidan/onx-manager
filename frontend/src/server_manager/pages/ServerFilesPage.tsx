@@ -11,6 +11,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { EmptyState } from "@/components/EmptyState";
 import { PageSkeleton } from "@/components/Skeleton";
 import type { FileItem } from "@/server_manager/types";
+import { CodeEditor } from "@/components/CodeEditor";
 
 const NON_EDITABLE_EXTENSIONS = new Set([
   "dat", "mca", "mcr", "sqlite", "db", "nbt", "jar", "zip", "tar", "gz", "png", "jpg", "jpeg", "gif", "ico", "class"
@@ -54,12 +55,17 @@ export function ServerFilesPage() {
     queryKey: queryKeys.files.content(serverId!, editingFile?.path ?? ""),
     queryFn: async () => {
       const res = await api.readServerFileContent(serverId!, editingFile!.path);
-      return typeof res === "string" ? res : res.content;
+      return typeof res === "string"
+        ? { path: editingFile!.path, content: res, is_binary: false }
+        : res;
     },
     enabled: !!serverId && !!editingFile,
   });
 
-  const displayedContent = userEdited ? editContent : (fileContentData ?? "");
+  const isBinary = fileContentData?.is_binary === true;
+  const rawTextContent =
+    typeof fileContentData === "string" ? fileContentData : (fileContentData?.content ?? "");
+  const displayedContent = userEdited ? editContent : rawTextContent;
 
   const handleMutationError = (defaultTitle: string, err: Error) => {
     if (err instanceof ApiError && err.status === 403) {
@@ -181,28 +187,44 @@ export function ServerFilesPage() {
             >
               Cancel
             </button>
-            <button
-              onClick={() => saveMutation.mutate()}
-              disabled={saveMutation.isPending || isContentLoading}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"
-            >
-              <Icon name="save" size={16} />
-              {saveMutation.isPending ? "Saving..." : "Save"}
-            </button>
+            {!isBinary && (
+              <button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending || isContentLoading}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"
+              >
+                <Icon name="save" size={16} />
+                {saveMutation.isPending ? "Saving..." : "Save"}
+              </button>
+            )}
           </div>
         </div>
         <div className="flex-1 p-4">
           {isContentLoading ? (
-            <div className="h-full flex items-center justify-center text-gray-500">Loading content...</div>
+            <div className="h-64 flex items-center justify-center text-gray-500">Loading content...</div>
+          ) : isBinary ? (
+            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <Icon name="file" size={48} className="text-gray-400 mb-3" />
+              <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Binary File</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 max-w-sm">
+                This file cannot be displayed or edited as text because it contains binary data.
+              </p>
+              <button
+                onClick={() => handleDownload(editingFile)}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
+              >
+                <Icon name="download" size={16} />
+                Download File
+              </button>
+            </div>
           ) : (
-            <textarea
-              className="w-full h-[600px] p-4 font-mono text-sm text-gray-900 bg-gray-50 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-900 dark:border-gray-600 dark:text-white"
+            <CodeEditor
               value={displayedContent}
-              onChange={(e) => {
-                setEditContent(e.target.value);
+              filename={editingFile.name}
+              onChange={(val) => {
+                setEditContent(val);
                 setUserEdited(true);
               }}
-              spellCheck={false}
             />
           )}
         </div>

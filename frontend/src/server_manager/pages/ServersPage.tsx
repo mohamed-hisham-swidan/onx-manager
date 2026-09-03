@@ -15,7 +15,7 @@ import type { ServerResponse } from "@/server_manager/types";
 
 type SortKey = "name" | "status" | "version";
 
-const STATUS_FILTERS = ["all", "running", "stopped", "starting", "provisioning", "provisioning_failed", "stopping", "crashed", "broken", "created"];
+const STATUS_FILTERS = ["all", "running", "stopped", "starting", "provisioning", "provisioning_failed", "stopping", "crashed", "broken", "created", "restoring"];
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";

@@ -319,6 +319,57 @@ class TestRestoreBackupHandler:
         assert captured_args["base_world"] == "my_custom_world"
 
     @pytest.mark.asyncio
+    async def test_restore_locks_server_and_prevents_concurrent_start(
+        self, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.application.commands.start_server import (
+            StartServerCommand,
+            StartServerHandler,
+        )
+        from app.modules.server.domain.aggregate import ServerStatus
+        from app.modules.server.infrastructure.repository import SQLServerRepository
+
+        server_id = "res-srv-lock"
+        await self._create_server(server_id, status="stopped")
+        await self._create_job("res-bak-lock", server_id)
+
+        start_result_during_restore = None
+
+        async def fake_restore(_backup_id, _server_dir, base_world="world"):
+            _ = base_world
+            nonlocal start_result_during_restore
+            # Check status while restore is actively running
+            async with database.session_factory() as session:
+                repo = SQLServerRepository(session)
+                srv = await repo.get(ServerId(server_id))
+                assert srv.status == ServerStatus.RESTORING
+
+            # Attempt to start the server concurrently
+            start_handler = StartServerHandler(event_bus)
+            start_result_during_restore = await start_handler.handle(
+                StartServerCommand(server_id=server_id)
+            )
+            return ["world"]
+
+        with patch(
+            "app.modules.backup.application.commands.restore_backup.perform_safe_restore",
+            side_effect=fake_restore,
+        ):
+            handler = RestoreBackupHandler(event_bus)
+            result = await handler.handle(RestoreBackupCommand(backup_id="res-bak-lock"))
+
+        assert result.success is True
+        assert start_result_during_restore is not None
+        assert start_result_during_restore.success is False
+        assert start_result_during_restore.error_code == "SERVER_RESTORING"
+
+        # Verify status is reset to stopped after restore completes
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            srv = await repo.get(ServerId(server_id))
+            assert srv.status == ServerStatus.STOPPED
+
+    @pytest.mark.asyncio
     async def test_restore_failure_reported(self, event_bus: EventBus) -> None:
         from app.modules.backup.application.restore_service import RestoreError
 

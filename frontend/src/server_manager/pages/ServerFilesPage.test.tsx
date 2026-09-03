@@ -176,4 +176,39 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
       expect(mkdirServerDirectoryMock).toHaveBeenCalledWith("srv-1", "plugins/Essentials");
     });
   });
+
+  it("ISS-050: opening an unlisted binary file renders binary fallback UI instead of crashing", async () => {
+    currentFileList = [{ name: "custom.bin", is_dir: false, size: 2048, path: "custom.bin" }];
+    readServerFileContentMock = vi.fn().mockResolvedValue({
+      path: "custom.bin",
+      content: "",
+      is_binary: true,
+    });
+    renderPage();
+
+    expect(await screen.findByText("custom.bin")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("custom.bin"));
+
+    // Fallback binary banner displayed
+    expect(await screen.findByText("Binary File")).toBeInTheDocument();
+    expect(
+      screen.getByText(/This file cannot be displayed or edited as text because it contains binary data/i)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /download file/i })).toBeInTheDocument();
+    // Save button should not be shown for binary file
+    expect(screen.queryByRole("button", { name: /^save$/i })).not.toBeInTheDocument();
+  });
+
+  it("ISS-051: editor mounts with syntax highlighting container and line numbers", async () => {
+    renderPage();
+
+    expect(await screen.findByText("server.properties")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("server.properties"));
+
+    // CodeEditor container mounts
+    expect(await screen.findByTestId("code-editor")).toBeInTheDocument();
+    // Status bar displays detected language and line count
+    expect(screen.getByText("Properties")).toBeInTheDocument();
+    expect(screen.getByText("3 lines")).toBeInTheDocument();
+  });
 });

@@ -115,4 +115,25 @@ describe("useWebSocket store wiring", () => {
     renderHook(() => useWebSocket({ url: "ws://test", autoConnect: true }));
     expect(WSClientMock).not.toHaveBeenCalled();
   });
+
+  it("preserves client instance across token refresh", () => {
+    renderHook(() => useWebSocket({ url: "ws://test", autoConnect: true }));
+    expect(WSClientMock).toHaveBeenCalledTimes(1);
+
+    const client = WSClientMock.mock.results[0].value;
+
+    // Simulate token refresh updating accessToken in useAuthStore
+    act(() => {
+      useAuthStore.setState({ accessToken: "refreshed_access_token" });
+    });
+
+    // Client should NOT be recreated, and disconnect should not have been called
+    expect(WSClientMock).toHaveBeenCalledTimes(1);
+    expect(client.disconnect).not.toHaveBeenCalled();
+
+    // Verify client config token getter dynamically returns the refreshed token
+    const clientConfig = WSClientMock.mock.calls[0][0];
+    expect(typeof clientConfig.token).toBe("function");
+    expect(clientConfig.token()).toBe("refreshed_access_token");
+  });
 });

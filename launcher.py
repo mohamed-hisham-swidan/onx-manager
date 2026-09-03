@@ -614,15 +614,22 @@ class PIDManager:
         try:
             if os.name == "nt":
                 import ctypes
-                handle = ctypes.windll.kernel32.OpenProcess(0x0400, False, pid)
-                if handle:
+                from ctypes import wintypes
+
+                handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+                if not handle:
+                    return False
+                try:
+                    exit_code = wintypes.DWORD()
+                    if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                        return False
+                    return exit_code.value == 259  # STILL_ACTIVE
+                finally:
                     ctypes.windll.kernel32.CloseHandle(handle)
-                    return True
-                return False
             else:
                 os.kill(pid, 0)
                 return True
-        except (OSError, ImportError):
+        except (OSError, ImportError, Exception):
             return False
 
     @staticmethod

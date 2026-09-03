@@ -36,7 +36,6 @@ export function unsubscribeChannels(channels: string[]): void {
 }
 
 export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoConnect = true }: UseWebSocketOptions) {
-  const accessToken = useAuthStore((s) => s.accessToken);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const setConnectionState = useWSStore((s) => s.setConnectionState);
   const setChannelState = useWSStore((s) => s.setChannelState);
@@ -47,13 +46,13 @@ export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoCon
   const handlerRef = useRef<WSHandler | null>(null);
 
   useEffect(() => {
-    if (!autoConnect || !isAuthenticated || !accessToken) return;
+    if (!autoConnect || !isAuthenticated) return;
 
     const handler = new WSHandler({ onCacheUpdate, onEvent, onStateSync });
     handlerRef.current = handler;
 
     const client = new WSClient(
-      { url, token: () => useAuthStore.getState().accessToken ?? accessToken, autoReconnect: true },
+      { url, token: () => useAuthStore.getState().accessToken, autoReconnect: true },
       {
         onStateChange: (state) => {
           setConnectionState(state);
@@ -94,7 +93,7 @@ export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoCon
       // across a token refresh / reconnect).
       useWSStore.setState({ channelStates: {}, unattributedRejection: false });
     };
-  }, [url, accessToken, isAuthenticated, autoConnect, onCacheUpdate, onEvent, onStateSync, setConnectionState, setChannelState, removeChannelState, setUnattributedRejection]);
+  }, [url, isAuthenticated, autoConnect, onCacheUpdate, onEvent, onStateSync, setConnectionState, setChannelState, removeChannelState, setUnattributedRejection]);
 
   const subscribe = useCallback((channels: string[]) => {
     clientRef.current?.subscribe(channels);

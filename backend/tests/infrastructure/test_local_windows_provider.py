@@ -654,6 +654,26 @@ class TestLocalWindowsProviderConsoleAndExec:
         assert "no interactive stdin" in str(exc_info.value)
 
     @pytest.mark.asyncio
+    async def test_execute_command_raises_actionable_error_on_lost_handle_after_restart(
+        self, provider
+    ):
+        handle = ServerHandle(
+            provider="local_windows",
+            server_id="srv-lost-proc",
+            external_id="5678",
+            metadata={"pid": 5678},
+        )
+        with patch(
+            "app.modules.server.infrastructure.providers.local_windows.platform_pid_alive",
+            return_value=True,
+        ):
+            with pytest.raises(ProviderError) as exc_info:
+                await provider.execute_command(handle, "save-all")
+            assert "Console access lost" in str(exc_info.value)
+            assert "after daemon restart" in str(exc_info.value)
+            assert "PID 5678" in str(exc_info.value)
+
+    @pytest.mark.asyncio
     async def test_collect_diagnostics_and_failure_detection(self, provider, tmp_path):
         server_dir = tmp_path / "server_crash"
         logs_dir = server_dir / "logs"

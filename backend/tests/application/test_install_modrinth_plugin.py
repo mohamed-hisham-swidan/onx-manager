@@ -26,7 +26,10 @@ from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, PluginId, ServerId
 
 
-def _version(version_number: str = "2.21.0") -> PluginVersionInfo:
+def _version(
+    version_number: str = "2.21.0",
+    filename: str = "EssentialsX.jar",
+) -> PluginVersionInfo:
     return PluginVersionInfo(
         version_id="ver-1",
         project_id="proj-1",
@@ -37,7 +40,7 @@ def _version(version_number: str = "2.21.0") -> PluginVersionInfo:
         files=[
             PluginFile(
                 url="https://cdn.modrinth.com/data/proj-1/ver-1/EssentialsX.jar",
-                filename="EssentialsX.jar",
+                filename=filename,
                 size_bytes=1024,
                 sha1="deadbeef",
                 primary=True,
@@ -192,3 +195,21 @@ class TestInstallModrinthPluginHandler:
         )
         assert result.success is False
         assert result.error_code == "NO_COMPATIBLE_VERSION"
+
+    @pytest.mark.asyncio
+    async def test_malicious_filename_path_traversal_rejected(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        await _create_server("srv-modrinth-evil", str(tmp_path / "srv-modrinth-evil"))
+        provider = _FakeProvider(_version(filename="../../../etc/evil.jar"))
+        handler = InstallModrinthPluginHandler(event_bus, provider=provider)
+
+        result = await handler.handle(
+            InstallModrinthPluginCommand(
+                server_id="srv-modrinth-evil",
+                project_id="proj-1",
+            )
+        )
+        assert result.success is False
+        assert result.error_code == "INVALID_FILENAME"
+        assert "path traversal" in result.error.lower()

@@ -25,7 +25,7 @@ from app.modules.server.application.runtime_ownership import (
 )
 from app.modules.server.application.startup_guard import check_startup_readiness
 from app.modules.server.application.supervisor import RuntimeSupervisor
-from app.modules.server.domain.aggregate import Server
+from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import default_provider_for_platform
 from app.modules.server.infrastructure.providers import provider_factory
@@ -60,6 +60,13 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerRepository = SQLServerRepository(uow.session)
             server = await repo.get(server_id)
+
+            if server.status == ServerStatus.RESTORING:
+                return CommandResult(
+                    success=False,
+                    error="Server is currently being restored from backup",
+                    error_code="SERVER_RESTORING",
+                )
 
             if server.deployment is None:
                 return CommandResult(

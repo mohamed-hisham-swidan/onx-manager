@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 # Statuses in which the server process may still be up — restoring underneath a
 # live process would corrupt the world, so these are deferred instead.
-_NON_IDLE_STATUSES: frozenset[str] = frozenset({"running", "starting", "stopping", "crashed"})
+_NON_IDLE_STATUSES: frozenset[str] = frozenset(
+    {"running", "starting", "stopping", "crashed", "restoring"}
+)
 
 
 class RestoreBackupCommand(Command):
@@ -83,7 +85,7 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
                     },
                 )
 
-        # ISS-NEW-002: Re-fetch server deployment immediately before restore to avoid stale data
+        # ISS-022: Lock server into RESTORING state so concurrent starts are rejected
         async with UnitOfWork(self._event_bus) as uow:
             server_repo = SQLServerRepository(uow.session)
             try:
@@ -100,29 +102,44 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
             server_dir = server.deployment.server_directory()
             base_world = server.deployment.primary_world or "world"
 
-        try:
-            restored_items = await perform_safe_restore(
-                backup_id,
-                server_dir,
-                base_world=base_world,
-            )
-        except RestoreError as exc:
-            logger.error(
-                "Restore failed — server_id=%s backup_id=%s error=%s",
-                server_id,
-                command.backup_id,
-                exc,
-            )
-            return CommandResult(success=False, error=str(exc), error_code="RESTORE_FAILED")
-
-        async with UnitOfWork(self._event_bus) as uow:
-            repo: BackupRepository = SQLBackupRepository(uow.session)
-            job = await repo.get_job(backup_id)
-            job.mark_restored()
-            await repo.save_job(job)
-            for event in job.collect_events():
-                uow.add_event(event)
+            server.mark_restoring()
+            await server_repo.save(server)
             await uow.commit()
+
+        try:
+            try:
+                restored_items = await perform_safe_restore(
+                    backup_id,
+                    server_dir,
+                    base_world=base_world,
+                )
+            except RestoreError as exc:
+                logger.error(
+                    "Restore failed — server_id=%s backup_id=%s error=%s",
+                    server_id,
+                    command.backup_id,
+                    exc,
+                )
+                return CommandResult(success=False, error=str(exc), error_code="RESTORE_FAILED")
+
+            async with UnitOfWork(self._event_bus) as uow:
+                repo: BackupRepository = SQLBackupRepository(uow.session)
+                job = await repo.get_job(backup_id)
+                job.mark_restored()
+                await repo.save_job(job)
+                for event in job.collect_events():
+                    uow.add_event(event)
+                await uow.commit()
+        finally:
+            async with UnitOfWork(self._event_bus) as uow:
+                server_repo = SQLServerRepository(uow.session)
+                try:
+                    server = await server_repo.get(job.server_id)
+                    server.mark_restore_completed()
+                    await server_repo.save(server)
+                    await uow.commit()
+                except Exception as e:
+                    logger.warning("Failed to reset server status after restore: %s", e)
 
         logger.info(
             "Restore applied — server_id=%s backup_id=%s items=%s",

@@ -194,3 +194,51 @@ def test_validator_check_npm_retry_success():
          ):
         ver = Validator.check_npm(timeout_sec=20)
         assert ver == "10.8.2"
+
+
+def test_pid_manager_is_alive_windows_still_active():
+    import ctypes
+
+    from launcher import PIDManager
+
+    mock_kernel32 = MagicMock()
+    mock_kernel32.OpenProcess.return_value = 1234
+
+    def fake_get_exit_code(_handle, byref_code):
+        byref_code._obj.value = 259  # STILL_ACTIVE
+        return 1
+
+    mock_kernel32.GetExitCodeProcess.side_effect = fake_get_exit_code
+
+    mock_windll = MagicMock()
+    mock_windll.kernel32 = mock_kernel32
+
+    with patch("os.name", "nt"), patch.object(ctypes, "windll", mock_windll, create=True):
+        alive = PIDManager.is_alive(5000)
+        assert alive is True
+        mock_kernel32.OpenProcess.assert_called_once_with(0x1000, False, 5000)
+        mock_kernel32.CloseHandle.assert_called_once_with(1234)
+
+
+def test_pid_manager_is_alive_windows_dead_process():
+    import ctypes
+
+    from launcher import PIDManager
+
+    mock_kernel32 = MagicMock()
+    mock_kernel32.OpenProcess.return_value = 1234
+
+    def fake_get_exit_code(_handle, byref_code):
+        byref_code._obj.value = 1  # Process exited with code 1
+        return 1
+
+    mock_kernel32.GetExitCodeProcess.side_effect = fake_get_exit_code
+
+    mock_windll = MagicMock()
+    mock_windll.kernel32 = mock_kernel32
+
+    with patch("os.name", "nt"), patch.object(ctypes, "windll", mock_windll, create=True):
+        alive = PIDManager.is_alive(5000)
+        assert alive is False
+        mock_kernel32.CloseHandle.assert_called_once_with(1234)
+

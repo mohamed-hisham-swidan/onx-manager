@@ -460,6 +460,17 @@ class LocalWindowsProvider(ServerProvider):
                     "execute_command",
                     f"Failed to write to stdin of process for server={server_id}: {exc}",
                 ) from exc
+
+        pid = await self.get_runtime_pid(handle)
+        if pid and platform_pid_alive(pid):
+            raise ProviderError(
+                "local_windows",
+                "execute_command",
+                f"Console access lost for server {server_id} after daemon restart; "
+                f"process PID {pid} is running detached. "
+                "Restart the server to regain console access.",
+            )
+
         raise ProviderError(
             "local_windows",
             "execute_command",
