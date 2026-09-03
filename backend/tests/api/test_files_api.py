@@ -94,7 +94,7 @@ async def test_files_happy_path_crud(client: AsyncClient, created_user: dict, tm
 
     # Pre-create a file
     test_file = server_root / "ops.txt"
-    test_file.write_text("motd=Hello World\nport=25565")
+    test_file.write_bytes(b"motd=Hello World\nport=25565")
 
     await _seed_server(server_id, "CRUD Server", root_path=str(server_root))
 
@@ -113,7 +113,7 @@ async def test_files_happy_path_crud(client: AsyncClient, created_user: dict, tm
         headers=admin_header,
     )
     assert resp.status_code == 200
-    assert resp.json()["content"] == "motd=Hello World\nport=25565"
+    assert resp.json()["content"].replace("\r\n", "\n") == "motd=Hello World\nport=25565"
 
     # 3. Create directory (mkdir)
     resp = await client.post(

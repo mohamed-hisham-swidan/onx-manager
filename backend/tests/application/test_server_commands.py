@@ -106,6 +106,19 @@ def _bus(event_bus: EventBus) -> CommandBus:
     return CommandBus()
 
 
+@pytest.fixture(autouse=True)
+def _mock_runtime_supervisor_in_command_tests():
+    with (
+        patch(
+            "app.modules.server.application.commands.start_server.RuntimeSupervisor.start_for"
+        ) as m1,
+        patch(
+            "app.modules.server.application.commands.restart_server.RuntimeSupervisor.start_for"
+        ) as m2,
+    ):
+        yield m1, m2
+
+
 @pytest.mark.usefixtures("init_test_db")
 class TestCreateServerHandler:
     @pytest.mark.asyncio
