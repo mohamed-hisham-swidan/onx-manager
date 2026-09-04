@@ -319,12 +319,14 @@ describe("createApiClient", () => {
     try {
       vi.mocked(fetch).mockImplementationOnce(mockFetch(errorBody, 422));
       await api.health();
-    } catch (e: any) {
+    } catch (e: unknown) {
       expect(e).toBeInstanceOf(ApiError);
-      expect(e.status).toBe(422);
-      expect(e.code).toBe("VALIDATION_ERROR");
-      expect(e.message).toBe("name: Field required; port: Input should be greater than 0");
-      expect(e.detail).toEqual(errorBody.detail);
+      if (e instanceof ApiError) {
+        expect(e.status).toBe(422);
+        expect(e.code).toBe("VALIDATION_ERROR");
+        expect(e.message).toBe("name: Field required; port: Input should be greater than 0");
+        expect(e.detail).toEqual(errorBody.detail);
+      }
     }
   });
 });

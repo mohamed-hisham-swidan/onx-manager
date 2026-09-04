@@ -46,7 +46,7 @@ describe("useServerMetrics", () => {
     const query = queryClient.getQueryCache().findAll()[0];
     expect(query).toBeDefined();
     // Verify query options
-    expect(query.options.refetchInterval).toBe(false);
+    expect((query.options as { refetchInterval?: unknown }).refetchInterval).toBe(false);
   });
 
   it("enables HTTP polling (refetchInterval=2000) when WS is disconnected", async () => {
@@ -59,6 +59,6 @@ describe("useServerMetrics", () => {
 
     const query = queryClient.getQueryCache().findAll()[0];
     expect(query).toBeDefined();
-    expect(query.options.refetchInterval).toBe(2000);
+    expect((query.options as { refetchInterval?: unknown }).refetchInterval).toBe(2000);
   });
 });
