@@ -326,3 +326,36 @@ def scan_server_directory(path: str, fs: FileSystem | None = None) -> dict[str, 
         "banned_players": _read_json_list(str(Path(server_dir) / "banned-players.json"), fs),
         "whitelisted_players": _read_json_list(str(Path(server_dir) / "whitelist.json"), fs),
     }
+
+
+def _safe_extract_zip(zip_path: str | Path, target_dir: str | Path) -> None:
+    """Safely extract zip archive preventing Zip Slip directory traversal (CVE-2007-4559)."""
+    resolved_target = Path(target_dir).resolve()
+    with zipfile.ZipFile(str(zip_path), "r") as zf:
+        for member in zf.infolist():
+            filename = member.filename
+            parts = Path(filename).parts
+            if (
+                filename.startswith(("/", "\\"))
+                or ".." in parts
+                or any(part == ".." for part in parts)
+            ):
+                raise ValueError(f"Path traversal detected in archive entry: {filename}")
+
+            destination = (resolved_target / filename).resolve()
+            if not destination.is_relative_to(resolved_target):
+                raise ValueError(f"Path traversal detected in archive entry: {filename}")
+
+            zf.extract(member, str(resolved_target))
+
+
+def get_effective_server_dir(extracted_dir: Path) -> Path:
+    """If the zip archive was packed with a single root directory, return that inner directory."""
+    entries = [
+        e for e in extracted_dir.iterdir()
+        if not e.name.startswith(".") and e.name != "__MACOSX"
+    ]
+    if len(entries) == 1 and entries[0].is_dir():
+        return entries[0]
+    return extracted_dir
+

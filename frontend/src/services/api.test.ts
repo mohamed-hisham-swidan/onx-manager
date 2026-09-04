@@ -345,4 +345,87 @@ describe("createApiClient", () => {
       }
     }
   });
+
+  it("uploadImportZip uses fetch fallback when XMLHttpRequest is undefined", async () => {
+    const mockScan = { path: "/staging/123", name: "test", server_type: "vanilla", properties: { port: 25565 } };
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(mockScan));
+
+    // Ensure XMLHttpRequest is undefined
+    const origXhr = globalThis.XMLHttpRequest;
+    // @ts-expect-error override for test
+    delete globalThis.XMLHttpRequest;
+
+    try {
+      const file = new File(["dummy content"], "server.zip", { type: "application/zip" });
+      const result = await api.uploadImportZip(file);
+
+      expect(fetch).toHaveBeenCalledWith(
+        "http://localhost:8000/api/v1/servers/import/upload",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.any(FormData),
+        }),
+      );
+      expect(result).toEqual(mockScan);
+    } finally {
+      globalThis.XMLHttpRequest = origXhr;
+    }
+  });
+
+  it("uploadImportZip uses XMLHttpRequest with progress reporting", async () => {
+    const mockScan = { path: "/staging/456", name: "test-progress", server_type: "paper", properties: { port: 25565 } };
+    const progressSpy = vi.fn();
+
+    const mockXhr = {
+      open: vi.fn(),
+      setRequestHeader: vi.fn(),
+      send: vi.fn(),
+      upload: { onprogress: null as ((e: unknown) => void) | null },
+      onload: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      status: 200,
+      responseText: JSON.stringify(mockScan),
+    };
+
+    vi.stubGlobal("XMLHttpRequest", vi.fn(function () {
+      return mockXhr;
+    }));
+
+    const file = new File(["dummy content"], "server.zip", { type: "application/zip" });
+    const uploadPromise = api.uploadImportZip(file, progressSpy);
+
+    expect(mockXhr.open).toHaveBeenCalledWith("POST", "http://localhost:8000/api/v1/servers/import/upload");
+
+    if (mockXhr.upload.onprogress) {
+      mockXhr.upload.onprogress({ lengthComputable: true, loaded: 50, total: 100 });
+      expect(progressSpy).toHaveBeenCalledWith(50);
+    }
+
+    mockXhr.onload?.();
+    const result = await uploadPromise;
+    expect(result).toEqual(mockScan);
+  });
+
+  it("uploadImportZip handles XMLHttpRequest errors", async () => {
+    const mockXhr = {
+      open: vi.fn(),
+      setRequestHeader: vi.fn(),
+      send: vi.fn(),
+      upload: { onprogress: null },
+      onload: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      status: 413,
+      responseText: JSON.stringify({ detail: "Archive too large" }),
+    };
+
+    vi.stubGlobal("XMLHttpRequest", vi.fn(function () {
+      return mockXhr;
+    }));
+
+    const file = new File(["dummy content"], "big.zip", { type: "application/zip" });
+    const uploadPromise = api.uploadImportZip(file);
+
+    mockXhr.onload?.();
+    await expect(uploadPromise).rejects.toThrow("Archive too large");
+  });
 });

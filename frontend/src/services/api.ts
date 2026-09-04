@@ -424,6 +424,77 @@ export function createApiClient(
     // Import
     scanDirectory: (path: string) =>
       request<ScanResult>("/api/v1/servers/scan", { method: "POST", body: { path } }),
+    uploadImportZip: async (file: File, onProgress?: (percent: number) => void): Promise<ScanResult> => {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      let token = getToken();
+      const shouldProactivelyRefresh = isTokenExpiring
+        ? isTokenExpiring(token)
+        : (!token || isTokenExpiredOrNearExpiry(token, 30) || (useAuthStore.getState().isTokenExpiringSoon ? useAuthStore.getState().isTokenExpiringSoon(30) : false));
+
+      if (shouldProactivelyRefresh && onRefresh) {
+        const refreshed = await refreshAuth();
+        if (refreshed) {
+          token = getToken();
+        }
+      }
+
+      if (typeof XMLHttpRequest !== "undefined") {
+        return new Promise<ScanResult>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          const url = buildUrl(baseUrl, "/api/v1/servers/import/upload");
+          xhr.open("POST", url);
+
+          if (token) {
+            xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+          }
+
+          if (xhr.upload && onProgress) {
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable) {
+                const percent = Math.round((event.loaded / event.total) * 100);
+                onProgress(percent);
+              }
+            };
+          }
+
+          xhr.onload = () => {
+            let json: Record<string, unknown>;
+            try {
+              json = JSON.parse(xhr.responseText);
+            } catch {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                return reject(new ApiError(0, "PARSE_ERROR", "Invalid response from server"));
+              }
+              return reject(new ApiError(xhr.status, "UNKNOWN", `Request failed with status ${xhr.status}`));
+            }
+
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(json as unknown as ScanResult);
+            } else {
+              const errMsg =
+                typeof json?.detail === "string"
+                  ? json.detail
+                  : ((json?.error as string) || `Upload failed with status ${xhr.status}`);
+              const errDetail = (json?.detail as Record<string, unknown> | unknown[] | string | null) ?? null;
+              reject(new ApiError(xhr.status, "UPLOAD_FAILED", errMsg, errDetail));
+            }
+          };
+
+          xhr.onerror = () => {
+            reject(new ApiError(0, "NETWORK_ERROR", "Unable to reach server. Check your connection."));
+          };
+
+          xhr.send(formData);
+        });
+      }
+
+      return request<ScanResult>("/api/v1/servers/import/upload", {
+        method: "POST",
+        body: formData,
+      });
+    },
     importServer: (body: Record<string, unknown>) =>
       request<Record<string, unknown>>("/api/v1/servers/import", { method: "POST", body }),
 

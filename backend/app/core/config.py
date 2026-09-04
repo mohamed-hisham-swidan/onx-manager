@@ -47,6 +47,8 @@ class AppSettings(BaseSettings):
     panel_bind_port: int = 8000
     metrics_interval_seconds: float = 1.5
     post_running_grace_seconds: float = 30.0
+    import_max_zip_size_mb: int = 0
+    import_staging_dir: str = "data/staging"
 
     model_config = {"env_prefix": "MCS_", "extra": "ignore"}
 

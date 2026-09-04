@@ -150,6 +150,7 @@ route_permissions:
   "POST /api/v1/servers": {permission: "server:create", status: enforced, note: "member/users create servers and become owner_id (roadmap §2.2)"}
   "POST /api/v1/servers/scan": {permission: "server:write", status: enforced}
   "POST /api/v1/servers/import": {permission: "server:write", status: enforced}
+  "POST /api/v1/servers/import/upload": {permission: "server:write", status: enforced}
   "PATCH /api/v1/servers/{server_id}": {permission: "server:write", status: enforced}
   "DELETE /api/v1/servers/{server_id}": {permission: "server:delete", status: enforced}
   "POST /api/v1/servers/{server_id}/start": {permission: "server.{id}.power", status: enforced, note: "server-scoped power control (owner/admin/dev; viewer denied)"}

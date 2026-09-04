@@ -133,6 +133,19 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                 uow.add_event(event)
             await uow.commit()
 
+        # Clean up staging directory if imported from an uploaded archive
+        try:
+            from app.core.config import AppSettings
+
+            staging_root = Path(AppSettings().import_staging_dir).resolve()
+            if source.is_relative_to(staging_root):
+                rel_parts = source.relative_to(staging_root).parts
+                if rel_parts:
+                    import_dir = staging_root / rel_parts[0]
+                    local_fs.delete_dir(str(import_dir))
+        except Exception as cleanup_err:
+            logger.warning("Failed to clean up staging directory for %s: %s", source, cleanup_err)
+
         logger.info(
             'Server "%s" imported from %s → %s (jar=%s server_id=%s)',
             command.name,

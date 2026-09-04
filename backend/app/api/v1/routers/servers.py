@@ -1,4 +1,9 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+import secrets
+import shutil
+import zipfile
+from pathlib import Path
+
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 
 from app.api.deps import (
     get_command_bus,
@@ -30,6 +35,7 @@ from app.api.v1.schemas.server import (
     ValidationChainResponse,
 )
 from app.core.command_bus import CommandBus, CommandResult
+from app.core.config import AppSettings
 from app.core.event_bus import EventBus
 from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
@@ -47,7 +53,11 @@ from app.modules.server.application import (
     StopServerCommand,
     UpdateServerConfigCommand,
 )
-from app.modules.server.application.services.import_service import scan_server_directory
+from app.modules.server.application.services.import_service import (
+    _safe_extract_zip,
+    get_effective_server_dir,
+    scan_server_directory,
+)
 from app.modules.server.infrastructure.models import ServerModel
 
 router = APIRouter(prefix="/api/v1/servers", tags=["servers"])
@@ -134,6 +144,81 @@ async def scan_directory(
         raise HTTPException(
             status_code=403, detail="Permission denied to read the specified directory"
         )
+
+
+@router.post("/import/upload", response_model=ScanResult)
+async def upload_and_scan_server_archive(
+    file: UploadFile = File(...),
+    _current_user: dict = Depends(require_permission("server:write")),
+) -> ScanResult:
+    filename = file.filename or ""
+    if not filename.lower().endswith(".zip"):
+        raise HTTPException(
+            status_code=400, detail="Only .zip archives are supported for server import"
+        )
+
+    settings = AppSettings()
+    max_mb = settings.import_max_zip_size_mb
+    max_bytes = max_mb * 1024 * 1024 if max_mb > 0 else 0
+
+    import_id = secrets.token_hex(8)
+    staging_dir = Path(settings.import_staging_dir).resolve() / import_id
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = staging_dir / "upload.zip"
+
+    try:
+        total_bytes = 0
+        chunk_size = 1024 * 1024  # 1MB chunks
+        with open(zip_path, "wb") as f_out:
+            while chunk := await file.read(chunk_size):
+                total_bytes += len(chunk)
+                if max_bytes > 0 and total_bytes > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Uploaded archive exceeds the maximum allowed size of {max_mb} MB",
+                    )
+                f_out.write(chunk)
+
+        try:
+            free_bytes = shutil.disk_usage(str(staging_dir)).free
+        except OSError:
+            free_bytes = 0
+
+        required_free = int(total_bytes * 1.5)
+        if free_bytes < required_free:
+            raise HTTPException(
+                status_code=507,
+                detail="Insufficient disk space on host to extract server archive",
+            )
+
+        extracted_dir = staging_dir / "extracted"
+        extracted_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            _safe_extract_zip(zip_path, extracted_dir)
+        except zipfile.BadZipFile as e:
+            raise HTTPException(
+                status_code=400, detail=f"Corrupted or invalid zip file: {e}"
+            ) from e
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        effective_dir = get_effective_server_dir(extracted_dir)
+
+        try:
+            result = scan_server_directory(str(effective_dir))
+            return ScanResult(**result)
+        except (NotADirectoryError, ValueError) as e:
+            raise HTTPException(
+                status_code=400, detail=f"Failed to scan extracted server: {e}"
+            ) from e
+
+    except HTTPException:
+        shutil.rmtree(str(staging_dir), ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(str(staging_dir), ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process archive: {exc}") from exc
 
 
 @router.post("/import", response_model=dict, status_code=201)
