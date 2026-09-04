@@ -348,3 +348,30 @@ class TestPlayitProcessLifecycle:
                 assert mock_exec.call_count == 1
         finally:
             await supervisor.stop()
+
+    async def test_callback_task_survives_gc_and_executes(self, tmp_path: Path) -> None:
+        """ISS-018: Background task callbacks in PlayitSupervisor must not be garbage-collected."""
+        import gc
+
+        run_dir = tmp_path / "run" / "playit_gc"
+        supervisor = PlayitAgentSupervisor(run_dir=run_dir)
+        status_received = asyncio.Event()
+
+        async def slow_on_status(_new_status: ExposureStatus) -> None:
+            await asyncio.sleep(0.05)
+            status_received.set()
+
+        supervisor._on_status = slow_on_status
+        supervisor._set_status(ExposureStatus.ACTIVE)
+
+        # Ensure task is tracked in supervisor._background_tasks
+        assert len(supervisor._background_tasks) > 0
+
+        # Force aggressive GC while callback task is running
+        gc.collect()
+        gc.collect()
+
+        await asyncio.wait_for(status_received.wait(), timeout=1.0)
+        await asyncio.sleep(0.02)
+        # Task done callback should have discarded it from the set
+        assert len(supervisor._background_tasks) == 0

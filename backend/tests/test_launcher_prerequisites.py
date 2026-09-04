@@ -268,4 +268,31 @@ def test_pid_manager_is_alive_windows_live_process():
     assert PIDManager.is_alive(4194304) is False
 
 
+def test_pid_manager_get_descendants_uses_psutil():
+    from launcher import PIDManager
 
+    mock_child1 = MagicMock(pid=1001)
+    mock_child2 = MagicMock(pid=1002)
+    mock_proc = MagicMock()
+    mock_proc.children.return_value = [mock_child1, mock_child2]
+
+    mock_psutil = MagicMock()
+    mock_psutil.Process.return_value = mock_proc
+
+    with patch.dict("sys.modules", {"psutil": mock_psutil}):
+        pids = PIDManager._get_descendants(1000)
+        assert pids == [1001, 1002]
+        mock_psutil.Process.assert_called_once_with(1000)
+        mock_proc.children.assert_called_once_with(recursive=True)
+
+
+def test_pid_manager_get_descendants_psutil_error_falls_back():
+    from launcher import PIDManager
+
+    mock_psutil = MagicMock()
+    mock_psutil.Process.side_effect = RuntimeError("psutil failure")
+
+    with patch.dict("sys.modules", {"psutil": mock_psutil}), \
+         patch("pathlib.Path.is_dir", return_value=False):
+        pids = PIDManager._get_descendants(9999)
+        assert pids == []

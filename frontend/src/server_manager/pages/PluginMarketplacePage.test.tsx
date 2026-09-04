@@ -201,6 +201,16 @@ describe("PluginMarketplacePage & InstallModal", () => {
     expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true, projectType: "plugin", offset: 0 });
   });
 
+  it("disables global search hook when serverId is present in query parameters", () => {
+    renderPage("/marketplace?serverId=srv-1");
+    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", expect.objectContaining({
+      enabled: false,
+    }));
+    expect(useMarketplaceSearch).toHaveBeenLastCalledWith("srv-1", "", expect.objectContaining({
+      enabled: true,
+    }));
+  });
+
   it("changes Discover dropdown from Plugins to Mods and passes projectType to search hook", () => {
     renderPage();
     expect(screen.getByRole("combobox", { name: /discover type/i })).toBeInTheDocument();

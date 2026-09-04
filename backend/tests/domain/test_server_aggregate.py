@@ -108,6 +108,35 @@ class TestServerStateMachine:
         valid_server.start()
         assert valid_server.status == ServerStatus.STARTING
 
+    def test_cold_start_restart_count_is_zero(self, valid_server: Server) -> None:
+        # Cold start from CREATED must leave restart_count at 0
+        valid_server.start()
+        valid_server.record_runtime_starting(pid=100, port=25565)
+        valid_server.mark_running(pid=100, port=25565)
+        assert valid_server.runtime.restart_count == 0
+
+    def test_actual_restarts_increment_restart_count(self, valid_server: Server) -> None:
+        # Initial cold start
+        valid_server.start()
+        valid_server.record_runtime_starting(pid=100, port=25565)
+        valid_server.mark_running(pid=100, port=25565)
+        assert valid_server.runtime.restart_count == 0
+
+        # Stop -> start again (clean restart)
+        valid_server.stop()
+        valid_server.mark_stopped()
+        valid_server.start()
+        valid_server.record_runtime_starting(pid=101, port=25565)
+        valid_server.mark_running(pid=101, port=25565)
+        assert valid_server.runtime.restart_count == 1
+
+        # Crash -> recover (crash restart)
+        valid_server.crash(exit_code=1)
+        valid_server.start()
+        valid_server.record_runtime_starting(pid=102, port=25565)
+        valid_server.mark_running(pid=102, port=25565)
+        assert valid_server.runtime.restart_count == 2
+
     def test_invalid_transition_raises(self, valid_server: Server) -> None:
         with pytest.raises(InvalidValueError):
             valid_server.mark_running(pid=1, port=25565)

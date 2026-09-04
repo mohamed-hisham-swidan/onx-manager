@@ -38,4 +38,44 @@ describe("ConfirmDialog", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onCancel).toHaveBeenCalled();
   });
+
+  it("sets initial focus to the confirm button on open", () => {
+    render(<ConfirmDialog open title="Delete?" onConfirm={() => {}} onCancel={() => {}} />);
+    const confirmBtn = screen.getByText("Confirm");
+    expect(document.activeElement).toBe(confirmBtn);
+  });
+
+  it("traps focus with Tab and Shift+Tab", () => {
+    render(<ConfirmDialog open title="Delete?" onConfirm={() => {}} onCancel={() => {}} />);
+    const confirmBtn = screen.getByText("Confirm");
+    const cancelBtn = screen.getByText("Cancel");
+
+    // Initially focused on confirmBtn (last element)
+    expect(document.activeElement).toBe(confirmBtn);
+
+    // Tab on last element wraps to first element (cancelBtn)
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(cancelBtn);
+
+    // Shift+Tab on first element wraps back to last element (confirmBtn)
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(confirmBtn);
+  });
+
+  it("restores focus to previously active element on close", () => {
+    const trigger = document.createElement("button");
+    trigger.textContent = "Open Dialog";
+    document.body.appendChild(trigger);
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+
+    const { unmount } = render(
+      <ConfirmDialog open title="Delete?" onConfirm={() => {}} onCancel={() => {}} />
+    );
+    expect(document.activeElement).toBe(screen.getByText("Confirm"));
+
+    unmount();
+    expect(document.activeElement).toBe(trigger);
+    document.body.removeChild(trigger);
+  });
 });

@@ -177,8 +177,13 @@ class Scheduler:
                         if m:
                             m.last_run_at = datetime.now(UTC)
                             await session.commit()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to update last_run_at for job %s: %s",
+                        model.id,
+                        exc,
+                        exc_info=True,
+                    )
 
         # misfire_grace_time=60: absorbs I/O bursts (DB queries, RCON polls, backup writes)
         # without silently dropping scheduled jobs.

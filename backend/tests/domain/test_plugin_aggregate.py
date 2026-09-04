@@ -54,6 +54,24 @@ class TestPlugin:
         sample_plugin.disable()
         assert sample_plugin.status == PluginStatus.DISABLED
 
+    def test_enable_already_enabled_is_noop(self, sample_plugin: Plugin) -> None:
+        sample_plugin.enable()
+        assert sample_plugin.status == PluginStatus.ENABLED
+        sample_plugin.collect_events()
+        # Redundant call must not raise and must not emit duplicate events
+        sample_plugin.enable()
+        assert sample_plugin.status == PluginStatus.ENABLED
+        assert len(sample_plugin.collect_events()) == 0
+
+    def test_disable_already_disabled_is_noop(self, sample_plugin: Plugin) -> None:
+        sample_plugin.disable()
+        assert sample_plugin.status == PluginStatus.DISABLED
+        sample_plugin.collect_events()
+        # Redundant call must not raise and must not emit duplicate events
+        sample_plugin.disable()
+        assert sample_plugin.status == PluginStatus.DISABLED
+        assert len(sample_plugin.collect_events()) == 0
+
     def test_invalid_transition(self, sample_plugin: Plugin) -> None:
         with pytest.raises(InvalidValueError):
             sample_plugin.mark_error()

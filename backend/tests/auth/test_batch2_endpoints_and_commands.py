@@ -182,11 +182,19 @@ class TestBatch2SetupAndInvites:
         assert list_res.status_code == 200
         assert len(list_res.json()) == 1
 
-        # 4. Verify Invite Token (Public)
-        verify_res = await client.get(f"/api/v1/invites/verify/{raw_invite_token}")
+        # 4. Verify Invite Token (Public POST with token in body)
+        verify_res = await client.post(
+            "/api/v1/invites/verify", json={"token": raw_invite_token}
+        )
         assert verify_res.status_code == 200
         assert verify_res.json()["valid"] is True
         assert verify_res.json()["email"] == "invited@example.com"
+
+        # Confirm old GET path is gone (401 unauthenticated or 404/405, not valid endpoint)
+        old_get_res = await client.get(f"/api/v1/invites/verify/{raw_invite_token}")
+        assert old_get_res.status_code in (401, 404, 405)
+        old_get_auth_res = await client.get(f"/api/v1/invites/verify/{raw_invite_token}", headers=headers)
+        assert old_get_auth_res.status_code in (404, 405)
 
         # 5. Accept Invite (Public)
         accept_res = await client.post(
@@ -202,7 +210,9 @@ class TestBatch2SetupAndInvites:
         assert "access_token" in accept_res.json()
 
         # 6. Verify token is now invalid / consumed
-        v2_res = await client.get(f"/api/v1/invites/verify/{raw_invite_token}")
+        v2_res = await client.post(
+            "/api/v1/invites/verify", json={"token": raw_invite_token}
+        )
         assert v2_res.json()["valid"] is False
 
     async def test_revoke_invite(self, client: AsyncClient) -> None:
@@ -232,7 +242,9 @@ class TestBatch2SetupAndInvites:
         assert del_res.status_code == 204
 
         # Verify token is invalid
-        v_res = await client.get(f"/api/v1/invites/verify/{raw_invite_token}")
+        v_res = await client.post(
+            "/api/v1/invites/verify", json={"token": raw_invite_token}
+        )
         assert v_res.json()["valid"] is False
 
     async def test_local_registration_assigns_viewer_role(self, client: AsyncClient) -> None:

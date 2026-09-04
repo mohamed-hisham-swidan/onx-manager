@@ -3,7 +3,7 @@
 Provides a single in-process mutable instance of the persisted settings.
 On startup, :func:`init_settings_store` loads from ``config/settings.yaml``
 (if it exists), falling back to env-var/default values.  All code that
-previously called ``ConfigFactory.global_settings()`` to read the 9 user-
+previously called ``ConfigFactory.global_settings()`` to read the 12 user-
 facing settings fields should call :func:`get_live_settings` instead.
 
 The store is intentionally separate from ``AppSettings`` (which remains

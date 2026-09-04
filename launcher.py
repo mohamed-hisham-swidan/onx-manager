@@ -647,7 +647,15 @@ class PIDManager:
 
     @staticmethod
     def _get_descendants(pid: int) -> list[int]:
-        """Recursively collect all descendant PIDs via /proc/<pid>/task/<tid>/children."""
+        """Recursively collect all descendant PIDs via psutil with fallback to /proc."""
+        try:
+            import psutil
+
+            proc = psutil.Process(pid)
+            return [child.pid for child in proc.children(recursive=True)]
+        except Exception:
+            pass
+
         descendants: list[int] = []
         try:
             task_dir = Path(f"/proc/{pid}/task")

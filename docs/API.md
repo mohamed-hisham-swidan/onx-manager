@@ -71,7 +71,7 @@ Authentication is enforced globally by an `AuthMiddleware` (plus the
 - `POST /api/v1/auth/refresh`
 - `GET /api/v1/setup/status` (instance initialization state — used by the setup wizard / `SystemStatusGuard`)
 - `POST /api/v1/setup/bootstrap` (single-use, first-run Owner creation)
-- `GET /api/v1/invites/verify/{token}` (pre-registration token validity, no user data returned)
+- `POST /api/v1/invites/verify` (pre-registration token validity, token in request body)
 - `POST /api/v1/invites/accept` (invite-token-based registration)
 - `GET /health`, `/metrics`, `/docs`, `/redoc`, `/openapi.json`, `/.well-known/jwks.json`
 
@@ -815,7 +815,7 @@ when the invite carries `server_id`/`server_role`, provisions the
 | `POST` | `/api/v1/invites` | `user:write` | `CreateInviteRequest` | `201 CreateInviteResponse` | Issue an invitation (can scope a global role and/or a server membership). Handler enforces Owner/Admin privilege checks on requested roles. |
 | `GET` | `/api/v1/invites` | `user:write` | — | `200 list[...]` | List invitations (token hash never returned). |
 | `DELETE` | `/api/v1/invites/{invite_id}` | `user:write` | — | `204` | Revoke an invitation (`status → REVOKED`). |
-| `GET` | `/api/v1/invites/verify/{token}` | Public | — | `200 VerifyInviteResponse` | Pre-registration token validity check (returns the claimed role/display name so the InvitePage can render; no user account is created). |
+| `POST` | `/api/v1/invites/verify` | Public | `VerifyInviteRequest` | `200 VerifyInviteResponse` | Pre-registration token validity check (returns the claimed role/display name so the InvitePage can render; no user account is created). |
 | `POST` | `/api/v1/invites/accept` | Public | `AcceptInviteRequest` | `201 AcceptInviteResponse` | Redeem the token to register. Rejected for unknown/expired/revoked/used tokens. |
 
 > Invite tokens are stored as **SHA-256 hashes** (`InvitationModel.token_hash`)

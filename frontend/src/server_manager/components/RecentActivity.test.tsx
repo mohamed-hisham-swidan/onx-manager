@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { RecentActivity } from "./RecentActivity";
-import { useActivityStore } from "@/stores/activityStore";
+import { useActivityStore, toActivityEvent } from "@/stores/activityStore";
 import { useWSStore } from "@/stores/wsStore";
 import { ConnectionState, ChannelStatus } from "@/websocket/types";
 import type { ChannelState } from "@/websocket/types";
@@ -66,6 +66,28 @@ describe("RecentActivity", () => {
     seedEvent("ServerStartedEvent", "Old", 5);
     render(<RecentActivity />);
     expect(screen.getByText("5m ago")).toBeInTheDocument();
+  });
+
+  it("shows 'just now' when event timestamp is recent or normalized from missing timestamp", () => {
+    const rawNormalized = toActivityEvent({
+      event_type: "ServerStartedEvent",
+      name: "Fresh Server",
+    });
+    useActivityStore.getState().addEvent(rawNormalized);
+    render(<RecentActivity />);
+    expect(screen.getByText("just now")).toBeInTheDocument();
+  });
+
+  it("handles millisecond timestamps without producing negative intervals", () => {
+    // 10 minutes ago in milliseconds
+    const tenMinAgoMs = Date.now() - 10 * 60_000;
+    useActivityStore.getState().addEvent({
+      event_type: "ServerStartedEvent",
+      name: "Ms Server",
+      timestamp: tenMinAgoMs,
+    });
+    render(<RecentActivity />);
+    expect(screen.getByText("10m ago")).toBeInTheDocument();
   });
 
   it("limits rendering to the 8 most recent events", () => {

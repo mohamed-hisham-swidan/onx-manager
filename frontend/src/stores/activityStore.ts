@@ -40,12 +40,26 @@ export const useActivityStore = create<ActivityState>((set) => ({
 
 export function toActivityEvent(raw: Record<string, unknown>): Omit<ActivityEvent, "id"> {
   const eventType = (raw.event_type as string) ?? "UnknownEvent";
-  const ts = (raw.timestamp as number) ?? Date.now();
+  let ts: number;
+  if (typeof raw.timestamp === "number" && !Number.isNaN(raw.timestamp)) {
+    ts = raw.timestamp > 1e11 ? raw.timestamp / 1000 : raw.timestamp;
+  } else if (typeof raw.timestamp === "string") {
+    const parsed = Number(raw.timestamp);
+    if (!Number.isNaN(parsed)) {
+      ts = parsed > 1e11 ? parsed / 1000 : parsed;
+    } else {
+      const dateMs = Date.parse(raw.timestamp);
+      ts = !Number.isNaN(dateMs) ? dateMs / 1000 : Date.now() / 1000;
+    }
+  } else {
+    ts = Date.now() / 1000;
+  }
+
   return {
     event_type: eventType,
     server_id: (raw.server_id as string) ?? undefined,
     name: (raw.name as string) ?? undefined,
     message: (raw.message as string) ?? undefined,
-    timestamp: typeof ts === "number" ? ts : Date.now(),
+    timestamp: ts,
   };
 }

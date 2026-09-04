@@ -38,16 +38,33 @@ describe("activityStore", () => {
     expect(useActivityStore.getState().events).toHaveLength(0);
   });
 
-  it("normalizes raw websocket events", () => {
-    const event = toActivityEvent({
+  it("normalizes raw websocket events with seconds, milliseconds, strings, and missing timestamps", () => {
+    const secEvent = toActivityEvent({
       event_type: "ServerStartedEvent",
       server_id: "srv-1",
       name: "My Server",
       timestamp: 1234.5,
     });
-    expect(event.event_type).toBe("ServerStartedEvent");
-    expect(event.server_id).toBe("srv-1");
-    expect(event.name).toBe("My Server");
-    expect(event.timestamp).toBe(1234.5);
+    expect(secEvent.timestamp).toBe(1234.5);
+
+    const msEvent = toActivityEvent({
+      event_type: "ServerStartedEvent",
+      timestamp: 1600000000000,
+    });
+    expect(msEvent.timestamp).toBe(1600000000);
+
+    const strEvent = toActivityEvent({
+      event_type: "ServerStartedEvent",
+      timestamp: "1600000000",
+    });
+    expect(strEvent.timestamp).toBe(1600000000);
+
+    const before = Date.now() / 1000;
+    const missingEvent = toActivityEvent({
+      event_type: "ServerStartedEvent",
+    });
+    const after = Date.now() / 1000;
+    expect(missingEvent.timestamp).toBeGreaterThanOrEqual(before);
+    expect(missingEvent.timestamp).toBeLessThanOrEqual(after);
   });
 });

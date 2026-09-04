@@ -45,7 +45,8 @@ function eventPresentation(event_type: string): { icon: IconName; color: string;
 }
 
 function formatTime(timestamp: number): string {
-  const diff = Date.now() - timestamp * 1000;
+  const tsInSeconds = timestamp > 1e11 ? timestamp / 1000 : timestamp;
+  const diff = Math.max(0, Date.now() - tsInSeconds * 1000);
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;

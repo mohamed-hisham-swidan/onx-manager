@@ -23,6 +23,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
@@ -212,6 +213,13 @@ class PlayitAgentSupervisor:
         self._on_status: Callable[[ExposureStatus], Awaitable[None]] | None = None
         self._on_secret: Callable[[str], Awaitable[None]] | None = None
         self._on_reconcile: Callable[[], Awaitable[None]] | None = None
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+
+    def _spawn_background_task(self, coro: Awaitable[Any]) -> asyncio.Task[Any]:
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     @property
     def run_dir(self) -> Path:
@@ -596,7 +604,7 @@ class PlayitAgentSupervisor:
                         self._set_status(ExposureStatus.STARTING)
                         if self._on_secret:
                             try:
-                                asyncio.create_task(self._on_secret(captured_secret))
+                                self._spawn_background_task(self._on_secret(captured_secret))
                             except Exception as exc:
                                 logger.exception("Error invoking on_secret callback: %s", exc)
                         break
@@ -735,7 +743,7 @@ class PlayitAgentSupervisor:
             self._status = new_status
             if self._on_status is not None:
                 try:
-                    asyncio.create_task(self._on_status(new_status))
+                    self._spawn_background_task(self._on_status(new_status))
                 except Exception as exc:
                     logger.warning("Failed to dispatch on_status callback: %s", exc)
 

@@ -118,6 +118,11 @@ class Server(AggregateRoot):
         self._owner_id = owner_id
         self._provisioning_error = provisioning_error
         self._provisioning_retryable = provisioning_retryable
+        self._has_run = (
+            self._runtime.restart_count > 0
+            or self._runtime.running_start_time is not None
+            or self._runtime.status in ("running", "crashed", "stopping", "stopped")
+        )
         now = datetime.now(UTC)
         self._created_at = created_at or now
         self._updated_at = updated_at or now
@@ -321,10 +326,11 @@ class Server(AggregateRoot):
                 running_start_time if running_start_time is not None else time.time()
             ),
             restart_count=self._runtime.restart_count + 1
-            if self._runtime.status in ("running", "starting")
+            if self._has_run
             else self._runtime.restart_count,
             external_id=external_id,
         )
+        self._has_run = True
         self._add_event(ServerStartedEvent(server_id=self._id, pid=pid, port=port))
 
     def stop(self, reason: str = "") -> None:
@@ -333,6 +339,7 @@ class Server(AggregateRoot):
 
     def mark_stopped(self) -> None:
         self._transition_to(ServerStatus.STOPPED)
+        self._has_run = True
         self._runtime = RuntimeInfo(
             status="stopped",
             provider=self._runtime.provider,
@@ -361,6 +368,7 @@ class Server(AggregateRoot):
 
     def crash(self, exit_code: int, last_log_lines: list[str] | None = None) -> None:
         self._transition_to(ServerStatus.CRASHED)
+        self._has_run = True
         self._runtime = RuntimeInfo(
             status="crashed",
             provider=self._runtime.provider,

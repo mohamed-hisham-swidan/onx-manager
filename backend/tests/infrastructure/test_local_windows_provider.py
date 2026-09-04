@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import subprocess
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -598,6 +599,18 @@ class TestLocalWindowsProviderStop:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
+
+    @pytest.mark.asyncio
+    async def test_force_kill_process_tree_calls_platform_kill_on_posix(self, provider):
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch(
+                "app.modules.server.infrastructure.providers.local_windows.platform_kill_process_tree_async",
+                new_callable=AsyncMock,
+            ) as mock_kill,
+        ):
+            await provider._force_kill_process_tree(4001)
+            mock_kill.assert_called_once_with(4001, sig=signal.SIGKILL)
 
 
 class TestLocalWindowsProviderConsoleAndExec:

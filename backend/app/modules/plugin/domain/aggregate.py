@@ -220,6 +220,8 @@ class Plugin(AggregateRoot):
         return plugin
 
     def _transition_to(self, new_status: PluginStatus) -> None:
+        if self._status == new_status:
+            return
         allowed = _PLUGIN_TRANSITIONS.get(self._status, set())
         if new_status not in allowed:
             raise InvalidValueError(
@@ -231,12 +233,16 @@ class Plugin(AggregateRoot):
         self._updated_at = datetime.now(UTC)
 
     def enable(self) -> None:
+        if self._status == PluginStatus.ENABLED:
+            return
         self._transition_to(PluginStatus.ENABLED)
         self._add_event(
             PluginEnabledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id))
         )
 
     def disable(self) -> None:
+        if self._status == PluginStatus.DISABLED:
+            return
         self._transition_to(PluginStatus.DISABLED)
         self._add_event(
             PluginDisabledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id))

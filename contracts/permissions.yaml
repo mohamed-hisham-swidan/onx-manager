@@ -268,7 +268,7 @@ route_permissions:
 
   # invites
   "GET /api/v1/invites": {permission: "user:write", status: enforced}
-  "GET /api/v1/invites/verify/{token}": {permission: null, status: not-applicable-public, note: "pre-registration token validity check"}
+  "POST /api/v1/invites/verify": {permission: null, status: not-applicable-public, note: "pre-registration token validity check"}
 
   # Sensitive reads — permission check needed (currently auth-only = missing)
   "GET /api/v1/servers": {permission: "server:read", status: missing}

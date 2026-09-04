@@ -22,7 +22,7 @@ export function PluginMarketplacePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const urlServerId = searchParams.get("server") ?? "";
+  const urlServerId = searchParams.get("server") ?? searchParams.get("serverId") ?? "";
   const urlQuery = searchParams.get("q") ?? "";
   const urlProjectType = (searchParams.get("type") as "plugin" | "mod") || "plugin";
   const urlLoader = searchParams.get("loader") ?? "";
@@ -56,7 +56,7 @@ export function PluginMarketplacePage() {
   const offset = (urlPage - 1) * MARKETPLACE_PAGE_SIZE;
   const loader = urlLoader || undefined;
   const searchGlobal = useMarketplaceSearchGlobal(globalQuery, {
-    enabled: isModrinth,
+    enabled: isModrinth && !serverId,
     projectType,
     offset,
     loader,

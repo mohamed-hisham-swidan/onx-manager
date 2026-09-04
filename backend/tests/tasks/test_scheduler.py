@@ -190,3 +190,51 @@ async def test_scheduler_survives_restart_and_reconciles_from_db(tmp_path) -> No
 
     await scheduler2.stop()
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_last_run_at_update_failure_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ISS-033: Failure to update last_run_at in DB should log a warning, not silently pass."""
+    import logging
+
+    from app.tasks.scheduler import CronJobModel
+
+    caplog.set_level(logging.WARNING)
+
+    class FailingSessionFactory(FakeSessionFactory):
+        async def commit(self) -> None:
+            raise RuntimeError("DB disk full on commit")
+
+    factory = FailingSessionFactory()
+    scheduler = Scheduler(factory)
+    queue = FakeQueue()
+    scheduler.set_task_queue(queue)
+    await scheduler.start()
+
+    from datetime import UTC, datetime
+
+    model = CronJobModel(
+        id="job-fail-test",
+        name="test_failing_job",
+        cron_expression="* * * * *",
+        task_name="test_task",
+        params_json="{}",
+        enabled=1,
+        created_at=datetime.now(UTC),
+    )
+    factory.add(model)
+    scheduler._schedule_job(model)
+
+    # Trigger job function directly
+    job = scheduler._aps.get_job("job-fail-test")
+    assert job is not None
+    await job.func()
+
+    assert any(
+        "Failed to update last_run_at for job job-fail-test" in record.message
+        for record in caplog.records
+    )
+
+    await scheduler.stop()

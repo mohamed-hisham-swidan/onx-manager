@@ -21,10 +21,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/api/v1/setup/status",
             "/api/v1/setup/bootstrap",
             "/api/v1/invites/accept",
+            "/api/v1/invites/verify",
         }
         self._public_prefixes: set[str] = {
             "/api/v1/schedules",
-            "/api/v1/invites/verify",
         }
         self._public_post_only: set[str] = {
             "/api/v1/users",

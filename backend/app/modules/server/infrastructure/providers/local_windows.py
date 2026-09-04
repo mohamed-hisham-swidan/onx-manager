@@ -16,7 +16,7 @@ from typing import Any
 
 from app.core.exceptions import ProviderError
 from app.core.identity import IDENTITY
-from app.core.process_utils import platform_pid_alive
+from app.core.process_utils import platform_kill_process_tree_async, platform_pid_alive
 from app.modules.server.domain.diagnostics import RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
     LaunchConfiguration,
@@ -396,8 +396,7 @@ class LocalWindowsProvider(ServerProvider):
             except Exception as exc:
                 logger.warning("taskkill failed for pid=%d: %s", pid, exc)
         else:
-            with contextlib.suppress(OSError):
-                os.kill(pid, signal.SIGKILL)
+            await platform_kill_process_tree_async(pid, sig=signal.SIGKILL)
 
     async def status(self, handle: ServerHandle) -> ServerRuntimeStatus:
         pid = await self.get_runtime_pid(handle)

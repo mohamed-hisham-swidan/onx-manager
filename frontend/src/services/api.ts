@@ -435,13 +435,13 @@ export function createApiClient(
 
     // Files
     listServerFiles: (serverId: string, path?: string) =>
-      request<import("@/server_manager/types").FileItem[]>(`/api/v1/servers/${serverId}/files/`, { params: { path } }),
+      request<import("@/server_manager/types").FileItem[]>(`/api/v1/servers/${serverId}/files`, { params: { path } }),
     readServerFileContent: (serverId: string, path: string) =>
       request<import("@/server_manager/types").FileContentResponse>(`/api/v1/servers/${serverId}/files/content`, { params: { path } }),
     writeServerFileContent: (serverId: string, path: string, content: string) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/content`, { method: "PUT", params: { path }, body: { content } }),
     deleteServerFile: (serverId: string, path: string) =>
-      request<void>(`/api/v1/servers/${serverId}/files/`, { method: "DELETE", params: { path } }),
+      request<void>(`/api/v1/servers/${serverId}/files`, { method: "DELETE", params: { path } }),
     uploadServerFile: (serverId: string, path: string, file: File) => {
       const formData = new FormData();
       formData.append("file", file);
@@ -473,7 +473,10 @@ export function createApiClient(
     revokeInvite: (inviteId: string) =>
       request<void>(`/api/v1/invites/${inviteId}`, { method: "DELETE" }),
     verifyInvite: (token: string) =>
-      request<VerifyInviteResponse>(`/api/v1/invites/verify/${token}`),
+      request<VerifyInviteResponse>("/api/v1/invites/verify", {
+        method: "POST",
+        body: { token },
+      }),
     acceptInvite: (body: AcceptInviteRequest) =>
       request<AcceptInviteResponse>("/api/v1/invites/accept", { method: "POST", body }),
 

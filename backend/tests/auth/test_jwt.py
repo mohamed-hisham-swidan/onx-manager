@@ -1,11 +1,13 @@
-from __future__ import annotations
+import json
 
 import pytest
 
 from app.core.exceptions import AuthenticationError, TokenExpiredError
 from app.modules.auth.infrastructure.jwt import (
+    _unb64,
     create_access_token,
     create_refresh_token,
+    get_key_id,
     verify_access_token,
     verify_ws_token,
 )
@@ -25,6 +27,14 @@ class TestJWT:
         assert claims["sub"] == "user_abc123"
         assert claims["roles"] == ["operator"]
         assert "server:read" in claims["permissions"]
+
+    def test_access_token_header_includes_kid(self) -> None:
+        token = create_access_token(user_id="user_kid_test")
+        header_b64 = token.split(".")[0]
+        header = json.loads(_unb64(header_b64).decode())
+        assert "kid" in header
+        assert header["kid"] == get_key_id()
+        assert header["alg"] == "RS256"
 
     def test_token_expiration(self) -> None:
         token = create_access_token(user_id="test", ttl_seconds=0)

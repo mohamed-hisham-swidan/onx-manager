@@ -949,6 +949,20 @@ def write_eula(
     deployment: ServerDeployment | None = None,
     fs: FileSystem | None = None,
 ) -> str:
+    """Write eula=true to eula.txt for the target server deployment.
+
+    POLICY NOTE (ISS-031):
+    Mojang's Minecraft End User License Agreement (EULA) requires players and server
+    operators to explicitly read and agree to the EULA (https://account.mojang.com/documents/minecraft_eula)
+    before running the server software.
+
+    Currently, ONX automatically accepts the EULA (`eula=true`) on behalf of the user
+    during server initialization to ensure unattended/automated server deployment workflows.
+    This represents a known policy gap: upstream server creation flows in the API and UI
+    should ideally present an explicit EULA acceptance confirmation checkbox from the user
+    prior to server provisioning. Automated acceptance remains in place here to preserve
+    backwards compatibility and automation until explicit upstream consent UI is introduced.
+    """
     fs = fs or local_fs
     dest = _resolve_eula_dest(deployment, server_id)
     fs.ensure_dir(str(Path(dest).parent))

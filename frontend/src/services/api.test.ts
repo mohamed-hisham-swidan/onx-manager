@@ -176,6 +176,22 @@ describe("createApiClient", () => {
     expect(result).toEqual({ server_id: "s1", status: "provisioning" });
   });
 
+  it("ISS-062: listServerFiles and deleteServerFile call /files endpoint without trailing slash", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([]));
+    await api.listServerFiles("s1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files",
+      expect.objectContaining({ method: "GET" }),
+    );
+
+    vi.mocked(fetch).mockImplementationOnce(mockFetch(null, 204));
+    await api.deleteServerFile("s1", "world/level.dat");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files?path=world%2Flevel.dat",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
   it("readServerFileContent makes JSON request to /files/content with path param", async () => {
     const fileData = { path: "server.properties", content: "motd=Minecraft Server\nmax-players=20" };
     vi.mocked(fetch).mockImplementationOnce(mockFetch(fileData));

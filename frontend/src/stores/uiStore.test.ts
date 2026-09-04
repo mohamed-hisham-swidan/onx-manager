@@ -69,4 +69,22 @@ describe("uiStore", () => {
     useUIStore.getState().setSidebarOpen(true);
     expect(useUIStore.getState().sidebarOpen).toBe(true);
   });
+
+  it("handles localStorage quota exceeded without throwing", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    });
+
+    const { useUIStore } = await import("./uiStore");
+    expect(() => useUIStore.getState().setTheme("dark")).not.toThrow();
+    expect(useUIStore.getState().theme).toBe("dark");
+
+    expect(() => useUIStore.getState().toggleTheme()).not.toThrow();
+    expect(useUIStore.getState().theme).toBe("light");
+
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+    vi.restoreAllMocks();
+  });
 });

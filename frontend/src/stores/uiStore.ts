@@ -17,6 +17,14 @@ function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle("dark", theme === "dark");
 }
 
+function saveTheme(theme: Theme) {
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch (err) {
+    console.warn("Failed to persist theme to localStorage:", err);
+  }
+}
+
 interface UIState {
   theme: Theme;
   sidebarOpen: boolean;
@@ -39,7 +47,7 @@ export const useUIStore = create<UIState>((set) => {
     mobileSidebarOpen: false,
 
     setTheme: (theme) => {
-      localStorage.setItem(THEME_KEY, theme);
+      saveTheme(theme);
       applyTheme(theme);
       set({ theme });
     },
@@ -47,7 +55,7 @@ export const useUIStore = create<UIState>((set) => {
     toggleTheme: () =>
       set((state) => {
         const next = state.theme === "light" ? "dark" : "light";
-        localStorage.setItem(THEME_KEY, next);
+        saveTheme(next);
         applyTheme(next);
         return { theme: next };
       }),

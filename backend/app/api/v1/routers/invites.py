@@ -42,6 +42,10 @@ class CreateInviteResponse(BaseModel):
     expires_at: str | None = None
 
 
+class VerifyInviteRequest(BaseModel):
+    token: str
+
+
 class VerifyInviteResponse(BaseModel):
     valid: bool
     email: str | None = None
@@ -103,12 +107,12 @@ async def revoke_invite(
     check_command_result(result)
 
 
-@router.get("/verify/{token}", response_model=VerifyInviteResponse)
+@router.post("/verify", response_model=VerifyInviteResponse)
 async def verify_invite(
-    token: str,
+    body: VerifyInviteRequest,
     query_bus: QueryBus = Depends(get_query_bus),
 ) -> VerifyInviteResponse:
-    data = await query_bus.ask(VerifyInviteQuery(token=token))
+    data = await query_bus.ask(VerifyInviteQuery(token=body.token))
     return VerifyInviteResponse(**data)
 
 
