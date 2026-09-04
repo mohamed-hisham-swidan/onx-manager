@@ -17,11 +17,17 @@ vi.mock("@/services/api", () => ({
 }));
 
 const sampleScanResult: ScanResult = {
-  valid: true,
   path: "/srv/minecraft/survival",
   name: "survival-world",
   server_type: "paper",
   minecraft_version: "1.20.4",
+  eula_accepted: true,
+  server_jar: "paper-1.20.4.jar",
+  jar_size_bytes: 45000000,
+  icon: null,
+  ops: [],
+  banned_players: [],
+  whitelisted_players: [],
   properties: {
     port: 25565,
     motd: "A Great Minecraft Server",
