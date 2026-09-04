@@ -205,3 +205,63 @@ async def test_upload_and_import_success(
     # 3. Verify the staging import folder was cleaned up after successful import
     import_staging_dirs = list(staging_root.iterdir())
     assert len(import_staging_dirs) == 0
+
+
+@pytest.mark.asyncio
+async def test_scan_local_zip_file(
+    client: AsyncClient, created_user: dict, tmp_path: Path
+) -> None:
+    headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
+    zip_bytes = _build_zip_bytes({
+        "server.properties": (
+            b"server-port=25588\nmotd=Local Zip Test\nserver-name=LocalZipServer\n"
+        ),
+        "eula.txt": b"eula=true\n",
+        "purpur.jar": b"PK\x03\x04fakejarcontent",
+    })
+    zip_file = tmp_path / "test_server.zip"
+    zip_file.write_bytes(zip_bytes)
+
+    resp = await client.post(
+        "/api/v1/servers/scan",
+        json={"path": str(zip_file)},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    scan_data = resp.json()
+    assert scan_data["name"] == "LocalZipServer"
+    assert scan_data["properties"]["port"] == 25588
+    assert scan_data["server_jar"] == "purpur.jar"
+
+
+@pytest.mark.asyncio
+async def test_import_direct_from_zip(
+    client: AsyncClient, created_user: dict, tmp_path: Path
+) -> None:
+    headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
+    zip_bytes = _build_zip_bytes({
+        "server.properties": (
+            b"server-port=25589\nmotd=Direct Zip Import\nserver-name=DirectZip\n"
+        ),
+        "eula.txt": b"eula=true\n",
+        "server.jar": b"PK\x03\x04fakejarcontent",
+    })
+    zip_file = tmp_path / "direct_server.zip"
+    zip_file.write_bytes(zip_bytes)
+
+    import_payload = {
+        "source_path": str(zip_file),
+        "name": "Direct Zip Imported",
+        "server_type": "vanilla",
+        "minecraft_version": "1.20.1",
+        "port": 25589,
+    }
+    resp = await client.post(
+        "/api/v1/servers/import",
+        json=import_payload,
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    imported_data = resp.json()
+    assert "server_id" in imported_data
+

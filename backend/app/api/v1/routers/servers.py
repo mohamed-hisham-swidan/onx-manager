@@ -130,20 +130,75 @@ async def create_server(
     return check_command_result(result)
 
 
+def _process_and_scan_zip(zip_path: Path, staging_dir: Path) -> ScanResult:
+    try:
+        free_bytes = shutil.disk_usage(str(staging_dir)).free
+    except OSError:
+        free_bytes = 0
+
+    file_size = zip_path.stat().st_size
+    required_free = int(file_size * 1.5)
+    if free_bytes < required_free:
+        raise HTTPException(
+            status_code=507,
+            detail="Insufficient disk space on host to extract server archive",
+        )
+
+    extracted_dir = staging_dir / "extracted"
+    extracted_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        _safe_extract_zip(zip_path, extracted_dir)
+    except zipfile.BadZipFile as e:
+        raise HTTPException(
+            status_code=400, detail=f"Corrupted or invalid zip file: {e}"
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    effective_dir = get_effective_server_dir(extracted_dir)
+
+    try:
+        result = scan_server_directory(str(effective_dir))
+        return ScanResult(**result)
+    except (NotADirectoryError, ValueError) as e:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to scan extracted server: {e}"
+        ) from e
+
+
 @router.post("/scan", response_model=ScanResult)
 async def scan_directory(
     body: ScanDirectoryRequest,
     _current_user: dict = Depends(require_permission("server:write")),
 ) -> ScanResult:
+    path_obj = Path(body.path).expanduser().resolve()
+    if path_obj.is_file() and body.path.lower().endswith(".zip"):
+        settings = AppSettings()
+        import_id = secrets.token_hex(8)
+        staging_dir = Path(settings.import_staging_dir).resolve() / import_id
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            return _process_and_scan_zip(path_obj, staging_dir)
+        except HTTPException:
+            shutil.rmtree(str(staging_dir), ignore_errors=True)
+            raise
+        except Exception as exc:
+            shutil.rmtree(str(staging_dir), ignore_errors=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to process archive: {exc}",
+            ) from exc
+
     try:
         result = scan_server_directory(body.path)
         return ScanResult(**result)
     except (NotADirectoryError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except PermissionError:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except PermissionError as e:
         raise HTTPException(
             status_code=403, detail="Permission denied to read the specified directory"
-        )
+        ) from e
 
 
 @router.post("/import/upload", response_model=ScanResult)
@@ -179,39 +234,7 @@ async def upload_and_scan_server_archive(
                     )
                 f_out.write(chunk)
 
-        try:
-            free_bytes = shutil.disk_usage(str(staging_dir)).free
-        except OSError:
-            free_bytes = 0
-
-        required_free = int(total_bytes * 1.5)
-        if free_bytes < required_free:
-            raise HTTPException(
-                status_code=507,
-                detail="Insufficient disk space on host to extract server archive",
-            )
-
-        extracted_dir = staging_dir / "extracted"
-        extracted_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            _safe_extract_zip(zip_path, extracted_dir)
-        except zipfile.BadZipFile as e:
-            raise HTTPException(
-                status_code=400, detail=f"Corrupted or invalid zip file: {e}"
-            ) from e
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-
-        effective_dir = get_effective_server_dir(extracted_dir)
-
-        try:
-            result = scan_server_directory(str(effective_dir))
-            return ScanResult(**result)
-        except (NotADirectoryError, ValueError) as e:
-            raise HTTPException(
-                status_code=400, detail=f"Failed to scan extracted server: {e}"
-            ) from e
+        return _process_and_scan_zip(zip_path, staging_dir)
 
     except HTTPException:
         shutil.rmtree(str(staging_dir), ignore_errors=True)

@@ -1037,13 +1037,16 @@ class TerminalOpener:
         if os.name == "nt":
             esc_backend = TerminalOpener.escape_cmd_path(BACKEND_DIR)
             esc_python = TerminalOpener.escape_cmd_path(python)
-            cmd_str = f'cd /d "{esc_backend}" && "{esc_python}" -m uvicorn app.main:app --host 0.0.0.0 --port {port} --reload'
+            cmd_str = (
+                f'cd /d "{esc_backend}" && "{esc_python}" -m uvicorn app.main:app '
+                f"--host 0.0.0.0 --port {port} --reload --reload-dir app"
+            )
         else:
             cmd_str = (
                 f"cd '{BACKEND_DIR}' && "
                 f"PYTHONPATH='{BACKEND_DIR}' "
                 f"{python} -m uvicorn app.main:app "
-                f"--host 0.0.0.0 --port {port} --reload"
+                f"--host 0.0.0.0 --port {port} --reload --reload-dir app"
             )
         return TerminalOpener._open("Backend", cmd_str, BACKEND_LOG, env, WINDOW_BACKEND)
 

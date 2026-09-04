@@ -122,6 +122,7 @@ build/
 # Server runtime data (worlds, JARs, plugins)
 # ──────────────────────────────────────────────
 backend/data/servers/
+backend/data/staging/
 
 # ──────────────────────────────────────────────
 # Test / dev server sandbox (agent-created data)

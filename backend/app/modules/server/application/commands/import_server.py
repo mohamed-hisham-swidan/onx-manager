@@ -1,11 +1,17 @@
 import logging
+import tempfile
+from pathlib import Path
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
 from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
-from app.modules.server.application.services.import_service import _find_server_jar
+from app.modules.server.application.services.import_service import (
+    _find_server_jar,
+    _safe_extract_zip,
+    get_effective_server_dir,
+)
 from app.modules.server.application.services.jar_service import resolve_server_dir
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.repository import ServerRepository
@@ -56,13 +62,12 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
         self._event_bus = event_bus
 
     async def handle(self, command: ImportServerCommand) -> CommandResult:
-        from pathlib import Path
-
         source = Path(command.source_path).expanduser().resolve()
-        if not source.is_dir():
+        is_zip = source.is_file() and source.name.lower().endswith(".zip")
+        if not source.is_dir() and not is_zip:
             return CommandResult(
                 success=False,
-                error=f"Directory not found: {command.source_path}",
+                error=f"Directory or zip archive not found: {command.source_path}",
             )
 
         server_id = ServerId()
@@ -76,7 +81,15 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
 
         async with UnitOfWork(self._event_bus) as uow:
             try:
-                local_fs.copy_dir(str(source), str(target))
+                if is_zip:
+                    with tempfile.TemporaryDirectory() as td:
+                        temp_extracted = Path(td) / "extracted"
+                        temp_extracted.mkdir(parents=True, exist_ok=True)
+                        _safe_extract_zip(source, temp_extracted)
+                        effective = get_effective_server_dir(temp_extracted)
+                        local_fs.copy_dir(str(effective), str(target))
+                else:
+                    local_fs.copy_dir(str(source), str(target))
             except Exception as exc:
                 logger.error("Failed to copy server directory: %s", exc)
                 return CommandResult(
