@@ -218,6 +218,14 @@ async def test_create_server_sets_creator_as_owner(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_created_server_owner_can_start_outsider_denied(client: AsyncClient) -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from app.modules.server.application.runtime_ownership import ClaimResult
+    from app.modules.server.infrastructure.providers.base import (
+        DeploymentResult,
+        ServerRuntimeStatus,
+    )
+
     await _seed_user("u_owner_a", "ownera@b7.test", "Owner A")
     await _seed_user("u_outsider_b", "outsiderb@b7.test", "Outsider B")
     owner_header = await _seed_api_key_header("u_owner_a", ["server:create"])
@@ -225,11 +233,33 @@ async def test_created_server_owner_can_start_outsider_denied(client: AsyncClien
 
     server_id = await _owner_server_id(client, owner_header, name="Isolation Server")
 
-    resp = await client.post(f"/api/v1/servers/{server_id}/start", headers=owner_header)
-    assert resp.status_code != 403
+    mock_provider = AsyncMock()
+    mock_provider.provider_type = "local"
+    mock_provider.start.return_value = DeploymentResult(
+        status=ServerRuntimeStatus.RUNNING,
+        address="127.0.0.1",
+        port=25565,
+        pid=99999,
+        metadata={"session_name": "onx-test-isolation"},
+    )
+    mock_provider.wait_ready = AsyncMock(return_value=True)
 
-    resp = await client.post(f"/api/v1/servers/{server_id}/start", headers=outsider_header)
-    assert resp.status_code == 403
+    start_mod = "app.modules.server.application.commands.start_server"
+    with (
+        patch(
+            f"{start_mod}.provider_factory.get",
+            return_value=mock_provider,
+        ),
+        patch(
+            f"{start_mod}.RuntimeOwnershipManager.claim_localhost",
+            AsyncMock(return_value=ClaimResult(success=True)),
+        ),
+    ):
+        resp = await client.post(f"/api/v1/servers/{server_id}/start", headers=owner_header)
+        assert resp.status_code != 403
+
+        resp = await client.post(f"/api/v1/servers/{server_id}/start", headers=outsider_header)
+        assert resp.status_code == 403
 
 
 @pytest.mark.asyncio

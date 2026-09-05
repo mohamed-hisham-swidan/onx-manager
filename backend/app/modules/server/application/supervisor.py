@@ -335,32 +335,66 @@ class RuntimeSupervisor:
         try:
             alive = await self._provider.verify_process(self._handle)
             if not alive:
+                if self._stop_event.is_set():
+                    return
+
                 status = await self._provider.status(self._handle)
-                if status == ServerRuntimeStatus.STOPPED:
-                    logger.info(
-                        'health_check server="%s" sid=%s provider=%s handle=%s phase=health_check status=stopped',
-                        self._server_name,
-                        self._server_id,
-                        self._provider.provider_type
-                        if hasattr(self._provider, "provider_type")
-                        else "?",
-                        self._handle.external_id if hasattr(self._handle, "external_id") else "?",
-                    )
+                diag = await self._provider.collect_diagnostics(self._handle)
+
+                is_crash = (
+                    status != ServerRuntimeStatus.STOPPED
+                    or (diag and diag.failure_code is not None)
+                    or (diag and diag.exit_code is not None and diag.exit_code != 0)
+                )
+
+                if is_crash:
+                    if diag and not diag.failure_code:
+                        diag.failure_code = FailureCode.RUNTIME_PROCESS_LOST
+                        pid = (
+                            self._handle.metadata.get("pid")
+                            if hasattr(self._handle, "metadata")
+                            else None
+                        )
+                        diag.failure_reason = (
+                            f"Runtime process lost during RUNNING state (pid={pid})"
+                        )
+                    await self._handle_crash(diag)
+                    return
+
+                logger.info(
+                    'health_check server="%s" sid=%s provider=%s handle=%s '
+                    "phase=health_check status=stopped",
+                    self._server_name,
+                    self._server_id,
+                    self._provider.provider_type
+                    if hasattr(self._provider, "provider_type")
+                    else "?",
+                    self._handle.external_id if hasattr(self._handle, "external_id") else "?",
+                )
+                add_timeline_milestone(
+                    None,
+                    "Health check — process stopped",
+                    self._server_name,
+                    self._server_id,
+                )
+                try:
+                    server = await self._repo_get(ServerId(self._server_id))
+                    server.mark_stopped()
+                    await self._repo_save(server)
                     add_timeline_milestone(
                         None,
-                        "Health check — process stopped",
+                        "Server marked stopped",
                         self._server_name,
                         self._server_id,
                     )
+                except Exception:
+                    logger.exception(
+                        'Failed to persist stopped state for server "%s" — sid=%s',
+                        self._server_name,
+                        self._server_id,
+                    )
+                finally:
                     self._stop_event.set()
-                    return
-                diag = await self._provider.collect_diagnostics(self._handle)
-                diag.failure_code = FailureCode.RUNTIME_PROCESS_LOST
-                pid = (
-                    self._handle.metadata.get("pid") if hasattr(self._handle, "metadata") else None
-                )
-                diag.failure_reason = f"Runtime process lost during RUNNING state (pid={pid})"
-                await self._handle_crash(diag)
                 return
             self._last_heartbeat = time.time()
         except ProviderError as exc:

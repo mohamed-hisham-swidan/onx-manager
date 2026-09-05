@@ -6,7 +6,7 @@ import pytest
 
 from app.core.exceptions import ProviderError
 from app.modules.server.application.supervisor import RuntimeSupervisor
-from app.modules.server.domain.aggregate import Server
+from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.diagnostics import FailureCode, RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
     JavaArguments,
@@ -365,14 +365,18 @@ class TestHealthCheckExceptionBoundary:
     ):
         mock_provider.verify_process = AsyncMock(return_value=False)
         mock_provider.status = AsyncMock(return_value=ServerRuntimeStatus.STOPPED)
-        mock_provider.collect_diagnostics = AsyncMock()
+        diag = RuntimeDiagnostics(provider="local")
+        mock_provider.collect_diagnostics = AsyncMock(return_value=diag)
+
+        repo_get = AsyncMock(return_value=mock_server)
+        repo_save = AsyncMock()
 
         supervisor = RuntimeSupervisor(
             server=mock_server,
             provider=mock_provider,
             handle=server_handle,
-            repo_get=AsyncMock(return_value=mock_server),
-            repo_save=AsyncMock(),
+            repo_get=repo_get,
+            repo_save=repo_save,
         )
         supervisor._handle_crash = AsyncMock()
 
@@ -380,7 +384,40 @@ class TestHealthCheckExceptionBoundary:
 
         assert supervisor._stop_event.is_set()
         supervisor._handle_crash.assert_not_called()
-        mock_provider.collect_diagnostics.assert_not_called()
+        mock_provider.collect_diagnostics.assert_awaited_once()
+        repo_save.assert_awaited_once_with(mock_server)
+        assert mock_server.status == ServerStatus.STOPPED
+
+    async def test_health_check_stopped_from_running_persists_to_repo(
+        self, mock_provider, mock_server, server_handle
+    ):
+        # Server starts in RUNNING
+        mock_server.mark_running(pid=1234, port=25565)
+        assert mock_server.status == ServerStatus.RUNNING
+
+        mock_provider.verify_process = AsyncMock(return_value=False)
+        mock_provider.status = AsyncMock(return_value=ServerRuntimeStatus.STOPPED)
+        diag = RuntimeDiagnostics(provider="local", exit_code=0)
+        mock_provider.collect_diagnostics = AsyncMock(return_value=diag)
+
+        repo_get = AsyncMock(return_value=mock_server)
+        repo_save = AsyncMock()
+
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=repo_get,
+            repo_save=repo_save,
+        )
+        supervisor._handle_crash = AsyncMock()
+
+        await supervisor._health_check()
+
+        assert supervisor._stop_event.is_set()
+        supervisor._handle_crash.assert_not_called()
+        repo_save.assert_awaited_once_with(mock_server)
+        assert mock_server.status == ServerStatus.STOPPED
 
     async def test_health_check_not_alive_collects_diag_and_crashes(
         self, mock_provider, mock_server, server_handle

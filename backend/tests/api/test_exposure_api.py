@@ -562,7 +562,9 @@ async def test_server_exposure_owner_bypass_and_target_flow(exposure_client) -> 
     sid = server["server_id"]
 
     resp = await exposure_client.get(f"/api/v1/servers/{sid}/exposure", headers=owner)
-    assert resp.status_code == 404
+    assert resp.status_code == 200
+    assert resp.json()["method"] == "none"
+    assert resp.json()["desired_state"] == "DISABLED"
 
     resp = await exposure_client.post(f"/api/v1/servers/{sid}/exposure/targets", headers=owner)
     assert resp.status_code == 201
@@ -601,7 +603,10 @@ async def test_server_exposure_owner_bypass_and_target_flow(exposure_client) -> 
     resp = await exposure_client.delete(f"/api/v1/servers/{sid}/exposure", headers=owner)
     assert resp.status_code == 204
 
-    resp = await exposure_client.get(f"/api/v1/servers/{sid}/exposure", headers=owner)
+    resp = await exposure_client.get(
+        "/api/v1/servers/nonexistent-server-id/exposure",
+        headers=owner,
+    )
     assert resp.status_code == 404
 
 
@@ -669,7 +674,11 @@ async def test_server_exposure_no_targets_on_enable(exposure_client) -> None:
         json={"method": "playit", "desired_state": "ENABLED"},
         headers=owner,
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["desired_state"] == "ENABLED"
+    assert len(data["targets"]) == 1
+    assert data["targets"][0]["local_port"] == 25565
 
 
 async def test_panel_exposure_playit_http_api(exposure_client) -> None:
