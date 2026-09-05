@@ -26,6 +26,8 @@ class ServerModel(Base, TimestampMixin):
     memory_min_mb = Column(Integer, nullable=False, default=1024)
     memory_max_mb = Column(Integer, nullable=False, default=2048)
     java_args = Column(Text, nullable=False, default="")
+    cpu_cores = Column(Integer, nullable=True, default=0)
+    cpu_affinity = Column(String(64), nullable=True, default="")
     group_id = Column(String(64), nullable=False, default="default")
     status = Column(String(32), nullable=False, default="created")
     provisioning_error = Column(Text, nullable=True)

@@ -71,6 +71,7 @@ backend/data/run/
 # ──────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+Screenshot_*
 .vscode/
 .idea/
 *.swp

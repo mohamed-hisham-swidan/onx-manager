@@ -280,13 +280,13 @@ export function ServerDetailPage() {
         <div className="lg:col-span-2 xl:col-span-3 flex flex-col gap-4">
           {/* Console */}
           <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
-            <ServerConsole
-              serverId={serverId}
-              serverStatus={server.status}
-              tps={currentMetric?.tps}
-              players={currentMetric?.players}
-            />
-          </div>
+                <ServerConsole
+                  serverId={serverId}
+                  serverStatus={server.status}
+                  tps={currentMetric?.tps}
+                  players={currentMetric?.players}
+                />
+              </div>
 
           {/* Usage Graphs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

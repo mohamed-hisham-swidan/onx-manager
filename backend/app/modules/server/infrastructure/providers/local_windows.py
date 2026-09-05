@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ctypes
 import logging
 import os
 import platform
@@ -19,6 +20,7 @@ from app.core.identity import IDENTITY
 from app.core.process_utils import platform_kill_process_tree_async, platform_pid_alive
 from app.modules.server.domain.diagnostics import RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
+    CpuAllocation,
     LaunchConfiguration,
     ServerDeployment,
 )
@@ -32,6 +34,19 @@ from app.modules.server.infrastructure.providers.base import (
 from app.modules.server.infrastructure.providers.patterns import detect_failure
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.provider.local_windows")
+
+
+def parse_affinity_mask(affinity_str: str) -> int:
+    mask = 0
+    parts = affinity_str.replace(",", " ").split()
+    for part in parts:
+        if "-" in part:
+            start_s, end_s = part.split("-", 1)
+            for core in range(int(start_s), int(end_s) + 1):
+                mask |= 1 << core
+        else:
+            mask |= 1 << int(part)
+    return mask
 
 
 class LocalWindowsProvider(ServerProvider):
@@ -81,22 +96,36 @@ class LocalWindowsProvider(ServerProvider):
         launch_config: LaunchConfiguration | None = None,
     ) -> DeploymentResult:
         session_name = f"{IDENTITY.temp_prefix_new}{server_id}"
+        server_label = f'"{server_id}"' if server_id else server_id
+
+        cfg = config or {}
+        cpu_cores = int(cfg.get("cpu_cores") or 0)
+        cpu_affinity = str(cfg.get("cpu_affinity") or "").strip()
+
+        # Hard validation gate: raises ProviderError on invalid format
+        try:
+            CpuAllocation.validate(cpu_cores, cpu_affinity)
+        except ValueError as exc:
+            raise ProviderError(
+                "local_windows",
+                "start",
+                f"Invalid CPU allocation configuration: {exc}",
+            ) from exc
 
         if deployment:
             server_dir = deployment.server_directory()
             jar = deployment.startup_jar
         else:
-            server_dir = (config or {}).get(
+            server_dir = cfg.get(
                 "server_dir",
                 f"C:\\minecraft\\servers\\{server_id}",
             )
-            jar = (config or {}).get("jar_path", "server.jar")
+            jar = cfg.get("jar_path", "server.jar")
 
         server_dir = os.path.expanduser(server_dir)
         self._fs.ensure_dir(server_dir)
 
         if launch_config:
-            cfg = config or {}
             memory_min = cfg.get("memory_min_mb", 1024)
             memory_max = cfg.get("memory_max_mb", 2048)
             port = cfg.get("port", 25565)
@@ -113,10 +142,10 @@ class LocalWindowsProvider(ServerProvider):
                     os.path.join(server_dir, jar)
                 ):
                     with contextlib.suppress(Exception):
-                        self._fs.write_text(
-                            jvm_args_file,
-                            f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
-                        )
+                        jvm_content = f"-Xms{memory_min}M\n-Xmx{memory_max}M\n"
+                        if cpu_cores > 0:
+                            jvm_content += f"-XX:ActiveProcessorCount={cpu_cores}\n"
+                        self._fs.write_text(jvm_args_file, jvm_content)
                 if (
                     any(arg.lower().endswith(".ps1") for arg in cmd_list)
                     and first_token not in ("powershell", "powershell.exe")
@@ -149,6 +178,8 @@ class LocalWindowsProvider(ServerProvider):
                     cmd_args.append(f"-Xms{memory_min}M")
                 if not any("-Xmx" in a for a in cmd_args):
                     cmd_args.append(f"-Xmx{memory_max}M")
+                if cpu_cores > 0 and not any("-XX:ActiveProcessorCount" in a for a in cmd_args):
+                    cmd_args.append(f"-XX:ActiveProcessorCount={cpu_cores}")
                 if "nogui" not in cmd_args and "--nogui" not in cmd_args:
                     cmd_args.append("nogui")
         else:
@@ -185,10 +216,10 @@ class LocalWindowsProvider(ServerProvider):
                 )
                 jvm_args_file = os.path.join(server_dir, "user_jvm_args.txt")
                 with contextlib.suppress(Exception):
-                    self._fs.write_text(
-                        jvm_args_file,
-                        f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
-                    )
+                    jvm_content = f"-Xms{memory_min}M\n-Xmx{memory_max}M\n"
+                    if cpu_cores > 0:
+                        jvm_content += f"-XX:ActiveProcessorCount={cpu_cores}\n"
+                    self._fs.write_text(jvm_args_file, jvm_content)
                 if script_name.endswith(".ps1"):
                     cmd_args = [
                         "powershell.exe",
@@ -228,10 +259,10 @@ class LocalWindowsProvider(ServerProvider):
                     *flags,
                     f"-Xms{memory_min}M",
                     f"-Xmx{memory_max}M",
-                    "-jar",
-                    jar,
-                    "nogui",
                 ]
+                if cpu_cores > 0:
+                    cmd_args.append(f"-XX:ActiveProcessorCount={cpu_cores}")
+                cmd_args.extend(["-jar", jar, "nogui"])
 
         instance_id = uuid.uuid4().hex[:16]
         env = {
@@ -240,7 +271,6 @@ class LocalWindowsProvider(ServerProvider):
             f"{IDENTITY.env_prefix_new}INSTANCE_ID": instance_id,
         }
 
-        server_label = f'"{server_id}"' if server_id else server_id
         logger.info(
             "Verifying port %d is free — server=%s phase=port_check",
             port,
@@ -280,6 +310,25 @@ class LocalWindowsProvider(ServerProvider):
             )
             pid = proc.pid
             self._processes[server_id] = proc
+
+            if cpu_affinity:
+                try:
+                    mask = parse_affinity_mask(cpu_affinity)
+                    windll = getattr(ctypes, "windll", None)
+                    if windll and hasattr(windll, "kernel32"):
+                        handle = int(getattr(proc, "_handle", 0) or 0)
+                        windll.kernel32.SetProcessAffinityMask(
+                            handle,
+                            ctypes.c_uint64(mask),
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to set Windows process affinity mask — "
+                        "server=%s affinity=%s error=%s",
+                        server_label,
+                        cpu_affinity,
+                        exc,
+                    )
         except Exception as exc:
             raise ProviderError(
                 "local_windows",

@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 
@@ -38,10 +38,15 @@ class ServerCreateRequest(BaseModel):
 
 
 class ServerUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     name: str | None = None
     properties: dict[str, object] = {}
     min_memory_mb: int | None = None
     max_memory_mb: int | None = None
+    cpu_cores: int | None = None
+    cpu_affinity: str | None = None
+    java_args: list[str] | None = None
 
 
 class ServerActionRequest(BaseModel):
@@ -70,6 +75,9 @@ class ServerDetailResponse(ServerResponse):
     min_memory_mb: int
     max_memory_mb: int
     java_args: str
+    cpu_cores: int = 0
+    cpu_affinity: str = ""
+    raw_properties: dict[str, str] = Field(default_factory=dict)
     spawn_protection: int
     pvp: bool
     enable_command_block: bool

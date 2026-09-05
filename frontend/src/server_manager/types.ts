@@ -28,6 +28,9 @@ export interface ServerDetailResponse extends ServerResponse {
   min_memory_mb: number;
   max_memory_mb: number;
   java_args: string;
+  cpu_cores?: number;
+  cpu_affinity?: string;
+  raw_properties?: Record<string, string>;
   spawn_protection: number;
   pvp: boolean;
   enable_command_block: boolean;
@@ -131,6 +134,9 @@ export interface ServerUpdateRequest {
   properties?: Record<string, unknown>;
   min_memory_mb?: number | null;
   max_memory_mb?: number | null;
+  cpu_cores?: number | null;
+  cpu_affinity?: string | null;
+  java_args?: string[] | null;
 }
 
 export interface ConsoleResponse {

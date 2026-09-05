@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import sys
 from dataclasses import dataclass, field
@@ -33,6 +34,44 @@ class MemoryAllocation:
 
     def __str__(self) -> str:
         return f"{self.min_mb}-{self.max_mb}M"
+
+
+@dataclass(frozen=True)
+class CpuAllocation:
+    cores: int = 0          # 0 = unconstrained (default), >= 1 = max logical processors
+    affinity: str = ""      # "" = unconstrained (default), e.g. "0-3" or "0,2,4"
+
+    def __post_init__(self) -> None:
+        if self.cores < 0:
+            raise ValueError(f"cores must be ≥0, got {self.cores}")
+        if self.affinity:
+            # Validate affinity format: "0-3" or "0,2,4" (ranges or comma-separated)
+            if not re.fullmatch(r"[0-9]+(?:-[0-9]+)?(?:,[0-9]+(?:-[0-9]+)?)*", self.affinity):
+                raise ValueError(
+                    f"Invalid affinity format: {self.affinity!r} (expected e.g. '0-3' or '0,2,4')"
+                )
+            # Parse and validate each core ID is non-negative
+            parts = self.affinity.replace(",", " ").split()
+            for part in parts:
+                if "-" in part:
+                    start, end = part.split("-")
+                    if int(start) < 0 or int(end) < 0 or int(start) > int(end):
+                        raise ValueError(f"Invalid affinity range: {part}")
+                elif int(part) < 0:
+                    raise ValueError(f"Invalid affinity core ID: {part}")
+
+    def __str__(self) -> str:
+        parts = []
+        if self.cores > 0:
+            parts.append(f"cores={self.cores}")
+        if self.affinity:
+            parts.append(f"affinity={self.affinity}")
+        return " ".join(parts) if parts else "unconstrained"
+
+    @classmethod
+    def validate(cls, cores: int, affinity: str) -> None:
+        """Static validation gate for provider startup — raises ValueError on invalid input."""
+        cls(cores=cores, affinity=affinity)  # triggers __post_init__
 
 
 @dataclass(frozen=True)

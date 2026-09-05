@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi, ApiError } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
@@ -33,6 +33,7 @@ function formatBytes(bytes: number) {
 
 export function ServerFilesPage() {
   const { serverId } = useParams<{ serverId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentPath, setCurrentPath] = useState("");
   const [editingFile, setEditingFile] = useState<FileItem | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -41,6 +42,31 @@ export function ServerFilesPage() {
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fileParam = searchParams.get("file") || searchParams.get("edit");
+  const [syncedFileParam, setSyncedFileParam] = useState<string | null>(null);
+  if (fileParam && fileParam !== syncedFileParam) {
+    setSyncedFileParam(fileParam);
+    const fileName = fileParam.split("/").pop() || fileParam;
+    setEditingFile({
+      name: fileName,
+      path: fileParam,
+      is_dir: false,
+      size: 0,
+    });
+    setUserEdited(false);
+  }
+
+  const handleCloseEditor = () => {
+    setEditingFile(null);
+    setUserEdited(false);
+    if (searchParams.has("file") || searchParams.has("edit")) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("file");
+      nextParams.delete("edit");
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
 
   const api = useMemo(() => createAuthenticatedApi(), []);
   const queryClient = useQueryClient();
@@ -51,7 +77,7 @@ export function ServerFilesPage() {
     enabled: !!serverId,
   });
 
-  const { data: fileContentData, isLoading: isContentLoading } = useQuery({
+  const { data: fileContentData, isLoading: isContentLoading, error: fileContentError } = useQuery({
     queryKey: queryKeys.files.content(serverId!, editingFile?.path ?? ""),
     queryFn: async () => {
       const res = await api.readServerFileContent(serverId!, editingFile!.path);
@@ -119,7 +145,7 @@ export function ServerFilesPage() {
     onSuccess: () => {
       toast("success", "File saved");
       queryClient.invalidateQueries({ queryKey: queryKeys.files.content(serverId!, editingFile!.path) });
-      setEditingFile(null);
+      handleCloseEditor();
     },
     onError: (err: Error) => {
       handleMutationError("Failed to save file", err);
@@ -171,7 +197,7 @@ export function ServerFilesPage() {
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setEditingFile(null)}
+              onClick={handleCloseEditor}
               className="p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700 rounded transition-colors"
             >
               <Icon name="chevron-left" />
@@ -182,7 +208,7 @@ export function ServerFilesPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setEditingFile(null)}
+              onClick={handleCloseEditor}
               className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
             >
               Cancel
@@ -190,7 +216,7 @@ export function ServerFilesPage() {
             {!isBinary && (
               <button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending || isContentLoading}
+                disabled={saveMutation.isPending || isContentLoading || !!fileContentError}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"
               >
                 <Icon name="save" size={16} />
@@ -202,6 +228,22 @@ export function ServerFilesPage() {
         <div className="flex-1 p-4">
           {isContentLoading ? (
             <div className="h-64 flex items-center justify-center text-gray-500">Loading content...</div>
+          ) : fileContentError ? (
+            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <Icon name="alert" size={48} className="text-red-500 mb-3" />
+              <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+                Failed to load file
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 max-w-sm">
+                {fileContentError instanceof Error ? fileContentError.message : "Unable to read file content"}
+              </p>
+              <button
+                onClick={handleCloseEditor}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
+              >
+                Back to Files
+              </button>
+            </div>
           ) : isBinary ? (
             <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
               <Icon name="file" size={48} className="text-gray-400 mb-3" />

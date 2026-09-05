@@ -262,6 +262,11 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
 
             if desired == DesiredState.ENABLED:
                 if not exposure.targets:
+                    exposure.enable(
+                        server_port=server.properties.port.value,
+                        target_id=str(uuid.uuid4().hex),
+                    )
+                if not exposure.targets:
                     raise NoTargetsError()
                 ports_repo = SQLServerRegisteredPortRepository(uow.session)
                 for target in exposure.targets:

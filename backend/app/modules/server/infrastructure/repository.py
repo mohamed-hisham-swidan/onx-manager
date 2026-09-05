@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.repository import ServerFilters, ServerRepository
 from app.modules.server.domain.value_objects import (
+    CpuAllocation,
     JavaArguments,
     LaunchConfiguration,
     LocationType,
@@ -65,6 +66,8 @@ class SQLServerRepository(ServerRepository):
         model.memory_min_mb = server.memory.min_mb
         model.memory_max_mb = server.memory.max_mb
         model.java_args = shlex.join(server.java_args.args) if server.java_args.args else ""
+        model.cpu_cores = server.cpu.cores
+        model.cpu_affinity = server.cpu.affinity
         model.group_id = server.group_id
         model.status = server.status.value
         model.port = server.properties.port.value
@@ -211,6 +214,10 @@ class SQLServerRepository(ServerRepository):
             owner_id=model.owner_id,
             provisioning_error=model.provisioning_error,
             provisioning_retryable=bool(model.provisioning_retryable),
+            cpu=CpuAllocation(
+                cores=model.cpu_cores or 0,
+                affinity=model.cpu_affinity or "",
+            ),
         )
 
         from app.modules.server.domain.aggregate import ServerStatus

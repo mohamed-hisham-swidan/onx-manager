@@ -114,13 +114,11 @@ runtime introspection of the route table and CI-enforced via
 
 All 7 Files API routes gate on `server.{id}.files`; download additionally
 accepts `server.{id}.view` (so `viewer` server members can download but not
-list/read/write/mkdir/upload/delete). `server.properties` carries
-`rcon.password` and is **denied for everyone** — reads
-(`GET /files`, `GET /files/content`, `GET /files/download`) and writes
-(`PUT /files/content`) return `403` for it. Enforced via
-`SENSITIVE_FILENAMES` / `_assert_not_sensitive` in
-`backend/app/api/v1/routers/files.py` (case-insensitive match on the
-filename).
+list/read/write/mkdir/upload/delete). Application secret files (e.g. `.env`)
+are protected via `SENSITIVE_FILENAMES` / `_assert_not_sensitive` in
+`backend/app/api/v1/routers/files.py` (case-insensitive match returning `403`).
+Standard server configuration files (`server.properties`, `eula.txt`) are
+editable by authorized server managers.
 
 ### Permission Strings
 

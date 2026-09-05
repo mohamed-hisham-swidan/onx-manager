@@ -928,3 +928,42 @@ async def test_port_registration_rbac_permissions():
                 port=19132,
             )
         )
+
+
+async def test_set_server_exposure_auto_creates_java_target_when_empty(monkeypatch):
+    """Test 25: Enabling exposure on a server without targets auto-creates the Java target."""
+    await _create_test_server("srv-new", 25565)
+    bus = EventBus()
+
+    # Initial exposure query for new server returns default unexposed state
+    initial_exp = await GetServerExposureHandler().handle(
+        GetServerExposureQuery(server_id="srv-new")
+    )
+    assert initial_exp["server_id"] == "srv-new"
+    assert initial_exp["method"] == "none"
+    assert initial_exp["desired_state"] == "DISABLED"
+    assert initial_exp["targets"] == []
+
+    # Mock UPnP service for port forwarding enable
+    fake_upnp = FakeUPnPService()
+    monkeypatch.setattr(exposure_commands, "AsyncUPnPService", lambda: fake_upnp)
+
+    # Enable exposure without pre-creating targets
+    res = await SetServerExposureHandler(bus).handle(
+        SetServerExposureCommand(
+            server_id="srv-new", method="port_forward", desired_state="ENABLED"
+        )
+    )
+    assert res.success is True
+    assert res.data["desired_state"] == "ENABLED"
+    assert res.data["method"] == "port_forward"
+    assert len(res.data["targets"]) == 1
+    assert res.data["targets"][0]["service_type"] == "java"
+    assert res.data["targets"][0]["protocol"] == "tcp"
+    assert res.data["targets"][0]["local_port"] == 25565
+
+
+async def test_get_server_exposure_returns_not_found_for_nonexistent_server():
+    """Test 26: GetServerExposureQuery rejects non-existent servers with NotFoundError."""
+    with pytest.raises(NotFoundError):
+        await GetServerExposureHandler().handle(GetServerExposureQuery(server_id="srv-nonexistent"))

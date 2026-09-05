@@ -710,12 +710,10 @@ Prefix `/api/v1/servers/{server_id}/files`. All routes require a Bearer token
 the `viewer` server role can download files (`server.{id}.view`) but cannot
 list/read/write/delete/upload/mkdir (those need `server.{id}.files`).
 
-> **Sensitive-file guard:** `server.properties` carries `rcon.password`.
-> All access to it is denied for **everyone** — reads (`GET /files`,
-> `GET /files/content`, `GET /files/download`) and writes (`PUT /files/content`)
-> return `403` for this filename (case-insensitive). This is enforced in
-> `backend/app/api/v1/routers/files.py` (`SENSITIVE_FILENAMES` /
-> `_assert_not_sensitive`).
+> **Sensitive-file guard:** Secret configuration files (e.g. `.env`) are denied
+> access via `SENSITIVE_FILENAMES` / `_assert_not_sensitive` in `backend/app/api/v1/routers/files.py`.
+> Standard game configuration files such as `server.properties` are accessible
+> to users granted the `server.{id}.files` permission node for direct file editing and management.
 
 | Method | Path | Auth | Request body | Response | Notes |
 |---|---|---|---|---|---|

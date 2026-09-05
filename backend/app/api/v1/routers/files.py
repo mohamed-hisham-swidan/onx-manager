@@ -17,15 +17,15 @@ router = APIRouter(prefix="/api/v1/servers/{server_id}/files", tags=["files"])
 
 __all__ = ["router"]
 
-SENSITIVE_FILENAMES: frozenset[str] = frozenset({"server.properties"})
+SENSITIVE_FILENAMES: frozenset[str] = frozenset({".env"})
 
 
 def _assert_not_sensitive(target_path: Path) -> None:
-    """Deny access to files carrying server secrets (e.g. rcon.password in server.properties).
+    """Deny access to files carrying application secrets (e.g. .env).
 
     Comparison is case-insensitive so the guard also holds on case-insensitive
     filesystems (macOS/Windows) where a differently-cased name resolves to the
-    same file. The resolved basename is used, so ./server.properties and any
+    same file. The resolved basename is used, so ./.env and any
     normalized nested/.. form are covered too.
     """
     if target_path.name.lower() in {name.lower() for name in SENSITIVE_FILENAMES}:

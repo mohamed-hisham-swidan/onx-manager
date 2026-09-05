@@ -426,6 +426,7 @@ async def test_server_properties_download_denied_other_files_ok(
 
     server_root = tmp_path / "server_props"
     server_root.mkdir(parents=True, exist_ok=True)
+    (server_root / ".env").write_text("SECRET=secret123\n")
     (server_root / "server.properties").write_text("rcon.password=secret123\neenable-rcon=true\n")
     (server_root / "eula.txt").write_text("eula=true")
     (server_root / "logs").mkdir(exist_ok=True)
@@ -436,8 +437,11 @@ async def test_server_properties_download_denied_other_files_ok(
 
     base = "/api/v1/servers/srv-props/files/download"
 
-    resp = await client.get(base, params={"path": "server.properties"}, headers=header)
+    resp = await client.get(base, params={"path": ".env"}, headers=header)
     assert resp.status_code == 403
+
+    resp = await client.get(base, params={"path": "server.properties"}, headers=header)
+    assert resp.status_code == 200
 
     resp = await client.get(base, params={"path": "eula.txt"}, headers=header)
     assert resp.status_code == 200

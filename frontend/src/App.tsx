@@ -19,6 +19,7 @@ import { ServerDetailPage } from "@/server_manager/pages/ServerDetailPage";
 import { ServerFilesPage } from "@/server_manager/pages/ServerFilesPage";
 import { ServerExposurePage } from "@/server_manager/pages/ServerExposurePage";
 import { ServerModsPage } from "@/server_manager/pages/ServerModsPage";
+import { ServerSettingsPage } from "@/server_manager/pages/ServerSettingsPage";
 import { BackupListPage } from "@/server_manager/pages/BackupListPage";
 import { PluginListPage } from "@/server_manager/pages/PluginListPage";
 import { PluginMarketplacePage } from "@/server_manager/pages/PluginMarketplacePage";
@@ -61,6 +62,7 @@ export default function App() {
                 <Route path="network" element={<ServerExposurePage />} />
                 <Route path="mods" element={<ServerModsPage />} />
                 <Route path="plugins" element={<PluginListPage />} />
+                <Route path="settings" element={<ServerSettingsPage />} />
               </Route>
               <Route element={<AppShell />}>
                 <Route path="*" element={<NotFoundPage />} />

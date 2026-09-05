@@ -22,6 +22,8 @@ from app.modules.exposure.infrastructure.repository import (
     SQLServerExposureRepository,
     SQLServerRegisteredPortRepository,
 )
+from app.modules.server.infrastructure.repository import SQLServerRepository
+from app.modules.shared.value_objects import ServerId
 
 
 class GetServerExposureQuery(Query):
@@ -32,11 +34,26 @@ class GetServerExposureHandler(QueryHandler[GetServerExposureQuery]):
     async def handle(self, query: GetServerExposureQuery) -> dict:
         async with UnitOfWork() as uow:
             repo: ServerExposureRepository = SQLServerExposureRepository(uow.session)
+            server_repo = SQLServerRepository(uow.session)
+            server = await server_repo.get(ServerId(query.server_id))
+            if server is None:
+                raise NotFoundError(
+                    f"Server {query.server_id} not found",
+                )
+
             exposure = await repo.get(query.server_id)
             if exposure is None:
-                raise NotFoundError(
-                    f"Exposure not found for server {query.server_id}",
-                )
+                return {
+                    "server_id": query.server_id,
+                    "method": "none",
+                    "desired_state": "DISABLED",
+                    "aggregate_status": "DISABLED",
+                    "error_code": None,
+                    "error_message": None,
+                    "cloudflare_tunnel_id": None,
+                    "has_cloudflare_credentials": False,
+                    "targets": [],
+                }
             _fold_aggregate(exposure)
             await repo.save(exposure)
             await uow.commit()

@@ -144,14 +144,23 @@ async def test_files_happy_path_crud(client: AsyncClient, created_user: dict, tm
     assert resp.status_code == 200
     assert resp.content.replace(b"\r\n", b"\n") == b"motd=Hello World\nport=25565"
 
-    # 5b. Sensitive server.properties download is denied
-    (server_root / "server.properties").write_text("rcon.password=secret")
+    # 5b. Sensitive .env download is denied, server.properties is allowed
+    (server_root / ".env").write_text("SECRET=secret")
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/download",
+        params={"path": ".env"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 403
+    assert "sensitive" in resp.json()["detail"].lower()
+
+    (server_root / "server.properties").write_text("motd=Hello World")
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/download",
         params={"path": "server.properties"},
         headers=admin_header,
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 200
 
     # 6. Delete file and directory
     resp = await client.delete(
@@ -360,12 +369,13 @@ async def test_files_permissions_enforcement(client: AsyncClient, created_user: 
 
 
 async def _seed_secrets_server(tmp_path, owner_id: str | None = None) -> tuple[str, object]:
-    """Create a server with server.properties (rcon.password) + ordinary files."""
+    """Create a server with .env (sensitive) + server.properties (editable) + ordinary files."""
     server_id = "srv-secrets"
     server_root = tmp_path / "server_secrets"
     server_root.mkdir(parents=True, exist_ok=True)
+    (server_root / ".env").write_text("SECRET_KEY=super-secret-xyz\n")
     (server_root / "server.properties").write_text(
-        "rcon.password=super-secret-xyz\neenable-rcon=true\n"
+        "motd=A Minecraft Server\nserver-port=25565\n"
     )
     (server_root / "eula.txt").write_text("eula=true")
     (server_root / "config").mkdir(exist_ok=True)
@@ -379,19 +389,29 @@ async def test_server_properties_content_and_download_blocked(client, created_us
     server_id, _ = await _seed_secrets_server(tmp_path)
     admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
 
+    # .env is sensitive and blocked
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/content",
-        params={"path": "server.properties"},
+        params={"path": ".env"},
         headers=admin_header,
     )
     assert resp.status_code == 403
 
     resp = await client.get(
         f"/api/v1/servers/{server_id}/files/download",
-        params={"path": "server.properties"},
+        params={"path": ".env"},
         headers=admin_header,
     )
     assert resp.status_code == 403
+
+    # server.properties is accessible
+    resp = await client.get(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "server.properties"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 200
+    assert "server-port=25565" in resp.json()["content"]
 
 
 @pytest.mark.asyncio
@@ -402,7 +422,7 @@ async def test_server_properties_path_normalization_bypass_fails(client, created
     content_url = f"/api/v1/servers/{server_id}/files/content"
     download_url = f"/api/v1/servers/{server_id}/files/download"
 
-    for p in ("./server.properties", "config/../server.properties", "a/b/../../server.properties"):
+    for p in ("./.env", "config/../.env", "a/b/../../.env"):
         resp = await client.get(content_url, params={"path": p}, headers=admin_header)
         assert resp.status_code == 403, f"content bypass via {p!r} succeeded"
         resp = await client.get(download_url, params={"path": p}, headers=admin_header)
@@ -412,15 +432,15 @@ async def test_server_properties_path_normalization_bypass_fails(client, created
 @pytest.mark.asyncio
 async def test_server_properties_case_variation_blocked(client, created_user, tmp_path):
     server_id, server_root = await _seed_secrets_server(tmp_path)
-    (server_root / "SERVER.PROPERTIES").write_text("rcon.password=case-secret")
+    (server_root / ".ENV").write_text("SECRET_KEY=case-secret")
     admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
 
     content_url = f"/api/v1/servers/{server_id}/files/content"
 
-    resp = await client.get(content_url, params={"path": "SERVER.PROPERTIES"}, headers=admin_header)
+    resp = await client.get(content_url, params={"path": ".ENV"}, headers=admin_header)
     assert resp.status_code == 403
 
-    resp = await client.get(content_url, params={"path": "Server.Properties"}, headers=admin_header)
+    resp = await client.get(content_url, params={"path": ".Env"}, headers=admin_header)
     assert resp.status_code in (403, 404)
 
 
@@ -491,22 +511,26 @@ async def test_server_properties_role_matrix_and_isolation(client, created_user,
     content_url = f"/api/v1/servers/{server_id}/files/content"
     download_url = f"/api/v1/servers/{server_id}/files/download"
 
-    # Owner: ordinary files fine, server.properties read blocked
+    # Owner: ordinary files and server.properties fine, .env read blocked
     resp = await client.get(content_url, params={"path": "eula.txt"}, headers=owner_header)
     assert resp.status_code == 200
     resp = await client.get(content_url, params={"path": "server.properties"}, headers=owner_header)
-    assert resp.status_code == 403
+    assert resp.status_code == 200
     resp = await client.get(
         download_url, params={"path": "server.properties"}, headers=owner_header
     )
+    assert resp.status_code == 200
+    resp = await client.get(content_url, params={"path": ".env"}, headers=owner_header)
     assert resp.status_code == 403
 
-    # Dev: ordinary files fine, server.properties read blocked
+    # Dev: ordinary files and server.properties fine, .env read blocked
     resp = await client.get(content_url, params={"path": "eula.txt"}, headers=dev_header)
     assert resp.status_code == 200
     resp = await client.get(content_url, params={"path": "server.properties"}, headers=dev_header)
-    assert resp.status_code == 403
+    assert resp.status_code == 200
     resp = await client.get(download_url, params={"path": "server.properties"}, headers=dev_header)
+    assert resp.status_code == 200
+    resp = await client.get(content_url, params={"path": ".env"}, headers=dev_header)
     assert resp.status_code == 403
 
     # Viewer: no file write rights (403); download blocked without .files permission (ISS-036)
@@ -532,15 +556,15 @@ async def test_server_properties_role_matrix_and_isolation(client, created_user,
 
 @pytest.mark.asyncio
 async def test_server_properties_write_and_upload_blocked(client, created_user, tmp_path):
-    """ISS-035: Sensitive writes (e.g. server.properties) return 403, normal files succeed."""
+    """ISS-035: Sensitive writes (e.g. .env) return 403, server.properties write succeeds."""
     server_id, server_root = await _seed_secrets_server(tmp_path)
     admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
 
-    # Attempt write to sensitive file server.properties
+    # Attempt write to sensitive file .env
     resp = await client.put(
         f"/api/v1/servers/{server_id}/files/content",
-        params={"path": "server.properties"},
-        json={"content": "motd=Replaced\n"},
+        params={"path": ".env"},
+        json={"content": "SECRET_KEY=Replaced\n"},
         headers=admin_header,
     )
     assert resp.status_code == 403
@@ -549,11 +573,21 @@ async def test_server_properties_write_and_upload_blocked(client, created_user, 
     # Attempt write to case variant of sensitive file
     resp = await client.put(
         f"/api/v1/servers/{server_id}/files/content",
-        params={"path": "SERVER.PROPERTIES"},
-        json={"content": "motd=Replaced\n"},
+        params={"path": ".ENV"},
+        json={"content": "SECRET_KEY=Replaced\n"},
         headers=admin_header,
     )
     assert resp.status_code == 403
+
+    # Write to server.properties succeeds
+    resp = await client.put(
+        f"/api/v1/servers/{server_id}/files/content",
+        params={"path": "server.properties"},
+        json={"content": "motd=Replaced\n"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 200
+    assert (server_root / "server.properties").read_text() == "motd=Replaced\n"
 
     # Normal non-sensitive file write still succeeds
     resp = await client.put(

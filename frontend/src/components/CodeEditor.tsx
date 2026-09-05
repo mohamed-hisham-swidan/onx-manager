@@ -48,7 +48,7 @@ const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
  * Highlights a single line based on syntax rules.
  */
 function highlightLine(line: string, lang: SupportedLanguage): React.ReactNode[] {
-  if (!line) return [" "];
+  if (!line) return [""];
 
   // 1. Comments
   if (lang === "properties" && (line.trimStart().startsWith("#") || line.trimStart().startsWith("!"))) {
@@ -153,38 +153,54 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   readOnly = false,
   className = "",
 }) => {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
-  const gutterRef = useRef<HTMLDivElement>(null);
+  const gutterRef = useRef<HTMLPreElement>(null);
 
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
 
   const language = useMemo(() => detectLanguage(filename), [filename]);
-  const lines = useMemo(() => value.split("\n"), [value]);
+  const normalizedValue = useMemo(() => value.replace(/\r\n/g, "\n"), [value]);
+  const lines = useMemo(() => normalizedValue.split("\n"), [normalizedValue]);
   const lineCount = lines.length;
 
   const handleScroll = () => {
-    if (textareaRef.current) {
-      const { scrollTop, scrollLeft } = textareaRef.current;
-      if (preRef.current) {
-        preRef.current.scrollTop = scrollTop;
-        preRef.current.scrollLeft = scrollLeft;
-      }
-      if (gutterRef.current) {
-        gutterRef.current.scrollTop = scrollTop;
-      }
+    if (scrollContainerRef.current && gutterRef.current) {
+      gutterRef.current.scrollTop = scrollContainerRef.current.scrollTop;
     }
+    requestAnimationFrame(() => {
+      if (scrollContainerRef.current && gutterRef.current) {
+        gutterRef.current.scrollTop = scrollContainerRef.current.scrollTop;
+      }
+    });
   };
 
   const updateCursor = () => {
     if (!textareaRef.current) return;
     const pos = textareaRef.current.selectionStart;
-    const textBefore = value.slice(0, pos);
+    const textBefore = normalizedValue.slice(0, pos);
     const lineArr = textBefore.split("\n");
+    const currentLine = lineArr.length;
+    const currentCol = (lineArr[lineArr.length - 1]?.length ?? 0) + 1;
+
     setCursorPos({
-      line: lineArr.length,
-      col: (lineArr[lineArr.length - 1]?.length ?? 0) + 1,
+      line: currentLine,
+      col: currentCol,
     });
+
+    if (scrollContainerRef.current) {
+      const sc = scrollContainerRef.current;
+      const lineHeight = 24;
+      const paddingTop = 16;
+      const caretTop = paddingTop + (currentLine - 1) * lineHeight;
+
+      if (caretTop < sc.scrollTop) {
+        sc.scrollTop = caretTop;
+      } else if (caretTop + lineHeight > sc.scrollTop + sc.clientHeight) {
+        sc.scrollTop = caretTop + lineHeight - sc.clientHeight + paddingTop;
+      }
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -220,54 +236,79 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     >
       {/* Editor Main Canvas */}
       <div className="relative flex flex-1 h-[560px] overflow-hidden">
-        {/* Line Numbers Gutter */}
-        <div
+        {/* Line Numbers Gutter (<pre> mirror) */}
+        <pre
           ref={gutterRef}
+          data-testid="editor-gutter"
           aria-hidden="true"
-          className="w-12 py-4 select-none bg-gray-50 dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800 text-right pr-3 font-mono text-xs text-gray-400 dark:text-gray-500 overflow-hidden leading-6"
+          onWheel={(e) => {
+            if (scrollContainerRef.current) {
+              scrollContainerRef.current.scrollTop += e.deltaY;
+            }
+            handleScroll();
+          }}
+          className="w-14 h-[560px] py-4 pr-3 pl-2 m-0 select-none bg-gray-50 dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800 text-right font-mono text-sm leading-6 whitespace-pre text-gray-400 dark:text-gray-500 overflow-hidden"
         >
-          {Array.from({ length: lineCount }, (_, i) => (
-            <div key={i + 1}>{i + 1}</div>
-          ))}
-        </div>
+          {Array.from({ length: lineCount }, (_, i) => i + 1).join("\n")}
+        </pre>
 
-        {/* Editing Surface: Pre Underlay + Textarea Overlay */}
-        <div className="relative flex-1 h-full overflow-hidden">
-          {/* Syntax-highlighted underlay */}
-          <pre
-            ref={preRef}
-            aria-hidden="true"
-            className="absolute inset-0 p-4 m-0 font-mono text-sm leading-6 whitespace-pre overflow-hidden pointer-events-none text-gray-800 dark:text-gray-200 bg-transparent select-none"
-          >
-            {lines.map((line, idx) => (
-              <div key={idx} className="leading-6">
-                {highlightLine(line, language)}
-              </div>
-            ))}
-          </pre>
+        {/* Editing Surface: Dedicated Scroll Wrapper with Anchored Scrollbars */}
+        <div
+          ref={scrollContainerRef}
+          data-testid="editor-scroll-container"
+          onScroll={handleScroll}
+          className="relative flex-1 h-[560px] overflow-auto"
+        >
+          <div className="relative min-w-full w-max min-h-full">
+            {/* Syntax-highlighted underlay */}
+            <pre
+              ref={preRef}
+              aria-hidden="true"
+              className="p-4 m-0 font-mono text-sm leading-6 whitespace-pre pointer-events-none text-gray-800 dark:text-gray-200 bg-transparent select-none"
+            >
+              {lines.map((line, idx) => (
+                <React.Fragment key={idx}>
+                  {highlightLine(line, language)}
+                  {idx < lineCount - 1 ? "\n" : ""}
+                </React.Fragment>
+              ))}
+            </pre>
 
-          {/* Textarea for typing and selection */}
-          <textarea
-            ref={textareaRef}
-            role="textbox"
-            aria-label="Code Editor"
-            value={value}
-            onChange={(e) => {
-              onChange(e.target.value);
-              updateCursor();
-            }}
-            onScroll={handleScroll}
-            onKeyDown={handleKeyDown}
-            onKeyUp={updateCursor}
-            onClick={updateCursor}
-            onSelect={updateCursor}
-            readOnly={readOnly}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoComplete="off"
-            autoCorrect="off"
-            className="absolute inset-0 w-full h-full p-4 m-0 font-mono text-sm leading-6 bg-transparent text-transparent caret-gray-900 dark:caret-white resize-none outline-none overflow-auto border-none focus:ring-0 selection:bg-blue-500/25 dark:selection:bg-blue-500/35"
-          />
+            {/* Textarea for typing and selection */}
+            <textarea
+              ref={textareaRef}
+              role="textbox"
+              aria-label="Code Editor"
+              wrap="off"
+              value={value}
+              onChange={(e) => {
+                onChange(e.target.value);
+                updateCursor();
+              }}
+              onScroll={(e) => {
+                if (scrollContainerRef.current) {
+                  if (e.currentTarget.scrollTop !== 0) {
+                    scrollContainerRef.current.scrollTop += e.currentTarget.scrollTop;
+                    e.currentTarget.scrollTop = 0;
+                  }
+                  if (e.currentTarget.scrollLeft !== 0) {
+                    scrollContainerRef.current.scrollLeft += e.currentTarget.scrollLeft;
+                    e.currentTarget.scrollLeft = 0;
+                  }
+                }
+              }}
+              onKeyDown={handleKeyDown}
+              onKeyUp={updateCursor}
+              onClick={updateCursor}
+              onSelect={updateCursor}
+              readOnly={readOnly}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoComplete="off"
+              autoCorrect="off"
+              className="absolute inset-0 w-full h-full p-4 m-0 font-mono text-sm leading-6 bg-transparent text-transparent caret-gray-900 dark:caret-white resize-none outline-none overflow-hidden border-none focus:ring-0 selection:bg-blue-500/25 dark:selection:bg-blue-500/35"
+            />
+          </div>
         </div>
       </div>
 

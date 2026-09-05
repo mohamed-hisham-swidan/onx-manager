@@ -44,7 +44,7 @@ vi.mock("@/stores/toastStore", () => ({
   useToastStore: vi.fn(() => ({ toasts: [], dismiss: vi.fn() })),
 }));
 
-function renderPage(serverId = "srv-1") {
+function renderPage(serverId = "srv-1", initialEntries = [`/servers/${serverId}/files`]) {
   const qc = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -53,7 +53,7 @@ function renderPage(serverId = "srv-1") {
   });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/servers/${serverId}/files`]}>
+      <MemoryRouter initialEntries={initialEntries}>
         <Routes>
           <Route path="/servers/:serverId/files" element={<ServerFilesPage />} />
         </Routes>
@@ -210,5 +210,28 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
     // Status bar displays detected language and line count
     expect(screen.getByText("Properties")).toBeInTheDocument();
     expect(screen.getByText("3 lines")).toBeInTheDocument();
+  });
+
+  it("automatically opens file editor when file query parameter is present in URL", async () => {
+    renderPage("srv-1", ["/servers/srv-1/files?file=server.properties"]);
+
+    // Editor should open directly without clicking on the file list item
+    await waitFor(() => {
+      const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+      expect(textarea).toBeInTheDocument();
+      expect(textarea.value).toBe("server-port=25565\nmotd=A Minecraft Server\nmax-players=20");
+    });
+
+    expect(readServerFileContentMock).toHaveBeenCalledWith("srv-1", "server.properties");
+  });
+
+  it("renders error state when reading file content fails instead of showing blank editor", async () => {
+    readServerFileContentMock = vi.fn().mockRejectedValue(new Error("Permission Denied"));
+    renderPage("srv-1", ["/servers/srv-1/files?file=server.properties"]);
+
+    expect(await screen.findByText("Failed to load file")).toBeInTheDocument();
+    expect(screen.getByText("Permission Denied")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /back to files/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 });

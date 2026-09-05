@@ -5,6 +5,7 @@ import contextlib
 import logging
 import os
 import shlex
+import shutil
 import signal
 import socket
 import sys
@@ -16,6 +17,7 @@ from app.core.exceptions import ProviderError
 from app.core.identity import IDENTITY
 from app.modules.server.domain.diagnostics import RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
+    CpuAllocation,
     LaunchConfiguration,
     ServerDeployment,
 )
@@ -141,18 +143,32 @@ class LocalLinuxProvider(ServerProvider):
         launch_config: LaunchConfiguration | None = None,
     ) -> DeploymentResult:
         session_name = f"{IDENTITY.temp_prefix_new}{server_id}"
+        server_label = f'"{server_id}"' if server_id else server_id
+
+        cfg = config or {}
+        cpu_cores = int(cfg.get("cpu_cores") or 0)
+        cpu_affinity = str(cfg.get("cpu_affinity") or "").strip()
+
+        # Hard validation gate: raises ProviderError on invalid format
+        try:
+            CpuAllocation.validate(cpu_cores, cpu_affinity)
+        except ValueError as exc:
+            raise ProviderError(
+                "local",
+                "start",
+                f"Invalid CPU allocation configuration: {exc}",
+            ) from exc
 
         if deployment:
             server_dir = deployment.server_directory()
             jar = deployment.startup_jar
         else:
-            server_dir = (config or {}).get("server_dir", f"/opt/minecraft/servers/{server_id}")
-            jar = (config or {}).get("jar_path", "server.jar")
+            server_dir = cfg.get("server_dir", f"/opt/minecraft/servers/{server_id}")
+            jar = cfg.get("jar_path", "server.jar")
         server_dir = os.path.expanduser(server_dir)
         self._fs.ensure_dir(server_dir)
 
         if launch_config:
-            cfg = config or {}
             java_exec = launch_config.java_executable
             jvm_flags = " ".join(launch_config.jvm_flags)
             memory_min = cfg.get("memory_min_mb", 1024)
@@ -174,20 +190,21 @@ class LocalLinuxProvider(ServerProvider):
                     os.path.join(server_dir, jar)
                 ):
                     with contextlib.suppress(Exception):
-                        self._fs.write_text(
-                            jvm_args_file,
-                            f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
-                        )
+                        jvm_content = f"-Xms{memory_min}M\n-Xmx{memory_max}M\n"
+                        if cpu_cores > 0:
+                            jvm_content += f"-XX:ActiveProcessorCount={cpu_cores}\n"
+                        self._fs.write_text(jvm_args_file, jvm_content)
             else:
                 if not any("-Xms" in a for a in cmd_list):
                     cmd_list.append(f"-Xms{memory_min}M")
                 if not any("-Xmx" in a for a in cmd_list):
                     cmd_list.append(f"-Xmx{memory_max}M")
+                if cpu_cores > 0 and not any("-XX:ActiveProcessorCount" in a for a in cmd_list):
+                    cmd_list.append(f"-XX:ActiveProcessorCount={cpu_cores}")
             cmd = " ".join(cmd_list)
             if deployment:
                 cmd = f"cd {server_dir} && {cmd}"
         else:
-            cfg = config or {}
             java_args = cfg.get("java_args", [])
             memory_min = cfg.get("memory_min_mb", 1024)
             memory_max = cfg.get("memory_max_mb", 2048)
@@ -210,23 +227,37 @@ class LocalLinuxProvider(ServerProvider):
                 )
                 jvm_args_file = os.path.join(server_dir, "user_jvm_args.txt")
                 with contextlib.suppress(Exception):
-                    self._fs.write_text(
-                        jvm_args_file,
-                        f"-Xms{memory_min}M\n-Xmx{memory_max}M\n",
-                    )
+                    jvm_content = f"-Xms{memory_min}M\n-Xmx{memory_max}M\n"
+                    if cpu_cores > 0:
+                        jvm_content += f"-XX:ActiveProcessorCount={cpu_cores}\n"
+                    self._fs.write_text(jvm_args_file, jvm_content)
                 cmd = f"cd {shlex.quote(server_dir)} && bash {shlex.quote(script_name)} nogui"
             else:
+                cpu_flag = f"-XX:ActiveProcessorCount={cpu_cores} " if cpu_cores > 0 else ""
                 cmd = (
                     f"cd {shlex.quote(server_dir)} && {java_exec} {jvm_flags} "
-                    f"-Xms{memory_min}M -Xmx{memory_max}M "
+                    f"-Xms{memory_min}M -Xmx{memory_max}M {cpu_flag}"
                     f"-jar {shlex.quote(jar)} nogui"
                 )
 
         instance_id = uuid.uuid4().hex[:16]
-        marker_prefix = f"export {IDENTITY.process_marker_new}=1 {IDENTITY.env_prefix_new}INSTANCE_ID={instance_id}; "
+        marker_prefix = (
+            f"export {IDENTITY.process_marker_new}=1 "
+            f"{IDENTITY.env_prefix_new}INSTANCE_ID={instance_id}; "
+        )
         cmd = f"{marker_prefix}{cmd}"
 
-        server_label = f'"{server_id}"' if server_id else server_id
+        if cpu_affinity:
+            if shutil.which("taskset"):
+                cmd = f"taskset -c {shlex.quote(cpu_affinity)} {cmd}"
+            else:
+                logger.warning(
+                    "taskset not found; CPU affinity pinning skipped — "
+                    "server=%s affinity=%s",
+                    server_label,
+                    cpu_affinity,
+                )
+
         logger.info(
             "Phase 1/4: Cleaning up stale tmux and processes — server=%s dir=%s phase=start",
             server_label,

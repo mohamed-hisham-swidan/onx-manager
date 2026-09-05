@@ -33,7 +33,19 @@ export function ServerShell() {
     { to: `/servers/${serverId}/network`, label: "Network & Exposure", icon: "activity" as const },
     ...(supportsMods ? [{ to: `/servers/${serverId}/mods`, label: "Mods", icon: "plugin" as const }] : []),
     ...(supportsPlugins ? [{ to: `/servers/${serverId}/plugins`, label: "Plugins", icon: "plugin" as const }] : []),
+    { to: `/servers/${serverId}/settings`, label: "Settings", icon: "settings" as const },
   ];
+
+  const getSectionTitle = () => {
+    const path = location.pathname;
+    if (path.includes("/files")) return "Files";
+    if (path.includes("/network")) return "Network & Exposure";
+    if (path.includes("/mods")) return "Mods";
+    if (path.includes("/plugins")) return "Plugins";
+    if (path.includes("/settings")) return "Settings";
+    return "Console";
+  };
+  const currentSection = getSectionTitle();
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -105,7 +117,22 @@ export function ServerShell() {
           sidebarOpen ? "lg:pl-56" : "lg:pl-0"
         }`}
       >
-        <div className="mx-auto max-w-7xl p-3.5 sm:p-5 lg:px-6 lg:py-4">
+        <div className="mx-auto max-w-7xl p-3.5 sm:p-5 lg:px-6 lg:py-4 space-y-4">
+          {/* Breadcrumb Navigation: Server Name / Current Section */}
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2">
+            <Link
+              to={currentSection === "Console" ? "/servers" : `/servers/${serverId}/console`}
+              className="text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 flex items-center gap-1 transition-colors"
+            >
+              <Icon name="chevron-left" size={14} />
+              <span>{server?.name || "Server"}</span>
+            </Link>
+            <span className="text-gray-300 dark:text-gray-600">/</span>
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+              {currentSection}
+            </span>
+          </nav>
+
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>

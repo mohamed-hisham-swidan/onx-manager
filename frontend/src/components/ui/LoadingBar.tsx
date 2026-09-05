@@ -1,7 +1,9 @@
 import { useIsFetching, useIsMutating } from "@tanstack/react-query";
 
 export function LoadingBar() {
-  const isFetching = useIsFetching();
+  const isFetching = useIsFetching({
+    predicate: (query) => query.state.data === undefined,
+  });
   const isMutating = useIsMutating();
   const active = isFetching > 0 || isMutating > 0;
 

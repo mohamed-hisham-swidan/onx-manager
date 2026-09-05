@@ -6,7 +6,11 @@ from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.server.application.services.jar_service import update_server_properties_key
 from app.modules.server.domain.repository import ServerRepository
-from app.modules.server.domain.value_objects import MemoryAllocation
+from app.modules.server.domain.value_objects import (
+    CpuAllocation,
+    JavaArguments,
+    MemoryAllocation,
+)
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 
@@ -20,6 +24,7 @@ _PROP_KEY_MAP = {
     "view_distance": "view-distance",
     "simulation_distance": "simulation-distance",
 }
+_REVERSE_PROP_KEY_MAP = {v: k for k, v in _PROP_KEY_MAP.items()}
 
 
 class UpdateServerConfigCommand(Command):
@@ -29,6 +34,9 @@ class UpdateServerConfigCommand(Command):
     properties: dict[str, Any] = {}
     min_memory_mb: int | None = None
     max_memory_mb: int | None = None
+    cpu_cores: int | None = None
+    cpu_affinity: str | None = None
+    java_args: list[str] | None = None
 
 
 class UpdateServerConfigHandler(CommandHandler[UpdateServerConfigCommand]):
@@ -57,11 +65,29 @@ class UpdateServerConfigHandler(CommandHandler[UpdateServerConfigCommand]):
                     name_changed = True
 
             if command.properties:
-                server.update_properties(**command.properties)
+                domain_props: dict[str, Any] = {}
+                for k, v in command.properties.items():
+                    domain_key = _REVERSE_PROP_KEY_MAP.get(k, k.replace("-", "_"))
+                    domain_props[domain_key] = v
+                server.update_properties(**domain_props)
             if command.min_memory_mb is not None or command.max_memory_mb is not None:
                 min_mb = command.min_memory_mb or server.memory.min_mb
                 max_mb = command.max_memory_mb or server.memory.max_mb
                 server.update_memory(MemoryAllocation(min_mb=min_mb, max_mb=max_mb))
+            if command.cpu_cores is not None or command.cpu_affinity is not None:
+                cores = (
+                    command.cpu_cores
+                    if command.cpu_cores is not None
+                    else server.cpu.cores
+                )
+                affinity = (
+                    command.cpu_affinity
+                    if command.cpu_affinity is not None
+                    else server.cpu.affinity
+                )
+                server.update_cpu(CpuAllocation(cores=cores, affinity=affinity))
+            if command.java_args is not None:
+                server.update_java_args(JavaArguments(command.java_args))
 
             if server.deployment and server.deployment.root_path:
                 props_path = server.deployment.properties_path()

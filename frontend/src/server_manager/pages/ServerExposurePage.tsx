@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useServerDetail } from "@/server_manager/hooks/useServers";
 import { useServerExposure } from "@/server_manager/hooks/useServerExposure";
 import { ServerExposureMethodSelector } from "@/server_manager/components/ServerExposureMethodSelector";
@@ -124,7 +124,7 @@ export function ServerExposurePage() {
     );
   };
 
-  if (isServerLoading || isExposureLoading) {
+  if (isServerLoading || (isExposureLoading && !exposure)) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
@@ -148,19 +148,6 @@ export function ServerExposurePage() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 pb-4 dark:border-gray-700">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Link
-              to={`/servers/${serverId}/console`}
-              className="text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 flex items-center gap-1 transition-colors"
-            >
-              <Icon name="chevron-left" size={14} />
-              <span>{server?.name || "Server"}</span>
-            </Link>
-            <span className="text-gray-300 dark:text-gray-600">/</span>
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
-              Network & Exposure
-            </span>
-          </div>
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">
               Network & Public Exposure

@@ -298,6 +298,9 @@ async def update_server(
         properties=body.properties,
         min_memory_mb=body.min_memory_mb,
         max_memory_mb=body.max_memory_mb,
+        cpu_cores=body.cpu_cores,
+        cpu_affinity=body.cpu_affinity,
+        java_args=body.java_args,
     )
     result = await command_bus.send(cmd)
     return check_command_result(result)

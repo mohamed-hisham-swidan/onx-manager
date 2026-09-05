@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { createAuthenticatedApi } from "@/services/api";
+import { createAuthenticatedApi, ApiError } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
 import { toast } from "@/stores/toastStore";
 import type {
@@ -20,7 +20,26 @@ export function useServerExposure(serverId: string) {
   // 1. Server Exposure Query with Adaptive Polling (Spec §5.1)
   const serverExposureQuery = useQuery<ServerExposureResponse>({
     queryKey: queryKeys.exposure.server(serverId),
-    queryFn: () => api.getServerExposure(serverId),
+    queryFn: async () => {
+      try {
+        return await api.getServerExposure(serverId);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          return {
+            server_id: serverId,
+            method: "none",
+            desired_state: "DISABLED",
+            aggregate_status: "DISABLED",
+            error_code: null,
+            error_message: null,
+            cloudflare_tunnel_id: null,
+            has_cloudflare_credentials: false,
+            targets: [],
+          };
+        }
+        throw err;
+      }
+    },
     enabled: Boolean(serverId),
     staleTime: 5_000,
     refetchInterval: (query) => {

@@ -273,10 +273,19 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
         with startup_timeline(server_name, sid):
             add_timeline_milestone(None, "Phase 2/2: Start initiated", server_name, sid)
             try:
+                config = {
+                    "java_args": server.java_args.as_list(),
+                    "memory_min_mb": server.memory.min_mb,
+                    "memory_max_mb": server.memory.max_mb,
+                    "port": server.properties.port.value,
+                    "cpu_cores": server.cpu.cores,
+                    "cpu_affinity": server.cpu.affinity,
+                }
                 with progress_phase("Restart — start", 2, 2, server_name, sid):
                     result = await asyncio.wait_for(
                         provider.start(
                             server_id=sid,
+                            config=config,
                             deployment=server.deployment,
                             launch_config=server.launch_config,
                         ),

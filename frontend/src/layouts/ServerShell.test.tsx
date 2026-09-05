@@ -84,6 +84,7 @@ function renderServerShell(initialPath = "/servers/srv-123/console") {
             <Route path="files" element={<div data-testid="files-page">Files Content</div>} />
             <Route path="mods" element={<div data-testid="mods-page">Mods Content</div>} />
             <Route path="plugins" element={<div data-testid="plugins-page">Plugins Content</div>} />
+            <Route path="settings" element={<div data-testid="settings-page">Settings Content</div>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -110,6 +111,7 @@ describe("ServerShell", () => {
     expect(screen.getByRole("link", { name: "Console" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Files" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Mods" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Plugins" })).not.toBeInTheDocument();
 
     expect(screen.getByTestId("console-page")).toBeInTheDocument();
@@ -183,11 +185,38 @@ describe("ServerShell", () => {
     expect(screen.getByTestId("mods-page")).toBeInTheDocument();
   });
 
+  it("navigates to Settings when clicking Settings link", async () => {
+    const user = userEvent.setup();
+    renderServerShell("/servers/srv-123/console");
+
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    expect(screen.getByTestId("settings-page")).toBeInTheDocument();
+  });
+
   it("navigates back to /servers when clicking back arrow link", async () => {
     const user = userEvent.setup();
     renderServerShell("/servers/srv-123/console");
 
     await user.click(screen.getByText("Back to Servers"));
     expect(screen.getByTestId("servers-page")).toBeInTheDocument();
+  });
+
+  it("renders consistent breadcrumb navigation across server sections", async () => {
+    const user = userEvent.setup();
+    renderServerShell("/servers/srv-123/console");
+
+    // Breadcrumb on Console
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(breadcrumb).toBeInTheDocument();
+    expect(breadcrumb).toHaveTextContent("Test Server");
+    expect(breadcrumb).toHaveTextContent("Console");
+
+    // Navigate to Files and verify breadcrumb updates to Files
+    await user.click(screen.getByRole("link", { name: "Files" }));
+    expect(breadcrumb).toHaveTextContent("Files");
+
+    // Navigate to Settings and verify breadcrumb updates to Settings
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    expect(breadcrumb).toHaveTextContent("Settings");
   });
 });

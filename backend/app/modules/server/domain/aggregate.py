@@ -17,6 +17,7 @@ from app.modules.server.domain.events import (
     ServerStoppingEvent,
 )
 from app.modules.server.domain.value_objects import (
+    CpuAllocation,
     JavaArguments,
     LaunchConfiguration,
     MemoryAllocation,
@@ -100,6 +101,7 @@ class Server(AggregateRoot):
         owner_id: str | None = None,
         provisioning_error: str | None = None,
         provisioning_retryable: bool = False,
+        cpu: CpuAllocation | None = None,
     ) -> None:
         super().__init__()
         self._id = server_id
@@ -109,6 +111,7 @@ class Server(AggregateRoot):
         self._memory = memory
         self._java_args = java_args
         self._properties = properties
+        self._cpu = cpu or CpuAllocation()
         self._group_id = group_id
         self._status = ServerStatus.CREATED
         self._deployment = deployment
@@ -146,6 +149,10 @@ class Server(AggregateRoot):
     @property
     def memory(self) -> MemoryAllocation:
         return self._memory
+
+    @property
+    def cpu(self) -> CpuAllocation:
+        return self._cpu
 
     @property
     def java_args(self) -> JavaArguments:
@@ -228,6 +235,7 @@ class Server(AggregateRoot):
         group_id: str = "default",
         deployment: ServerDeployment | None = None,
         owner_id: str | None = None,
+        cpu: CpuAllocation | None = None,
     ) -> Server:
         server = cls(
             server_id=server_id,
@@ -240,6 +248,7 @@ class Server(AggregateRoot):
             group_id=group_id,
             deployment=deployment,
             owner_id=owner_id,
+            cpu=cpu,
         )
         server._add_event(
             ServerCreatedEvent(
@@ -440,6 +449,20 @@ class Server(AggregateRoot):
         self._updated_at = datetime.now(UTC)
         self._add_event(
             ServerConfigChangedEvent(server_id=self._id, changed_keys=["memory"]),
+        )
+
+    def update_cpu(self, cpu: CpuAllocation) -> None:
+        self._cpu = cpu
+        self._updated_at = datetime.now(UTC)
+        self._add_event(
+            ServerConfigChangedEvent(server_id=self._id, changed_keys=["cpu"]),
+        )
+
+    def update_java_args(self, java_args: JavaArguments) -> None:
+        self._java_args = java_args
+        self._updated_at = datetime.now(UTC)
+        self._add_event(
+            ServerConfigChangedEvent(server_id=self._id, changed_keys=["java_args"]),
         )
 
     def mark_deleted(self) -> None:

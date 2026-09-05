@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 
 from app.modules.server.domain.aggregate import Server
+from app.modules.server.domain.value_objects import ServerDeployment
 
 _SERVER_NAME_RE = re.compile(r"^\s*server-name\s*=\s*(.*?)\s*$")
 
@@ -34,6 +35,27 @@ def resolve_display_name(server: Server) -> str:
     except (OSError, PermissionError):
         pass
     return server.name
+
+
+def _read_raw_properties(deployment: ServerDeployment | None) -> dict[str, str]:
+    if deployment is None or not deployment.root_path:
+        return {}
+    from app.modules.server.infrastructure.fs import local_fs
+
+    props_path = deployment.properties_path()
+    try:
+        if not local_fs.exists(props_path):
+            return {}
+        result: dict[str, str] = {}
+        for line in local_fs.read_text(props_path).splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            result[key.strip()] = value.strip()
+        return result
+    except (OSError, PermissionError):
+        return {}
 
 
 class ServerReadModel:
@@ -118,6 +140,9 @@ class ServerDetailReadModel(ServerReadModel):
         whitelist: bool,
         view_distance: int,
         simulation_distance: int,
+        cpu_cores: int = 0,
+        cpu_affinity: str = "",
+        raw_properties: dict[str, str] | None = None,
         provider: str | None = None,
         deployment_host: str | None = None,
         deployment_port: int | None = None,
@@ -152,6 +177,9 @@ class ServerDetailReadModel(ServerReadModel):
         self.min_memory_mb = min_memory_mb
         self.max_memory_mb = max_memory_mb
         self.java_args = java_args
+        self.cpu_cores = cpu_cores
+        self.cpu_affinity = cpu_affinity
+        self.raw_properties = raw_properties or {}
         self.spawn_protection = spawn_protection
         self.pvp = pvp
         self.enable_command_block = enable_command_block
@@ -192,6 +220,9 @@ class ServerDetailReadModel(ServerReadModel):
             min_memory_mb=server.memory.min_mb,
             max_memory_mb=server.memory.max_mb,
             java_args=str(server.java_args),
+            cpu_cores=server.cpu.cores,
+            cpu_affinity=server.cpu.affinity,
+            raw_properties=_read_raw_properties(dep),
             spawn_protection=server.properties.spawn_protection,
             pvp=server.properties.pvp,
             enable_command_block=server.properties.enable_command_block,

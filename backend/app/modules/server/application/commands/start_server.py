@@ -259,6 +259,8 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     "memory_min_mb": server.memory.min_mb,
                     "memory_max_mb": server.memory.max_mb,
                     "port": port,
+                    "cpu_cores": server.cpu.cores,
+                    "cpu_affinity": server.cpu.affinity,
                 }
                 add_timeline_milestone(None, "Calling provider.start()", server_name, sid)
                 with progress_phase("Provider start", 1, 1, server_name, sid):

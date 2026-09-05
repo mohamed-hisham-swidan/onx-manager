@@ -36,4 +36,27 @@ describe("LoadingBar", () => {
       expect(bar!.className).toContain("opacity-100");
     });
   });
+
+  it("remains hidden during background refetch of already cached queries", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["cached-query"], { id: "123", name: "test" });
+
+    function CachedRefetchingQuery() {
+      useQuery({
+        queryKey: ["cached-query"],
+        queryFn: () => new Promise<never>(() => {}),
+      });
+      return null;
+    }
+
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <LoadingBar />
+        <CachedRefetchingQuery />
+      </QueryClientProvider>,
+    );
+
+    const bar = container.querySelector('[data-testid="loading-bar"]');
+    expect(bar!.className).toContain("opacity-0");
+  });
 });
