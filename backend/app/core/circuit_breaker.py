@@ -84,6 +84,8 @@ class CircuitBreaker:
         current = self.state
 
         if current == CircuitState.OPEN:
+            if hasattr(coro, "close"):
+                coro.close()
             raise CircuitBreakerOpenError(f"Circuit '{self._name}' is open")
 
         try:

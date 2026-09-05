@@ -7,7 +7,6 @@ import logging
 import os
 import platform
 import shlex
-import signal
 import socket
 import subprocess
 import sys
@@ -445,7 +444,7 @@ class LocalWindowsProvider(ServerProvider):
             except Exception as exc:
                 logger.warning("taskkill failed for pid=%d: %s", pid, exc)
         else:
-            await platform_kill_process_tree_async(pid, sig=signal.SIGKILL)
+            await platform_kill_process_tree_async(pid)
 
     async def status(self, handle: ServerHandle) -> ServerRuntimeStatus:
         pid = await self.get_runtime_pid(handle)
