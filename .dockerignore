@@ -1,0 +1,71 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+.Python
+
+# Tests / coverage / lint caches
+tests/
+**/tests/
+.ruff_cache/
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Node / frontend artifacts
+node_modules/
+**/node_modules/
+frontend/
+.npm/
+
+# Database and runtime server data
+*.db
+*.sqlite
+*.sqlite3
+data/
+backend/data/
+backups/
+backend/backups/
+config/
+backend/config/
+
+# OS / editor artifacts
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation & AI agent control directory
+docs/
+.ai/
+contracts/
+
+# Log files
+*.log
+backend/*.log
+
+# Auto-generated specs / schemas
+openapi.json
+openapi.yaml
+backend/openapi.json
+backend/openapi.yaml

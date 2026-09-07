@@ -168,6 +168,8 @@ async def delete_file_or_dir(
     if target_path == resolved_root:
         raise HTTPException(status_code=400, detail="Cannot delete server root directory")
 
+    _assert_not_sensitive(target_path)
+
     if target_path.is_dir():
         local_fs.delete_dir(str(target_path))
     else:

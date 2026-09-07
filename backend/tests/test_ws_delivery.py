@@ -477,3 +477,154 @@ class TestTWS14:
         assert not fast_done, "Fast handler must have timed out under 0.1 s override"
         assert slow_done, "Slow handler must complete within 0.5 s global"
         assert eb.dead_letter_count >= 1
+
+
+# ---------------------------------------------------------------------------
+# F080 — WebSocket refresh_token validation
+# ---------------------------------------------------------------------------
+class TestWSRefreshTokenValidation:
+    @pytest.mark.asyncio
+    async def test_refresh_token_missing_token(self) -> None:
+        from app.websocket.authentication import WSAuthenticator
+        from app.websocket.handlers import WSConnectionHandler
+        from app.websocket.rate_limiter import WSRateLimiter
+
+        reg = ConnectionRegistry()
+        auth = WSAuthenticator()
+        authz = ChannelAuthorizer()
+        buf = OfflineMessageBuffer()
+        handler = WSConnectionHandler(reg, auth, authz, buf, WSRateLimiter())
+
+        ws = _MockWS()
+        await reg.register("c1", ws)
+        auth.register_connection("c1", "user-1", "old-token", time.time() + 300)
+
+        await handler._handle_message(ws, "c1", "user-1", {"type": "refresh_token", "token": ""})
+
+        frames = _frames(ws)
+        assert len(frames) == 1
+        assert frames[0]["type"] == "error"
+        assert frames[0]["code"] == "INVALID_PAYLOAD"
+
+    @pytest.mark.asyncio
+    async def test_refresh_token_invalid_signature(self) -> None:
+        from app.websocket.authentication import WSAuthenticator
+        from app.websocket.handlers import WSConnectionHandler
+        from app.websocket.rate_limiter import WSRateLimiter
+
+        reg = ConnectionRegistry()
+        auth = WSAuthenticator()
+        authz = ChannelAuthorizer()
+        buf = OfflineMessageBuffer()
+        handler = WSConnectionHandler(reg, auth, authz, buf, WSRateLimiter())
+
+        ws = _MockWS()
+        await reg.register("c1", ws)
+        auth.register_connection("c1", "user-1", "old-token", time.time() + 300)
+
+        await handler._handle_message(
+            ws, "c1", "user-1", {"type": "refresh_token", "token": "bad.jwt.token"}
+        )
+
+        frames = _frames(ws)
+        assert len(frames) == 1
+        assert frames[0]["type"] == "error"
+        assert frames[0]["code"] == "INVALID_TOKEN"
+
+    @pytest.mark.asyncio
+    async def test_refresh_token_expired(self) -> None:
+        from app.modules.auth.infrastructure.jwt import create_access_token
+        from app.websocket.authentication import WSAuthenticator
+        from app.websocket.handlers import WSConnectionHandler
+        from app.websocket.rate_limiter import WSRateLimiter
+
+        reg = ConnectionRegistry()
+        auth = WSAuthenticator()
+        authz = ChannelAuthorizer()
+        buf = OfflineMessageBuffer()
+        handler = WSConnectionHandler(reg, auth, authz, buf, WSRateLimiter())
+
+        ws = _MockWS()
+        await reg.register("c1", ws)
+        auth.register_connection("c1", "user-1", "old-token", time.time() + 300)
+
+        expired_token = create_access_token("user-1", ttl_seconds=-100)
+        await handler._handle_message(
+            ws, "c1", "user-1", {"type": "refresh_token", "token": expired_token}
+        )
+
+        frames = _frames(ws)
+        assert len(frames) == 1
+        assert frames[0]["type"] == "error"
+        assert frames[0]["code"] == "INVALID_TOKEN"
+
+    @pytest.mark.asyncio
+    async def test_refresh_token_subject_mismatch(self) -> None:
+        from app.modules.auth.infrastructure.jwt import create_access_token
+        from app.websocket.authentication import WSAuthenticator
+        from app.websocket.handlers import WSConnectionHandler
+        from app.websocket.rate_limiter import WSRateLimiter
+
+        reg = ConnectionRegistry()
+        auth = WSAuthenticator()
+        authz = ChannelAuthorizer()
+        buf = OfflineMessageBuffer()
+        handler = WSConnectionHandler(reg, auth, authz, buf, WSRateLimiter())
+
+        ws = _MockWS()
+        await reg.register("c1", ws)
+        auth.register_connection("c1", "user-1", "old-token", time.time() + 300)
+
+        other_user_token = create_access_token("user-other", ttl_seconds=600)
+        await handler._handle_message(
+            ws, "c1", "user-1", {"type": "refresh_token", "token": other_user_token}
+        )
+
+        frames = _frames(ws)
+        assert len(frames) == 1
+        assert frames[0]["type"] == "error"
+        assert frames[0]["code"] == "FORBIDDEN"
+
+    @pytest.mark.asyncio
+    async def test_refresh_token_success_updates_authenticator_and_permissions(self) -> None:
+        from app.modules.auth.infrastructure.jwt import create_access_token
+        from app.websocket.authentication import WSAuthenticator
+        from app.websocket.handlers import WSConnectionHandler
+        from app.websocket.rate_limiter import WSRateLimiter
+
+        reg = ConnectionRegistry()
+        auth = WSAuthenticator()
+        authz = ChannelAuthorizer()
+        buf = OfflineMessageBuffer()
+        handler = WSConnectionHandler(reg, auth, authz, buf, WSRateLimiter())
+
+        ws = _MockWS()
+        await reg.register("c1", ws)
+        auth.register_connection("c1", "user-1", "old-token", time.time() + 300)
+        authz.set_permissions("user-1", set())
+
+        assert authz.can_subscribe("user-1", "server:s01") is False
+
+        valid_token = create_access_token(
+            "user-1",
+            permissions=["server:read"],
+            ttl_seconds=1800,
+        )
+        await handler._handle_message(
+            ws, "c1", "user-1", {"type": "refresh_token", "token": valid_token}
+        )
+
+        # No error frames sent
+        frames = _frames(ws)
+        assert len(frames) == 0
+
+        # Authenticator updated
+        conn = auth.get_connection("c1")
+        assert conn is not None
+        assert conn.token == valid_token
+        assert conn.token_expires_at > time.time() + 1700
+
+        # Permissions updated in authorizer
+        assert authz.can_subscribe("user-1", "server:s01") is True
+
+

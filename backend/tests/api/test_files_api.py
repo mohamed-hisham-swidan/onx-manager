@@ -598,3 +598,40 @@ async def test_server_properties_write_and_upload_blocked(client, created_user, 
     )
     assert resp.status_code == 200
     assert (server_root / "eula.txt").read_text() == "eula=true\n"
+
+
+@pytest.mark.asyncio
+async def test_delete_sensitive_file_blocked(client, created_user, tmp_path):
+    """F059: Deleting sensitive files (.env) returns 403 Forbidden."""
+    server_id, server_root = await _seed_secrets_server(tmp_path)
+    admin_header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
+
+    # Attempt to delete sensitive file .env
+    resp = await client.delete(
+        f"/api/v1/servers/{server_id}/files",
+        params={"path": ".env"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 403
+    assert "File access denied for sensitive server file" in resp.json().get("detail", "")
+    assert (server_root / ".env").exists()
+
+    # Create .ENV explicitly and attempt delete -> must also be blocked with 403
+    (server_root / ".ENV").write_text("ANOTHER_SECRET=1\n")
+    resp = await client.delete(
+        f"/api/v1/servers/{server_id}/files",
+        params={"path": ".ENV"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 403
+    assert (server_root / ".ENV").exists()
+
+    # Deleting normal file succeeds
+    resp = await client.delete(
+        f"/api/v1/servers/{server_id}/files",
+        params={"path": "eula.txt"},
+        headers=admin_header,
+    )
+    assert resp.status_code == 204
+    assert not (server_root / "eula.txt").exists()
+

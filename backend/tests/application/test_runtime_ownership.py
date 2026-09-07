@@ -21,6 +21,7 @@ from app.modules.server.application.runtime_ownership import (
     _is_pid_alive,
     _pid_for_port,
     _port_is_listening,
+    _try_kill_tmux_session,
 )
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.value_objects import (
@@ -865,3 +866,31 @@ class TestRuntimeOwnershipManagerIntegration:
         assert len(snapshot.orphan_processes) == 0
         assert snapshot.active_servers[0]["server_id"] == "live"
         assert snapshot.active_servers[0]["minecraft_pid"] == 200
+
+
+class TestTryKillTmuxSession:
+    def test_invokes_subprocess_without_shell_interpolation(self):
+        hostile_session = "onx-uuid;rm -rf /;$(reboot)"
+        mock_pid = "app.modules.server.application.runtime_ownership._get_tmux_pane_pid"
+        with (
+            patch(mock_pid, return_value=None),
+            patch("subprocess.run") as mock_run,
+        ):
+            killed, reason = _try_kill_tmux_session(hostile_session)
+            assert killed is True
+            assert reason == "tmux session removed"
+            mock_run.assert_called_once()
+            args, kwargs = mock_run.call_args
+            assert args[0] == ["tmux", "kill-session", "-t", hostile_session]
+            assert kwargs.get("check") is False
+
+    def test_handles_missing_tmux_binary_gracefully(self):
+        mock_pid = "app.modules.server.application.runtime_ownership._get_tmux_pane_pid"
+        with (
+            patch(mock_pid, return_value=None),
+            patch("subprocess.run", side_effect=FileNotFoundError("No tmux")),
+        ):
+            killed, reason = _try_kill_tmux_session("onx-session")
+            assert killed is True
+            assert reason == "tmux session removed"
+

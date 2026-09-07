@@ -55,6 +55,18 @@ class TestFilesystemSandbox:
             with pytest.raises(PermissionError):
                 sandbox.resolve_path("../etc/passwd")
 
+    def test_sibling_directory_traversal_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_parent:
+            plugin_dir = os.path.join(tmp_parent, "myplugin")
+            sibling_dir = os.path.join(tmp_parent, "myplugin_other")
+            os.makedirs(plugin_dir)
+            os.makedirs(sibling_dir)
+            with open(os.path.join(sibling_dir, "secret.txt"), "w") as f:
+                f.write("secret")
+            sandbox = FilesystemSandbox(plugin_dir)
+            with pytest.raises(PermissionError):
+                sandbox.resolve_path("../myplugin_other/secret.txt")
+
     def test_allowed_path_outside_plugin_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as allowed:
             sandbox = FilesystemSandbox(tmp, allowed_paths=[allowed])

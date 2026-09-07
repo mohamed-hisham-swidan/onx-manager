@@ -11,9 +11,9 @@ class FilesystemSandbox:
 
     def resolve_path(self, path: str) -> Path:
         target = (self._plugin_dir / path).resolve()
-        if not str(target).startswith(str(self._plugin_dir)):
+        if not target.is_relative_to(self._plugin_dir):
             for allowed in self._allowed_paths:
-                if str(target).startswith(str(allowed)):
+                if target.is_relative_to(allowed):
                     return target
             raise PermissionError(f"Path outside sandbox: {path}")
         return target

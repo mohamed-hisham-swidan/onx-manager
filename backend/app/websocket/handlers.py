@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from app.modules.auth.infrastructure.jwt import verify_access_token
 from app.websocket.authentication import WSAuthenticator
 from app.websocket.authorization import MAX_CHANNELS_PER_CONNECTION, ChannelAuthorizer
 from app.websocket.buffer import OfflineMessageBuffer
@@ -174,7 +175,29 @@ class WSConnectionHandler:
                     ).to_dict(),
                 )
                 return
-            self._authenticator.refresh_token(connection_id, new_token, time.time() + 3600)
+            try:
+                claims = verify_access_token(new_token)
+            except Exception as e:
+                await self._send_json(
+                    ws,
+                    MessageSerializer.error_message("INVALID_TOKEN", str(e)).to_dict(),
+                )
+                return
+
+            token_sub = str(claims.get("sub", ""))
+            if token_sub != user_id or (data.get("sub") and str(data.get("sub")) != user_id):
+                await self._send_json(
+                    ws,
+                    MessageSerializer.error_message(
+                        "FORBIDDEN", "Token subject mismatch"
+                    ).to_dict(),
+                )
+                return
+
+            new_permissions = set(claims.get("permissions", []))
+            self._authorizer.set_permissions(user_id, new_permissions)
+            expires_at = float(claims.get("exp", time.time() + 3600))
+            self._authenticator.refresh_token(connection_id, new_token, expires_at)
 
         else:
             await self._send_json(

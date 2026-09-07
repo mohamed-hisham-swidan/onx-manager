@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
 import signal
 import socket
+import subprocess
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -288,7 +290,13 @@ def _try_kill_tmux_session(session_name: str) -> tuple[bool, str]:
         killed, reason = _try_kill_process(pid)
         if not killed:
             return False, f"pane PID {pid}: {reason}"
-    os.popen(f"tmux kill-session -t {session_name} 2>/dev/null")
+    with contextlib.suppress(FileNotFoundError, OSError):
+        subprocess.run(
+            ["tmux", "kill-session", "-t", session_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
     still_exists = _get_tmux_pane_pid(session_name) is not None
     if still_exists:
         return False, f"tmux kill-session sent but session {session_name} still exists"
