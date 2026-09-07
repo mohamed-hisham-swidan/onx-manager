@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
+from sqlalchemy import text
 
 from app.core.persistence.db import database
 from app.modules.monitoring.infrastructure.metrics import PrometheusMetricsRegistry
@@ -67,7 +68,7 @@ class HealthCheckRegistry:
 async def check_database() -> HealthResult:
     try:
         async with database.session_factory() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
         return HealthResult(status="up", detail="Database reachable")
     except Exception as e:
         return HealthResult(status="down", detail=str(e))
@@ -75,9 +76,14 @@ async def check_database() -> HealthResult:
 
 async def check_disk() -> HealthResult:
     import shutil
+    from pathlib import Path
+
+    from app.core.config import AppSettings
 
     try:
-        usage = shutil.disk_usage("/")
+        data_dir = Path(AppSettings().servers_data_dir).resolve()
+        target_path = data_dir if data_dir.exists() else Path.cwd().resolve()
+        usage = shutil.disk_usage(str(target_path))
         free_gb = usage.free / (1024**3)
         if free_gb < 0.5:
             return HealthResult(
@@ -88,12 +94,17 @@ async def check_disk() -> HealthResult:
         return HealthResult(status="degraded", detail=str(e))
 
 
-async def check_dlq_depth(event_store: Any) -> HealthResult:
+async def check_dlq_depth(event_store: Any = None) -> HealthResult:
     from app.modules.event_store.repository import SQLEventRepository
 
-    async with database.session_factory() as session:
-        repo = SQLEventRepository(session)
-        count = len(await repo.list_dead_letters(limit=1))
-        if count > 0:
-            return HealthResult(status="degraded", detail=f"{count} messages in dead letter queue")
-        return HealthResult(status="up", detail="No dead letters")
+    try:
+        async with database.session_factory() as session:
+            repo = SQLEventRepository(session)
+            count = await repo.get_dead_letter_count()
+            if count > 0:
+                return HealthResult(
+                    status="degraded", detail=f"{count} messages in dead letter queue"
+                )
+            return HealthResult(status="up", detail="No dead letters")
+    except Exception as e:
+        return HealthResult(status="degraded", detail=str(e))

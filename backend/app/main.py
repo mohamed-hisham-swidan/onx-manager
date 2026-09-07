@@ -385,6 +385,10 @@ def create_app() -> FastAPI:
         },
     )
 
+    app.add_middleware(AuditMiddleware)
+    app.add_middleware(AuthMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(RequestIDMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -392,10 +396,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.add_middleware(RequestIDMiddleware)
-    app.add_middleware(AuthMiddleware)
-    app.add_middleware(AuditMiddleware)
-    app.add_middleware(RateLimitMiddleware)
 
     register_error_handlers(app)
 

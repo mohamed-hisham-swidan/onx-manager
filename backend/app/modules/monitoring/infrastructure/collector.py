@@ -161,16 +161,16 @@ def _parse_tick_query(response: str) -> float | None:
     """
     import re
 
-    match = re.search(
-        r"Target tick rate:?\s*(?:is\s*)?([\d.]+)\s*per second", response, re.IGNORECASE
-    )
+    match = re.search(r"with\s+([\d.]+)\s+ticks per second", response, re.IGNORECASE)
     if match:
         try:
             return _clamp_tps(float(match.group(1)))
         except ValueError:
             pass
 
-    match = re.search(r"with\s+([\d.]+)\s+ticks per second", response, re.IGNORECASE)
+    match = re.search(
+        r"Target tick rate:?\s*(?:is\s*)?([\d.]+)\s*per second", response, re.IGNORECASE
+    )
     if match:
         try:
             return _clamp_tps(float(match.group(1)))

@@ -54,10 +54,30 @@ def check_command_result(result: "CommandResult") -> dict[str, Any]:  # noqa: F8
     )
 
 
-def _error_response(status: int, error: str, code: str, detail: dict | None = None) -> JSONResponse:
+def _error_response(
+    status: int,
+    error: str,
+    code: str,
+    detail: dict | None = None,
+    request: Request | None = None,
+    retryable: bool | None = None,
+) -> JSONResponse:
+    req_id = ""
+    if request is not None:
+        req_id = getattr(request.state, "request_id", "") or request.headers.get("X-Request-ID", "")
+
+    is_retryable = retryable if retryable is not None else (status in (429, 503, 504))
+
     return JSONResponse(
         status_code=status,
         content={
+            # Contract specification keys (contracts/api.yaml)
+            "code": code,
+            "message": error,
+            "details": detail,
+            "request_id": req_id,
+            "retryable": is_retryable,
+            # Legacy keys (backward-compatible)
             "error": error,
             "error_code": code,
             "detail": detail,
@@ -73,34 +93,47 @@ async def mcs_error_handler(request: Request, exc: MCSError) -> JSONResponse:
         error=exc.message,
         code=exc.code,
         detail=exc.details,
+        request=request,
     )
 
 
-async def validation_error_handler(_request: Request, exc: ValidationError) -> JSONResponse:
-    return _error_response(status=422, error=exc.message, code=exc.code, detail=exc.details)
+async def validation_error_handler(request: Request, exc: ValidationError) -> JSONResponse:
+    return _error_response(
+        status=422,
+        error=exc.message,
+        code=exc.code,
+        detail=exc.details,
+        request=request,
+    )
 
 
-async def authentication_error_handler(_request: Request, exc: AuthenticationError) -> JSONResponse:
-    return _error_response(status=401, error=exc.message, code=exc.code)
+async def authentication_error_handler(request: Request, exc: AuthenticationError) -> JSONResponse:
+    return _error_response(status=401, error=exc.message, code=exc.code, request=request)
 
 
-async def permission_denied_handler(_request: Request, exc: PermissionDenied) -> JSONResponse:
-    return _error_response(status=403, error=exc.message, code=exc.code)
+async def permission_denied_handler(request: Request, exc: PermissionDenied) -> JSONResponse:
+    return _error_response(status=403, error=exc.message, code=exc.code, request=request)
 
 
-async def not_found_handler(_request: Request, exc: NotFoundError) -> JSONResponse:
-    return _error_response(status=404, error=exc.message, code=exc.code)
+async def not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
+    return _error_response(status=404, error=exc.message, code=exc.code, request=request)
 
 
-async def conflict_error_handler(_request: Request, exc: ConflictError) -> JSONResponse:
-    return _error_response(status=409, error=exc.message, code=exc.code)
+async def conflict_error_handler(request: Request, exc: ConflictError) -> JSONResponse:
+    return _error_response(status=409, error=exc.message, code=exc.code, request=request)
 
 
-async def rate_limit_handler(_request: Request, exc: RateLimitExceeded) -> JSONResponse:
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     retry_after = exc.details.get("retry_after", 60) if exc.details else 60
+    req_id = getattr(request.state, "request_id", "") or request.headers.get("X-Request-ID", "")
     return JSONResponse(
         status_code=429,
         content={
+            "code": exc.code,
+            "message": exc.message,
+            "details": exc.details,
+            "request_id": req_id,
+            "retryable": True,
             "error": exc.message,
             "error_code": exc.code,
             "detail": exc.details,
@@ -112,17 +145,24 @@ async def rate_limit_handler(_request: Request, exc: RateLimitExceeded) -> JSONR
 
 async def infrastructure_error_handler(request: Request, exc: InfrastructureError) -> JSONResponse:
     logger.error("InfrastructureError: code=%s path=%s", exc.code, request.url.path)
-    return _error_response(status=503, error=exc.message, code=exc.code)
+    return _error_response(
+        status=503, error=exc.message, code=exc.code, request=request, retryable=True
+    )
 
 
 async def internal_error_handler(request: Request, exc: InternalError) -> JSONResponse:
     logger.exception("InternalError: path=%s", request.url.path)
-    return _error_response(status=500, error=exc.message, code=exc.code)
+    return _error_response(status=500, error=exc.message, code=exc.code, request=request)
 
 
 async def unhandled_error_handler(request: Request, _exc: Exception) -> JSONResponse:
     logger.exception("Unhandled exception: path=%s", request.url.path)
-    return _error_response(status=500, error="Internal server error", code="INTERNAL_ERROR")
+    return _error_response(
+        status=500,
+        error="Internal server error",
+        code="INTERNAL_ERROR",
+        request=request,
+    )
 
 
 def register_error_handlers(app: "FastAPI") -> None:  # noqa: F821

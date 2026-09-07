@@ -49,6 +49,7 @@ class JsonRpcClient:
 class SubprocessPluginRunner(PluginRunner):
     def __init__(self, heartbeat_interval: float = 5.0) -> None:
         self._processes: dict[str, asyncio.subprocess.Process] = {}
+        self._plugin_configs: dict[str, tuple[str, dict[str, Any]]] = {}
         self._rpc = JsonRpcClient()
         self._heartbeat_interval = heartbeat_interval
         self._lock = asyncio.Lock()
@@ -75,6 +76,7 @@ class SubprocessPluginRunner(PluginRunner):
 
         async with self._lock:
             self._processes[plugin_id] = proc
+            self._plugin_configs[plugin_id] = (plugin_dir, manifest)
 
         logger.info("Plugin %s started (pid=%d)", plugin_id, proc.pid)
 
@@ -110,9 +112,12 @@ class SubprocessPluginRunner(PluginRunner):
             pass
 
     async def restart(self, plugin_id: str) -> None:
-        await self.stop(plugin_id)
         async with self._lock:
-            manifest = {}
+            config = self._plugin_configs.get(plugin_id)
+        await self.stop(plugin_id)
+        if config:
+            plugin_dir, manifest = config
+            await self.start(plugin_id, plugin_dir, manifest)
         logger.info("Plugin %s restarted", plugin_id)
 
     async def health(self, plugin_id: str) -> bool:

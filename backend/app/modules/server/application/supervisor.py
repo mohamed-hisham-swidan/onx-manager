@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
+import subprocess
 import time
 from collections.abc import Awaitable, Callable
 
@@ -460,15 +460,27 @@ class RuntimeSupervisor:
         if not session_name:
             return
         try:
-            has = os.popen(f"tmux has-session -t {session_name} 2>/dev/null").read()
-            if has:
+            res = subprocess.run(
+                ["tmux", "has-session", "-t", session_name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if res.returncode == 0:
                 logger.info(
                     'Cleaning up tmux session after crash — server="%s" session=%s sid=%s',
                     self._server_name,
                     session_name,
                     self._server_id,
                 )
-                os.popen(f"tmux kill-session -t {session_name} 2>/dev/null")
+                subprocess.run(
+                    ["tmux", "kill-session", "-t", session_name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+        except (FileNotFoundError, OSError):
+            pass
         except Exception:
             logger.debug(
                 'tmux cleanup after crash failed server="%s" sid=%s',

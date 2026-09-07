@@ -20,7 +20,16 @@ class RevokeApiKeyHandler(CommandHandler[RevokeApiKeyCommand]):
         async with UnitOfWork(self._event_bus) as uow:
             repo = SQLUserRepository(uow.session)
             user = await repo.get(UserId(command.user_id))
-            user.revoke_api_key(ApiKeyId(command.api_key_id))
+            if user is None:
+                return CommandResult(
+                    success=False, error="User not found", error_code="NOT_FOUND"
+                )
+            target_id = ApiKeyId(command.api_key_id)
+            if not any(k.api_key_id == target_id for k in user.api_keys):
+                return CommandResult(
+                    success=False, error="API key not found", error_code="NOT_FOUND"
+                )
+            user.revoke_api_key(target_id)
             await repo.save(user)
             for event in user.collect_events():
                 uow.add_event(event)

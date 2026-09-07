@@ -117,8 +117,9 @@ class ApiKey(AggregateRoot):
             return False
         return datetime.now(UTC) > self._expires_at
 
-    def revoke(self) -> None:
+    def revoke(self, user_id: str = "") -> None:
         self._is_revoked = True
+        self._add_event(ApiKeyRevokedEvent(user_id=user_id, key_name=self._name))
 
     def has_permission(self, resource: str, action: str) -> bool:
         return any(p.resource == resource and p.action in (action, "*") for p in self._permissions)

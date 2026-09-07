@@ -24,10 +24,11 @@ class PluginStatus(Enum):
 
 
 _PLUGIN_TRANSITIONS: dict[PluginStatus, set[PluginStatus]] = {
-    PluginStatus.INSTALLED: {PluginStatus.ENABLED, PluginStatus.DISABLED},
-    PluginStatus.ENABLED: {PluginStatus.DISABLED, PluginStatus.ERROR},
-    PluginStatus.DISABLED: {PluginStatus.ENABLED},
-    PluginStatus.ERROR: {PluginStatus.DISABLED, PluginStatus.ENABLED},
+    PluginStatus.INSTALLED: {PluginStatus.ENABLED, PluginStatus.DISABLED, PluginStatus.UNINSTALLED},
+    PluginStatus.ENABLED: {PluginStatus.DISABLED, PluginStatus.ERROR, PluginStatus.UNINSTALLED},
+    PluginStatus.DISABLED: {PluginStatus.ENABLED, PluginStatus.UNINSTALLED},
+    PluginStatus.ERROR: {PluginStatus.DISABLED, PluginStatus.ENABLED, PluginStatus.UNINSTALLED},
+    PluginStatus.UNINSTALLED: set(),
 }
 
 
@@ -266,6 +267,8 @@ class Plugin(AggregateRoot):
         )
 
     def mark_uninstalled(self) -> None:
+        self._status = PluginStatus.UNINSTALLED
+        self._updated_at = datetime.now(UTC)
         self._add_event(
             PluginUninstalledEvent(plugin_id=str(self._plugin_id), server_id=str(self._server_id)),
         )

@@ -114,14 +114,18 @@ def _check_modern_forge_layout(srvd: Path, checks: list[IntegrityCheck]) -> None
     (wrongly) block such servers from starting.
     """
     run_sh = srvd / "run.sh"
+    run_bat = srvd / "run.bat"
     libraries = srvd / "libraries"
-    if run_sh.is_file() and libraries.is_dir():
+    if (run_sh.is_file() or run_bat.is_file()) and libraries.is_dir():
+        script_name = "run.sh" if run_sh.is_file() else "run.bat"
         checks.append(
             IntegrityCheck(
                 check_name="server_jar",
                 severity="critical",
                 status="pass",
-                detail="Forge-style install detected: run.sh + libraries/ (no top-level jar)",
+                detail=(
+                    f"Forge-style install detected: {script_name} + libraries/ (no top-level jar)"
+                ),
             )
         )
     else:
@@ -130,7 +134,10 @@ def _check_modern_forge_layout(srvd: Path, checks: list[IntegrityCheck]) -> None
                 check_name="server_jar",
                 severity="critical",
                 status="fail",
-                detail="No .jar files and no run.sh + libraries/ layout found in server directory",
+                detail=(
+                    "No .jar files and no run script (run.sh/run.bat) + libraries/ layout found "
+                    "in server directory"
+                ),
             )
         )
 

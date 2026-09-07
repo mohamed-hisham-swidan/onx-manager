@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
+from app.core.config import AppSettings
 from app.core.event_bus import DomainEvent, EventBus, EventHandler
 from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
@@ -29,14 +31,15 @@ class HandleServerCrashHandler(EventHandler):
         server_id = event.server_id
         logger.info("Handling ServerCrashedEvent for server %s", server_id)
 
-        bundle = await self._collector.collect(server_id)
+        server_dir = Path(AppSettings().servers_data_dir).resolve() / server_id
+        bundle = await self._collector.collect(server_id, server_dir=str(server_dir))
         classification = await self._classifier.classify(bundle)
 
         async with UnitOfWork(self._event_bus) as uow:
             repo = SQLDiagnosticsRepository(uow.session)
 
             await repo.save_evidence(bundle)
-            await repo.save_classification(classification)
+            await repo.save_classification(classification, server_id=server_id)
 
             uow.add_event(
                 EvidenceCollectedEvent(

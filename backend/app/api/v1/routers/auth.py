@@ -149,9 +149,10 @@ async def revoke_api_key(
     current_user: dict = Depends(require_permission("user:write")),
     command_bus: CommandBus = Depends(get_command_bus),
 ) -> None:
-    await command_bus.send(
+    result = await command_bus.send(
         RevokeApiKeyCommand(
             user_id=current_user["user_id"],
             api_key_id=api_key_id,
         )
     )
+    check_command_result(result)

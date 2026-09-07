@@ -23,14 +23,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/api/v1/invites/accept",
             "/api/v1/invites/verify",
         }
-        self._public_prefixes: set[str] = {
-            "/api/v1/schedules",
-        }
+        self._public_prefixes: set[str] = set()
         self._public_post_only: set[str] = {
             "/api/v1/users",
         }
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         path = request.url.path
         if path in self._public_routes:
             return await call_next(request)

@@ -69,9 +69,11 @@ class FeatureFlagRegistry:
         if user_id and user_id in definition.user_overrides:
             return definition.user_overrides[user_id]
 
-        if user_id and definition.percentage > 0:
+        if definition.percentage > 0:
             if definition.percentage >= 100:
                 return True
+            if not user_id:
+                return False
             hash_input = f"{flag}:{user_id}"
             hash_val = int(hashlib.md5(hash_input.encode()).hexdigest()[:8], 16)
             return (hash_val % 100) < definition.percentage

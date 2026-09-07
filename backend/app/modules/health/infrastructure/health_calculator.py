@@ -118,7 +118,11 @@ class SignalHealthCalculator(HealthCalculatorService):
     ) -> HealthStatusEnum:
         if current == target:
             return target
-        if current in NON_SKIPPABLE and target not in NON_SKIPPABLE[current]:
+        if (
+            self.status_score(target) > self.status_score(current)
+            and current in NON_SKIPPABLE
+            and target not in NON_SKIPPABLE[current]
+        ):
             allowed = list(NON_SKIPPABLE[current])
             return allowed[0] if allowed else target
         return target
@@ -185,11 +189,11 @@ class SignalHealthCalculator(HealthCalculatorService):
     @staticmethod
     def status_score(status: HealthStatusEnum) -> int:
         order = {
+            HealthStatusEnum.PENDING: -2,
+            HealthStatusEnum.UNKNOWN: -1,
             HealthStatusEnum.HEALTHY: 0,
             HealthStatusEnum.WARNING: 1,
             HealthStatusEnum.CRITICAL: 2,
             HealthStatusEnum.BROKEN: 3,
-            HealthStatusEnum.UNKNOWN: 4,
-            HealthStatusEnum.PENDING: 5,
         }
-        return order.get(status, 99)
+        return order.get(status, -1)

@@ -702,17 +702,25 @@ class PlayitAgentSupervisor:
     async def _terminate_pid_direct(self, pid: int) -> None:
         """Send direct SIGTERM then bounded SIGKILL fallback to a specific PID."""
         logger.info("Terminating playit process (PID %s)", pid)
+        if is_windows():
+            import subprocess
+
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception as exc:
+                logger.warning("Error terminating playit process %s on Windows: %s", pid, exc)
+            return
+
         try:
-            if not is_windows():
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    return
-            else:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except OSError:
-                    return
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                return
 
             start = time.monotonic()
             while time.monotonic() - start < SIGTERM_WAIT_SECONDS:

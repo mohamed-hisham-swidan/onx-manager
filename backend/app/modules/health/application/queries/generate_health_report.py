@@ -69,8 +69,8 @@ class GenerateHealthReportHandler(QueryHandler[GenerateHealthReportQuery]):
             if total_entries > 0:
                 uptime_pct = (healthy_weighted / max(total_entries, 1)) * 100
 
-            worst = HealthStatusEnum.UNKNOWN
-            for e in timeline:
+            worst = timeline[0].new_status if timeline else status.classification
+            for e in timeline[1:]:
                 es = e.new_status
                 if SignalHealthCalculator.status_score(es) > SignalHealthCalculator.status_score(
                     worst

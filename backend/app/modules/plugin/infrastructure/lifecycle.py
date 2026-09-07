@@ -31,11 +31,15 @@ _RUNTIME_TRANSITIONS: dict[RuntimeStatus, set[RuntimeStatus]] = {
     },
     RuntimeStatus.DISABLED: {RuntimeStatus.ENABLING, RuntimeStatus.UNINSTALLING},
     RuntimeStatus.ENABLING: {RuntimeStatus.ENABLED, RuntimeStatus.FAILED, RuntimeStatus.DISABLED},
-    RuntimeStatus.ENABLED: {RuntimeStatus.DISABLING},
+    RuntimeStatus.ENABLED: {RuntimeStatus.DISABLING, RuntimeStatus.FAILED},
     RuntimeStatus.DISABLING: {RuntimeStatus.DISABLED, RuntimeStatus.FAILED},
     RuntimeStatus.UNINSTALLING: {RuntimeStatus.UNINSTALLED, RuntimeStatus.FAILED},
     RuntimeStatus.UNINSTALLED: set(),
-    RuntimeStatus.FAILED: {RuntimeStatus.DISABLED, RuntimeStatus.UNINSTALLING},
+    RuntimeStatus.FAILED: {
+        RuntimeStatus.DISABLED,
+        RuntimeStatus.UNINSTALLING,
+        RuntimeStatus.ENABLING,
+    },
 }
 
 
@@ -52,6 +56,7 @@ class PluginLifecycleManager:
         self._restart_counts: dict[str, int] = {}
         self._restart_windows: dict[str, float] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
+        self._plugin_metadata: dict[str, tuple[str, dict[str, Any]]] = {}
         self._lock = asyncio.Lock()
 
     async def get_status(self, plugin_id: str) -> RuntimeStatus | None:
@@ -72,6 +77,7 @@ class PluginLifecycleManager:
 
     async def enable(self, plugin_id: str, plugin_dir: str, manifest: dict[str, Any]) -> None:
         async with self._lock:
+            self._plugin_metadata[plugin_id] = (plugin_dir, manifest)
             await self._transition(plugin_id, RuntimeStatus.ENABLING)
 
         try:
@@ -134,6 +140,9 @@ class PluginLifecycleManager:
             self._restart_windows[plugin_id] = window_start
 
             if count > MAX_RESTART_ATTEMPTS:
+                self._stop_heartbeat(plugin_id)
+                with contextlib.suppress(Exception):
+                    await self._runner.stop(plugin_id)
                 await self._transition(plugin_id, RuntimeStatus.FAILED)
                 logger.error("Plugin %s failed after %d restart attempts", plugin_id, count)
                 return
@@ -153,6 +162,21 @@ class PluginLifecycleManager:
 
         async with self._lock:
             await self._transition(plugin_id, RuntimeStatus.DISABLED)
+            meta = self._plugin_metadata.get(plugin_id)
+            if meta is not None:
+                await self._transition(plugin_id, RuntimeStatus.ENABLING)
+
+        if meta is not None:
+            plugin_dir, manifest = meta
+            try:
+                await self._runner.start(plugin_id, plugin_dir, manifest)
+                async with self._lock:
+                    await self._transition(plugin_id, RuntimeStatus.ENABLED)
+                self._start_heartbeat(plugin_id)
+            except Exception as e:
+                logger.error("Failed to restart plugin %s: %s", plugin_id, str(e))
+                async with self._lock:
+                    await self._transition(plugin_id, RuntimeStatus.FAILED)
 
     async def mark_failed(self, plugin_id: str) -> None:
         async with self._lock:
@@ -195,3 +219,4 @@ class PluginLifecycleManager:
         self._statuses.pop(plugin_id, None)
         self._restart_counts.pop(plugin_id, None)
         self._restart_windows.pop(plugin_id, None)
+        self._plugin_metadata.pop(plugin_id, None)

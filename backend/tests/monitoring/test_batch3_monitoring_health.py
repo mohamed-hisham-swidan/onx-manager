@@ -1,0 +1,222 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.core.event_bus import EventBus
+from app.core.persistence.base import Base
+from app.core.persistence.db import database
+from app.modules.health.application.event_handlers.server_crashed_handler import (
+    HandleServerCrashHandler,
+)
+from app.modules.health.application.queries.generate_health_report import (
+    GenerateHealthReportHandler,
+    GenerateHealthReportQuery,
+)
+from app.modules.health.domain.aggregate import HealthStatus
+from app.modules.health.domain.value_objects import (
+    CrashClassification,
+    HealthStatusEnum,
+    HealthTimelineEntry,
+)
+from app.modules.health.infrastructure.health_calculator import SignalHealthCalculator
+from app.modules.health.infrastructure.integrity import _check_modern_forge_layout
+from app.modules.monitoring.infrastructure.collector import _parse_tick_query
+from app.modules.monitoring.infrastructure.health import (
+    check_database,
+    check_disk,
+    check_dlq_depth,
+)
+from app.modules.server.domain.events import ServerCrashedEvent
+
+
+@pytest.fixture(autouse=True)
+async def init_test_db():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    old_engine = database._engine
+    old_factory = database._session_factory
+    database._engine = engine
+    database._session_factory = factory
+    yield
+    await engine.dispose()
+    database._engine = old_engine
+    database._session_factory = old_factory
+
+
+@pytest.mark.asyncio
+async def test_f024_parse_tick_query_lagging_server():
+    """F024: Lagging server report with both target and actual TPS parses actual TPS."""
+    lagging_log = (
+        "The target tick rate is 20.0 per second. The average tick time is 70.4ms "
+        "(target 50.0ms), with 14.2 ticks per second (71% of target)."
+    )
+    tps = _parse_tick_query(lagging_log)
+    assert tps == 14.2
+
+    healthy_log = (
+        "The target tick rate is 20.0 per second. The average tick time is 12.1ms "
+        "(target 50.0ms), with 20.0 ticks per second (100% of target)."
+    )
+    assert _parse_tick_query(healthy_log) == 20.0
+
+    minimal_log = "Target tick rate: 20.0 per second."
+    assert _parse_tick_query(minimal_log) == 20.0
+
+
+@pytest.mark.asyncio
+async def test_f025_check_database_uses_text_sql():
+    """F025: check_database executes text('SELECT 1') and reports up when reachable."""
+    result = await check_database()
+    assert result.status == "up"
+    assert "reachable" in result.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_f026_check_disk_resolves_data_dir():
+    """F026: check_disk resolves data directory and reports free disk space."""
+    result = await check_disk()
+    assert result.status in ("up", "degraded")
+    assert "GB free" in result.detail or "critically low" in result.detail
+
+    with patch("shutil.disk_usage", side_effect=OSError("Drive unavailable")):
+        failed_result = await check_disk()
+        assert failed_result.status == "degraded"
+        assert "Drive unavailable" in failed_result.detail
+
+
+@pytest.mark.asyncio
+async def test_f027_check_dlq_depth_reports_accurate_count():
+    """F027: check_dlq_depth uses get_dead_letter_count and accepts zero arguments."""
+    with patch(
+        "app.modules.event_store.repository.SQLEventRepository.get_dead_letter_count",
+        new=AsyncMock(return_value=5),
+    ):
+        result = await check_dlq_depth()
+        assert result.status == "degraded"
+        assert "5 messages in dead letter queue" in result.detail
+
+    with patch(
+        "app.modules.event_store.repository.SQLEventRepository.get_dead_letter_count",
+        new=AsyncMock(return_value=0),
+    ):
+        result = await check_dlq_depth()
+        assert result.status == "up"
+        assert result.detail == "No dead letters"
+
+
+@pytest.mark.asyncio
+async def test_f030_health_calculator_recovery_transition():
+    """F030: Recovering from WARNING to HEALTHY is permitted directly."""
+    calc = SignalHealthCalculator()
+    transitioned = calc._apply_transition(HealthStatusEnum.WARNING, HealthStatusEnum.HEALTHY)
+    assert transitioned == HealthStatusEnum.HEALTHY
+
+    degraded = calc._apply_transition(HealthStatusEnum.HEALTHY, HealthStatusEnum.BROKEN)
+    assert degraded != HealthStatusEnum.BROKEN
+    assert degraded in (HealthStatusEnum.WARNING, HealthStatusEnum.CRITICAL)
+
+
+def test_f031_modern_forge_windows_run_bat(tmp_path: Path):
+    """F031: Modern Forge server directory containing run.bat + libraries/ passes integrity."""
+    srvd = tmp_path / "srv-forge-win"
+    srvd.mkdir()
+    (srvd / "run.bat").write_text(
+        "@echo off\r\njava @user_jvm_args.txt @libraries/net/minecraftforge/..."
+    )
+    (srvd / "libraries").mkdir()
+
+    checks = []
+    _check_modern_forge_layout(srvd, checks)
+    assert len(checks) == 1
+    assert checks[0].status == "pass"
+    assert "run.bat" in checks[0].detail
+
+
+@pytest.mark.asyncio
+async def test_f035_server_crashed_handler_collects_evidence(tmp_path: Path, monkeypatch):
+    """F035: HandleServerCrashHandler resolves server directory and passes to evidence collector."""
+    servers_dir = tmp_path / "servers"
+    srv_dir = servers_dir / "srv-crash-1"
+    logs_dir = srv_dir / "logs"
+    logs_dir.mkdir(parents=True)
+    (logs_dir / "latest.log").write_text(
+        "[Server thread/INFO]: Server started\n[Server thread/ERROR]: Crash\n"
+    )
+
+    monkeypatch.setenv("MCS_SERVERS_DATA_DIR", str(servers_dir))
+
+    bus = EventBus()
+    handler = HandleServerCrashHandler(bus)
+
+    classification = CrashClassification(
+        evidence_id="ev-123",
+        failure_code="OOM",
+        confidence=0.9,
+        summary="OOM crash",
+        suggested_action="increase RAM",
+    )
+    mock_rec = AsyncMock(return_value=MagicMock(events=[]))
+    with (
+        patch.object(handler._classifier, "classify", new=AsyncMock(return_value=classification)),
+        patch.object(handler._recovery, "trigger", new=mock_rec),
+    ):
+        await handler.handle(ServerCrashedEvent(server_id="srv-crash-1", exit_code=137))
+
+    bundle = await handler._collector.collect("srv-crash-1")
+    assert not any("Server directory not found" in err for err in bundle.collection_errors)
+
+
+@pytest.mark.asyncio
+async def test_f036_generate_health_report_worst_status():
+    """F036: generate_health_report accurately captures BROKEN as worst status on timeline."""
+    now = datetime.now(UTC)
+    timeline = [
+        HealthTimelineEntry(
+            server_id="srv-report-1",
+            previous_status=HealthStatusEnum.HEALTHY,
+            new_status=HealthStatusEnum.WARNING,
+            contributing_factors=["high cpu"],
+            timestamp=now - timedelta(minutes=10),
+        ),
+        HealthTimelineEntry(
+            server_id="srv-report-1",
+            previous_status=HealthStatusEnum.WARNING,
+            new_status=HealthStatusEnum.BROKEN,
+            contributing_factors=["oom killed"],
+            timestamp=now - timedelta(minutes=5),
+        ),
+        HealthTimelineEntry(
+            server_id="srv-report-1",
+            previous_status=HealthStatusEnum.BROKEN,
+            new_status=HealthStatusEnum.HEALTHY,
+            contributing_factors=["recovered"],
+            timestamp=now - timedelta(minutes=1),
+        ),
+    ]
+
+    mock_repo = AsyncMock()
+    mock_repo.get.return_value = HealthStatus(
+        server_id="srv-report-1",
+        classification=HealthStatusEnum.HEALTHY,
+    )
+    mock_repo.get_timeline.return_value = timeline
+
+    query = GenerateHealthReportQuery(server_id="srv-report-1", hours=24)
+    handler = GenerateHealthReportHandler()
+
+    target_repo = (
+        "app.modules.health.application.queries.generate_health_report.SQLHealthRepository"
+    )
+    with patch(target_repo, return_value=mock_repo):
+        report = await handler.handle(query)
+
+    assert report is not None
+    assert report.worst_status == "broken"
+    assert report.current_status == "healthy"

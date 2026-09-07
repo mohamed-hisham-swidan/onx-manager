@@ -210,9 +210,10 @@ async def remove_server_exposure(
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> None:
-    await command_bus.send(
+    result = await command_bus.send(
         RemoveServerExposureCommand(server_id=server_id, actor_id=current_user.get("user_id", ""))
     )
+    check_command_result(result)
 
 
 @router.get(
@@ -323,10 +324,11 @@ async def delete_server_port(
     command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
     current_user: dict = Depends(require_exposure_grant("server.{id}.exposure")),  # noqa: B008
 ) -> None:
-    await command_bus.send(
+    result = await command_bus.send(
         DeleteServerPortCommand(
             server_id=server_id,
             port_id=port_id,
             actor_id=current_user.get("user_id", ""),
         )
     )
+    check_command_result(result)
