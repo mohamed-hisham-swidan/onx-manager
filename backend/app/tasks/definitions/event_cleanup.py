@@ -14,17 +14,17 @@ logger = logging.getLogger(__name__)
 
 async def run_event_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
     async with database.session_factory() as session:
-        retention_policies: list[tuple[str, int]] = [
-            ("raw", params.get("raw_retention_hours", 2)),
-            ("1m_rollup", params.get("rollup_1m_retention_days", 30)),
-            ("1h_rollup", params.get("rollup_1h_retention_days", 365)),
-            ("1d_summary", params.get("summary_retention_days", 3650)),
+        retention_policies: list[tuple[str, timedelta]] = [
+            ("raw", timedelta(hours=params.get("raw_retention_hours", 2))),
+            ("1m_rollup", timedelta(days=params.get("rollup_1m_retention_days", 30))),
+            ("1h_rollup", timedelta(days=params.get("rollup_1h_retention_days", 365))),
+            ("1d_summary", timedelta(days=params.get("summary_retention_days", 3650))),
         ]
 
         results: dict[str, int] = {}
 
-        for resolution, ttl_hours in retention_policies:
-            cutoff = datetime.now(UTC) - timedelta(hours=ttl_hours)
+        for resolution, delta in retention_policies:
+            cutoff = datetime.now(UTC) - delta
             stmt = (
                 select(StoredEventModel)
                 .where(
@@ -34,7 +34,11 @@ async def run_event_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
                 .limit(1000)
             )
             if resolution == "raw":
-                stmt = stmt.params(pattern="metric.%")
+                stmt = stmt.where(
+                    text("event_type NOT LIKE 'metric.1m_rollup.%'"),
+                    text("event_type NOT LIKE 'metric.1h_rollup.%'"),
+                    text("event_type NOT LIKE 'metric.1d_summary.%'"),
+                ).params(pattern="metric.%")
             else:
                 stmt = stmt.params(pattern=f"metric.{resolution}.%")
 

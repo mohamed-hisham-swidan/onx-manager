@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -9,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.event_bus import DomainEvent, EventBus
 from app.core.persistence.base import BaseRepository
 from app.core.persistence.db import database
+
+logger = logging.getLogger(__name__)
 
 
 class UnitOfWork:
@@ -59,9 +62,17 @@ class UnitOfWork:
         if self._session:
             await self._session.commit()
         if self._event_bus and self._events:
-            for event in self._events:
-                await self._event_bus.publish(event)
+            events_to_publish = list(self._events)
             self._events.clear()
+            errors: list[Exception] = []
+            for event in events_to_publish:
+                try:
+                    await self._event_bus.publish(event)
+                except Exception as exc:
+                    logger.error("Failed to publish domain event %s: %s", event, exc)
+                    errors.append(exc)
+            if errors:
+                raise errors[0]
 
     async def rollback(self) -> None:
         if self._session:

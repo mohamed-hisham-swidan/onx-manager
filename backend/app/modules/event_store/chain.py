@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -42,13 +43,22 @@ class EventChain:
         previous = await self._repo.get_last_event()
         prev_hash = previous.hash if previous else ""
 
+        now = (
+            datetime.fromtimestamp(event.timestamp, tz=UTC)
+            if getattr(event, "timestamp", None)
+            else datetime.now(UTC)
+        )
+        ts = now.timestamp()
+        if hasattr(event, "timestamp"):
+            event.timestamp = ts
+
         chain_hash = compute_hash(
             event_id=event.event_id,
             event_type=event.event_type,
             correlation_id=event.correlation_id,
             data_json=event.model_dump_json(),
             schema_version=event.schema_version,
-            timestamp=event.timestamp,
+            timestamp=ts,
             previous_hash=prev_hash,
         )
 
@@ -71,19 +81,34 @@ class EventChain:
 
         result = await self._session.execute(stmt)
         events = list(result.scalars().all())
-
         if not events:
             return True
 
-        prev_hash = ""
+        if from_id > 1:
+            prev_stmt = (
+                select(StoredEventModel)
+                .where(StoredEventModel.id < from_id)
+                .order_by(StoredEventModel.id.desc())
+                .limit(1)
+            )
+            prev_res = await self._session.execute(prev_stmt)
+            prev_model = prev_res.scalar_one_or_none()
+            prev_hash = prev_model.hash if prev_model else (events[0].previous_hash or "")
+        else:
+            prev_hash = ""
         for model in events:
+            created_at = (
+                model.created_at.replace(tzinfo=UTC)
+                if model.created_at.tzinfo is None
+                else model.created_at
+            )
             expected = compute_hash(
                 event_id=model.event_id,
                 event_type=model.event_type,
                 correlation_id=model.correlation_id,
                 data_json=model.data_json,
                 schema_version=model.schema_version,
-                timestamp=model.created_at.timestamp(),
+                timestamp=created_at.timestamp(),
                 previous_hash=prev_hash,
             )
             if model.hash != expected:

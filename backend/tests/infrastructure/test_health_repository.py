@@ -157,3 +157,76 @@ class TestSQLHealthRepository:
         critical = await repo.get_timeline_by_status("critical", limit=10)
 
         assert len(critical) == 2
+
+
+class TestSQLDiagnosticsRepository:
+    async def test_save_classification_stores_server_id_not_evidence_id(
+        self, db_session: AsyncSession
+    ) -> None:
+        from app.modules.health.domain.value_objects import CrashClassification, EvidenceBundle
+        from app.modules.health.infrastructure.repository import SQLDiagnosticsRepository
+
+        repo = SQLDiagnosticsRepository(db_session)
+        server_id = "srv_diagnostics_123"
+        evidence_id = "ev_diagnostics_456"
+
+        bundle = EvidenceBundle(
+            server_id=server_id,
+            evidence_id=evidence_id,
+            latest_log_tail=["Out of memory"],
+        )
+        await repo.save_evidence(bundle)
+
+        classification = CrashClassification(
+            evidence_id=evidence_id,
+            server_id=server_id,
+            failure_code="OOM",
+            confidence=0.95,
+            summary="Server ran out of memory",
+        )
+        await repo.save_classification(classification)
+        await db_session.commit()
+
+        # F034: list_reports by actual server_id finds the classification
+        reports = await repo.list_reports(server_id)
+        assert len(reports) == 1
+        assert reports[0].server_id == server_id
+        assert reports[0].classification is not None
+        assert reports[0].classification.server_id == server_id
+        assert reports[0].classification.evidence_id == evidence_id
+
+        # Must NOT be indexed under evidence_id as server_id
+        wrong_reports = await repo.list_reports(evidence_id)
+        assert len(wrong_reports) == 0
+
+    async def test_save_classification_resolves_server_id_from_evidence_if_omitted(
+        self, db_session: AsyncSession
+    ) -> None:
+        from app.modules.health.domain.value_objects import CrashClassification, EvidenceBundle
+        from app.modules.health.infrastructure.repository import SQLDiagnosticsRepository
+
+        repo = SQLDiagnosticsRepository(db_session)
+        server_id = "srv_auto_resolve_789"
+        evidence_id = "ev_auto_resolve_999"
+
+        bundle = EvidenceBundle(
+            server_id=server_id,
+            evidence_id=evidence_id,
+            latest_log_tail=["Stack overflow"],
+        )
+        await repo.save_evidence(bundle)
+
+        # Classification without server_id
+        classification = CrashClassification(
+            evidence_id=evidence_id,
+            failure_code="STACK_OVERFLOW",
+            confidence=0.9,
+            summary="Recursive loop",
+        )
+        await repo.save_classification(classification)
+        await db_session.commit()
+
+        reports = await repo.list_reports(server_id)
+        assert len(reports) == 1
+        assert reports[0].server_id == server_id
+

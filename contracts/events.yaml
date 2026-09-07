@@ -35,14 +35,6 @@ events:
       last_log_lines: string[]
 
   backup.completed:
-    version: 1
-    payload:
-      backup_id: string
-      server_id: string
-      size_bytes: integer
-      checksum_sha256: string
-
-  backup.completed:
     version: 2
     payload:
       backup_id: string

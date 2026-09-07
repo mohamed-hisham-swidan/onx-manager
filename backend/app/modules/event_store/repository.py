@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.event_bus import DomainEvent
+from app.core.event_bus import DomainEvent, EventBus
 from app.modules.event_store.models import DeadLetterEventModel, StoredEventModel
 
 
@@ -48,8 +48,9 @@ class DeadLetterEntry:
 
 
 class SQLEventRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, event_bus: EventBus | None = None) -> None:
         self._session = session
+        self._event_bus = event_bus
 
     async def append(
         self, event: DomainEvent, *, hash_value: str = "", previous_hash: str = ""
@@ -165,14 +166,16 @@ class SQLEventRepository:
         result = await self._session.execute(stmt)
         return result.scalar() or 0
 
-    async def resolve_dead_letter(self, event_id: str) -> None:
+    async def resolve_dead_letter(self, event_id: str) -> bool:
         stmt = select(DeadLetterEventModel).where(DeadLetterEventModel.event_id == event_id)
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
-        if model:
+        if model and not model.resolved:
             model.resolved = 1
             model.last_replay_at = datetime.now(UTC)
             await self._session.flush()
+            return True
+        return False
 
     async def increment_replay_count(self, event_id: str) -> None:
         stmt = select(DeadLetterEventModel).where(DeadLetterEventModel.event_id == event_id)
@@ -183,7 +186,9 @@ class SQLEventRepository:
             model.last_replay_at = datetime.now(UTC)
             await self._session.flush()
 
-    async def replay_dead_letter(self, event_id: str) -> bool:
+    async def replay_dead_letter(
+        self, event_id: str, event_bus: EventBus | None = None
+    ) -> bool:
         from json import loads as json_loads
 
         entry = await self.get_dead_letter(event_id)
@@ -195,9 +200,12 @@ class SQLEventRepository:
         event.event_type = entry.event_type
 
         try:
-            from app.core.event_bus import EventBus
+            bus = event_bus or self._event_bus
+            if bus is None:
+                from app.api.deps import get_event_bus
 
-            bus = EventBus()
+                bus = await get_event_bus()
+
             await bus.publish(event)
             await self.increment_replay_count(event_id)
             return True

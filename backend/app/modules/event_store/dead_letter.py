@@ -70,8 +70,7 @@ class DeadLetterService:
         return {"succeeded": succeeded, "failed": failed}
 
     async def resolve(self, event_id: str) -> bool:
-        await self._repo.resolve_dead_letter(event_id)
-        return True
+        return await self._repo.resolve_dead_letter(event_id)
 
     async def delete(self, event_id: str) -> bool:
         entry = await self._repo.get_dead_letter(event_id)

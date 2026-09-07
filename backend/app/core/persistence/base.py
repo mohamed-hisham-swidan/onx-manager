@@ -51,9 +51,9 @@ class BaseRepository(Generic[T]):
         return list(result.scalars().all())
 
     async def update(self, entity: T) -> T:
-        await self._session.merge(entity)
+        merged = await self._session.merge(entity)
         await self._session.flush()
-        return entity
+        return merged
 
     async def delete(self, entity: T) -> None:
         await self._session.delete(entity)

@@ -27,12 +27,20 @@
       "description": "Minecraft server port"
     },
     "java_args": {
-      "type": "string",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        {
+          "type": "string"
+        }
+      ],
       "description": "Additional JVM arguments"
     },
     "provider_type": {
       "type": "string",
-      "enum": ["local", "docker", "remote", "cloud"],
+      "enum": ["local", "docker", "remote", "cloud", "local_win"],
       "default": "local"
     },
     "stop_timeout_seconds": {

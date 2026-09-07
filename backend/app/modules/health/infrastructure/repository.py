@@ -172,10 +172,19 @@ class SQLDiagnosticsRepository(DiagnosticsRepository):
         self._session.add(model)
         await self._session.flush()
 
-    async def save_classification(self, classification: CrashClassification) -> None:
+    async def save_classification(
+        self,
+        classification: CrashClassification,
+        server_id: str | None = None,
+    ) -> None:
+        effective_server_id = server_id or getattr(classification, "server_id", None)
+        if not effective_server_id:
+            ev = await self._session.get(EvidenceBundleModel, classification.evidence_id)
+            if ev:
+                effective_server_id = ev.server_id
         model = DiagnosticsReportModel(
             id=classification.evidence_id,
-            server_id=classification.evidence_id,
+            server_id=effective_server_id or classification.evidence_id,
             evidence_id=classification.evidence_id,
             failure_code=classification.failure_code,
             confidence=classification.confidence,
@@ -227,6 +236,7 @@ class SQLDiagnosticsRepository(DiagnosticsRepository):
         if model.failure_code:
             classification = CrashClassification(
                 evidence_id=model.evidence_id or model.id,
+                server_id=model.server_id or "",
                 failure_code=model.failure_code,
                 confidence=model.confidence or 0.0,
                 summary=model.summary or "",

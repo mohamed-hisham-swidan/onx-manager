@@ -74,4 +74,4 @@ async def test_dead_letter_resolve_nonexistent() -> None:
     bus = AsyncMock()
     service = DeadLetterService(session, bus)
     ok = await service.resolve("nonexistent")
-    assert ok is True
+    assert ok is False

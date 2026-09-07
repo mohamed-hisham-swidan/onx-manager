@@ -498,6 +498,40 @@ class TestDeleteServerFS:
         assert result.success is True
         mock_delete_dir.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_delete_running_server_stops_before_deletion(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
+        from unittest.mock import patch
+
+        from app.core.command_bus import CommandResult
+        from app.core.persistence.unit_of_work import UnitOfWork
+
+        server = await _create_test_server("test-del-running-1", with_deployment=True)
+        # Transition to RUNNING
+        server.start()
+        async with UnitOfWork(event_bus) as uow:
+            repo = SQLServerRepository(uow.session)
+            await repo.save(server)
+            await uow.commit()
+
+        stop_called = False
+
+        async def fake_stop_handle(_self_cmd: object, _cmd: object) -> CommandResult:
+            nonlocal stop_called
+            stop_called = True
+            return CommandResult(success=True)
+
+        target = "app.modules.server.application.commands.delete_server.StopServerHandler.handle"
+        with patch(target, fake_stop_handle):
+            handler = DeleteServerHandler(event_bus)
+            result = await handler.handle(DeleteServerCommand(server_id="test-del-running-1"))
+
+        assert result.success is True
+        assert stop_called is True
+        mock_delete_dir.assert_called_once()
+
+
 
 @pytest.mark.usefixtures("init_test_db")
 class TestImportServerHandler:

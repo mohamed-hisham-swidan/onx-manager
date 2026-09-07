@@ -132,8 +132,19 @@ class RestartSaga:
                 "memory_min_mb": server.memory.min_mb,
                 "memory_max_mb": server.memory.max_mb,
                 "port": server.properties.port.value,
+                "java_args": server.java_args.as_list()
+                if hasattr(server.java_args, "as_list")
+                else (server.java_args if isinstance(server.java_args, list) else []),
+                "cpu_cores": server.cpu.cores if server.cpu else 0,
+                "cpu_affinity": server.cpu.affinity if server.cpu else "",
+                "env_vars": getattr(server, "env_vars", {}),
             }
-            await provider.start(str(server.id), config)
+            await provider.start(
+                str(server.id),
+                config,
+                deployment=server.deployment,
+                launch_config=server.launch_config,
+            )
             logger.info("Server started after restart")
 
         return fn
