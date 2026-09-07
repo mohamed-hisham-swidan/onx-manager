@@ -53,7 +53,9 @@ class SagaInstance:
     def is_timed_out(self) -> bool:
         if self.started_at == 0:
             return False
-        return time.time() - self.started_at > self.timeout_seconds
+        if self.timeout_seconds is not None and self.timeout_seconds <= 0:
+            return True
+        return time.monotonic() - self.started_at >= self.timeout_seconds
 
 
 class SagaPersistence(ABC):
@@ -128,7 +130,7 @@ class SagaOrchestrator:
             raise ValueError(f"Saga {saga_id} not found")
 
         instance.status = SagaStatus.RUNNING
-        instance.started_at = time.time()
+        instance.started_at = time.monotonic()
         await self._persistence.save(instance)
 
         for i, step in enumerate(instance.steps):
@@ -167,6 +169,18 @@ class SagaOrchestrator:
                 return instance
 
             await self._persistence.save(instance)
+
+        if instance.is_timed_out:
+            instance.status = SagaStatus.FAILED
+            instance.error = "Saga timed out"
+            await self._persistence.update_status(
+                saga_id,
+                SagaStatus.FAILED,
+                "Saga timed out",
+            )
+            if instance.steps:
+                await self._compensate(instance, len(instance.steps), reason="Saga timed out")
+            return instance
 
         instance.status = SagaStatus.COMPLETED
         await self._persistence.update_status(saga_id, SagaStatus.COMPLETED)

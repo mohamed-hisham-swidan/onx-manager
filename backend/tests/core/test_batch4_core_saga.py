@@ -133,6 +133,27 @@ class TestBatch4ASagaTimeoutCompensation:
         assert result.error == "Saga timed out"
         assert not comp.called
 
+    @pytest.mark.asyncio
+    async def test_timeout_after_final_step_compensates(self) -> None:
+        """If a single or final step execution exceeds timeout, it is compensated."""
+        orchestrator = SagaOrchestrator()
+        comp = MagicMock()
+
+        async def slow_forward() -> None:
+            await asyncio.sleep(0.05)
+
+        step1 = SagaStep(name="step1", forward=slow_forward, compensate=comp)
+        instance = await orchestrator.create_saga(
+            "single_step_timeout", [step1], timeout_seconds=0.01
+        )
+        result = await orchestrator.execute(instance.saga_id)
+
+        assert result.status == SagaStatus.COMPENSATED
+        assert result.error == "Saga timed out"
+        assert comp.called
+        assert result.steps[0].status == SagaStepStatus.COMPENSATED
+
+
 
 class TestBatch4APluginVersionSemVer:
     """F018: PluginVersion equality and comparisons ignore build metadata per SemVer 2.0.0."""
