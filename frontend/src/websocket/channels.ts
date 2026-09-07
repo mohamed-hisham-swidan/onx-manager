@@ -132,8 +132,13 @@ export class ChannelManager {
   static validateChannel(channel: string): boolean {
     if (!channel || channel.length > 128) return false;
     const parts = channel.split(":");
-    if (parts.length !== 2) return false;
-    return (VALID_CHANNEL_PREFIXES as readonly string[]).includes(parts[0]);
+    if (parts.length === 2) {
+      return (VALID_CHANNEL_PREFIXES as readonly string[]).includes(parts[0]);
+    }
+    if (parts.length === 3) {
+      return parts[0] === "server" && parts[2] === "console";
+    }
+    return false;
   }
 
   static isWildcard(channel: string): boolean {

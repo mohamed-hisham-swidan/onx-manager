@@ -111,6 +111,14 @@ class AlertRule(AggregateRoot):
         self._last_triggered_at: datetime | None = None
 
     @property
+    def id(self) -> str:
+        return self._alert_rule_id
+
+    @property
+    def alert_rule_id(self) -> str:
+        return self._alert_rule_id
+
+    @property
     def server_id(self) -> ServerId:
         return self._server_id
 
@@ -137,6 +145,10 @@ class AlertRule(AggregateRoot):
     @property
     def cooldown_minutes(self) -> int:
         return self._cooldown_minutes
+
+    @property
+    def last_triggered_at(self) -> datetime | None:
+        return self._last_triggered_at
 
     def evaluate(self, value: float) -> bool:
         if not self._enabled:

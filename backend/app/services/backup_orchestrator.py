@@ -191,8 +191,11 @@ class BackupSaga:
                 external_id=server.runtime.external_id,
             )
             provider = provider_factory.get(provider_type)
+            baseline_lines = await provider.console(handle, tail=200)
             await provider.execute_command(handle, "save-all")
-            await self._wait_for_save_confirmed(backup_id, server_id, provider, handle)
+            await self._wait_for_save_confirmed(
+                backup_id, server_id, provider, handle, baseline_lines=baseline_lines
+            )
             logger.info(
                 "Save-all confirmed for server %s (backup %s) — proceeding with backup",
                 server_id,
@@ -207,11 +210,27 @@ class BackupSaga:
         server_id: ServerId,
         provider,
         handle: ServerHandle,
+        baseline_lines: list[str] | None = None,
     ) -> None:
         deadline = time.monotonic() + SAVE_ALL_CONFIRMATION_TIMEOUT_S
+        base = baseline_lines or []
+
         while True:
             lines = await provider.console(handle, tail=200)
-            for line in lines:
+            # Extract only lines that appeared after the baseline snapshot
+            new_lines = lines
+            if base:
+                max_k = min(len(base), len(lines))
+                matched = False
+                for k in range(max_k, 0, -1):
+                    if base[-k:] == lines[:k]:
+                        new_lines = lines[k:]
+                        matched = True
+                        break
+                if not matched and len(lines) > len(base):
+                    new_lines = lines[len(base):]
+
+            for line in new_lines:
                 if _SAVE_CONFIRMED_RE.search(line):
                     return
             if time.monotonic() >= deadline:

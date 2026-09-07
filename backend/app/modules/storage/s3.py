@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import UTC
 from typing import Any
 
 from app.modules.storage.base import StorageBackend, StorageFileInfo, StorageResult
+
+logger = logging.getLogger(__name__)
 
 
 class S3Storage(StorageBackend):
@@ -92,8 +95,16 @@ class S3Storage(StorageBackend):
             async with self._session.client("s3", endpoint_url=self._endpoint_url) as client:
                 await client.head_object(Bucket=self._bucket, Key=key)
                 return True
-        except Exception:
-            return False
+        except Exception as e:
+            error_code = ""
+            status_code = None
+            if hasattr(e, "response") and isinstance(e.response, dict):
+                error_code = str(e.response.get("Error", {}).get("Code", ""))
+                status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if error_code in ("404", "NoSuchKey", "NotFound") or status_code == 404:
+                return False
+            logger.error("Failed to check existence of S3 key %s: %s", key, e)
+            raise
 
     async def list_files(self, prefix: str) -> list[StorageFileInfo]:
         key_prefix = self._key(prefix)

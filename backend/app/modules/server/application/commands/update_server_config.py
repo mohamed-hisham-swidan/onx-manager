@@ -1,5 +1,7 @@
 from typing import Any
 
+from pydantic import Field
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
@@ -28,7 +30,7 @@ _REVERSE_PROP_KEY_MAP = {v: k for k, v in _PROP_KEY_MAP.items()}
 
 
 class UpdateServerConfigCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     name: str | None = None
     properties: dict[str, Any] = {}

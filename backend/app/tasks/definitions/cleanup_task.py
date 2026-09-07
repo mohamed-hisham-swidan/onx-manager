@@ -20,7 +20,7 @@ async def run_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
 
             cutoff = datetime.now(UTC) - timedelta(days=params.get("log_retention_days", 30))
             result = await session.execute(
-                delete(AuditLogModel).where(AuditLogModel.created_at < cutoff),
+                delete(AuditLogModel).where(AuditLogModel.timestamp < cutoff),
             )
             counts["logs_deleted"] = result.rowcount if result.rowcount != -1 else 0
 
@@ -43,7 +43,7 @@ async def run_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
         if params.get("cleanup_events", True):
             cutoff = datetime.now(UTC) - timedelta(days=params.get("event_retention_days", 90))
             result = await session.execute(
-                delete("event_store").where(text("created_at < :cutoff")),
+                text("DELETE FROM event_store WHERE created_at < :cutoff"),
                 {"cutoff": cutoff},
             )
             counts["events_deleted"] = result.rowcount if result.rowcount != -1 else 0
@@ -51,7 +51,7 @@ async def run_cleanup_task(params: dict[str, Any]) -> dict[str, Any]:
         if params.get("cleanup_task_queue", True):
             cutoff = datetime.now(UTC) - timedelta(days=params.get("task_retention_days", 7))
             result = await session.execute(
-                delete("task_queue").where(text("created_at < :cutoff")),
+                text("DELETE FROM task_queue WHERE created_at < :cutoff"),
                 {"cutoff": cutoff},
             )
             counts["tasks_deleted"] = result.rowcount if result.rowcount != -1 else 0

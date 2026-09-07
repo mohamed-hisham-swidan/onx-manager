@@ -125,4 +125,30 @@ describe("authStore", () => {
     const clientAfter = createAuthenticatedApi();
     expect(clientAfter).not.toBe(clientBefore);
   });
+
+  it("logout clears activityStore and provisionProgressStore (F095)", async () => {
+    const { useAuthStore } = await import("./authStore");
+    const { useActivityStore } = await import("./activityStore");
+    const { useProvisionProgressStore } = await import("./provisionProgressStore");
+
+    useActivityStore.getState().addEvent({
+      event_type: "ServerStartedEvent",
+      server_id: "srv-1",
+      timestamp: Date.now(),
+    });
+    expect(useActivityStore.getState().events.length).toBe(1);
+
+    useProvisionProgressStore.getState().setProgress("srv-1", {
+      stage: "downloading",
+      percent: 50,
+      message: "Downloading forge...",
+      timestamp: Date.now(),
+    });
+    expect(useProvisionProgressStore.getState().progress.size).toBe(1);
+
+    useAuthStore.getState().logout();
+
+    expect(useActivityStore.getState().events.length).toBe(0);
+    expect(useProvisionProgressStore.getState().progress.size).toBe(0);
+  });
 });

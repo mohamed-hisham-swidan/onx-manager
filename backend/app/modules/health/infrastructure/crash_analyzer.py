@@ -69,6 +69,7 @@ class PatternCrashAnalyzer(CrashClassifier):
 
         return CrashClassification(
             evidence_id=evidence.evidence_id,
+            server_id=evidence.server_id,
             failure_code=failure_code.value,
             confidence=min(confidence, 1.0),
             summary=summary,

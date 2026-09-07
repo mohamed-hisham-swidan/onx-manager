@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import time
 import uuid
@@ -105,8 +106,10 @@ class EventBus:
         if not active:
             return
 
-        tasks = [self._dispatch_with_retry(event, sub) for sub in active]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        active.sort(key=lambda s: s.priority)
+        for _prio, group in itertools.groupby(active, key=lambda s: s.priority):
+            tasks = [self._dispatch_with_retry(event, sub) for sub in group]
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _dispatch_with_retry(
         self,

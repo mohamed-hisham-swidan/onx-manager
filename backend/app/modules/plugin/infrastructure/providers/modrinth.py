@@ -258,6 +258,8 @@ class ModrinthProvider(PluginCatalogProvider):
             try:
                 return await self._do_get_json(client, url, params)
             except (DownloadError, DownloadTimeoutError) as e:
+                if isinstance(e, DownloadError) and e.status == 404:
+                    raise
                 last_exception = e
                 if attempt < MODRINTH_MAX_RETRIES:
                     wait = 1.0 * (2**attempt)

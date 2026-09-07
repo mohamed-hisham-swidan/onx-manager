@@ -23,7 +23,15 @@ class LogBasedEvidenceCollector:
         self._server_dir = Path(server_dir) if server_dir else None
 
     async def collect(self, server_id: str, server_dir: str | None = None) -> EvidenceBundle:
-        resolved_dir = Path(server_dir) if server_dir else self._server_dir
+        if server_dir:
+            resolved_dir = Path(server_dir)
+        elif self._server_dir:
+            resolved_dir = self._server_dir
+        else:
+            from app.core.config import AppSettings
+
+            default_dir = Path(AppSettings().servers_data_dir).resolve() / server_id
+            resolved_dir = default_dir if default_dir.is_dir() else None
         if not resolved_dir or not resolved_dir.is_dir():
             return EvidenceBundle(
                 server_id=server_id,

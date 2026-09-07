@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { resetAuthenticatedApi } from "../services/api";
 import { queryClient } from "../services/queryClient";
+import { useActivityStore } from "./activityStore";
+import { useProvisionProgressStore } from "./provisionProgressStore";
 
 const STORAGE_KEY = "mcs_auth";
 
@@ -74,6 +76,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
       clearAuth();
       resetAuthenticatedApi();
       queryClient.clear();
+      useActivityStore.getState().clear();
+      useProvisionProgressStore.getState().clear();
       set({ accessToken: null, refreshToken: null, expiresAt: null, isAuthenticated: false });
     },
 

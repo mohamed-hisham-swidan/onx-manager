@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import os
 
+from pydantic import Field
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import (
@@ -37,7 +39,7 @@ _MANUAL_SERVER_TYPES = {"vanilla", "fabric", "forge", "neoforge"}
 
 
 class InstallModrinthPluginCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     project_id: str
     version_id: str | None = None

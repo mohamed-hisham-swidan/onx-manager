@@ -141,6 +141,19 @@ class PluginVersion:
             base += f"+{self.build}"
         return base
 
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, PluginVersion):
+            return (self.major, self.minor, self.patch, self.prerelease) == (
+                other.major,
+                other.minor,
+                other.patch,
+                other.prerelease,
+            )
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash((self.major, self.minor, self.patch, self.prerelease))
+
     def __lt__(self, other: PluginVersion) -> bool:
         if (self.major, self.minor, self.patch) != (other.major, other.minor, other.patch):
             return (self.major, self.minor, self.patch) < (other.major, other.minor, other.patch)
@@ -151,10 +164,10 @@ class PluginVersion:
         return self.prerelease < other.prerelease
 
     def __le__(self, other: PluginVersion) -> bool:
-        return self == other or self < other
+        return not (other < self)
 
     def __gt__(self, other: PluginVersion) -> bool:
-        return not (self <= other)
+        return other < self
 
     def __ge__(self, other: PluginVersion) -> bool:
         return not (self < other)

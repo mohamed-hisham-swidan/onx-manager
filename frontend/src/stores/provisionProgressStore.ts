@@ -12,6 +12,7 @@ interface ProvisionProgressState {
   progress: Map<string, ProvisionProgressEvent>;
   setProgress: (serverId: string, event: Omit<ProvisionProgressEvent, "serverId">) => void;
   clearProgress: (serverId: string) => void;
+  clear: () => void;
   getProgress: (serverId: string) => ProvisionProgressEvent | undefined;
 }
 
@@ -35,6 +36,8 @@ export const useProvisionProgressStore = create<ProvisionProgressState>((set, ge
       newProgress.delete(serverId);
       return { progress: newProgress };
     }),
+
+  clear: () => set({ progress: new Map() }),
 
   getProgress: (serverId) => get().progress.get(serverId),
 }));

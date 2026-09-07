@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 
+from pydantic import Field
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
@@ -14,7 +16,7 @@ logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.health.classify_crash"
 
 
 class ClassifyCrashCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     evidence_id: str
 
@@ -54,7 +56,7 @@ class ClassifyCrashHandler(CommandHandler[ClassifyCrashCommand]):
             classification = await self._classifier.classify(evidence)
             report.classify(classification)
 
-            await self._repo.save_classification(classification)
+            await self._repo.save_classification(classification, server_id=report.server_id)
             await self._repo.save_report(report)
             for event in report.collect_events():
                 uow.add_event(event)

@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
@@ -211,7 +212,7 @@ def _extract_target_external_port(target: ServerExposureTarget) -> int:
 
 
 class SetServerExposureCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     method: str
     desired_state: str
@@ -566,7 +567,7 @@ class SetServerExposureHandler(CommandHandler[SetServerExposureCommand]):
 
 
 class EnableServerExposureCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     cloudflare_token: str = ""
     hostname: str = ""
@@ -712,7 +713,7 @@ class EnableServerExposureHandler(CommandHandler[EnableServerExposureCommand]):
 
 
 class DisableServerExposureCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     actor_id: str = ""
 
@@ -793,7 +794,7 @@ class DisableServerExposureHandler(CommandHandler[DisableServerExposureCommand])
 
 
 class RemoveServerExposureCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     actor_id: str = ""
 
@@ -871,7 +872,7 @@ class RemoveServerExposureHandler(CommandHandler[RemoveServerExposureCommand]):
 
 
 class CreateExposureTargetCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     service_type: str = "java"
     protocol: str | None = None
@@ -970,7 +971,7 @@ class CreateExposureTargetHandler(CommandHandler[CreateExposureTargetCommand]):
 
 
 class UpdateExposureTargetCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     target_id: str
     public_address: str | None = None
@@ -1014,7 +1015,7 @@ class UpdateExposureTargetHandler(CommandHandler[UpdateExposureTargetCommand]):
 
 
 class RegisterServerPortCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     service_type: str
     protocol: str
@@ -1114,7 +1115,7 @@ class RegisterServerPortHandler(CommandHandler[RegisterServerPortCommand]):
 
 
 class DeleteServerPortCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     port_id: str
     actor_id: str = ""
@@ -1193,7 +1194,7 @@ class DeleteServerPortHandler(CommandHandler[DeleteServerPortCommand]):
 
 
 class StopAllExposuresCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     actor_id: str = ""
 
 
@@ -1255,7 +1256,7 @@ class StopAllExposuresHandler(CommandHandler[StopAllExposuresCommand]):
 
 
 class GenerateClaimCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     actor_id: str = ""
     claim_code: str = ""
     claim_url: str = ""
@@ -1312,7 +1313,7 @@ class GenerateClaimHandler(CommandHandler[GenerateClaimCommand]):
 
 
 class ResetAgentCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     actor_id: str = ""
 
 
@@ -1344,7 +1345,7 @@ class ResetAgentHandler(CommandHandler[ResetAgentCommand]):
 
 
 class RemoveCredentialsCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     actor_id: str = ""
 
 
@@ -1376,7 +1377,7 @@ class RemoveCredentialsHandler(CommandHandler[RemoveCredentialsCommand]):
 
 
 class SetPanelExposureCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     method: str
     desired_state: str
     cloudflare_token: str = ""
@@ -2123,7 +2124,7 @@ async def _handle_playit_claimed_secret(secret: str) -> None:
 
 
 class ReconcileExposureCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     scope: str = "server"
     actor_id: str = ""
 

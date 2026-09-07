@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from pydantic import Field
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
@@ -37,7 +39,7 @@ logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.start_server"
 
 
 class StartServerCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
 
 

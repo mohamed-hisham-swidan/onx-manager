@@ -40,15 +40,18 @@ class InProcessQueue(TaskQueue):
         self._results: dict[str, Any] = {}
         self._handlers: dict[str, Callable[[dict[str, Any]], Coroutine[Any, Any, Any]]] = {}
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._running_tasks: dict[str, asyncio.Task[Any]] = {}
 
     def _track_task(
         self, coro: Coroutine[Any, Any, Any], task_id: str, name: str
     ) -> asyncio.Task[Any]:
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
+        self._running_tasks[task_id] = task
 
         def _on_done(t: asyncio.Task[Any]) -> None:
             self._background_tasks.discard(t)
+            self._running_tasks.pop(task_id, None)
             if not t.cancelled() and t.exception() is not None:
                 logger.error(
                     "Background task %s (%s) raised unhandled exception: %s",
@@ -64,9 +67,13 @@ class InProcessQueue(TaskQueue):
     async def _execute_with_delay(
         self, task_id: str, name: str, params: dict[str, Any], delay: float
     ) -> None:
-        if delay > 0:
-            await asyncio.sleep(delay)
-        await self._execute(task_id, name, params)
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            await self._execute(task_id, name, params)
+        except asyncio.CancelledError:
+            logger.info("Task %s (%s) was cancelled", task_id, name)
+            raise
 
     def register(
         self,
@@ -115,6 +122,9 @@ class InProcessQueue(TaskQueue):
                 return False
             model.status = TaskStatus.CANCELLED
             await session.commit()
+        task = self._running_tasks.get(task_id)
+        if task and not task.done():
+            task.cancel()
         return True
 
     async def get_status(self, task_id: str) -> TaskStatus:
@@ -142,7 +152,7 @@ class InProcessQueue(TaskQueue):
 
         async with await self._session_factory() as session:
             model = await session.get(TaskModel, task_id)
-            if model is None:
+            if model is None or model.status == TaskStatus.CANCELLED.value:
                 return
             model.status = TaskStatus.RUNNING
             model.started_at = datetime.now(UTC)
@@ -158,6 +168,9 @@ class InProcessQueue(TaskQueue):
                 model.result_json = json.dumps(result) if result is not None else None
                 model.completed_at = datetime.now(UTC)
                 await session.commit()
+        except asyncio.CancelledError:
+            logger.info("Task %s (%s) was cancelled during handler execution", task_id, name)
+            raise
         except Exception as e:
             logger.exception("Task %s (%s) execution failed: %s", task_id, name, e)
             async with await self._session_factory() as session:

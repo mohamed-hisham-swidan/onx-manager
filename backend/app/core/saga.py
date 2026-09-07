@@ -142,6 +142,8 @@ class SagaOrchestrator:
                     SagaStatus.FAILED,
                     "Saga timed out",
                 )
+                if i > 0:
+                    await self._compensate(instance, i, reason="Saga timed out")
                 return instance
 
             step.status = SagaStepStatus.EXECUTING
@@ -170,7 +172,12 @@ class SagaOrchestrator:
         await self._persistence.update_status(saga_id, SagaStatus.COMPLETED)
         return instance
 
-    async def _compensate(self, instance: SagaInstance, failed_at: int) -> None:
+    async def _compensate(
+        self,
+        instance: SagaInstance,
+        failed_at: int,
+        reason: str | None = None,
+    ) -> None:
         instance.status = SagaStatus.COMPENSATING
         await self._persistence.update_status(
             instance.saga_id,
@@ -199,10 +206,11 @@ class SagaOrchestrator:
                     str(e),
                 )
 
+        step_desc = reason or f"Failed at step '{instance.steps[failed_at].name}'"
         if compensation_failures:
             instance.status = SagaStatus.FAILED
             err_msg = (
-                f"Failed at step '{instance.steps[failed_at].name}'; "
+                f"{step_desc}; "
                 f"compensation failed on: {'; '.join(compensation_failures)}"
             )
             instance.error = err_msg
@@ -213,9 +221,9 @@ class SagaOrchestrator:
             )
         else:
             instance.status = SagaStatus.COMPENSATED
-            instance.error = f"Failed at step '{instance.steps[failed_at].name}'"
+            instance.error = step_desc
             await self._persistence.update_status(
                 instance.saga_id,
                 SagaStatus.COMPENSATED,
-                error=f"Failed at step '{instance.steps[failed_at].name}'",
+                error=step_desc,
             )

@@ -14,6 +14,8 @@ CHANNEL_PATTERNS: dict[str, set[str]] = {
     "metrics:{server_id}": {"server:read"},
     "auth:*": {"user:read"},
     "user:{user_id}": {"user:read"},
+    "provision:*": {"server:read"},
+    "provision:{server_id}": {"server:read"},
 }
 
 MAX_CHANNELS_PER_CONNECTION = 50
@@ -25,6 +27,7 @@ WILDCARD_CHANNELS: set[str] = {
     "monitoring:*",
     "metrics:*",
     "auth:*",
+    "provision:*",
 }
 
 
@@ -85,7 +88,16 @@ class ChannelAuthorizer:
         parts = channel.split(":")
         if len(parts) not in (2, 3):
             return False
-        valid_prefixes = {"server", "backup", "plugin", "monitoring", "metrics", "auth", "user"}
+        valid_prefixes = {
+            "server",
+            "backup",
+            "plugin",
+            "monitoring",
+            "metrics",
+            "auth",
+            "user",
+            "provision",
+        }
         if parts[0] not in valid_prefixes:
             return False
         if len(parts) == 3 and not (parts[0] == "server" and parts[2] == "console"):

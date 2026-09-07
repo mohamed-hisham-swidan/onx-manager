@@ -1,3 +1,5 @@
+from pydantic import Field
+
 from app.api.deps import build_storage_backend
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.config import ConfigFactory
@@ -10,7 +12,7 @@ from app.modules.shared.value_objects import BackupJobId
 
 
 class DeleteBackupCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     backup_id: str
 
 

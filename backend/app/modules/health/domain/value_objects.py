@@ -99,6 +99,7 @@ class CrashClassification:
     failure_code: str
     confidence: float
     summary: str
+    server_id: str = ""
     suggested_action: str = ""
     evidence_references: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))

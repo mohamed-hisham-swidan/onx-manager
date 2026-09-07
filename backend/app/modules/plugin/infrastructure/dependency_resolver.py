@@ -60,12 +60,11 @@ class DependencyResolver:
         version_constraint: str | None = None,
     ) -> ResolutionResult:
         result = ResolutionResult(success=False)
-        visited: set[str] = set()
         chain: list[str] = []
-        resolved: list[ResolvedDependency] = []
+        resolved_memo: dict[str, ResolvedDependency] = {}
 
         def resolve_one(current_name: str, constraint: str | None) -> ResolvedDependency | None:
-            if current_name in visited:
+            if current_name in chain:
                 result.conflicts.append(
                     DependencyConflict(
                         name=current_name,
@@ -74,6 +73,21 @@ class DependencyResolver:
                     ),
                 )
                 return None
+
+            if current_name in resolved_memo:
+                existing = resolved_memo[current_name]
+                if constraint:
+                    constraint_version = PluginVersion.parse(constraint)
+                    if existing.version < constraint_version:
+                        result.conflicts.append(
+                            DependencyConflict(
+                                name=current_name,
+                                required_by=list(chain),
+                                message=f"Version conflict: resolved {existing.version} does not satisfy >= {constraint}",
+                            ),
+                        )
+                        return None
+                return existing
 
             versions = self._available.get(current_name)
             if not versions:
@@ -104,7 +118,6 @@ class DependencyResolver:
             else:
                 selected = max(versions, key=lambda v: PluginVersion.parse(v["version"]))
 
-            visited.add(current_name)
             chain.append(current_name)
 
             sub_deps: list[ResolvedDependency] = []
@@ -114,7 +127,6 @@ class DependencyResolver:
                 sub = resolve_one(dep_name, dep_constraint)
                 if sub is None:
                     chain.pop()
-                    visited.discard(current_name)
                     return None
                 sub_deps.append(sub)
 
@@ -124,6 +136,7 @@ class DependencyResolver:
                 version=PluginVersion.parse(selected["version"]),
                 dependencies=sub_deps,
             )
+            resolved_memo[current_name] = dep
             return dep
 
         root = resolve_one(name, version_constraint)

@@ -11,6 +11,7 @@ FROM nginx:alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY 40-client-max-body-size.sh /docker-entrypoint.d/40-client-max-body-size.sh
 
 EXPOSE 80
 

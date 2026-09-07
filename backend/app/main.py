@@ -275,8 +275,12 @@ async def lifespan(_app: FastAPI):
         logger.exception("Task queue reclaim failed")
 
     # MetricsCollector — collects real-time data from running servers
+    from app.modules.monitoring.infrastructure.metrics import (
+        get_prometheus_metrics_registry,
+    )
+
     metrics_collector = MetricsCollector(event_bus=event_bus)
-    init_metrics_collector(metrics_collector)
+    init_metrics_collector(metrics_collector, prometheus=get_prometheus_metrics_registry())
 
     # Scheduler — loads cron_jobs from DB and fires them on schedule
     from app.tasks.scheduler import init_global_scheduler

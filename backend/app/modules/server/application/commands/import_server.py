@@ -2,6 +2,8 @@ import logging
 import tempfile
 from pathlib import Path
 
+from pydantic import Field
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
@@ -34,7 +36,7 @@ SERVERS_DATA_DIR: str = ""  # kept for backward compat with migrate_import_arch.
 
 
 class ImportServerCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     creator_id: str | None = None
     source_path: str
     name: str

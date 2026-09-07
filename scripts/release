@@ -15,12 +15,12 @@ echo "=== Releasing $VERSION ==="
 # Run checks
 ./scripts/check
 
+# Build
+./scripts/build
+
 # Tag
 git tag -a "$VERSION" -m "Release $VERSION"
 git push origin "$VERSION"
-
-# Build
-./scripts/build
 
 # Push Docker image
 docker tag onx-manager:latest "onx-manager:$VERSION"

@@ -55,11 +55,14 @@ export function ServerFilesPage() {
       size: 0,
     });
     setUserEdited(false);
+  } else if (!fileParam && syncedFileParam !== null) {
+    setSyncedFileParam(null);
   }
 
   const handleCloseEditor = () => {
     setEditingFile(null);
     setUserEdited(false);
+    setSyncedFileParam(null);
     if (searchParams.has("file") || searchParams.has("edit")) {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.delete("file");

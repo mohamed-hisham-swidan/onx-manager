@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     get_command_bus,
     get_current_user,
+    get_db,
     get_query_bus,
     require_permission,
     require_server_permission,
@@ -15,6 +17,8 @@ from app.modules.monitoring.application import (
     CreateAlertRuleCommand,
     GetMetricsQuery,
 )
+from app.modules.monitoring.infrastructure.repository import SQLAlertRuleRepository
+from app.modules.shared.value_objects import ServerId
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["monitoring"])
 
@@ -73,14 +77,37 @@ async def create_alert_rule(
 
 @router.get("/alerts", response_model=list[dict])
 async def list_alerts(
+    server_id: str | None = None,
+    session: AsyncSession = Depends(get_db),
     _current_user: dict = Depends(get_current_user),
 ) -> list[dict]:
-    return []
+    repo = SQLAlertRuleRepository(session)
+    if server_id:
+        rules = await repo.list_by_server(ServerId(server_id))
+    else:
+        rules = await repo.list_all()
+    return [
+        {
+            "id": r._alert_rule_id,
+            "server_id": str(r.server_id),
+            "metric_name": r.metric_name,
+            "condition": r.condition.value,
+            "threshold": r.threshold,
+            "severity": r.severity.value,
+            "enabled": r.enabled,
+            "cooldown_minutes": r.cooldown_minutes,
+            "last_triggered_at": r.last_triggered_at.isoformat() if r.last_triggered_at else None,
+        }
+        for r in rules
+    ]
 
 
 @router.delete("/alerts/{alert_rule_id}", status_code=204)
 async def delete_alert_rule(
     alert_rule_id: str,
-    current_user: dict = Depends(require_permission("global.settings")),
+    session: AsyncSession = Depends(get_db),
+    _current_user: dict = Depends(require_permission("global.settings")),
 ) -> None:
-    pass
+    repo = SQLAlertRuleRepository(session)
+    await repo.delete(alert_rule_id)
+    await session.commit()

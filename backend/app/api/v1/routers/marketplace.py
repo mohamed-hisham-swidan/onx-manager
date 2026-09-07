@@ -9,6 +9,7 @@ from app.api.v1.schemas.plugin import (
     PluginVersionResponse,
     PluginVersionsResponse,
 )
+from app.core.exceptions import DownloadError, NotFoundError
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
 from app.modules.plugin.infrastructure.providers.base import PluginVersionInfo
 
@@ -48,7 +49,12 @@ async def get_marketplace_project(
     _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginProjectResponse:
     provider = build_plugin_catalog_provider()
-    project = await provider.get_project(project_id)
+    try:
+        project = await provider.get_project(project_id)
+    except DownloadError as e:
+        if e.status == 404:
+            raise NotFoundError(f"Marketplace project '{project_id}' not found") from e
+        raise
     return PluginProjectResponse(**project.__dict__)
 
 
@@ -74,7 +80,12 @@ async def get_marketplace_project_versions(
     _current_user: dict = Depends(require_permission("plugin:manage")),
 ) -> PluginVersionsResponse:
     provider = build_plugin_catalog_provider()
-    page = await provider.get_project_versions(project_id, limit=limit, offset=offset)
+    try:
+        page = await provider.get_project_versions(project_id, limit=limit, offset=offset)
+    except DownloadError as e:
+        if e.status == 404:
+            raise NotFoundError(f"Marketplace project '{project_id}' not found") from e
+        raise
     return PluginVersionsResponse(
         project_id=project_id,
         versions=[_to_version_response(v) for v in page.items],

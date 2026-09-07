@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic_settings import BaseSettings
+from pydantic_settings import (
+    BaseSettings,
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+)
 
 from app.core.exceptions import InvalidValueError
 from app.core.identity import IDENTITY
@@ -50,7 +54,24 @@ class AppSettings(BaseSettings):
     import_max_zip_size_mb: int = 0
     import_staging_dir: str = "data/staging"
 
-    model_config = {"env_prefix": "MCS_", "extra": "ignore"}
+    model_config = {"env_prefix": "ONX_", "extra": "ignore"}
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,  # noqa: ARG003
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            EnvSettingsSource(settings_cls, env_prefix="ONX_"),
+            EnvSettingsSource(settings_cls, env_prefix="MCS_"),
+            dotenv_settings,
+            file_secret_settings,
+        )
 
 
 @dataclass(frozen=True)

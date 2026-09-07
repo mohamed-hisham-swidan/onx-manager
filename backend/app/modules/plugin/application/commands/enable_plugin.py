@@ -1,3 +1,5 @@
+from pydantic import Field
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
@@ -9,7 +11,7 @@ from app.modules.shared.value_objects import PluginId
 
 
 class EnablePluginCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     plugin_id: str
 
 

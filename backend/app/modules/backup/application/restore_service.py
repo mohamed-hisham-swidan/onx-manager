@@ -166,22 +166,33 @@ def _atomic_replace_file(src: str, dst: str) -> None:
 def _atomic_replace_dir(src: str, dst: str) -> None:
     """Swap src into dst atomically, never leaving a half-written folder.
 
-    The existing live folder (if any) is first moved aside to a sibling name, then the
-    extracted folder is renamed into place. If the second rename fails the old folder is
-    rolled back. Between the two renames dst is briefly absent but never half-written.
+    Stages src into dst's parent directory first (via shutil.move) to eliminate
+    EXDEV (cross-device link) errors when src is in a temp directory on a different
+    mount. Then performs an atomic swap within the same parent folder.
     """
     parent = os.path.dirname(dst)
     os.makedirs(parent, exist_ok=True)
-    old_path = os.path.join(parent, f"{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}old")
-    if os.path.lexists(dst):
-        os.replace(dst, old_path)
+    temp_stage = os.path.join(parent, f".{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}stage")
+    old_path = os.path.join(parent, f".{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}old")
+
+    if os.path.lexists(temp_stage):
+        shutil.rmtree(temp_stage, ignore_errors=True)
+    if os.path.lexists(old_path):
+        shutil.rmtree(old_path, ignore_errors=True)
+
+    shutil.move(src, temp_stage)
     try:
-        os.replace(src, dst)
-    except BaseException:
-        if os.path.lexists(old_path):
-            os.replace(old_path, dst)
-        raise
+        if os.path.lexists(dst):
+            os.replace(dst, old_path)
+        try:
+            os.replace(temp_stage, dst)
+        except BaseException:
+            if os.path.lexists(old_path):
+                os.replace(old_path, dst)
+            raise
     finally:
+        if os.path.lexists(temp_stage):
+            shutil.rmtree(temp_stage, ignore_errors=True)
         if os.path.lexists(old_path):
             shutil.rmtree(old_path, ignore_errors=True)
 

@@ -61,10 +61,13 @@ describe("ChannelManager", () => {
 
   it("validates channel format", () => {
     expect(ChannelManager.validateChannel("server:s01")).toBe(true);
+    expect(ChannelManager.validateChannel("server:s01:console")).toBe(true);
+    expect(ChannelManager.validateChannel("provision:s01")).toBe(true);
     expect(ChannelManager.validateChannel("backup:*")).toBe(true);
     expect(ChannelManager.validateChannel("")).toBe(false);
     expect(ChannelManager.validateChannel("invalid")).toBe(false);
     expect(ChannelManager.validateChannel("a:b:c")).toBe(false);
+    expect(ChannelManager.validateChannel("server:s01:invalid")).toBe(false);
     expect(ChannelManager.validateChannel("unknown:test")).toBe(false);
   });
 

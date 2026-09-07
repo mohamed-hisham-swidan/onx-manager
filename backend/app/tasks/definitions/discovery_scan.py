@@ -12,7 +12,14 @@ logger = logging.getLogger(__name__)
 
 
 async def periodic_discovery_scan(params: dict[str, Any]) -> dict[str, Any]:
-    event_bus: EventBus = params["event_bus"]
+    event_bus: EventBus | None = params.get("event_bus")
+    if event_bus is None:
+        try:
+            from app.api.deps import get_event_bus
+
+            event_bus = await get_event_bus()
+        except (ImportError, RuntimeError):
+            event_bus = EventBus()
     async with database.session_factory() as session:
         repo = SQLServerRepository(session)
         result = await run_discovery_scan(repo, event_bus)

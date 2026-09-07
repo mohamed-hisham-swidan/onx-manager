@@ -628,3 +628,23 @@ class TestWSRefreshTokenValidation:
         assert authz.can_subscribe("user-1", "server:s01") is True
 
 
+class TestBatch4EProvisionChannelAuthorization:
+    """F096: ChannelAuthorizer validates and authorizes provision channels."""
+
+    def test_validate_channel_accepts_provision(self) -> None:
+        assert ChannelAuthorizer.validate_channel("provision:s01") is True
+        assert ChannelAuthorizer.validate_channel("provision:*") is True
+        assert ChannelAuthorizer.validate_channel("server:s01:console") is True
+        assert ChannelAuthorizer.validate_channel("provision:s01:invalid") is False
+
+    def test_can_subscribe_provision_requires_server_read(self) -> None:
+        authz = ChannelAuthorizer()
+        authz.set_permissions("user-1", {"server:read"})
+        authz.set_permissions("user-2", {"user:read"})
+        authz.set_permissions("admin-user", {"admin:full"})
+
+        assert authz.can_subscribe("user-1", "provision:srv-1") is True
+        assert authz.can_subscribe("user-1", "provision:*") is True
+        assert authz.can_subscribe("user-2", "provision:srv-1") is False
+        assert authz.can_subscribe("admin-user", "provision:srv-1") is True
+

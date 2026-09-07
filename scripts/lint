@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/../backend"
-ruff check .
+cd "$(dirname "$0")/.."
+python3 scripts/check-ruff-baseline

@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+from pydantic import Field
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import NotFoundError, ServerNotFoundError
@@ -25,7 +27,7 @@ _NON_IDLE_STATUSES: frozenset[str] = frozenset(
 
 
 class RestoreBackupCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     backup_id: str
 
 

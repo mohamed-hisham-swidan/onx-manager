@@ -5,6 +5,8 @@ import contextlib
 import logging
 import time
 
+from pydantic import Field
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.exceptions import ServerNotRunningError
@@ -42,7 +44,7 @@ _BACKUP_WAIT_CAP_S: float = 30.0
 
 
 class RestartServerCommand(Command):
-    idempotency_key: IdempotencyKey = IdempotencyKey()
+    idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
 
 
