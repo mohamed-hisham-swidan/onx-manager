@@ -50,15 +50,17 @@ Using Phase 0's frozen baseline as input, classify:
 | Python-detection loop hang | A | ✅ Already fixed & verified — closed, no routing needed |
 | Bug track 2 (TPS anomaly, scheduler skips, SQLAlchemy pool warnings) | A (auto-critical) | ✅ Already fixed & verified (`SPEC-2026-09-01-BUGTRACK2-01`) — closed |
 | Syntax highlighting broken | B | → Phase 3 |
-| "Extended files" issue | Unclassified | **Blocked — needs Mohamed's clarification of what this refers to before it can even get a Lane** |
+| "Extended files" issue | Deferred — Closed | Closed without a Lane (2026-09-08) — exhaustive recon across git history, archives, and code found no recoverable definition; the term was introduced undefined by Mohamed in commit 8b6a0c7 and is no longer recalled. Reopen if the underlying problem is observed again in production use. |
 | Comment feature incomplete | B | → Phase 3 |
-| Files API possible IDOR | Unclassified, pending evidence | → Phase 2, needs RECON to confirm real before it gets a Lane |
+| Files API possible IDOR | Closed — NOT A VULNERABILITY | RECON-verified 2026-09-08: all 7 file-touching endpoints enforce per-server ownership/membership via require_server_permission before any filesystem access; confirmed by existing passing cross-server and path-traversal tests. No Lane needed. |
 | ROADMAP.md Workstream A/B/C claims | N/A — this is a documentation/state-integrity check, not a bug | Resolved in Phase 0 §5, not a Phase 1 bug item |
 | Rename pipeline final status | N/A — state-verification task | Quick check, closed wherever it naturally fits once confirmed (likely Phase 0/1 boundary, not deep work) |
-| FastAPI `merged_lifespan` recursion | Unclassified, needs reproduction | → Phase 2 once a traceback exists; can't be classified without one |
+| FastAPI `merged_lifespan` recursion | Closed — false positive | RECON-verified 2026-09-08: zero occurrences of merged_lifespan anywhere in the repo outside this roadmap doc; only a plain lifespan exists in backend/app/main.py. No Lane needed. |
 | Windows CI first-run failures | A (surfaces real Phase 2 work) | ✅ Already fixed & verified (`SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`: 0 failed, 0 errors, green on GitHub Actions) — closed |
 
 **Exit criteria:** every row above has moved from "?" to a routed destination with a Lane. Nothing is fixed *in* Phase 1 beyond what's trivially self-contained; the deep work happens in Phase 2/3 where it can be scoped properly instead of turning this phase into what the external review correctly called a "bug graveyard."
+
+**Phase 1 status: CLOSED (2026-09-08).** All 13 rows have a routed disposition — 6 closed pre-existing, 2 routed to Phase 3 (Lane B), 1 deferred without a Lane, 2 closed as not-real, 2 N/A.
 
 ---
 
@@ -72,8 +74,8 @@ Receives everything routed here from Phase 1. Status of known contents:
 - Full backend suite green on **both** Linux and Windows CI: ✅ Verified (2,149 passed, 2 skipped, 0 failed on both platforms; `SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`).
 - Re-verify the 5 CI quality-gate scripts genuinely pass: ✅ Verified (5/5 PASS).
 - Workstream B (diagnostics-leak) re-verification: ✅ Verified in code.
-- Files API IDOR: Unclassified, pending evidence → needs RECON to confirm real before it gets a Lane.
-- FastAPI `merged_lifespan` recursion: Unclassified, needs reproduction once a traceback exists.
+- Files API IDOR: Closed — NOT A VULNERABILITY (RECON-verified 2026-09-08: per-server ownership/membership enforced before any filesystem access; cross-server and path-traversal tests pass).
+- FastAPI `merged_lifespan` recursion: Closed — false positive (RECON-verified 2026-09-08: zero occurrences outside this doc; only a plain lifespan in backend/app/main.py).
 
 ## Phase 3 — Frontend Stabilization *(now also carries functional UX/reliability fixes — see Phase 7 note)*
 
