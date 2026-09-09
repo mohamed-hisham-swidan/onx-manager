@@ -83,7 +83,7 @@ class AsyncUPnPService:
         self,
         internal_port: int,
         requested_external_port: int,
-        description: str = "MCS-Manager-Panel",
+        description: str = "ONX-Manager-Panel",
         protocol: str = "TCP",
     ) -> UPnPResult:
         """Execute single-action discover, validate, and port mapping with auto-fix retry."""

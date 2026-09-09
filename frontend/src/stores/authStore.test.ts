@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const STORAGE_KEY = "mcs_auth";
+const STORAGE_KEY = "onx_auth";
 
 function setStoredAuth(data: unknown) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));

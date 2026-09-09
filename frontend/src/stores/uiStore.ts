@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-const THEME_KEY = "mcs_theme";
+const THEME_KEY = "onx_theme";
 
 type Theme = "light" | "dark";
 

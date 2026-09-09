@@ -4,7 +4,7 @@ import { queryClient } from "../services/queryClient";
 import { useActivityStore } from "./activityStore";
 import { useProvisionProgressStore } from "./provisionProgressStore";
 
-const STORAGE_KEY = "mcs_auth";
+const STORAGE_KEY = "onx_auth";
 
 interface StoredAuth {
   accessToken: string;

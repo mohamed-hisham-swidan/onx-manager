@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const THEME_KEY = "mcs_theme";
+const THEME_KEY = "onx_theme";
 
 describe("uiStore", () => {
   beforeEach(() => {

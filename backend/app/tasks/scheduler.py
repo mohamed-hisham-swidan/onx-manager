@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.persistence.base import Base
 from app.tasks.base import TaskQueue
 
-logger = logging.getLogger("mcs.tasks.scheduler")
+logger = logging.getLogger("onx.tasks.scheduler")
 
 
 class CronJobModel(Base):

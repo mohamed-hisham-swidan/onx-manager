@@ -54,7 +54,7 @@ Using Phase 0's frozen baseline as input, classify:
 | Comment feature incomplete | B | → Phase 3 |
 | Files API possible IDOR | Closed — NOT A VULNERABILITY | RECON-verified 2026-09-08: all 7 file-touching endpoints enforce per-server ownership/membership via require_server_permission before any filesystem access; confirmed by existing passing cross-server and path-traversal tests. No Lane needed. |
 | ROADMAP.md Workstream A/B/C claims | N/A — this is a documentation/state-integrity check, not a bug | Resolved in Phase 0 §5, not a Phase 1 bug item |
-| Rename pipeline final status | N/A — state-verification task | Quick check, closed wherever it naturally fits once confirmed (likely Phase 0/1 boundary, not deep work) |
+| Rename pipeline final status | N/A — state-verification task | Confirmed built and merged (2026-08-26 commits 51bbc6c/cb6816a/309e5c1/128489c, verified via git merge-base --is-ancestor into master 2026-09-08). 3 cosmetic strays found and fixed same day (UPnP description strings, 2 stdlib logger names, 4 frontend localStorage keys). |
 | FastAPI `merged_lifespan` recursion | Closed — false positive | RECON-verified 2026-09-08: zero occurrences of merged_lifespan anywhere in the repo outside this roadmap doc; only a plain lifespan exists in backend/app/main.py. No Lane needed. |
 | Windows CI first-run failures | A (surfaces real Phase 2 work) | ✅ Already fixed & verified (`SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`: 0 failed, 0 errors, green on GitHub Actions) — closed |
 
@@ -71,11 +71,15 @@ Receives everything routed here from Phase 1. Status of known contents:
 - Windows lifecycle real implementation/fix: ✅ Implemented & verified (`LocalWindowsProvider` live in `provider_factory`; W-01–W-06 closed; verified in `test_local_windows_provider.py` and `test_windows_lifecycle_w01.py`).
 - `preflight.py` fix: ✅ Fixed & verified (`SPEC-2026-09-01-WIN-LAUNCHER-01`).
 - Bug track 2 items: ✅ Fixed & verified (`SPEC-2026-09-01-BUGTRACK2-01`).
-- Full backend suite green on **both** Linux and Windows CI: ✅ Verified (2,149 passed, 2 skipped, 0 failed on both platforms; `SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`).
+- Full backend suite green on **both** Linux and Windows CI: ✅ Verified (2,339 passed, 5 skipped, 0 failed of 2,344 collected; frontend 642/642 across 75 files; `SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`; figures per `.ai/STATE.json` verified 2026-09-07 run).
 - Re-verify the 5 CI quality-gate scripts genuinely pass: ✅ Verified (5/5 PASS).
 - Workstream B (diagnostics-leak) re-verification: ✅ Verified in code.
 - Files API IDOR: Closed — NOT A VULNERABILITY (RECON-verified 2026-09-08: per-server ownership/membership enforced before any filesystem access; cross-server and path-traversal tests pass).
 - FastAPI `merged_lifespan` recursion: Closed — false positive (RECON-verified 2026-09-08: zero occurrences outside this doc; only a plain lifespan in backend/app/main.py).
+
+**Exit criteria:** all named items verified in code/CI, no unresolved routing from Phase 1.
+
+**Phase 2 status: CLOSED (2026-09-08).** All 8 tracked items verified; Rename pipeline confirmed built (see below); 3 cosmetic rename strays fixed in this pass.
 
 ## Phase 3 — Frontend Stabilization *(now also carries functional UX/reliability fixes — see Phase 7 note)*
 

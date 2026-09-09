@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-const STORAGE_KEY = "mcs_last_used_server";
+const STORAGE_KEY = "onx_last_used_server";
 
 function loadLastUsedServer(): string {
   try {

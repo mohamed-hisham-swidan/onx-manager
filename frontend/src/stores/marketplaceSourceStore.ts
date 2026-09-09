@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 export type MarketplaceSource = "modrinth" | "curseforge";
 
-const STORAGE_KEY = "mcs_marketplace_source";
+const STORAGE_KEY = "onx_marketplace_source";
 
 function loadMarketplaceSource(): MarketplaceSource {
   try {

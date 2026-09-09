@@ -167,8 +167,8 @@ describe("PluginMarketplacePage & InstallModal", () => {
     ];
     useLastUsedServerStore.setState({ lastUsedServerId: "" });
     useMarketplaceSourceStore.setState({ source: "modrinth" });
-    localStorage.removeItem("mcs_last_used_server");
-    localStorage.removeItem("mcs_marketplace_source");
+    localStorage.removeItem("onx_last_used_server");
+    localStorage.removeItem("onx_marketplace_source");
   });
 
   it("renders page header", () => {

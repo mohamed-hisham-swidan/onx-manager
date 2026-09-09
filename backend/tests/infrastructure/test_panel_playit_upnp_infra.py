@@ -100,7 +100,7 @@ class TestUPnPService:
                 protocol="TCP",
                 internal_port=8000,
                 lan_address="192.168.1.100",
-                description="MCS-Manager-Panel",
+                description="ONX-Manager-Panel",
             )
 
     async def test_attempt_mapping_auto_fix_conflict_retry(self) -> None:

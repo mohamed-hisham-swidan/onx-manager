@@ -10,7 +10,7 @@ from app.modules.health.application.commands.evaluate_health import (
     EvaluateHealthHandler,
 )
 
-logger = logging.getLogger("mcs.tasks.health_recalculation")
+logger = logging.getLogger("onx.tasks.health_recalculation")
 
 
 async def periodic_health_recalculation(params: dict[str, Any]) -> dict[str, Any]:

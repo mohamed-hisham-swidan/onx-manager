@@ -103,7 +103,7 @@ describe("PluginListPage", () => {
     mockIsLoading = false;
     mockError = null;
     useLastUsedServerStore.setState({ lastUsedServerId: "" });
-    localStorage.removeItem("mcs_last_used_server");
+    localStorage.removeItem("onx_last_used_server");
   });
 
   it("renders page header", () => {

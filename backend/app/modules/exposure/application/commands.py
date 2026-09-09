@@ -115,7 +115,7 @@ async def _attempt_server_upnp_mapping(
     result = await upnp.attempt_mapping(
         internal_port=target.local_port,
         requested_external_port=target.local_port,
-        description=f"MCS-Server-{server_id[:8]}-{target.service_type.value}",
+        description=f"ONX-Server-{server_id[:8]}-{target.service_type.value}",
         protocol=target.protocol.value.upper(),
     )
     if result.success:
@@ -1811,7 +1811,7 @@ class SetPanelExposureHandler(CommandHandler[SetPanelExposureCommand]):
             result = await upnp.attempt_mapping(
                 internal_port=in_port,
                 requested_external_port=req_port,
-                description="MCS-Manager-Panel",
+                description="ONX-Manager-Panel",
             )
             if result.success:
                 panel.set_public_address(f"http://{result.external_ip}:{result.external_port}")
