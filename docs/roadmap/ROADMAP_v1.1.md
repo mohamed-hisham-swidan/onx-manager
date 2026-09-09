@@ -81,7 +81,7 @@ Receives everything routed here from Phase 1. Status of known contents:
 
 - Syntax highlighting fix.
 - Comment feature completion.
-- "Extended files" issue, once Mohamed clarifies what it refers to.
+- ~~"Extended files" issue~~ — Closed in Phase 1 (2026-09-08) as Deferred, no Lane; removed from Phase 3 scope. Reopen here only if the underlying problem resurfaces and gets a Lane.
 - Workstream A re-verification.
 - **Any functional UX or reliability fix discovered along the way lands here (Lane B), not in Phase 7.** Phase 7 is visual/brand polish only — see the split below.
 - Full frontend suite green on both Linux and Windows CI.
@@ -178,7 +178,7 @@ Pending — filled in once Phase 5 actually starts.
 
 ## Open questions carried into v1.1 (need Mohamed's input)
 
-1. What does "extended files not working properly" refer to? (Phase 1 table) — Mohamed will check and report back.
+1. ~~What does "extended files not working properly" refer to?~~ — Resolved 2026-09-08: closed as Deferred without a definition (see Phase 1 table); no longer an open question.
 2. What does "GPS" refer to in "state-of-the-art validation of GPS/local mode/global mode"? (Phase 5)
 3. Is the agent-role-division idea (backend owner / frontend owner / network owner) something to formalize into `GOVERNANCE.md`, or keep informal?
 4. `preflight.py`'s real current status — this is now Phase 0's job to resolve with evidence, but if Mohamed already knows the answer, it saves a RECON pass.
