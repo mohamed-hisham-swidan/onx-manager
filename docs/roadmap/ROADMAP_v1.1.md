@@ -83,12 +83,16 @@ Receives everything routed here from Phase 1. Status of known contents:
 
 ## Phase 3 — Frontend Stabilization *(now also carries functional UX/reliability fixes — see Phase 7 note)*
 
-- Syntax highlighting fix.
-- Comment feature completion.
+- ~~Syntax highlighting fix~~ — Verified working (2026-09-08 recon): CodeEditor.tsx correctly handles all 6 claimed languages (JSON/YAML/TOML/properties/shell/plaintext), worst case is an unstyled plaintext fallback with no crashes; 9 dedicated tests + 21/21 re-run pass. The original 'broken' framing was stale — like 'extended files,' it was introduced undefined in commit 8b6a0c7 with no antecedent report. Closed as verified, not a fix.
+- ~~Comment feature completion~~ — Closed as Deferred (2026-09-08), same treatment as 'extended files': zero definition recoverable anywhere in the repo (no 'comment' references in frontend/src/server_manager/, no antecedent in the predecessor roadmap, no newer trace). No Lane assigned. Reopen if the underlying need resurfaces with a concrete definition.
 - ~~"Extended files" issue~~ — Closed in Phase 1 (2026-09-08) as Deferred, no Lane; removed from Phase 3 scope. Reopen here only if the underlying problem resurfaces and gets a Lane.
-- Workstream A re-verification.
+- ~~Workstream A re-verification~~ — Confirmed, no regression (2026-09-08): 13/13 tests, GFM markdown rendering still correct in PluginDetailPage.tsx.
 - **Any functional UX or reliability fix discovered along the way lands here (Lane B), not in Phase 7.** Phase 7 is visual/brand polish only — see the split below.
-- Full frontend suite green on both Linux and Windows CI.
+- ~~Full frontend suite green on both Linux and Windows CI~~ — Confirmed (2026-09-08): 75 files / 642 tests passing; Windows CI green per the Phase-2-closure push (commit e17da25's CI run).
+
+**Exit criteria:** all named items verified in code/tests, no unresolved routing from Phase 1/2.
+
+**Phase 3 status: CLOSED (2026-09-08).** Syntax highlighting and Workstream A confirmed already-working; comment feature closed Deferred (no recoverable definition); full suite green.
 
 ## Phase 4 — Feature Build from Community Feedback Pool
 
