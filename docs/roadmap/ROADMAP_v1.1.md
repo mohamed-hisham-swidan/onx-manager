@@ -106,6 +106,8 @@ Same five features, same evidence base (r/admincraft, 2026-08-10), same priority
 
 **Dependency on Phase 5 — RESOLVED (2026-09-01).** Mohamed's decision: the test-environment isolation backend is a **permanent user-facing choice**, not a temporary stand-in — the product ships with both a **files-based mode** and a **container-based mode**, selectable by the user. Containers become the **default** once Phase 5 lands; files-based stays available long-term (e.g. for setups without Docker). This means feature #2 starts now, built files-based first, with the container backend added as an additional (and eventually default) option once Phase 5's core primitive exists — not a swap, an addition. No blocking dependency remains between Phase 4 and Phase 5.
 
+**Build-order update — SUPERSEDED FOR EXECUTION ORDER ONLY (2026-09-10, DECISION-2026-09-10-001).** Mohamed reversed the *build order* (not the phase numbering): Phase 5 (Containers System) executes first — RECON → Design → Build → Review → Verify — before Phase 4 Design Specs start, so feature #2 is built once against the container backend instead of files-based first with later rework. The dual-mode *product* decision above (both modes ship, containers eventual default) is unchanged; only execution order changes. Full record below.
+
 ## Phase 5 — Containers System
 
 **Decision Record required and included below** (v1.0 pulled this forward from the old roadmap's Phase 11 without formally recording why — the external review correctly flagged this as a `GOVERNANCE.md`-governed reorder that needs its own record).
@@ -180,6 +182,72 @@ Phase 5's Design Spec + its own exit criteria (not yet written).
 
 ## Outcome
 Pending — filled in once Phase 5 actually starts.
+```
+
+## Decision Record — Phase 5 built before Phase 4 (execution order)
+
+```
+# DECISION-2026-09-10-001 — Build Phase 5 (Containers) before Phase 4 (Community Features)
+
+Status: Accepted
+Lane: Release Improvement / Engineering
+Decision level: D1 (Standard — execution order change, no phase renumbering, no scope change)
+Roadmap drift: Controlled
+
+## Context
+ROADMAP_v1.1's Phase 4 section previously resolved (2026-09-01) that the
+Phase 4 test-environment feature (#2 of 5) would ship files-based first,
+with a container-based mode added as an additional option once Phase 5
+landed — explicitly "not a blocking dependency."
+
+Mohamed has now decided to reverse the *build order* (not the phase
+numbering): Phase 5 (Containers System) will be executed before Phase 4
+starts, to avoid building the test-environment feature files-based and
+then having to refactor/rework it once the container runtime exists.
+
+## Evidence
+- Mohamed's explicit directive (2026-09-10 session).
+- The dual-mode design already acknowledges containers become the
+  eventual default backend for the test-environment feature — the
+  2026-09-01 decision accepted rework risk in exchange for an earlier
+  Phase 4 start; Mohamed has now judged that trade-off not worth it.
+
+## Options considered
+1. Keep the 2026-09-01 resolution: Phase 4 starts now, files-based
+   test-environment first, container mode added later (rejected).
+2. Build Phase 5 first, then start Phase 4 with the container backend
+   already available for feature #2 (accepted).
+
+## Decision
+Execute Phase 5 (Containers System) RECON → Design → Build → Review →
+Verify before starting Phase 4 Design Specs. Phase numbering in
+ROADMAP_v1.1 is unchanged; only execution order changes.
+
+## Impact
+- Product/user: Phase 4 (highest community-priority features) starts
+  later than the 2026-09-01 plan intended.
+- Architecture: none beyond what Phase 5 already scoped — Docker as a
+  new runtime provider alongside LocalLinuxProvider/LocalWindowsProvider.
+- Roadmap: the "Dependency on Phase 5 — RESOLVED (2026-09-01)" note in
+  Phase 4 of ROADMAP_v1.1 is superseded by this record for *build order*
+  purposes only; the dual-mode *product* decision (both modes ship) is
+  unchanged.
+
+## Effort
+Not yet estimated — pending Phase 5's Design Spec.
+
+## Reversibility
+High — this only reorders execution; no code has been written for
+either phase yet.
+
+## Roadmap impact
+Minor — record only; no change to phase numbering or scope.
+
+## Verification
+Phase 5's RECON findings + Design Spec once produced.
+
+## Outcome
+Pending — filled in once Phase 5 RECON completes.
 ```
 
 ---

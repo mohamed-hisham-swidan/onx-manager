@@ -1,3 +1,61 @@
+## Current State (2026-09-08)
+
+**Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
+- Phase 0 (Ground Truth/Baseline Freeze): CLOSED
+- Phase 1 (Bug Triage & Classification): CLOSED — commit 4a130ce
+  + e06e4d9 (stale-reference follow-up)
+- Phase 2 (Backend Stabilization): CLOSED — commit e17da25, all 6
+  CI checks green (windows-ci backend/frontend, Backend Tests,
+  Frontend CI, Verification Cadence backend/frontend)
+- Phase 3 (Frontend Stabilization): CLOSED — commit 0de35cb, syntax highlighting confirmed working (not broken),
+  comment feature closed Deferred (undefined, same as extended
+  files), Workstream A confirmed, full suite green (75 files/642
+  tests)
+- **Next: Phase 5 (Containers System)** — executes before Phase 4
+  per DECISION-2026-09-10-001 (2026-09-10): RECON → Design → Build
+  → Review → Verify, then Phase 4 starts with the container backend
+  already available for the test-environment feature. Phase numbering
+  and scope unchanged.
+- **Then: Phase 4 (Community Feature Build)** — 5 features
+  (transparent update system, test environment, custom mod support,
+  change history log, log/crash readability). Zero design specs
+  exist yet in docs/design/ or docs/plans/ for any of them — this
+  phase needs real Design Specs per the normal Orchestrator.md
+  pipeline (Recon → Design Spec → Design Review → Build → Separated
+  Review → Verify), unlike Phases 1-3 which were recon/classification
+  only.
+
+**Resolved this session (for reference, don't re-investigate):**
+- 'Extended files' (Phase 1) and 'Comment feature' (Phase 3): both
+  closed Deferred — no recoverable definition found anywhere in repo
+  history; Mohamed could not recall either. Reopen only if either
+  resurfaces with a concrete definition.
+- Files API possible IDOR: closed, NOT A VULNERABILITY (verified
+  per-server ownership enforcement + passing tests).
+- FastAPI merged_lifespan recursion: closed, false positive (zero
+  occurrences in repo).
+- Rename pipeline (MCS-Manager → onx-manager): confirmed fully built
+  and merged (2026-08-26 commits). 3 cosmetic strays fixed as part
+  of Phase 2 closure.
+- Phase 4↔Phase 5 sequencing: decided 2026-09-10
+  (DECISION-2026-09-10-001) — Phase 5 builds before Phase 4 starts;
+  phase numbering and scope unchanged.
+- Windows CI backend stall (2026-09-10 run: 19 passed, then ~39 min
+  silence at TestServers::test_stop_server, not reproducible on Linux):
+  fix landed — supervisor stop() detaches after a shielded timeout,
+  faulthandler stack-dump trap added to windows-ci.yml. Wedged stack
+  UNPROVEN; close only after a green backend-windows run.
+
+**Still open, not yet decided:**
+- 'GPS' definition (Phase 5 scope) — still undefined, same class of
+  problem as extended-files/comment-feature.
+- Whether to formalize agent-role division into GOVERNANCE.md.
+- Frontend visual identity — Mohamed flagged the live UI as looking
+  generic/template-like; deliberately deferred to Phase 7 (Visual/
+  Brand Polish) per roadmap order, not pulled forward.
+
+---
+
 # ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
