@@ -47,7 +47,12 @@ jobs:
 
       - name: Run backend test suite
         working-directory: backend
-        run: python -m pytest -v --tb=short --durations=10
+        # faulthandler_timeout is a hang TRAP, not a timeout: pytest's builtin
+        # faulthandler plugin dumps every thread's stack to stderr if the run
+        # stalls this long, then keeps going. Added after the 2026-09-10 stall
+        # (19 passed, then ~39 min silence in TestServers::test_stop_server
+        # with zero diagnostics). It cannot hang the run itself.
+        run: python -m pytest -v --tb=short --durations=10 -o faulthandler_timeout=600
 
       - name: check-db-revision
         working-directory: backend

@@ -95,26 +95,51 @@ class RuntimeSupervisor:
             name=f"supervisor-{self._server_id}",
         )
 
-    async def stop(self) -> None:
+    async def stop(self, timeout: float = 10.0) -> None:
         self._stop_event.set()
         self._active = False
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.warning(
-                    'Supervisor stop task raised server="%s" sid=%s provider=%s handle=%s phase=stop',
-                    self._server_name,
-                    self._server_id,
-                    self._provider.provider_type
-                    if hasattr(self._provider, "provider_type")
-                    else "?",
-                    self._handle.external_id if hasattr(self._handle, "external_id") else "?",
-                    exc_info=True,
-                )
+        task = self._task
+        if task is None or task.done():
+            self._instances.pop(self._server_id, None)
+            return
+        task.cancel()
+        try:
+            # Shield: the waiter must NOT await the task directly. Cancelling
+            # the waiter while it awaits a cancellation-swallowing task cancels
+            # the inner task instead of waking the waiter, losing the timeout
+            # wakeup and hanging forever (asyncio Task._fut_waiter mechanics,
+            # all versions). The shield completes promptly when cancelled, so
+            # the timeout always fires; the already-cancelled inner task is
+            # left to exit on its own via the stop event set above.
+            await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        except TimeoutError:
+            # The task is not observing cancellation (wedged in a
+            # non-cancellable await or a foreign-loop limbo). The stop event
+            # is already set so a well-behaved _run exits on its own; never
+            # let a wedged task hang the stop flow (and the whole test/CI
+            # job) forever. See DECISION-2026-09-10 follow-up: Windows CI
+            # stalled ~39 min in TestServers::test_stop_server with the only
+            # unbounded await in the path being this one.
+            logger.warning(
+                'Supervisor task for server "%s" did not exit within %.1fs — detaching (task=%s sid=%s)',
+                self._server_name,
+                timeout,
+                task.get_name() if hasattr(task, "get_name") else "?",
+                self._server_id,
+            )
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.warning(
+                'Supervisor stop task raised server="%s" sid=%s provider=%s handle=%s phase=stop',
+                self._server_name,
+                self._server_id,
+                self._provider.provider_type
+                if hasattr(self._provider, "provider_type")
+                else "?",
+                self._handle.external_id if hasattr(self._handle, "external_id") else "?",
+                exc_info=True,
+            )
         self._instances.pop(self._server_id, None)
 
     async def _run(self) -> None:

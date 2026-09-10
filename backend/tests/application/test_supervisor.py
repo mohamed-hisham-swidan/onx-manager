@@ -544,3 +544,96 @@ class TestHealthCheckExceptionBoundary:
         assert crashed_diag.provider == "local"
         assert crashed_diag.failure_code == FailureCode.RUNTIME_PROCESS_LOST
         assert "Unexpected error during health check" in crashed_diag.failure_reason
+
+    async def test_stop_detaches_when_task_ignores_cancellation(
+        self, mock_provider, mock_server, server_handle
+    ):
+        """stop() returns promptly when the task is slow to observe cancel.
+
+        Covers the slow-observer path: the task swallows the cancel request
+        but exits once it sees the stop event, so stop() reaps it without
+        hitting the timeout. (Pre-fix this also passed once the event was
+        observed — the timeout path below is the true regression guard.)
+        """
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+            health_interval=0.05,
+            startup_timeout=1.0,
+        )
+
+        async def _swallow_cancellation_until_stopped() -> None:
+            while not supervisor._stop_event.is_set():
+                try:
+                    await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    continue
+
+        supervisor._active = True
+        RuntimeSupervisor._instances[supervisor.server_id] = supervisor
+        supervisor._task = asyncio.create_task(_swallow_cancellation_until_stopped())
+        # Let the stubborn task take its first step so cancellation is delivered
+        # in-flight (and swallowed) rather than pre-start. Without the fix,
+        # stop() would hang here forever awaiting the unresponsive task.
+        await asyncio.sleep(0)
+
+        await asyncio.wait_for(supervisor.stop(timeout=0.2), timeout=5)
+
+        assert not RuntimeSupervisor.is_supervised(supervisor.server_id)
+        # The stop event was set first, so the stubborn task exits on its own
+        # once it observes it — reap it cleanly with no leaked pending task.
+        if not supervisor._task.done():
+            await asyncio.wait_for(supervisor._task, timeout=5)
+        assert supervisor._task.done()
+
+    async def test_stop_timeout_fires_for_truly_wedged_task(
+        self, mock_provider, mock_server, server_handle
+    ):
+        """stop() detaches after `timeout` even if the task never exits.
+
+        Regression guard for the Windows CI stall (backend-windows job wedged
+        ~39 min in TestServers::test_stop_server): the only unbounded await in
+        the stop path was a bare `await self._task`, which hangs forever when
+        the task swallows cancellation — and a bare wait_for() around it does
+        NOT help (the timeout wakeup is lost into the inner task via
+        Task._fut_waiter mechanics, verified by probe on 3.12 and 3.14).
+        stop() therefore waits through shield() and detaches on expiry.
+        Pre-fix code hangs this test (it never accepts the `timeout` kwarg,
+        and the unbounded await never returns while the wedge is held).
+        """
+        supervisor = RuntimeSupervisor(
+            server=mock_server,
+            provider=mock_provider,
+            handle=server_handle,
+            repo_get=AsyncMock(return_value=mock_server),
+            repo_save=AsyncMock(),
+            health_interval=0.05,
+            startup_timeout=1.0,
+        )
+
+        async def _wedged_until_released() -> None:
+            # Ignores cancellation AND keeps running while `release` is unset,
+            # so stop()'s timeout path genuinely fires — yet exits promptly
+            # once released, leaving no pending task behind at teardown.
+            while not release.is_set():
+                try:
+                    await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
+                    continue
+
+        release = asyncio.Event()
+        supervisor._active = True
+        RuntimeSupervisor._instances[supervisor.server_id] = supervisor
+        supervisor._task = asyncio.create_task(_wedged_until_released())
+        await asyncio.sleep(0)
+
+        await asyncio.wait_for(supervisor.stop(timeout=0.2), timeout=5)
+
+        assert not RuntimeSupervisor.is_supervised(supervisor.server_id)
+        # Release the wedge and reap cleanly — no leaked pending task.
+        release.set()
+        await asyncio.wait_for(supervisor._task, timeout=5)
+        assert supervisor._task.done()
