@@ -17,7 +17,7 @@ from app.modules.server.domain.installer import (
     InstallerRunner,
     ProgressLine,
 )
-from app.modules.server.infrastructure.providers.docker import normalize_host_path
+from app.modules.server.infrastructure.providers.docker import resolve_host_mount_path
 
 
 def is_windows() -> bool:
@@ -224,7 +224,7 @@ class ContainerInstallerRunner(InstallerRunner):
         exec_args.extend(["run", "--rm", "-i"])
 
         if cwd:
-            host_mount = normalize_host_path(cwd)
+            host_mount = resolve_host_mount_path(cwd)
             exec_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
 
         if hasattr(os, "getuid") and hasattr(os, "getgid") and sys.platform != "win32":

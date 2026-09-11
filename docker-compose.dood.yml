@@ -1,0 +1,61 @@
+# ==============================================================================
+# ONX Manager — Docker-outside-of-Docker (DooD) Opt-In Compose Override
+# ==============================================================================
+#
+# ⚠️ CAUTION — CRITICAL SECURITY WARNING: HOST PRIVILEGE ESCALATION RISK ⚠️
+# ------------------------------------------------------------------------------
+# Mounting the host Docker daemon socket (/var/run/docker.sock) into a container
+# grants that container ROOT-EQUIVALENT ACCESS to the host system.
+#
+# Any process or attacker that compromises the ONX Manager backend container can:
+#   1. Issue arbitrary commands directly to the host Docker daemon.
+#   2. Mount the host root filesystem (-v /:/host) and read/write any file.
+#   3. Create privileged containers with full host capabilities (e.g. CAP_SYS_ADMIN).
+#   4. Compromise or control the host operating system entirely.
+#
+# This configuration is strictly OPT-IN and is NEVER enabled by default.
+# Do NOT use this profile in untrusted multi-tenant environments or expose the
+# container directly to untrusted networks without robust perimeter security.
+#
+# Primary Supported Tier:
+#   Running ONX Manager natively on the host remains the primary recommended
+#   deployment model for Phase 5. This DooD override is provided specifically
+#   for containerized environments where ONX Manager must orchestrate sibling
+#   Minecraft containers on the host daemon.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dood.yml up -d
+#
+# Windows / WSL2 Host Note:
+#   When running on Windows with Docker Desktop (WSL2 backend), the Docker
+#   daemon socket is exposed at /var/run/docker.sock inside the WSL2 engine.
+#   Docker Desktop automatically bridges /var/run/docker.sock into Linux
+#   containers. Ensure Docker Desktop is set to "Linux containers" mode.
+#
+# Sibling Volume Mounts (Path Translation):
+#   When DooD is active, Minecraft containers are spawned by the HOST Docker
+#   daemon, which resolves bind mounts against the HOST filesystem, NOT from
+#   within the ONX backend container.
+#   Therefore, the servers directory is bind-mounted from the host filesystem:
+#     ${ONX_HOST_DATA_DIR:-./data/servers}:/app/data/servers
+#   Set ONX_HOST_DATA_DIR to the absolute path of your servers directory on the
+#   host (e.g. export ONX_HOST_DATA_DIR=/opt/onx/data/servers).
+#
+# Socket Permissions:
+#   On Linux, /var/run/docker.sock is owned by root:docker (mode 0660).
+#   Running as 'user: root' inside the container ensures access to the socket.
+#   Alternatively, to keep UID 1001, pass the host docker group GID via:
+#     group_add: ["${DOCKER_GID:-999}"]
+# ==============================================================================
+
+services:
+  backend:
+    user: root
+    volumes:
+      # Host Docker daemon socket (grants root-equivalent access to host daemon)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Host servers data directory for sibling container bind mounts
+      - ${ONX_HOST_DATA_DIR:-./data/servers}:/app/data/servers
+    environment:
+      # Informs DockerProvider of the host-side directory path for sibling mounts
+      - ONX_HOST_DATA_DIR=${ONX_HOST_DATA_DIR:-./data/servers}

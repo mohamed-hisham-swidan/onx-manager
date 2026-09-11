@@ -13,7 +13,7 @@ The server manager abstracts OS process management behind the `ServerProvider` i
 |---|---|---|---|
 | **`LocalLinuxProvider`** | **ACTIVE / FUNCTIONAL** | Linux / POSIX Host | `tmux` terminal multiplexer sessions with `MCS_MANAGED=1` environment markers. |
 | **`LocalWindowsProvider`** | **ACTIVE / FUNCTIONAL** | Windows Host | Native Win32 detached processes (`CREATE_NEW_PROCESS_GROUP \| DETACHED_PROCESS \| CREATE_NO_WINDOW`) with Win32 process tracking. |
-| `DockerProvider` | In Progress — Phase 5 Batch 1/6 (signature alignment only, runtime refactor pending) | Docker Daemon | Docker Engine API / container execution. |
+| **`DockerProvider`** | **ACTIVE / FUNCTIONAL** | Docker Daemon | Subprocess driver, bridge networking, loopback RCON, WSL2 support, DooD profile. |
 | `SSHProvider` | *Deferred Stub* | Remote Linux Host | AsyncSSH remote tmux sessions. |
 | `CloudProvider` | *Deferred Stub* | Cloud VM Instances | Cloud compute API instance management. |
 
@@ -47,3 +47,33 @@ Location: `backend/app/modules/server/infrastructure/providers/windows.py`
   - If process does not terminate within the grace period, executes `taskkill /F /T /PID {pid}` to cleanly terminate the entire process tree without leaving orphaned Java workers.
 - **Structured Launch Configuration:**
   - Eliminates `shlex.split` Windows-path corruption by using structured `list[str]` launch configurations.
+
+---
+
+## 4. `DockerProvider` Implementation Details
+
+Location: `backend/app/modules/server/infrastructure/providers/docker.py`
+
+- **Execution Driver:** Launches Minecraft servers inside isolated Docker containers via
+  tokenized subprocess calls (`asyncio.create_subprocess_exec`). Backend image packages
+  the official standalone static Docker CLI (`docker:27.5.1-cli`).
+- **Filesystem & Volume Model:**
+  - Mounts entire server directory directly to `/data` (`-v {server_dir}:/data -w /data`).
+  - `normalize_host_path` standardizes POSIX and Windows paths (drive letters, forward slashes).
+  - Translates user UID/GID on Linux to avoid root permission lockouts on host files.
+- **Bridge Network Model & Security:**
+  - Containers attach to Docker bridge network (`--network bridge` by default).
+  - External game ports published to host interfaces (`-p {port}:{container_port}`).
+  - Strict loopback isolation for RCON: published strictly to `127.0.0.1:{rcon_port}` regardless
+    of custom game-port bind IP.
+- **RCON Transport:**
+  - Primary: pure-Python asynchronous `AsyncRCONClient`.
+  - Fallback: in-container `docker exec {container} rcon-cli "{cmd}"`.
+- **Windows WSL2 Backend Policy:**
+  - Enforces Linux container mode under WSL2 backend with actionable diagnostic error messages.
+- **Docker-outside-of-Docker (DooD) Support:**
+  - Supported via opt-in `docker-compose.dood.yml` profile with host socket mount
+    (`/var/run/docker.sock`).
+  - `resolve_host_mount_path` translates container-internal `/app/data/servers` paths to
+    host-side paths using `ONX_HOST_DATA_DIR` environment variable for sibling mounts.
+

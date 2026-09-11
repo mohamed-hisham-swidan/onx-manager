@@ -210,3 +210,52 @@ npm run dev
 
 Use the Docker path for deployment and CI. Use the local path for
 active development (hot-reload, debugger access, test runner).
+
+## Docker-outside-of-Docker (DooD) Profile
+
+When running ONX Manager itself inside Docker, controlling host Minecraft containers
+requires the **Docker-outside-of-Docker (DooD)** opt-in override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dood.yml up -d
+```
+
+### Security Considerations & Host Privilege Escalation Risk
+
+> [!CAUTION]
+> **Host Privilege Escalation Risk:** Mounting `/var/run/docker.sock` grants the
+> container root-equivalent access to the host Docker daemon. Any attacker or process
+> that compromises the backend container can execute arbitrary Docker commands on the host,
+> mount the host filesystem root (`-v /:/host`), and achieve complete host takeover.
+>
+> - **Never** expose a DooD-enabled ONX Manager instance to untrusted networks without
+>   authentication, TLS, and strict firewall rules.
+> - **Do not** use this override in untrusted multi-tenant environments.
+> - Native host deployment (running ONX Manager directly on the host) remains the
+>   **Primary Supported Tier** and does not require mounting `/var/run/docker.sock`.
+
+### Host Sibling Mounts & Path Translation (`ONX_HOST_DATA_DIR`)
+
+Because sibling Minecraft containers are created by the **host** Docker daemon, the host
+daemon resolves volume paths against the host's filesystem, not internal container paths.
+
+To ensure sibling containers mount server files correctly:
+1. `docker-compose.dood.yml` replaces the named volume with a host bind mount:
+   `${ONX_HOST_DATA_DIR:-./data/servers}:/app/data/servers`
+2. Set the `ONX_HOST_DATA_DIR` environment variable to the absolute host directory where
+   servers are stored:
+   ```bash
+   export ONX_HOST_DATA_DIR=$(pwd)/data/servers
+   ```
+3. `DockerProvider` translates internal `/app/data/servers/{server_id}` paths to
+   `${ONX_HOST_DATA_DIR}/{server_id}` when issuing `docker run -v` commands to the host daemon.
+
+### Windows & WSL2 Hosts
+
+On Windows hosts running Docker Desktop with the WSL2 backend:
+- The Docker daemon socket is available at `/var/run/docker.sock` inside WSL2 and is bridged
+  by Docker Desktop into Linux containers.
+- Sibling Minecraft containers run in Linux containers mode (itzg images require Linux).
+- Set `ONX_HOST_DATA_DIR` using forward slashes (e.g. `D:/onx-manager/data/servers` or
+  `/mnt/d/onx-manager/data/servers`).
+

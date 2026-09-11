@@ -314,4 +314,39 @@ The same behavior is described (and matches the implementation) in [`docs/API.md
 
 ---
 
+## Container Deployment Security & Docker Socket Privilege Boundary
+
+### Default Deployment (Fully Isolated)
+
+In standard Docker Compose deployments (`docker-compose.yml`), ONX Manager containers run
+in an unprivileged, isolated sandbox:
+- The backend container runs as a non-root user (`app`, UID 1001, GID 1001).
+- No host sockets are mounted.
+- Persistent data is stored in Docker named volumes (`onx-db-data`, `onx-server-data`).
+- Containers cannot interact with the host Docker daemon or create sibling containers.
+
+### Docker-outside-of-Docker (DooD) Opt-In Override (`docker-compose.dood.yml`)
+
+Phase 5 Decision 12 defines an opt-in profile for environments where ONX Manager runs inside
+Docker and must control Minecraft containers on the host Docker daemon.
+
+> [!CAUTION]
+> **Host Privilege Escalation Attack Surface:**
+> Mounting `/var/run/docker.sock` exposes the host Docker daemon API to the container.
+> Possession of the Docker daemon socket is equivalent to host `root` access:
+> 1. An attacker who gains code execution in the container can execute arbitrary host `docker`
+>    commands (e.g. `docker run -v /:/host_root alpine chroot /host_root`).
+> 2. They can create privileged containers, access host devices, or modify host filesystems.
+>
+> **Enforced Guardrails:**
+> - The socket mount is **strictly opt-in** via `docker-compose.dood.yml` and is **never**
+>   present in `docker-compose.yml`.
+> - Automated CI tests (`test_default_compose_never_mounts_docker_socket`) enforce that
+>   `docker-compose.yml` never contains `docker.sock`.
+> - Sibling volume paths require explicit host bind configuration via `ONX_HOST_DATA_DIR`
+>   to prevent volume path leakage across container boundaries.
+
+---
+
 See `docs/API.md` for endpoint security details and `docs/architecture/ARCHITECTURE.md` for system-level security boundaries.
+

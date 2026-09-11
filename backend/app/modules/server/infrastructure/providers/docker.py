@@ -50,6 +50,52 @@ def normalize_host_path(path: str | Path) -> str:
     return Path(path_str).resolve().as_posix()
 
 
+def resolve_host_mount_path(
+    container_path: str | Path,
+    *,
+    host_data_dir: str | None = None,
+    container_base_dir: str | None = None,
+) -> str:
+    """Resolve a container-internal directory to a host filesystem path for DooD mounts.
+
+    When ONX_HOST_DATA_DIR (or host_data_dir parameter) is set (DooD mode), translates
+    paths under the container's data/servers directory into host-absolute paths that the
+    host Docker daemon can resolve when mounting sibling containers. If not set, returns
+    the normalized container_path as-is (native host mode).
+    """
+    raw_path_str = str(container_path).strip().replace("\\", "/")
+    if not raw_path_str:
+        return ""
+
+    host_dir = (
+        host_data_dir
+        or os.environ.get("ONX_HOST_DATA_DIR")
+        or os.environ.get("MCS_HOST_DATA_DIR")
+    )
+    if not host_dir:
+        return normalize_host_path(container_path)
+
+    normalized_host_dir = normalize_host_path(host_dir).rstrip("/")
+    candidate_bases = (
+        [container_base_dir]
+        if container_base_dir
+        else ["/app/data/servers", "data/servers"]
+    )
+    for base in candidate_bases:
+        if not base:
+            continue
+        norm_base = str(base).strip().replace("\\", "/").rstrip("/")
+        if raw_path_str == norm_base:
+            return normalized_host_dir
+        if raw_path_str.startswith(f"{norm_base}/"):
+            rel_sub = raw_path_str[len(norm_base) + 1 :].lstrip("/")
+            return f"{normalized_host_dir}/{rel_sub}"
+
+    # Fallback: if container_path is a leaf name or custom path
+    leaf = Path(raw_path_str).name
+    return f"{normalized_host_dir}/{leaf}"
+
+
 class DockerProvider(ServerProvider):
     def __init__(self, docker_host: str | None = None) -> None:
         self._docker_host = docker_host
@@ -231,9 +277,9 @@ class DockerProvider(ServerProvider):
         if cpu_affinity:
             create_args.extend(["--cpuset-cpus", str(cpu_affinity)])
 
-        # Volume mount & working directory (Decision 3 & 7)
+        # Volume mount & working directory (Decision 3, 7 & 12)
         if server_dir:
-            host_mount = server_dir
+            host_mount = resolve_host_mount_path(server_dir)
             create_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
 
         # Linux user permissions to prevent host file permission lockouts (Decision 3)

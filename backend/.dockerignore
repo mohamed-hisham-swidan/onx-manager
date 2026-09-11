@@ -1,4 +1,16 @@
-# Python
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python artifacts
 __pycache__/
 *.py[cod]
 *.pyo
@@ -8,36 +20,25 @@ venv/
 env/
 .Python
 
-# Secrets / env
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-
-# Database (production data must not be in the image)
-onx.db
-data/onx.db
-mcs.db
-data/mcs.db
-
-# Server data (baked into volume at runtime, not the image)
-data/servers/
-data/servers_test/
-
-# Tests / lint
+# Tests / coverage / lint caches
 tests/
+**/tests/
 .ruff_cache/
 .pytest_cache/
 .cache/
 htmlcov/
 .coverage
+.coverage.*
 
-# Git
-.git/
-.gitignore
+# Database and runtime server data
+*.db
+*.sqlite
+*.sqlite3
+data/
+backups/
+config/
 
-# OS / editor
+# OS / editor artifacts
 .DS_Store
 .vscode/
 .idea/
@@ -45,12 +46,9 @@ htmlcov/
 *.swo
 *~
 
-# Docker
-.docker/
+# Log files
+*.log
 
-# Auto-generated / docs
+# Auto-generated specs / schemas
 openapi.json
 openapi.yaml
-
-# Agent / AI artifacts
-.ai/

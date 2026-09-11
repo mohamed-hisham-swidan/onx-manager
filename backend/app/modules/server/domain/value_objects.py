@@ -179,6 +179,10 @@ class ServerDeployment:
     startup_command: str = ""
     primary_world: str = "world"
 
+    @property
+    def server_dir(self) -> str:
+        return self.server_directory()
+
     def server_directory(self) -> str:
         if self.working_directory and self.working_directory != ".":
             return os.path.join(self.root_path, self.working_directory)
