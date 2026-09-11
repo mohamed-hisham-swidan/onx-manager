@@ -30,10 +30,36 @@ from app.modules.server.infrastructure.providers.base import (
 logger = logging.getLogger(__name__)
 
 
+def normalize_host_path(path: str | Path) -> str:
+    """Normalize a host filesystem path for Docker CLI volume mounts and arguments.
+
+    Ensures:
+    1. Windows backslashes ('\\') are converted to forward slashes ('/').
+    2. Windows drive letters (e.g. 'C:/...' or 'd:/...') preserve forward slashes.
+    3. Relative paths are resolved to absolute paths.
+    4. POSIX paths are resolved to absolute canonical paths.
+    """
+    path_str = str(path).strip()
+    if not path_str:
+        return ""
+    if sys.platform == "win32":
+        return Path(path_str).resolve().as_posix()
+    # On non-Windows platforms (e.g. Linux CI or test suites simulating Windows paths):
+    if len(path_str) >= 2 and path_str[1] == ":" and path_str[0].isalpha():
+        return path_str.replace("\\", "/")
+    return Path(path_str).resolve().as_posix()
+
+
 class DockerProvider(ServerProvider):
     def __init__(self, docker_host: str | None = None) -> None:
         self._docker_host = docker_host
         self._rcon_cache: dict[str, dict[str, Any]] = {}
+        self._last_ping_error: str = ""
+
+    @property
+    def last_ping_error(self) -> str:
+        """Return the diagnostic error message from the most recent ping() failure."""
+        return self._last_ping_error
 
     def _read_server_properties_file(self, path: Path) -> dict[str, str]:
         """Read Minecraft server.properties into a dictionary."""
@@ -60,8 +86,41 @@ class DockerProvider(ServerProvider):
         return ["process", "console", "exec"]
 
     async def ping(self) -> bool:
-        returncode, stdout = await self._docker_command("info", "--format", "{{.OSType}}")
-        return returncode == 0 and stdout.strip().strip("'\"").lower() == "linux"
+        try:
+            returncode, stdout = await self._docker_command("info", "--format", "{{.OSType}}")
+        except Exception as exc:
+            self._last_ping_error = f"Docker daemon is unreachable: {exc}"
+            logger.warning("Docker ping failed: %s", exc)
+            return False
+
+        if returncode != 0:
+            self._last_ping_error = (
+                "Docker daemon is unreachable. Ensure Docker Desktop or dockerd is running."
+            )
+            logger.warning("Docker ping failed: daemon is unreachable (code %d)", returncode)
+            return False
+
+        ostype = stdout.strip().strip("'\"").lower()
+        if ostype != "linux":
+            self._last_ping_error = (
+                f"Docker daemon is running in '{ostype}' containers mode. "
+                "ONX Manager requires Docker Desktop with WSL2 backend in Linux containers mode "
+                "(switch via Docker Desktop tray menu -> 'Switch to Linux containers...')."
+            )
+            logger.warning(
+                "Docker ping failed: daemon OSType is '%s'. "
+                "Linux containers mode via WSL2 is required.",
+                ostype,
+            )
+            return False
+
+        self._last_ping_error = ""
+        return True
+
+    async def ping_detailed(self) -> tuple[bool, str]:
+        """Verify Docker daemon reachability and return a detailed diagnostic message."""
+        ok = await self.ping()
+        return ok, self._last_ping_error or "ok"
 
     async def start(
         self,
@@ -75,7 +134,6 @@ class DockerProvider(ServerProvider):
         image = str(cfg.get("image") or default_img)
         container_name = f"{IDENTITY.temp_prefix_new}{server_id}"
         port = int(cfg.get("port", 25565))
-        container_port = int(cfg.get("container_port", 25565))
         memory_min = int(cfg.get("memory_min_mb", 1024))
         memory_max = int(cfg.get("memory_max_mb", 2048))
         cpu_cores = int(cfg.get("cpu_cores") or 0)
@@ -83,7 +141,7 @@ class DockerProvider(ServerProvider):
         if cpu_cores > 0 or cpu_affinity:
             CpuAllocation.validate(cpu_cores, cpu_affinity)
 
-        # Whole-directory volume mount contract (Decision 3)
+        # Whole-directory volume mount contract (Decision 3) & Windows normalization (Decision 7)
         server_dir = ""
         if deployment and deployment.root_path:
             server_dir = deployment.server_directory()
@@ -92,9 +150,32 @@ class DockerProvider(ServerProvider):
         elif cfg.get("world_dir"):
             server_dir = str(cfg["world_dir"])
 
+        if server_dir:
+            server_dir = normalize_host_path(server_dir)
+
+        # Read server.properties if available for port & RCON detection
+        props: dict[str, str] = {}
+        if server_dir:
+            props_file = Path(server_dir) / "server.properties"
+            if props_file.exists():
+                props = self._read_server_properties_file(props_file)
+
+        # Container port resolution (Decision 6)
+        container_port = port
+        if cfg.get("container_port") is not None:
+            with contextlib.suppress(ValueError, TypeError):
+                container_port = int(cfg["container_port"])
+        elif "server-port" in props:
+            with contextlib.suppress(ValueError, TypeError):
+                container_port = int(props["server-port"])
+
         await self._ensure_image(image)
 
         create_args = ["create", "--name", container_name]
+
+        # Explicit Docker bridge network model (Decision 6)
+        network = str(cfg.get("network", "bridge"))
+        create_args.extend(["--network", network])
 
         # Ownership labels
         create_args.extend([
@@ -104,20 +185,41 @@ class DockerProvider(ServerProvider):
         ])
 
         # Published ports (Decision 6)
-        create_args.extend(["-p", f"{port}:{container_port}"])
+        # Game port: published externally so host exposure tools (playit, cloudflared, UPnP)
+        # and direct clients reach the container via host published port.
+        host_ip = str(cfg["host_ip"]) if cfg.get("host_ip") else None
+        game_port_spec = (
+            f"{host_ip}:{port}:{container_port}" if host_ip else f"{port}:{container_port}"
+        )
+        protocol = str(cfg.get("protocol", "")).lower()
+        if protocol in ("udp", "tcp"):
+            create_args.extend(["-p", f"{game_port_spec}/{protocol}"])
+        elif protocol == "both":
+            create_args.extend(["-p", f"{game_port_spec}/tcp", "-p", f"{game_port_spec}/udp"])
+        else:
+            create_args.extend(["-p", game_port_spec])
+
+        # RCON Port: published EXCLUSIVELY to loopback (127.0.0.1) for security (Decision 6)
         rcon_port: int | None = None
+        container_rcon_port = 25575
         if cfg.get("rcon_port"):
-            rcon_port = int(cfg["rcon_port"])
-        elif server_dir:
-            props_file = Path(server_dir) / "server.properties"
-            if props_file.exists():
-                props = self._read_server_properties_file(props_file)
-                if props.get("enable-rcon", "").lower() in ("true", "yes", "1"):
-                    with contextlib.suppress(ValueError, TypeError):
-                        rcon_port = int(props.get("rcon.port", "25575"))
+            with contextlib.suppress(ValueError, TypeError):
+                rcon_port = int(cfg["rcon_port"])
+        elif props.get("enable-rcon", "").lower() in ("true", "yes", "1"):
+            with contextlib.suppress(ValueError, TypeError):
+                rcon_port = int(props.get("rcon.port", "25575"))
 
         if rcon_port:
-            create_args.extend(["-p", f"127.0.0.1:{rcon_port}:{rcon_port}"])
+            if cfg.get("container_rcon_port") is not None:
+                with contextlib.suppress(ValueError, TypeError):
+                    container_rcon_port = int(cfg["container_rcon_port"])
+            elif props.get("rcon.port"):
+                with contextlib.suppress(ValueError, TypeError):
+                    container_rcon_port = int(props["rcon.port"])
+            else:
+                container_rcon_port = rcon_port
+
+            create_args.extend(["-p", f"127.0.0.1:{rcon_port}:{container_rcon_port}"])
 
         # Resource limits: memory limit with 512MB headroom (Spec §6)
         container_mem_mb = memory_max + 512
@@ -129,9 +231,9 @@ class DockerProvider(ServerProvider):
         if cpu_affinity:
             create_args.extend(["--cpuset-cpus", str(cpu_affinity)])
 
-        # Volume mount & working directory (Decision 3)
+        # Volume mount & working directory (Decision 3 & 7)
         if server_dir:
-            host_mount = Path(server_dir).resolve().as_posix()
+            host_mount = server_dir
             create_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
 
         # Linux user permissions to prevent host file permission lockouts (Decision 3)
@@ -158,6 +260,8 @@ class DockerProvider(ServerProvider):
                 env_vars["JVM_XX_OPTS"] = f"-Xms{memory_min}M"
             if "EULA" not in env_vars:
                 env_vars["EULA"] = "TRUE"
+            if "SERVER_PORT" not in env_vars:
+                env_vars["SERVER_PORT"] = str(container_port)
         for k, v in env_vars.items():
             create_args.extend(["-e", f"{k}={v}"])
 
@@ -185,11 +289,11 @@ class DockerProvider(ServerProvider):
             else:
                 startup_jar = "server.jar"
                 if launch_config and launch_config.startup_jar:
-                    startup_jar = Path(launch_config.startup_jar).name
+                    startup_jar = Path(launch_config.startup_jar.replace("\\", "/")).name
                 elif deployment and deployment.startup_jar:
-                    startup_jar = Path(deployment.startup_jar).name
+                    startup_jar = Path(deployment.startup_jar.replace("\\", "/")).name
                 elif cfg.get("jar_path"):
-                    startup_jar = Path(cfg["jar_path"]).name
+                    startup_jar = Path(str(cfg["jar_path"]).replace("\\", "/")).name
 
                 jvm_flags: list[str] = []
                 if launch_config and launch_config.jvm_flags:
@@ -230,20 +334,17 @@ class DockerProvider(ServerProvider):
         )
 
         if server_dir:
-            props_file = Path(server_dir) / "server.properties"
-            if props_file.exists():
-                props = self._read_server_properties_file(props_file)
-                rcon_pwd = props.get("rcon.password", "")
-                if rcon_pwd:
-                    eff_rcon_port = rcon_port or 25575
-                    with contextlib.suppress(ValueError, TypeError):
-                        eff_rcon_port = int(props.get("rcon.port", str(eff_rcon_port)))
-                    self._rcon_cache[server_id] = {
-                        "host": "127.0.0.1",
-                        "port": eff_rcon_port,
-                        "password": rcon_pwd,
-                        "server_dir": server_dir,
-                    }
+            rcon_pwd = props.get("rcon.password", "")
+            if rcon_pwd:
+                eff_rcon_port = rcon_port or 25575
+                with contextlib.suppress(ValueError, TypeError):
+                    eff_rcon_port = int(props.get("rcon.port", str(eff_rcon_port)))
+                self._rcon_cache[server_id] = {
+                    "host": "127.0.0.1",
+                    "port": eff_rcon_port,
+                    "password": rcon_pwd,
+                    "server_dir": server_dir,
+                }
         elif rcon_port and cfg.get("rcon_password"):
             self._rcon_cache[server_id] = {
                 "host": "127.0.0.1",
@@ -264,6 +365,9 @@ class DockerProvider(ServerProvider):
                 "image": image,
                 "server_dir": server_dir,
                 "rcon_port": rcon_port,
+                "port": port,
+                "container_port": container_port,
+                "network": network,
             },
         )
 
@@ -313,6 +417,7 @@ class DockerProvider(ServerProvider):
                     pass
 
         if server_dir:
+            server_dir = normalize_host_path(server_dir)
             props_file = Path(server_dir) / "server.properties"
             if props_file.exists():
                 props = self._read_server_properties_file(props_file)

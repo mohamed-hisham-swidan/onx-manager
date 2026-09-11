@@ -112,6 +112,36 @@ class TestCreateServerProviderSelection:
             assert len(servers) == 0
 
     @pytest.mark.asyncio
+    async def test_create_server_docker_windows_mode_actionable_error(self) -> None:
+        event_bus = EventBus()
+        handler = CreateServerHandler(event_bus)
+        cmd = CreateServerCommand(
+            name="docker-win-fail-server",
+            server_type="vanilla",
+            minecraft_version="1.20.4",
+            provider="docker",
+        )
+
+        with patch(
+            "app.modules.server.infrastructure.providers.provider_factory.get"
+        ) as mock_factory_get:
+            mock_docker = AsyncMock()
+            mock_docker.ping.return_value = False
+            mock_docker.last_ping_error = (
+                "Docker daemon is running in 'windows' containers mode. "
+                "ONX Manager requires Docker Desktop with WSL2 backend in Linux containers mode "
+                "(switch via Docker Desktop tray menu -> 'Switch to Linux containers...')."
+            )
+            mock_factory_get.return_value = mock_docker
+
+            result = await handler.handle(cmd)
+
+        assert result.success is False
+        assert result.error_code == "DOCKER_UNAVAILABLE"
+        assert "'windows' containers mode" in (result.error or "")
+        assert "Switch to Linux containers" in (result.error or "")
+
+    @pytest.mark.asyncio
     async def test_create_server_docker_unavailable_atomicity_no_partial_state(
         self, tmp_path: Path
     ) -> None:

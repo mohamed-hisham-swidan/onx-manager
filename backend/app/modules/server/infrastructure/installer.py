@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import sys
 from collections.abc import AsyncGenerator
-from pathlib import Path
 from typing import Any
 
 from app.core.process_utils import platform_kill_process_tree_async
@@ -18,6 +17,7 @@ from app.modules.server.domain.installer import (
     InstallerRunner,
     ProgressLine,
 )
+from app.modules.server.infrastructure.providers.docker import normalize_host_path
 
 
 def is_windows() -> bool:
@@ -224,7 +224,7 @@ class ContainerInstallerRunner(InstallerRunner):
         exec_args.extend(["run", "--rm", "-i"])
 
         if cwd:
-            host_mount = Path(cwd).resolve().as_posix()
+            host_mount = normalize_host_path(cwd)
             exec_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
 
         if hasattr(os, "getuid") and hasattr(os, "getgid") and sys.platform != "win32":

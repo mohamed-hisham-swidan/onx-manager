@@ -76,9 +76,15 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
 
             docker_provider = provider_factory.get("docker")
             if not await docker_provider.ping():
+                err_detail = getattr(docker_provider, "last_ping_error", None)
+                err_msg = (
+                    err_detail
+                    if isinstance(err_detail, str) and err_detail
+                    else "Docker daemon is unreachable or not running in Linux container mode"
+                )
                 return CommandResult(
                     success=False,
-                    error="Docker daemon is unreachable or not running in Linux container mode",
+                    error=err_msg,
                     error_code="DOCKER_UNAVAILABLE",
                 )
 
