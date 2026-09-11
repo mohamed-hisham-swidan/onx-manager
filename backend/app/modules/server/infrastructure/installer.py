@@ -2,25 +2,32 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import re
+import shlex
+import shutil
 import subprocess
+import sys
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any
 
 from app.core.process_utils import platform_kill_process_tree_async
-from app.modules.server.domain.installer import InstallerResult, InstallerRunner, ProgressLine
+from app.modules.server.domain.installer import (
+    InstallerResult,
+    InstallerRunner,
+    ProgressLine,
+)
 
 
 def is_windows() -> bool:
-    import sys
-
     return sys.platform == "win32"
 
 
 POST_KILL_DRAIN_TIMEOUT: float = 10.0
 
 _FORGE_STAGE_PATTERNS = [
-    (re.compile(r"Downloading\s+library", re.IGNORECASE), "downloading_libraries"),
+    (re.compile(r"Downloading\s+librar(y|ies)?", re.IGNORECASE), "downloading_libraries"),
     (re.compile(r"Downloading\s+forge", re.IGNORECASE), "downloading_forge"),
     (re.compile(r"Installing\s+profile", re.IGNORECASE), "installing_profile"),
     (re.compile(r"Installing\s+minecraft", re.IGNORECASE), "installing_minecraft"),
@@ -191,3 +198,163 @@ class SubprocessInstallerRunner(InstallerRunner):
             timed_out=False,
         )
         yield result
+
+
+class ContainerInstallerRunner(InstallerRunner):
+    """Ephemeral Docker container implementation of :class:`InstallerRunner`."""
+
+    def __init__(
+        self,
+        image: str = "eclipse-temurin:21-jdk",
+        docker_host: str | None = None,
+    ) -> None:
+        self._image = image
+        self._docker_host = docker_host
+
+    async def run(
+        self,
+        command: str,
+        *,
+        timeout: float,
+        cwd: str | None = None,
+    ) -> AsyncGenerator[RunnerOutput, None]:
+        exec_args = ["docker"]
+        if self._docker_host:
+            exec_args.extend(["-H", self._docker_host])
+        exec_args.extend(["run", "--rm", "-i"])
+
+        if cwd:
+            host_mount = Path(cwd).resolve().as_posix()
+            exec_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
+
+        if hasattr(os, "getuid") and hasattr(os, "getgid") and sys.platform != "win32":
+            exec_args.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+
+        exec_args.append(self._image)
+        if command:
+            exec_args.extend(shlex.split(command))
+
+        proc = await asyncio.create_subprocess_exec(
+            *exec_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            close_fds=True,
+        )
+
+        all_output: list[str] = []
+        stdout_queue: asyncio.Queue[ProgressLine | None] = asyncio.Queue()
+
+        async def read_stdout() -> None:
+            assert proc.stdout is not None
+            async for raw_line in proc.stdout:
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\n\r")
+                all_output.append(line)
+
+                stage, percent, message = _parse_progress_line(line)
+                if stage != "unknown" or percent is not None:
+                    await stdout_queue.put(
+                        ProgressLine(
+                            stage=stage,
+                            percent=percent,
+                            message=message,
+                            raw_line=line,
+                        )
+                    )
+            await stdout_queue.put(None)
+
+        async def wait_with_timeout() -> bool:
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=timeout)
+                return False
+            except TimeoutError:
+                return True
+
+        read_task = asyncio.create_task(read_stdout())
+        wait_task = asyncio.create_task(wait_with_timeout())
+
+        timed_out = False
+        process_done = False
+
+        try:
+            while not process_done and not timed_out:
+                try:
+                    progress = await asyncio.wait_for(stdout_queue.get(), timeout=0.1)
+                    if progress is None:
+                        break
+                    yield progress
+                except TimeoutError:
+                    pass
+
+                if wait_task.done():
+                    timed_out = wait_task.result()
+                    process_done = True
+                    break
+
+        except (asyncio.CancelledError, GeneratorExit):
+            read_task.cancel()
+            wait_task.cancel()
+            await platform_kill_process_tree_async(proc.pid, proc=proc)
+            raise
+
+        if timed_out:
+            read_task.cancel()
+            await platform_kill_process_tree_async(proc.pid, proc=proc)
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await read_task
+
+            result = InstallerResult(
+                exit_code=proc.returncode,
+                output="\n".join(all_output),
+                timed_out=True,
+            )
+            yield ProgressLine(
+                stage="timeout",
+                percent=None,
+                message="Installation timed out",
+                raw_line="",
+            )
+            yield result
+            return
+
+        if not read_task.done():
+            await read_task
+
+        while not stdout_queue.empty():
+            progress = stdout_queue.get_nowait()
+            if progress is None:
+                break
+            yield progress
+
+        if not wait_task.done():
+            await wait_task
+        elif proc.returncode is None:
+            await proc.wait()
+
+        exit_code = proc.returncode
+        stage = "failed" if exit_code != 0 else "success"
+
+        yield ProgressLine(
+            stage=stage,
+            percent=100 if exit_code == 0 else None,
+            message=f"Process exited with code {exit_code}",
+            raw_line="",
+        )
+
+        result = InstallerResult(
+            exit_code=exit_code,
+            output="\n".join(all_output),
+            timed_out=False,
+        )
+        yield result
+
+
+def resolve_installer_runner(
+    runner: InstallerRunner | None = None,
+    java_executable: str = "java",
+) -> InstallerRunner:
+    """Resolve installer runner: explicit runner, or Subprocess if Java present, else Container."""
+    if runner is not None:
+        return runner
+    if shutil.which(java_executable) is not None:
+        return SubprocessInstallerRunner()
+    return ContainerInstallerRunner()

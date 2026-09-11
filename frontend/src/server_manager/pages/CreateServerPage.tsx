@@ -37,6 +37,7 @@ interface WizardData {
   whitelist: boolean;
   viewDistance: number | "";
   simulationDistance: number | "";
+  provider: string;
 }
 
 const INITIAL_DATA: WizardData = {
@@ -57,6 +58,7 @@ const INITIAL_DATA: WizardData = {
   whitelist: false,
   viewDistance: 10,
   simulationDistance: 10,
+  provider: "",
 };
 
 export function CreateServerPage() {
@@ -75,6 +77,11 @@ export function CreateServerPage() {
   const versionsLoading = versionsState.serverType !== data.serverType;
   const [error, setError] = useState("");
   const [createdId, setCreatedId] = useState("");
+  const [dockerAvailable, setDockerAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.health?.().then((h) => setDockerAvailable(h.docker ?? false)).catch(() => setDockerAvailable(false));
+  }, [api]);
 
   useEffect(() => {
     api.listSoftware().then(setSoftwareList).catch(() => {});
@@ -138,6 +145,7 @@ export function CreateServerPage() {
         whitelist: data.whitelist,
         view_distance: Number(data.viewDistance) || 10,
         simulation_distance: Number(data.simulationDistance) || 10,
+        provider: data.provider || undefined,
       });
       setCreatedId(result.server_id as string);
       setStep("done");
@@ -198,7 +206,7 @@ export function CreateServerPage() {
       )}
 
       {step === "config" && (
-        <ConfigStep data={data} onChange={update} onNext={() => setStep("properties")} onBack={() => setStep("version")} />
+        <ConfigStep data={data} dockerAvailable={dockerAvailable} onChange={update} onNext={() => setStep("properties")} onBack={() => setStep("version")} />
       )}
 
       {step === "properties" && (
@@ -447,7 +455,19 @@ function RamStepperField({
   );
 }
 
-function ConfigStep({ data, onChange, onNext, onBack }: { data: WizardData; onChange: (d: Partial<WizardData>) => void; onNext: () => void; onBack: () => void }) {
+function ConfigStep({
+  data,
+  dockerAvailable,
+  onChange,
+  onNext,
+  onBack,
+}: {
+  data: WizardData;
+  dockerAvailable?: boolean | null;
+  onChange: (d: Partial<WizardData>) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
   return (
     <div>
       <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Server Configuration</h3>
@@ -461,6 +481,58 @@ function ConfigStep({ data, onChange, onNext, onBack }: { data: WizardData; onCh
             required
             className="w-full px-3.5 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Runtime Provider
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => onChange({ provider: "" })}
+              className={`text-left p-3.5 rounded-xl border-2 transition-all ${
+                !data.provider
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400"
+                  : "border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 bg-white dark:bg-gray-800"
+              }`}
+              title="Runs natively on the host via tmux/Win32"
+            >
+              <div className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+                Host Process
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Runs natively on the host via tmux / Win32
+              </div>
+            </button>
+
+            <button
+              type="button"
+              disabled={dockerAvailable === false}
+              onClick={() => onChange({ provider: "docker" })}
+              className={`text-left p-3.5 rounded-xl border-2 transition-all ${
+                dockerAvailable === false
+                  ? "opacity-50 cursor-not-allowed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
+                  : data.provider === "docker"
+                    ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400"
+                    : "border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 bg-white dark:bg-gray-800"
+              }`}
+              title="Runs isolated in a Docker container"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+                  Docker Container
+                </span>
+                {dockerAvailable === false && (
+                  <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded font-medium">
+                    Docker daemon not detected
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Runs isolated in a Docker container
+              </div>
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -650,6 +722,7 @@ function ReviewStep({ data, creating, onCreate, onBack }: { data: WizardData; cr
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-2 text-sm">
         {[
           ["Name", data.name],
+          ["Runtime Provider", data.provider === "docker" ? "Docker Container" : "Host Process"],
           ["Software", data.serverType],
           ...(data.serverType === "forge"
             ? [["Forge Edition", FORGE_EDITION_LABELS[forgeEditionForVersion(data.minecraftVersion)].label] as [string, string]]

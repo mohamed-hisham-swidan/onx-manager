@@ -202,6 +202,7 @@ export interface HealthResponse {
   version: string;
   database: string;
   uptime_seconds: number | null;
+  docker?: boolean;
 }
 
 export interface CreateAlertRuleRequest {

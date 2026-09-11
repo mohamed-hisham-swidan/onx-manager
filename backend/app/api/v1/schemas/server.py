@@ -35,6 +35,7 @@ class ServerCreateRequest(BaseModel):
     java_args: list[str] | None = None
     group_id: str = Field(default="default")
     install_dir: str | None = None
+    provider: str | None = Field(default=None)
 
 
 class ServerUpdateRequest(BaseModel):

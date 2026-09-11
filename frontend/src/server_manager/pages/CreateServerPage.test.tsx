@@ -9,6 +9,8 @@ import { CreateServerPage } from "./CreateServerPage";
 const listSoftwareMock = vi.fn();
 const listSoftwareVersionsMock = vi.fn();
 const getAvailablePortMock = vi.fn();
+const healthMock = vi.fn().mockResolvedValue({ docker: true });
+const mutateAsyncMock = vi.fn().mockResolvedValue({ server_id: "new-srv" });
 
 vi.mock("@/services/api", async () => {
   const actual = await vi.importActual<typeof import("@/services/api")>("@/services/api");
@@ -18,12 +20,13 @@ vi.mock("@/services/api", async () => {
       listSoftware: listSoftwareMock,
       listSoftwareVersions: listSoftwareVersionsMock,
       getAvailablePort: getAvailablePortMock,
+      health: healthMock,
     }),
   };
 });
 
 vi.mock("@/server_manager/hooks/useServers", () => ({
-  useCreateServer: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useCreateServer: vi.fn(() => ({ mutateAsync: mutateAsyncMock, isPending: false })),
 }));
 
 function renderPage() {
@@ -271,5 +274,93 @@ describe("CreateServerPage Configuration step", () => {
     expect(portInput.value).toBe("");
     await user.type(portInput, "25570");
     expect(portInput.value).toBe("25570");
+  });
+
+  it("disables Docker option when docker daemon is not available", async () => {
+    healthMock.mockResolvedValue({ docker: false });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    expect(await screen.findByText("Runtime Provider")).toBeInTheDocument();
+    const dockerBtn = screen.getByRole("button", { name: /Docker Container/i });
+    expect(dockerBtn).toBeDisabled();
+    expect(screen.getByText("Docker daemon not detected")).toBeInTheDocument();
+  });
+
+  it("allows selecting Docker Container when available and forwards provider on create", async () => {
+    healthMock.mockResolvedValue({ docker: true });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    expect(await screen.findByText("Runtime Provider")).toBeInTheDocument();
+    const dockerBtn = screen.getByRole("button", { name: /Docker Container/i });
+    expect(dockerBtn).not.toBeDisabled();
+    await user.click(dockerBtn);
+
+    const nameInput = screen.getByPlaceholderText("My Awesome Server");
+    await user.type(nameInput, "Dockerized Server");
+
+    // Next to Properties
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    // Next to Review
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    // Review step shows Runtime Provider as Docker Container
+    expect(await screen.findByText("Review & Create")).toBeInTheDocument();
+    expect(screen.getByText("Docker Container")).toBeInTheDocument();
+
+    // Click Create Server
+    await user.click(screen.getByRole("button", { name: "Create Server" }));
+
+    expect(mutateAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Dockerized Server",
+        provider: "docker",
+      })
+    );
+  });
+
+  it("omits provider or sends undefined when Host Process is selected", async () => {
+    healthMock.mockResolvedValue({ docker: true });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    expect(await screen.findByText("Runtime Provider")).toBeInTheDocument();
+    const dockerBtn = screen.getByRole("button", { name: /Docker Container/i });
+    const hostBtn = screen.getByRole("button", { name: /Host Process/i });
+
+    // Select Docker Container first, then switch back to Host Process
+    await user.click(dockerBtn);
+    await user.click(hostBtn);
+
+    const nameInput = screen.getByPlaceholderText("My Awesome Server");
+    await user.type(nameInput, "Host Process Server");
+
+    // Next to Properties
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    // Next to Review
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByText("Review & Create")).toBeInTheDocument();
+    expect(screen.getByText("Host Process")).toBeInTheDocument();
+
+    // Click Create Server
+    await user.click(screen.getByRole("button", { name: "Create Server" }));
+
+    expect(mutateAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Host Process Server",
+        provider: undefined,
+      })
+    );
   });
 });

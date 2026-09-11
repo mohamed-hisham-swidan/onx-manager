@@ -245,6 +245,7 @@ class Server(AggregateRoot):
         deployment: ServerDeployment | None = None,
         owner_id: str | None = None,
         cpu: CpuAllocation | None = None,
+        runtime: RuntimeInfo | None = None,
     ) -> Server:
         server = cls(
             server_id=server_id,
@@ -258,6 +259,7 @@ class Server(AggregateRoot):
             deployment=deployment,
             owner_id=owner_id,
             cpu=cpu,
+            runtime=runtime,
         )
         server._add_event(
             ServerCreatedEvent(

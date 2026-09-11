@@ -17,9 +17,11 @@ from app.modules.server.domain.value_objects import (
     LocationType,
     MemoryAllocation,
     PortNumber,
+    RuntimeInfo,
     ServerDeployment,
     ServerProperties,
     ServerType,
+    default_provider_for_platform,
 )
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -51,6 +53,7 @@ class CreateServerCommand(Command):
     java_args: list[str] | None = None
     group_id: str = "default"
     install_dir: str | None = None
+    provider: str | None = None
 
 
 class CreateServerHandler(CommandHandler[CreateServerCommand]):
@@ -66,6 +69,35 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             write_eula,
             write_server_properties,
         )
+
+        provider_type = command.provider
+        if provider_type == "docker":
+            from app.modules.server.infrastructure.providers import provider_factory
+
+            docker_provider = provider_factory.get("docker")
+            if not await docker_provider.ping():
+                return CommandResult(
+                    success=False,
+                    error="Docker daemon is unreachable or not running in Linux container mode",
+                    error_code="DOCKER_UNAVAILABLE",
+                )
+
+        if provider_type == "docker":
+            location_type = LocationType.DOCKER
+            runtime_info = RuntimeInfo(provider="docker")
+        elif provider_type in ("local", "local_windows"):
+            location_type = LocationType.LOCAL
+            runtime_info = RuntimeInfo(provider=provider_type)
+        elif provider_type is None:
+            resolved_provider = default_provider_for_platform()
+            location_type = LocationType.LOCAL
+            runtime_info = RuntimeInfo(provider=resolved_provider)
+        else:
+            return CommandResult(
+                success=False,
+                error=f"Unknown provider: {provider_type}",
+                error_code="INVALID_PROVIDER",
+            )
 
         server_id = ServerId()
         is_forge_installer = command.server_type == "forge" and forge_requires_installer(
@@ -92,7 +124,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             repo: ServerRepository = SQLServerRepository(uow.session)
 
             deployment = ServerDeployment(
-                location_type=LocationType.LOCAL,
+                location_type=location_type,
                 root_path=str(Path(server_dir_path).resolve()),
                 working_directory=".",
                 startup_jar="server.jar",
@@ -124,6 +156,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 ),
                 group_id=command.group_id,
                 deployment=deployment,
+                runtime=runtime_info,
                 owner_id=command.creator_id,
             )
             if is_forge_installer or is_neoforge_installer:

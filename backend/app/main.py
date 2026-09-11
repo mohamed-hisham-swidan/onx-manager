@@ -433,11 +433,19 @@ def create_app() -> FastAPI:
             _ = database.engine
         except RuntimeError:
             db_status = "disconnected"
+        docker_available = False
+        try:
+            from app.modules.server.infrastructure.providers import provider_factory
+
+            docker_available = await provider_factory.get("docker").ping()
+        except Exception:
+            pass
         return {
             "status": "ok",
             "version": get_app_version(),
             "database": db_status,
             "uptime_seconds": time.time() - _start_time if _start_time else 0,
+            "docker": docker_available,
         }
 
     @app.get("/metrics")

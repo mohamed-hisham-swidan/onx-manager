@@ -806,15 +806,18 @@ class TestDockerProvider:
         assert result.port == 25565
         mock_ensure.assert_awaited_once_with("itzg/minecraft-server:latest")
 
-        create_call_args = mock_docker.call_args_list[0][0][0]
-        assert "create --name onx-test-server-42" in create_call_args
-        assert "--label com.onx-manager.managed=true" in create_call_args
-        assert "--label com.onx-manager.server_id=test-server-42" in create_call_args
-        assert "--label com.onx-manager.runtime=docker" in create_call_args
+        create_call_args = list(mock_docker.call_args_list[0][0])
+        assert create_call_args[0] == "create"
+        assert "--name" in create_call_args
+        name_idx = create_call_args.index("--name")
+        assert create_call_args[name_idx + 1] == "onx-test-server-42"
+        assert "--label" in create_call_args
+        assert "com.onx-manager.managed=true" in create_call_args
+        assert "com.onx-manager.server_id=test-server-42" in create_call_args
+        assert "com.onx-manager.runtime=docker" in create_call_args
 
     @pytest.mark.asyncio
     async def test_docker_start_quotes_special_characters(self) -> None:
-        import shlex
         provider = DockerProvider()
         config = {
             "image": "itzg/minecraft-server:latest",
@@ -835,12 +838,15 @@ class TestDockerProvider:
             ]
             await provider.start(server_id="srv 'special' 42", config=config)
 
-        create_cmd = mock_docker.call_args_list[0][0][0]
-        assert "create --name" in create_cmd
-        assert shlex.quote("/data/my world's/dir") in create_cmd
-        parsed = shlex.split(f"docker {create_cmd}")
-        assert parsed[0] == "docker"
-        assert parsed[1] == "create"
+        create_call_args = list(mock_docker.call_args_list[0][0])
+        assert create_call_args[0] == "create"
+        assert "--name" in create_call_args
+        name_idx = create_call_args.index("--name")
+        assert create_call_args[name_idx + 1] == "onx-srv 'special' 42"
+        assert "-v" in create_call_args
+        vol_idx = create_call_args.index("-v")
+        assert create_call_args[vol_idx + 1].endswith(":/data")
+        assert "my world's/dir" in create_call_args[vol_idx + 1]
 
     @pytest.mark.asyncio
     async def test_docker_start_accepts_four_kwargs_without_type_error(self) -> None:

@@ -314,14 +314,19 @@ async def test_docker_execute_command_escapes_single_quotes() -> None:
     provider = DockerProvider()
     handle = ServerHandle(provider="docker", server_id="s1", external_id="onx-s1")
 
-    captured: dict[str, str] = {}
+    captured: dict[str, list[str]] = {}
 
-    async def fake_docker_command(args: str) -> tuple[int, str]:
-        captured["args"] = args
+    async def fake_docker_command(*args: str) -> tuple[int, str]:
+        captured["args"] = list(args)
         return 0, "ok"
 
     provider._docker_command = fake_docker_command  # type: ignore[method-assign]
 
     await provider.execute_command(handle, "say 'hello'; touch /tmp/pwned")
 
-    assert captured["args"] == "exec onx-s1 rcon-cli 'say '\\''hello'\\''; touch /tmp/pwned'"
+    assert captured["args"] == [
+        "exec",
+        "onx-s1",
+        "rcon-cli",
+        "say 'hello'; touch /tmp/pwned",
+    ]

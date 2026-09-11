@@ -2,16 +2,25 @@ import asyncio
 import contextlib
 import sys
 import time
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.modules.server.domain.installer import InstallerResult
-from app.modules.server.infrastructure.installer import SubprocessInstallerRunner
+from app.modules.server.domain.installer import (
+    InstallerResult,
+    InstallerRunner,
+    ProgressLine,
+)
+from app.modules.server.infrastructure.installer import (
+    ContainerInstallerRunner,
+    SubprocessInstallerRunner,
+    resolve_installer_runner,
+)
 
 
 async def _run_to_result(
-    runner: SubprocessInstallerRunner, command: str, timeout: float
+    runner: InstallerRunner, command: str, timeout: float
 ) -> InstallerResult:
     """Consume the async generator and return the final InstallerResult."""
     result: InstallerResult | None = None
@@ -189,4 +198,130 @@ async def test_runner_platform_popen_kwargs_windows() -> None:
     _, kwargs = mock_spawn.await_args
     assert "start_new_session" not in kwargs
     assert kwargs.get("creationflags") == 0x00000200
+
+
+@pytest.mark.asyncio
+async def test_resolve_installer_runner_explicit() -> None:
+    custom = SubprocessInstallerRunner()
+    resolved = resolve_installer_runner(custom)
+    assert resolved is custom
+
+
+@pytest.mark.asyncio
+async def test_resolve_installer_runner_java_present() -> None:
+    with patch("shutil.which", return_value="/usr/bin/java"):
+        resolved = resolve_installer_runner(None)
+        assert isinstance(resolved, SubprocessInstallerRunner)
+
+
+@pytest.mark.asyncio
+async def test_resolve_installer_runner_fallback_to_container_when_java_absent() -> None:
+    with patch("shutil.which", return_value=None):
+        resolved = resolve_installer_runner(None)
+        assert isinstance(resolved, ContainerInstallerRunner)
+        assert resolved._image == "eclipse-temurin:21-jdk"
+
+
+@pytest.mark.asyncio
+async def test_container_installer_runner_command_construction() -> None:
+    runner = ContainerInstallerRunner(
+        image="eclipse-temurin:21-jdk",
+        docker_host="tcp://127.0.0.1:2375",
+    )
+    mock_reader = _MockHangingReader()
+    mock_proc = AsyncMock()
+    mock_proc.pid = 9999
+    mock_proc.returncode = 0
+    mock_proc.stdout = mock_reader
+
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+        patch(
+            "app.modules.server.infrastructure.installer.platform_kill_process_tree_async",
+            AsyncMock(),
+        ),
+    ):
+        gen = runner.run(
+            "java -jar forge-installer.jar --installServer",
+            timeout=1.0,
+            cwd="/tmp/srv42",
+        )
+        task = asyncio.create_task(gen.asend(None))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        with contextlib.suppress(Exception):
+            await gen.aclose()
+
+    mock_exec.assert_awaited_once()
+    call_args = list(mock_exec.await_args[0])
+    assert call_args[0] == "docker"
+    assert call_args[1] == "-H"
+    assert call_args[2] == "tcp://127.0.0.1:2375"
+    assert "run" in call_args
+    assert "--rm" in call_args
+    assert "-i" in call_args
+    assert "-v" in call_args
+    vol_idx = call_args.index("-v")
+    assert call_args[vol_idx + 1].endswith(":/data")
+    assert "-w" in call_args
+    assert call_args[call_args.index("-w") + 1] == "/data"
+    assert "eclipse-temurin:21-jdk" in call_args
+    assert "java" in call_args
+    assert "--installServer" in call_args
+
+
+@pytest.mark.asyncio
+async def test_container_installer_runner_parses_progress_and_success() -> None:
+    runner = ContainerInstallerRunner()
+
+    class _MockLineReader:
+        def __init__(self, lines: list[str]) -> None:
+            self._lines = [line.encode("utf-8") for line in lines]
+            self._idx = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._idx >= len(self._lines):
+                raise StopAsyncIteration
+            line = self._lines[self._idx]
+            self._idx += 1
+            return line
+
+    mock_reader = _MockLineReader([
+        "Downloading libraries 25%\n",
+        "Downloading forge 75%\n",
+        "Success! Finished installation.\n",
+    ])
+    mock_proc = AsyncMock()
+    mock_proc.pid = 8888
+    mock_proc.returncode = 0
+    mock_proc.stdout = mock_reader
+
+    async def fake_wait():
+        return 0
+
+    mock_proc.wait = fake_wait
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        items: list[Any] = []
+        async for item in runner.run("java -jar installer.jar", timeout=5.0, cwd="/data/srv"):
+            items.append(item)
+
+    progress_items = [i for i in items if isinstance(i, ProgressLine)]
+    result_items = [i for i in items if isinstance(i, InstallerResult)]
+
+    assert len(progress_items) >= 3
+    stages = [p.stage for p in progress_items]
+    assert "downloading_libraries" in stages
+    assert "downloading_forge" in stages
+    assert "success" in stages
+
+    assert len(result_items) == 1
+    assert result_items[0].exit_code == 0
+    assert result_items[0].timed_out is False
+
 

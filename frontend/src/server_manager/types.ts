@@ -127,6 +127,7 @@ export interface ServerCreateRequest {
   simulation_distance?: number;
   java_args?: string[] | null;
   group_id?: string;
+  provider?: string;
 }
 
 export interface ServerUpdateRequest {

@@ -30,7 +30,7 @@ from app.modules.server.domain.runtime_exceptions import (
 )
 from app.modules.server.domain.value_objects import LaunchConfiguration
 from app.modules.server.infrastructure.fs import FileSystem, local_fs
-from app.modules.server.infrastructure.installer import SubprocessInstallerRunner
+from app.modules.server.infrastructure.installer import resolve_installer_runner
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 
@@ -68,7 +68,7 @@ class InstallerProvisioner(ABC):
         min_free_disk_mb: int = MIN_FREE_DISK_MB,
         max_retries: int = MAX_PROVISION_RETRIES,
     ) -> None:
-        self._runner = runner or SubprocessInstallerRunner()
+        self._runner = resolve_installer_runner(runner)
         self._fs = fs or local_fs
         self._event_bus = event_bus or EventBus()
         self._install_timeout = install_timeout

@@ -125,6 +125,7 @@ async def create_server(
         java_args=body.java_args,
         group_id=body.group_id,
         install_dir=body.install_dir,
+        provider=body.provider,
     )
     result = await command_bus.send(cmd)
     return check_command_result(result)

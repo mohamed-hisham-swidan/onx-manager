@@ -53,6 +53,7 @@ class AppSettings(BaseSettings):
     post_running_grace_seconds: float = 30.0
     import_max_zip_size_mb: int = 0
     import_staging_dir: str = "data/staging"
+    docker_default_image: str = "eclipse-temurin:21-jre-jammy"
 
     model_config = {"env_prefix": "ONX_", "extra": "ignore"}
 
