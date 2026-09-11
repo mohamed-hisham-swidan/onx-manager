@@ -77,6 +77,29 @@ class TestDooDHostPathResolution:
             settings = AppSettings()
             assert settings.host_data_dir == "/host/dir"
 
+    def test_dood_trailing_slash_normalization(self) -> None:
+        """Trailing slashes in container paths or host dir are normalized (O1 fix)."""
+        host_dir = "/srv/minecraft/servers/"
+        with patch.dict(os.environ, {"ONX_HOST_DATA_DIR": host_dir}):
+            # Exact base path with trailing slash
+            assert resolve_host_mount_path("/app/data/servers/") == "/srv/minecraft/servers"
+            # Subpath with trailing slash
+            res = resolve_host_mount_path("/app/data/servers/world/")
+            assert res == "/srv/minecraft/servers/world"
+
+    def test_dood_dot_dot_normalization(self) -> None:
+        """Paths containing '..' and redundant slashes are normalized before matching (O2 fix)."""
+        host_dir = "/srv/minecraft/servers"
+        with patch.dict(os.environ, {"ONX_HOST_DATA_DIR": host_dir}):
+            assert (
+                resolve_host_mount_path("/app/data/servers/../servers/lobby")
+                == "/srv/minecraft/servers/lobby"
+            )
+            assert (
+                resolve_host_mount_path("/app/data/servers/nested/../survival")
+                == "/srv/minecraft/servers/survival"
+            )
+
 
 class TestDooDDockerProviderVolumeMount:
     """Test DockerProvider.start() and ContainerInstallerRunner volume mounts with DooD."""

@@ -84,6 +84,12 @@ export function CreateServerPage() {
   }, [api]);
 
   useEffect(() => {
+    if (dockerAvailable === false && data.provider === "docker") {
+      setData((d) => ({ ...d, provider: "" }));
+    }
+  }, [dockerAvailable, data.provider]);
+
+  useEffect(() => {
     api.listSoftware().then(setSoftwareList).catch(() => {});
   }, [api]);
 
@@ -497,8 +503,13 @@ function ConfigStep({
               }`}
               title="Runs natively on the host via tmux/Win32"
             >
-              <div className="font-semibold text-sm text-gray-900 dark:text-gray-100">
-                Host Process
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+                  Host Process
+                </span>
+                <span className="text-[10px] bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 px-1.5 py-0.5 rounded font-medium">
+                  Default
+                </span>
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 Runs natively on the host via tmux / Win32
@@ -525,6 +536,11 @@ function ConfigStep({
                 {dockerAvailable === false && (
                   <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded font-medium">
                     Docker daemon not detected
+                  </span>
+                )}
+                {dockerAvailable === true && (
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium">
+                    Daemon ready
                   </span>
                 )}
               </div>

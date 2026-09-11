@@ -35,7 +35,7 @@ Location: `backend/app/modules/server/infrastructure/providers/local.py`
 
 ## 3. `LocalWindowsProvider` Implementation Details
 
-Location: `backend/app/modules/server/infrastructure/providers/windows.py`
+Location: `backend/app/modules/server/infrastructure/providers/local_windows.py`
 
 - **Execution Driver:** Launches detached Java/Minecraft process groups with Win32 creation flags:
   `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW`.

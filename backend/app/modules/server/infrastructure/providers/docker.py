@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import posixpath
 import sys
 from pathlib import Path
 from typing import Any
@@ -54,7 +55,6 @@ def resolve_host_mount_path(
     container_path: str | Path,
     *,
     host_data_dir: str | None = None,
-    container_base_dir: str | None = None,
 ) -> str:
     """Resolve a container-internal directory to a host filesystem path for DooD mounts.
 
@@ -75,25 +75,23 @@ def resolve_host_mount_path(
     if not host_dir:
         return normalize_host_path(container_path)
 
+    # Basic .. and redundant slash normalization (defense-in-depth, O2)
+    norm_container_path = posixpath.normpath(raw_path_str).rstrip("/")
     normalized_host_dir = normalize_host_path(host_dir).rstrip("/")
-    candidate_bases = (
-        [container_base_dir]
-        if container_base_dir
-        else ["/app/data/servers", "data/servers"]
-    )
+
+    candidate_bases = ["/app/data/servers", "data/servers"]
     for base in candidate_bases:
-        if not base:
-            continue
-        norm_base = str(base).strip().replace("\\", "/").rstrip("/")
-        if raw_path_str == norm_base:
+        norm_base = posixpath.normpath(base).rstrip("/")
+        # Exact base match returns normalized_host_dir with no trailing slash (O1)
+        if norm_container_path == norm_base:
             return normalized_host_dir
-        if raw_path_str.startswith(f"{norm_base}/"):
-            rel_sub = raw_path_str[len(norm_base) + 1 :].lstrip("/")
-            return f"{normalized_host_dir}/{rel_sub}"
+        if norm_container_path.startswith(f"{norm_base}/"):
+            rel_sub = norm_container_path[len(norm_base) + 1 :].strip("/")
+            return f"{normalized_host_dir}/{rel_sub}" if rel_sub else normalized_host_dir
 
     # Fallback: if container_path is a leaf name or custom path
-    leaf = Path(raw_path_str).name
-    return f"{normalized_host_dir}/{leaf}"
+    leaf = Path(norm_container_path).name
+    return f"{normalized_host_dir}/{leaf}" if leaf else normalized_host_dir
 
 
 class DockerProvider(ServerProvider):

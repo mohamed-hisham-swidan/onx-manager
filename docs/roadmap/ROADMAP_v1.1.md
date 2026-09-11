@@ -110,7 +110,7 @@ Same five features, same evidence base (r/admincraft, 2026-08-10), same priority
 
 ## Phase 5 — Containers System
 
-**Status:** Design CLOSED / Build IN PROGRESS (Batch 1/6 — Signature Alignment, Schema Fix, Roadmap Sync)  
+**Status:** CLOSED (2026-09-11) — All 6 Batches Verified and Complete (Batch 1: Signature Alignment & Schema; Batches 2 & 3: Runtime Driver & RCON; Batch 4: Network & Windows WSL2; Batch 5: DooD Policy; Batch 6: Provider Conformance Suite & Polish)  
 **Design Spec:** [`docs/design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md`](../design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md) (Approved 2026-09-11, D2/Major, Lane B)
 
 Scope: replace host-level tmux/process execution with isolated per-server Docker containers across Linux/macOS/Windows. Also covers port-forward library testing — **"GPS" is a blocked item, not committed scope, pending Mohamed's definition of what it refers to (recon-confirmed undefined in code as of 2026-09-10).**
@@ -196,7 +196,7 @@ Major — this document (ROADMAP v1.1) reflects the new position directly.
 Phase 5's Design Spec + its own exit criteria (not yet written).
 
 ## Outcome
-Pending — filled in once Phase 5 actually starts.
+Accepted and completed 2026-09-11: Phase 5 (Containers System) successfully implemented, verified, and closed across all 6 build batches per PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md.
 ```
 
 ## Decision Record — Phase 5 built before Phase 4 (execution order)
@@ -262,7 +262,7 @@ Minor — record only; no change to phase numbering or scope.
 Phase 5's RECON findings + Design Spec once produced.
 
 ## Outcome
-Pending — filled in once Phase 5 RECON completes.
+Accepted and completed 2026-09-11: Phase 5 (Containers System) built and closed ahead of Phase 4 as planned; Phase 4 now unblocked with container backend available.
 ```
 
 ---
