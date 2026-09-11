@@ -1,6 +1,6 @@
 import os
 import tempfile
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -530,6 +530,84 @@ class TestDeleteServerFS:
         assert result.success is True
         assert stop_called is True
         mock_delete_dir.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_docker_server_calls_destroy(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.domain.value_objects import RuntimeInfo
+
+        server = await _create_test_server("test-del-docker-1", with_deployment=True)
+        server._runtime = RuntimeInfo(provider="docker", external_id="onx-del-docker-1")
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        mock_provider = AsyncMock()
+        mock_provider.destroy = AsyncMock()
+        mock_factory = MagicMock()
+        mock_factory.get.return_value = mock_provider
+
+        handler = DeleteServerHandler(event_bus, provider_factory=mock_factory)
+        result = await handler.handle(DeleteServerCommand(server_id="test-del-docker-1"))
+
+        assert result.success is True
+        mock_factory.get.assert_called_once_with("docker")
+        mock_provider.destroy.assert_awaited_once()
+        handle_arg = mock_provider.destroy.call_args[0][0]
+        assert handle_arg.provider == "docker"
+        assert handle_arg.server_id == "test-del-docker-1"
+        assert handle_arg.external_id == "onx-del-docker-1"
+        mock_delete_dir.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_server_destroy_failure_degrades_gracefully(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.domain.value_objects import RuntimeInfo
+
+        server = await _create_test_server("test-del-fail-1", with_deployment=True)
+        server._runtime = RuntimeInfo(provider="docker", external_id="onx-del-fail-1")
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        mock_provider = AsyncMock()
+        mock_provider.destroy.side_effect = RuntimeError("Docker daemon disconnected")
+        mock_factory = MagicMock()
+        mock_factory.get.return_value = mock_provider
+
+        handler = DeleteServerHandler(event_bus, provider_factory=mock_factory)
+        result = await handler.handle(DeleteServerCommand(server_id="test-del-fail-1"))
+
+        assert result.success is True
+        mock_provider.destroy.assert_awaited_once()
+        mock_delete_dir.assert_called_once()
+        with pytest.raises(ServerNotFoundError):
+            await _get_server("test-del-fail-1")
+
+    @pytest.mark.asyncio
+    async def test_delete_server_default_provider_destroy_called(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.domain.value_objects import default_provider_for_platform
+        from app.modules.server.infrastructure.providers import (
+            provider_factory as default_factory,
+        )
+
+        await _create_test_server("test-del-default-1", with_deployment=True)
+        default_provider = default_factory.get(default_provider_for_platform())
+
+        with patch.object(default_provider, "destroy", AsyncMock()) as mock_destroy:
+            handler = DeleteServerHandler(event_bus)
+            result = await handler.handle(DeleteServerCommand(server_id="test-del-default-1"))
+
+            assert result.success is True
+            mock_destroy.assert_awaited_once()
+            handle_arg = mock_destroy.call_args[0][0]
+            assert handle_arg.server_id == "test-del-default-1"
 
 
 

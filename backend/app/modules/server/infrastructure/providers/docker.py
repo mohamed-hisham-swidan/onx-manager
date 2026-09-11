@@ -541,8 +541,15 @@ class DockerProvider(ServerProvider):
 
     async def destroy(self, handle: ServerHandle) -> None:
         self._rcon_cache.pop(handle.server_id, None)
-        container_name = handle.external_id
-        await self._docker_command("rm", "-f", container_name)
+        container_name = handle.external_id or f"{IDENTITY.temp_prefix_new}{handle.server_id}"
+        try:
+            await self._docker_command("rm", "-f", container_name)
+        except (FileNotFoundError, OSError) as exc:
+            logger.warning(
+                "Failed to execute docker rm for container %s (docker CLI unavailable): %s",
+                container_name,
+                exc,
+            )
 
     async def get_runtime_pid(self, handle: ServerHandle) -> int | None:
         container_name = handle.external_id

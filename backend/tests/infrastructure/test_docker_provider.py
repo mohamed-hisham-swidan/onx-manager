@@ -338,3 +338,73 @@ class TestDockerProviderContract:
                 await provider.start(server_id="fail-srv", config={})
 
         assert "docker start failed" in str(exc_info.value)
+
+
+class TestDockerDestroy:
+    @pytest.mark.asyncio
+    async def test_docker_destroy_removes_container_and_clears_rcon_cache(self) -> None:
+        provider = DockerProvider()
+        provider._rcon_cache["srv-del-1"] = {
+            "host": "127.0.0.1",
+            "port": 25575,
+            "password": "secret",
+            "server_dir": "/tmp/data",
+        }
+        handle = ServerHandle(
+            provider="docker",
+            server_id="srv-del-1",
+            external_id="onx-srv-del-1",
+        )
+
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_docker:
+            mock_docker.return_value = (0, "onx-srv-del-1")
+            await provider.destroy(handle)
+
+        mock_docker.assert_awaited_once_with("rm", "-f", "onx-srv-del-1")
+        assert "srv-del-1" not in provider._rcon_cache
+
+    @pytest.mark.asyncio
+    async def test_docker_destroy_empty_external_id_resolves_fallback(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="srv-del-2",
+            external_id="",
+        )
+
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_docker:
+            mock_docker.return_value = (0, "onx-srv-del-2")
+            await provider.destroy(handle)
+
+        mock_docker.assert_awaited_once_with("rm", "-f", "onx-srv-del-2")
+
+    @pytest.mark.asyncio
+    async def test_docker_destroy_already_removed_container_graceful(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="srv-del-3",
+            external_id="onx-srv-del-3",
+        )
+
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_docker:
+            mock_docker.return_value = (1, "Error: No such container: onx-srv-del-3")
+            # Must not raise an exception
+            await provider.destroy(handle)
+
+        mock_docker.assert_awaited_once_with("rm", "-f", "onx-srv-del-3")
+
+    @pytest.mark.asyncio
+    async def test_docker_destroy_cli_missing_graceful(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="srv-del-4",
+            external_id="onx-srv-del-4",
+        )
+
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_docker:
+            mock_docker.side_effect = FileNotFoundError("No such file or directory: 'docker'")
+            # Must degrade gracefully without bubbling up exception
+            await provider.destroy(handle)
+

@@ -16,7 +16,15 @@ from app.modules.server.application.commands.stop_server import (
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.domain.value_objects import default_provider_for_platform
 from app.modules.server.infrastructure.fs import local_fs
+from app.modules.server.infrastructure.providers import (
+    provider_factory as default_provider_factory,
+)
+from app.modules.server.infrastructure.providers.base import (
+    ProviderFactory,
+    ServerHandle,
+)
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 
@@ -29,8 +37,13 @@ class DeleteServerCommand(Command):
 
 
 class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
-    def __init__(self, event_bus: EventBus) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        provider_factory: ProviderFactory | None = None,
+    ) -> None:
         self._event_bus = event_bus
+        self._provider_factory = provider_factory
 
     async def handle(self, command: DeleteServerCommand) -> CommandResult:
         server_id = ServerId(command.server_id)
@@ -53,6 +66,24 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                     error_code="NOT_FOUND",
                 )
             server_status = server.status
+            server_name = server.name
+            provider_type = (
+                server.runtime.provider
+                if server.runtime and server.runtime.provider
+                else default_provider_for_platform()
+            )
+            external_id = (
+                server.runtime.external_id
+                if server.runtime and server.runtime.external_id
+                else f"{IDENTITY.temp_prefix_new}{sid}"
+            )
+
+        handle = ServerHandle(
+            provider=provider_type,
+            server_id=sid,
+            external_id=external_id,
+            metadata={"server_name": server_name},
+        )
 
         # 2. Stop running server if needed so JVM / supervisor processes are not orphaned (F050)
         if server_status in (ServerStatus.RUNNING, ServerStatus.STARTING):
@@ -71,7 +102,26 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
         with contextlib.suppress(Exception):
             await RuntimeSupervisor.stop_for(sid)
 
-        # 3. Mark deleted, delete record from repo and collect events
+        # 3. Teardown provider resources (containers, tmux sessions, process trees, caches)
+        factory = self._provider_factory or default_provider_factory
+        try:
+            provider = factory.get(provider_type)
+            await provider.destroy(handle)
+            logger.info(
+                'Server "%s" provider resources destroyed — provider=%s server_id=%s',
+                server_name,
+                provider_type,
+                sid,
+            )
+        except Exception as e:
+            logger.warning(
+                'Failed to destroy provider resources for server "%s" (provider=%s): %s',
+                server_name,
+                provider_type,
+                e,
+            )
+
+        # 4. Mark deleted, delete record from repo and collect events
         async with UnitOfWork(self._event_bus) as uow:
             repo = SQLServerRepository(uow.session)
             try:
