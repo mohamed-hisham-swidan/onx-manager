@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -608,6 +609,64 @@ class TestDeleteServerFS:
             mock_destroy.assert_awaited_once()
             handle_arg = mock_destroy.call_args[0][0]
             assert handle_arg.server_id == "test-del-default-1"
+
+    @pytest.mark.asyncio
+    async def test_delete_server_corrupted_provider_type_degrades_gracefully(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.domain.value_objects import RuntimeInfo
+
+        server = await _create_test_server("test-del-corrupt-1", with_deployment=True)
+        server._runtime = RuntimeInfo(
+            provider="bogus_no_such_provider", external_id="onx-del-corrupt"
+        )
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        # Uses real default factory (not a mock), verifying factory.get() failure absorption
+        handler = DeleteServerHandler(event_bus)
+        result = await handler.handle(DeleteServerCommand(server_id="test-del-corrupt-1"))
+
+        assert result.success is True
+        mock_delete_dir.assert_called_once()
+        with pytest.raises(ServerNotFoundError):
+            await _get_server("test-del-corrupt-1")
+
+    @pytest.mark.asyncio
+    async def test_delete_server_destroy_timeout_degrades_gracefully(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.domain.value_objects import RuntimeInfo
+
+        server = await _create_test_server("test-del-timeout-1", with_deployment=True)
+        server._runtime = RuntimeInfo(provider="docker", external_id="onx-del-timeout-1")
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        async def hanging_destroy(_handle: object) -> None:
+            await asyncio.sleep(1.0)
+
+        mock_provider = AsyncMock()
+        mock_provider.destroy.side_effect = hanging_destroy
+        mock_factory = MagicMock()
+        mock_factory.get.return_value = mock_provider
+
+        # Bound timeout to 10ms to verify asyncio.wait_for TimeoutError absorption quickly
+        target_timeout = (
+            "app.modules.server.application.commands.delete_server.DESTROY_TIMEOUT_SECONDS"
+        )
+        with patch(target_timeout, 0.01):
+            handler = DeleteServerHandler(event_bus, provider_factory=mock_factory)
+            result = await handler.handle(DeleteServerCommand(server_id="test-del-timeout-1"))
+
+        assert result.success is True
+        mock_delete_dir.assert_called_once()
+        with pytest.raises(ServerNotFoundError):
+            await _get_server("test-del-timeout-1")
 
 
 

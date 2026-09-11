@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import logging
 
@@ -29,6 +30,8 @@ from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.delete_server")
+
+DESTROY_TIMEOUT_SECONDS: float = 10.0
 
 
 class DeleteServerCommand(Command):
@@ -106,10 +109,21 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
         factory = self._provider_factory or default_provider_factory
         try:
             provider = factory.get(provider_type)
-            await provider.destroy(handle)
+            await asyncio.wait_for(
+                provider.destroy(handle),
+                timeout=DESTROY_TIMEOUT_SECONDS,
+            )
             logger.info(
                 'Server "%s" provider resources destroyed — provider=%s server_id=%s',
                 server_name,
+                provider_type,
+                sid,
+            )
+        except TimeoutError:
+            logger.warning(
+                'Server "%s" provider destroy timed out after %ss — provider=%s server_id=%s',
+                server_name,
+                DESTROY_TIMEOUT_SECONDS,
                 provider_type,
                 sid,
             )
