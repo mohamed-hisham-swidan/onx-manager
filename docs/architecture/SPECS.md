@@ -15,7 +15,7 @@ repository shape, code statistics, structure, specs, and features.**
 |---|---|
 | Name | ONX Manager (Development & Self-Hosted Environment) |
 | Version | `0.1.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
-| Status | Phase 8 Ready — Canonical Roadmap: `docs/roadmap/ROADMAP.md` |
+| Status | Phase 5 Build In Progress (Batch 1/6) — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
 | License | Apache 2.0 (`LICENSE`) |
 | Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/current-state.md`, `docs/API.md` |
 
@@ -32,7 +32,7 @@ repository shape, code statistics, structure, specs, and features.**
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |
 | DB dialect | SQLite (`aiosqlite`), PostgreSQL (`asyncpg`) |
-| Migrations | Alembic `>=1.13` (29 revisions, head `b1e2100000009`) |
+| Migrations | Alembic `>=1.13` (30 revisions, head `b1e2100000010`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (decoupled schema inspection, locks, and ACID backups) |
 | Validation / config | Pydantic v2 `>=2.5`, `pydantic-settings >=2.1` |
 | HTTP client | aiohttp `>=3.9` |
@@ -305,15 +305,15 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 | Source files (backend + frontend) | 631 |
 | Python files / lines | 466 / 67,598 |
 | TS+TSX files / lines | 164 / ~24,787 |
-| REST endpoints | 96 handlers across 15 routers |
-| Alembic revisions | 27 (head `b1e2100000008`) |
+| REST endpoints / live routes | 106 live routes (15 routers + app routes; 106/106 contract gate) |
+| Alembic revisions | 30 (head `b1e2100000010`) |
 | DB tables | 32 + (default dev DB at head) |
-| CI workflows | 5 |
-| Contracts | 6 |
-| ADRs | 13 |
-| Backend tests | 1,934 passed / 2 skipped |
-| Frontend tests | 574 (67 files); 528 passed + 1 load-flaky timeout (2026-08-19) |
-| Docs Markdown | 107 files / 26,349 lines |
+| CI workflows | 5 (backend-tests, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence) |
+| Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |
+| ADRs | 13 (`0001`–`0012` + `DECISION-2026-09-10-001`) |
+| Backend tests | 2,346 passed / 5 skipped (2,351 collected, 0 failed) |
+| Frontend tests | 642 passed across 75 test files (2,988 total tests across suites) |
+| Docs Markdown | 107 files / 26,349+ lines |
 
 ---
 

@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.modules.server.domain.value_objects import (
+    LaunchConfiguration,
+    ServerDeployment,
+)
 from app.modules.server.infrastructure.providers.base import (
     DeploymentResult,
     ServerHandle,
@@ -60,7 +64,13 @@ class CloudProvider(ServerProvider, ABC):
     async def ping(self) -> bool:
         return False
 
-    async def start(self, server_id: str, config: dict[str, Any]) -> DeploymentResult:
+    async def start(
+        self,
+        server_id: str,
+        config: dict[str, Any] | None = None,
+        deployment: ServerDeployment | None = None,
+        launch_config: LaunchConfiguration | None = None,
+    ) -> DeploymentResult:
         raise NotImplementedError("CloudProvider.start requires a provisioned VM")
 
     async def stop(self, handle: ServerHandle, force: bool = False) -> None:

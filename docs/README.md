@@ -9,10 +9,10 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2149 backend tests, 574 frontend tests, 29 DB migrations). |
-| [Canonical Roadmap](roadmap/ROADMAP.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 8+ (Dynamic DNS & Custom Domains). |
+| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2346 backend tests, 642 frontend tests, 30 DB migrations). |
+| [Canonical Roadmap](roadmap/ROADMAP_v1.1.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 5 (Containers System Build In Progress) and Phase 4. |
 | [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`0.1.0`), compatibility floor. |
-| [API Reference](API.md) | ✅ **CURRENT** | REST API reference (15 routers, 105 endpoints) & WebSocket protocols. |
+| [API Reference](API.md) | ✅ **CURRENT** | REST API reference (15 routers, 106 live routes) & WebSocket protocols. |
 
 ---
 
@@ -22,7 +22,7 @@ listed with their status so it is always clear what is implemented vs planned.
 |---|---|---|
 | [System Architecture](architecture/ARCHITECTURE.md) | ✅ **CURRENT** | Modular monolith design, 10 DDD bounded contexts, CQRS buses, outbox, supervisor. |
 | [Technical Specs](architecture/SPECS.md) | ✅ **CURRENT** | Tech stack, repository metrics, directory layouts, feature matrices. |
-| [Database Architecture](architecture/DATABASE.md) | ✅ **CURRENT** | SQLite (`backend/data/onx.db`) & PostgreSQL models, 29 Alembic migrations (`b1e2100000009`), pre-backend reconciler. |
+| [Database Architecture](architecture/DATABASE.md) | ✅ **CURRENT** | SQLite (`backend/data/onx.db`) & PostgreSQL models, 30 Alembic migrations (`b1e2100000010`), pre-backend reconciler. |
 | [Security Architecture](architecture/SECURITY.md) | ✅ **CURRENT** | RS256 JWT auth, RBAC/ABAC route permissions, API keys, path sandboxing. |
 | [Frontend Architecture](architecture/FRONTEND.md) | ✅ **CURRENT** | React 19, Tailwind CSS v4, TanStack Query, WebSocket store. |
 | [Forge/NeoForge Provisioning Spec](architecture/SPEC-FORGE-PROVISIONING-001.md) | ✅ **CURRENT** | Unified InstallerProvisioner, non-destructive retry, failure classification. |
@@ -36,7 +36,7 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |---|---|---|
 | [Server Lifecycle State Machine](runtime/lifecycle.md) | ✅ **CURRENT** | 8 `ServerStatus` states, transition matrices, recovery workflows. |
-| [Server Providers](runtime/providers.md) | ✅ **CURRENT** | `LocalLinuxProvider` (tmux execution) & `LocalWindowsProvider` (native Win32 process tracking). |
+| [Server Providers](runtime/providers.md) | ✅ **CURRENT** | `LocalLinuxProvider` (tmux), `LocalWindowsProvider` (Win32), and `DockerProvider` (Phase 5 in progress). |
 | [Reconciliation Engine](runtime/reconciliation.md) | ✅ **CURRENT** | Runtime server state reconciliation and Pre-Backend Database Reconciler (`reconciler.py`). |
 | [Supervision Engine](runtime/supervision.md) | ✅ **CURRENT** | `RuntimeSupervisor` heartbeats, process PID recovery, zombie pruning. |
 

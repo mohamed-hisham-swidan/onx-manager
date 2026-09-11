@@ -4,6 +4,10 @@ from typing import Any
 
 from app.core.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from app.core.exceptions import ProviderError
+from app.modules.server.domain.value_objects import (
+    LaunchConfiguration,
+    ServerDeployment,
+)
 from app.modules.server.infrastructure.providers.base import (
     DeploymentResult,
     ServerHandle,
@@ -44,8 +48,21 @@ class CircuitBreakerProviderWrapper(ServerProvider):
         except ProviderError:
             return False
 
-    async def start(self, server_id: str, config: dict[str, Any]) -> DeploymentResult:
-        return await self._breaker.call_factory(lambda: self._wrapped.start(server_id, config))
+    async def start(
+        self,
+        server_id: str,
+        config: dict[str, Any] | None = None,
+        deployment: ServerDeployment | None = None,
+        launch_config: LaunchConfiguration | None = None,
+    ) -> DeploymentResult:
+        return await self._breaker.call_factory(
+            lambda: self._wrapped.start(
+                server_id=server_id,
+                config=config,
+                deployment=deployment,
+                launch_config=launch_config,
+            )
+        )
 
     async def stop(self, handle: ServerHandle, force: bool = False) -> None:
         await self._breaker.call_factory(lambda: self._wrapped.stop(handle, force=force))

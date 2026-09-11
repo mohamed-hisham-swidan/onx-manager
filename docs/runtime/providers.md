@@ -13,7 +13,7 @@ The server manager abstracts OS process management behind the `ServerProvider` i
 |---|---|---|---|
 | **`LocalLinuxProvider`** | **ACTIVE / FUNCTIONAL** | Linux / POSIX Host | `tmux` terminal multiplexer sessions with `MCS_MANAGED=1` environment markers. |
 | **`LocalWindowsProvider`** | **ACTIVE / FUNCTIONAL** | Windows Host | Native Win32 detached processes (`CREATE_NEW_PROCESS_GROUP \| DETACHED_PROCESS \| CREATE_NO_WINDOW`) with Win32 process tracking. |
-| `DockerProvider` | *Deferred Stub* | Docker Daemon | Docker Engine API / container execution. |
+| `DockerProvider` | In Progress — Phase 5 Batch 1/6 (signature alignment only, runtime refactor pending) | Docker Daemon | Docker Engine API / container execution. |
 | `SSHProvider` | *Deferred Stub* | Remote Linux Host | AsyncSSH remote tmux sessions. |
 | `CloudProvider` | *Deferred Stub* | Cloud VM Instances | Cloud compute API instance management. |
 

@@ -52,8 +52,8 @@ def test_config_schema_integrity_f092() -> None:
     with open(config_schema_file, encoding="utf-8") as f:
         config_schema = json.load(f)
 
-    # local_win must be recognized in provider_type enum
-    assert "local_win" in config_schema["properties"]["provider_type"]["enum"]
+    # local_windows must be recognized in provider_type enum
+    assert "local_windows" in config_schema["properties"]["provider_type"]["enum"]
 
     # java_args must support array of strings or string
     java_args_schema = config_schema["properties"]["java_args"]

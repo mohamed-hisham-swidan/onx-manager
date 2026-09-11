@@ -7,6 +7,10 @@ from typing import Any
 
 from app.core.exceptions import ProviderError
 from app.core.identity import IDENTITY
+from app.modules.server.domain.value_objects import (
+    LaunchConfiguration,
+    ServerDeployment,
+)
 from app.modules.server.infrastructure.providers.base import (
     DeploymentResult,
     ServerHandle,
@@ -45,14 +49,22 @@ class SSHProvider(ServerProvider):
         except Exception:
             return False
 
-    async def start(self, server_id: str, config: dict[str, Any]) -> DeploymentResult:
+    async def start(
+        self,
+        server_id: str,
+        config: dict[str, Any] | None = None,
+        deployment: ServerDeployment | None = None,
+        launch_config: LaunchConfiguration | None = None,
+    ) -> DeploymentResult:
+        _ = (deployment, launch_config)
+        cfg = config or {}
         conn = await self._get_connection()
-        memory_min = config.get("memory_min_mb", 1024)
-        memory_max = config.get("memory_max_mb", 2048)
-        port = config.get("port", 25565)
-        jar_path = config.get("jar_path", "server.jar")
-        server_dir = config.get("server_dir", f"/opt/minecraft/servers/{server_id}")
-        java_args = config.get("java_args", [])
+        memory_min = cfg.get("memory_min_mb", 1024)
+        memory_max = cfg.get("memory_max_mb", 2048)
+        port = cfg.get("port", 25565)
+        jar_path = cfg.get("jar_path", "server.jar")
+        server_dir = cfg.get("server_dir", f"/opt/minecraft/servers/{server_id}")
+        java_args = cfg.get("java_args", [])
         session_name = f"{IDENTITY.temp_prefix_new}{server_id}"
 
         jvm_args = " ".join(java_args) if isinstance(java_args, list) else java_args

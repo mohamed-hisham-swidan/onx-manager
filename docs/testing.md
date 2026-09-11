@@ -4,10 +4,10 @@
 
 | Layer | Framework | Test Count | Location |
 |---|---|---|---|
-| Backend (unit + integration + lifecycle) | pytest + pytest-asyncio | **2131 passed / 2 skipped (2133 collected, 0 failures)** | `backend/tests/` |
-| Frontend (component + unit) | Vitest + jsdom | **574 passed across 69 files** | `frontend/src/**/*.test.*` |
+| Backend (unit + integration + lifecycle) | pytest + pytest-asyncio | **2,346 passed / 5 skipped (2,351 collected, 0 failures)** | `backend/tests/` |
+| Frontend (component + unit) | Vitest + jsdom | **642 passed across 75 files (0 failures)** | `frontend/src/**/*.test.*` |
 
-> Measured 2026-08-31 (see `docs/current-state.md` §2). Backend lint is enforced as a **Ruff
+> Measured 2026-09-11 (see `docs/current-state.md` §2). Backend lint is enforced as a **Ruff
 > baseline regression gate** — new violations fail CI while the pre-existing
 > baseline remains tracked in `scripts/ruff-baseline.json` (see `scripts/check-ruff-baseline`).
 

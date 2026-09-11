@@ -1,4 +1,4 @@
-## Current State (2026-09-08)
+## Current State (2026-09-11)
 
 **Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
 - Phase 0 (Ground Truth/Baseline Freeze): CLOSED
@@ -11,25 +11,25 @@
   comment feature closed Deferred (undefined, same as extended
   files), Workstream A confirmed, full suite green (75 files/642
   tests)
-- **Next: Phase 5 (Containers System)** — executes before Phase 4
-  per DECISION-2026-09-10-001 (2026-09-10): RECON → Design → Build
-  → Review → Verify, then Phase 4 starts with the container backend
-  already available for the test-environment feature. Phase numbering
-  and scope unchanged.
+- **Phase 5 (Containers System): IN PROGRESS (Batch 1 of 6 complete)** — executes before Phase 4
+  per DECISION-2026-09-10-001 (2026-09-10). Design Spec (`docs/design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md`)
+  APPROVED 2026-09-11 (D2/Major, Lane B). Batch 1 complete (signature alignment across 4 providers,
+  contracts schema enum `local_win` -> `local_windows` correction, roadmap/state sync, 5 regression tests).
+  Batch 2 (DockerProvider runtime refactor) next.
 - **Then: Phase 4 (Community Feature Build)** — 5 features
   (transparent update system, test environment, custom mod support,
-  change history log, log/crash readability). Zero design specs
-  exist yet in docs/design/ or docs/plans/ for any of them — this
-  phase needs real Design Specs per the normal Orchestrator.md
-  pipeline (Recon → Design Spec → Design Review → Build → Separated
-  Review → Verify), unlike Phases 1-3 which were recon/classification
-  only.
+  change history log, log/crash readability). Starts after Phase 5
+  with container backend available for test-environment feature.
 
-**Resolved this session (for reference, don't re-investigate):**
+**Resolved recently (for reference, don't re-investigate):**
+- Phase 5 Batch 1: Aligned stale `start()` signatures to 4 kwargs across `SSHProvider`,
+  `CloudProvider`, `CircuitBreakerProviderWrapper`, and `DockerProvider`.
+- Contracts schema enum: replaced `"local_win"` with `"local_windows"` in `contracts/config.schema.json`.
+- ADR-0009 verification finding: ADR-0009 covers domain value-object field validators,
+  not provider naming (no phantom ADR created).
 - 'Extended files' (Phase 1) and 'Comment feature' (Phase 3): both
   closed Deferred — no recoverable definition found anywhere in repo
-  history; Mohamed could not recall either. Reopen only if either
-  resurfaces with a concrete definition.
+  history; Mohamed could not recall either.
 - Files API possible IDOR: closed, NOT A VULNERABILITY (verified
   per-server ownership enforcement + passing tests).
 - FastAPI merged_lifespan recursion: closed, false positive (zero
@@ -43,12 +43,11 @@
 - Windows CI backend stall (2026-09-10 run: 19 passed, then ~39 min
   silence at TestServers::test_stop_server, not reproducible on Linux):
   fix landed — supervisor stop() detaches after a shielded timeout,
-  faulthandler stack-dump trap added to windows-ci.yml. Wedged stack
-  UNPROVEN; close only after a green backend-windows run.
+  faulthandler stack-dump trap added to windows-ci.yml.
 
 **Still open, not yet decided:**
 - 'GPS' definition (Phase 5 scope) — still undefined, same class of
-  problem as extended-files/comment-feature.
+  problem as extended-files/comment-feature (recon-confirmed undefined in code).
 - Whether to formalize agent-role division into GOVERNANCE.md.
 - Frontend visual identity — Mohamed flagged the live UI as looking
   generic/template-like; deliberately deferred to Phase 7 (Visual/
@@ -59,10 +58,10 @@
 # ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-08-31. Every claim below was verified against source code, the database,
+2026-09-11. Every claim below was verified against source code, the database,
 and a live test run.
 
-**Last verified:** 2026-09-02
+**Last verified:** 2026-09-11
 **App version (code):** `0.1.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
@@ -72,26 +71,27 @@ and a live test run.
 | Item | Count | Evidence |
 |------|-------|----------|
 | Backend Python source files | 300 | `find backend/app -name "*.py"` |
-| Backend test files | 131 | `find backend/tests -name "test_*.py"` |
-| Frontend test files | 69 | `find frontend/src -name "*.test.*"` |
+| Backend test files | 136 | `find backend/tests -name "test_*.py"` |
+| Frontend test files | 75 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 15 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
-| Alembic migration revisions | 29 | `backend/alembic/versions/` (head `b1e2100000009`) |
-| Architecture Decision Records | 12 | `docs/decisions/0001`–`0012` |
+| Live routes | 106 | `./scripts/check-route-contract` (106 live routes vs 106 entries in `contracts/permissions.yaml`) |
+| Alembic migration revisions | 30 | `backend/alembic/versions/` (head `b1e2100000010`) |
+| Architecture Decision Records | 13 | `docs/decisions/0001`–`0012` + `DECISION-2026-09-10-001` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 10 | `auth, backup, event_store, exposure, health, monitoring, plugin, server, shared, storage` |
 | CI workflows | 5 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml}` — full backend pytest + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence |
 
 ---
 
-## 2. Test suite (measured 2026-09-01)
+## 2. Test suite (measured 2026-09-11)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **2151** |
-| Passed | **2149** |
-| Skipped | **2** |
+| Collected | **2351** |
+| Passed | **2346** |
+| Skipped | **5** |
 | Failed | **0** |
 
 Backend CI runs the full suite on every push/PR to `master`
@@ -102,8 +102,8 @@ check and a Ruff-baseline regression gate.
 
 | Metric | Value |
 |--------|-------|
-| Test files | **69** |
-| Tests | **574 passed** across 69 test files |
+| Test files | **75** |
+| Tests | **642 passed** across 75 test files |
 
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
 on every push/PR to `master`.
@@ -116,9 +116,9 @@ on every push/PR to `master`.
 
 | Property | Value |
 |----------|-------|
-| Alembic revision | `b1e2100000009` — **at head** |
-| Head revision | `b1e2100000009` (head == current) |
-| New tables / columns | `system_state`, `invitations`, `server_memberships`, Phase-7 exposure tables (`host_playit_agent`, `server_exposure`, `server_exposure_target`, `panel_exposure`), nullable `metric_points.tps`, and `servers.running_start_time` (`b1e2100000009`) |
+| Alembic revision | `b1e2100000010` — **at head** |
+| Head revision | `b1e2100000010` (head == current) |
+| New tables / columns | `system_state`, `invitations`, `server_memberships`, Phase-7 exposure tables (`host_playit_agent`, `server_exposure`, `server_exposure_target`, `panel_exposure`), nullable `metric_points.tps`, `servers.running_start_time` (`b1e2100000009`), and `servers.cpu_cores` / `servers.cpu_affinity` (`b1e2100000010`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` automatically inspects, backs up, and reconciles DB schema before services start |
 
 ---
@@ -223,9 +223,7 @@ compatible → any). The server-scoped `/plugins/marketplace` (`?server=<id>`) s
   - Hot-reload: updates immediately affect running instances of `RateLimitMiddleware`, `CircuitBreaker`, `EventBus`, `SagaOrchestrator`, and `cleanup_task`.
   - Restart flags: fields `app_name`, `log_level`, `debug` are persisted but require a backend service restart to affect runtime behavior; returned in the API's `requires_restart` response array.
   - Frontend: `SettingsPage.tsx` fully editable with 4 card sections, `PageHeader`, `RestartBadge`, and `role="alert"` / `role="status"` save feedback.
-- Stubs / known-open items: `ArqQueue` defined but unused and uninstantiated;
-  `GET/POST/DELETE /schedules` return stubs; `GET /monitoring/alerts` and
-  `DELETE /monitoring/alerts/{id}` are stubs; metrics retention rollups not implemented.
+- Stubs / resolved items: `ArqQueue` removed in Batch 4 (F072) and `aredis` dependency eliminated; `GET/POST/DELETE /schedules` operational; `GET /monitoring/alerts` and `DELETE /monitoring/alerts/{id}` wired to `SQLAlertRuleRepository` (Batch 4 F064).
 
 ### 4.6 Rate limiting
 
@@ -327,12 +325,12 @@ instead of trusting memory (Blueprint V5 §2.4):
 
 Checks executed each run (identical locally via `scripts/reverify`):
 
-1. `python ../scripts/check-version-propagation` — pyproject.toml / package.json / runtime agree
-2. `python ../scripts/check-db-revision` — migration head `b1e2100000007` at release floor
+1. `python ../scripts/check-version-propagation` — pyproject.toml / package.json / runtime agree (0.1.0)
+2. `python ../scripts/check-db-revision` — database schema matches compatible migration head
 3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
-4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 85 entries match 85 live routes
-5. `python -m pytest -q` (backend) — full suite `1934 passed / 2 skipped`
-6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — `67 files / 529 tests` (latest run: 528 passed + 1 pre-existing load-flaky timeout), typecheck/lint pre-existing only, build succeeds
+4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 106 entries match 106 live routes
+5. `python -m pytest -q` (backend) — full suite 2,349 passed / 5 skipped
+6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — 75 files / 642 tests passing, build succeeds
 
 ### 7.3 Execution status
 

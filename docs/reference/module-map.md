@@ -43,6 +43,8 @@
 | `schedules.py` | `/api/v1/schedules` | Automated scheduled tasks (backups, restarts, commands) | 6 |
 | `settings.py` | `/api/v1/settings` | Live application settings inspection, runtime config updates | 5 |
 
+*Total live routes: 106 (95 router endpoints + 11 system/app routes including `/ws`, `/health`, `/metrics`, `/.well-known/jwks.json`, OpenAPI). Verified by `./scripts/check-route-contract` (106/106 PASS).*
+
 ---
 
 ## 3. Frontend Page Inventory (`frontend/src/` — 19 Pages)

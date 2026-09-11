@@ -108,6 +108,71 @@ class TestCircuitBreakerWrapper:
         result = await wrapped.status(handle)
         assert result == ServerRuntimeStatus.UNKNOWN
 
+    @pytest.mark.asyncio
+    async def test_start_forwards_all_four_arguments(self) -> None:
+        inner = MagicMock(spec=ServerProvider)
+        inner.start = AsyncMock(
+            return_value=DeploymentResult(
+                status=ServerRuntimeStatus.RUNNING,
+                address="127.0.0.1",
+                port=25565,
+                pid=123,
+            )
+        )
+        inner.provider_type = "mock"
+        wrapped = CircuitBreakerProviderWrapper(inner)
+
+        deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path="/tmp/test",
+        )
+        lc = LaunchConfiguration(
+            java_executable="java",
+            startup_command=None,
+            startup_jar="server.jar",
+        )
+        config = {"port": 25565}
+
+        result = await wrapped.start(
+            server_id="srv-1",
+            config=config,
+            deployment=deployment,
+            launch_config=lc,
+        )
+
+        assert result.status == ServerRuntimeStatus.RUNNING
+        assert result.pid == 123
+        inner.start.assert_awaited_once_with(
+            server_id="srv-1",
+            config=config,
+            deployment=deployment,
+            launch_config=lc,
+        )
+
+    @pytest.mark.asyncio
+    async def test_start_defaults_optional_arguments(self) -> None:
+        inner = MagicMock(spec=ServerProvider)
+        inner.start = AsyncMock(
+            return_value=DeploymentResult(
+                status=ServerRuntimeStatus.RUNNING,
+                address="127.0.0.1",
+                port=25565,
+                pid=456,
+            )
+        )
+        inner.provider_type = "mock"
+        wrapped = CircuitBreakerProviderWrapper(inner)
+
+        result = await wrapped.start(server_id="srv-2")
+
+        assert result.status == ServerRuntimeStatus.RUNNING
+        inner.start.assert_awaited_once_with(
+            server_id="srv-2",
+            config=None,
+            deployment=None,
+            launch_config=None,
+        )
+
 
 class TestCloudProviderStub:
     @pytest.mark.asyncio
@@ -120,6 +185,26 @@ class TestCloudProviderStub:
         stub = CloudProviderStub()
         with pytest.raises(NotImplementedError):
             await stub.start("test", {})
+
+    @pytest.mark.asyncio
+    async def test_stub_raises_start_with_four_kwargs(self) -> None:
+        stub = CloudProviderStub()
+        deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path="/tmp/cloud",
+        )
+        lc = LaunchConfiguration(
+            java_executable="java",
+            startup_command=None,
+            startup_jar="server.jar",
+        )
+        with pytest.raises(NotImplementedError, match="CloudProvider.start requires a provisioned VM"):
+            await stub.start(
+                server_id="test",
+                config={"port": 25565},
+                deployment=deployment,
+                launch_config=lc,
+            )
 
     @pytest.mark.asyncio
     async def test_provision_vm(self) -> None:
@@ -757,6 +842,44 @@ class TestDockerProvider:
         assert parsed[0] == "docker"
         assert parsed[1] == "create"
 
+    @pytest.mark.asyncio
+    async def test_docker_start_accepts_four_kwargs_without_type_error(self) -> None:
+        provider = DockerProvider()
+        config = {
+            "image": "itzg/minecraft-server:latest",
+            "port": 25565,
+            "memory_min_mb": 1024,
+            "memory_max_mb": 2048,
+        }
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path="/tmp/docker-srv",
+        )
+        lc = LaunchConfiguration(
+            java_executable="java",
+            startup_command=None,
+            startup_jar="server.jar",
+        )
+
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+        ):
+            mock_docker.side_effect = [
+                (0, ""),  # create
+                (0, ""),  # start
+                (0, "7890\n"),  # inspect pid
+            ]
+            result = await provider.start(
+                server_id="docker-4-kwarg",
+                config=config,
+                deployment=deployment,
+                launch_config=lc,
+            )
+
+        assert result.status == ServerRuntimeStatus.RUNNING
+        assert result.pid == 7890
+
 
 class TestSSHProvider:
     @pytest.mark.asyncio
@@ -793,3 +916,42 @@ class TestSSHProvider:
         parsed = shlex.split(tmux_cmd)
         assert parsed[0] == "tmux"
         assert parsed[1] == "new-session"
+
+    @pytest.mark.asyncio
+    async def test_ssh_start_accepts_four_kwargs_without_type_error(self) -> None:
+        provider = SSHProvider(host="10.0.0.1")
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "5555\n"
+        mock_result.stderr = ""
+        mock_conn.run = AsyncMock(return_value=mock_result)
+
+        config = {
+            "server_dir": "/opt/minecraft/srv1",
+            "jar_path": "server.jar",
+            "memory_min_mb": 1024,
+            "memory_max_mb": 2048,
+        }
+        deployment = ServerDeployment(
+            location_type=LocationType.SSH,
+            root_path="/opt/minecraft/srv1",
+        )
+        lc = LaunchConfiguration(
+            java_executable="java",
+            startup_command=None,
+            startup_jar="server.jar",
+        )
+
+        with (
+            patch.object(provider, "_get_connection", AsyncMock(return_value=mock_conn)),
+            patch("asyncio.sleep", AsyncMock()),
+        ):
+            res = await provider.start(
+                server_id="ssh-4-kwarg",
+                config=config,
+                deployment=deployment,
+                launch_config=lc,
+            )
+
+        assert res.pid == 5555

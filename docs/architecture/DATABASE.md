@@ -7,14 +7,13 @@
 | Primary database | SQLite 3 (`aiosqlite` async) default (`backend/data/onx.db`); PostgreSQL 16 (`asyncpg`) supported |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (29 revisions, head `b1e2100000009`) |
+| Migrations | Alembic (30 revisions, head `b1e2100000010`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (ACID backups & migration gate) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
-> **Redis note:** Redis appears in the documented stack but the running system
-> never uses it. The task queue is in-process (`InProcessQueue`); the Arq/Redis
-> queue is defined in code but not wired up or instantiated. There is no Redis
-> cache, pub/sub, or presence store. See `docs/architecture/ARCHITECTURE.md`.
+> **Task queue note:** The runtime exclusively uses `InProcessQueue`. The legacy
+> unused Arq/Redis queue (`tasks/arq_queue.py`) was removed in Batch 4 (F072) and
+> the `aredis` dependency eliminated. There is no Redis requirement, cache, or pub/sub.
 
 Connection pooling: 20 pool size, 10 max overflow, `pool_pre_ping=True` for PostgreSQL. SQLite mode skips pooling. See `backend/app/core/persistence/db.py`.
 
@@ -51,16 +50,18 @@ The central aggregate. Each row represents a single Minecraft server instance wi
 | `provisioning_error` | `Text` | `None` | Nullable error summary when status is `provisioning_failed` |
 | `provisioning_retryable` | `Boolean` | `False` | True if transient error is auto-retryable |
 | `motd`, `max_players`, `gamemode`, `difficulty`, `pvp`, etc. | varied | — | Direct server.properties mapping |
-| `provider` | `String(32)` | `"local"` | local, docker, remote |
+| `provider` | `String(32)` | `"local"` | local, docker, remote, local_windows |
 | `location_type` | `String(16)` | `"local"` | Filesystem placement |
 | `root_path`, `working_directory`, `startup_jar`, `startup_command` | varied | — | Deployment paths |
 | `launch_config_json` | `Text` | nullable | Full launch config snapshot |
 | `uptime_seconds` | `Float` | 0 | |
 | `running_start_time` | `DateTime` | nullable | Timestamp when server entered running state (`b1e2100000009`) |
+| `cpu_cores` | `Integer` | 0 | Max logical processors (0 = unconstrained; `b1e2100000010`) |
+| `cpu_affinity` | `String(64)` | `""` | Core affinity string (e.g. "0-3"; `b1e2100000010`) |
 | `external_id` | `String(255)` | nullable | Cloud provider instance ID |
 | `missing_since` | `DateTime` | nullable | When server dir was detected missing (two-pass deletion) |
 
-Server config properties (motd, difficulty, etc.) map to `server.properties` fields. The `server_type` column was added in migration `5a50140d37df`; deployment columns in `003`; `launch_config_json` in `fcc7545db19e`; `external_id` in `902b076bfa36`; `missing_since` in `a1b2c3d4e5f6`; `running_start_time` in `b1e2100000009`.
+Server config properties (motd, difficulty, etc.) map to `server.properties` fields. The `server_type` column was added in migration `5a50140d37df`; deployment columns in `003`; `launch_config_json` in `fcc7545db19e`; `external_id` in `902b076bfa36`; `missing_since` in `a1b2c3d4e5f6`; `running_start_time` in `b1e2100000009`; `cpu_cores` and `cpu_affinity` in `b1e2100000010`.
 
 ### Backups
 

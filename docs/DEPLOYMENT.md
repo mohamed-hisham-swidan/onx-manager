@@ -185,9 +185,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## Production considerations
 
-1. **Change `MCS_SECRET_KEY`** in `.env` to a long (≥32 chars) random string.
-2. **Provide a JWT private key** — either set `MCS_JWT_PRIVATE_KEY` in `.env`, or mount a PEM file and set `MCS_JWT_PRIVATE_KEY_PATH`. Without this, JWTs are invalidated on every container restart.
-3. **Back up the volumes** regularly — especially `mcs-db-data` and `mcs-server-data`.
+1. **Change `ONX_SECRET_KEY` (or `MCS_SECRET_KEY`)** in `.env` to a long (≥32 chars) random string.
+2. **Provide a JWT private key** — either set `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) in `.env`, or mount a PEM file and set `ONX_JWT_PRIVATE_KEY_PATH` (or `MCS_JWT_PRIVATE_KEY_PATH`). Without this, JWTs are invalidated on every container restart.
+3. **Back up the volumes** regularly — especially `onx-db-data` and `onx-server-data`.
 4. **Resource limits** — Minecraft servers can use significant RAM. Consider adding `deploy.resources.limits` in `docker-compose.yml` if running on constrained hardware.
 
 ## Local dev (non-Docker) alternative

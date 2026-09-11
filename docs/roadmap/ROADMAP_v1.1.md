@@ -110,9 +110,24 @@ Same five features, same evidence base (r/admincraft, 2026-08-10), same priority
 
 ## Phase 5 — Containers System
 
-**Decision Record required and included below** (v1.0 pulled this forward from the old roadmap's Phase 11 without formally recording why — the external review correctly flagged this as a `GOVERNANCE.md`-governed reorder that needs its own record).
+**Status:** Design CLOSED / Build IN PROGRESS (Batch 1/6 — Signature Alignment, Schema Fix, Roadmap Sync)  
+**Design Spec:** [`docs/design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md`](../design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md) (Approved 2026-09-11, D2/Major, Lane B)
 
-Scope: replace host-level tmux/process execution with isolated per-server Docker containers across Linux/macOS/Windows. Also covers "state-of-the-art validation of GPS/local mode/global mode" and port-forward library testing — **"GPS" is a blocked item, not committed scope, pending Mohamed's definition of what it refers to.**
+Scope: replace host-level tmux/process execution with isolated per-server Docker containers across Linux/macOS/Windows. Also covers port-forward library testing — **"GPS" is a blocked item, not committed scope, pending Mohamed's definition of what it refers to (recon-confirmed undefined in code as of 2026-09-10).**
+
+The approved design establishes 12 core architectural decisions:
+1. *CLI Subprocess Driver:* Continue CLI-subprocess driver via tokenized `asyncio.create_subprocess_exec` (zero extra dependencies, async-native, avoids shell-injection risks).
+2. *In-Place Refactor:* Refactor existing `DockerProvider` in-place rather than rewriting.
+3. *Volume Mount Contract:* Whole-directory bind mount (`server_dir` → `/data`) preserving File Manager, Backup, and Diagnostics interoperability.
+4. *Launch Translation:* Deterministic dual translation supporting both standard JARs and Forge/NeoForge `run.sh` entrypoints with CPU pinning.
+5. *Provisioning Location:* Host-side provisioning default with ephemeral container fallback (`ContainerInstallerRunner`) when host Java is absent.
+6. *Network Model:* Bridge container networking with published host ports (`-p`), allowing playit.gg, UPnP, and Cloudflare to attach to `127.0.0.1:{port}` with zero exposure code changes.
+7. *Windows Policy:* Windows policy mandating WSL2 backend in Linux Containers mode with forward-slash path normalization and `ping()` health gating.
+8. *Signature Alignment:* Align stale 2-kwarg `start()` signatures to the 4-kwarg `ServerProvider` ABC across all providers.
+9. *Schema Enum Correction:* Correct config schema enum from `"local_win"` to `"local_windows"`.
+10. *Test Conformance:* Two-tiered test plan: 100% mocked unit contract tests in CI, plus explicitly gated live-daemon tests (`@pytest.mark.docker`).
+11. *Creation-Time Selection:* Creation-time provider selection in API payload, preflight `ping()` validation gate, and frontend wizard toggle.
+12. *DooD Compose Policy:* Docker-outside-of-Docker policy for ONX Compose deployments: native host primary support, with an opt-in profile (`docker-compose.dood.yml`) explicitly documenting host socket privilege escalation risks.
 
 ## Phase 6 — Final Installs / Wrap-up
 

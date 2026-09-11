@@ -52,11 +52,11 @@ Authorization: Bearer <api_key>
 short-lived (15 minutes, `exp` in payload); claims include `sub`, `roles`,
 `permissions`, and `scope`. Public keys are published at
 `GET /.well-known/jwks.json`. The RSA keypair is auto-generated in-process on
-first run unless `MCS_JWT_PRIVATE_KEY` / `MCS_JWT_PRIVATE_KEY_PATH` are set
+first run unless `ONX_JWT_PRIVATE_KEY` / `MCS_JWT_PRIVATE_KEY` (or `_PATH`) are set
 (see [Environment Variables](architecture/ARCHITECTURE.md#environment-variables-production)).
 
-**API keys** are long-lived credentials beginning with `mcs_`. A token that
-starts with `mcs_` is resolved against the stored (hashed) API keys table
+**API keys** are long-lived credentials beginning with `onx_` (or legacy `mcs_`). A token that
+starts with either prefix is resolved against the stored (hashed) API keys table
 instead of being verified as a JWT. API keys carry their own `permissions`
 list. They are created via the [auth endpoints](#auth-endpoints) and their
 plaintext value is returned **only at creation time**.

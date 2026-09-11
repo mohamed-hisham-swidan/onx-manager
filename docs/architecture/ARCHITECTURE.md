@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**Last updated**: 2026-08-12
+**Last updated**: 2026-09-11
 **Cross-references**: [ADR-0001](../decisions/0001-modular-monolith.md), [ADR-0002](../decisions/0002-command-query-event-buses.md), [ADR-0007](../decisions/0007-core-persistence-rename.md)
 
 ---
@@ -25,7 +25,7 @@
                 └──────────────┘
 ```
 
-Three client types (browser, CLI, plugin subprocesses) interact with a FastAPI backend. The backend dispatches through Command, Query, and Event buses backed by PostgreSQL (primary) and subprocess-isolated plugins. SQLite is supported as an embedded/development fallback. There is no Redis cache or pub/sub: the task queue is in-process (`InProcessQueue`), and the Arq/Redis queue is defined in code but not wired up (see the task-queue note below).
+Three client types (browser, CLI, plugin subprocesses) interact with a FastAPI backend. The backend dispatches through Command, Query, and Event buses backed by PostgreSQL (primary) and subprocess-isolated plugins. SQLite is supported as an embedded/development fallback. There is no Redis cache or pub/sub: the task queue is in-process (`InProcessQueue`).
 
 ---
 
@@ -224,21 +224,19 @@ Both Dockerfiles and `docker-compose.yml` are at the repository root. The backen
 
 ### Environment Variables (production)
 
+The application supports dual environment variable prefixes (`ONX_*` takes precedence with fallback to legacy `MCS_*`):
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MCS_DATABASE_URL` | Yes | SQLite or PostgreSQL connection string |
-| `MCS_JWT_PRIVATE_KEY` | Yes* | RSA private key PEM (*auto-generated if absent) |
-| `MCS_JWT_PRIVATE_KEY_PATH` | No | Path to a PEM file to load instead of the env/auto-generated key |
-| `MCS_STORAGE_BACKEND` | No | `local` or `s3` (default: `local`) |
+| `ONX_DATABASE_URL` (or `MCS_DATABASE_URL`) | Yes | SQLite or PostgreSQL connection string |
+| `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) | Yes* | RSA private key PEM (*auto-generated if absent) |
+| `ONX_JWT_PRIVATE_KEY_PATH` (or `MCS_JWT_PRIVATE_KEY_PATH`) | No | Path to a PEM file to load instead of the env/auto-generated key |
+| `ONX_STORAGE_BACKEND` (or `MCS_STORAGE_BACKEND`) | No | `local` or `s3` (default: `local`) |
 
 The RSA public key is derived from the private key at runtime — no public-key
 env var is needed.
 
-Task queue: `ArqQueue` (`backend/app/tasks/arq_queue.py`, default
-`redis://localhost:6379`) is **defined but not wired up or used** — it is never
-instantiated and `aredis` is not a declared dependency, so the import inside it
-would fail if ever exercised. The runtime always uses `InProcessQueue`
-(`backend/app/main.py`) in all environments; there is no Arq/Redis deployment.
+Task queue: The runtime exclusively uses `InProcessQueue` (`backend/app/main.py`) in all environments. The legacy unused Arq/Redis queue (`tasks/arq_queue.py`) was removed in Batch 4 (F072) and the `aredis` dependency eliminated. There is no Arq/Redis deployment.
 
 ---
 

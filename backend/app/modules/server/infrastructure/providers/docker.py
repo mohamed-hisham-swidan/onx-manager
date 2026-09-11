@@ -6,6 +6,10 @@ from typing import Any
 
 from app.core.exceptions import ProviderError
 from app.core.identity import IDENTITY
+from app.modules.server.domain.value_objects import (
+    LaunchConfiguration,
+    ServerDeployment,
+)
 from app.modules.server.infrastructure.providers.base import (
     DeploymentResult,
     ServerHandle,
@@ -29,14 +33,22 @@ class DockerProvider(ServerProvider):
         returncode, _ = await self._docker_command("info --format '{{.OSType}}'")
         return returncode == 0
 
-    async def start(self, server_id: str, config: dict[str, Any]) -> DeploymentResult:
-        image = config.get("image", "itzg/minecraft-server:latest")
+    async def start(
+        self,
+        server_id: str,
+        config: dict[str, Any] | None = None,
+        deployment: ServerDeployment | None = None,
+        launch_config: LaunchConfiguration | None = None,
+    ) -> DeploymentResult:
+        _ = (deployment, launch_config)
+        cfg = config or {}
+        image = cfg.get("image", "itzg/minecraft-server:latest")
         container_name = f"{IDENTITY.temp_prefix_new}{server_id}"
-        port = config.get("port", 25565)
-        memory_min = config.get("memory_min_mb", 1024)
-        memory_max = config.get("memory_max_mb", 2048)
-        world_dir = config.get("world_dir", "")
-        version = config.get("minecraft_version", "LATEST")
+        port = cfg.get("port", 25565)
+        memory_min = cfg.get("memory_min_mb", 1024)
+        memory_max = cfg.get("memory_max_mb", 2048)
+        world_dir = cfg.get("world_dir", "")
+        version = cfg.get("minecraft_version", "LATEST")
 
         await self._ensure_image(image)
 
@@ -58,7 +70,7 @@ class DockerProvider(ServerProvider):
 
         port_flag = f"-p {port}:25565"
 
-        rm_flag = "--rm" if config.get("auto_remove", False) else ""
+        rm_flag = "--rm" if cfg.get("auto_remove", False) else ""
 
         create_cmd = (
             f"create --name {shlex.quote(container_name)} "
