@@ -72,3 +72,32 @@ class TestUnitOfWork:
         await uow.rollback()
 
         assert calls == ["ok"]
+
+    async def test_defer_cleanup_supports_sync_callables(self) -> None:
+        uow = UnitOfWork()
+        calls: list[str] = []
+
+        def sync_cleanup() -> None:
+            calls.append("sync")
+
+        uow.defer_cleanup(sync_cleanup)
+        uow.defer_cleanup(lambda: calls.append("lambda"))
+        await uow.rollback()
+
+        assert calls == ["lambda", "sync"]
+
+    async def test_defer_cleanup_mixed_sync_and_async(self) -> None:
+        uow = UnitOfWork()
+        calls: list[str] = []
+
+        async def async_fn() -> None:
+            calls.append("async")
+
+        def sync_fn() -> None:
+            calls.append("sync")
+
+        uow.defer_cleanup(async_fn)
+        uow.defer_cleanup(sync_fn)
+        await uow.rollback()
+
+        assert calls == ["sync", "async"]

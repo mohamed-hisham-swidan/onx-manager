@@ -23,6 +23,7 @@ class CommandResult(BaseModel):
     data: Any = None
     error: str | None = None
     error_code: str | None = None
+    details: dict[str, Any] | None = None
 
 
 class CommandHandler(ABC, Generic[TCommand]):
@@ -74,6 +75,7 @@ class CommandBus:
                 success=False,
                 error=e.message,
                 error_code=e.code,
+                details=e.details or None,
             )
         except Exception as e:
             logger.exception("Unhandled command error")
@@ -81,4 +83,5 @@ class CommandBus:
                 success=False,
                 error=str(e),
                 error_code="UNEXPECTED_ERROR",
+                details={"exception": type(e).__name__},
             )

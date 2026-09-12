@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CreateServerPage } from "./CreateServerPage";
+import { ApiError } from "@/services/api";
 
 const listSoftwareMock = vi.fn();
 const listSoftwareVersionsMock = vi.fn();
@@ -362,5 +363,72 @@ describe("CreateServerPage Configuration step", () => {
         provider: undefined,
       })
     );
+  });
+});
+
+describe("CreateServerPage error handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listSoftwareMock.mockResolvedValue([
+      { type: "paper", name: "Paper", description: "High performance server" },
+    ]);
+    listSoftwareVersionsMock.mockResolvedValue(["1.21.1"]);
+    getAvailablePortMock.mockResolvedValue({ port: 25565 });
+    healthMock.mockResolvedValue({ docker: true });
+  });
+
+  it("maps INFRASTRUCTURE_ERROR timeout to user-friendly download timeout message", async () => {
+    const errorUrl = "https://fill-data.papermc.io/v1/objects/123/paper.jar";
+    mutateAsyncMock.mockRejectedValue(
+      new ApiError(503, "INFRASTRUCTURE_ERROR", `Download timed out for ${errorUrl}`, {
+        url: errorUrl,
+        timeout_seconds: 30,
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    await user.type(screen.getByPlaceholderText("My Awesome Server"), "Paper Test");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Create Server" }));
+
+    expect(
+      await screen.findByText(
+        "Failed to download server software (paper 1.21.1): the download timed out. " +
+          "Please check your network connection or try again.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/fill-data\.papermc\.io/)).not.toBeInTheDocument();
+  });
+
+  it("maps INFRASTRUCTURE_ERROR download failed to remote server error message", async () => {
+    const errorUrl = "https://fill-data.papermc.io/v1/objects/123/paper.jar";
+    mutateAsyncMock.mockRejectedValue(
+      new ApiError(503, "INFRASTRUCTURE_ERROR", `Download failed for ${errorUrl}`, {
+        url: errorUrl,
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    await user.type(screen.getByPlaceholderText("My Awesome Server"), "Paper Test");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Create Server" }));
+
+    expect(
+      await screen.findByText(
+        "Failed to download server software (paper 1.21.1). The remote download server " +
+          "returned an error. Please try again later or select another version.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/fill-data\.papermc\.io/)).not.toBeInTheDocument();
   });
 });

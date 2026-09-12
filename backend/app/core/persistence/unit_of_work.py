@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +21,7 @@ class UnitOfWork:
         self._event_bus = event_bus
         self._events: list[DomainEvent] = []
         self._repositories: dict[str, BaseRepository[Any]] = {}
-        self._cleanups: list[Callable[[], Awaitable[None]]] = []
+        self._cleanups: list[Callable[[], Any]] = []
 
     @property
     def session(self) -> AsyncSession:
@@ -33,7 +34,7 @@ class UnitOfWork:
             self._repositories[key] = BaseRepository(self.session, model)
         return self._repositories[key]
 
-    def defer_cleanup(self, fn: Callable[[], Awaitable[None]]) -> None:
+    def defer_cleanup(self, fn: Callable[[], Any]) -> None:
         self._cleanups.append(fn)
 
     async def __aenter__(self) -> UnitOfWork:
@@ -80,5 +81,7 @@ class UnitOfWork:
         self._events.clear()
         for fn in reversed(self._cleanups):
             with contextlib.suppress(Exception):
-                await fn()
+                res = fn()
+                if inspect.isawaitable(res):
+                    await res
         self._cleanups.clear()

@@ -11,7 +11,7 @@ Manage multiple servers, monitor them live, handle backups, browse plugins, and 
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/Tests-2346_backend_%7C_642_frontend-brightgreen?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/Tests-2526_backend_%7C_647_frontend-brightgreen?style=flat-square)](#)
 
 </div>
 
@@ -30,7 +30,7 @@ It's built for people who want full control over their servers without relying o
 ### 🖥️ Server Management
 - Create, start, stop, restart, and delete servers from the dashboard
 - Supports **Vanilla, Paper, Spigot, Purpur, Fabric, Forge, NeoForge** — with automatic JAR download and version selection
-- Multi-runtime execution: host processes (tmux on Linux, native Win32 on Windows) and isolated Docker containers (Phase 5 in progress)
+- Multi-runtime execution: host processes (tmux on Linux, native Win32 on Windows) and isolated Docker containers (`DockerProvider` with bridge networking & DooD support)
 - Real-time status updates — no page refresh needed
 - Server provisioning with automatic retry on network failures
 

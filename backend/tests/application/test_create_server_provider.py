@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.api.errors import check_command_result, mcs_error_handler
+from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
+from app.core.exceptions import DownloadTimeoutError, MCSError
 from app.core.persistence.base import Base
 from app.core.persistence.db import database
 from app.modules.server.application.commands.create_server import (
@@ -270,3 +275,77 @@ class TestCreateServerProviderSelection:
         result = await handler.handle(cmd)
         assert result.success is False
         assert result.error_code == "INVALID_PROVIDER"
+
+    @pytest.mark.asyncio
+    async def test_create_server_download_failure_propagates_details_end_to_end(
+        self, tmp_path: Path
+    ) -> None:
+        event_bus = EventBus()
+        bus = CommandBus()
+        handler = CreateServerHandler(event_bus)
+        bus.register(CreateServerCommand, handler)
+
+        srv_dir = tmp_path / "srv-fail-timeout"
+        download_err = DownloadTimeoutError(
+            url="https://fill-data.papermc.io/v1/objects/test/paper-26.2.jar",
+            timeout_seconds=30,
+        )
+
+        cmd = CreateServerCommand(
+            name="timeout-test-server",
+            server_type="paper",
+            minecraft_version="26.2",
+            provider="local",
+        )
+
+        with (
+            patch(
+                "app.modules.server.application.services.jar_service.download_server_jar",
+                side_effect=download_err,
+            ),
+            patch(
+                "app.modules.server.application.services.jar_service.resolve_server_dir",
+                return_value=str(srv_dir),
+            ),
+        ):
+            # 1. CommandBus level verification
+            result = await bus.send(cmd)
+            assert result.success is False
+            assert result.error_code == "INFRASTRUCTURE_ERROR"
+            assert "timed out after 30s" in (result.error or "")
+            assert result.details is not None
+            assert result.details["url"] == (
+                "https://fill-data.papermc.io/v1/objects/test/paper-26.2.jar"
+            )
+            assert result.details["timeout_seconds"] == 30
+
+            # 2. check_command_result level verification
+            with pytest.raises(MCSError) as exc_info:
+                check_command_result(result)
+            assert exc_info.value.code == "INFRASTRUCTURE_ERROR"
+            assert exc_info.value.http_status == 503
+            assert exc_info.value.details == result.details
+
+            # 3. HTTP response envelope verification
+            mock_request = MagicMock(spec=Request)
+            mock_request.url.path = "/api/v1/servers"
+            mock_request.state.request_id = "req-test-123"
+            response = await mcs_error_handler(mock_request, exc_info.value)
+            assert response.status_code == 503
+            body = json.loads(response.body.decode())
+            assert body["code"] == "INFRASTRUCTURE_ERROR"
+            assert body["details"]["url"] == (
+                "https://fill-data.papermc.io/v1/objects/test/paper-26.2.jar"
+            )
+            assert body["details"]["timeout_seconds"] == 30
+            assert body["detail"]["url"] == (
+                "https://fill-data.papermc.io/v1/objects/test/paper-26.2.jar"
+            )
+            assert "timed out after 30s" in body["message"]
+
+        # 4. State cleanup verification (no orphaned DB row, directory cleaned up)
+        assert not srv_dir.exists()
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            servers = await repo.list()
+            assert len(servers) == 0

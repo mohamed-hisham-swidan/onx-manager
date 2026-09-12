@@ -9,8 +9,8 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2346 backend tests, 642 frontend tests, 30 DB migrations). |
-| [Canonical Roadmap](roadmap/ROADMAP_v1.1.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 5 (Containers System Build In Progress) and Phase 4. |
+| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2526 backend tests, 647 frontend tests, 30 DB migrations). |
+| [Canonical Roadmap](roadmap/ROADMAP_v1.1.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 5 (Containers System — CLOSED) and Phase 4 (Community Feature Pool — UP NEXT). |
 | [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`0.1.0`), compatibility floor. |
 | [API Reference](API.md) | ✅ **CURRENT** | REST API reference (15 routers, 106 live routes) & WebSocket protocols. |
 
@@ -36,7 +36,7 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |---|---|---|
 | [Server Lifecycle State Machine](runtime/lifecycle.md) | ✅ **CURRENT** | 8 `ServerStatus` states, transition matrices, recovery workflows. |
-| [Server Providers](runtime/providers.md) | ✅ **CURRENT** | `LocalLinuxProvider` (tmux), `LocalWindowsProvider` (Win32), and `DockerProvider` (Phase 5 in progress). |
+| [Server Providers](runtime/providers.md) | ✅ **CURRENT** | `LocalLinuxProvider` (tmux), `LocalWindowsProvider` (Win32), and `DockerProvider` (Phase 5 complete). |
 | [Reconciliation Engine](runtime/reconciliation.md) | ✅ **CURRENT** | Runtime server state reconciliation and Pre-Backend Database Reconciler (`reconciler.py`). |
 | [Supervision Engine](runtime/supervision.md) | ✅ **CURRENT** | `RuntimeSupervisor` heartbeats, process PID recovery, zombie pruning. |
 

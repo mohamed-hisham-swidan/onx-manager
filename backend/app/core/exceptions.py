@@ -124,19 +124,26 @@ class RateLimitExceeded(MCSError):
 
 
 class InfrastructureError(MCSError):
-    def __init__(self, message: str = "", retryable: bool = True) -> None:
+    def __init__(
+        self,
+        message: str = "",
+        retryable: bool = True,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(
             message or "Infrastructure error",
             code="INFRASTRUCTURE_ERROR",
             http_status=503,
             retryable=retryable,
+            details=details or {},
         )
 
 
 class DatabaseConnectionError(InfrastructureError):
     def __init__(self, detail: str = "") -> None:
         msg = f"Database connection failed: {detail}" if detail else "Database connection failed"
-        super().__init__(msg, retryable=True)
+        d = {"detail": detail} if detail else {}
+        super().__init__(msg, retryable=True, details=d)
 
 
 class ProviderError(InfrastructureError):
@@ -144,7 +151,13 @@ class ProviderError(InfrastructureError):
         msg = f"{provider} {operation} failed"
         if detail:
             msg += f": {detail}"
-        super().__init__(msg, retryable=True)
+        d = {"provider": provider, "operation": operation}
+        if detail:
+            d["detail"] = detail
+        super().__init__(msg, retryable=True, details=d)
+        self.provider = provider
+        self.operation = operation
+        self.detail = detail
 
 
 class InternalError(MCSError):
@@ -157,10 +170,20 @@ class InternalError(MCSError):
 
 
 class ProvisioningError(InfrastructureError):
-    def __init__(self, message: str = "", server_id: str = "", retryable: bool = True) -> None:
+    def __init__(
+        self,
+        message: str = "",
+        server_id: str = "",
+        retryable: bool = True,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        d = dict(details or {})
+        if server_id:
+            d["server_id"] = server_id
         super().__init__(
             message or "Server provisioning failed",
             retryable=retryable,
+            details=d,
         )
         self.server_id = server_id
 
@@ -170,6 +193,10 @@ class VersionNotFoundError(ProvisioningError):
         super().__init__(
             message=f"Version {minecraft_version} not found for {server_type}",
             retryable=False,
+            details={
+                "minecraft_version": minecraft_version,
+                "server_type": server_type,
+            },
         )
         self.minecraft_version = minecraft_version
         self.server_type = server_type
@@ -180,7 +207,10 @@ class DownloadError(ProvisioningError):
         msg = f"Download failed: HTTP {status} for {url}"
         if detail:
             msg += f" — {detail}"
-        super().__init__(msg, retryable=True)
+        d: dict[str, Any] = {"url": url, "status": status}
+        if detail:
+            d["detail"] = detail
+        super().__init__(msg, retryable=True, details=d)
         self.url = url
         self.status = status
 
@@ -190,6 +220,7 @@ class DownloadTimeoutError(ProvisioningError):
         super().__init__(
             message=f"Download timed out after {timeout_seconds}s for {url}",
             retryable=True,
+            details={"url": url, "timeout_seconds": timeout_seconds},
         )
         self.url = url
         self.timeout_seconds = timeout_seconds
@@ -200,6 +231,7 @@ class CorruptedDownloadError(ProvisioningError):
         super().__init__(
             message=f"Downloaded file is corrupted: {path} — {reason}",
             retryable=False,
+            details={"path": path, "reason": reason},
         )
         self.path = path
         self.reason = reason
@@ -210,6 +242,9 @@ class FilesystemOperationError(ProvisioningError):
         msg = f"Filesystem {operation} failed for {path}"
         if detail:
             msg += f": {detail}"
-        super().__init__(msg, retryable=False)
+        d: dict[str, Any] = {"path": path, "operation": operation}
+        if detail:
+            d["detail"] = detail
+        super().__init__(msg, retryable=False, details=d)
         self.path = path
         self.operation = operation

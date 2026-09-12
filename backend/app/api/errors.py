@@ -50,6 +50,7 @@ def check_command_result(result: "CommandResult") -> dict[str, Any]:  # noqa: F8
     raise MCSError(
         message=result.error or "",
         code=result.error_code or "UNEXPECTED_ERROR",
+        details=result.details,
         http_status=status,
     )
 
@@ -87,7 +88,13 @@ def _error_response(
 
 
 async def mcs_error_handler(request: Request, exc: MCSError) -> JSONResponse:
-    logger.warning("MCSError: code=%s path=%s detail=%s", exc.code, request.url.path, exc.details)
+    logger.warning(
+        "MCSError: code=%s message=%s path=%s detail=%s",
+        exc.code,
+        exc.message,
+        request.url.path,
+        exc.details,
+    )
     return _error_response(
         status=exc.http_status,
         error=exc.message,

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import os
 import re
 import secrets
 import string
@@ -59,7 +61,9 @@ def clear_metadata_cache(provider: str | None = None) -> None:
         _METADATA_CACHE.clear()
 
 
-JAR_DOWNLOAD_TIMEOUT: int = 120
+JAR_DOWNLOAD_SOCK_READ_TIMEOUT: int = 30
+JAR_DOWNLOAD_CONNECT_TIMEOUT: int = 15
+JAR_DOWNLOAD_TIMEOUT: int = 120  # backward-compatibility alias
 JAR_MIN_SIZE_BYTES: int = 1_048_576
 JAR_MAX_RETRIES: int = 2
 JAR_MAGIC_BYTES: bytes = b"PK\x03\x04"
@@ -731,23 +735,32 @@ async def download_server_jar(
 
     for attempt in range(JAR_MAX_RETRIES + 1):
         try:
-            content = await _do_download(jar_url)
+            content = await _do_download(jar_url, dest=dest)
         except (DownloadError, DownloadTimeoutError) as e:
             if attempt < JAR_MAX_RETRIES:
                 wait = 1.0 * (2**attempt)
                 logger.warning(
-                    "Download attempt %d failed for %s, retrying in %.1fs",
+                    "Download attempt %d failed for %s (%s: %s), retrying in %.1fs",
                     attempt + 1,
                     jar_url,
+                    type(e).__name__,
+                    e,
                     wait,
                 )
                 await asyncio.sleep(wait)
                 continue
+            logger.error(
+                "Download permanently failed for %s (%s: %s)",
+                jar_url,
+                type(e).__name__,
+                e,
+            )
             raise e
         else:
             break
 
-    fs.write_binary_atomic(dest, content)
+    if content is not None:
+        fs.write_binary_atomic(dest, content)
     fs.chmod(dest, 0o755)
     validate_jar(dest, fs)
     return dest
@@ -767,7 +780,7 @@ async def download_installer_jar(
 
     for attempt in range(JAR_MAX_RETRIES + 1):
         try:
-            content = await _do_download(url)
+            content = await _do_download(url, dest=dest)
         except (TimeoutError, DownloadError, DownloadTimeoutError) as exc:
             if attempt < JAR_MAX_RETRIES:
                 wait = 1.0 * (2**attempt)
@@ -790,34 +803,61 @@ async def download_installer_jar(
         else:
             break
 
-    fs.write_binary_atomic(dest, content)
+    if content is not None:
+        fs.write_binary_atomic(dest, content)
     fs.chmod(dest, 0o755)
     validate_jar(dest, fs)
     return dest
 
 
-async def _do_download(url: str) -> bytes:
+async def _do_download(url: str, dest: str | None = None) -> bytes | None:
+    timeout = aiohttp.ClientTimeout(
+        total=None,
+        connect=JAR_DOWNLOAD_CONNECT_TIMEOUT,
+        sock_connect=JAR_DOWNLOAD_CONNECT_TIMEOUT,
+        sock_read=JAR_DOWNLOAD_SOCK_READ_TIMEOUT,
+    )
+    part_path = f"{dest}.part" if dest else None
     try:
         async with (
             aiohttp.ClientSession() as session,
-            session.get(
-                url,
-                timeout=aiohttp.ClientTimeout(total=JAR_DOWNLOAD_TIMEOUT),
-            ) as resp,
+            session.get(url, timeout=timeout) as resp,
         ):
             if resp.status != 200:
                 raise DownloadError(url, resp.status)
+            if dest is not None:
+                parent = Path(dest).parent
+                parent.mkdir(parents=True, exist_ok=True)
+                with open(part_path, "wb") as f:
+                    while True:
+                        chunk = await resp.content.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                os.replace(part_path, dest)
+                return None
             buffer = bytearray()
             while True:
-                chunk = await resp.content.read(8192)
+                chunk = await resp.content.read(65536)
                 if not chunk:
                     break
                 buffer.extend(chunk)
             return bytes(buffer)
     except TimeoutError as e:
-        raise DownloadTimeoutError(url, JAR_DOWNLOAD_TIMEOUT) from e
+        if part_path and os.path.exists(part_path):
+            with contextlib.suppress(OSError):
+                os.unlink(part_path)
+        raise DownloadTimeoutError(url, JAR_DOWNLOAD_SOCK_READ_TIMEOUT) from e
     except aiohttp.ClientError as e:
+        if part_path and os.path.exists(part_path):
+            with contextlib.suppress(OSError):
+                os.unlink(part_path)
         raise DownloadError(url, 0, str(e)) from e
+    except BaseException:
+        if part_path and os.path.exists(part_path):
+            with contextlib.suppress(OSError):
+                os.unlink(part_path)
+        raise
 
 
 async def _resolve_download_url_async(server_type: str, minecraft_version: str) -> str:

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { createAuthenticatedApi } from "@/services/api";
+import { createAuthenticatedApi, ApiError } from "@/services/api";
 import { useCreateServer } from "@/server_manager/hooks/useServers";
 import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/ui/Icon";
@@ -80,14 +80,20 @@ export function CreateServerPage() {
   const [dockerAvailable, setDockerAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
-    api.health?.().then((h) => setDockerAvailable(h.docker ?? false)).catch(() => setDockerAvailable(false));
+    api
+      .health?.()
+      .then((h) => {
+        const isDocker = h.docker ?? false;
+        setDockerAvailable(isDocker);
+        if (!isDocker) {
+          setData((d) => (d.provider === "docker" ? { ...d, provider: "" } : d));
+        }
+      })
+      .catch(() => {
+        setDockerAvailable(false);
+        setData((d) => (d.provider === "docker" ? { ...d, provider: "" } : d));
+      });
   }, [api]);
-
-  useEffect(() => {
-    if (dockerAvailable === false && data.provider === "docker") {
-      setData((d) => ({ ...d, provider: "" }));
-    }
-  }, [dockerAvailable, data.provider]);
 
   useEffect(() => {
     api.listSoftware().then(setSoftwareList).catch(() => {});
@@ -156,7 +162,37 @@ export function CreateServerPage() {
       setCreatedId(result.server_id as string);
       setStep("done");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create server");
+      if (e instanceof ApiError) {
+        if (e.code === "INFRASTRUCTURE_ERROR") {
+          const timeoutSeconds =
+            e.detail && typeof e.detail === "object" && "timeout_seconds" in e.detail
+              ? (e.detail as { timeout_seconds?: number }).timeout_seconds
+              : null;
+          const msgLower = (e.message || "").toLowerCase();
+          if (timeoutSeconds || msgLower.includes("timed out")) {
+            setError(
+              `Failed to download server software (${data.serverType} ` +
+                `${data.minecraftVersion}): the download timed out. ` +
+                "Please check your network connection or try again."
+            );
+          } else if (msgLower.includes("download failed")) {
+            setError(
+              `Failed to download server software (${data.serverType} ` +
+                `${data.minecraftVersion}). The remote download server ` +
+                "returned an error. Please try again later or select another version."
+            );
+          } else {
+            setError(
+              `Server creation failed due to an infrastructure error ` +
+                `(${data.serverType} ${data.minecraftVersion}). Please check logs and try again.`
+            );
+          }
+        } else {
+          setError(e.message || "Failed to create server");
+        }
+      } else {
+        setError(e instanceof Error ? e.message : "Failed to create server");
+      }
     }
   };
 

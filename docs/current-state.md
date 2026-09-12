@@ -1,4 +1,4 @@
-## Current State (2026-09-11)
+## Current State (2026-09-12)
 
 **Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
 - Phase 0 (Ground Truth/Baseline Freeze): CLOSED
@@ -11,20 +11,20 @@
   comment feature closed Deferred (undefined, same as extended
   files), Workstream A confirmed, full suite green (75 files/642
   tests)
-- **Phase 5 (Containers System): IN PROGRESS (Batch 1 of 6 complete)** — executes before Phase 4
-  per DECISION-2026-09-10-001 (2026-09-10). Design Spec (`docs/design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md`)
-  APPROVED 2026-09-11 (D2/Major, Lane B). Batch 1 complete (signature alignment across 4 providers,
-  contracts schema enum `local_win` -> `local_windows` correction, roadmap/state sync, 5 regression tests).
-  Batch 2 (DockerProvider runtime refactor) next.
-- **Then: Phase 4 (Community Feature Build)** — 5 features
+- **Phase 5 (Containers System): CLOSED (2026-09-11 / 2026-09-12)** — All 6 batches complete & pushed to origin/master (HEAD `183ae7b`).
+  `DockerProvider` fully implemented with async CLI-subprocess driver, volume mounts, Forge/NeoForge `run.sh` launch translation, bridge networking, RCON loopback security, Windows WSL2 Linux container policy, DooD compose policy (`docker-compose.dood.yml`), provider conformance contract suite (87 tests), and CI build-smoke probe.
+- **Then: Phase 4 (Community Feature Build) — UP NEXT (Unblocked)**: 5 features
   (transparent update system, test environment, custom mod support,
-  change history log, log/crash readability). Starts after Phase 5
-  with container backend available for test-environment feature.
+  change history log, log/crash readability). Now unblocked with container backend available for test-environment feature.
 
 **Resolved recently (for reference, don't re-investigate):**
-- Phase 5 Batch 1: Aligned stale `start()` signatures to 4 kwargs across `SSHProvider`,
-  `CloudProvider`, `CircuitBreakerProviderWrapper`, and `DockerProvider`.
-- Contracts schema enum: replaced `"local_win"` with `"local_windows"` in `contracts/config.schema.json`.
+- Phase 5 (Containers System — Batches 1–6):
+  - Batch 1 (`282a7de`): Aligned stale `start()` signatures to 4 kwargs across `SSHProvider`, `CloudProvider`, `CircuitBreakerProviderWrapper`, and `DockerProvider`; corrected schema enum to `local_windows`.
+  - Batches 2 & 3 (`4c3e4ff`): Implemented `DockerProvider` subprocess driver, whole-directory volume mounts, Forge/NeoForge `run.sh` launch translation, and `ContainerInstallerRunner`.
+  - Batch 4 (`f1d941e`): Bridge container networking, external port publishing, RCON loopback security, and Windows WSL2 Linux containers policy.
+  - Pre-Batch-5 Fix-Up & Companions (`109e67e`, `d48bea4`): Wired `provider.destroy()` into server deletion with 10s timeout guard and regression tests.
+  - Batch 5 (`5649644`): Static Docker CLI packaging (27.5.1), opt-in DooD compose policy (`docker-compose.dood.yml`), and `resolve_host_mount_path()` host path translation.
+  - Batch 6 (`183ae7b`): Parameterized provider conformance suite (87 tests), CI Docker build smoke probe, path normalization follow-ups (O1, O2, O3), and frontend toggle polish.
 - ADR-0009 verification finding: ADR-0009 covers domain value-object field validators,
   not provider naming (no phantom ADR created).
 - 'Extended files' (Phase 1) and 'Comment feature' (Phase 3): both
@@ -58,10 +58,10 @@
 # ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-09-11. Every claim below was verified against source code, the database,
+2026-09-12. Every claim below was verified against source code, the database,
 and a live test run.
 
-**Last verified:** 2026-09-11
+**Last verified:** 2026-09-12
 **App version (code):** `0.1.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
@@ -70,8 +70,8 @@ and a live test run.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 300 | `find backend/app -name "*.py"` |
-| Backend test files | 136 | `find backend/tests -name "test_*.py"` |
+| Backend Python source files | 308 | `find backend/app -name "*.py"` |
+| Backend test files | 163 | `find backend/tests -name "test_*.py"` |
 | Frontend test files | 75 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 15 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
 | Live routes | 106 | `./scripts/check-route-contract` (106 live routes vs 106 entries in `contracts/permissions.yaml`) |
@@ -79,34 +79,34 @@ and a live test run.
 | Architecture Decision Records | 13 | `docs/decisions/0001`–`0012` + `DECISION-2026-09-10-001` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 10 | `auth, backup, event_store, exposure, health, monitoring, plugin, server, shared, storage` |
-| CI workflows | 5 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml}` — full backend pytest + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence |
+| CI workflows | 6 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml, windows-ci.yml}` — full backend pytest + DooD build smoke + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence; Windows CI |
 
 ---
 
-## 2. Test suite (measured 2026-09-11)
+## 2. Test suite (measured 2026-09-12)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **2351** |
-| Passed | **2346** |
-| Skipped | **5** |
+| Collected | **2532** |
+| Passed | **2526** |
+| Skipped | **6** |
 | Failed | **0** |
 
 Backend CI runs the full suite on every push/PR to `master`
 (`.github/workflows/backend-tests.yml`), followed by a DB compatibility-floor
-check and a Ruff-baseline regression gate.
+check, a Ruff-baseline regression gate, and the `docker-build-smoke` DooD packaging gate.
 
 ### Frontend — `frontend/` `npx vitest run`
 
 | Metric | Value |
 |--------|-------|
 | Test files | **75** |
-| Tests | **642 passed** across 75 test files |
+| Tests | **647 passed** across 75 test files |
 
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
-on every push/PR to `master`.
+on every push/PR to `master`. Total test count: **3,173 tests passed** (0 failed).
 
 ---
 
@@ -136,6 +136,7 @@ on every push/PR to `master`.
 - Runtime ownership verification (`reconcile_orphans` / `claim_localhost` /
   `cleanup_orphans`) with `MCS_MANAGED=1` marker + cwd + start_time checks
   (Batches 6–7).
+- Multi-runtime server providers (`ServerProvider` ABC): `LocalLinuxProvider` (tmux sessions on Linux/POSIX), `LocalWindowsProvider` (native Win32 detached process groups on Windows), and `DockerProvider` (isolated containers via async subprocess driver, bridge networking, loopback RCON, Windows WSL2 Linux container policy, opt-in DooD profile, and ephemeral container provisioning for Forge/NeoForge).
 - Filesystem reconciliation service (`FilesystemReconciliationService`) — disk
   is the source of truth; runs at startup and via `POST /servers/refresh`.
 

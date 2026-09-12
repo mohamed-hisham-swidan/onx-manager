@@ -8,6 +8,7 @@ import pytest
 from app.core.exceptions import (
     CorruptedDownloadError,
     DownloadError,
+    DownloadTimeoutError,
     VersionNotFoundError,
 )
 from app.modules.server.application.services.jar_service import (
@@ -960,3 +961,120 @@ class TestMetadataCacheAndRetries:
 
             assert "Failed to fetch metadata" in str(exc_info.value)
             assert "connection refused" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_download_server_jar_retry_exhaustion_logs_and_raises(self) -> None:
+        with (
+            patch(
+                "app.modules.server.application.services.jar_service._resolve_download_url_async",
+                AsyncMock(return_value="https://example.com/paper.jar"),
+            ),
+            patch(
+                "app.modules.server.application.services.jar_service._do_download",
+                side_effect=DownloadTimeoutError("https://example.com/paper.jar", 30),
+            ),
+            patch("asyncio.sleep", AsyncMock()) as mock_sleep,
+            patch("app.modules.server.application.services.jar_service.logger") as mock_logger,
+        ):
+            with pytest.raises(DownloadTimeoutError) as exc_info:
+                await download_server_jar(
+                    server_id="test-retry-exhaust",
+                    server_type="paper",
+                    minecraft_version="1.21",
+                )
+
+            assert mock_sleep.call_count == 2
+            mock_logger.error.assert_called_once()
+            err_msg = mock_logger.error.call_args[0][0]
+            assert "permanently failed" in err_msg
+            assert exc_info.value.details["url"] == "https://example.com/paper.jar"
+            assert exc_info.value.details["timeout_seconds"] == 30
+
+    @pytest.mark.asyncio
+    async def test_download_server_jar_streaming_part_file_and_atomic_rename(
+        self, tmp_path: Path
+    ) -> None:
+        jar_bytes = b"PK\x03\x04" + b"\x00" * (1024 * 1024)
+        dest_file = tmp_path / "server.jar"
+        deployment = MagicMock()
+        deployment.root_path = str(tmp_path)
+        deployment.jar_path.return_value = str(dest_file)
+
+        class AsyncChunkReader:
+            def __init__(self, data: bytes):
+                self._data = data
+                self._offset = 0
+
+            async def read(self, n: int = -1) -> bytes:
+                if self._offset >= len(self._data):
+                    return b""
+                chunk = self._data[self._offset : self._offset + n]
+                self._offset += len(chunk)
+                return chunk
+
+        with (
+            patch(
+                "app.modules.server.application.services.jar_service._resolve_download_url_async",
+                AsyncMock(return_value="https://example.com/stream.jar"),
+            ),
+            patch("aiohttp.ClientSession.get") as mock_get,
+        ):
+            resp = _mock_aresponse(200, None)
+            reader = AsyncChunkReader(jar_bytes)
+            resp.content.read = reader.read
+            mock_get.return_value = resp
+
+            result = await download_server_jar(
+                server_id="test-stream",
+                server_type="paper",
+                minecraft_version="1.21",
+                deployment=deployment,
+            )
+
+            assert result == str(dest_file)
+            assert dest_file.exists()
+            assert dest_file.read_bytes() == jar_bytes
+            assert not Path(str(dest_file) + ".part").exists()
+
+    @pytest.mark.asyncio
+    async def test_download_server_jar_cleans_up_part_on_error(
+        self, tmp_path: Path
+    ) -> None:
+        dest_file = tmp_path / "server.jar"
+        deployment = MagicMock()
+        deployment.root_path = str(tmp_path)
+        deployment.jar_path.return_value = str(dest_file)
+
+        class FailingChunkReader:
+            def __init__(self):
+                self.calls = 0
+
+            async def read(self, n: int = -1) -> bytes:
+                self.calls += 1
+                if self.calls == 1:
+                    return b"some-partial-data"
+                raise TimeoutError("connection stalled")
+
+        with (
+            patch(
+                "app.modules.server.application.services.jar_service._resolve_download_url_async",
+                AsyncMock(return_value="https://example.com/fail.jar"),
+            ),
+            patch("aiohttp.ClientSession.get") as mock_get,
+            patch("asyncio.sleep", AsyncMock()),
+        ):
+            resp = _mock_aresponse(200, None)
+            reader = FailingChunkReader()
+            resp.content.read = reader.read
+            mock_get.return_value = resp
+
+            with pytest.raises(DownloadTimeoutError):
+                await download_server_jar(
+                    server_id="test-fail-clean",
+                    server_type="paper",
+                    minecraft_version="1.21",
+                    deployment=deployment,
+                )
+
+            assert not Path(str(dest_file) + ".part").exists()
+            assert not dest_file.exists()
