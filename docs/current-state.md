@@ -89,8 +89,8 @@ and a live test run.
 
 | Metric | Value |
 |--------|-------|
-| Collected | **2532** |
-| Passed | **2526** |
+| Collected | **2554** |
+| Passed | **2548** |
 | Skipped | **6** |
 | Failed | **0** |
 
@@ -103,10 +103,10 @@ check, a Ruff-baseline regression gate, and the `docker-build-smoke` DooD packag
 | Metric | Value |
 |--------|-------|
 | Test files | **75** |
-| Tests | **647 passed** across 75 test files |
+| Tests | **660 passed** across 75 test files |
 
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
-on every push/PR to `master`. Total test count: **3,173 tests passed** (0 failed).
+on every push/PR to `master`. Total test count: **3,208 tests passed** (0 failed).
 
 ---
 

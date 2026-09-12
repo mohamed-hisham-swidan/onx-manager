@@ -12,9 +12,10 @@ function NavigateButton({ to, label }: { to: string; label: string }) {
   return <button onClick={() => navigate(to)}>{label}</button>;
 }
 
-const { subscribeChannelsMock, unsubscribeChannelsMock } = vi.hoisted(() => ({
+const { subscribeChannelsMock, unsubscribeChannelsMock, mockStopMutate } = vi.hoisted(() => ({
   subscribeChannelsMock: vi.fn(),
   unsubscribeChannelsMock: vi.fn(),
+  mockStopMutate: vi.fn(),
 }));
 
 vi.mock("@/hooks/useWebSocket", () => ({
@@ -86,7 +87,7 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
     data: mockRuntimeData,
   })),
   useStartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-  useStopServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useStopServer: vi.fn(() => ({ mutate: mockStopMutate, isPending: false })),
   useRestartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useDeleteServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useRetryProvisioningServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
@@ -227,6 +228,17 @@ describe("ServerDetailPage", () => {
     await user.click(screen.getByText("Delete"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Delete server?")).toBeInTheDocument();
+  });
+
+  it("opens stop confirmation dialog and triggers stop on confirm", async () => {
+    const user = userEvent.setup();
+    mockData = { ...mockServer, status: "running" };
+    renderPage();
+    await user.click(screen.getByText("Stop"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Stop server?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Stop Server" }));
+    expect(mockStopMutate).toHaveBeenCalled();
   });
 
   it("renders TPS Usage card with live metric value when running", () => {
@@ -373,5 +385,21 @@ describe("ServerDetailPage", () => {
     await user.click(screen.getByText("go srv-2"));
     expect(unsubscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-1"]);
     expect(subscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-2"]);
+  });
+
+  it("renders Container provider badge in header when provider is docker", () => {
+    mockData = { ...mockServer, provider: "docker" };
+    renderPage();
+    const badge = screen.getByTestId("server-provider-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("Container");
+  });
+
+  it("renders File / Host provider badge in header when provider is not docker", () => {
+    mockData = { ...mockServer, provider: "local_process" };
+    renderPage();
+    const badge = screen.getByTestId("server-provider-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("File / Host");
   });
 });

@@ -282,7 +282,14 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     "port": server.properties.port.value,
                     "cpu_cores": server.cpu.cores,
                     "cpu_affinity": server.cpu.affinity,
+                    "minecraft_version": str(server.minecraft_version),
                 }
+                await provider.prepare_environment(
+                    server_id=sid,
+                    config=config,
+                    deployment=server.deployment,
+                    launch_config=server.launch_config,
+                )
                 with progress_phase("Restart — start", 2, 2, server_name, sid):
                     result = await asyncio.wait_for(
                         provider.start(
@@ -302,9 +309,7 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                 async with UnitOfWork(self._event_bus) as uow:
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)
-                    server.crash(
-                        exit_code=-1, last_log_lines=["Provider start timed out during restart"]
-                    )
+                    server.mark_stopped()
                     await repo.save(server)
                     for event in server.collect_events():
                         uow.add_event(event)
@@ -313,6 +318,11 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     success=False,
                     error="Provider start timed out during restart",
                     error_code="STARTUP_TIMEOUT",
+                    details={
+                        "provider": provider_type,
+                        "server_id": sid,
+                        "timeout_seconds": 30,
+                    },
                     data={"stop_phase_errors": stop_errors} if stop_errors else None,
                 )
             except Exception as exc:
@@ -334,6 +344,11 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     success=False,
                     error=f"Provider failed to start server during restart: {exc}",
                     error_code="PROVIDER_START_FAILED",
+                    details={
+                        "provider": provider_type,
+                        "server_id": sid,
+                        "detail": str(exc),
+                    },
                     data={"stop_phase_errors": stop_errors} if stop_errors else None,
                 )
 

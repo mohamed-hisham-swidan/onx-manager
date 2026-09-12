@@ -27,7 +27,15 @@ FAILURE_PATTERNS: list[FailurePattern] = [
     ),
     FailurePattern(
         name="UnsupportedClassVersionError",
-        pattern=re.compile(r"UnsupportedClassVersionError|major\.minor\s+version"),
+        pattern=re.compile(
+            r"UnsupportedClassVersionError"
+            r"|major\.minor\s+version"
+            r"|requires\s+running\s+the\s+server\s+with\s+Java\s+\d+"
+            r"|requires\s+Java\s+\d+"
+            r"|has\s+been\s+compiled\s+by\s+a\s+more\s+recent\s+version"
+            r"\s+of\s+the\s+Java\s+Runtime",
+            re.IGNORECASE,
+        ),
         failure_code=FailureCode.JAVA_VERSION_MISMATCH,
     ),
     FailurePattern(

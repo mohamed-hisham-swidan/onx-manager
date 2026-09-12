@@ -31,8 +31,25 @@ class HandleServerCrashHandler(EventHandler):
         server_id = event.server_id
         logger.info("Handling ServerCrashedEvent for server %s", server_id)
 
-        server_dir = Path(AppSettings().servers_data_dir).resolve() / server_id
+        server_dir: str | None = None
+        try:
+            from app.core.persistence.db import database
+            from app.modules.server.infrastructure.repository import SQLServerRepository
+            from app.modules.shared.value_objects import ServerId
+
+            async with database.session_factory() as session:
+                server = await SQLServerRepository(session).get(ServerId(server_id))
+                if server and server.deployment and server.deployment.root_path:
+                    server_dir = server.deployment.server_directory()
+        except Exception:
+            logger.debug("Could not resolve server directory from DB for %s", server_id)
+
+        if not server_dir:
+            server_dir = str(Path(AppSettings().servers_data_dir).resolve() / server_id)
+
         bundle = await self._collector.collect(server_id, server_dir=str(server_dir))
+        if not bundle.latest_log_tail and event.last_log_lines:
+            bundle.latest_log_tail = list(event.last_log_lines)
         classification = await self._classifier.classify(bundle)
 
         async with UnitOfWork(self._event_bus) as uow:

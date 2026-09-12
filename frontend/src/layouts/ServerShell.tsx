@@ -47,6 +47,20 @@ export function ServerShell() {
   };
   const currentSection = getSectionTitle();
 
+  const searchPath = new URLSearchParams(location.search).get("path") || "";
+  const searchFile =
+    new URLSearchParams(location.search).get("file") ||
+    new URLSearchParams(location.search).get("edit") ||
+    "";
+  const resolvedPath =
+    searchPath ||
+    (searchFile.includes("/")
+      ? searchFile.substring(0, searchFile.lastIndexOf("/"))
+      : "");
+  const filePathParts =
+    currentSection === "Files" ? resolvedPath.split("/").filter(Boolean) : [];
+  const fileName = searchFile ? searchFile.split("/").pop() : "";
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <LoadingBar />
@@ -118,19 +132,68 @@ export function ServerShell() {
         }`}
       >
         <div className="mx-auto max-w-7xl p-3.5 sm:p-5 lg:px-6 lg:py-4 space-y-4">
-          {/* Breadcrumb Navigation: Server Name / Current Section */}
-          <nav aria-label="Breadcrumb" className="flex items-center gap-2">
+          {/* Breadcrumb Navigation: Server Name / Current Section / Subpaths */}
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs flex-wrap">
             <Link
               to={currentSection === "Console" ? "/servers" : `/servers/${serverId}/console`}
-              className="text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 flex items-center gap-1 transition-colors"
+              className={
+                "text-gray-500 hover:text-gray-900 dark:text-gray-400 " +
+                "dark:hover:text-gray-100 flex items-center gap-1 transition-colors"
+              }
             >
               <Icon name="chevron-left" size={14} />
               <span>{server?.name || "Server"}</span>
             </Link>
             <span className="text-gray-300 dark:text-gray-600">/</span>
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
-              {currentSection}
-            </span>
+            {currentSection === "Files" && (filePathParts.length > 0 || fileName) ? (
+              <>
+                <Link
+                  to={`/servers/${serverId}/files`}
+                  className={
+                    "text-gray-500 hover:text-gray-900 dark:text-gray-400 " +
+                    "dark:hover:text-gray-100 transition-colors"
+                  }
+                >
+                  Files
+                </Link>
+                {filePathParts.map((part, index) => {
+                  const pathUpTo = filePathParts.slice(0, index + 1).join("/");
+                  const isLast = index === filePathParts.length - 1 && !fileName;
+                  return (
+                    <span key={pathUpTo} className="flex items-center gap-2">
+                      <span className="text-gray-300 dark:text-gray-600">/</span>
+                      {isLast ? (
+                        <span className="font-medium text-gray-700 dark:text-gray-300">
+                          {part}
+                        </span>
+                      ) : (
+                        <Link
+                          to={`/servers/${serverId}/files?path=${encodeURIComponent(pathUpTo)}`}
+                          className={
+                            "text-gray-500 hover:text-gray-900 dark:text-gray-400 " +
+                            "dark:hover:text-gray-100 transition-colors"
+                          }
+                        >
+                          {part}
+                        </Link>
+                      )}
+                    </span>
+                  );
+                })}
+                {fileName && (
+                  <span className="flex items-center gap-2">
+                    <span className="text-gray-300 dark:text-gray-600">/</span>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                      {fileName}
+                    </span>
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="font-medium text-gray-700 dark:text-gray-300">
+                {currentSection}
+              </span>
+            )}
           </nav>
 
           <ErrorBoundary>

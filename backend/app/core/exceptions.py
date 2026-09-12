@@ -147,13 +147,21 @@ class DatabaseConnectionError(InfrastructureError):
 
 
 class ProviderError(InfrastructureError):
-    def __init__(self, provider: str, operation: str, detail: str = "") -> None:
+    def __init__(
+        self,
+        provider: str,
+        operation: str,
+        detail: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
         msg = f"{provider} {operation} failed"
         if detail:
             msg += f": {detail}"
-        d = {"provider": provider, "operation": operation}
+        d: dict[str, Any] = {"provider": provider, "operation": operation}
         if detail:
             d["detail"] = detail
+        if details:
+            d.update(details)
         super().__init__(msg, retryable=True, details=d)
         self.provider = provider
         self.operation = operation

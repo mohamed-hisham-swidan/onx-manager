@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useStartServer, useStopServer, useRestartServer, useRetryProvisioningServer } from "@/server_manager/hooks/useServers";
 import { STATUS_MAP } from "@/server_manager/types";
 import { toast } from "@/stores/toastStore";
@@ -37,6 +38,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
             : null;
 
   const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending || retryProvisioning.isPending;
+  const [stopTarget, setStopTarget] = useState<{ id: string; name: string } | null>(null);
   const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
   const [now, setNow] = useState<number>(() => Date.now());
 
@@ -65,7 +67,14 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
   }
 
   function handleStop(serverId: string, name: string) {
-    stopServer.mutate(serverId, {
+    setStopTarget({ id: serverId, name });
+  }
+
+  function handleConfirmStop() {
+    if (!stopTarget) return;
+    const { id, name } = stopTarget;
+    setStopTarget(null);
+    stopServer.mutate(id, {
       onSuccess: () => toast("success", "Server stopped", `"${name}" is stopping.`),
       onError: (err) => toast("error", "Stop failed", errorMessage(err)),
     });
@@ -184,6 +193,20 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
         );
       })}
       </ul>
+      <ConfirmDialog
+        open={stopTarget !== null}
+        title="Stop server?"
+        description={
+          stopTarget
+            ? `Are you sure you want to stop "${stopTarget.name}"? ` +
+              "Active players will be disconnected."
+            : undefined
+        }
+        confirmLabel="Stop Server"
+        cancelLabel="Cancel"
+        onConfirm={handleConfirmStop}
+        onCancel={() => setStopTarget(null)}
+      />
     </>
   );
 }

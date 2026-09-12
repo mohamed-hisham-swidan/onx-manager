@@ -33,6 +33,7 @@ export function ServersPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [deleteTarget, setDeleteTarget] = useState<ServerResponse | null>(null);
+  const [stopTarget, setStopTarget] = useState<ServerResponse | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
 
@@ -98,8 +99,15 @@ export function ServersPage() {
   }
 
   function handleStop(server: ServerResponse) {
-    stopServer.mutate(server.server_id, {
-      onSuccess: () => toast("success", "Server stopped", `"${server.name}" is stopping.`),
+    setStopTarget(server);
+  }
+
+  function handleConfirmStop() {
+    if (!stopTarget) return;
+    const target = stopTarget;
+    setStopTarget(null);
+    stopServer.mutate(target.server_id, {
+      onSuccess: () => toast("success", "Server stopped", `"${target.name}" is stopping.`),
       onError: (err) => toast("error", "Stop failed", errorMessage(err)),
     });
   }
@@ -386,6 +394,21 @@ export function ServersPage() {
         cancelLabel="Cancel"
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={stopTarget !== null}
+        title="Stop server?"
+        description={
+          stopTarget
+            ? `Are you sure you want to stop "${stopTarget.name}"? ` +
+              "Active players will be disconnected."
+            : undefined
+        }
+        confirmLabel="Stop Server"
+        cancelLabel="Cancel"
+        onConfirm={handleConfirmStop}
+        onCancel={() => setStopTarget(null)}
       />
     </div>
   );

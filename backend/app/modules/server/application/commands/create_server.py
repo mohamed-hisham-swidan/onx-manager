@@ -234,6 +234,21 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 event_bus=self._event_bus,
             )
 
+        if provider_type == "docker" and docker_provider is not None:
+            try:
+                from app.modules.server.infrastructure.providers.docker import (
+                    resolve_docker_image,
+                )
+
+                target_img = resolve_docker_image(minecraft_version=command.minecraft_version)
+                if hasattr(docker_provider, "ensure_image"):
+                    await docker_provider.ensure_image(target_img)
+            except Exception as exc:
+                logger.warning(
+                    "Pre-warming Docker image failed during server creation: %s",
+                    exc,
+                )
+
         logger.info(
             'Server "%s" created — type=%s version=%s port=%d server_id=%s',
             server.name,
@@ -244,3 +259,4 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
         )
 
         return CommandResult(success=True, data={"server_id": str(server_id)})
+

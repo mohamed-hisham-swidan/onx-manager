@@ -140,6 +140,19 @@ class TestInfrastructureErrors:
         assert err.details["operation"] == "start"
         assert err.details["detail"] == "port conflict"
 
+    def test_provider_error_with_custom_details(self) -> None:
+        err = ProviderError(
+            "docker",
+            "pull",
+            "timeout",
+            details={"timeout_seconds": 300.0, "image": "img:latest"},
+        )
+        assert err.details["provider"] == "docker"
+        assert err.details["operation"] == "pull"
+        assert err.details["detail"] == "timeout"
+        assert err.details["timeout_seconds"] == 300.0
+        assert err.details["image"] == "img:latest"
+
     def test_provisioning_error_details(self) -> None:
         err = ProvisioningError("disk full", server_id="srv-123")
         assert err.details["server_id"] == "srv-123"

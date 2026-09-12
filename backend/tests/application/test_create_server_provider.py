@@ -85,6 +85,7 @@ class TestCreateServerProviderSelection:
             assert server is not None
             assert server.deployment.location_type == LocationType.DOCKER
             assert server.runtime.provider == "docker"
+        mock_docker.ensure_image.assert_awaited_once_with("eclipse-temurin:17-jre-jammy")
 
     @pytest.mark.asyncio
     async def test_create_server_with_docker_provider_unavailable(self) -> None:

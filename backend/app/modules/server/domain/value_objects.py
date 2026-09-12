@@ -259,3 +259,4 @@ class RuntimeInfo:
     last_crash_time: float | None = None
     restart_count: int = 0
     external_id: str = ""
+    last_log_lines: list[str] = field(default_factory=list)

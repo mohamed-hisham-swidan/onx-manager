@@ -41,6 +41,10 @@ from app.modules.server.application.commands.update_server_config import (
     UpdateServerConfigCommand,
     UpdateServerConfigHandler,
 )
+from app.modules.server.application.queries.get_server_console import (
+    GetServerConsoleHandler,
+    GetServerConsoleQuery,
+)
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.value_objects import (
     JavaArguments,
@@ -317,6 +321,63 @@ class TestStartServerHandler:
         assert args[0] == "test-start-pdel-1"
         assert args[1].endswith("test-start-pdel-1")
 
+    @pytest.mark.asyncio
+    async def test_start_server_prepares_environment_before_start(
+        self, event_bus: EventBus
+    ) -> None:
+        await _create_test_server("test-start-prep-1", with_deployment=True)
+
+        from app.modules.server.infrastructure.providers.base import (
+            DeploymentResult,
+            ServerRuntimeStatus,
+        )
+
+        mock_provider = AsyncMock()
+        mock_provider.provider_type = "docker"
+        mock_provider.start.return_value = DeploymentResult(
+            status=ServerRuntimeStatus.RUNNING,
+            address="127.0.0.1",
+            port=25565,
+            pid=12345,
+            metadata={"session_name": "onx-test-start-prep-1"},
+        )
+
+        handler = StartServerHandler(event_bus)
+        with patch(
+            "app.modules.server.application.commands.start_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
+            result = await handler.handle(StartServerCommand(server_id="test-start-prep-1"))
+
+        assert result.success is True
+        mock_provider.prepare_environment.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_start_server_timeout_marks_stopped_and_returns_details(
+        self, event_bus: EventBus
+    ) -> None:
+        await _create_test_server("test-start-tout-1", with_deployment=True)
+
+        mock_provider = AsyncMock()
+        mock_provider.provider_type = "docker"
+
+        handler = StartServerHandler(event_bus)
+        with (
+            patch(
+                "app.modules.server.application.commands.start_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch("asyncio.wait_for", AsyncMock(side_effect=TimeoutError())),
+        ):
+            result = await handler.handle(StartServerCommand(server_id="test-start-tout-1"))
+
+        assert result.success is False
+        assert result.error_code == "STARTUP_TIMEOUT"
+        assert result.details["timeout_seconds"] == 30
+        assert result.details["provider"] == "local"
+        loaded = await _get_server("test-start-tout-1")
+        assert loaded.status.value == "stopped"
+
 
 @pytest.mark.usefixtures("init_test_db")
 class TestStopServerHandler:
@@ -416,6 +477,35 @@ class TestRestartServerHandler:
         args, _kwargs = mock_consume.await_args
         assert args[0] == "test-restart-pdel-1"
         assert args[1].endswith("test-restart-pdel-1")
+
+    @pytest.mark.asyncio
+    async def test_restart_server_timeout_marks_stopped_and_returns_details(
+        self, event_bus: EventBus
+    ) -> None:
+        await _create_test_server("test-restart-tout-1", make_running=True, with_deployment=True)
+
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+        mock_provider = AsyncMock()
+        mock_provider.provider_type = "docker"
+        mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
+
+        handler = RestartServerHandler(event_bus)
+        with (
+            patch(
+                "app.modules.server.application.commands.restart_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch("asyncio.wait_for", AsyncMock(side_effect=TimeoutError())),
+        ):
+            result = await handler.handle(RestartServerCommand(server_id="test-restart-tout-1"))
+
+        assert result.success is False
+        assert result.error_code == "STARTUP_TIMEOUT"
+        assert result.details["timeout_seconds"] == 30
+        assert result.details["provider"] == "local"
+        loaded = await _get_server("test-restart-tout-1")
+        assert loaded.status.value == "stopped"
 
 
 @pytest.mark.usefixtures("init_test_db")
@@ -919,3 +1009,96 @@ class TestRetryProvisioningHandler:
 
         loaded = await _get_server("test-retry-neoforge")
         assert loaded.status == ServerStatus.PROVISIONING
+
+
+@pytest.mark.usefixtures("init_test_db")
+class TestGetServerConsole:
+    @pytest.mark.asyncio
+    async def test_console_returns_provider_logs_when_handle_exists(self) -> None:
+        await _create_test_server("test-console-1", with_deployment=True)
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = await repo.get(ServerId("test-console-1"))
+            server.record_runtime_starting(
+                pid=1234,
+                port=25565,
+                host="127.0.0.1",
+                external_id="ext-handle-1",
+            )
+            await repo.save(server)
+            await session.commit()
+
+        mock_prov = AsyncMock()
+        mock_prov.console.return_value = ["Line 1", "Line 2"]
+        with patch(
+            "app.modules.server.infrastructure.providers.provider_factory.get",
+            return_value=mock_prov,
+        ):
+            handler = GetServerConsoleHandler()
+            res = await handler.handle(GetServerConsoleQuery(server_id="test-console-1", tail=50))
+            assert res.lines == ["Line 1", "Line 2"]
+
+    @pytest.mark.asyncio
+    async def test_console_crashed_fallback_cached_logs(self) -> None:
+        await _create_test_server("test-console-crash", with_deployment=True)
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = await repo.get(ServerId("test-console-crash"))
+            server.start()
+            server.record_runtime_starting(
+                pid=1234,
+                port=25565,
+                host="127.0.0.1",
+                external_id="ext-handle-crash",
+            )
+            server.crash(
+                exit_code=1,
+                last_log_lines=["Crash log 1", "Crash log 2"],
+            )
+            await repo.save(server)
+            import json
+            from datetime import UTC, datetime
+
+            from app.modules.health.infrastructure.models import EvidenceBundleModel
+
+            session.add(
+                EvidenceBundleModel(
+                    id="ev-crash-1",
+                    server_id="test-console-crash",
+                    latest_log_tail=json.dumps(["Crash log 1", "Crash log 2"]),
+                    recorded_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+
+        # When provider.console fails/raises, falls back to cached crash log lines
+        mock_prov = AsyncMock()
+        mock_prov.console.side_effect = RuntimeError("session closed")
+        with patch(
+            "app.modules.server.infrastructure.providers.provider_factory.get",
+            return_value=mock_prov,
+        ):
+            handler = GetServerConsoleHandler()
+            res = await handler.handle(GetServerConsoleQuery(server_id="test-console-crash"))
+            assert res.lines == ["Crash log 1", "Crash log 2"]
+
+    @pytest.mark.asyncio
+    async def test_server_crash_preserves_external_id_and_logs(self) -> None:
+        await _create_test_server("test-crash-domain", with_deployment=True)
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = await repo.get(ServerId("test-crash-domain"))
+            server.start()
+            server.record_runtime_starting(
+                pid=999,
+                port=25565,
+                host="127.0.0.1",
+                external_id="container-12345",
+            )
+            server.crash(
+                exit_code=1,
+                last_log_lines=["Error: Java 25 required"],
+            )
+            assert server.status == ServerStatus.CRASHED
+            assert server.runtime.external_id == "container-12345"
+            assert server.runtime.last_log_lines == ["Error: Java 25 required"]

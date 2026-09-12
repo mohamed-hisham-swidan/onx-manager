@@ -11,7 +11,7 @@ Manage multiple servers, monitor them live, handle backups, browse plugins, and 
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/Tests-2526_backend_%7C_647_frontend-brightgreen?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/Tests-2548_backend_%7C_660_frontend-brightgreen?style=flat-square)](#)
 
 </div>
 

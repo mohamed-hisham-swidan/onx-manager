@@ -263,7 +263,15 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     "port": port,
                     "cpu_cores": server.cpu.cores,
                     "cpu_affinity": server.cpu.affinity,
+                    "minecraft_version": str(server.minecraft_version),
                 }
+                add_timeline_milestone(None, "Preparing provider environment", server_name, sid)
+                await provider.prepare_environment(
+                    server_id=sid,
+                    config=config,
+                    deployment=server.deployment,
+                    launch_config=server.launch_config,
+                )
                 add_timeline_milestone(None, "Calling provider.start()", server_name, sid)
                 with progress_phase("Provider start", 1, 1, server_name, sid):
                     result = await asyncio.wait_for(
@@ -286,9 +294,7 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                 async with UnitOfWork(self._event_bus) as uow:
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)
-                    server.crash(
-                        exit_code=-1, last_log_lines=["Provider start timed out after 30s"]
-                    )
+                    server.mark_stopped()
                     await repo.save(server)
                     for event in server.collect_events():
                         uow.add_event(event)
@@ -297,6 +303,11 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     success=False,
                     error="Provider start timed out after 30s",
                     error_code="STARTUP_TIMEOUT",
+                    details={
+                        "provider": provider_type,
+                        "server_id": sid,
+                        "timeout_seconds": 30,
+                    },
                 )
             except Exception as exc:
                 logger.exception(
@@ -317,6 +328,11 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     success=False,
                     error=f"Provider failed to start server: {exc}",
                     error_code="PROVIDER_START_FAILED",
+                    details={
+                        "provider": provider_type,
+                        "server_id": sid,
+                        "detail": str(exc),
+                    },
                 )
 
             external_id = result.metadata.get("session_name", "")

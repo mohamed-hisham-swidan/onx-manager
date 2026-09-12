@@ -30,7 +30,15 @@ vi.mock("@/server_manager/hooks/useServerMetrics", () => ({
   })),
 }));
 
-function renderConsole(props: { serverId?: string; serverStatus?: string; tps?: number | null; players?: number } = {}) {
+function renderConsole(
+  props: {
+    serverId?: string;
+    serverStatus?: string;
+    tps?: number | null;
+    players?: number;
+    provider?: string | null;
+  } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -44,8 +52,9 @@ function renderConsole(props: { serverId?: string; serverStatus?: string; tps?: 
         serverStatus={props.serverStatus ?? "running"}
         tps={props.tps}
         players={props.players}
+        provider={props.provider}
       />
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -124,5 +133,19 @@ describe("ServerConsole Component", () => {
     await user.click(clearBtn);
 
     expect(screen.queryByText("> list")).not.toBeInTheDocument();
+  });
+
+  it("displays Container tag badge when provider is docker", () => {
+    renderConsole({ provider: "docker" });
+    const badge = screen.getByTestId("console-provider-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("Container");
+  });
+
+  it("displays File / Host tag badge when provider is not docker", () => {
+    renderConsole({ provider: "local_process" });
+    const badge = screen.getByTestId("console-provider-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("File / Host");
   });
 });

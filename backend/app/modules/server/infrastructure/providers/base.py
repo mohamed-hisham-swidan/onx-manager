@@ -94,6 +94,21 @@ class ServerProvider(ABC):
         """
         return []
 
+    async def prepare_environment(
+        self,
+        server_id: str,
+        config: dict[str, Any] | None = None,
+        deployment: ServerDeployment | None = None,
+        launch_config: LaunchConfiguration | None = None,
+    ) -> None:
+        """Prepare runtime environment prior to process/container spawn.
+
+        For container providers (e.g. Docker), ensures container images are present
+        under a dedicated image-pull timeout decoupled from the fast spawn timeout.
+        Default is a no-op.
+        """
+        _ = (server_id, config, deployment, launch_config)
+
     async def wait_ready(
         self,
         server_id: str,

@@ -46,6 +46,16 @@ class TestPatternCrashAnalyzer:
         assert result.failure_code == FailureCode.JAVA_VERSION_MISMATCH.value
         assert result.confidence >= 0.9
 
+    async def test_classify_paper_launcher_java_version_requirement(self):
+        bundle = _make_bundle(
+            log_lines=[
+                "Minecraft 26.1 and newer requires running the server with Java 25 or above.",
+            ],
+        )
+        result = await PatternCrashAnalyzer().classify(bundle)
+        assert result.failure_code == FailureCode.JAVA_VERSION_MISMATCH.value
+        assert result.confidence >= 0.9
+
     async def test_classify_invalid_jar_path(self):
         bundle = _make_bundle(log_lines=["Unable to access jarfile server.jar"])
         result = await PatternCrashAnalyzer().classify(bundle)

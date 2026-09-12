@@ -75,6 +75,7 @@ export function ServerDetailPage() {
   const { copy } = useClipboard();
 
   const [showDelete, setShowDelete] = useState(false);
+  const [showStop, setShowStop] = useState(false);
   const [infoExpanded, setInfoExpanded] = useState(false);
   const [startCooldownUntil, setStartCooldownUntil] = useState<number>(0);
   const [now, setNow] = useState<number>(() => Date.now());
@@ -181,12 +182,7 @@ export function ServerDetailPage() {
       {["running", "starting"].includes(s.status) && (
         <>
           <button
-            onClick={() =>
-              stopServer.mutate(serverId, {
-                onSuccess: () => toast("success", "Server stopped", `"${s.name}" is stopping.`),
-                onError: (err) => toast("error", "Stop failed", errorMessage(err)),
-              })
-            }
+            onClick={() => setShowStop(true)}
             disabled={stopServer.isPending}
             className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
           >
@@ -258,6 +254,25 @@ export function ServerDetailPage() {
                 {server.name}
               </h2>
               <StatusBadge status={server.status} />
+              <span
+                data-testid="server-provider-badge"
+                className={
+                  "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium " +
+                  (server.provider === "docker"
+                    ? "bg-cyan-50 text-cyan-700 border border-cyan-200 " +
+                      "dark:bg-cyan-900/30 dark:text-cyan-300 dark:border-cyan-800/50"
+                    : "bg-purple-50 text-purple-700 border border-purple-200 " +
+                      "dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800/50")
+                }
+                title={
+                  server.provider === "docker"
+                    ? "Running in a Docker Container"
+                    : "Running directly on Host Filesystem / Process"
+                }
+              >
+                <Icon name={server.provider === "docker" ? "server" : "folder"} size={12} />
+                {server.provider === "docker" ? "Container" : "File / Host"}
+              </span>
             </div>
             <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
               <span>{server.server_type} · {server.minecraft_version}</span>
@@ -285,6 +300,7 @@ export function ServerDetailPage() {
                   serverStatus={server.status}
                   tps={currentMetric?.tps}
                   players={currentMetric?.players}
+                  provider={server.provider}
                 />
               </div>
 
@@ -444,7 +460,15 @@ export function ServerDetailPage() {
                       </DetailRow>
                     </DetailSection>
                     <DetailSection title="Deployment">
-                      <DetailRow label="Provider">{server.provider ?? "—"}</DetailRow>
+                      <DetailRow label="Provider">
+                        {server.provider === "docker"
+                          ? "Docker Container"
+                          : server.provider === "local_win"
+                            ? "Windows Process"
+                            : server.provider
+                              ? "Host Process"
+                              : "Host Process (Default)"}
+                      </DetailRow>
                       <DetailRow label="Host">
                         {server.deployment_host ? `${server.deployment_host}:${server.deployment_port ?? "—"}` : "—"}
                       </DetailRow>
@@ -574,6 +598,26 @@ export function ServerDetailPage() {
           })
         }
         onCancel={() => setShowDelete(false)}
+      />
+
+      <ConfirmDialog
+        open={showStop}
+        title="Stop server?"
+        description={
+          `Are you sure you want to stop "${server?.name}"? ` +
+          "Active players will be disconnected."
+        }
+        confirmLabel="Stop Server"
+        cancelLabel="Cancel"
+        onConfirm={() =>
+          stopServer.mutate(serverId, {
+            onSuccess: () =>
+              toast("success", "Server stopped", `"${server?.name}" is stopping.`),
+            onError: (err) => toast("error", "Stop failed", errorMessage(err)),
+            onSettled: () => setShowStop(false),
+          })
+        }
+        onCancel={() => setShowStop(false)}
       />
     </div>
   );

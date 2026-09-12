@@ -394,7 +394,8 @@ class Server(AggregateRoot):
             provider=self._runtime.provider,
             last_crash_time=datetime.now(UTC).timestamp(),
             restart_count=self._runtime.restart_count,
-            external_id="",
+            external_id=self._runtime.external_id,
+            last_log_lines=list(last_log_lines or []),
         )
         self._add_event(
             ServerCrashedEvent(

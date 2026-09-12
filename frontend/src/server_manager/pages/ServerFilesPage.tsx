@@ -34,8 +34,8 @@ function formatBytes(bytes: number) {
 export function ServerFilesPage() {
   const { serverId } = useParams<{ serverId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [currentPath, setCurrentPath] = useState("");
-  const [editingFile, setEditingFile] = useState<FileItem | null>(null);
+  const currentPath = searchParams.get("path") || "";
+  const fileParam = searchParams.get("file") || searchParams.get("edit");
   const [editContent, setEditContent] = useState("");
   const [userEdited, setUserEdited] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
@@ -43,32 +43,80 @@ export function ServerFilesPage() {
   const [newFolderName, setNewFolderName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fileParam = searchParams.get("file") || searchParams.get("edit");
-  const [syncedFileParam, setSyncedFileParam] = useState<string | null>(null);
-  if (fileParam && fileParam !== syncedFileParam) {
-    setSyncedFileParam(fileParam);
+  const editingFile = useMemo<FileItem | null>(() => {
+    if (!fileParam) return null;
     const fileName = fileParam.split("/").pop() || fileParam;
-    setEditingFile({
+    return {
       name: fileName,
       path: fileParam,
       is_dir: false,
       size: 0,
-    });
+    };
+  }, [fileParam]);
+
+  const [prevFileParam, setPrevFileParam] = useState<string | null>(fileParam);
+  if (fileParam !== prevFileParam) {
+    setPrevFileParam(fileParam);
     setUserEdited(false);
-  } else if (!fileParam && syncedFileParam !== null) {
-    setSyncedFileParam(null);
+    setEditContent("");
   }
 
-  const handleCloseEditor = () => {
-    setEditingFile(null);
+  const updateCurrentPath = (newPath: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (newPath) {
+        next.set("path", newPath);
+      } else {
+        next.delete("path");
+      }
+      return next;
+    });
+  };
+
+  const openFileEditor = (file: FileItem) => {
     setUserEdited(false);
-    setSyncedFileParam(null);
-    if (searchParams.has("file") || searchParams.has("edit")) {
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.delete("file");
-      nextParams.delete("edit");
-      setSearchParams(nextParams, { replace: true });
-    }
+    setEditContent("");
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("file", file.path);
+      return next;
+    });
+  };
+
+  const handleCloseEditor = () => {
+    setUserEdited(false);
+    setEditContent("");
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("file");
+        next.delete("edit");
+        if (!next.get("path") && fileParam && fileParam.includes("/")) {
+          const parentDir = fileParam.substring(0, fileParam.lastIndexOf("/"));
+          if (parentDir) {
+            next.set("path", parentDir);
+          }
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const navigateToDirectory = (dirPath: string) => {
+    setUserEdited(false);
+    setEditContent("");
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("file");
+      next.delete("edit");
+      if (dirPath) {
+        next.set("path", dirPath);
+      } else {
+        next.delete("path");
+      }
+      return next;
+    });
   };
 
   const api = useMemo(() => createAuthenticatedApi(), []);
@@ -175,11 +223,12 @@ export function ServerFilesPage() {
     if (!currentPath) return;
     const parts = currentPath.split("/").filter(Boolean);
     parts.pop();
-    setCurrentPath(parts.join("/"));
+    updateCurrentPath(parts.join("/"));
   };
 
   const navigateTo = (folder: string) => {
-    setCurrentPath(currentPath ? `${currentPath}/${folder}` : folder);
+    const newPath = currentPath ? `${currentPath}/${folder}` : folder;
+    updateCurrentPath(newPath);
   };
 
   if (isLoading && !files) return <PageSkeleton />;
@@ -187,12 +236,17 @@ export function ServerFilesPage() {
 
   const pathParts = currentPath.split("/").filter(Boolean);
   const breadcrumbs = [
-    { name: "Root", path: "" },
+    { name: "/files", path: "" },
     ...pathParts.map((part, index) => ({
       name: part,
       path: pathParts.slice(0, index + 1).join("/"),
     })),
   ];
+
+  const editorPathParts =
+    editingFile?.path && editingFile.path.includes("/")
+      ? editingFile.path.split("/").slice(0, -1)
+      : [];
 
   if (editingFile) {
     return (
@@ -205,9 +259,45 @@ export function ServerFilesPage() {
             >
               <Icon name="chevron-left" />
             </button>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Editing: {editingFile.name}
-            </h2>
+            <div>
+              <nav
+                aria-label="Editor breadcrumb"
+                className={
+                  "text-xs text-gray-500 dark:text-gray-400 font-mono " +
+                  "flex items-center gap-1.5 flex-wrap"
+                }
+              >
+                <button
+                  type="button"
+                  onClick={() => navigateToDirectory("")}
+                  className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+                >
+                  /files
+                </button>
+                {editorPathParts.map((part, index) => {
+                  const pathUpTo = editorPathParts.slice(0, index + 1).join("/");
+                  return (
+                    <span key={pathUpTo} className="flex items-center gap-1.5">
+                      <span className="text-gray-400 dark:text-gray-600">/</span>
+                      <button
+                        type="button"
+                        onClick={() => navigateToDirectory(pathUpTo)}
+                        className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+                      >
+                        {part}
+                      </button>
+                    </span>
+                  );
+                })}
+                <span className="text-gray-400 dark:text-gray-600">/</span>
+                <span className="text-gray-700 dark:text-gray-300 font-medium">
+                  {editingFile.name}
+                </span>
+              </nav>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Editing: {editingFile.name}
+              </h2>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -287,10 +377,16 @@ export function ServerFilesPage() {
           {breadcrumbs.map((crumb, idx) => (
             <React.Fragment key={crumb.path}>
               <button
-                onClick={() => setCurrentPath(crumb.path)}
-                className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                onClick={() => updateCurrentPath(crumb.path)}
+                className={`flex items-center gap-1 hover:text-blue-600 ` +
+                  `dark:hover:text-blue-400 transition-colors ${
+                    idx === breadcrumbs.length - 1
+                      ? "font-semibold text-gray-900 dark:text-white"
+                      : ""
+                  }`}
               >
-                {crumb.name}
+                {idx === 0 && <Icon name="folder" size={16} className="text-blue-500" />}
+                <span>{crumb.name}</span>
               </button>
               {idx < breadcrumbs.length - 1 && (
                 <span className="mx-2 text-gray-400">/</span>
@@ -417,9 +513,7 @@ export function ServerFilesPage() {
                           } else if (isBinaryFile(file.name)) {
                             handleDownload(file);
                           } else {
-                            setUserEdited(false);
-                            setEditContent("");
-                            setEditingFile(file);
+                            openFileEditor(file);
                           }
                         }}
                       >
@@ -448,11 +542,7 @@ export function ServerFilesPage() {
                         )}
                         {!file.is_dir && !isBinaryFile(file.name) && (
                           <button
-                            onClick={() => {
-                              setUserEdited(false);
-                              setEditContent("");
-                              setEditingFile(file);
-                            }}
+                            onClick={() => openFileEditor(file)}
                             className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 dark:hover:text-green-400 dark:hover:bg-green-900/30 rounded transition-colors"
                             title="Edit"
                           >

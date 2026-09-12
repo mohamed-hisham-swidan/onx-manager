@@ -5,6 +5,7 @@ import contextlib
 import logging
 import os
 import posixpath
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from app.modules.monitoring.infrastructure.rcon_client import (
     AsyncRCONClient,
     AuthenticationError,
 )
+from app.modules.server.domain.diagnostics import FailureCode, RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
     CpuAllocation,
     LaunchConfiguration,
@@ -27,6 +29,8 @@ from app.modules.server.infrastructure.providers.base import (
     ServerProvider,
     ServerRuntimeStatus,
 )
+from app.modules.server.infrastructure.providers.patterns import detect_failure
+from app.modules.shared.value_objects import MinecraftVersion
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +96,52 @@ def resolve_host_mount_path(
     # Fallback: if container_path is a leaf name or custom path
     leaf = Path(norm_container_path).name
     return f"{normalized_host_dir}/{leaf}" if leaf else normalized_host_dir
+
+
+def resolve_docker_image(
+    config: dict[str, Any] | None = None,
+    minecraft_version: str | MinecraftVersion | None = None,
+) -> str:
+    """Resolve the appropriate Docker base image based on Minecraft version.
+
+    - Minecraft >= 26.1 requires Java 25+.
+    - Minecraft >= 1.20.5 requires Java 21.
+    - Minecraft >= 1.17 requires Java 17.
+    - Minecraft < 1.17 requires Java 8.
+    - Explicit config['image'] takes absolute priority.
+    """
+    cfg = config or {}
+    if cfg.get("image"):
+        return str(cfg["image"])
+
+    version_val = cfg.get("minecraft_version") or minecraft_version
+    if not version_val:
+        return AppSettings().docker_default_image
+
+    major = 0
+    minor = 0
+    patch = 0
+
+    if isinstance(version_val, MinecraftVersion):
+        major, minor, patch = version_val.major, version_val.minor, version_val.patch
+    else:
+        v_str = str(version_val).strip()
+        match = re.match(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?", v_str)
+        if match:
+            major = int(match.group(1))
+            minor = int(match.group(2) or 0)
+            patch = int(match.group(3) or 0)
+
+    if major >= 26:
+        return "eclipse-temurin:25-jre"
+    if major == 1:
+        if minor > 20 or (minor == 20 and patch >= 5):
+            return "eclipse-temurin:21-jre-jammy"
+        if minor >= 17:
+            return "eclipse-temurin:17-jre-jammy"
+        return "eclipse-temurin:8-jre-jammy"
+
+    return AppSettings().docker_default_image
 
 
 class DockerProvider(ServerProvider):
@@ -174,8 +224,7 @@ class DockerProvider(ServerProvider):
         launch_config: LaunchConfiguration | None = None,
     ) -> DeploymentResult:
         cfg = config or {}
-        default_img = AppSettings().docker_default_image
-        image = str(cfg.get("image") or default_img)
+        image = resolve_docker_image(config=cfg)
         container_name = f"{IDENTITY.temp_prefix_new}{server_id}"
         port = int(cfg.get("port", 25565))
         memory_min = int(cfg.get("memory_min_mb", 1024))
@@ -519,16 +568,31 @@ class DockerProvider(ServerProvider):
     async def status(self, handle: ServerHandle) -> ServerRuntimeStatus:
         container_name = handle.external_id
         returncode, stdout = await self._docker_command(
-            "inspect", container_name, "--format", "{{.State.Status}}"
+            "inspect",
+            container_name,
+            "--format",
+            "{{.State.Status}} {{.State.ExitCode}}",
         )
         if returncode != 0 or not stdout.strip():
             return ServerRuntimeStatus.STOPPED
 
-        state = stdout.strip().strip("'\"").lower()
+        parts = stdout.strip().strip("'\"").split()
+        state = parts[0].lower() if parts else ""
+        exit_code = 0
+        if len(parts) > 1:
+            try:
+                exit_code = int(parts[1])
+            except ValueError:
+                exit_code = 0
+
         if state == "running":
             return ServerRuntimeStatus.RUNNING
-        if state in ("exited", "dead"):
+        if state == "exited":
+            return ServerRuntimeStatus.STOPPED if exit_code == 0 else ServerRuntimeStatus.ERROR
+        if state in ("dead", "error"):
             return ServerRuntimeStatus.ERROR
+        if state in ("created", "paused"):
+            return ServerRuntimeStatus.STOPPED
         return ServerRuntimeStatus.UNKNOWN
 
     async def console(self, handle: ServerHandle, tail: int = 100) -> list[str]:
@@ -604,14 +668,117 @@ class DockerProvider(ServerProvider):
             return int(stdout.strip())
         return None
 
-    async def _ensure_image(self, image: str) -> None:
-        returncode, _ = await self._docker_command("image", "inspect", image)
-        if returncode != 0:
-            returncode, stdout = await self._docker_command("pull", image)
-            if returncode != 0:
-                raise ProviderError("docker", "pull", f"Failed to pull image {image}: {stdout}")
+    async def collect_diagnostics(
+        self,
+        handle: ServerHandle,
+    ) -> RuntimeDiagnostics:
+        container_name = handle.external_id
+        log_lines: list[str] = []
+        exit_code: int | None = None
+        oom_killed = False
 
-    async def _docker_exec(self, *args: str) -> tuple[int, str]:
+        returncode, stdout = await self._docker_command(
+            "inspect",
+            container_name,
+            "--format",
+            "{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.State.Error}}",
+            log_failure=False,
+        )
+        if returncode == 0 and stdout.strip():
+            parts = stdout.strip().split("|", 2)
+            with contextlib.suppress(ValueError):
+                exit_code = int(parts[0])
+            if len(parts) > 1 and parts[1].strip().lower() in ("true", "1"):
+                oom_killed = True
+
+        try:
+            log_lines = await self.console(handle, tail=300)
+        except Exception:
+            logger.debug("Failed to collect logs for %s", container_name, exc_info=True)
+
+        failure_code, pattern_name = detect_failure(log_lines)
+        failure_reason = f"Detected {pattern_name}" if pattern_name else ""
+
+        if oom_killed:
+            failure_code = FailureCode.MEMORY_EXHAUSTED
+            failure_reason = "Container OOMKilled by Docker daemon"
+        elif not failure_code and exit_code is not None and exit_code != 0:
+            if exit_code in (137, 143):
+                failure_code = FailureCode.MEMORY_EXHAUSTED
+                failure_reason = (
+                    f"Container terminated with exit code {exit_code} (SIGKILL/SIGTERM)"
+                )
+            elif exit_code == 127:
+                failure_code = FailureCode.FILE_NOT_FOUND
+                failure_reason = (
+                    "Container startup command or jar not found (exit code 127)"
+                )
+            elif exit_code == 126:
+                failure_code = FailureCode.PERMISSION_ERROR
+                failure_reason = "Container permission denied (exit code 126)"
+
+        pid = await self.get_runtime_pid(handle)
+
+        return RuntimeDiagnostics(
+            provider="docker",
+            runtime_handle=str(handle),
+            pid=pid,
+            exit_code=exit_code,
+            last_log_lines=log_lines,
+            failure_code=failure_code,
+            failure_reason=failure_reason,
+        )
+
+    async def prepare_environment(
+        self,
+        server_id: str,
+        config: dict[str, Any] | None = None,
+        deployment: ServerDeployment | None = None,
+        launch_config: LaunchConfiguration | None = None,
+    ) -> None:
+        _ = (server_id, deployment, launch_config)
+        cfg = config or {}
+        image = resolve_docker_image(config=cfg)
+        await self.ensure_image(image)
+
+    async def ensure_image(self, image: str, timeout: float = 300.0) -> None:
+        """Ensure the Docker image exists locally; pull it if missing under a dedicated timeout."""
+        returncode, _ = await self._docker_command("image", "inspect", image, log_failure=False)
+        if returncode == 0:
+            return
+
+        logger.info(
+            "Docker image %s not found locally. Initiating pull (timeout=%.0fs)...",
+            image,
+            timeout,
+        )
+        try:
+            returncode, stdout = await asyncio.wait_for(
+                self._docker_command("pull", image),
+                timeout=timeout,
+            )
+        except TimeoutError:
+            logger.error("Timed out pulling Docker image %s after %.0fs", image, timeout)
+            raise ProviderError(
+                "docker",
+                "pull",
+                f"Pulling Docker image {image} timed out after {timeout:.0f}s",
+                details={"image": image, "timeout_seconds": timeout},
+            ) from None
+
+        if returncode != 0:
+            raise ProviderError(
+                "docker",
+                "pull",
+                f"Failed to pull image {image}: {stdout.strip()}",
+                details={"image": image, "detail": stdout.strip()},
+            )
+        logger.info("Successfully pulled Docker image %s", image)
+
+    async def _ensure_image(self, image: str) -> None:
+        await self.ensure_image(image)
+
+    async def _docker_exec(self, *args: str, log_failure: bool = True) -> tuple[int, str]:
         """Execute docker CLI command with tokenized arguments without shell interpolation."""
         cmd = ["docker"]
         if self._docker_host:
@@ -624,20 +791,25 @@ class DockerProvider(ServerProvider):
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
-        output = stdout.decode("utf-8", errors="replace")
-        if proc.returncode != 0:
-            err_msg = stderr.decode("utf-8", errors="replace")
+        out_msg = stdout.decode("utf-8", errors="replace")
+        err_msg = stderr.decode("utf-8", errors="replace")
+        if proc.returncode != 0 and log_failure:
             logger.warning(
                 "Docker command failed: %s (code %d): %s",
                 " ".join(cmd),
                 proc.returncode,
                 err_msg,
             )
+        output = (
+            out_msg
+            if proc.returncode == 0
+            else (f"{out_msg}\n{err_msg}".strip() if out_msg else err_msg)
+        )
         return proc.returncode or 0, output
 
-    async def _docker_command(self, *args: str) -> tuple[int, str]:
+    async def _docker_command(self, *args: str, log_failure: bool = True) -> tuple[int, str]:
         """Subprocess execution entrypoint with discrete token arguments."""
-        return await self._docker_exec(*args)
+        return await self._docker_exec(*args, log_failure=log_failure)
 
     def _write_user_jvm_args(
         self,

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.core.exceptions import ProviderError
+from app.modules.server.domain.diagnostics import FailureCode
 from app.modules.server.domain.value_objects import (
     LaunchConfiguration,
     LocationType,
@@ -16,7 +17,10 @@ from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
     ServerRuntimeStatus,
 )
-from app.modules.server.infrastructure.providers.docker import DockerProvider
+from app.modules.server.infrastructure.providers.docker import (
+    DockerProvider,
+    resolve_docker_image,
+)
 
 
 class TestDockerProviderContract:
@@ -407,4 +411,263 @@ class TestDockerDestroy:
             mock_docker.side_effect = FileNotFoundError("No such file or directory: 'docker'")
             # Must degrade gracefully without bubbling up exception
             await provider.destroy(handle)
+
+    @pytest.mark.asyncio
+    async def test_docker_ensure_image_cached_skips_pull(self) -> None:
+        provider = DockerProvider()
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            mock_cmd.return_value = (0, "inspect-json")
+            await provider.ensure_image("eclipse-temurin:21-jre-jammy")
+
+        mock_cmd.assert_awaited_once_with(
+            "image", "inspect", "eclipse-temurin:21-jre-jammy", log_failure=False
+        )
+
+    @pytest.mark.asyncio
+    async def test_docker_ensure_image_missing_initiates_pull(self) -> None:
+        provider = DockerProvider()
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            mock_cmd.side_effect = [
+                (1, "No such image"),
+                (0, "Downloaded newer image"),
+            ]
+            await provider.ensure_image("eclipse-temurin:21-jre-jammy")
+
+        assert mock_cmd.await_count == 2
+        mock_cmd.assert_any_await(
+            "image", "inspect", "eclipse-temurin:21-jre-jammy", log_failure=False
+        )
+        mock_cmd.assert_any_await("pull", "eclipse-temurin:21-jre-jammy")
+
+    @pytest.mark.asyncio
+    async def test_docker_ensure_image_pull_timeout_raises_provider_error(self) -> None:
+        provider = DockerProvider()
+        with (
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
+            patch("asyncio.wait_for", AsyncMock(side_effect=TimeoutError())),
+        ):
+            mock_cmd.return_value = (1, "No such image")
+            with pytest.raises(ProviderError) as exc_info:
+                await provider.ensure_image("eclipse-temurin:21-jre-jammy", timeout=5.0)
+
+        assert exc_info.value.operation == "pull"
+        assert exc_info.value.details["timeout_seconds"] == 5.0
+        assert exc_info.value.details["image"] == "eclipse-temurin:21-jre-jammy"
+
+    @pytest.mark.asyncio
+    async def test_docker_ensure_image_pull_failure_raises_provider_error(self) -> None:
+        provider = DockerProvider()
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            mock_cmd.side_effect = [
+                (1, "No such image"),
+                (1, "network connection failed"),
+            ]
+            with pytest.raises(ProviderError) as exc_info:
+                await provider.ensure_image("eclipse-temurin:21-jre-jammy")
+
+        assert exc_info.value.operation == "pull"
+        assert "network connection failed" in exc_info.value.details["detail"]
+
+    @pytest.mark.asyncio
+    async def test_docker_prepare_environment_calls_ensure_image(self) -> None:
+        provider = DockerProvider()
+        with patch.object(provider, "ensure_image", AsyncMock()) as mock_ensure:
+            await provider.prepare_environment(
+                server_id="test-srv",
+                config={"image": "custom-mc:1.21"},
+            )
+
+        mock_ensure.assert_awaited_once_with("custom-mc:1.21")
+
+    def test_resolve_docker_image_by_version(self) -> None:
+        # Minecraft 26.x (Paper 26.1+) requires Java 25
+        assert resolve_docker_image(minecraft_version="26.2.0") == "eclipse-temurin:25-jre"
+        assert resolve_docker_image(minecraft_version="26.1") == "eclipse-temurin:25-jre"
+
+        # Minecraft 1.20.5 - 1.21.x requires Java 21
+        assert (
+            resolve_docker_image(minecraft_version="1.21.4") == "eclipse-temurin:21-jre-jammy"
+        )
+        assert (
+            resolve_docker_image(minecraft_version="1.20.5") == "eclipse-temurin:21-jre-jammy"
+        )
+
+        # Minecraft 1.17 - 1.20.4 requires Java 17
+        assert (
+            resolve_docker_image(minecraft_version="1.20.4") == "eclipse-temurin:17-jre-jammy"
+        )
+        assert (
+            resolve_docker_image(minecraft_version="1.17.1") == "eclipse-temurin:17-jre-jammy"
+        )
+
+        # Minecraft <= 1.16.5 requires Java 8
+        assert (
+            resolve_docker_image(minecraft_version="1.16.5") == "eclipse-temurin:8-jre-jammy"
+        )
+        assert (
+            resolve_docker_image(minecraft_version="1.12.2") == "eclipse-temurin:8-jre-jammy"
+        )
+
+        # Explicit config['image'] takes precedence
+        assert (
+            resolve_docker_image(
+                config={"image": "custom/java:latest"},
+                minecraft_version="26.2.0",
+            )
+            == "custom/java:latest"
+        )
+
+    @pytest.mark.asyncio
+    async def test_docker_collect_diagnostics_java_version_mismatch(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+        )
+        with (
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
+            patch.object(provider, "console", AsyncMock()) as mock_console,
+        ):
+            mock_cmd.return_value = (0, "1|false|\n")
+            mock_console.return_value = [
+                "Minecraft 26.1 and newer requires running the server with Java 25 or above.",
+                "For information on how to update Java, see docs.papermc.io/misc/java-install",
+            ]
+            diag = await provider.collect_diagnostics(handle)
+
+        assert diag.provider == "docker"
+        assert diag.exit_code == 1
+        assert diag.failure_code == FailureCode.JAVA_VERSION_MISMATCH
+        assert len(diag.last_log_lines) == 2
+
+    @pytest.mark.asyncio
+    async def test_docker_collect_diagnostics_oom_killed(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+        )
+        with (
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
+            patch.object(provider, "console", AsyncMock()) as mock_console,
+        ):
+            mock_cmd.return_value = (0, "137|true|\n")
+            mock_console.return_value = []
+            diag = await provider.collect_diagnostics(handle)
+
+        assert diag.exit_code == 137
+        assert diag.failure_code == FailureCode.MEMORY_EXHAUSTED
+        assert "OOMKilled" in diag.failure_reason
+
+    @pytest.mark.asyncio
+    async def test_docker_collect_diagnostics_file_not_found_exit_code(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+        )
+        with (
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
+            patch.object(provider, "console", AsyncMock()) as mock_console,
+        ):
+            mock_cmd.return_value = (0, "127|false|\n")
+            mock_console.return_value = ["/bin/sh: java: not found"]
+            diag = await provider.collect_diagnostics(handle)
+
+        assert diag.exit_code == 127
+        assert diag.failure_code == FailureCode.FILE_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_docker_collect_diagnostics_clean_running_or_stopped(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+        )
+        with (
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
+            patch.object(provider, "console", AsyncMock()) as mock_console,
+        ):
+            mock_cmd.return_value = (0, "0|false|\n")
+            mock_console.return_value = ["Server listening on port 25565"]
+            diag = await provider.collect_diagnostics(handle)
+
+        assert diag.exit_code == 0
+        assert diag.failure_code is None
+        assert diag.last_log_lines == ["Server listening on port 25565"]
+
+    @pytest.mark.asyncio
+    async def test_docker_status_clean_exit_returns_stopped(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+        )
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            mock_cmd.return_value = (0, "exited 0\n")
+            status = await provider.status(handle)
+        assert status == ServerRuntimeStatus.STOPPED
+
+    @pytest.mark.asyncio
+    async def test_docker_status_error_exit_returns_error(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+        )
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            mock_cmd.return_value = (0, "exited 1\n")
+            status = await provider.status(handle)
+        assert status == ServerRuntimeStatus.ERROR
+
+    @pytest.mark.asyncio
+    async def test_docker_status_running_returns_running(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+        )
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            mock_cmd.return_value = (0, "running 0\n")
+            status = await provider.status(handle)
+        assert status == ServerRuntimeStatus.RUNNING
+
+    @pytest.mark.asyncio
+    async def test_docker_start_conflict_removes_old_container(self, tmp_path: Path) -> None:
+        provider = DockerProvider()
+        srv_dir = tmp_path / "srv-conflict"
+        srv_dir.mkdir()
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path=str(srv_dir),
+            startup_jar="server.jar",
+        )
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
+        ):
+            mock_cmd.side_effect = [
+                (1, "Error: Conflict. The container name is already in use"),  # 1st create fails
+                (0, ""),  # docker rm -f
+                (0, ""),  # 2nd create succeeds
+                (0, ""),  # docker start
+                (0, "4321\n"),  # inspect pid
+            ]
+            result = await provider.start(
+                server_id="conflict-srv",
+                deployment=deployment,
+                config={"image": "eclipse-temurin:21-jre-jammy"},
+            )
+
+        assert result.status == ServerRuntimeStatus.RUNNING
+        assert mock_cmd.call_count == 5
+        # Verify rm -f was invoked for the conflicting container
+        assert mock_cmd.call_args_list[1][0] == ("rm", "-f", "onx-conflict-srv")
 

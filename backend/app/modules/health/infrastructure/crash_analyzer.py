@@ -32,7 +32,12 @@ CRASH_REPORT_PATTERNS: list[tuple[re.Pattern[str], FailureCode, str]] = [
         "OutOfMemoryError in crash report",
     ),
     (
-        re.compile(r"java\.lang\.UnsupportedClassVersionError"),
+        re.compile(
+            r"java\.lang\.UnsupportedClassVersionError"
+            r"|requires\s+running\s+the\s+server\s+with\s+Java\s+\d+"
+            r"|requires\s+Java\s+\d+",
+            re.IGNORECASE,
+        ),
         FailureCode.JAVA_VERSION_MISMATCH,
         "Java version mismatch in crash report",
     ),

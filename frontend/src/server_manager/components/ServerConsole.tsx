@@ -14,9 +14,25 @@ interface ServerConsoleProps {
   serverStatus?: string;
   tps?: number | null;
   players?: number;
+  provider?: string | null;
 }
 
-export function ServerConsole({ serverId, serverStatus, tps, players }: ServerConsoleProps) {
+const containerBadgeClass =
+  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
+  "uppercase tracking-wider bg-cyan-950/90 text-cyan-300 border border-cyan-700/60 font-sans";
+
+const hostBadgeClass =
+  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
+  "uppercase tracking-wider bg-purple-950/90 text-purple-300 border border-purple-700/60 font-sans";
+
+export function ServerConsole({
+  serverId,
+  serverStatus,
+  tps,
+  players,
+  provider,
+}: ServerConsoleProps) {
+  const isContainer = provider === "docker" || provider === "container";
   const api = useApi();
   const containerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
@@ -85,6 +101,25 @@ export function ServerConsole({ serverId, serverStatus, tps, players }: ServerCo
           <div className="flex items-center gap-2 text-gray-300 font-sans font-medium text-xs">
             <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
             <span>Server Console</span>
+            {isContainer ? (
+              <span
+                data-testid="console-provider-badge"
+                className={containerBadgeClass}
+                title="Runtime: Docker Container"
+              >
+                <Icon name="server" size={11} className="text-cyan-400" />
+                <span>Container</span>
+              </span>
+            ) : (
+              <span
+                data-testid="console-provider-badge"
+                className={hostBadgeClass}
+                title="Runtime: Host Filesystem / Process"
+              >
+                <Icon name="folder" size={11} className="text-purple-400" />
+                <span>File / Host</span>
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

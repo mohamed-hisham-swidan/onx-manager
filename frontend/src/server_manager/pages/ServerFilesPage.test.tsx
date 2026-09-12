@@ -234,4 +234,62 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
     expect(screen.getByRole("button", { name: /back to files/i })).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
+
+  it("renders /files breadcrumb as root and updates breadcrumb for subdirectories", async () => {
+    currentFileList = [{ name: "mods", is_dir: true, size: 0, path: "mods" }];
+    renderPage("srv-1", ["/servers/srv-1/files?path=mods"]);
+
+    expect(await screen.findByText("/files")).toBeInTheDocument();
+    expect(screen.getAllByText("mods").length).toBeGreaterThanOrEqual(1);
+    expect(listServerFilesMock).toHaveBeenCalledWith("srv-1", "mods");
+  });
+
+  it("navigating into a folder updates listing and displays nested breadcrumbs", async () => {
+    currentFileList = [{ name: "mods", is_dir: true, size: 0, path: "mods" }];
+    renderPage();
+
+    expect(await screen.findByText("/files")).toBeInTheDocument();
+    const folder = await screen.findByText("mods");
+    fireEvent.click(folder);
+
+    expect(listServerFilesMock).toHaveBeenCalledWith("srv-1", "mods");
+  });
+
+  it("clicking breadcrumb link in editor exits editor and navigates to directory", async () => {
+    currentFileList = [
+      { name: "config.yml", is_dir: false, size: 100, path: "mods/config.yml" },
+    ];
+    readServerFileContentMock = vi.fn().mockResolvedValue({
+      path: "mods/config.yml",
+      content: "enabled: true",
+      is_binary: false,
+    });
+    renderPage("srv-1", ["/servers/srv-1/files?file=mods/config.yml"]);
+
+    expect(await screen.findByText("Editing: config.yml")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Editor breadcrumb" })).toBeInTheDocument();
+
+    // Click 'mods' in editor breadcrumb
+    const modsBtn = screen.getByRole("button", { name: "mods" });
+    fireEvent.click(modsBtn);
+
+    // Editor automatically closes and displays folder listing
+    await waitFor(() => {
+      expect(screen.queryByText("Editing: config.yml")).not.toBeInTheDocument();
+    });
+    expect(listServerFilesMock).toHaveBeenCalledWith("srv-1", "mods");
+  });
+
+  it("clicking Cancel button in editor exits editing and returns to files", async () => {
+    renderPage("srv-1", ["/servers/srv-1/files?file=server.properties"]);
+
+    expect(await screen.findByText("Editing: server.properties")).toBeInTheDocument();
+    const cancelBtn = screen.getByRole("button", { name: /cancel/i });
+    fireEvent.click(cancelBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Editing: server.properties")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("server.properties")).toBeInTheDocument();
+  });
 });

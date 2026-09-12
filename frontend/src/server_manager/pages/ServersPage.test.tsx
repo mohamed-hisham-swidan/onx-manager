@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ServersPage } from "./ServersPage";
@@ -20,7 +21,7 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
   useRetryProvisioningServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
-import { useServersList } from "@/server_manager/hooks/useServers";
+import { useServersList, useStopServer } from "@/server_manager/hooks/useServers";
 
 const qc = new QueryClient();
 
@@ -208,5 +209,19 @@ describe("ServersPage", () => {
     expect(screen.getByText("Restoring")).toBeInTheDocument();
     expect(screen.queryByLabelText("Start Restoring World")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start/i })).not.toBeInTheDocument();
+  });
+
+  it("opens stop confirmation dialog and triggers stop on confirm", async () => {
+    const user = userEvent.setup();
+    const mockStopMutate = vi.fn();
+    vi.mocked(useStopServer).mockReturnValue(
+      { mutate: mockStopMutate, isPending: false } as unknown as ReturnType<typeof useStopServer>,
+    );
+    renderPage();
+    await user.click(screen.getByLabelText("Stop Alpha World"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Stop server?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Stop Server" }));
+    expect(mockStopMutate).toHaveBeenCalledWith("srv-1", expect.any(Object));
   });
 });

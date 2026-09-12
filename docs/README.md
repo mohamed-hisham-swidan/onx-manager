@@ -9,7 +9,7 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2526 backend tests, 647 frontend tests, 30 DB migrations). |
+| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2548 backend tests, 660 frontend tests, 30 DB migrations). |
 | [Canonical Roadmap](roadmap/ROADMAP_v1.1.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 5 (Containers System — CLOSED) and Phase 4 (Community Feature Pool — UP NEXT). |
 | [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`0.1.0`), compatibility floor. |
 | [API Reference](API.md) | ✅ **CURRENT** | REST API reference (15 routers, 106 live routes) & WebSocket protocols. |

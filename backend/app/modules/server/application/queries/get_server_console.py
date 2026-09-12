@@ -1,12 +1,10 @@
-from app.core.exceptions import ProviderError
+from pathlib import Path
+
 from app.core.persistence.db import database
 from app.core.query_bus import Query, QueryHandler
-from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
-
-RUNNING_STATUSES = {ServerStatus.RUNNING, ServerStatus.STARTING}
 
 
 class GetServerConsoleQuery(Query):
@@ -26,28 +24,74 @@ class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
             repo: ServerRepository = SQLServerRepository(session)
             server = await repo.get(ServerId(query.server_id))
 
-            if (
-                not server.runtime
-                or not server.runtime.external_id
-                or server.status not in RUNNING_STATUSES
-            ):
-                # Server not running — return empty list (no crash log lines stored in RuntimeInfo)
-                return ConsoleReadModel(server_id=query.server_id, lines=[])
+            # 1. Query live or container logs if runtime has external handle
+            if server.runtime and server.runtime.external_id:
+                from app.modules.server.domain.value_objects import (
+                    default_provider_for_platform,
+                )
+                from app.modules.server.infrastructure.providers import provider_factory
+                from app.modules.server.infrastructure.providers.base import ServerHandle
 
-            from app.modules.server.domain.value_objects import default_provider_for_platform
-            from app.modules.server.infrastructure.providers import provider_factory
+                provider_type = server.runtime.provider or default_provider_for_platform()
+                provider = provider_factory.get(provider_type)
 
-            provider_type = server.runtime.provider or default_provider_for_platform()
-            provider = provider_factory.get(provider_type)
-            from app.modules.server.infrastructure.providers.base import ServerHandle
+                handle = ServerHandle(
+                    provider=provider_type,
+                    server_id=str(server.id),
+                    external_id=server.runtime.external_id,
+                )
+                try:
+                    lines = await provider.console(handle, tail=query.tail)
+                    if lines:
+                        return ConsoleReadModel(server_id=query.server_id, lines=lines)
+                except Exception:
+                    pass
 
-            handle = ServerHandle(
-                provider=provider_type,
-                server_id=str(server.id),
-                external_id=server.runtime.external_id,
-            )
+            # 2. Fall back to recorded evidence crash log tail
             try:
-                lines = await provider.console(handle, tail=query.tail)
-            except ProviderError:
-                return ConsoleReadModel(server_id=query.server_id, lines=[])
-            return ConsoleReadModel(server_id=query.server_id, lines=lines)
+                import json
+
+                from sqlalchemy import select
+
+                from app.modules.health.infrastructure.models import EvidenceBundleModel
+
+                stmt = (
+                    select(EvidenceBundleModel)
+                    .where(EvidenceBundleModel.server_id == query.server_id)
+                    .order_by(EvidenceBundleModel.recorded_at.desc())
+                    .limit(1)
+                )
+                ev_res = await session.execute(stmt)
+                ev_bundle = ev_res.scalars().first()
+                if ev_bundle and ev_bundle.latest_log_tail:
+                    cached_lines = json.loads(ev_bundle.latest_log_tail)
+                    if cached_lines:
+                        return ConsoleReadModel(
+                            server_id=query.server_id,
+                            lines=cached_lines[-query.tail:],
+                        )
+            except Exception:
+                pass
+
+            # 3. Fall back to in-memory cached crash log lines if present
+            if server.runtime and getattr(server.runtime, "last_log_lines", None):
+                return ConsoleReadModel(
+                    server_id=query.server_id,
+                    lines=server.runtime.last_log_lines[-query.tail:],
+                )
+
+            # 3. Fall back to reading logs/latest.log on disk if server directory exists
+            if server.deployment and server.deployment.root_path:
+                server_dir = server.deployment.server_directory()
+                log_file = Path(server_dir) / "logs" / "latest.log"
+                if log_file.is_file():
+                    try:
+                        with open(log_file, encoding="utf-8", errors="replace") as f:
+                            disk_lines = [
+                                line.rstrip("\r\n") for line in f.readlines()[-query.tail:]
+                            ]
+                            return ConsoleReadModel(server_id=query.server_id, lines=disk_lines)
+                    except Exception:
+                        pass
+
+            return ConsoleReadModel(server_id=query.server_id, lines=[])

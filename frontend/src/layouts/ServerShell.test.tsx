@@ -219,4 +219,28 @@ describe("ServerShell", () => {
     await user.click(screen.getByRole("link", { name: "Settings" }));
     expect(breadcrumb).toHaveTextContent("Settings");
   });
+
+  it("renders nested breadcrumb navigation for files path and subdirectories", () => {
+    renderServerShell("/servers/srv-123/files?path=mods/worldedit");
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(breadcrumb).toBeInTheDocument();
+    expect(breadcrumb).toHaveTextContent("Test Server");
+    expect(breadcrumb).toHaveTextContent("Files");
+    expect(breadcrumb).toHaveTextContent("mods");
+    expect(breadcrumb).toHaveTextContent("worldedit");
+  });
+
+  it("renders nested breadcrumb navigation when editing a file in a subdirectory", () => {
+    renderServerShell("/servers/srv-123/files?file=mods/worldedit/config.yml");
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(breadcrumb).toBeInTheDocument();
+    expect(breadcrumb).toHaveTextContent("Test Server");
+    expect(breadcrumb).toHaveTextContent("Files");
+    expect(breadcrumb).toHaveTextContent("mods");
+    expect(breadcrumb).toHaveTextContent("worldedit");
+    expect(breadcrumb).toHaveTextContent("config.yml");
+
+    const modsLink = screen.getByRole("link", { name: "mods" });
+    expect(modsLink).toHaveAttribute("href", "/servers/srv-123/files?path=mods");
+  });
 });
