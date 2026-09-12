@@ -16,6 +16,8 @@ This directory captures significant architectural decisions made during the proj
 | 0010 | [Commit-per-Step Discipline for Structural Changes](0010-commit-per-step-discipline.md) | 2026-07-27 | Accepted | One concern per commit during refactors so each step stays reviewable and revertible. |
 | 0011 | [Orphan Reconciliation — Ownership Verification](0011-orphan-reconciliation-ownership-verification.md) | 2026-07-27 | Accepted | Orphan cleanup verifies a process truly belongs to the managed server set (MCS marker / cwd / start-time) before killing, with project-owned vs system-wide scopes. |
 | 0012 | [Same-Filesystem Staging for Atomic File Swaps](0012-same-filesystem-staging-for-atomic-swaps.md) | 2026-08-04 | Accepted | Files staged for atomic swap onto live data must live on the same filesystem as the target — never the OS default temp dir (/tmp). |
+| DECISION-2026-09-10-001 | [Build Phase 5 (Containers) before Phase 4 (Community Features)](DECISION-2026-09-10-001.md) | 2026-09-10 | Accepted | Build order reversed to execute Phase 5 before Phase 4 to avoid rework in Phase 4 Feature 2. |
+| DECISION-2026-09-12-001 | [Redefine Phase 4 Feature 1 as Standalone Git/CI-CD-Inspired Versioning & Test System](DECISION-2026-09-12-001.md) | 2026-09-12 | Accepted | Redefine Feature 1 as a standalone subsystem with branch/commit tracking, isolated test containers, and multi-node groundwork. |
 
 ## New ADRs
 

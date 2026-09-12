@@ -1,7 +1,7 @@
 # ONX Manager — Real Engineering Roadmap
 ## v1.1 — Revised after external review
 
-**Status:** DRAFT for Mohamed's review — each phase is scoped at the level needed to write individual Design Specs per stage; not itself a substitute for those specs.
+**Status:** ACTIVE LIVING ROADMAP — Phases 0, 1, 2, 3, and 5 CLOSED; Phase 4 (Community Features) UP NEXT. Each phase is scoped at the level needed to write individual Design Specs per stage.
 **Supersedes:** `ROADMAP_v1.md` (2026-09-01 — external review found: no ground-truth baseline phase, a circular dependency between Phase 1 and Phase 2, branding conflated with functional UX, an unrecorded architecture-reorder decision, and looser language than the actual exit criteria implied). This version keeps every fact from v1.0 and fixes those five issues plus several smaller ones below.
 **Governing document:** [`docs/governance/GOVERNANCE.md`](../governance/GOVERNANCE.md).
 **Phase order:** dictated by Mohamed — ground truth first (new in v1.1), then bugs, backend, frontend, community-driven features, containers, install/wrap-up, and branding/UI polish **last**.
@@ -96,17 +96,21 @@ Receives everything routed here from Phase 1. Status of known contents:
 
 ## Phase 4 — Feature Build from Community Feedback Pool
 
-Same five features, same evidence base (r/admincraft, 2026-08-10), same priority order as v1.0:
+**Status:** RECON STAGE ACTIVE (Unblocked by Phase 5 Closure — 2026-09-12)  
 
-1. Transparent update system (rollback/proceed/disable + failed-mod list).
-2. Test environment (temporary test container/server).
-3. Custom mod support.
-4. Change history log.
-5. Better log/crash readability.
+Features (priority order, from r/admincraft feedback pool, updated per DECISION-2026-09-12-001):
 
-**Dependency on Phase 5 — RESOLVED (2026-09-01).** Mohamed's decision: the test-environment isolation backend is a **permanent user-facing choice**, not a temporary stand-in — the product ships with both a **files-based mode** and a **container-based mode**, selectable by the user. Containers become the **default** once Phase 5 lands; files-based stays available long-term (e.g. for setups without Docker). This means feature #2 starts now, built files-based first, with the container backend added as an additional (and eventually default) option once Phase 5's core primitive exists — not a swap, an addition. No blocking dependency remains between Phase 4 and Phase 5.
+1. Git-inspired versioning & isolated-testing system (redefined via [DECISION-2026-09-12-001](../decisions/DECISION-2026-09-12-001.md) from bounded transparent update system: branch/commit tracking, isolated test containers, multi-node groundwork; incorporates rollback/proceed/disable & failed-mod list).
+2. Test environment (temporary test container/server — dual-mode: files-based and container-based enabled by Phase 5 closure).
+3. Custom mod support (user-supplied non-catalog mods, Forge/NeoForge/Fabric/Quilt inspection and targeting).
+4. Change history log (durable audit and domain-event trail for server lifecycle and configuration changes).
+5. Better log/crash readability (structured log streaming, crash report extraction and classification, syntax/severity highlighting).
 
-**Build-order update — SUPERSEDED FOR EXECUTION ORDER ONLY (2026-09-10, DECISION-2026-09-10-001).** Mohamed reversed the *build order* (not the phase numbering): Phase 5 (Containers System) executes first — RECON → Design → Build → Review → Verify — before Phase 4 Design Specs start, so feature #2 is built once against the container backend instead of files-based first with later rework. The dual-mode *product* decision above (both modes ship, containers eventual default) is unchanged; only execution order changes. Full record below.
+**Dependency on Phase 5 — RESOLVED & UNBLOCKED (2026-09-12).** Mohamed's decision: the test-environment isolation backend is a **permanent user-facing choice**, not a temporary stand-in — the product ships with both a **files-based mode** and a **container-based mode**, selectable by the user. With Phase 5 complete and verified, the container backend is fully implemented and available natively for feature #2, alongside files-based execution.
+
+**Scope update — ACCEPTED (2026-09-12, DECISION-2026-09-12-001).** Feature 1 redefined as a standalone git/CI-CD-inspired subsystem serving as the product's core differentiator. Dedicated RECON on storage feasibility in progress.
+
+**Build-order update — COMPLETED (2026-09-12, DECISION-2026-09-10-001).** Phase 5 (Containers System) executed first — RECON → Design → Build → Review → Verify — across all 6 build batches and is now CLOSED. Phase 4 is unblocked to begin its RECON, Design Specs, and feature implementations.
 
 ## Phase 5 — Containers System
 

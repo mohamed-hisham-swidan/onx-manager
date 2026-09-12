@@ -15,7 +15,7 @@ repository shape, code statistics, structure, specs, and features.**
 |---|---|
 | Name | ONX Manager (Development & Self-Hosted Environment) |
 | Version | `0.1.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
-| Status | Phase 5 Build In Progress (Batch 1/6) — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
+| Status | Phase 5 CLOSED — Phase 4 (Community Feature Pool) UP NEXT — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
 | License | Apache 2.0 (`LICENSE`) |
 | Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/current-state.md`, `docs/API.md` |
 
@@ -71,7 +71,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | Frontend package manager | npm (`package.json` / `package-lock.json`) |
 | Lint gate | Ruff (`scripts/check-ruff-baseline` + `backend/ruff-baseline.json`, rule-preserving gate) |
 | Type check | pyright (backend dev extra), `tsc --noEmit` (frontend) |
-| CI workflows | 5 `.github/workflows/`: `backend-tests`, `backend-version-ci`, `route-permission-ci`, `frontend-ci`, `verification-cadence` |
+| CI workflows | 6 `.github/workflows/`: `backend-tests` (incl. `docker-build-smoke`), `backend-version-ci`, `route-permission-ci`, `frontend-ci`, `verification-cadence`, `windows-ci` |
 | Virtualization / deployment | Dockerfiles + `docker-compose.yml` (see `docs/DEPLOYMENT.md`) |
 | Contracts | `contracts/`: `api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml` |
 
