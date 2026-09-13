@@ -5,15 +5,17 @@
 `POST /api/v1/servers` → `CreateServerHandler.handle()`:
 
 1. Generate `ServerId` (UUID)
-2. Resolve server directory path
+2. Resolve server directory path (`data/servers/{slug}-{uuid[:8]}`)
 3. Within a `UnitOfWork`:
-   - Create `Server` aggregate (state machine: `CREATED`)
+   - Create `Server` aggregate (state machine: `CREATED` or `PROVISIONING`)
    - Save to DB via `SQLServerRepository`
-4. **Download server JAR** (type-specific resolution, see below)
+4. **Download server JAR** (type-specific resolution with activity-based socket timeouts and atomic `.part` streaming)
 5. Write `eula.txt` (auto-accepted)
 6. Write `server.properties`
-7. If error at steps 4–6: **delete the server directory** + re-raise
-8. Commit the `UnitOfWork` (only on full success)
+7. **Write authoritative identity file** (`.onx-manager/server.json`) via `identity_writer.py` (stamps schema version, server UUID, and provider)
+8. For container runtime servers, pre-warm base Docker image via `provider.prepare_environment()`
+9. If error occurs at any provisioning step: register deferred cleanup via `UnitOfWork.defer_cleanup()` to delete server directory on rollback + re-raise with preserved exception cause (`raise ... from e`)
+10. Commit the `UnitOfWork` (only on full success)
 
 ## Supported Server Types
 
@@ -166,5 +168,6 @@ For servers from an existing directory, use the **Import** endpoint (`POST /api/
 - `app/modules/server/domain/runtime_exceptions.py` — `ForgeInstallError` family
 - `app/modules/server/application/reconciliation.py` — stale-`PROVISIONING` cleanup
 - `app/modules/health/infrastructure/integrity.py` — `run.sh` + `libraries/` acceptance
+- `app/modules/server/application/services/identity_writer.py` — authoritative identity file stamping (`write_server_identity`)
 - `app/modules/server/infrastructure/fs.py` — atomic writes, directory cleanup
 - `app/core/exceptions.py` — `ProvisioningError`, `DownloadError`, `CorruptedDownloadError`, `VersionNotFoundError`

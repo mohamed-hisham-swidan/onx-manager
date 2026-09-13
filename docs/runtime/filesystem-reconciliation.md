@@ -18,16 +18,18 @@ concerns. Stages 1–4 are read-only, Stage 5 writes to DB, Stage 6 writes to di
 ```
 FilesystemScanner           Stage 1 — list directories only
     ↓
-IdentityReader              Stage 2 — read/validate .mcsmanager/server.json
-    ↓                               (every dir gets a UID, even non-MC)
+IdentityReader              Stage 2 — read/validate .onx-manager/server.json
+    ↓                               (legacy .mcsmanager/ fallback, migrate-on-read)
 MinecraftDetector           Stage 3 — scan_server_directory() with ScanCategory
     ↓                            (MINECRAFT_VALID / MINECRAFT_BROKEN /
     ↓                             NOT_MINECRAFT / SCAN_FAILED)
     ↓
-ReconciliationPlanner       Stage 4 — pure logic, no I/O, builds Plan
+ReconciliationPlanner       Stage 4 — matches root_path against DB records;
+    ↓                               deterministic scoring for HEAL vs ADOPT;
+    ↓                               builds Plan (no I/O)
     ↓
-TransactionExecutor         Stage 5 — write identity FIRST (write-ahead),
-                                     then save/delete in DB
+TransactionExecutor         Stage 5 — executes HEAL_IDENTITY, ADOPT, UPDATE,
+                                     DELETE (calls provider.destroy first)
     ↓
 session.commit()            Called by the caller, commits all DB changes
 ```
@@ -39,50 +41,46 @@ exists and is idempotent — the next reconciliation uses the same UID.
 
 ## Identity Model
 
-Every directory under `data/servers/` carries an identity file at
-`.mcsmanager/server.json`. The UID belongs to the **directory**, not the server:
+Every server directory under `data/servers/` carries an authoritative identity
+file at `.onx-manager/server.json` (written via `identity_writer.py`):
 
 ```json
 {
-  "version": 1,
-  "uid": "<32-hex-char-uuid>",
-  "created_at": "2026-07-28T12:00:00Z",
-  "manager": "mcsmanager",
-  "schema_version": 1
+  "schema_version": 1,
+  "server_id": "<uuid>",
+  "provider": "docker"
 }
 ```
 
 Key properties:
 - The directory name is **not** the identity — renaming folders is safe
-- Every directory gets a UID on first encounter, **even non-Minecraft directories**
-- The identity file is written only **after** the DB transaction commits
-- If identity writing fails, the next reconciliation will fix it (idempotent)
+- Stamped authoritatively at server creation and archive import time
+- Legacy fallback: if `.onx-manager/server.json` is missing, checks `.mcsmanager/server.json` and migrates on read
+- All new writes target `.onx-manager/server.json` exclusively
 
 ## Identity States
 
 | State | Meaning |
 |-------|---------|
-| `VALID` | File exists, JSON valid, has 32-char UID |
-| `INVALID` | File exists but corrupted / wrong format / bad UID |
-| `MISSING` | No `.mcsmanager/server.json` found |
+| `VALID` | File exists, JSON valid, has valid server_id UUID and provider |
+| `INVALID` | File exists but corrupted / wrong format / bad UUID |
+| `MISSING` | No `.onx-manager/server.json` (or `.mcsmanager/server.json`) found |
 
-Invalid identities are reported under `invalid_identity` and are not imported
-automatically — they require manual inspection.
+## Un-Identified Resolution: Adopt vs. Heal
 
-## UID Assignment
+When a directory has `MISSING` identity:
 
-UIDs are assigned in-memory during planning (Stage 4) and written to disk only
-after a successful DB commit (Stage 6):
-
-| Scenario | UID Source |
-|----------|-----------|
-| Identity file exists and valid | Use existing UID |
-| Identity file missing + is Minecraft | Generate new UUID (adopted) |
-| Identity file missing + not Minecraft | Generate new UUID (ignored) |
-| Identity file corrupted | Generate new UUID (invalid overwritten) |
-
-This means every directory, even ignored ones, persists its UID across
-restarts — no re-scan of non-server directories on every startup.
+1. The service searches database records for a matching normalized `root_path`.
+2. If candidates exist, deterministic scoring selects the best record:
+   - `+100` points: Active server (`missing_since is None`)
+   - `+50` points: In-flight or live status (`RUNNING`, `STARTING`, `CREATED`)
+   - `+25` points: Matching `DOCKER` runtime provider
+   - Tie-breaker: Most recent `updated_at` timestamp
+3. **If candidate found** $\rightarrow$ `ActionType.HEAL_IDENTITY`:
+   - Authoritatively writes `.onx-manager/server.json` with the existing server's UUID and provider.
+   - Clears `missing_since` and restores broken status without creating duplicate DB rows or deleting records.
+4. **If no candidate found** $\rightarrow$ `ActionType.ADOPT`:
+   - Treats directory as a new installation and imports with a newly generated UUID.
 
 ## Scan Categories
 
@@ -165,10 +163,11 @@ write (write-ahead). This ensures:
 service.reconcile()
   Stage 1–4: read-only
   Stage 5:
-    for IMPORT: write identity.json → save server to DB
-    for IGNORE: write identity.json (no DB change)
-    for INVALID_IDENTITY: overwrite identity.json (no DB change)
-    for UPDATE/MISSING/DELETE: DB writes only
+    for HEAL_IDENTITY: write .onx-manager/server.json with existing server UUID/provider, clear missing_since
+    for IMPORT/ADOPT: write .onx-manager/server.json → save server to DB
+    for IGNORE: write .onx-manager/server.json (no DB change)
+    for UPDATE/MISSING: DB writes only
+    for DELETE: invoke provider.destroy() (name, labels, volume mounts) → delete DB row & directory
     ↓
 session.commit()   # Caller commits the DB transaction
 ```
@@ -188,11 +187,16 @@ always written before their corresponding DB operations.
 
 ```python
 class FilesystemReconciliationService:
-    def __init__(self, repo: ServerRepository, fs: FileSystem = local_fs)
+    def __init__(
+        self,
+        repo: ServerRepository,
+        fs: FileSystem = local_fs,
+        provider_registry: ProviderRegistry | None = None,
+    ):
+        ...
 
-    async def reconcile(self, dry_run: bool = False) -> ReconciliationResult
-    # Runs all 6 stages. Identity files are written during execution
-    # (write-ahead, before DB saves). Caller just commits the session.
+    async def reconcile(self, dry_run: bool = False) -> ReconciliationResult:
+        """Runs all stages. Heals identity in-place for existing servers or adopts new ones."""
 ```
 
 ## References

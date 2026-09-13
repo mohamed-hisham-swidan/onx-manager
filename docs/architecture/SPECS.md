@@ -15,7 +15,7 @@ repository shape, code statistics, structure, specs, and features.**
 |---|---|
 | Name | ONX Manager (Development & Self-Hosted Environment) |
 | Version | `0.1.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
-| Status | Phase 5 CLOSED — Phase 4 (Community Feature Pool) UP NEXT — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
+| Status | Phase 5 CLOSED — Post-Phase-5 Bug Remediation CLOSED — Phase 4 (Community Feature Pool) UP NEXT (Unblocked) — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
 | License | Apache 2.0 (`LICENSE`) |
 | Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/current-state.md`, `docs/API.md` |
 
@@ -79,30 +79,30 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 ## 3. Repository shape — counts
 
-### Code size (measured 2026-08-19)
+### Code size (measured 2026-09-13)
 
 | Scope | Files | Lines | Command |
 |---|---|---|---|
-| Backend Python (app + tests + alembic) | 466 | **67,598** | `find backend/{app,tests,alembic} -name '*.py'` |
-| — `backend/app` (production) | 299 | 35,889 | `find backend/app -name '*.py'` |
-| — `backend/tests` | 139 (128 `test_*.py` + conftest etc.) | 30,127 | `find backend/tests -name '*.py'` |
-| — `backend/alembic` (env + versions) | 28 | (included above) | `find backend/alembic -name '*.py'` |
-| Frontend `frontend/src` (TS + TSX + CSS) | 165 | **24,806** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
-| — `.tsx` | 115 | — | `find frontend/src -name '*.tsx'` |
-| — `.ts` | 49 | — | `find frontend/src -name '*.ts'` |
+| Backend Python (app + tests + alembic) | 521 | **91,192** | `find backend/{app,tests,alembic} -name '*.py'` |
+| — `backend/app` (production) | 309 | 44,530 | `find backend/app -name '*.py'` |
+| — `backend/tests` | 181 (167 `test_*.py` + conftest etc.) | 44,682 | `find backend/tests -name '*.py'` |
+| — `backend/alembic` (env + versions) | 31 | 1,980 | `find backend/alembic -name '*.py'` |
+| Frontend `frontend/src` (TS + TSX + CSS) | 183 | **31,002** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
+| — `.tsx` | 125 | — | `find frontend/src -name '*.tsx'` |
+| — `.ts` | 57 | — | `find frontend/src -name '*.ts'` |
 | — `.css` | 1 | — | `find frontend/src -name '*.css'` |
-| **TOTAL (backend + frontend source)** | **631** | **~92,404** | — |
-| Docs | 107 files (`docs/`, `scripts/`, `contracts/`, `.ai/`) | 26,349 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
+| **TOTAL (backend + frontend source)** | **704** | **122,194** | — |
+| Docs | 121 files | 33,243 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 
 | Extension | Files |
 |---|---|
-| `.py` | 466 |
-| `.tsx` | 115 |
-| `.ts` | 49 |
+| `.py` | 521 |
+| `.tsx` | 125 |
+| `.ts` | 57 |
 | `.css` | 1 |
-| **Total** | **631** |
+| **Total** | **704** |
 
 ### Backend DDD modules (`backend/app/modules/`)
 
@@ -119,7 +119,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | storage | 5 | 441 | Storage backends (local/S3/encryption) |
 | shared | 3 | 267 | Shared value objects / exceptions |
 
-### Frontend breakdown (`frontend/src/` — 165 files / 24,806 lines)
+### Frontend breakdown (`frontend/src/` — 183 files / 31,002 lines)
 
 | Area | Files | Lines |
 |---|---|---|
@@ -137,13 +137,14 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | `layouts` | 4 | 382 |
 | root (`main.tsx`, `App.tsx`, `index.css`, `test-setup.ts`) | 4 | 126 |
 
-### Tests
+### Tests (measured 2026-09-13)
 
 | Suite | Count | Detail |
 |---|---|---|
-| Backend (measured 2026-08-19) | **1,934 passed / 2 skipped** (1,936 collected) | 1595 `def test_`/`async def test_` functions across `backend/tests/` |
-| Frontend | **574 tests (67 test files)**, latest full run 2026-08-19: 528 passed + 1 pre-existing load-flaky timeout | `npx vitest run` |
-| Backend tests by area | — | `api` 5 files, `application` 37, `auth` 13, `core` 6, `domain` 13, `event_store` 4, `infrastructure` 25, `monitoring` 3, `plugin` 6, `tasks` 6 |
+| Backend | **2,568 passed / 6 skipped** (2,574 collected) | 167 `test_*.py` files across `backend/tests/` |
+| Frontend | **665 passed across 75 test files** | `npm test` (`npx vitest run`) |
+| Total | **3,233 passed (0 failed)** | Full regression verification & 5/5 CI quality gates PASS |
+| Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit` |
 
 ---
 
@@ -239,14 +240,17 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 - **Schedulers**: APScheduler jobs (metrics, health recalculation, backup,
   event cleanup) with sub-minute SQLite write bypass.
 
-### Server lifecycle
+### Server lifecycle & runtime providers
 
 - Explicit state machine (`STARTING` → `RUNNING` → `STOPPING` → `STOPPED`, plus
   `CRASHED`/`FAILED`), Start/Stop/Restart/Delete commands.
-- Launcher + tmux sessions, preflight process reconciliation, orphan prevention
-  (`fcntl.flock`, dual-stage start-up probes) for daemon processes (playitd).
-- Server console: streaming via WS, TPS validation w/ clamping, crash analyzer,
-  health evidence collection.
+- Multi-runtime provider architecture (`ServerProvider` ABC):
+  - `LocalLinuxProvider`: isolated tmux sessions (`mcs-{server_id}`) with `MCS_MANAGED=1` markers.
+  - `LocalWindowsProvider`: Win32 detached process groups (`CREATE_NEW_PROCESS_GROUP`) with `taskkill /F /T` clean termination.
+  - `DockerProvider`: isolated containers with async subprocess driver, bridge networking, dynamic local container IP extraction (`get_container_ip()`, `get_address()`), loopback RCON, Java 8/17/21/25 dynamic image resolution, container crash diagnostics collection, clean stop exit code mapping (`exited 0` $\rightarrow$ `STOPPED`), and broadened volume-filter container cleanup (`--filter volume={host_mount}`).
+- Authoritative server identity stamping (`identity_writer.py`): Atomically stamps `.onx-manager/server.json` upon creation and import.
+- Filesystem reconciliation engine (`FilesystemReconciliationService`): Synchronizes on-disk directories with DB, matches un-identified directories via normalized `root_path` with deterministic candidate scoring (+100 active, +50 running, +25 docker runtime, newest `updated_at` tiebreak), and performs in-place `ActionType.HEAL_IDENTITY`.
+- Server console: streaming via WS, TPS validation w/ clamping, crash analyzer, health evidence collection.
 
 ### Network exposure (Phase 7)
 
@@ -275,6 +279,10 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
   plugins/marketplace, backups, monitoring, settings.
 - TanStack Query data layer w/ typed query keys incl. pagination offset;
   Zustand for UI state; Tailwind v4 styling.
+- First-class File Manager (`ServerFilesPage`) with reactive URL-`?path=` breadcrumb navigation and deep linking.
+- Runtime provider badges (`server-provider-badge` in console and detail view).
+- Dynamic local IP badges (`console-ip-badge`) displaying live container or host IP/port.
+- Stop confirmation dialogs (`ConfirmDialog`) on single-click actions across dashboard, servers list, and server detail.
 - Marketplace (SPEC-PLUGIN-PAGINATION-V3, fully shipped 2026-08-19):
   Modrinth-style ProjectCard list (loader/category/environment pills capped
   at 4 with a `+N` overflow link, downloads/follows, relative last-updated),
@@ -301,19 +309,19 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 
 | Metric | Value |
 |---|---|
-| Source lines (backend + frontend) | ~92,404 |
-| Source files (backend + frontend) | 631 |
-| Python files / lines | 466 / 67,598 |
-| TS+TSX files / lines | 164 / ~24,787 |
+| Source lines (backend + frontend) | ~122,194 |
+| Source files (backend + frontend) | 704 |
+| Python files / lines | 521 / 91,192 |
+| TS+TSX files / lines | 182 / ~31,000 |
 | REST endpoints / live routes | 106 live routes (15 routers + app routes; 106/106 contract gate) |
 | Alembic revisions | 30 (head `b1e2100000010`) |
 | DB tables | 32 + (default dev DB at head) |
-| CI workflows | 5 (backend-tests, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence) |
+| CI workflows | 6 (backend-tests incl. docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
 | Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |
-| ADRs | 13 (`0001`–`0012` + `DECISION-2026-09-10-001`) |
-| Backend tests | 2,346 passed / 5 skipped (2,351 collected, 0 failed) |
-| Frontend tests | 642 passed across 75 test files (2,988 total tests across suites) |
-| Docs Markdown | 107 files / 26,349+ lines |
+| ADRs | 14 (`0001`–`0012` + `DECISION-2026-09-10-001` + `DECISION-2026-09-12-001`) |
+| Backend tests | 2,568 passed / 6 skipped (2,574 collected, 0 failed) |
+| Frontend tests | 665 passed across 75 test files (3,233 total tests across suites) |
+| Docs Markdown | 121 files / 33,243+ lines |
 
 ---
 
