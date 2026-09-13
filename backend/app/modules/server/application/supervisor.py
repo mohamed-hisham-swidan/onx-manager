@@ -237,7 +237,11 @@ class RuntimeSupervisor:
                     )
                     external_id = self._handle.external_id or server.runtime.external_id
                     start_time = server.runtime.start_time
-                    host = server.runtime.host or "127.0.0.1"
+                    try:
+                        live_addr = await self._provider.get_address(self._handle)
+                    except Exception:
+                        live_addr = None
+                    host = live_addr or server.runtime.host or "127.0.0.1"
                     if server.status == ServerStatus.STARTING:
                         server.mark_running(
                             pid=pid,
@@ -315,7 +319,11 @@ class RuntimeSupervisor:
                 )
                 external_id = self._handle.external_id or server.runtime.external_id
                 start_time = server.runtime.start_time
-                host = server.runtime.host or "127.0.0.1"
+                try:
+                    live_addr = await self._provider.get_address(self._handle)
+                except Exception:
+                    live_addr = None
+                host = live_addr or server.runtime.host or "127.0.0.1"
                 if server.status == ServerStatus.STARTING:
                     server.mark_running(
                         pid=pid,

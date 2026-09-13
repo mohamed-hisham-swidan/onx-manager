@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from app.core.persistence.db import database
@@ -16,10 +18,12 @@ from app.modules.server.domain.value_objects import (
     LocationType,
     MemoryAllocation,
     PortNumber,
+    RuntimeInfo,
     ServerDeployment,
     ServerProperties,
     ServerType,
 )
+from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
@@ -78,6 +82,46 @@ class TestGetServerHandler:
 
         with pytest.raises(ServerNotFoundError):
             await handler.handle(GetServerQuery(server_id="nonexistent"))
+
+    @pytest.mark.asyncio
+    async def test_get_running_server_dynamically_updates_host(self) -> None:
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            server = Server.create(
+                server_id=ServerId("get-test-live"),
+                name="GetLiveTest",
+                server_type=ServerType.VANILLA,
+                minecraft_version=MinecraftVersion.parse("1.21"),
+                memory=MemoryAllocation(1024, 2048),
+                java_args=JavaArguments(),
+                properties=ServerProperties(port=PortNumber(25569)),
+                runtime=RuntimeInfo(status="created", provider="docker"),
+            )
+            server.start()
+            server.mark_running(
+                pid=1234,
+                port=25569,
+                host="127.0.0.1",
+                external_id="onx-get-test-live",
+            )
+            server.collect_events()
+            await repo.save(server)
+            await session.commit()
+
+        provider = provider_factory.get("docker")
+        with patch.object(provider, "get_address", AsyncMock(return_value="172.17.0.9")):
+            handler = GetServerHandler()
+            result = await handler.handle(GetServerQuery(server_id="get-test-live"))
+
+        assert result is not None
+        assert result.status == "running"
+        assert result.deployment_host == "172.17.0.9"
+
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            persisted = await repo.get(ServerId("get-test-live"))
+            assert persisted.runtime.host == "172.17.0.9"
+
 
 
 @pytest.mark.usefixtures("init_test_db")

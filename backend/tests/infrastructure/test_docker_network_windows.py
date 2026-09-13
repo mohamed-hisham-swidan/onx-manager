@@ -16,7 +16,9 @@ from app.modules.server.domain.value_objects import (
     ServerDeployment,
 )
 from app.modules.server.infrastructure.providers.base import (
+    ServerHandle,
     ServerRuntimeStatus,
+    get_dynamic_local_ip,
 )
 from app.modules.server.infrastructure.providers.docker import (
     DockerProvider,
@@ -48,7 +50,7 @@ class TestDockerNetworkModel:
             result = await provider.start(server_id="net-test-1", config=config)
 
         assert result.status == ServerRuntimeStatus.RUNNING
-        assert result.address == "127.0.0.1"
+        assert result.address in ("127.0.0.1", get_dynamic_local_ip())
         assert result.port == 25565
         assert result.metadata["network"] == "bridge"
 
@@ -57,6 +59,42 @@ class TestDockerNetworkModel:
         assert create_args[create_args.index("--network") + 1] == "bridge"
         assert "-p" in create_args
         assert create_args[create_args.index("-p") + 1] == "25565:25565"
+
+    @pytest.mark.asyncio
+    async def test_container_ip_dynamically_collected_on_start_and_get_address(
+        self,
+    ) -> None:
+        provider = DockerProvider()
+        config: dict[str, Any] = {
+            "image": "eclipse-temurin:21-jre-jammy",
+            "port": 25565,
+            "container_port": 25565,
+        }
+
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+        ):
+            mock_docker.side_effect = [
+                (0, ""),  # create
+                (0, ""),  # start
+                (0, "1234 172.17.0.5\n"),  # inspect pid and network ip
+            ]
+            result = await provider.start(server_id="ip-test-1", config=config)
+
+        assert result.status == ServerRuntimeStatus.RUNNING
+        assert result.address == "172.17.0.5"
+        assert result.port == 25565
+
+        handle = ServerHandle(
+            provider="docker",
+            server_id="ip-test-1",
+            external_id="onx-ip-test-1",
+        )
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            mock_cmd.return_value = (0, "172.17.0.5\n")
+            live_ip = await provider.get_address(handle)
+            assert live_ip == "172.17.0.5"
 
     @pytest.mark.asyncio
     async def test_custom_network_configuration(self) -> None:
@@ -415,8 +453,8 @@ class TestExposureSupervisorCompatibility:
             )
 
         # Exposure daemons (playit.gg, cloudflared, UPnP) connect to host loopback
-        # at 127.0.0.1:{result.port}
-        assert result.address == "127.0.0.1"
+        # or primary host interface
+        assert result.address in ("127.0.0.1", get_dynamic_local_ip())
         assert result.port == 25565
 
     def test_exposure_target_matches_server_port_and_blocks_rcon(self) -> None:

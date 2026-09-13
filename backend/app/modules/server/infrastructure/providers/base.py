@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -28,6 +29,22 @@ class ServerHandle:
 
     def __str__(self) -> str:
         return f"{self.provider}/{self.server_id}:{self.external_id}"
+
+
+def get_dynamic_local_ip() -> str:
+    """Resolve the host machine's primary dynamic local IP address.
+
+    Uses a non-transmitting UDP probe against a private address range.
+    Falls back to '127.0.0.1' if disconnected or unavailable.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return str(s.getsockname()[0])
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 
 @dataclass(frozen=True)
@@ -131,6 +148,10 @@ class ServerProvider(ABC):
         return status == ServerRuntimeStatus.RUNNING
 
     async def get_runtime_pid(self, handle: ServerHandle) -> int | None:
+        return None
+
+    async def get_address(self, handle: ServerHandle) -> str | None:
+        _ = handle
         return None
 
 

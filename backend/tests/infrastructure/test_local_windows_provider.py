@@ -13,6 +13,7 @@ from app.modules.server.infrastructure.fs import FileSystem
 from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
     ServerRuntimeStatus,
+    get_dynamic_local_ip,
 )
 from app.modules.server.infrastructure.providers.local_windows import (
     LocalWindowsProvider,
@@ -63,7 +64,7 @@ class TestLocalWindowsProviderStart:
             )
 
         assert result.status == ServerRuntimeStatus.RUNNING
-        assert result.address == "127.0.0.1"
+        assert result.address in ("127.0.0.1", get_dynamic_local_ip())
         assert result.port == 25565
         assert result.pid == 4321
         assert "handle" in result.metadata

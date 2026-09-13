@@ -28,6 +28,7 @@ from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
     ServerProvider,
     ServerRuntimeStatus,
+    get_dynamic_local_ip,
 )
 from app.modules.server.infrastructure.providers.patterns import detect_failure
 from app.modules.shared.value_objects import MinecraftVersion
@@ -415,9 +416,15 @@ class DockerProvider(ServerProvider):
         await asyncio.sleep(0.5)
 
         _, inspect_output = await self._docker_command(
-            "inspect", container_name, "--format", "{{.State.Pid}}"
+            "inspect",
+            container_name,
+            "--format",
+            "{{.State.Pid}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}",
         )
-        pid = int(inspect_output.strip()) if inspect_output.strip().isdigit() else None
+        parts = inspect_output.strip().split()
+        pid = int(parts[0]) if parts and parts[0].isdigit() else None
+        container_ip = parts[1] if len(parts) > 1 and parts[1] else ""
+        address = container_ip or get_dynamic_local_ip()
 
         handle = ServerHandle(
             provider="docker",
@@ -448,7 +455,7 @@ class DockerProvider(ServerProvider):
 
         return DeploymentResult(
             status=ServerRuntimeStatus.RUNNING,
-            address="127.0.0.1",
+            address=address,
             port=port,
             pid=pid,
             metadata={
@@ -846,3 +853,26 @@ class DockerProvider(ServerProvider):
             target_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         except OSError as exc:
             logger.warning("Could not write user_jvm_args.txt at %s: %s", target_path, exc)
+
+    async def get_container_ip(self, container_name: str) -> str:
+        """Inspect and return the primary IP address of the container."""
+        try:
+            returncode, output = await self._docker_command(
+                "inspect",
+                container_name,
+                "--format",
+                "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}",
+            )
+            if returncode == 0 and output.strip():
+                ips = [ip.strip() for ip in output.strip().split() if ip.strip()]
+                if ips:
+                    return ips[0]
+        except Exception as exc:
+            logger.debug("Failed to inspect container IP for %s: %s", container_name, exc)
+        return ""
+
+    async def get_address(self, handle: ServerHandle) -> str | None:
+        container_name = handle.external_id or f"onx-{handle.server_id}"
+        ip = await self.get_container_ip(container_name)
+        return ip if ip else get_dynamic_local_ip()
+

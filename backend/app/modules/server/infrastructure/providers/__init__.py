@@ -5,6 +5,7 @@ from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
     ServerProvider,
     ServerRuntimeStatus,
+    get_dynamic_local_ip,
     provider_factory,
 )
 from app.modules.server.infrastructure.providers.circuit_breaker_wrapper import (
@@ -25,6 +26,7 @@ __all__ = [
     "ServerHandle",
     "DeploymentResult",
     "ServerRuntimeStatus",
+    "get_dynamic_local_ip",
     "ProviderFactory",
     "provider_factory",
     "LocalLinuxProvider",

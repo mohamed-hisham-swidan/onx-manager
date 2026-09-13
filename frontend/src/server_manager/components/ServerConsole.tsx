@@ -15,6 +15,8 @@ interface ServerConsoleProps {
   tps?: number | null;
   players?: number;
   provider?: string | null;
+  host?: string | null;
+  port?: number | null;
 }
 
 const containerBadgeClass =
@@ -31,8 +33,11 @@ export function ServerConsole({
   tps,
   players,
   provider,
+  host,
+  port,
 }: ServerConsoleProps) {
   const isContainer = provider === "docker" || provider === "container";
+  const displayAddress = host ? (port ? `${host}:${port}` : host) : null;
   const api = useApi();
   const containerRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
@@ -118,6 +123,23 @@ export function ServerConsole({
               >
                 <Icon name="folder" size={11} className="text-purple-400" />
                 <span>File / Host</span>
+              </span>
+            )}
+            {displayAddress && (
+              <span
+                data-testid="console-ip-badge"
+                className={
+                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono " +
+                  "font-medium bg-gray-800/80 text-gray-300 border border-gray-700/60 font-sans"
+                }
+                title={
+                  isContainer
+                    ? `Container IP: ${displayAddress}`
+                    : `Host IP: ${displayAddress}`
+                }
+              >
+                <Icon name="globe" size={10} className="text-gray-400" />
+                <span className="font-mono">{displayAddress}</span>
               </span>
             )}
           </div>

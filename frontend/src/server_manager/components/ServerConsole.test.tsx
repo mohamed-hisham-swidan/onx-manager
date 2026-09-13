@@ -37,6 +37,8 @@ function renderConsole(
     tps?: number | null;
     players?: number;
     provider?: string | null;
+    host?: string | null;
+    port?: number | null;
   } = {},
 ) {
   const queryClient = new QueryClient({
@@ -53,6 +55,8 @@ function renderConsole(
         tps={props.tps}
         players={props.players}
         provider={props.provider}
+        host={props.host}
+        port={props.port}
       />
     </QueryClientProvider>,
   );
@@ -147,5 +151,26 @@ describe("ServerConsole Component", () => {
     const badge = screen.getByTestId("console-provider-badge");
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("File / Host");
+  });
+
+  it("displays dynamic container IP badge when host and port are provided for docker", () => {
+    renderConsole({ provider: "docker", host: "172.17.0.3", port: 25569 });
+    const badge = screen.getByTestId("console-ip-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("172.17.0.3:25569");
+    expect(badge).toHaveAttribute("title", "Container IP: 172.17.0.3:25569");
+  });
+
+  it("displays dynamic host IP badge when host and port are provided for host process", () => {
+    renderConsole({ provider: "local", host: "192.168.1.253", port: 25565 });
+    const badge = screen.getByTestId("console-ip-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("192.168.1.253:25565");
+    expect(badge).toHaveAttribute("title", "Host IP: 192.168.1.253:25565");
+  });
+
+  it("does not display IP badge when host is not provided", () => {
+    renderConsole({ provider: "docker", host: null });
+    expect(screen.queryByTestId("console-ip-badge")).not.toBeInTheDocument();
   });
 });

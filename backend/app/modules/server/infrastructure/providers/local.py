@@ -27,6 +27,7 @@ from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
     ServerProvider,
     ServerRuntimeStatus,
+    get_dynamic_local_ip,
 )
 from app.modules.server.infrastructure.providers.patterns import detect_failure
 
@@ -335,7 +336,7 @@ class LocalLinuxProvider(ServerProvider):
 
         return DeploymentResult(
             status=ServerRuntimeStatus.RUNNING,
-            address="127.0.0.1",
+            address=get_dynamic_local_ip(),
             port=port,
             pid=pid,
             metadata={
@@ -777,6 +778,11 @@ class LocalLinuxProvider(ServerProvider):
             failure_code=failure_code,
             failure_reason=failure_reason,
         )
+
+    async def get_address(self, handle: ServerHandle) -> str | None:
+        _ = handle
+        return get_dynamic_local_ip()
+
 
 
 def is_linux() -> bool:

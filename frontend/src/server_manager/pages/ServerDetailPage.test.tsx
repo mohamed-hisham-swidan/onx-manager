@@ -402,4 +402,34 @@ describe("ServerDetailPage", () => {
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("File / Host");
   });
+
+  it("renders Container IP in deployment details and address for docker server", async () => {
+    const user = userEvent.setup();
+    mockData = {
+      ...mockServer,
+      provider: "docker",
+      deployment_host: "172.17.0.3",
+      deployment_port: 25569,
+      port: 25569,
+    };
+    renderPage();
+    expect(screen.getAllByText("172.17.0.3:25569").length).toBeGreaterThan(0);
+    await user.click(screen.getByText("Server Info & Configuration"));
+    expect(screen.getByText("Container IP")).toBeInTheDocument();
+  });
+
+  it("renders Host in deployment details for host process server", async () => {
+    const user = userEvent.setup();
+    mockData = {
+      ...mockServer,
+      provider: "local",
+      deployment_host: "192.168.1.253",
+      deployment_port: 25565,
+      port: 25565,
+    };
+    renderPage();
+    expect(screen.getAllByText("192.168.1.253:25565").length).toBeGreaterThan(0);
+    await user.click(screen.getByText("Server Info & Configuration"));
+    expect(screen.getByText("Host")).toBeInTheDocument();
+  });
 });

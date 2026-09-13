@@ -671,3 +671,20 @@ class TestDockerDestroy:
         # Verify rm -f was invoked for the conflicting container
         assert mock_cmd.call_args_list[1][0] == ("rm", "-f", "onx-conflict-srv")
 
+    @pytest.mark.asyncio
+    async def test_get_container_ip_and_address(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+        )
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            mock_cmd.return_value = (0, "172.17.0.7 \n")
+            ip = await provider.get_container_ip("onx-test-srv")
+            assert ip == "172.17.0.7"
+
+            addr = await provider.get_address(handle)
+            assert addr == "172.17.0.7"
+
+

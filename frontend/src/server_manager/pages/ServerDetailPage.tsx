@@ -301,6 +301,8 @@ export function ServerDetailPage() {
                   tps={currentMetric?.tps}
                   players={currentMetric?.players}
                   provider={server.provider}
+                  host={server.deployment_host}
+                  port={server.deployment_port ?? server.port}
                 />
               </div>
 
@@ -469,8 +471,10 @@ export function ServerDetailPage() {
                               ? "Host Process"
                               : "Host Process (Default)"}
                       </DetailRow>
-                      <DetailRow label="Host">
-                        {server.deployment_host ? `${server.deployment_host}:${server.deployment_port ?? "—"}` : "—"}
+                      <DetailRow label={server.provider === "docker" ? "Container IP" : "Host"}>
+                        {server.deployment_host
+                          ? `${server.deployment_host}:${server.deployment_port ?? "—"}`
+                          : "—"}
                       </DetailRow>
                       <DetailRow label="PID">{server.deployment_pid ?? "—"}</DetailRow>
                       <DetailRow label="Zone ID">

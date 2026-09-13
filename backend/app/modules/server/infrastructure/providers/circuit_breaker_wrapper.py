@@ -86,3 +86,7 @@ class CircuitBreakerProviderWrapper(ServerProvider):
 
     async def get_runtime_pid(self, handle: ServerHandle) -> int | None:
         return await self._wrapped.get_runtime_pid(handle)
+
+    async def get_address(self, handle: ServerHandle) -> str | None:
+        return await self._wrapped.get_address(handle)
+
