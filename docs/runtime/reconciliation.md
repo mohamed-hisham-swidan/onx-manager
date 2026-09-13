@@ -142,6 +142,46 @@ In addition to runtime OS process reconciliation, ONX Manager executes an upfron
    - `FAILED`: Migration execution encountered an unrecoverable error.
    - `UNREACHABLE`: Database connection or file permissions error.
 
+## Filesystem Reconciliation & Identity Healing Engine
+
+Location: `backend/app/modules/server/application/services/filesystem_reconciliation.py` and `identity_writer.py`
+
+In addition to process-level and database migration reconciliation, the **Filesystem Reconciliation Service** synchronizes on-disk server installations in `data/servers/` with database records at backend startup and on-demand (`POST /api/v1/servers/refresh`).
+
+### 1. Authoritative Identity Stamping
+- Freshly created (`create_server.py`) and imported (`import_server.py`) servers atomically write `.onx-manager/server.json` via `write_server_identity()`.
+- Identity payload format:
+  ```json
+  {
+    "schema_version": 1,
+    "server_id": "uuid-here",
+    "provider": "docker"
+  }
+  ```
+- Uses temporary staging files with atomic `os.replace` to ensure power-failure resilience.
+
+### 2. Legacy Migration & Backward Compatibility
+- Reads legacy `.mcsmanager/server.json` if `.onx-manager/server.json` is missing, automatically migrating on read.
+- All new writes target `.onx-manager/server.json` exclusively.
+- Archive imports actively purge legacy `.mcsmanager` directories from uploaded archives.
+
+### 3. Deterministic Adopt vs. Heal Resolution
+When discovering an un-identified server directory (e.g. legacy installation or post-crash recovery):
+- Scans existing DB records for a matching normalized `root_path`.
+- Applies deterministic candidate scoring:
+  - `+100` points: Active server (`missing_since is None`)
+  - `+50` points: In-flight/live state (`RUNNING`, `STARTING`, `CREATED`)
+  - `+25` points: Matching `DOCKER` runtime provider
+  - Tie-breaker: Most recent `updated_at` timestamp
+- If a candidate matches, emits `ActionType.HEAL_IDENTITY`:
+  - Authoritatively writes `.onx-manager/server.json` using the existing database record's UUID and provider.
+  - Clears `missing_since` and restores broken status.
+  - Avoids duplicate row creation, provider-badge flips, and database churn.
+- If no DB record matches, emits `ActionType.ADOPT` to import the server as a new instance.
+
+### 4. Provider Cleanup on Deletion
+- During `ActionType.DELETE` handling (and in `DeleteServerHandler`), invokes `provider.destroy(server_id, root_path)` to clean up containers by name, server ID labels, and host volume bind mounts before removing the database row and files.
+
 ## Typical Mismatch Scenarios
 
 | Scenario | Mismatch | Resolution |

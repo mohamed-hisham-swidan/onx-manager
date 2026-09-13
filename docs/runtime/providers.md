@@ -61,11 +61,25 @@ Location: `backend/app/modules/server/infrastructure/providers/docker.py`
   - Mounts entire server directory directly to `/data` (`-v {server_dir}:/data -w /data`).
   - `normalize_host_path` standardizes POSIX and Windows paths (drive letters, forward slashes).
   - Translates user UID/GID on Linux to avoid root permission lockouts on host files.
-- **Bridge Network Model & Security:**
+- **Bridge Network Model, Security & Dynamic IP Resolution:**
   - Containers attach to Docker bridge network (`--network bridge` by default).
   - External game ports published to host interfaces (`-p {port}:{container_port}`).
   - Strict loopback isolation for RCON: published strictly to `127.0.0.1:{rcon_port}` regardless
     of custom game-port bind IP.
+  - Dynamic Container IP: atomically inspects PID and network IP via
+    `docker inspect --format='{{.State.Pid}} {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'`.
+    Exposes `get_container_ip()` and `get_address()` for live GUI/console network resolution.
+- **Dynamic Java Base Image Selection:**
+  - `resolve_docker_image()` dynamically selects `eclipse-temurin` images by Minecraft version:
+    Java 25 (>=26.1), Java 21 (1.20.5-1.21.x), Java 17 (1.17-1.20.4), Java 8 (<=1.16.5), with
+    override support via `image_override`.
+- **Crash Diagnostics & Exit Code Mapping:**
+  - `status()` inspects `{{.State.Status}} {{.State.ExitCode}}`, accurately mapping clean container stops (`exited 0`)
+    to `ServerRuntimeStatus.STOPPED` (preventing false crash alerts), and non-zero exits to `ServerRuntimeStatus.ERROR`.
+  - `collect_diagnostics()` inspects container exit code, OOMKilled flag, and standard error log tails into `EvidenceBundleModel`.
+  - Dead container collisions are automatically pruned via `docker rm -f` during startup retries.
+- **Broadened Container Destruction & Orphan Prevention:**
+  - `destroy()` removes containers matching container name, legacy name, server ID labels (`com.onxmanager.server-id` and legacy `com.mcsmanager.server-id`), and host volume bind mounts (`--filter volume={host_mount}`) to prevent orphaned containers upon server deletion or reconciliation cleanup.
 - **RCON Transport:**
   - Primary: pure-Python asynchronous `AsyncRCONClient`.
   - Fallback: in-container `docker exec {container} rcon-cli "{cmd}"`.
@@ -76,4 +90,5 @@ Location: `backend/app/modules/server/infrastructure/providers/docker.py`
     (`/var/run/docker.sock`).
   - `resolve_host_mount_path` translates container-internal `/app/data/servers` paths to
     host-side paths using `ONX_HOST_DATA_DIR` environment variable for sibling mounts.
+
 

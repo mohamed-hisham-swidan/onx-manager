@@ -1,4 +1,4 @@
-## Current State (2026-09-12)
+## Current State (2026-09-13)
 
 **Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
 - Phase 0 (Ground Truth/Baseline Freeze): CLOSED
@@ -13,11 +13,20 @@
   tests)
 - **Phase 5 (Containers System): CLOSED (2026-09-11 / 2026-09-12)** — All 6 batches complete & pushed to origin/master (HEAD `183ae7b`).
   `DockerProvider` fully implemented with async CLI-subprocess driver, volume mounts, Forge/NeoForge `run.sh` launch translation, bridge networking, RCON loopback security, Windows WSL2 Linux container policy, DooD compose policy (`docker-compose.dood.yml`), provider conformance contract suite (87 tests), and CI build-smoke probe.
+- **Post-Phase-5 Bug Remediation (2026-09-12 / 2026-09-13): CLOSED** — All 4 defect tracks resolved, verified with 43 new regression tests (3,233 tests total, 5/5 CI quality gates PASS, pushed to `origin/master`):
+  - Jar download timeouts & infrastructure error detail propagation (`9d7f700`)
+  - Container crash diagnostics, Java version mismatch classification, clean stop mapping, provider tags, and file editor navigation (`74786be`)
+  - Container real dynamic IP resolution in GUI & console (`77416c8`)
+  - Bug 3: Server identity loss on restart & provider-badge flip remediation via authoritative `identity_writer.py`, reconciliation deterministic adopt-vs-heal scoring, and broadened volume-filter container cleanup (`2adf213`)
 - **Then: Phase 4 (Community Feature Build) — UP NEXT (Unblocked)**: 5 features
-  (transparent update system, test environment, custom mod support,
-  change history log, log/crash readability). Now unblocked with container backend available for test-environment feature.
+  (redefined git-inspired versioning/testing system per DECISION-2026-09-12-001, custom mod support, change history log, log/crash readability). Now unblocked with container backend available.
 
 **Resolved recently (for reference, don't re-investigate):**
+- Post-Phase-5 Container & Identity Bug Tracks (2026-09-12 / 2026-09-13):
+  - `9d7f700`: Fixed rigid 120s jar download timeout with activity-based socket read/connect timeouts, streaming `.part` writes, and structured `details` in `CommandResult` / `InfrastructureError`.
+  - `74786be`: Implemented `resolve_docker_image()` for Java 8/17/21/25, added container `collect_diagnostics()`, mapped `exited 0` to `ServerRuntimeStatus.STOPPED`, added `ConfirmDialog` on server stop, and added provider tags in console/details.
+  - `77416c8`: Added `get_dynamic_local_ip()` / `get_address()` to `ServerProvider` implementations, dynamically inspects container IP in `DockerProvider`, syncs live host in `get_server.py` and `supervisor.py`, renders dynamic IP badge in `ServerConsole`.
+  - `2adf213`: Resolved Bug 3 via `identity_writer.py` atomic `.onx-manager/server.json` stamping at creation/import, deterministic candidate scoring (+100 active, +50 running/starting/created, +25 docker runtime, newest `updated_at` tiebreak) with in-place `ActionType.HEAL_IDENTITY` in `FilesystemReconciliationService`, and volume-mount filtering in `DockerProvider.destroy()`.
 - Phase 5 (Containers System — Batches 1–6):
   - Batch 1 (`282a7de`): Aligned stale `start()` signatures to 4 kwargs across `SSHProvider`, `CloudProvider`, `CircuitBreakerProviderWrapper`, and `DockerProvider`; corrected schema enum to `local_windows`.
   - Batches 2 & 3 (`4c3e4ff`): Implemented `DockerProvider` subprocess driver, whole-directory volume mounts, Forge/NeoForge `run.sh` launch translation, and `ContainerInstallerRunner`.
@@ -58,10 +67,10 @@
 # ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-09-12. Every claim below was verified against source code, the database,
+2026-09-13. Every claim below was verified against source code, the database,
 and a live test run.
 
-**Last verified:** 2026-09-12
+**Last verified:** 2026-09-13
 **App version (code):** `0.1.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
@@ -70,27 +79,27 @@ and a live test run.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 308 | `find backend/app -name "*.py"` |
-| Backend test files | 163 | `find backend/tests -name "test_*.py"` |
+| Backend Python source files | 309 | `find backend/app -name "*.py"` (added `identity_writer.py`) |
+| Backend test files | 167 | `find backend/tests -name "test_*.py"` (added 4 Bug 3 regression suites) |
 | Frontend test files | 75 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 15 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
 | Live routes | 106 | `./scripts/check-route-contract` (106 live routes vs 106 entries in `contracts/permissions.yaml`) |
 | Alembic migration revisions | 30 | `backend/alembic/versions/` (head `b1e2100000010`) |
-| Architecture Decision Records | 13 | `docs/decisions/0001`–`0012` + `DECISION-2026-09-10-001` |
+| Architecture Decision Records | 14 | `docs/decisions/0001`–`0012` + `DECISION-2026-09-10-001` + `DECISION-2026-09-12-001` |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 10 | `auth, backup, event_store, exposure, health, monitoring, plugin, server, shared, storage` |
 | CI workflows | 6 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml, windows-ci.yml}` — full backend pytest + DooD build smoke + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence; Windows CI |
 
 ---
 
-## 2. Test suite (measured 2026-09-12)
+## 2. Test suite (measured 2026-09-13)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **2554** |
-| Passed | **2548** |
+| Collected | **2574** |
+| Passed | **2568** |
 | Skipped | **6** |
 | Failed | **0** |
 
@@ -103,10 +112,10 @@ check, a Ruff-baseline regression gate, and the `docker-build-smoke` DooD packag
 | Metric | Value |
 |--------|-------|
 | Test files | **75** |
-| Tests | **660 passed** across 75 test files |
+| Tests | **665 passed** across 75 test files |
 
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
-on every push/PR to `master`. Total test count: **3,208 tests passed** (0 failed).
+on every push/PR to `master`. Total test count: **3,233 tests passed** (0 failed).
 
 ---
 
@@ -136,9 +145,9 @@ on every push/PR to `master`. Total test count: **3,208 tests passed** (0 failed
 - Runtime ownership verification (`reconcile_orphans` / `claim_localhost` /
   `cleanup_orphans`) with `MCS_MANAGED=1` marker + cwd + start_time checks
   (Batches 6–7).
-- Multi-runtime server providers (`ServerProvider` ABC): `LocalLinuxProvider` (tmux sessions on Linux/POSIX), `LocalWindowsProvider` (native Win32 detached process groups on Windows), and `DockerProvider` (isolated containers via async subprocess driver, bridge networking, loopback RCON, Windows WSL2 Linux container policy, opt-in DooD profile, and ephemeral container provisioning for Forge/NeoForge).
-- Filesystem reconciliation service (`FilesystemReconciliationService`) — disk
-  is the source of truth; runs at startup and via `POST /servers/refresh`.
+- Multi-runtime server providers (`ServerProvider` ABC): `LocalLinuxProvider` (tmux sessions on Linux/POSIX), `LocalWindowsProvider` (native Win32 detached process groups on Windows), and `DockerProvider` (isolated containers via async subprocess driver, bridge networking, dynamic IP resolution, loopback RCON, Windows WSL2 Linux container policy, opt-in DooD profile, ephemeral container provisioning for Forge/NeoForge, and volume-filter container cleanup).
+- Authoritative server identity stamping (`identity_writer.py`): Atomically stamps `.onx-manager/server.json` upon creation and import.
+- Filesystem reconciliation service (`FilesystemReconciliationService`): Disk is the source of truth; runs at startup and via `POST /servers/refresh`. Resolves un-identified Minecraft directories via normalized `root_path` matching and deterministic candidate scoring (+100 active, +50 running/starting/created, +25 docker runtime, newest `updated_at` tiebreak) to heal identity in place (`ActionType.HEAL_IDENTITY`) without duplicate imports or row deletion; cleans associated provider containers on server deletion.
 
 ### 4.2 Auth & authorization (implemented & Phase 4 enforced)
 
@@ -237,8 +246,9 @@ compatible → any). The server-scoped `/plugins/marketplace` (`?server=<id>`) s
 - **In-Server Contextual Navigation Shell (Batch 1, commit `adbf556`):** Dedicated sidebar context for server management with back-navigation.
 - **Blade Hosting-Style Server Detail Page (Batch 2, commit `72e8c1c` & Batch 5, commit `79d18d7`):** Two-column layout with live console, stat cards (Address click-to-copy, Uptime, CPU, RAM, Storage), Zone ID placeholder, CPU/RAM/Network usage trend graphs, and explicit "Coming Soon" badges for Storage & Network I/O metrics.
 - **Files REST API (Batch 3, commit `ae6848d`):** `/api/v1/servers/{server_id}/files` endpoint providing directory listing, text read/write (atomic), file/dir delete, upload, download, and mkdir with path-traversal sandboxing (`_resolve_server_file_path`).
-- **File Manager UI (Batch 4, commit `e96f902`):** First-class `/servers/:serverId/files` File Manager view with directory breadcrumbs, inline text editor, file upload, download, creation, and deletion modal.
+- **File Manager UI (Batch 4, commit `e96f902` & Bug Fix `74786be`):** First-class `/servers/:serverId/files` File Manager view with directory breadcrumbs, inline text editor, file upload, download, creation, and deletion modal. Fully reactive breadcrumb navigation synchronized with `?path=` searchParams, enabling browser history navigation and seamless editor exit on breadcrumb clicks.
 - **Server-Type-Aware Mods/Plugins UI (commit `7226e6c`):** Contextual navigation and Install Modal showing "Mods" or "Plugins" based on server type (`fabric`/`forge` vs `paper`/`purpur`).
+- **Provider Tags & Dynamic IP Display (commits `74786be` & `77416c8`):** `ServerConsole` and `ServerDetailPage` display real-time provider tags (Docker Container vs Windows Process vs Host Process) and dynamic local container network IPs.
 
 ---
 
@@ -273,6 +283,10 @@ Classification used by `Blueprint V5`:
 | — | ~~**TPS Validation & Scheduler Misfires:** RCON collector crashed on >20.0 TPS overshoots; scheduler dropped jobs under 1s I/O bursts; SQLite lacked connection pre-ping~~ **Resolved 2026-09-01 (SPEC-2026-09-01-BUGTRACK2-01)** — Clamped TPS at collector boundary; expanded `misfire_grace_time=60`; added `pool_pre_ping=True` | ~~Critical~~ | ~~Bug (Lane A)~~ |
 | — | ~~**Windows CI `os.killpg` Mock Resolution:** 140 test ERRORs on Windows CI due to missing `create=True` on `patch("os.killpg")`~~ **Resolved 2026-09-01 (SPEC-2026-09-01-WIN-KILLPG-01 Issue A)** — Added `mock_os_killpg` fixture in conftest + `create=True` across 7 test files | ~~High~~ | ~~Test infra (Lane A)~~ |
 | — | ~~**55 Windows CI Test Failures:** Windows CI test suite failures across core primitives, storage containment, prerequisite checks, and mock fixtures~~ **Resolved 2026-09-02 (SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2)** — Implemented `platform_force_kill`, `platform_kill_process_tree_sync/async`, LocalStorage `Path.is_relative_to` traversal security, platform-aware environment prereqs, and test fixture portability hardening | ~~High~~ | ~~Bug (Lane A)~~ |
+| — | ~~**Jar Download Timeout & Error Detail Propagation:** Rigid 120s timeout caused download failures on large jars; generic errors masked underlying cause~~ **Resolved 2026-09-12 (commit `9d7f700`)** — Activity-based socket timeouts, `.part` streaming, structured `details` in `CommandResult` and `InfrastructureError` hierarchy | ~~Critical~~ | ~~Bug (Lane A)~~ |
+| — | ~~**Container Crash Diagnostics & Clean Stop Mapping:** Modern Java 21/25 mismatch diagnosed as unknown crash; clean container stop mapped to error; dead container collisions~~ **Resolved 2026-09-12 (commit `74786be`)** — `resolve_docker_image()` for Java 8/17/21/25, container `collect_diagnostics()`, `exited 0` mapped to `STOPPED`, `ConfirmDialog` on UI stop, automatic dead container prune | ~~Critical~~ | ~~Bug (Lane A)~~ |
+| — | ~~**Console Provider Tags & Dynamic IP Display:** Console lacked runtime provider indication; container bridge network IP hidden behind hardcoded 127.0.0.1~~ **Resolved 2026-09-13 (commit `77416c8`)** — `get_dynamic_local_ip()` / `get_address()`, atomic `docker inspect` for PID and IP, live host sync in queries/supervisor, `console-ip-badge` in UI | ~~High~~ | ~~Feature / Bug (Lane A)~~ |
+| — | ~~**Server Identity Loss on Restart & Provider Flip (Bug 3):** Server identity file missing at creation/import caused reconciliation to reimport servers as LOCAL on restart, orphaning Docker containers~~ **Resolved 2026-09-13 (commit `2adf213`, `BUG_3_SERVER_IDENTITY_LOSS_DESIGN_SPEC`)** — Authoritative `identity_writer.py`, deterministic adopt-vs-heal scoring (+100 active, +50 running, +25 docker), in-place `ActionType.HEAL_IDENTITY`, broadened volume-filter container cleanup | ~~Critical~~ | ~~Bug (Lane A)~~ |
 | — | ServerMetricsCharts 5s REST refetchInterval vs 60s backend collection cadence | Low | Known edge case |
 | — | Non-running server writes zero metrics rows → chart renders empty state without explanatory UI message | Low | Known edge case |
 
@@ -330,8 +344,8 @@ Checks executed each run (identical locally via `scripts/reverify`):
 2. `python ../scripts/check-db-revision` — database schema matches compatible migration head
 3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
 4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 106 entries match 106 live routes
-5. `python -m pytest -q` (backend) — full suite 2,349 passed / 5 skipped
-6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — 75 files / 642 tests passing, build succeeds
+5. `python -m pytest -q` (backend) — full suite 2,568 passed / 6 skipped (2,574 collected)
+6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — 75 files / 665 tests passing, build succeeds
 
 ### 7.3 Execution status
 
