@@ -225,6 +225,10 @@ async def lifespan(_app: FastAPI):
                 logger.warning(
                     "FS reconciliation found %d broken server(s)", fs_result.total_broken
                 )
+            if fs_result.identity_healed:
+                logger.info(
+                    "FS reconciliation healed %d server identity file(s)", fs_result.total_healed
+                )
             if fs_result.ignored:
                 logger.info(
                     "FS reconciliation ignored %d non-Minecraft directory(ies)",

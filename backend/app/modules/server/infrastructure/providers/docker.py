@@ -657,8 +657,52 @@ class DockerProvider(ServerProvider):
     async def destroy(self, handle: ServerHandle) -> None:
         self._rcon_cache.pop(handle.server_id, None)
         container_name = handle.external_id or f"{IDENTITY.temp_prefix_new}{handle.server_id}"
+        containers_to_remove: set[str] = {container_name}
+
+        if handle.server_id:
+            containers_to_remove.add(f"{IDENTITY.temp_prefix_legacy}{handle.server_id}")
+
         try:
-            await self._docker_command("rm", "-f", container_name)
+            # Query containers by server ID labels
+            if handle.server_id:
+                for prefix in (
+                    IDENTITY.docker_label_prefix_new,
+                    IDENTITY.docker_label_prefix_legacy,
+                ):
+                    rc, out = await self._docker_command(
+                        "ps",
+                        "-a",
+                        "-q",
+                        "--filter",
+                        f"label={prefix}.server_id={handle.server_id}",
+                        log_failure=False,
+                    )
+                    if rc == 0 and out.strip():
+                        for cid in out.strip().split():
+                            if cid:
+                                containers_to_remove.add(cid)
+
+            # Query containers bind-mounting this server directory
+            root_path = (handle.metadata or {}).get("root_path") or (handle.metadata or {}).get(
+                "server_dir"
+            )
+            if root_path:
+                host_mount = resolve_host_mount_path(str(root_path))
+                rc, out = await self._docker_command(
+                    "ps",
+                    "-a",
+                    "-q",
+                    "--filter",
+                    f"volume={host_mount}",
+                    log_failure=False,
+                )
+                if rc == 0 and out.strip():
+                    for cid in out.strip().split():
+                        if cid:
+                            containers_to_remove.add(cid)
+
+            for target in containers_to_remove:
+                await self._docker_command("rm", "-f", target, log_failure=False)
         except (FileNotFoundError, OSError) as exc:
             logger.warning(
                 "Failed to execute docker rm for container %s (docker CLI unavailable): %s",

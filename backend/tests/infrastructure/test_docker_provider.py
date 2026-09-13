@@ -364,7 +364,8 @@ class TestDockerDestroy:
             mock_docker.return_value = (0, "onx-srv-del-1")
             await provider.destroy(handle)
 
-        mock_docker.assert_awaited_once_with("rm", "-f", "onx-srv-del-1")
+        rm_calls = [c[0] for c in mock_docker.call_args_list if c[0][:2] == ("rm", "-f")]
+        assert any("onx-srv-del-1" in c for c in rm_calls)
         assert "srv-del-1" not in provider._rcon_cache
 
     @pytest.mark.asyncio
@@ -380,7 +381,8 @@ class TestDockerDestroy:
             mock_docker.return_value = (0, "onx-srv-del-2")
             await provider.destroy(handle)
 
-        mock_docker.assert_awaited_once_with("rm", "-f", "onx-srv-del-2")
+        rm_calls = [c[0] for c in mock_docker.call_args_list if c[0][:2] == ("rm", "-f")]
+        assert any("onx-srv-del-2" in c for c in rm_calls)
 
     @pytest.mark.asyncio
     async def test_docker_destroy_already_removed_container_graceful(self) -> None:
@@ -396,7 +398,8 @@ class TestDockerDestroy:
             # Must not raise an exception
             await provider.destroy(handle)
 
-        mock_docker.assert_awaited_once_with("rm", "-f", "onx-srv-del-3")
+        rm_calls = [c[0] for c in mock_docker.call_args_list if c[0][:2] == ("rm", "-f")]
+        assert any("onx-srv-del-3" in c for c in rm_calls)
 
     @pytest.mark.asyncio
     async def test_docker_destroy_cli_missing_graceful(self) -> None:

@@ -1,8 +1,7 @@
-from __future__ import annotations
-
+import asyncio
+import contextlib
 import json
 import logging
-import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -12,7 +11,9 @@ from pathlib import Path
 
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
+from app.modules.server.application.services.identity_writer import write_server_identity
 from app.modules.server.application.services.import_service import scan_server_directory
+from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import (
@@ -20,14 +21,25 @@ from app.modules.server.domain.value_objects import (
     LaunchConfiguration,
     MemoryAllocation,
     PortNumber,
+    RuntimeInfo,
     ServerDeployment,
     ServerProperties,
     ServerType,
+    default_provider_for_platform,
 )
 from app.modules.server.infrastructure.fs import FileSystem, local_fs
+from app.modules.server.infrastructure.providers import (
+    provider_factory as default_provider_factory,
+)
+from app.modules.server.infrastructure.providers.base import (
+    ProviderFactory,
+    ServerHandle,
+)
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.reconciliation.fs")
+
+DESTROY_TIMEOUT_SECONDS: float = 10.0
 
 # ---------------------------------------------------------------------------
 # Reconciliation Result
@@ -46,6 +58,7 @@ class ReconciliationResult:
     invalid_identity: list[dict] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
     identity_written: list[dict] = field(default_factory=list)
+    identity_healed: list[dict] = field(default_factory=list)
     total_dirs_found: int = 0
     total_minecraft_dirs: int = 0
     started_at: str = ""
@@ -87,6 +100,10 @@ class ReconciliationResult:
     @property
     def total_errors(self) -> int:
         return len(self.errors)
+
+    @property
+    def total_healed(self) -> int:
+        return len(self.identity_healed)
 
 
 # ===================================================================
@@ -157,6 +174,7 @@ class ActionType(Enum):
     IGNORE = "ignore"
     INVALID_IDENTITY = "invalid_identity"
     REPAIR_IDENTITY = "repair_identity"
+    HEAL_IDENTITY = "heal_identity"
 
 
 @dataclass
@@ -179,9 +197,15 @@ class ReconciliationPlan:
 
 
 class FilesystemReconciliationService:
-    def __init__(self, repo: ServerRepository, fs: FileSystem | None = None) -> None:
+    def __init__(
+        self,
+        repo: ServerRepository,
+        fs: FileSystem | None = None,
+        provider_factory: ProviderFactory | None = None,
+    ) -> None:
         self._repo = repo
         self._fs = fs or local_fs
+        self._provider_factory = provider_factory or default_provider_factory
         self._last_plan: ReconciliationPlan | None = None
 
     # ------------------------------------------------------------------
@@ -302,7 +326,10 @@ class FilesystemReconciliationService:
             )
             if path == legacy_path:
                 try:
-                    self._write_single_identity_atomic(entry.path, uid, location="new")
+                    provider = raw.get("provider", "local")
+                    self._write_single_identity_atomic(
+                        entry.path, uid, location="new", provider=provider
+                    )
                     logger.info(
                         "Migrated identity for %s from legacy to new location",
                         uid,
@@ -386,8 +413,28 @@ class FilesystemReconciliationService:
     ) -> ReconciliationPlan:
         plan = ReconciliationPlan()
         db_by_id: dict[str, Server] = {str(s.id): s for s in db_servers}
+        db_by_path: dict[str, list[Server]] = {}
+        for s in db_servers:
+            if s.deployment and s.deployment.root_path:
+                try:
+                    norm = str(Path(s.deployment.root_path).resolve())
+                    db_by_path.setdefault(norm, []).append(s)
+                except (ValueError, OSError):
+                    pass
+
         accounted: set[str] = set()
         data_dir = self._servers_data_dir()
+
+        def _score_candidate(s: Server) -> tuple[int, datetime]:
+            score = 0
+            if s.missing_since is None:
+                score += 100
+            if s.status in (ServerStatus.RUNNING, ServerStatus.STARTING, ServerStatus.CREATED):
+                score += 50
+            if s.runtime and s.runtime.provider == "docker":
+                score += 25
+            up_time = s.updated_at or s.created_at or datetime.min.replace(tzinfo=UTC)
+            return (score, up_time)
 
         for i, entry in enumerate(entries):
             identity = identities[i]
@@ -422,15 +469,43 @@ class FilesystemReconciliationService:
 
             elif identity.status == IdentityStatus.MISSING:
                 if scan.is_minecraft:
-                    uid = uuid.uuid4().hex
-                    plan.actions.append(
-                        PlanAction(
-                            action=ActionType.IMPORT,
-                            fs_entry=entry,
-                            identity=IdentityResult(status=IdentityStatus.MISSING, uid=uid),
-                            scan=scan,
+                    norm_entry = str(Path(entry.path).resolve())
+                    matching = [
+                        s for s in db_by_path.get(norm_entry, [])
+                        if str(s.id) not in accounted
+                    ]
+                    if matching:
+                        primary = sorted(matching, key=_score_candidate, reverse=True)[0]
+                        accounted.add(str(primary.id))
+                        if len(matching) > 1:
+                            logger.warning(
+                                "Duplicate DB servers match root_path %s: adopted %s (%s), "
+                                "others will be marked stale",
+                                entry.path,
+                                primary.name,
+                                primary.id,
+                            )
+                        plan.actions.append(
+                            PlanAction(
+                                action=ActionType.HEAL_IDENTITY,
+                                fs_entry=entry,
+                                scan=scan,
+                                db_server=primary,
+                                identity=IdentityResult(
+                                    status=IdentityStatus.MISSING, uid=str(primary.id)
+                                ),
+                            )
                         )
-                    )
+                    else:
+                        uid = uuid.uuid4().hex
+                        plan.actions.append(
+                            PlanAction(
+                                action=ActionType.IMPORT,
+                                fs_entry=entry,
+                                identity=IdentityResult(status=IdentityStatus.MISSING, uid=uid),
+                                scan=scan,
+                            )
+                        )
                 else:
                     plan.actions.append(
                         PlanAction(
@@ -444,14 +519,34 @@ class FilesystemReconciliationService:
                     )
 
             elif identity.status == IdentityStatus.INVALID:
-                plan.actions.append(
-                    PlanAction(
-                        action=ActionType.REPAIR_IDENTITY,
-                        fs_entry=entry,
-                        identity=identity,
-                        scan=scan,
+                norm_entry = str(Path(entry.path).resolve())
+                matching = [
+                    s for s in db_by_path.get(norm_entry, [])
+                    if str(s.id) not in accounted
+                ]
+                if matching and scan.is_minecraft:
+                    primary = sorted(matching, key=_score_candidate, reverse=True)[0]
+                    accounted.add(str(primary.id))
+                    plan.actions.append(
+                        PlanAction(
+                            action=ActionType.HEAL_IDENTITY,
+                            fs_entry=entry,
+                            scan=scan,
+                            db_server=primary,
+                            identity=IdentityResult(
+                                status=IdentityStatus.INVALID, uid=str(primary.id)
+                            ),
+                        )
                     )
-                )
+                else:
+                    plan.actions.append(
+                        PlanAction(
+                            action=ActionType.REPAIR_IDENTITY,
+                            fs_entry=entry,
+                            identity=identity,
+                            scan=scan,
+                        )
+                    )
 
         for sid, server in db_by_id.items():
             if sid in accounted:
@@ -587,6 +682,7 @@ class FilesystemReconciliationService:
             ActionType.IGNORE: self._handle_ignore,
             ActionType.INVALID_IDENTITY: self._handle_invalid_identity,
             ActionType.REPAIR_IDENTITY: self._handle_repair_identity,
+            ActionType.HEAL_IDENTITY: self._handle_heal_identity,
         }
         return handlers[action]
 
@@ -597,14 +693,90 @@ class FilesystemReconciliationService:
             return str(pa.db_server.id)
         return "unknown"
 
+    async def _handle_heal_identity(
+        self, pa: PlanAction, result: ReconciliationResult
+    ) -> None:
+        server = pa.db_server
+        entry = pa.fs_entry
+        scan = pa.scan
+        sid = str(server.id)
+        provider = (
+            server.runtime.provider
+            if server.runtime and server.runtime.provider
+            else default_provider_for_platform()
+        )
+
+        self._write_single_identity(entry.path, sid, result, provider=provider)
+
+        updated = False
+        if server.missing_since is not None:
+            server._missing_since = None
+            server._updated_at = datetime.now(UTC)
+            updated = True
+
+        if scan.is_broken and server.status != ServerStatus.BROKEN:
+            server.mark_broken()
+            result.broken.append(
+                {
+                    "server_id": sid,
+                    "name": server.name,
+                    "path": entry.path,
+                    "reasons": scan.broken_reasons,
+                }
+            )
+            updated = True
+        elif not scan.is_broken and server.status == ServerStatus.BROKEN:
+            server.mark_repaired()
+            result.updated.append(
+                {
+                    "server_id": sid,
+                    "name": server.name,
+                    "path": entry.path,
+                }
+            )
+            updated = True
+
+        if server.deployment:
+            current_jar = (scan.scanned or {}).get("server_jar") or "server.jar"
+            if (
+                server.deployment.root_path != entry.path
+                or server.deployment.startup_jar != current_jar
+            ):
+                server.update_deployment(self._build_deployment(entry, scan))
+                updated = True
+
+        if updated:
+            await self._repo.save(server)
+
+        result.identity_healed.append(
+            {
+                "server_id": sid,
+                "name": server.name,
+                "path": entry.path,
+                "provider": provider,
+            }
+        )
+        logger.info(
+            "Healed on-disk identity for server %s (%s) with provider %s",
+            server.name,
+            sid,
+            provider,
+        )
+
     async def _handle_import(self, pa: PlanAction, result: ReconciliationResult) -> None:
         uid = pa.identity.uid
         entry = pa.fs_entry
         scan = pa.scan
 
-        self._write_single_identity(entry.path, uid, result)
+        provider = (
+            (pa.identity.identity or {}).get("provider")
+            if pa.identity and pa.identity.identity
+            else default_provider_for_platform()
+        )
 
-        server = self._build_server_from_scan(ServerId(uid), entry, scan)
+        self._write_single_identity(entry.path, uid, result, provider=provider)
+
+        server = self._build_server_from_scan(ServerId(uid), entry, scan, provider=provider)
 
         if scan.is_broken:
             server.mark_broken()
@@ -722,6 +894,41 @@ class FilesystemReconciliationService:
     async def _handle_delete(self, pa: PlanAction, result: ReconciliationResult) -> None:
         server = pa.db_server
         sid = str(server.id)
+
+        # Teardown provider resources (containers, tmux sessions, etc.) before DB purge
+        provider_type = (
+            server.runtime.provider
+            if server.runtime and server.runtime.provider
+            else default_provider_for_platform()
+        )
+        external_id = (
+            server.runtime.external_id
+            if server.runtime and server.runtime.external_id
+            else f"{IDENTITY.temp_prefix_new}{sid}"
+        )
+        root_path = server.deployment.root_path if server.deployment else None
+        handle = ServerHandle(
+            provider=provider_type,
+            server_id=sid,
+            external_id=external_id,
+            metadata={"server_name": server.name, "root_path": root_path},
+        )
+        with contextlib.suppress(Exception):
+            await RuntimeSupervisor.stop_for(sid)
+        try:
+            provider = self._provider_factory.get(provider_type)
+            await asyncio.wait_for(
+                provider.destroy(handle),
+                timeout=DESTROY_TIMEOUT_SECONDS,
+            )
+            logger.info("Destroyed provider resources for deleted server %s (%s)", server.name, sid)
+        except Exception as e:
+            logger.warning(
+                "Failed to destroy provider resources for deleted server %s: %s",
+                sid,
+                e,
+            )
+
         server.mark_deleted()
         await self._repo.delete(server.id)
         result.deleted.append(
@@ -860,7 +1067,11 @@ class FilesystemReconciliationService:
     # ------------------------------------------------------------------
 
     def _build_server_from_scan(
-        self, server_id: ServerId, entry: FsEntry, scan: ScanOutcome
+        self,
+        server_id: ServerId,
+        entry: FsEntry,
+        scan: ScanOutcome,
+        provider: str | None = None,
     ) -> Server:
         name = self._find_name(entry, scan)
         scanned_type = (scan.scanned or {}).get("server_type", "vanilla")
@@ -893,6 +1104,7 @@ class FilesystemReconciliationService:
             script_cmd = ["bash", run_script or "run.sh", "nogui"]
             launch_config = LaunchConfiguration(startup_command=script_cmd)
 
+        runtime_provider = provider or default_provider_for_platform()
         return Server(
             server_id=server_id,
             name=name,
@@ -903,6 +1115,7 @@ class FilesystemReconciliationService:
             properties=props,
             deployment=deployment,
             launch_config=launch_config,
+            runtime=RuntimeInfo(provider=runtime_provider),
         )
 
     # ------------------------------------------------------------------
@@ -911,55 +1124,38 @@ class FilesystemReconciliationService:
     # ------------------------------------------------------------------
 
     def _write_single_identity(
-        self, dir_path: str, uid: str, result: ReconciliationResult | None = None
+        self,
+        dir_path: str,
+        uid: str,
+        result: ReconciliationResult | None = None,
+        provider: str = "local",
     ) -> None:
-        """Write identity to BOTH locations atomically (write-to-temp-then-rename).
-        Called by _handle_import, _handle_ignore, _handle_repair_identity.
+        """Write identity to .onx-manager/server.json atomically.
+        Per DECISION-2026-09-13, writes exclusively to NEW location.
         """
-        # Write NEW (primary) atomically
-        self._write_single_identity_atomic(dir_path, uid, location="new", result=result)
-        # Write LEGACY (for backward compat during transition) atomically
-        self._write_single_identity_atomic(dir_path, uid, location="legacy", result=result)
+        self._write_single_identity_atomic(
+            dir_path, uid, location="new", result=result, provider=provider
+        )
 
     def _write_single_identity_atomic(
         self,
         dir_path: str,
         uid: str,
-        location: str,  # "new" or "legacy"
+        location: str = "new",  # "new" or "legacy"
         result: ReconciliationResult | None = None,
+        provider: str = "local",
     ) -> None:
         """Atomic write: write to temp file, then rename over target."""
         try:
             if location == "new":
-                identity_dir = str(Path(dir_path) / IDENTITY.identity_dir_new)
-                target_path = str(
-                    Path(dir_path) / IDENTITY.identity_dir_new / IDENTITY.identity_file
-                )
-                doc = self._build_identity_doc_new(uid)
+                write_server_identity(dir_path, uid, provider=provider, fs=self._fs)
             else:
-                identity_dir = str(Path(dir_path) / IDENTITY.identity_dir_legacy)
                 target_path = str(
                     Path(dir_path) / IDENTITY.identity_dir_legacy / IDENTITY.identity_file
                 )
                 doc = self._build_identity_doc_legacy(uid)
-
-            self._fs.ensure_dir(identity_dir)
-
-            # Atomic write: write to temp, then rename
-            # Use same directory for temp to ensure rename is atomic on POSIX
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                dir=identity_dir,
-                prefix=f".{IDENTITY.identity_file}.tmp.",
-                suffix=".json",
-                delete=False,
-                encoding="utf-8",
-            ) as tmp:
-                json.dump(doc, tmp, indent=2)
-                tmp_path = tmp.name
-
-            # Atomic rename (POSIX guarantee: no partial file visible)
-            self._fs.rename(tmp_path, target_path)
+                content = json.dumps(doc, indent=2).encode("utf-8")
+                self._fs.write_binary_atomic(target_path, content)
 
             if result is not None:
                 result.identity_written.append({"path": dir_path, "uid": uid, "location": location})
@@ -973,18 +1169,14 @@ class FilesystemReconciliationService:
                 dir_path,
                 exc,
             )
-            # Clean up temp file if it exists
-            try:
-                if "tmp_path" in locals() and self._fs.exists(tmp_path):
-                    self._fs.remove(tmp_path)
-            except Exception:
-                pass
             raise
 
-    def _build_identity_doc_new(self, uid: str) -> dict:
+    def _build_identity_doc_new(self, uid: str, provider: str = "local") -> dict:
         return {
             "version": IDENTITY.identity_version,
             "uid": uid,
+            "server_id": uid,
+            "provider": provider,
             "created_at": datetime.now(UTC).isoformat(),
             "manager": IDENTITY.manager_field_new,
             "schema_version": IDENTITY.schema_version,
@@ -1068,13 +1260,26 @@ class FilesystemReconciliationService:
                         "reason": "Identity will be repaired and rescanned",
                     }
                 )
+            elif pa.action == ActionType.HEAL_IDENTITY:
+                result.identity_healed.append(
+                    {
+                        "server_id": str(pa.db_server.id),
+                        "name": pa.db_server.name,
+                        "path": pa.fs_entry.path,
+                        "provider": (
+                            pa.db_server.runtime.provider
+                            if pa.db_server.runtime and pa.db_server.runtime.provider
+                            else default_provider_for_platform()
+                        ),
+                    }
+                )
         return result
 
     def _log_summary(self, result: ReconciliationResult) -> None:
         logger.info(
             "Reconciliation done: %d imported, %d updated, %d deleted, "
             "%d missing, %d broken, %d unchanged, %d ignored, "
-            "%d invalid_identity, %d errors",
+            "%d invalid_identity, %d healed, %d errors",
             result.total_imported,
             result.total_updated,
             result.total_deleted,
@@ -1083,6 +1288,7 @@ class FilesystemReconciliationService:
             result.total_unchanged,
             result.total_ignored,
             result.total_invalid_identity,
+            result.total_healed,
             result.total_errors,
         )
 

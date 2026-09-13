@@ -70,6 +70,7 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                 )
             server_status = server.status
             server_name = server.name
+            server_dir = server.deployment.server_directory() if server.deployment else None
             provider_type = (
                 server.runtime.provider
                 if server.runtime and server.runtime.provider
@@ -85,7 +86,7 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
             provider=provider_type,
             server_id=sid,
             external_id=external_id,
-            metadata={"server_name": server_name},
+            metadata={"server_name": server_name, "root_path": server_dir},
         )
 
         # 2. Stop running server if needed so JVM / supervisor processes are not orphaned (F050)

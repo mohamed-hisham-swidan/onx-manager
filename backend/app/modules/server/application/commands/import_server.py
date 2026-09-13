@@ -9,6 +9,7 @@ from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
 from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.server.application.services.identity_writer import write_server_identity
 from app.modules.server.application.services.import_service import (
     _find_server_jar,
     _safe_extract_zip,
@@ -25,6 +26,7 @@ from app.modules.server.domain.value_objects import (
     ServerDeployment,
     ServerProperties,
     ServerType,
+    default_provider_for_platform,
 )
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.repository import SQLServerRepository
@@ -100,6 +102,20 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                 )
 
             uow.defer_cleanup(lambda p=str(target): local_fs.delete_dir(p))
+
+            # Remove any stale legacy identity folder copied from source archive
+            legacy_identity_dir = target / IDENTITY.identity_dir_legacy
+            if legacy_identity_dir.exists():
+                local_fs.delete_dir(str(legacy_identity_dir))
+
+            # Authoritatively stamp new server identity
+            provider_type = default_provider_for_platform()
+            write_server_identity(
+                dir_path=str(target),
+                uid=str(server_id),
+                provider=provider_type,
+                fs=local_fs,
+            )
 
             detected_jar = _find_server_jar(str(target), local_fs) or "server.jar"
 

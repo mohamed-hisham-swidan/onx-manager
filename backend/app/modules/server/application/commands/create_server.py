@@ -10,6 +10,7 @@ from app.core.event_bus import EventBus
 from app.core.exceptions import ProvisioningError
 from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.server.application.services.identity_writer import write_server_identity
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import (
@@ -88,14 +89,11 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                     error_code="DOCKER_UNAVAILABLE",
                 )
 
-        if provider_type == "docker":
+        resolved_provider = provider_type or default_provider_for_platform()
+        if resolved_provider == "docker":
             location_type = LocationType.DOCKER
             runtime_info = RuntimeInfo(provider="docker")
-        elif provider_type in ("local", "local_windows"):
-            location_type = LocationType.LOCAL
-            runtime_info = RuntimeInfo(provider=provider_type)
-        elif provider_type is None:
-            resolved_provider = default_provider_for_platform()
+        elif resolved_provider in ("local", "local_windows"):
             location_type = LocationType.LOCAL
             runtime_info = RuntimeInfo(provider=resolved_provider)
         else:
@@ -172,6 +170,12 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             uow.defer_cleanup(lambda: local_fs.delete_dir(server_dir_path))
 
             try:
+                write_server_identity(
+                    dir_path=server_dir_path,
+                    uid=str(server_id),
+                    provider=resolved_provider,
+                    fs=local_fs,
+                )
                 await download_server_jar(
                     server_id=str(server_id),
                     server_type=command.server_type,
@@ -201,12 +205,12 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             except ProvisioningError:
                 local_fs.delete_dir(server_dir_path)
                 raise
-            except Exception:
+            except Exception as e:
                 local_fs.delete_dir(server_dir_path)
                 raise ProvisioningError(
                     message=f"Unexpected provisioning failure for server {server_id}",
                     server_id=str(server_id),
-                ) from None
+                ) from e
 
             for event in server.collect_events():
                 uow.add_event(event)
