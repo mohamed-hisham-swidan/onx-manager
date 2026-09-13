@@ -17,7 +17,7 @@ class StoredEventModel(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, index=True)
 
     # cryptographic chain
-    previous_hash = Column(String(64), nullable=True)
+    previous_hash = Column(String(64), nullable=True, unique=True)
     hash = Column(String(64), nullable=False)
 
 

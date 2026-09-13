@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.event_store.models import StoredEventModel
@@ -39,36 +41,54 @@ class EventChain:
         self._session = session
         self._repo = SQLEventRepository(session)
 
-    async def append_chain(self, event: Any) -> StoredEvent:
-        previous = await self._repo.get_last_event()
-        prev_hash = previous.hash if previous else ""
+    async def append_chain(self, event: Any, max_retries: int = 5) -> StoredEvent:
+        for attempt in range(max_retries):
+            previous = await self._repo.get_last_event()
+            prev_hash = previous.hash if previous else ""
 
-        now = (
-            datetime.fromtimestamp(event.timestamp, tz=UTC)
-            if getattr(event, "timestamp", None)
-            else datetime.now(UTC)
-        )
-        ts = now.timestamp()
-        if hasattr(event, "timestamp"):
-            event.timestamp = ts
+            now = (
+                datetime.fromtimestamp(event.timestamp, tz=UTC)
+                if getattr(event, "timestamp", None)
+                else datetime.now(UTC)
+            )
+            ts = now.timestamp()
+            if hasattr(event, "timestamp"):
+                event.timestamp = ts
 
-        chain_hash = compute_hash(
-            event_id=event.event_id,
-            event_type=event.event_type,
-            correlation_id=event.correlation_id,
-            data_json=event.model_dump_json(),
-            schema_version=event.schema_version,
-            timestamp=ts,
-            previous_hash=prev_hash,
-        )
+            chain_hash = compute_hash(
+                event_id=event.event_id,
+                event_type=event.event_type,
+                correlation_id=event.correlation_id,
+                data_json=event.model_dump_json(),
+                schema_version=event.schema_version,
+                timestamp=ts,
+                previous_hash=prev_hash,
+            )
 
-        stored = await self._repo.append(
-            event,
-            hash_value=chain_hash,
-            previous_hash=prev_hash,
-        )
+            try:
+                if hasattr(self._session, "begin_nested"):
+                    async with self._session.begin_nested():
+                        stored = await self._repo.append(
+                            event,
+                            hash_value=chain_hash,
+                            previous_hash=prev_hash,
+                        )
+                else:
+                    stored = await self._repo.append(
+                        event,
+                        hash_value=chain_hash,
+                        previous_hash=prev_hash,
+                    )
+                return stored
+            except IntegrityError:
+                if attempt == max_retries - 1:
+                    raise RuntimeError(
+                        f"EventChain.append_chain failed after {max_retries} attempts "
+                        "due to concurrent append conflicts"
+                    )
+                await asyncio.sleep(0.01 * (attempt + 1))
 
-        return stored
+        raise RuntimeError("EventChain.append_chain retry loop exhausted")
 
     async def verify_chain(self, from_id: int = 1, to_id: int | None = None) -> bool:
         stmt = (

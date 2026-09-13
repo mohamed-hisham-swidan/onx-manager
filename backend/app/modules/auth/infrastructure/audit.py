@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistence.base import Base
@@ -27,7 +30,7 @@ class AuditLogModel(Base):
     user_agent = Column(String(512), nullable=True)
     outcome = Column(String(32), nullable=False)
     correlation_id = Column(String(64), nullable=False)
-    previous_hash = Column(String(64), nullable=False)
+    previous_hash = Column(String(64), nullable=False, unique=True)
     hash = Column(String(64), nullable=False, unique=True)
 
 
@@ -65,48 +68,66 @@ class AuditLogger:
         new_value: str | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
+        max_retries: int = 5,
     ) -> None:
-        import uuid
-
         cid = correlation_id or uuid.uuid4().hex
-        previous_hash = await self._get_latest_hash()
-        timestamp = datetime.now(UTC)
 
-        row_data = {
-            "timestamp": _fmt_ts(timestamp),
-            "actor_type": actor_type,
-            "actor_id": actor_id,
-            "action": action,
-            "resource_type": resource_type,
-            "resource_id": resource_id,
-            "old_value": old_value,
-            "new_value": new_value,
-            "ip_address": ip_address,
-            "user_agent": user_agent,
-            "outcome": outcome,
-            "correlation_id": cid,
-            "previous_hash": previous_hash,
-        }
-        current_hash = hashlib.sha256(_build_hash_input(row_data)).hexdigest()
+        for attempt in range(max_retries):
+            previous_hash = await self._get_latest_hash()
+            timestamp = datetime.now(UTC)
 
-        entry = AuditLogModel(
-            timestamp=timestamp,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            old_value=old_value,
-            new_value=new_value,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            outcome=outcome,
-            correlation_id=cid,
-            previous_hash=previous_hash,
-            hash=current_hash,
-        )
-        self._session.add(entry)
-        await self._session.flush()
+            row_data = {
+                "timestamp": _fmt_ts(timestamp),
+                "actor_type": actor_type,
+                "actor_id": actor_id,
+                "action": action,
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                "old_value": old_value,
+                "new_value": new_value,
+                "ip_address": ip_address,
+                "user_agent": user_agent,
+                "outcome": outcome,
+                "correlation_id": cid,
+                "previous_hash": previous_hash,
+            }
+            current_hash = hashlib.sha256(_build_hash_input(row_data)).hexdigest()
+
+            entry = AuditLogModel(
+                timestamp=timestamp,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                old_value=old_value,
+                new_value=new_value,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                outcome=outcome,
+                correlation_id=cid,
+                previous_hash=previous_hash,
+                hash=current_hash,
+            )
+
+            try:
+                if hasattr(self._session, "begin_nested"):
+                    async with self._session.begin_nested():
+                        self._session.add(entry)
+                        await self._session.flush()
+                else:
+                    self._session.add(entry)
+                    await self._session.flush()
+                return
+            except IntegrityError:
+                if attempt == max_retries - 1:
+                    raise RuntimeError(
+                        f"AuditLogger.log failed after {max_retries} attempts "
+                        "due to concurrent append conflicts"
+                    )
+                await asyncio.sleep(0.01 * (attempt + 1))
+
+        raise RuntimeError("AuditLogger.log retry loop exhausted")
 
     async def verify_chain(self, from_id: int = 0, to_id: int = 0) -> dict:
         stmt = text("SELECT * FROM audit_log ORDER BY id ASC")

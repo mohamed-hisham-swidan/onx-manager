@@ -172,6 +172,8 @@ route_permissions:
   "DELETE /api/v1/servers/{server_id}/plugins/{plugin_id}": {permission: "plugin:manage, server.{id}.plugins", status: enforced}
   "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/enable": {permission: "plugin:manage, server.{id}.plugins", status: enforced}
   "POST /api/v1/servers/{server_id}/plugins/{plugin_id}/disable": {permission: "plugin:manage, server.{id}.plugins", status: enforced}
+  "POST /api/v1/servers/{server_id}/plugins/toggle": {permission: "plugin:manage, server.{id}.plugins", status: enforced}
+  "POST /api/v1/servers/{server_id}/plugins/upload": {permission: "plugin:manage, server.{id}.plugins", status: enforced}
 
   # plugins — Modrinth marketplace (verified enforced against plugins.py:73,85,120)
   "GET /api/v1/servers/{server_id}/plugins/marketplace/search": {permission: "plugin:manage, server.{id}.plugins, server.{id}.view", status: enforced}
