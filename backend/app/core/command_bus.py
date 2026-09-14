@@ -24,6 +24,11 @@ class CommandResult(BaseModel):
     error: str | None = None
     error_code: str | None = None
     details: dict[str, Any] | None = None
+    entity_id: str | None = None
+
+    @property
+    def is_success(self) -> bool:
+        return self.success
 
 
 class CommandHandler(ABC, Generic[TCommand]):

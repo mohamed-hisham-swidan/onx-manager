@@ -161,6 +161,24 @@ from app.modules.server.application import (
     UpdateServerConfigCommand,
     UpdateServerConfigHandler,
 )
+from app.modules.versioning.application import (
+    CreateBranchCommand,
+    CreateBranchHandler,
+    CreateCommitCommand,
+    CreateCommitHandler,
+    DiscardTestCommand,
+    DiscardTestHandler,
+    GetCommitHistoryHandler,
+    GetCommitHistoryQuery,
+    GetServerBranchesHandler,
+    GetServerBranchesQuery,
+    GetTestStatusHandler,
+    GetTestStatusQuery,
+    PromoteCommitCommand,
+    PromoteCommitHandler,
+    RunIsolatedTestCommand,
+    RunIsolatedTestHandler,
+)
 
 
 def init_infrastructure() -> None:
@@ -255,6 +273,12 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(RevokeInviteCommand, RevokeInviteHandler(event_bus))
     command_bus.register(UpdateAccessModeCommand, UpdateAccessModeHandler(event_bus))
 
+    command_bus.register(CreateBranchCommand, CreateBranchHandler())
+    command_bus.register(CreateCommitCommand, CreateCommitHandler())
+    command_bus.register(RunIsolatedTestCommand, RunIsolatedTestHandler())
+    command_bus.register(PromoteCommitCommand, PromoteCommitHandler(command_bus=command_bus))
+    command_bus.register(DiscardTestCommand, DiscardTestHandler())
+
 
 def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(GetServerQuery, GetServerHandler())
@@ -285,3 +309,7 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(GetSystemStatusQuery, GetSystemStatusHandler())
     query_bus.register(VerifyInviteQuery, VerifyInviteHandler())
     query_bus.register(ListInvitesQuery, ListInvitesHandler())
+
+    query_bus.register(GetServerBranchesQuery, GetServerBranchesHandler())
+    query_bus.register(GetCommitHistoryQuery, GetCommitHistoryHandler())
+    query_bus.register(GetTestStatusQuery, GetTestStatusHandler())

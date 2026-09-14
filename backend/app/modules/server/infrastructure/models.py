@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     DateTime,
@@ -64,6 +65,7 @@ class ServerModel(Base, TimestampMixin):
     last_crash_time = Column(Float, nullable=True)
     restart_count = Column(Integer, nullable=False, default=0)
     launch_config_json = Column(Text, nullable=True)
+    bot_verification_settings = Column(JSON, nullable=True)
     missing_since = Column(DateTime, nullable=True)
     owner_id = Column(
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True

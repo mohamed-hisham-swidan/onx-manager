@@ -272,3 +272,89 @@ class FilesystemOperationError(ProvisioningError):
         super().__init__(msg, retryable=False, details=d)
         self.path = path
         self.operation = operation
+
+
+class StorageCowUnavailableError(MCSError):
+    def __init__(
+        self,
+        path: str = "",
+        message: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        default_msg = (
+            f"Versioning and isolated testing requires a Btrfs or ZFS filesystem supporting "
+            f"copy-on-write on the server data path. Your server data directory ({path or 'unknown'}) "
+            f"does not support reflink cloning. Standard server management remains fully available."
+        )
+        super().__init__(
+            message or default_msg,
+            code="STORAGE_COW_UNAVAILABLE",
+            http_status=412,
+            details={"path": path, **(details or {})},
+        )
+
+
+class BotRunInsufficientResourcesError(MCSError):
+    def __init__(
+        self,
+        message: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Insufficient system headroom to execute isolated bot verification",
+            code="BOT_RUN_INSUFFICIENT_RESOURCES",
+            http_status=422,
+            details=details or {},
+        )
+
+
+class TestIsolationViolationError(MCSError):
+    __test__ = False
+
+    def __init__(
+        self,
+        message: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Test execution violated offline-mode or directory isolation invariant",
+            code="TEST_ISOLATION_VIOLATION",
+            http_status=500,
+            details=details or {},
+        )
+
+
+class UnsupportedBotTechError(ValidationError):
+    def __init__(
+        self,
+        bot_tech: str,
+        server_type: str,
+        message: str = "",
+    ) -> None:
+        msg = (
+            message
+            or f"Bot technology '{bot_tech}' is unsupported for server type '{server_type}'."
+        )
+        super().__init__(
+            msg,
+            field="bot_tech",
+            details={"bot_tech": bot_tech, "server_type": server_type},
+        )
+        self.code = "UNSUPPORTED_BOT_TECH_FOR_SERVER_TYPE"
+        self.http_status = 400
+
+
+class BotRunnerUnavailableError(MCSError):
+    def __init__(
+        self,
+        message: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "No healthy bot runner could be acquired from the pool",
+            code="BOT_RUNNER_UNAVAILABLE",
+            http_status=503,
+            retryable=True,
+            details=details or {},
+        )
+

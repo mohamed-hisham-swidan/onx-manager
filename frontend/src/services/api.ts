@@ -48,13 +48,23 @@ import type {
 } from "@/types";
 import { useAuthStore } from "@/stores/authStore";
 import type {
+  BotSettings,
+  BotSettingsRequest,
   CommandRequest,
   ConsoleResponse,
   CrashReportSummary,
+  CreateBranchRequest,
+  CreateCommitRequest,
+  PreflightStatus,
+  PromoteCommitRequest,
+  RunIsolatedTestRequest,
   ScanResult,
+  ServerBranch,
+  ServerCommit,
   ServerCreateRequest,
   ServerDetailResponse,
   ServerResponse,
+  ServerTestRun,
   ServerUpdateRequest,
   SoftwareInfo,
 } from "@/server_manager/types";
@@ -342,6 +352,54 @@ export function createApiClient(
     getServerCrashReports: (serverId: string, limit?: number) =>
       request<CrashReportSummary[]>(`/api/v1/servers/${serverId}/crash-reports`, {
         params: { limit: limit?.toString() },
+      }),
+
+    // Versioning & Isolated Testing Subsystem
+    getServerBranches: (serverId: string) =>
+      request<ServerBranch[]>(`/api/v1/servers/${serverId}/versioning/branches`),
+    createServerBranch: (serverId: string, body: CreateBranchRequest) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/versioning/branches`, {
+        method: "POST",
+        body,
+      }),
+    getServerCommits: (serverId: string, branchId?: string, limit?: number) =>
+      request<ServerCommit[]>(`/api/v1/servers/${serverId}/versioning/commits`, {
+        params: {
+          branch_id: branchId,
+          limit: limit?.toString(),
+        },
+      }),
+    createServerCommit: (serverId: string, body: CreateCommitRequest) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/versioning/commits`, {
+        method: "POST",
+        body,
+      }),
+    runIsolatedTest: (serverId: string, body: RunIsolatedTestRequest) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/versioning/tests`, {
+        method: "POST",
+        body,
+      }),
+    getTestStatus: (serverId: string, testId: string) =>
+      request<ServerTestRun>(`/api/v1/servers/${serverId}/versioning/tests/${testId}`),
+    promoteTestCommit: (serverId: string, testId: string, body: PromoteCommitRequest) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/versioning/tests/${testId}/promote`, {
+        method: "POST",
+        body,
+      }),
+    discardTest: (serverId: string, testId: string) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/versioning/tests/${testId}/discard`, {
+        method: "POST",
+      }),
+    getBotSettings: (serverId: string) =>
+      request<BotSettings>(`/api/v1/servers/${serverId}/versioning/settings`),
+    updateBotSettings: (serverId: string, body: BotSettingsRequest) =>
+      request<BotSettings>(`/api/v1/servers/${serverId}/versioning/settings`, {
+        method: "PUT",
+        body,
+      }),
+    getPreflightStatus: (serverId: string, botCount?: number) =>
+      request<PreflightStatus>(`/api/v1/servers/${serverId}/versioning/preflight`, {
+        params: { bot_count: botCount?.toString() },
       }),
     sendServerCommand: (serverId: string, body: CommandRequest) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/command`, { method: "POST", body }),

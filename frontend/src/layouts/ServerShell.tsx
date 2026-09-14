@@ -33,6 +33,7 @@ export function ServerShell() {
     { to: `/servers/${serverId}/network`, label: "Network & Exposure", icon: "activity" as const },
     ...(supportsMods ? [{ to: `/servers/${serverId}/mods`, label: "Mods", icon: "plugin" as const }] : []),
     ...(supportsPlugins ? [{ to: `/servers/${serverId}/plugins`, label: "Plugins", icon: "plugin" as const }] : []),
+    { to: `/servers/${serverId}/versioning`, label: "Versions & Testing", icon: "backup" as const },
     { to: `/servers/${serverId}/settings`, label: "Settings", icon: "settings" as const },
   ];
 
@@ -42,6 +43,7 @@ export function ServerShell() {
     if (path.includes("/network")) return "Network & Exposure";
     if (path.includes("/mods")) return "Mods";
     if (path.includes("/plugins")) return "Plugins";
+    if (path.includes("/versioning")) return "Versions & Testing";
     if (path.includes("/settings")) return "Settings";
     return "Console";
   };

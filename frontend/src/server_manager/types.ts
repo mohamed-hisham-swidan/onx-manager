@@ -281,3 +281,107 @@ export interface CrashReportSummary {
   suggested_remediation: string;
   raw_content: string;
 }
+
+export interface ServerBranch {
+  id: string;
+  server_id: string;
+  name: string;
+  head_commit_id: string | null;
+  created_at: string;
+}
+
+export interface CreateBranchRequest {
+  name: string;
+  head_commit_id?: string | null;
+}
+
+export interface CommitManifest {
+  server_type: string;
+  minecraft_version: string;
+  configs: Record<string, string>;
+  mods: Array<{
+    filename: string;
+    sha256: string;
+    source: string;
+  }>;
+  env_vars: Record<string, string>;
+  java_args: string;
+}
+
+export interface ServerCommit {
+  id: string;
+  server_id: string;
+  branch_id: string | null;
+  parent_commit_id: string | null;
+  author_id: string | null;
+  message: string;
+  manifest: CommitManifest;
+  world_snapshot_id: string | null;
+  created_at: string;
+}
+
+export interface CreateCommitRequest {
+  message: string;
+  branch_name?: string;
+  author_id?: string | null;
+}
+
+export type TestRunStatus = "PENDING" | "RUNNING" | "PASSED" | "FAILED" | "CANCELLED";
+
+export interface ServerTestRun {
+  id: string;
+  server_id: string;
+  commit_id: string;
+  node_id: string;
+  status: TestRunStatus;
+  ephemeral_port: number | null;
+  log_output: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  expires_at: string | null;
+  bot_count: number;
+  duration_minutes: number;
+  placement_mode: string;
+  bot_tech: string;
+}
+
+export interface RunIsolatedTestRequest {
+  commit_id?: string | null;
+  bot_count?: number | null;
+  duration_minutes?: number | null;
+  placement_mode?: string | null;
+  bot_tech?: string | null;
+}
+
+export interface PromoteCommitRequest {
+  keep_world_changes?: boolean;
+}
+
+export interface BotSettings {
+  server_id: string;
+  bot_count: number | null;
+  duration_minutes: number | null;
+  bot_tech: string | null;
+  placement_mode: string | null;
+  effective_bot_count: number;
+  effective_duration_minutes: number;
+  effective_bot_tech: string;
+  effective_placement_mode: string;
+}
+
+export interface BotSettingsRequest {
+  bot_count?: number | null;
+  duration_minutes?: number | null;
+  bot_tech?: string | null;
+  placement_mode?: string | null;
+}
+
+export interface PreflightStatus {
+  reflink_supported: boolean;
+  available_ram_mb: number;
+  available_cores: number;
+  min_required_ram_mb: number;
+  min_required_cores: number;
+  passed: boolean;
+  error: string | null;
+}

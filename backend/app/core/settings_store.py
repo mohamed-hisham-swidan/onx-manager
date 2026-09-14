@@ -13,6 +13,7 @@ read-only/env-var backed) so that the non-editable infrastructure fields
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 from dataclasses import dataclass
@@ -48,6 +49,23 @@ _DEFAULTS: dict[str, Any] = {
     "panel_bind_host": "127.0.0.1",
     "metrics_interval_seconds": 1.5,
     "post_running_grace_seconds": 30.0,
+    "bot_verify_defaults": {
+        "bot_count": 10,
+        "duration_minutes": 15,
+        "bot_tech": "auto",
+        "placement_mode": "sidecar",
+        "join_stagger_seconds": 3.0,
+        "connect_grace_seconds": 60.0,
+        "watchdog_overrun_minutes": 5.0,
+    },
+    "bot_pool_idle": 2,
+    "bot_pool_max": 4,
+    "bot_pool_acquire_retries": 2,
+    "bot_resource_floor_mb": 4096,
+    "bot_resource_floor_cores": 2,
+    "bot_join_stagger_seconds": 3.0,
+    "bot_connect_grace_seconds": 60.0,
+    "bot_watchdog_overrun_minutes": 5.0,
 }
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
@@ -69,6 +87,25 @@ class LiveSettings:
     panel_bind_host: str = "127.0.0.1"
     metrics_interval_seconds: float = 1.5
     post_running_grace_seconds: float = 30.0
+    bot_verify_defaults: dict[str, Any] = dataclasses.field(
+        default_factory=lambda: {
+            "bot_count": 10,
+            "duration_minutes": 15,
+            "bot_tech": "auto",
+            "placement_mode": "sidecar",
+            "join_stagger_seconds": 3.0,
+            "connect_grace_seconds": 60.0,
+            "watchdog_overrun_minutes": 5.0,
+        }
+    )
+    bot_pool_idle: int = 2
+    bot_pool_max: int = 4
+    bot_pool_acquire_retries: int = 2
+    bot_resource_floor_mb: int = 4096
+    bot_resource_floor_cores: int = 2
+    bot_join_stagger_seconds: float = 3.0
+    bot_connect_grace_seconds: float = 60.0
+    bot_watchdog_overrun_minutes: float = 5.0
 
 
 _live: LiveSettings | None = None

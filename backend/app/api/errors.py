@@ -45,7 +45,7 @@ _ERROR_STATUS_MAP: dict[str, int] = {
 def check_command_result(result: "CommandResult") -> dict[str, Any]:  # noqa: F821
     """Raise proper HTTP errors from a CommandResult based on its error_code."""
     if result.success:
-        return result.data or {}
+        return result.data or result.details or {}
     status = _ERROR_STATUS_MAP.get(result.error_code or "", 400)
     raise MCSError(
         message=result.error or "",

@@ -29,6 +29,7 @@ from app.api.v1.routers import (
     setup,
     software,
     users,
+    versioning,
 )
 from app.core.command_bus import CommandBus
 from app.core.config import ConfigFactory, init_active_panel_bind
@@ -422,6 +423,7 @@ def create_app() -> FastAPI:
     app.include_router(schedules.router)
     app.include_router(settings.router)
     app.include_router(software.router)
+    app.include_router(versioning.router)
     app.include_router(ws_router)
 
     from app.modules.auth.infrastructure.jwt import get_jwks
