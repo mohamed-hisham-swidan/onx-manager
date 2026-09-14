@@ -57,6 +57,9 @@ class Plugin(AggregateRoot):
         updated_at: datetime | None = None,
         project_type: str = "plugin",
         icon_url: str | None = None,
+        loader: str | None = None,
+        mod_id: str | None = None,
+        is_disabled_on_disk: bool = False,
     ) -> None:
         super().__init__()
         self._plugin_id = plugin_id
@@ -82,6 +85,9 @@ class Plugin(AggregateRoot):
         self._updated_at = updated_at or now
         self._project_type = project_type
         self._icon_url = icon_url
+        self._loader = loader
+        self._mod_id = mod_id
+        self._is_disabled_on_disk = is_disabled_on_disk
 
     @property
     def plugin_id(self) -> PluginId:
@@ -171,6 +177,22 @@ class Plugin(AggregateRoot):
     def updated_at(self) -> datetime:
         return self._updated_at
 
+    @property
+    def loader(self) -> str | None:
+        return self._loader
+
+    @property
+    def mod_id(self) -> str | None:
+        return self._mod_id
+
+    @property
+    def is_disabled_on_disk(self) -> bool:
+        return self._is_disabled_on_disk
+
+    def set_disabled_on_disk(self, disabled: bool) -> None:
+        self._is_disabled_on_disk = disabled
+        self._updated_at = datetime.now(UTC)
+
     @classmethod
     def install(
         cls,
@@ -191,6 +213,9 @@ class Plugin(AggregateRoot):
         version_raw: str | None = None,
         project_type: str = "plugin",
         icon_url: str | None = None,
+        loader: str | None = None,
+        mod_id: str | None = None,
+        is_disabled_on_disk: bool = False,
     ) -> Plugin:
         plugin = cls(
             plugin_id=plugin_id,
@@ -210,6 +235,9 @@ class Plugin(AggregateRoot):
             version_raw=version_raw,
             project_type=project_type,
             icon_url=icon_url,
+            loader=loader,
+            mod_id=mod_id,
+            is_disabled_on_disk=is_disabled_on_disk,
         )
         plugin._add_event(
             PluginInstalledEvent(

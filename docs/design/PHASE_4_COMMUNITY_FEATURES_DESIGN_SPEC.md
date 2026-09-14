@@ -9,6 +9,7 @@
 **Target Delivery:** Phase 4 — Feature Build from Community Feedback Pool (`ROADMAP_v1.1.md`)  
 **Author:** Antigravity (Design Agent)  
 **Date:** 2026-09-12  
+**Revision:** 2026-09-13 — §3.5 finalized per Mohamed's sign-off on all 12 review items (clamps removed in favor of ResourcePreflightProbe sole guard, server-type-aware auto bot_tech selection, configurable defaults throughout, per-server JSON column, and candid self-review). Features 3–5 content unchanged.
 
 ---
 
@@ -30,7 +31,7 @@ Provide Minecraft server administrators with a git/CI-CD-inspired version contro
 - Track server configuration and mod setups as immutable, branchable commit manifests.
 - Instantaneous, zero-cost copy-on-write (COW) snapshots for mutable world and database state on Btrfs/ZFS.
 - Spin up isolated ephemeral Docker test containers to trial updates (server software, mods, configuration) before promoting to production.
-- Automated boot verification and optional play-testing window.
+- Bot-based automated runtime sanity verification of every test run (simulated players walking and jumping in the test server), replacing passive boot probes and human play-tests.
 - Atomic promotion to production or one-click rollback with zero data loss.
 - Lay schema and architectural groundwork for future multi-node execution targets.
 - Realize the community update-protection use cases: rollback, proceed, disable broken mods, and structured failure reporting.
@@ -56,17 +57,15 @@ Provide Minecraft server administrators with a git/CI-CD-inspired version contro
 │       ┌───────────────────────┐                  ┌───────────────────────┐       │
 │       │  Production World     │                  │  COW Reflink Clone    │       │
 │       │  (Btrfs/ZFS Subvol)   │──[reflink clone]►│  (Instant, O(1), COW) │       │
-│       └───────────────────────┘                  └───────────────────────┘       │
 │                   ▲                                          ▲                   │
-│                   │                                          │                   │
-│                   └──────────────────┬───────────────────────┘                   │
-│                                      │                                           │
-│                       ┌─────────────────────────────┐                            │
-│                       │   Versioning Subsystem      │                            │
-│                       │   - Commit Manifests (JSON) │                            │
-│                       │   - Branch Pointers         │                            │
-│                       │   - Test Supervisor         │                            │
-│                       └─────────────────────────────┘                            │
+│                   │                       ┌──────────────────┤                   │
+│                   └──────────────────┬────┘   ┌──────────────┴──────────────┐    │
+│                                      │       │ Bot-Runner Sidecar (pooled) │    │
+│                       ┌──────────────┴───────┴─────────────────────────────┐    │
+│                       │   Versioning Subsystem                             │    │
+│                       │   - Commit Manifests (JSON) - Branch Pointers      │    │
+│                       │   - Test Supervisor - BotRunnerPool                │    │
+│                       └────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -89,32 +88,80 @@ The versioning system lives in an isolated module: `backend/app/modules/versioni
 When a change or update is trialed:
 1. **Materialize Test Directory:** The system creates a staged directory: `.onx/tests/<test_id>/` on the same filesystem.
 2. **COW World Clone:** The parent commit's world directories are cloned instantaneously via `cp --reflink=always -r <live_world> <test_world>`. Takes < 100ms regardless of world size (zero disk usage until blocks change).
-3. **Write Manifest:** Target configs and mod `.jar` files are written into the test directory.
+3. **Write Manifest:** Target configs and mod `.jar` files are written into the test directory. The test `server.properties` is written exclusively through the test-only offline-mode writer path defined in §3.5.3 — never through any production config writer.
 4. **Launch Test Container:** `IsolatedTestContainerRunner` launches a dedicated container:
    - Image: standard OpenJDK image matching server Java version.
    - Volumes: binds `.onx/tests/<test_id>` to `/data`.
-   - Network: bridge mode. For automated tests, ports remain unmapped. For play-tests, port 25565 inside the container is mapped to an ephemeral host port (e.g. `25600 + offset`).
+   - Network: bridge mode. Test-container ports remain unmapped; bot runners reach the test server over the bridge network (see §3.5.4), so no ephemeral host-port mapping is required.
    - Sibling container DooD translation: routes paths through `resolve_host_mount_path()` if ONX runs inside Docker.
+5. **Bot Verification:** Once the test container is launched, verification proceeds per §3.5 (bot run). There is no separate passive boot-probe phase and no human play-test window.
 
-#### 3.5 Boot Verification & Play-Testing (Resolving RECON's Open Unknown)
-**Decision: Two-Phase Verification Workflow:**
-- **Phase 1 — Automated Boot & Health Probe (Default, 90s timeout):**
-  - Container boots. The supervisor observes container stdout/stderr and monitors for:
-    - *Success:* Regex match for server readiness: `Done \([0-9\.]+s\)! For help, type "help"` or successful RCON connection.
-    - *Failure:* Process exit before readiness, JVM crash exit codes (137, 1, 143), generation of `crash-reports/*.txt`, or Forge/Fabric mod rejection exceptions.
-  - If Phase 1 fails, the container is halted immediately, the crash log is parsed via Feature 5, the test is marked `FAILED`, and the failed-mod list is surfaced to the admin.
-- **Phase 2 — Optional Admin Play-Test Window:**
-  - If Phase 1 succeeds, the admin can either click **"Promote to Production"** immediately, or click **"Open Play-Test Window"** (keeps the container alive for a configurable 15-minute lease on an ephemeral port like `25665`). This allows the admin to join with a Minecraft client and test chunk rendering or complex plugin behavior before committing to production.
+#### 3.5 Bot-Based Automated Verification (Mohamed Decision, supersedes 2026-09-12 two-phase model)
+The rejected "90s automated boot probe + optional 15-minute human play-test" model is fully replaced by the following. The bot run **is** the verification phase: it provides automated runtime sanity checks, detecting boot failure and crashes naturally, because bots fail to connect when the server never becomes ready and the supervisor observes container exit during the run.
+
+##### 3.5.1 Default Verification Behavior
+- Every test run executes an **automated bot run with defaults of 10 simulated bots for 15 minutes** (both user-configurable with no numeric ceiling per §3.5.6).
+- Bots connect to the offline-mode test server (§3.5.3) using deterministic offline usernames following the naming pattern `onx-bot-{run_id}-{n}` (e.g. `onx-bot-a1b2c3d4-1` … `onx-bot-a1b2c3d4-10`, where `run_id` is the test run identifier and `n` is the 1-indexed bot number), then **walk and jump** continuously for the run duration (waypoint wander; full A* pathfinding is opt-in, not default, for CPU reasons). This guarantees strict per-run account identification and prevents stale session collisions.
+- Bot joins are **staggered** (default: 3 seconds between each bot joining, user-configurable via `LiveSettings.bot_join_stagger_seconds`) rather than simultaneous, to respect the server's `connection-throttle` and avoid login-burst false failures.
+- The supervising runner records per-bot connect time, disconnects, server log readiness markers, and any `crash-reports/*.txt` appearance. **Pass = automated runtime sanity check passed (all required bots connected within the connect window and the server survived the full duration with no crash reports or unrecoverable disconnects). Fail = any bot unable to connect within the window, any mid-run disconnect the bot cannot recover from, container exit/crash during the run, or a crash-report file appearing.** Failure handling (halt, parse crash log via Feature 5, mark `FAILED`, surface failed-mod list) is unchanged from the prior model.
+
+##### 3.5.2 Bot Technology Selection (Hybrid, per Mohamed Decision 1 & Sign-Off Item 6)
+- **Primary: Mineflayer (Node.js, MIT, protocol-level).** Covers MC 1.8→26.1 (including 1.16.x–1.21.11), supports offline auth, runs headless with no GPU, and provides built-in movement physics (`setControlState('forward'/'jump')`). Works on **all** server types (vanilla, Paper, Forge, Fabric, NeoForge). Footprint ≈ 30–50 MB per bot. Caveat carried from RECON: brand-new MC drops lag Mineflayer releases by weeks–months (26.2 unreleased at time of writing), so the driver pins a minimum Mineflayer version per supported MC range and surfaces a clear error for unsupported brand-new protocols.
+- **Complementary fast path: fakeplayer-next (Apache-2.0, server-side Paper/Purpur plugin).** Near-zero footprint; walk/jump via plugin commands. **Paper/Purpur-family only** — structurally incapable of verifying vanilla/Forge/Fabric servers, and it bypasses the real network login path, so it never replaces protocol-level verification where fidelity matters.
+- **Selection logic (server-type-aware auto-resolution):** `bot_tech` per-run field with values `auto | mineflayer | fakeplayer_next` (default: `auto`, user-configurable). When `bot_tech=auto`, the system dynamically detects the test server's software type:
+  - **Paper/Purpur-family servers** (`paper`, `purpur`, `folia`, `pufferfish`) $\rightarrow$ **auto-selects `fakeplayer_next`** (the fast, lightweight path with near-zero memory footprint and instantaneous startup).
+  - **Any other server type** (`vanilla`, `forge`, `fabric`, `neoforge`, `spigot`, `bukkit`, etc., where `fakeplayer-next` cannot function) $\rightarrow$ **auto-selects `mineflayer`** (the universal protocol-level client with full protocol coverage).
+  - *Rationale:* The priority is **speed-by-default wherever it is safe to do so**, while protocol-level fidelity is guaranteed as the seamless fallback for all server architectures where `fakeplayer-next` cannot function.
+  - *Explicit overrides:* Users can still explicitly override `bot_tech`: setting `bot_tech=mineflayer` forces Mineflayer on any server type (including Paper/Purpur); setting `bot_tech=fakeplayer_next` on an unsupported server type (e.g. Forge, Fabric, Vanilla) fails validation immediately and clearly with `UNSUPPORTED_BOT_TECH_FOR_SERVER_TYPE`.
+- **Drivers:** `MineflayerBotDriver` (spawns/manages Node Mineflayer processes against a host:port target, exposes uniform `BotRunHandle`: connect-all-staggered, tick-walk/jump, collect per-bot results) and `FakePlayerNextDriver` (installs the plugin jar into the *test directory only*, issues console `/fp` commands via RCON/`docker exec`, collects results through the same `BotRunHandle` interface). Both live in `backend/app/modules/versioning/` per §3.1.
+
+##### 3.5.3 Offline-Mode Isolation Guarantee
+- The test server **always** runs with `online-mode=false` **and** `enforce-secure-profile=false` (required on 1.19+; the production writer does not emit this line today) so simulated accounts connect without Mojang auth.
+- **Mechanism (chosen): `TestServerDeployment` marker type.** A `TestServerDeployment` dataclass lives in `backend/app/modules/versioning/` and wraps a test-directory root path. The test-only properties writer (`write_test_server_properties()`, also in the versioning module) accepts **only** `TestServerDeployment` — it refuses a production `ServerDeployment` at the type level (no overload accepting it exists). *Justification for marker-type over writer-assertion:* a type boundary makes misuse a static/construct-time impossibility rather than a runtime branch that a future caller can bypass; it also keeps the marker importable without touching production modules.
+- **CRITICAL DDD CONSTRAINT:** `TestServerDeployment`, `write_test_server_properties()`, and all bot/pool code live exclusively in the versioning module boundary. They must **not** be added to or imported by the production `ServerProvider` / `DockerProvider` / config-update code paths.
+- **CRITICAL SAFETY CONSTRAINT (hard invariant, not a suggestion):** `UpdateServerConfigCommand` and every other production config writer must **never** be reachable from any test-run code path. Test runs write only into `.onx/tests/<test_id>/` via the test-only writer. The load-bearing test `test_bot_verification_offline_isolation.py` (§7) pins this invariant.
+- Production `online_mode` values are never read as input to the test writer; the test file hardcodes `online-mode=false` + `enforce-secure-profile=false` regardless of the production setting.
+
+##### 3.5.4 Bot-Runner Placement (Sidecar Default, per Mohamed Decision 3)
+- **Default: separate dedicated sidecar container.** Bots run in a bot-runner container attached to the same bridge network as the test MC container, connecting via container address. Test MC ports stay unmapped. This matches the existing RCON loopback-discipline networking posture and isolates bot CPU/RAM from the JVM under test.
+- **Opt-in alternative: in-container execution** (bot processes inside the test MC container, e.g. via `docker exec`), selectable **per test run** via `placement_mode: sidecar | in_container` (default: `sidecar`, user-configurable). In-container mode requires a bot-capable image variant and couples failure domains; it exists for constrained hosts that cannot afford a sidecar, not as a recommended path.
+- The sidecar image (Node + pinned Mineflayer + driver harness) is versioned and pulled separately from the MC server image; `ensure_image()`-equivalent pre-pull semantics apply to it (see §3.5.5).
+
+##### 3.5.5 BotRunnerPool (New Component, per Mohamed Decision 4 & Sign-Off Item 1)
+A `BotRunnerPool` in `backend/app/modules/versioning/`, architecturally separate from `DockerProvider` (per §3.1 — it may invoke Docker CLI primitives but must not wrap or subclass the production provider):
+- **Lifecycle:** `acquire(spec) -> PooledRunner` (healthy idle runner matching required bot image/tech, else create on demand) → `release(handle, outcome)` (return to idle on clean run; destroy-and-replace on any unhealthy signal) → periodic `health_check` (container running + harness heartbeat; failures evicted) → `evict` (idle TTL expiry or pool shrink). Pool state is in-memory with structured logging; no DB table required for pool membership (run records already live in `server_test_runs`).
+- **Sizing:** default **2 warm idle sidecars + on-demand scale-up to 4 concurrent runners** (both bounds user-configurable via LiveSettings: `bot_pool_idle` default 2, `bot_pool_max` default 4). Rationale: test runs are already serialized per `server_id` (§6 lock), so a small pool covers the realistic concurrency of a self-hosted box.
+- **State-reset between runs (no leakage):** pooled containers are treated as **compute-only shells** — bot working state (usernames, per-run scripts, logs) is bind-mounted per run from `.onx/tests/<test_id>/bots/` and unmounted on release; on release the pool executes a reset entrypoint (kill bot processes, clear mount point, verify heartbeat) before the runner returns to idle. If reset fails, the container is destroyed and replaced rather than reused. Per-run bot usernames follow the `onx-bot-{run_id}-{n}` pattern so a stale session can never be mistaken for a current-run bot.
+- **Coexistence with placement choice & pool bypass:** pooled runners serve `sidecar` runs only. `in_container` runs bypass the pool entirely (bots execute inside the test MC container). `FakePlayerNextDriver` runs need no runner container at all (plugin executes in the test MC container) and likewise bypass the pool.
+  - *(inferred from Mohamed's decisions, confirm)*: When `bot_tech=auto` resolves to `fakeplayer_next` on Paper/Purpur servers, `BotRunnerPool` is bypassed completely since the bot plugin runs inside the test server container itself, requiring zero sidecar containers and allocating zero pool resources for that run.
+
+##### 3.5.6 Config Surface: Layered Bot Count / Duration (per Mohamed Decision 5 & Sign-Off Items 2, 3, 5, 10)
+Layering `(a) → (b) → (c)`, later wins, each layer optional except the global default:
+- **(a) Global default** — `LiveSettings.bot_verify_defaults: {bot_count: 10, duration_minutes: 15, bot_tech: "auto", placement_mode: "sidecar", join_stagger_seconds: 3, connect_grace_seconds: 60, watchdog_overrun_minutes: 5}` (YAML-overridable, hot-reloadable, following the `post_running_grace_seconds` precedent; all values user-configurable defaults).
+- **(b) Per-server override** — stored in a new JSON column `bot_verification_settings` on the `servers` table (nullable, default `null`: `{"bot_count": int | null, "duration_minutes": int | null, "bot_tech": str | null, "placement_mode": str | null}`). A `null` value or omitted key inherits the global default.
+- **(c) Per-test-run override** — `RunIsolatedTestCommand` / `server_test_runs` fields `bot_count`, `duration_minutes`, `placement_mode`, `bot_tech`; provided values win.
+- **No Numeric Ceilings / Unrestrictive User Control:** There are **no artificial numeric clamps or ceilings** on `bot_count` or `duration_minutes` (the previously proposed 1–20 bots / 1–30 min bounds are removed entirely). The user may set any bot count or duration value without arbitrary restriction. `ResourcePreflightProbe` (§3.5.7) serves as the **sole guard** — it warns and can block only when actual measured RAM and CPU headroom is insufficient for the requested workload, never based on an arbitrary numeric limit.
+  - *Rationale:* This directly preserves ONX Manager's core philosophy of remaining **simple and unrestrictive for the user** — the platform advises and protects based on real physical resource constraints rather than imposing artificial arbitrary caps.
+  - *Stagger interval:* Bot joins are staggered (default: 3 seconds between joins, user-configurable via `LiveSettings.bot_join_stagger_seconds`; total join stagger is capped so it never consumes more than ~10% of total run duration).
+
+##### 3.5.7 Preflight Resource Check (Sole Guard, per Sign-Off Item 4)
+- Before a bot run starts, a **`ResourcePreflightProbe`** (modeled directly on `StorageCapabilityProbe`'s probe → actionable-failure pattern) verifies headroom for the resolved configuration: default floor **4 GB free RAM and 2 free CPU cores for a 10-bot run + test server** (user-configurable via LiveSettings: `bot_resource_floor_mb` default 4096, `bot_resource_floor_cores` default 2, scaling proportionally with configured bot count; modded server types raise the floor), beyond whatever the production server currently consumes.
+- **Actionable failure mode:** on insufficient headroom the run is rejected *before* any container starts with error code `BOT_RUN_INSUFFICIENT_RESOURCES` and a message stating required vs available headroom; the rest of the platform (including production servers and non-bot versioning reads) is unaffected. The probe result is recorded on the `server_test_runs` row.
+
+##### 3.5.8 Success / Failure Detection (Bot-Run Equivalent, per Sign-Off Item 8)
+- **Pass (Automated Runtime Sanity Check Passed):** required bot count connected (within a connect window scaled to `count × stagger + grace_window`; default grace: 60s, user-configurable via `LiveSettings.bot_connect_grace_seconds`) and the server survived the full duration with no crash-report files and no unrecoverable bot disconnects. This confirms runtime stability and crash-free operation under simulated player load.
+- **Fail (same downstream flow as before — halt, Feature 5 crash-log parse, mark `FAILED`, surface failed-mod list):** container exit/crash mid-run; readiness never achieved (bots cannot connect within the window — this is how boot failure manifests, no separate probe needed); `crash-reports/*.txt` appears; JVM fatal exit codes; mod-rejection exceptions in container logs.
+- A **run-level watchdog** (default: configured duration + 5-minute overrun cap, user-configurable via `LiveSettings.bot_watchdog_overrun_minutes`) bounds hangs: if a run exceeds its configured duration by more than the overrun cap without completing, the watchdog force-terminates it as stalled/failed, marks the run `FAILED` with reason `BOT_RUN_TIMEOUT`, and releases pooled runners via the unhealthy path.
 
 #### 3.6 Atomic Promotion & Rollback Paths
 - **Promote:**
   1. Stop production server gracefully (`StopServerCommand`).
   2. Stage manifest configs/mods in sibling directory; swap into live directory using `_atomic_replace_dir`.
-  3. If admin opted to keep world changes made during play-test, atomically swap the test world into live. Otherwise, preserve existing live world.
+  3. If admin opted to keep world changes made during the bot run, atomically swap the test world into live. Otherwise, preserve existing live world.
   4. Restart production server (`StartServerCommand`).
   5. Delete ephemeral test container and directory.
 - **Rollback / Discard:**
-  1. Stop and destroy test container `onx-test-<test_id>`.
+  1. Stop and destroy test container `onx-test-<test_id>`; terminate or release its bot-runner sidecar (dedicated sidecars are removed; pooled runners are reset and released to `BotRunnerPool`).
   2. Remove ephemeral directory `.onx/tests/<test_id>`.
   3. Production server remains untouched.
 - **Disable Mod & Retry:**
@@ -128,22 +175,34 @@ When a change or update is trialed:
 
 ### 4. Affected Components
 - **Backend New Module:** `backend/app/modules/versioning/`
-  - Domain: `ServerCommit`, `ServerBranch`, `ServerWorldSnapshot`, `ServerTestRun`, `TestRunStatus`.
-  - Application: `CreateCommitCommand`, `CreateBranchCommand`, `RunIsolatedTestCommand`, `PromoteCommitCommand`, `DiscardTestCommand`, `GetCommitHistoryQuery`, `GetTestStatusQuery`.
-  - Infrastructure: `SQLVersioningRepository`, `BtrfsZfsSnapshotDriver`, `StorageCapabilityProbe`, `DockerTestExecutionRunner`.
-- **Frontend New Module:** `frontend/src/server_manager/pages/ServerVersioningPage.tsx` and `TestRunModal.tsx`.
+  - Domain: `ServerCommit`, `ServerBranch`, `ServerWorldSnapshot`, `ServerTestRun`, `TestRunStatus`, `BotVerificationConfig` (resolved bot_count/duration/placement/bot_tech for a run), `TestServerDeployment` (test-only deployment marker, §3.5.3).
+  - Application: `CreateCommitCommand`, `CreateBranchCommand`, `RunIsolatedTestCommand` (extended with `bot_count`, `duration_minutes`, `placement_mode`, `bot_tech` overrides), `PromoteCommitCommand`, `DiscardTestCommand`, `GetCommitHistoryQuery`, `GetTestStatusQuery`.
+  - Infrastructure: `SQLVersioningRepository`, `BtrfsZfsSnapshotDriver`, `StorageCapabilityProbe`, `DockerTestExecutionRunner`, `BotRunnerPool`, `MineflayerBotDriver`, `FakePlayerNextDriver`, `ResourcePreflightProbe`, `write_test_server_properties` (test-only properties writer accepting only `TestServerDeployment`).
+- **Frontend New Module:** `frontend/src/server_manager/pages/ServerVersioningPage.tsx` and `TestRunModal.tsx` (TestRunModal carries bot count/duration/placement/tech controls with preflight resource-headroom feedback and unrestrictive user inputs without arbitrary numeric upper bounds).
 
 ### 5. Interfaces & Contracts
 - **Permissions (`contracts/permissions.yaml`):**
   - `server:version:read` — View commit history and branches.
   - `server:version:commit` — Create commits / branches.
   - `server:test:execute` — Trigger and interact with test containers.
+  - `server:test:configure` — Change bot verification settings (global/per-server bot count, duration, placement, pool bounds). Explicitly separated from `server:test:execute` so server owners can delegate routine test runs to operators without granting permission to alter cost-driving or resource-intensive configuration.
   - `server:version:promote` — Promote test state to live production.
-- **Database Schema (Alembic migration `add_server_versioning_tables`):**
+- **Database Schema (Alembic migrations `add_server_versioning_tables` & `add_bot_verification_settings_to_servers`):**
   - `server_branches`: `(id, server_id, name, head_commit_id, created_at)`
   - `server_commits`: `(id, server_id, branch_id, parent_commit_id, author_id, message, manifest_json, world_snapshot_id, created_at)`
   - `server_world_snapshots`: `(id, server_id, storage_path, size_bytes, created_at)`
-  - `server_test_runs`: `(id, server_id, commit_id, node_id, status, ephemeral_port, log_output, failure_reason, created_at, expires_at)`
+  - `server_test_runs`: `(id, server_id, commit_id, node_id, status, ephemeral_port, log_output, failure_reason, created_at, expires_at, bot_count, duration_minutes, placement_mode, bot_tech)`
+  - `servers.bot_verification_settings`: New nullable JSON column on the core `servers` table (capturing per-server overrides: `bot_count`, `duration_minutes`, `bot_tech`, `placement_mode`) without requiring auxiliary policy tables.
+- **Settings (`LiveSettings`/YAML):** All values are user-configurable defaults:
+  - `bot_verify_defaults`: `{bot_count: 10, duration_minutes: 15, bot_tech: "auto", placement_mode: "sidecar"}`
+  - `bot_pool_idle`: `2` (warm idle sidecars)
+  - `bot_pool_max`: `4` (maximum concurrent sidecars)
+  - `bot_pool_acquire_retries`: `2` (retries before declaring acquisition failed)
+  - `bot_resource_floor_mb`: `4096` (RAM headroom floor for a 10-bot run)
+  - `bot_resource_floor_cores`: `2` (CPU cores headroom floor for a 10-bot run)
+  - `bot_join_stagger_seconds`: `3` (seconds between bot joins)
+  - `bot_connect_grace_seconds`: `60` (connect grace window)
+  - `bot_watchdog_overrun_minutes`: `5` (overrun cap before watchdog termination)
 
 ### 6. Failure Cases & Edge Cases
 - **Non-Btrfs/ZFS Filesystem:** Detected via `StorageCapabilityProbe` preflight. Returns `412 Precondition Failed`; UI displays clear requirement; live servers unaffected.
@@ -151,19 +210,27 @@ When a change or update is trialed:
   - System enforces a mandatory choice:
     1. *Config & Mods Only Rollback (Default & Recommended):* Reverts configs and mods to prior commit; keeps current live world intact (prevents destroying player builds).
     2. *Full Rollback (Destructive):* Reverts configs, mods, and world back to the pre-update snapshot. Displays a double-confirmation modal warning of permanent player progress loss, and creates an automatic safety backup before executing.
-- **Test Container Hang or Crash:** 90-second hard supervisor timeout. If the container crashes or fails to emit ready signal, the runner captures logs, executes `docker rm -f`, and marks the test `FAILED`.
+- **Bot Run Hang or Crash:** run-level watchdog (default: duration + 5-minute overrun cap, user-configurable via `LiveSettings.bot_watchdog_overrun_minutes`) force-stops containers and marks the run `FAILED` with `BOT_RUN_TIMEOUT`. A test MC container that exits mid-run fails the run immediately; logs are captured, `docker rm -f` executes, same `FAILED` + failed-mod flow as before.
+- **Unhealthy Pooled Runner at Acquire:** `BotRunnerPool` health-check failures evict the container (destroy + replace); acquisition retries against another pooled or freshly-spun container up to a bounded retry count (default: 2 retries, user-configurable via `LiveSettings.bot_pool_acquire_retries`) before failing the run with `BOT_RUNNER_UNAVAILABLE`. A run never starts on a runner that failed its pre-acquire heartbeat.
+- **Resource Preflight Failure:** run rejected before any container starts (`BOT_RUN_INSUFFICIENT_RESOURCES`, required-vs-available message); platform otherwise unaffected.
+- **Offline-Mode Write Against Live Deployment:** structurally impossible — `write_test_server_properties()` accepts only `TestServerDeployment`, which cannot reference a production path. If the assertion ever fires (defense in depth), the run aborts pre-start with `TEST_ISOLATION_VIOLATION`, an error is logged with full context, and no container is launched.
 - **Concurrent Test Runs:** A Redis/asyncio lock per `server_id` rejects overlapping test runs with `ConflictError("A test run is already active for this server.")`.
 
 ### 7. Tests & Verification
 - `test_storage_capability_probe.py`: Unit tests verifying reflink detection on supported vs unsupported filesystems.
 - `test_versioning_manifest.py`: Unit tests for commit manifest generation, hashing, and parentage.
 - `test_btrfs_zfs_snapshot_driver.py`: Reflink cloning mocked and live execution tests.
-- `test_isolated_test_runner.py`: Container lifecycle, timeout enforcement, and log scraping.
-- `test_promote_and_rollback.py`: Atomic promotion, directory swapping, and rollback isolation.
+- `test_isolated_test_runner.py`: Container lifecycle, timeout enforcement, and log scraping, **extended to cover the bot phase** (bot-run start/stop around the container lifecycle, watchdog expiry, per-bot result collection).
+- `test_bot_runner_pool.py`: Pool acquire/release/evict/health-check semantics; unhealthy-runner replacement; idle-TTL eviction; state-reset verification (no per-run artifacts survive release).
+- `test_bot_verification_offline_isolation.py` (load-bearing for §3.5.3): asserts a test run writes `online-mode=false` + `enforce-secure-profile=false` only under `.onx/tests/<test_id>/`; asserts `write_test_server_properties()` rejects a production `ServerDeployment` (type-level); asserts no test-run code path imports or invokes `UpdateServerConfigCommand` (import-graph assertion); asserts production `server.properties` byte-identical before/after a full simulated run.
+- `test_bot_verification_config_layering.py`: Global → per-server → per-run layering precedence; verification that bot_count and duration_minutes have no arbitrary numeric ceilings; unrestrictive high-count/duration acceptance subject solely to ResourcePreflightProbe; invalid bot_tech/placement_mode validation (including fakeplayer_next on non-Paper types); server-type-aware auto bot_tech resolution and pool bypass logic.
+- `test_resource_preflight_probe.py`: Sufficient/insufficient headroom paths; `BOT_RUN_INSUFFICIENT_RESOURCES` code and message content; platform-unaffected guarantee.
+- `test_promote_and_rollback.py`: Atomic promotion, directory swapping, and rollback isolation (now including bot-runner sidecar release/removal on discard).
 
 ### 8. Out of Scope
 - Actual remote multi-node clustering or distributed test workers (groundwork abstraction only).
-- Global UI redesign beyond the versioning and test pages.
+- Human play-test windows (replaced by bot verification; no ephemeral-port admin join flow).
+- GPU-accelerated or client-mod bots (Baritone-class tooling requires a game client and is excluded).
 
 ---
 
@@ -392,20 +459,19 @@ While build-batch planning will be formalized separately, this Design Spec ackno
 
 | Criteria | Assessment | Detail |
 |---|:---:|---|
-| **1. Scope & Boundaries** | **PASS** | Feature 1 is strictly standalone and decoupled from `ServerProvider`. Feature 2 is fully merged. Multi-node is groundwork only. |
-| **2. Architecture & DDD** | **PASS** | Hexagonal architecture preserved. Dedicated `versioning` and `activity` modules. All actions route through CQRS. |
-| **3. Storage & Prerequisites** | **PASS** | Btrfs/ZFS is a hard prerequisite with automated probe. Actionable failure mode (features disabled, rest of platform unaffected). Hardlinks strictly prohibited. |
-| **4. Proven Primitives** | **PASS** | Reuses `restore_service.py`'s `_atomic_replace_dir` and `_safe_extract_tar`. |
-| **5. Contracts & Permissions** | **PASS** | All new permissions and endpoints identified for `contracts/permissions.yaml`. 5/5 CI gates protected. |
-| **6. Edge Cases Handled** | **PASS** | World divergence on rollback has a clear two-way policy. Test container 90s supervisor timeout. Idempotency on test runs. |
-| **7. Unknowns Resolved** | **PASS** | All 4 RECON unknowns resolved with explicit recommendations and justifications. |
+| **1. Scope & System Complexity** | **PASS WITH CAVEATS** | Feature 1 remains strictly standalone and decoupled from `ServerProvider`, Feature 2 is cleanly merged, and multi-node remains an interface groundwork. However, introducing `BotRunnerPool` alongside two bot drivers (`Mineflayer` Node.js sidecar and `fakeplayer-next` plugin) substantially expands control-plane operational surface. Implementing, monitoring, and debugging a container-pool lifecycle with dynamic driver resolution is non-trivial maintenance overhead for a solo-maintained project. |
+| **2. Architecture & DDD Boundaries** | **PASS** | Hexagonal boundaries preserved. Dedicated `versioning` and `activity` modules maintain clear CQRS separation. The `TestServerDeployment` marker type provides compile/type-time enforcement preventing offline-mode mutations from leaking into production config paths. |
+| **3. Storage & Resource Floor** | **PASS WITH CAVEATS** | Btrfs/ZFS is an absolute prerequisite enforced by `StorageCapabilityProbe` (hosts on ext4/NTFS cannot use versioning, though regular management remains unaffected). However, operational cost is real and non-zero: the 4 GB RAM / 2 CPU cores resource floor means bot verification will be frequently blocked by `ResourcePreflightProbe` on resource-constrained self-hosted boxes or low-tier VPS instances. |
+| **4. Verification Fidelity vs Sanity Scope** | **NEEDS ATTENTION** | A 10-bot / 15-minute synthetic-player run demonstrates boot, network connect, and survival stability under wandering load. However, it is fundamentally an **automated runtime sanity / smoke check**, NOT proof of plugin business logic correctness, redstone integrity, mod balance, or gameplay correctness under real player load. Documentation and UI labels must explicitly present this as "runtime sanity check passed" to avoid misleading administrators into false confidence before promoting updates. |
+| **5. Proven Primitives & Container Upkeep** | **PASS WITH CAVEATS** | Reuses proven `restore_service.py` directory swapping and Docker label/volume cleanup primitives. However, pool container upkeep (default 2 idle warm sidecars) imposes continuous baseline memory consumption even when no test runs are active. Idle containers risk memory bloat or stalled heartbeats over prolonged server uptimes if pool eviction and health check intervals are not aggressively tuned. |
+| **6. Contracts & Permissions** | **PASS** | Permission granularity is properly safeguarded (`server:test:configure` vs `server:test:execute`), preventing unauthorized resource consumption. Storing per-server overrides in a nullable JSON column on `servers` avoids relational schema proliferation while preserving all 5 CI quality gates. |
+| **7. Edge Cases & Resilience** | **PASS** | Edge cases are comprehensively mapped: watchdog overrun timer terminates stalled runs; acquire retries against fresh containers on heartbeat failure; typed markers prevent offline-mode leaks; rollback divergence provides explicit config-only vs full rollback choices. |
 
 ---
 
 ## Open Decisions for Mohamed's Review & Approval
 
 The following specific recommendations are submitted for Mohamed's explicit sign-off:
-1. **Verification Workflow (Feature 1):** Two-phase model — Phase 1 is an automated 90s boot/health probe; Phase 2 is an optional 15-minute admin play-test window on an ephemeral port. *(Recommended)*
-2. **Mod Support Scope (Feature 3):** Support BOTH direct custom `.jar` uploads AND unblocked Modrinth catalog search for modded servers; display non-blocking warning badge for client-only mods. *(Recommended)*
-3. **Activity Storage (Feature 4):** Persist in a dedicated query-optimized `server_activity_logs` table rather than the cryptographic security `audit_log` hash chain. *(Recommended)*
-4. **Log Transport (Feature 5):** WebSocket streaming for live console with HTTP query fallback for initial history and offline fallback to `latest.log`. *(Recommended)*
+1. **Mod Support Scope (Feature 3):** Support BOTH direct custom `.jar` uploads AND unblocked Modrinth catalog search for modded servers; display non-blocking warning badge for client-only mods. *(Recommended)*
+2. **Activity Storage (Feature 4):** Persist in a dedicated query-optimized `server_activity_logs` table rather than the cryptographic security `audit_log` hash chain. *(Recommended)*
+3. **Log Transport (Feature 5):** WebSocket streaming for live console with HTTP query fallback for initial history and offline fallback to `latest.log`. *(Recommended)*

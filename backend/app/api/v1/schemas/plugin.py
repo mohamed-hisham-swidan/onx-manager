@@ -23,6 +23,10 @@ class PluginResponse(BaseModel):
     external_url: str | None = None
     checksum: str | None = None
     icon_url: str | None = None
+    loader: str | None = None
+    mod_id: str | None = None
+    is_disabled_on_disk: bool = False
+    warning: str | None = None
 
 
 class PluginSearchResultResponse(BaseModel):
@@ -113,3 +117,10 @@ class InstallModrinthPluginResponse(BaseModel):
     source: str = "modrinth"
     notice: str = ""
     notice_kind: str = ""
+
+
+class ToggleModStateRequest(BaseModel):
+    mod_id: str | None = None
+    plugin_id: str | None = None
+    enabled: bool
+

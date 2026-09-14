@@ -371,6 +371,19 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/enable`, { method: "POST" }),
     disablePlugin: (serverId: string, pluginId: string) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/${pluginId}/disable`, { method: "POST" }),
+    uploadPluginOrMod: (serverId: string, file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/upload`, {
+        method: "POST",
+        body: formData,
+      });
+    },
+    toggleModState: (serverId: string, body: { mod_id?: string | null; plugin_id?: string | null; enabled: boolean }) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/plugins/toggle`, {
+        method: "POST",
+        body,
+      }),
 
     // Plugin marketplace
     searchMarketplace: (serverId: string, query: string, projectType?: string, limit?: number, offset?: number, loader?: string) =>

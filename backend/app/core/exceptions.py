@@ -48,6 +48,22 @@ class InvalidValueError(ValidationError):
         super().__init__(msg, field=field, details={"value": value, "reason": reason})
 
 
+class InvalidJarError(ValidationError):
+    def __init__(
+        self,
+        message: str = "Invalid or corrupt JAR file",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Invalid or corrupt JAR file",
+            field="file",
+            details=details,
+        )
+        self.code = "INVALID_JAR"
+        self.http_status = 400
+
+
 class AuthenticationError(MCSError):
     def __init__(self, message: str = "") -> None:
         super().__init__(

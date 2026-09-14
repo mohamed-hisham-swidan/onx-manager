@@ -14,9 +14,17 @@ from app.modules.plugin.application.commands.reconcile_plugins import (
     ReconcilePluginsCommand,
     ReconcilePluginsHandler,
 )
+from app.modules.plugin.application.commands.toggle_mod_state import (
+    ToggleModStateCommand,
+    ToggleModStateHandler,
+)
 from app.modules.plugin.application.commands.uninstall_plugin import (
     UninstallPluginCommand,
     UninstallPluginHandler,
+)
+from app.modules.plugin.application.commands.upload_mod import (
+    UploadModCommand,
+    UploadModHandler,
 )
 from app.modules.plugin.application.queries.get_plugin import (
     GetPluginHandler,
@@ -39,6 +47,10 @@ __all__ = [
     "EnablePluginHandler",
     "DisablePluginCommand",
     "DisablePluginHandler",
+    "UploadModCommand",
+    "UploadModHandler",
+    "ToggleModStateCommand",
+    "ToggleModStateHandler",
     "GetPluginQuery",
     "GetPluginHandler",
     "ListPluginsQuery",

@@ -167,7 +167,8 @@ def select_best_version(
     # game version on a compatible loader. Never hard-block (J4).
     compatible = [v for v in versions if any(loader_matches(v, loader) for loader in chain)]
     if compatible:
-        # Sort compatible descending by version first so `min` (which is stable) picks the highest version in case of a tie in distance
+        # Sort compatible descending by version first so `min` (which is stable)
+        # picks the highest version in case of a tie in distance
         compatible_sorted = sorted(compatible, key=_version_sort_key, reverse=True)
         selected = min(
             compatible_sorted,

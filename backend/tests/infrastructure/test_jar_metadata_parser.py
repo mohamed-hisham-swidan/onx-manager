@@ -1,6 +1,12 @@
 import zipfile
 
-from app.modules.plugin.infrastructure.jar_metadata_parser import parse_jar_version
+import pytest
+
+from app.core.exceptions import InvalidJarError
+from app.modules.plugin.infrastructure.jar_metadata_parser import (
+    parse_jar_metadata,
+    parse_jar_version,
+)
 
 
 def _create_jar(path, files: dict[str, str | bytes]) -> None:
@@ -87,3 +93,83 @@ def test_no_descriptor_returns_none(tmp_path) -> None:
     jar = tmp_path / "empty.jar"
     _create_jar(jar, {"some_other_file.txt": "hello"})
     assert parse_jar_version(str(jar)) is None
+
+
+def test_parse_jar_metadata_invalid_jar_raises(tmp_path) -> None:
+    bad_jar = tmp_path / "corrupt.jar"
+    bad_jar.write_bytes(b"not a zip file at all")
+    with pytest.raises(InvalidJarError):
+        parse_jar_metadata(str(bad_jar))
+
+    with pytest.raises(InvalidJarError):
+        parse_jar_metadata(b"raw non-zip bytes")
+
+
+def test_parse_jar_metadata_fabric_client_only(tmp_path) -> None:
+    jar = tmp_path / "sodium-fabric.jar"
+    content = {
+        "fabric.mod.json": (
+            '{"id": "sodium", "name": "Sodium", "version": "0.5.8", '
+            '"environment": "client", "authors": ["jellysquid3"], '
+            '"contact": {"homepage": "https://modrinth.com/mod/sodium"}, '
+            '"depends": {"fabricloader": ">=0.15.0", "minecraft": "~1.20.4"}}'
+        )
+    }
+    _create_jar(jar, content)
+    meta = parse_jar_metadata(str(jar))
+    assert meta.mod_id == "sodium"
+    assert meta.name == "Sodium"
+    assert meta.version == "0.5.8"
+    assert meta.loader == "fabric"
+    assert meta.is_client_only is True
+    assert meta.warning is not None
+    assert "Client-only mod detected" in meta.warning
+    assert "fabricloader" in meta.dependencies
+    assert "minecraft" in meta.dependencies
+    assert meta.authors == ["jellysquid3"]
+    assert meta.website == "https://modrinth.com/mod/sodium"
+
+
+def test_parse_jar_metadata_forge_mods_toml(tmp_path) -> None:
+    jar = tmp_path / "jei-forge.jar"
+    toml_content = """
+[[mods]]
+modId = "jei"
+displayName = "Just Enough Items"
+version = "15.3.0.4"
+description = "JEI item viewer"
+authors = "mezz"
+displayURL = "https://curseforge.com/minecraft/mc-mods/jei"
+
+[[dependencies.jei]]
+modId = "forge"
+mandatory = true
+versionRange = "[47.0.0,)"
+"""
+    _create_jar(jar, {"META-INF/mods.toml": toml_content})
+    meta = parse_jar_metadata(str(jar))
+    assert meta.mod_id == "jei"
+    assert meta.name == "Just Enough Items"
+    assert meta.version == "15.3.0.4"
+    assert meta.loader == "forge"
+    assert "forge" in meta.dependencies
+    assert meta.authors == ["mezz"]
+    assert meta.website == "https://curseforge.com/minecraft/mc-mods/jei"
+
+
+def test_parse_jar_metadata_neoforge(tmp_path) -> None:
+    jar = tmp_path / "test-neoforge.jar"
+    toml_content = """
+[[mods]]
+modId = "neomod"
+displayName = "Neo Mod"
+version = "1.0.0"
+clientSideOnly = true
+"""
+    _create_jar(jar, {"META-INF/neoforge.mods.toml": toml_content})
+    meta = parse_jar_metadata(str(jar))
+    assert meta.mod_id == "neomod"
+    assert meta.loader == "neoforge"
+    assert meta.is_client_only is True
+    assert meta.warning is not None
+

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 
@@ -22,6 +23,8 @@ from app.modules.plugin.application.services.version_selector import (
 )
 from app.modules.plugin.domain.aggregate import Plugin
 from app.modules.plugin.domain.repository import PluginRepository
+from app.modules.plugin.infrastructure.addon_fs import get_addon_dir_name
+from app.modules.plugin.infrastructure.jar_metadata_parser import parse_jar_metadata
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
 from app.modules.plugin.infrastructure.providers.base import PluginFile, PluginVersionInfo
 from app.modules.plugin.infrastructure.repository import SQLPluginRepository
@@ -32,10 +35,8 @@ from app.modules.shared.value_objects import PluginId, PluginVersion, ServerId
 
 logger = logging.getLogger(__name__)
 
-# Server types that do NOT support plugin catalog installation.
-# NOTE: Must be kept manually in sync with frontend capability mapping in:
-# frontend/src/server_manager/utils/serverCapabilities.ts
-_MANUAL_SERVER_TYPES = {"vanilla", "fabric", "forge", "neoforge"}
+# Server types that do NOT support plugin/mod catalog installation.
+_MANUAL_SERVER_TYPES = {"vanilla"}
 
 
 class InstallModrinthPluginCommand(Command):
@@ -119,7 +120,10 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 )
 
             safe_filename = os.path.basename(raw_filename)
-            plugin_dir = os.path.join(server.deployment.server_directory(), "plugins")
+            addon_dir_name = get_addon_dir_name(server_type)
+            plugin_dir = os.path.join(server.deployment.server_directory(), addon_dir_name)
+            if not self._fs.exists(plugin_dir):
+                self._fs.ensure_dir(plugin_dir)
             dest = os.path.join(plugin_dir, safe_filename)
 
             resolved_plugin_dir = os.path.abspath(plugin_dir)
@@ -127,7 +131,7 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
             if os.path.commonpath([resolved_plugin_dir, resolved_dest]) != resolved_plugin_dir:
                 return CommandResult(
                     success=False,
-                    error=f"Invalid plugin destination path '{safe_filename}'",
+                    error=f"Invalid destination path '{safe_filename}'",
                     error_code="INVALID_FILENAME",
                 )
 
@@ -136,7 +140,7 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                     success=False,
                     error=(
                         f"A file named '{safe_filename}' already exists "
-                        "in the plugins folder."
+                        f"in the {addon_dir_name} folder."
                     ),
                     error_code="FILE_CONFLICT",
                 )
@@ -178,6 +182,18 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
             except Exception as e:
                 logger.warning("Failed to fetch project info to get icon_url: %s", e)
 
+            meta = None
+            with contextlib.suppress(Exception):
+                meta = parse_jar_metadata(content)
+
+            project_type = "mod" if addon_dir_name == "mods" else "plugin"
+            loader = (
+                (meta.loader if meta else None)
+                or (version.loaders[0] if version.loaders else None)
+            )
+            mod_id = meta.mod_id if meta else None
+            warning = meta.warning if meta else None
+
             plugin_id = PluginId()
             plugin = Plugin.install(
                 plugin_id=plugin_id,
@@ -195,6 +211,10 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 checksum=plugin_file.sha1 or plugin_file.sha512 or None,
                 version_raw=version_raw,
                 icon_url=icon_url,
+                project_type=project_type,
+                loader=loader,
+                mod_id=mod_id,
+                is_disabled_on_disk=False,
             )
             repo: PluginRepository = SQLPluginRepository(uow.session)
             await repo.save(plugin)
@@ -209,6 +229,9 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
             "source": provider.name,
             "notice": selection.notice,
             "notice_kind": selection.notice_kind,
+            "loader": loader,
+            "mod_id": mod_id,
+            "warning": warning,
         }
         return CommandResult(success=True, data=data)
 

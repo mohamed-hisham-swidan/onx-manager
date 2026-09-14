@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 
 from app.api.deps import (
     get_command_bus,
@@ -16,6 +18,7 @@ from app.api.v1.schemas.plugin import (
     PluginSearchResultsResponse,
     PluginVersionResponse,
     PluginVersionsResponse,
+    ToggleModStateRequest,
 )
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
@@ -26,7 +29,9 @@ from app.modules.plugin.application import (
     InstallModrinthPluginCommand,
     ListPluginsQuery,
     ReconcilePluginsCommand,
+    ToggleModStateCommand,
     UninstallPluginCommand,
+    UploadModCommand,
 )
 from app.modules.plugin.application.services.version_selector import select_best_version
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
@@ -250,3 +255,52 @@ async def disable_plugin(
     cmd = DisablePluginCommand(plugin_id=plugin_id)
     result = await command_bus.send(cmd)
     return check_command_result(result)
+
+
+@router.post(
+    "/upload",
+    response_model=dict,
+    status_code=201,
+    dependencies=[
+        Depends(require_permission("plugin:manage")),
+        Depends(require_server_permission("server.{id}.plugins")),
+    ],
+)
+async def upload_mod(
+    server_id: str,
+    file: UploadFile,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+) -> dict:
+    content = await file.read()
+    filename = file.filename or "addon.jar"
+    cmd = UploadModCommand(
+        server_id=server_id,
+        filename=filename,
+        file_content=content,
+    )
+    result = await command_bus.send(cmd)
+    return check_command_result(result)
+
+
+@router.post(
+    "/toggle",
+    response_model=dict,
+    dependencies=[
+        Depends(require_permission("plugin:manage")),
+        Depends(require_server_permission("server.{id}.plugins")),
+    ],
+)
+async def toggle_mod(
+    server_id: str,
+    body: ToggleModStateRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+) -> dict:
+    cmd = ToggleModStateCommand(
+        server_id=server_id,
+        mod_id=body.mod_id,
+        plugin_id=body.plugin_id,
+        enabled=body.enabled,
+    )
+    result = await command_bus.send(cmd)
+    return check_command_result(result)
+

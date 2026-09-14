@@ -68,6 +68,9 @@ class SQLPluginRepository(PluginRepository):
         model.status = plugin.status.value
         model.source = plugin.source
         model.project_type = plugin.project_type
+        model.loader = plugin.loader
+        model.mod_id = plugin.mod_id
+        model.is_disabled_on_disk = plugin.is_disabled_on_disk
         model.filename = plugin.filename
         model.pending_deletion = plugin.pending_deletion
         model.pending_deletion_requested_at = plugin.pending_deletion_requested_at
@@ -117,6 +120,9 @@ class SQLPluginRepository(PluginRepository):
             version_raw=version_raw,
             project_type=getattr(model, "project_type", "plugin"),
             icon_url=getattr(model, "icon_url", None),
+            loader=getattr(model, "loader", None),
+            mod_id=getattr(model, "mod_id", None),
+            is_disabled_on_disk=getattr(model, "is_disabled_on_disk", False),
             installed_at=model.installed_at,
             updated_at=model.updated_at,
         )

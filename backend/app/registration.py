@@ -128,8 +128,12 @@ from app.modules.plugin.application import (
     ListPluginsQuery,
     ReconcilePluginsCommand,
     ReconcilePluginsHandler,
+    ToggleModStateCommand,
+    ToggleModStateHandler,
     UninstallPluginCommand,
     UninstallPluginHandler,
+    UploadModCommand,
+    UploadModHandler,
 )
 from app.modules.server.application import (
     CreateServerCommand,
@@ -214,6 +218,8 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(UninstallPluginCommand, UninstallPluginHandler(event_bus))
     command_bus.register(EnablePluginCommand, EnablePluginHandler(event_bus))
     command_bus.register(DisablePluginCommand, DisablePluginHandler(event_bus))
+    command_bus.register(UploadModCommand, UploadModHandler(event_bus))
+    command_bus.register(ToggleModStateCommand, ToggleModStateHandler(event_bus))
 
     command_bus.register(EvaluateHealthCommand, EvaluateHealthHandler(event_bus))
 

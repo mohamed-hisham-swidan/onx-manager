@@ -44,6 +44,16 @@ export interface PluginResponse {
   external_url?: string | null;
   checksum?: string | null;
   icon_url?: string | null;
+  loader?: string | null;
+  mod_id?: string | null;
+  is_disabled_on_disk?: boolean;
+  warning?: string | null;
+}
+
+export interface ToggleModStateRequest {
+  mod_id?: string | null;
+  plugin_id?: string | null;
+  enabled: boolean;
 }
 
 export interface PluginSearchResultResponse {

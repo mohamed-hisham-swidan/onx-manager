@@ -31,6 +31,10 @@ class PluginReadModel:
         external_url: str | None = None,
         checksum: str | None = None,
         icon_url: str | None = None,
+        loader: str | None = None,
+        mod_id: str | None = None,
+        is_disabled_on_disk: bool = False,
+        warning: str | None = None,
     ) -> None:
         self.plugin_id = plugin_id
         self.server_id = server_id
@@ -51,6 +55,10 @@ class PluginReadModel:
         self.external_url = external_url
         self.checksum = checksum
         self.icon_url = icon_url
+        self.loader = loader
+        self.mod_id = mod_id
+        self.is_disabled_on_disk = is_disabled_on_disk
+        self.warning = warning
 
     @classmethod
     def from_domain(cls, plugin: object) -> PluginReadModel:
@@ -74,6 +82,10 @@ class PluginReadModel:
             external_url=plugin.external_url,
             checksum=plugin.checksum,
             icon_url=plugin.icon_url,
+            loader=getattr(plugin, "loader", None),
+            mod_id=getattr(plugin, "mod_id", None),
+            is_disabled_on_disk=getattr(plugin, "is_disabled_on_disk", False),
+            warning=getattr(plugin, "warning", None),
         )
 
 

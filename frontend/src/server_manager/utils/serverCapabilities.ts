@@ -7,6 +7,7 @@ const MOD_SERVER_TYPES = new Set([
   "fabric",
   "forge",
   "neoforge",
+  "quilt",
 ]);
 
 const PLUGIN_SERVER_TYPES = new Set([

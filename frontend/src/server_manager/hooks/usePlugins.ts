@@ -132,3 +132,23 @@ export function useUninstallPlugin(serverId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) }),
   });
 }
+
+export function useUploadPluginOrMod(serverId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => api.uploadPluginOrMod(serverId, file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) }),
+  });
+}
+
+export function useToggleModState(serverId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { mod_id?: string | null; plugin_id?: string | null; enabled: boolean }) =>
+      api.toggleModState(serverId, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plugins.list(serverId) }),
+  });
+}
+
