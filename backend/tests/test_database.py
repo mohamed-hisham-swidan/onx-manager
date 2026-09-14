@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from sqlalchemy import Column, Integer, String
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -85,3 +87,56 @@ class TestDatabaseEngineLifecycle:
         db = DatabaseEngine()
         # Closing an uninitialized engine should not raise
         await db.close()
+
+    async def test_database_engine_no_unanchored_cwd_relative_legacy_copy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.core.config import AppSettings
+        from app.core.identity import IDENTITY
+        from app.core.persistence.db import DatabaseEngine
+
+        # Change cwd to tmp_path where a stray mcs.db exists
+        monkeypatch.chdir(tmp_path)
+        stray_cwd_db = tmp_path / IDENTITY.db_filename_legacy
+        stray_cwd_db.write_text("dummy-stray-data")
+
+        # Target DB in a separate subfolder (app/data/onx.db)
+        # where db_dir.parent is tmp_path / "app", NOT tmp_path (cwd)
+        target_dir = tmp_path / "app" / "data"
+        target_dir.mkdir(parents=True)
+        target_db = target_dir / IDENTITY.db_filename_new
+        db_url = f"sqlite+aiosqlite:///{target_db.as_posix()}"
+
+        settings = AppSettings(database_url=db_url)
+        db = DatabaseEngine(settings)
+        try:
+            db.init()
+            assert (
+                not target_db.exists()
+                or target_db.stat().st_size == 0
+                or target_db.read_bytes() != b"dummy-stray-data"
+            )
+        finally:
+            await db.close()
+
+    async def test_database_engine_anchored_legacy_copy(self, tmp_path: Path) -> None:
+        from app.core.config import AppSettings
+        from app.core.identity import IDENTITY
+        from app.core.persistence.db import DatabaseEngine
+
+        target_dir = tmp_path / "data"
+        target_dir.mkdir()
+        anchored_legacy_db = target_dir / IDENTITY.db_filename_legacy
+        anchored_legacy_db.write_text("legacy-anchored-data")
+
+        target_db = target_dir / IDENTITY.db_filename_new
+        db_url = f"sqlite+aiosqlite:///{target_db.as_posix()}"
+
+        settings = AppSettings(database_url=db_url)
+        db = DatabaseEngine(settings)
+        try:
+            db.init()
+            assert target_db.exists()
+            assert target_db.read_text() == "legacy-anchored-data"
+        finally:
+            await db.close()

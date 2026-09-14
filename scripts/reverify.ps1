@@ -31,6 +31,7 @@ Step "check-route-contract"      { python ../scripts/check-route-contract }
 
 Set-Location $repoRoot
 Step "check-ps1-bom" { python scripts/check-ps1-bom }
+Step "check-stray-db" { python scripts/check-stray-db }
 
 Set-Location (Join-Path $repoRoot "backend")
 Step "backend pytest (full suite)" { python -m pytest }

@@ -67,7 +67,6 @@ class DatabaseEngine:
                         legacy_candidates = [
                             db_dir / IDENTITY.db_filename_legacy,
                             db_dir.parent / IDENTITY.db_filename_legacy,
-                            Path(IDENTITY.db_filename_legacy),
                         ]
                         for legacy_path in legacy_candidates:
                             if legacy_path.is_file() and legacy_path.stat().st_size > 0:

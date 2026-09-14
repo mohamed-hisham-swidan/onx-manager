@@ -306,7 +306,7 @@ Classification used by `Blueprint V5`:
 - `backend/app/modules/plugin/application/services/version_selector.py` —
   best-version selection
 - `contracts/permissions.yaml` — live route→permission coverage matrix
-- `backend/data/servers/mcs.db` / `backend/mcs.db` — production / dev databases
+- `backend/data/onx.db` — primary production/dev database (`mcs.db` was the pre-rename database filename, fully superseded by `onx.db`; no live `mcs.db` file exists in the repo)
 - `.github/workflows/backend-tests.yml`, `backend-version-ci.yml`,
   `route-permission-ci.yml`, `frontend-ci.yml`, `verification-cadence.yml` — CI
   workflows

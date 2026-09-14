@@ -35,6 +35,8 @@ echo "=== Re-verification cadence: backend ==="
     python ../scripts/check-route-contract
     echo "--- PowerShell BOM encoding ---"
     python ../scripts/check-ps1-bom
+    echo "--- stray database check (advisory gate) ---"
+    python ../scripts/check-stray-db
     echo "--- full backend test suite ---"
     python -m pytest -q
 )

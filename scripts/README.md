@@ -11,6 +11,7 @@ Authoritative scripts for quality gates, preflight cleanup, and development task
 | `scripts/check-ruff-baseline` | Enforces zero-regression lint gate against `scripts/ruff-baseline.json` baseline |
 | `scripts/check-route-contract` | Validates all 105 live FastAPI routes against `contracts/permissions.yaml` contract |
 | `scripts/check-ps1-bom` | Verifies all `.ps1` files contain valid UTF-8 BOM encoding |
+| `scripts/check-stray-db` | Verifies no stray SQLite files (*.db, *.db-wal, *.db-shm) exist at repo or backend root (Advisory Gate) |
 | `scripts/reverify` / `reverify.ps1` | Runs the full local CI verification cadence (Linux / Windows) |
 
 ## Runtime & Preflight Utilities

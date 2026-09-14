@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Verify that no stray SQLite database files exist at repo root or backend root.
+
+Ad-hoc test scripts or misconfigured runs must not drop SQLite files
+(*.db, *.db-wal, *.db-shm, *.sqlite, *.sqlite3) in the repo root or
+backend root directory. All operational and test databases must reside
+inside backend/data/ or ephemeral /tmp directories.
+
+Exit code 0 if no stray database files are found, 1 otherwise.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+_DB_PATTERNS = ("*.db", "*.db-wal", "*.db-shm", "*.sqlite", "*.sqlite3")
+
+# Directories where stray DB files must never exist
+_CHECK_DIRS = (
+    _REPO_ROOT,
+    _REPO_ROOT / "backend",
+)
+
+
+def find_stray_db_files() -> list[Path]:
+    """Find any stray database files directly located in the checked directories."""
+    stray_files: list[Path] = []
+    for check_dir in _CHECK_DIRS:
+        if not check_dir.is_dir():
+            continue
+        for pattern in _DB_PATTERNS:
+            for file_path in check_dir.glob(pattern):
+                if file_path.is_file():
+                    stray_files.append(file_path)
+    return sorted(stray_files)
+
+
+def main() -> int:
+    stray = find_stray_db_files()
+    if stray:
+        print(
+            f"FAIL: Found {len(stray)} stray SQLite file(s) outside allowed directories:",
+            file=sys.stderr,
+        )
+        for path in stray:
+            try:
+                rel = path.relative_to(_REPO_ROOT)
+            except ValueError:
+                rel = path
+            print(f"  - {rel}", file=sys.stderr)
+        print(
+            "\nRemediation: Remove stray SQLite files and ensure test/recon scripts use tmp_path or /tmp.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("PASS: No stray SQLite database files (*.db, *.db-wal, *.db-shm) found at repo root or backend root.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -381,29 +381,11 @@ redundant operation instead of crashing.  Behavior on already-migrated
 databases is unchanged (verified by replay test against a pre-migration
 backup — final schema matches production column-for-column).
 
-### Current dev database state
+### Database naming & legacy transition state
 
-- **File**: `backend/mcs.db`
-- **Alembic version**: `b1e2100000007` (head)
-- **Tables**: 38 (including `alembic_version`, `system_state`, `invitations`, `server_memberships`, `test_samples`, and the exposure tables)
-
-### Secondary database state
-
-- **File**: `backend/data/servers/mcs.db`
-- **Alembic version**: `a3b2c3d4e5f6`
-- **Note**: legacy/secondary SQLite file. It has **no** `system_state`,
-  `invitations`, or `server_memberships` tables and is **not** referenced by
-  the default config (`MCS_DATABASE_URL` unset → `backend/mcs.db`). Confirm the
-  environment uses `backend/mcs.db` before release.
-
-> **Compatibility floor:** this secondary DB is behind the `0.1.0` minimum
-> (`b1e2100000007`). Starting the application against it would fail closed with an
-> actionable "run `alembic upgrade head`" error — by design. Migrate it (or point
-> `MCS_DATABASE_URL` at the primary DB) before use.
-
-> Updated 2026-08-12 to match `docs/current-state.md` §3. The previous
-> production/`backend/data/servers/mcs.db` head claim (2026-08-04) described
-> the pre-Phase-4 chain (head then `c4d5e6f7a8b9`).
+- **Primary Database**: `backend/data/onx.db`
+- **Legacy Filename**: `mcs.db` was the pre-rename (MCS-Manager) database filename, fully superseded by `onx.db`. No live file with that name exists in the repository as of the cleanup in SPEC-2026-09-14-STRAY-DB-CLEANUP-01.
+- **Migration & Auto-copy**: During transition, `DatabaseEngine` in `backend/app/core/persistence/db.py` checks anchored legacy candidates (`backend/data/mcs.db` and `backend/mcs.db`) to migrate existing installations if `onx.db` is missing. Unanchored cwd-relative copy logic has been removed to eliminate footguns, and stray root-level SQLite files are guarded against in CI and pre-push checks (`scripts/check-stray-db`).
 
 ## Cross-References
 
