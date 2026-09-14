@@ -1,7 +1,7 @@
 # ONX Manager — Real Engineering Roadmap
 ## v1.1 — Revised after external review
 
-**Status:** ACTIVE LIVING ROADMAP — Phases 0, 1, 2, 3, and 5 CLOSED; Phase 4 (Community Features) UP NEXT. Each phase is scoped at the level needed to write individual Design Specs per stage.
+**Status:** ACTIVE LIVING ROADMAP — Phases 0, 1, 2, 3, 4, and 5 CLOSED; Phase 6 (Final Installs / Wrap-up) UP NEXT. Each phase is scoped at the level needed to write individual Design Specs per stage.
 **Supersedes:** `ROADMAP_v1.md` (2026-09-01 — external review found: no ground-truth baseline phase, a circular dependency between Phase 1 and Phase 2, branding conflated with functional UX, an unrecorded architecture-reorder decision, and looser language than the actual exit criteria implied). This version keeps every fact from v1.0 and fixes those five issues plus several smaller ones below.
 **Governing document:** [`docs/governance/GOVERNANCE.md`](../governance/GOVERNANCE.md).
 **Phase order:** dictated by Mohamed — ground truth first (new in v1.1), then bugs, backend, frontend, community-driven features, containers, install/wrap-up, and branding/UI polish **last**.
@@ -96,15 +96,16 @@ Receives everything routed here from Phase 1. Status of known contents:
 
 ## Phase 4 — Feature Build from Community Feedback Pool
 
-**Status:** RECON STAGE ACTIVE (Unblocked by Phase 5 Closure — 2026-09-12)  
+**Status:** CLOSED (2026-09-14) — All 5 Features Built, Verified, and Closed (Feature 1: Git-Inspired Versioning & Isolated-Testing System; Feature 2: Test Environment, merged into F1; Feature 3: Custom Mod Support; Feature 4: Change History Log; Feature 5: Better Log/Crash Readability). Full suite: 3,397 tests (2,697 backend, 700 frontend across 78 test files), 5/5 CI quality gates PASS.
+**Design Spec:** [`docs/design/PHASE_4_COMMUNITY_FEATURES_DESIGN_SPEC.md`](../design/PHASE_4_COMMUNITY_FEATURES_DESIGN_SPEC.md) (Approved 2026-09-13, D2/Major, Lane B)
 
 Features (priority order, from r/admincraft feedback pool, updated per DECISION-2026-09-12-001):
 
-1. Git-inspired versioning & isolated-testing system (redefined via [DECISION-2026-09-12-001](../decisions/DECISION-2026-09-12-001.md) from bounded transparent update system: branch/commit tracking, isolated test containers, multi-node groundwork; incorporates rollback/proceed/disable & failed-mod list).
-2. Test environment (temporary test container/server — dual-mode: files-based and container-based enabled by Phase 5 closure).
-3. Custom mod support (user-supplied non-catalog mods, Forge/NeoForge/Fabric/Quilt inspection and targeting).
-4. Change history log (durable audit and domain-event trail for server lifecycle and configuration changes).
-5. Better log/crash readability (structured log streaming, crash report extraction and classification, syntax/severity highlighting).
+1. Git-inspired versioning & isolated-testing system (redefined via [DECISION-2026-09-12-001](../decisions/DECISION-2026-09-12-001.md) from bounded transparent update system: branch/commit tracking, isolated test containers, multi-node groundwork; incorporates rollback/proceed/disable & failed-mod list). CLOSED (commit 0f2820f).
+2. Test environment (temporary test container/server — dual-mode: files-based and container-based enabled by Phase 5 closure). Merged into Feature 1. CLOSED (commit 0f2820f).
+3. Custom mod support (user-supplied non-catalog mods, Forge/NeoForge/Fabric/Quilt inspection and targeting). CLOSED (commit 631c05d).
+4. Change history log (durable audit and domain-event trail for server lifecycle and configuration changes). CLOSED.
+5. Better log/crash readability (structured log streaming, crash report extraction and classification, syntax/severity highlighting). CLOSED (commit 63f2d41).
 
 **Dependency on Phase 5 — RESOLVED & UNBLOCKED (2026-09-12).** Mohamed's decision: the test-environment isolation backend is a **permanent user-facing choice**, not a temporary stand-in — the product ships with both a **files-based mode** and a **container-based mode**, selectable by the user. With Phase 5 complete and verified, the container backend is fully implemented and available natively for feature #2, alongside files-based execution.
 

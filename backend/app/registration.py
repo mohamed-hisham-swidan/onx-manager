@@ -1,6 +1,12 @@
 from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
 from app.core.query_bus import QueryBus
+from app.modules.activity.application import (
+    ActivityEventSubscriber,
+    GetServerActivityHandler,
+    GetServerActivityQuery,
+)
+from app.modules.activity.infrastructure import SQLActivityRepository
 from app.modules.auth.application import (
     AcceptInviteCommand,
     AcceptInviteHandler,
@@ -215,6 +221,39 @@ def _register_event_handlers(event_bus: EventBus) -> None:
     event_bus.subscribe("IntegrityCheckFailedEvent", health_handler)
     event_bus.subscribe("CrashClassifiedEvent", health_handler)
 
+    # Activity log subscriber (Feature 4 - Change History Log)
+    activity_subscriber = ActivityEventSubscriber(SQLActivityRepository())
+    activity_events = [
+        "ServerCreatedEvent",
+        "ServerStartingEvent",
+        "ServerStartedEvent",
+        "ServerStoppingEvent",
+        "ServerStoppedEvent",
+        "ServerCrashedEvent",
+        "ServerConfigChangedEvent",
+        "ServerDeletedEvent",
+        "PluginInstalledEvent",
+        "PluginEnabledEvent",
+        "PluginDisabledEvent",
+        "PluginUninstalledEvent",
+        "PluginUpdatedEvent",
+        "BackupStartedEvent",
+        "BackupCompletedEvent",
+        "BackupFailedEvent",
+        "BackupRestoredEvent",
+        "BackupDeletedEvent",
+        "ServerExposureEnabledEvent",
+        "ServerExposureDisabledEvent",
+        "ServerExposureRemovedEvent",
+        "BranchCreatedEvent",
+        "CommitCreatedEvent",
+        "TestRunStartedEvent",
+        "TestRunCompletedEvent",
+        "CommitPromotedEvent",
+    ]
+    for ev in activity_events:
+        event_bus.subscribe(ev, activity_subscriber)
+
 
 def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> None:
     command_bus.register(CreateServerCommand, CreateServerHandler(event_bus))
@@ -273,10 +312,13 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(RevokeInviteCommand, RevokeInviteHandler(event_bus))
     command_bus.register(UpdateAccessModeCommand, UpdateAccessModeHandler(event_bus))
 
-    command_bus.register(CreateBranchCommand, CreateBranchHandler())
-    command_bus.register(CreateCommitCommand, CreateCommitHandler())
-    command_bus.register(RunIsolatedTestCommand, RunIsolatedTestHandler())
-    command_bus.register(PromoteCommitCommand, PromoteCommitHandler(command_bus=command_bus))
+    command_bus.register(CreateBranchCommand, CreateBranchHandler(event_bus=event_bus))
+    command_bus.register(CreateCommitCommand, CreateCommitHandler(event_bus=event_bus))
+    command_bus.register(RunIsolatedTestCommand, RunIsolatedTestHandler(event_bus=event_bus))
+    command_bus.register(
+        PromoteCommitCommand,
+        PromoteCommitHandler(command_bus=command_bus, event_bus=event_bus),
+    )
     command_bus.register(DiscardTestCommand, DiscardTestHandler())
 
 
@@ -313,3 +355,4 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(GetServerBranchesQuery, GetServerBranchesHandler())
     query_bus.register(GetCommitHistoryQuery, GetCommitHistoryHandler())
     query_bus.register(GetTestStatusQuery, GetTestStatusHandler())
+    query_bus.register(GetServerActivityQuery, GetServerActivityHandler(SQLActivityRepository()))

@@ -356,4 +356,4 @@ class TestMain:
         )
         assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
         assert "PASS" in result.stdout
-        assert "120 live routes vs 120 contract entries" in result.stdout
+        assert "121 live routes vs 121 contract entries" in result.stdout

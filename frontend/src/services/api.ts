@@ -48,6 +48,7 @@ import type {
 } from "@/types";
 import { useAuthStore } from "@/stores/authStore";
 import type {
+  ActivityLogListResponse,
   BotSettings,
   BotSettingsRequest,
   CommandRequest,
@@ -55,6 +56,7 @@ import type {
   CrashReportSummary,
   CreateBranchRequest,
   CreateCommitRequest,
+  GetActivityParams,
   PreflightStatus,
   PromoteCommitRequest,
   RunIsolatedTestRequest,
@@ -352,6 +354,16 @@ export function createApiClient(
     getServerCrashReports: (serverId: string, limit?: number) =>
       request<CrashReportSummary[]>(`/api/v1/servers/${serverId}/crash-reports`, {
         params: { limit: limit?.toString() },
+      }),
+    getServerActivity: (serverId: string, params?: GetActivityParams) =>
+      request<ActivityLogListResponse>(`/api/v1/servers/${serverId}/activity`, {
+        params: {
+          limit: params?.limit?.toString(),
+          offset: params?.offset?.toString(),
+          event_type: params?.event_type,
+          from_date: params?.from_date?.toString(),
+          to_date: params?.to_date?.toString(),
+        },
       }),
 
     // Versioning & Isolated Testing Subsystem

@@ -385,3 +385,29 @@ export interface PreflightStatus {
   passed: boolean;
   error: string | null;
 }
+
+export interface ServerActivityLog {
+  id: string;
+  server_id: string;
+  timestamp: number;
+  event_type: string;
+  actor_type: string;
+  actor_id: string | null;
+  summary: string;
+  details: Record<string, unknown>;
+}
+
+export interface ActivityLogListResponse {
+  items: ServerActivityLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface GetActivityParams {
+  limit?: number;
+  offset?: number;
+  event_type?: string;
+  from_date?: number;
+  to_date?: number;
+}

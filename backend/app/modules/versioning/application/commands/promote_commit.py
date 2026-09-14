@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.core.command_bus import Command, CommandBus, CommandHandler, CommandResult
+from app.core.event_bus import EventBus
 from app.core.exceptions import NotFoundError
 from app.modules.backup.application.restore_service import _atomic_replace_dir
 from app.modules.server.application.commands.start_server import StartServerCommand
@@ -30,11 +31,13 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
         versioning_repo: VersioningRepository | None = None,
         command_bus: CommandBus | None = None,
         test_runner: TestExecutionRunner | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         self._server_repo = server_repo
         self._versioning_repo = versioning_repo
         self._command_bus = command_bus
         self._test_runner = test_runner or DockerTestExecutionRunner()
+        self._event_bus = event_bus
 
     async def handle(self, command: PromoteCommitCommand) -> CommandResult:
         from app.core.persistence.db import database
@@ -118,6 +121,18 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
         # 6. Restart production server if it was previously running
         if was_running and self._command_bus:
             await self._command_bus.send(StartServerCommand(server_id=command.server_id))
+
+        if self._event_bus is not None:
+            from app.modules.versioning.domain.events import CommitPromotedEvent
+
+            await self._event_bus.publish(
+                CommitPromotedEvent(
+                    server_id=command.server_id,
+                    commit_id=commit.id,
+                    test_id=command.test_id,
+                    keep_world_changes=command.keep_world_changes,
+                )
+            )
 
         return CommandResult(
             success=True,

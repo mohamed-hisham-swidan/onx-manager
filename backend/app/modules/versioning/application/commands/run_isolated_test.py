@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.event_bus import EventBus
 from app.core.exceptions import NotFoundError
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.domain.entities import ServerTestRun
@@ -31,10 +32,12 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
         server_repo: ServerRepository | None = None,
         versioning_repo: VersioningRepository | None = None,
         test_runner: TestExecutionRunner | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         self._server_repo = server_repo
         self._versioning_repo = versioning_repo
         self._test_runner = test_runner or DockerTestExecutionRunner()
+        self._event_bus = event_bus
 
     async def handle(self, command: RunIsolatedTestCommand) -> CommandResult:
         from app.core.persistence.db import database
@@ -122,6 +125,19 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
         )
 
         handle = await self._test_runner.run_test(spec)
+
+        if self._event_bus is not None:
+            from app.modules.versioning.domain.events import TestRunStartedEvent
+
+            await self._event_bus.publish(
+                TestRunStartedEvent(
+                    server_id=command.server_id,
+                    test_id=test_id,
+                    commit_id=target_commit_id,
+                    bot_count=bot_cfg.bot_count,
+                    duration_minutes=bot_cfg.duration_minutes,
+                )
+            )
 
         return CommandResult(
             success=True,

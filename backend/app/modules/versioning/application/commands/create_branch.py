@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.event_bus import EventBus
 from app.core.exceptions import ConflictError, NotFoundError
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.domain.entities import ServerBranch
@@ -20,9 +21,11 @@ class CreateBranchHandler(CommandHandler[CreateBranchCommand]):
         self,
         server_repo: ServerRepository | None = None,
         versioning_repo: VersioningRepository | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         self._server_repo = server_repo
         self._versioning_repo = versioning_repo
+        self._event_bus = event_bus
 
     async def handle(self, command: CreateBranchCommand) -> CommandResult:
         from app.core.persistence.db import database
@@ -46,6 +49,7 @@ class CreateBranchHandler(CommandHandler[CreateBranchCommand]):
         versioning_repo: VersioningRepository,
     ) -> CommandResult:
         from app.modules.shared.value_objects import ServerId
+        from app.modules.versioning.domain.events import BranchCreatedEvent
 
         # Verify server exists
         try:
@@ -67,6 +71,15 @@ class CreateBranchHandler(CommandHandler[CreateBranchCommand]):
             head_commit_id=command.head_commit_id,
         )
         await versioning_repo.save_branch(branch)
+
+        if self._event_bus is not None:
+            await self._event_bus.publish(
+                BranchCreatedEvent(
+                    server_id=command.server_id,
+                    branch_name=branch.name,
+                    branch_id=branch.id,
+                )
+            )
 
         return CommandResult(
             success=True,

@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.event_bus import EventBus
 from app.core.exceptions import NotFoundError
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.domain.entities import (
@@ -30,9 +31,11 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
         self,
         server_repo: ServerRepository | None = None,
         versioning_repo: VersioningRepository | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         self._server_repo = server_repo
         self._versioning_repo = versioning_repo
+        self._event_bus = event_bus
 
     async def handle(self, command: CreateCommitCommand) -> CommandResult:
         from app.core.persistence.db import database
@@ -120,6 +123,18 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
         # 7. Advance branch head
         branch.head_commit_id = commit_id
         await versioning_repo.save_branch(branch)
+
+        if self._event_bus is not None:
+            from app.modules.versioning.domain.events import CommitCreatedEvent
+
+            await self._event_bus.publish(
+                CommitCreatedEvent(
+                    server_id=command.server_id,
+                    commit_id=commit_id,
+                    message=command.message,
+                    branch_name=branch.name,
+                )
+            )
 
         return CommandResult(
             success=True,
