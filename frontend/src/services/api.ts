@@ -50,6 +50,7 @@ import { useAuthStore } from "@/stores/authStore";
 import type {
   CommandRequest,
   ConsoleResponse,
+  CrashReportSummary,
   ScanResult,
   ServerCreateRequest,
   ServerDetailResponse,
@@ -338,6 +339,10 @@ export function createApiClient(
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/retry-provisioning`, { method: "POST" }),
     getServerConsole: (serverId: string, tail?: number) =>
       request<ConsoleResponse>(`/api/v1/servers/${serverId}/console`, { params: { tail: tail?.toString() } }),
+    getServerCrashReports: (serverId: string, limit?: number) =>
+      request<CrashReportSummary[]>(`/api/v1/servers/${serverId}/crash-reports`, {
+        params: { limit: limit?.toString() },
+      }),
     sendServerCommand: (serverId: string, body: CommandRequest) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/command`, { method: "POST", body }),
 

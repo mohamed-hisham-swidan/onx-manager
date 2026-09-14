@@ -100,6 +100,8 @@ from app.modules.health.application import (
     GetHealthStatusQuery,
     GetHealthTimelineHandler,
     GetHealthTimelineQuery,
+    GetServerCrashReportsHandler,
+    GetServerCrashReportsQuery,
 )
 from app.modules.health.application.event_handlers.health_signal_handler import HealthSignalHandler
 from app.modules.health.application.event_handlers.server_crashed_handler import (
@@ -262,6 +264,7 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
 
     query_bus.register(GetHealthStatusQuery, GetHealthStatusHandler())
     query_bus.register(GetHealthTimelineQuery, GetHealthTimelineHandler())
+    query_bus.register(GetServerCrashReportsQuery, GetServerCrashReportsHandler())
 
     query_bus.register(GetMetricsQuery, GetMetricsHandler())
 

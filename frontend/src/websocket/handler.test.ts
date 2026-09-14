@@ -196,4 +196,21 @@ describe("WSHandler", () => {
     handler.clearReconnectBuffer();
     expect(handler.reconnectBuffer).toEqual([]);
   });
+
+  it("handles console messages", () => {
+    const onConsole = vi.fn();
+    const handler = new WSHandler({ onConsole });
+
+    handler["_route"]({
+      type: "console",
+      server_id: "s01",
+      lines: ["[INFO] Starting minecraft server version 1.20.4", "[INFO] Loading properties"],
+    });
+
+    expect(onConsole).toHaveBeenCalledWith("s01", [
+      "[INFO] Starting minecraft server version 1.20.4",
+      "[INFO] Loading properties",
+    ]);
+  });
 });
+

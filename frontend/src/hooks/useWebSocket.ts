@@ -11,6 +11,7 @@ interface UseWebSocketOptions {
   onCacheUpdate?: CacheUpdater;
   onEvent?: (event: Record<string, unknown>) => void;
   onStateSync?: (events: Array<Record<string, unknown>>) => void;
+  onConsole?: (serverId: string, lines: string[]) => void;
   autoConnect?: boolean;
 }
 
@@ -35,7 +36,43 @@ export function unsubscribeChannels(channels: string[]): void {
   activeUnsubscribe?.(channels);
 }
 
-export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoConnect = true }: UseWebSocketOptions) {
+export type ConsoleListener = (serverId: string, lines: string[]) => void;
+const consoleListeners = new Set<ConsoleListener>();
+
+export function registerConsoleListener(listener: ConsoleListener): () => void {
+  consoleListeners.add(listener);
+  return () => {
+    consoleListeners.delete(listener);
+  };
+}
+
+export function notifyConsoleListeners(serverId: string, lines: string[]): void {
+  for (const listener of consoleListeners) {
+    listener(serverId, lines);
+  }
+}
+
+export function useConsoleStream(
+  serverId: string | null | undefined,
+  onLines: (lines: string[]) => void,
+) {
+  useEffect(() => {
+    if (!serverId) return;
+    const channel = `server:${serverId}:console`;
+    subscribeChannels([channel]);
+    const unregister = registerConsoleListener((incomingServerId, lines) => {
+      if (incomingServerId === serverId) {
+        onLines(lines);
+      }
+    });
+    return () => {
+      unregister();
+      unsubscribeChannels([channel]);
+    };
+  }, [serverId, onLines]);
+}
+
+export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, onConsole, autoConnect = true }: UseWebSocketOptions) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const setConnectionState = useWSStore((s) => s.setConnectionState);
   const setChannelState = useWSStore((s) => s.setChannelState);
@@ -48,7 +85,15 @@ export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoCon
   useEffect(() => {
     if (!autoConnect || !isAuthenticated) return;
 
-    const handler = new WSHandler({ onCacheUpdate, onEvent, onStateSync });
+    const handler = new WSHandler({
+      onCacheUpdate,
+      onEvent,
+      onStateSync,
+      onConsole: (serverId, lines) => {
+        notifyConsoleListeners(serverId, lines);
+        onConsole?.(serverId, lines);
+      },
+    });
     handlerRef.current = handler;
 
     const client = new WSClient(
@@ -93,7 +138,7 @@ export function useWebSocket({ url, onCacheUpdate, onEvent, onStateSync, autoCon
       // across a token refresh / reconnect).
       useWSStore.setState({ channelStates: {}, unattributedRejection: false });
     };
-  }, [url, isAuthenticated, autoConnect, onCacheUpdate, onEvent, onStateSync, setConnectionState, setChannelState, removeChannelState, setUnattributedRejection]);
+  }, [url, isAuthenticated, autoConnect, onCacheUpdate, onEvent, onStateSync, onConsole, setConnectionState, setChannelState, removeChannelState, setUnattributedRejection]);
 
   const subscribe = useCallback((channels: string[]) => {
     clientRef.current?.subscribe(channels);

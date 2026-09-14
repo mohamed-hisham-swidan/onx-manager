@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from app.core.identity import IDENTITY
@@ -25,7 +26,64 @@ EXIT_CODE_KEYWORDS: dict[int, list[str]] = {
     143: ["killed", "sigterm"],
 }
 
+FORGE_BLAME_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(
+        r"(?:net\.(?:minecraftforge|neoforged)\.fml\.)?ModLoadingException:\s*"
+        r"Mod\s+(?:§e)?([a-zA-Z0-9_\-\.]+)(?:§r)?\s+"
+        r"(?:\(id\s+(?:§e)?([a-zA-Z0-9_\-\.]+)(?:§r)?\))?\s*encountered an error",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"cpw\.mods\.fml\.common\.LoaderExceptionModCrash:\s*Caught exception from\s+([a-zA-Z0-9_\-\.]+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"Multiple exceptions declaring failure for mod\s+([a-zA-Z0-9_\-\.]+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"Mod\s+([a-zA-Z0-9_\-\.]+)\s+\([a-zA-Z0-9_\-\.]+\)\s+has failed to load correctly",
+        re.IGNORECASE,
+    ),
+    re.compile(r"Blamed Mod:\s*([a-zA-Z0-9_\-\.]+)", re.IGNORECASE),
+]
+
+FABRIC_BLAME_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(
+        r"Mod\s+'([^']+)'\s+\(([a-zA-Z0-9_\-\.]+)\)\s+requires",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"Could not find required mod:\s*([a-zA-Z0-9_\-\.]+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"Unmet dependency for\s+([a-zA-Z0-9_\-\.]+)",
+        re.IGNORECASE,
+    ),
+]
+
 CRASH_REPORT_PATTERNS: list[tuple[re.Pattern[str], FailureCode, str]] = [
+    (
+        re.compile(
+            r"net\.(?:minecraftforge|neoforged)\.fml\.ModLoadingException"
+            r"|cpw\.mods\.fml\.common\.LoaderExceptionModCrash"
+            r"|net\.minecraftforge\.fml\.loading\.EarlyLoadingException",
+            re.IGNORECASE,
+        ),
+        FailureCode.MOD_CRASH,
+        "Forge ModLoadingException in crash report",
+    ),
+    (
+        re.compile(
+            r"net\.fabricmc\.loader\.(?:impl\.)?(?:discovery\.)?ModResolutionException"
+            r"|net\.fabricmc\.loader\.impl\.FormattedException"
+            r"|Incompatible mod set found",
+            re.IGNORECASE,
+        ),
+        FailureCode.MOD_CRASH,
+        "Fabric ModResolutionException in crash report",
+    ),
     (
         re.compile(r"java\.lang\.OutOfMemoryError"),
         FailureCode.MEMORY_EXHAUSTED,
@@ -62,6 +120,33 @@ CRASH_REPORT_PATTERNS: list[tuple[re.Pattern[str], FailureCode, str]] = [
         "Plugin instantiation failure",
     ),
 ]
+
+
+@dataclass(frozen=True)
+class CrashReportAnalysis:
+    failure_code: FailureCode
+    summary: str
+    blamed_mod: str | None = None
+    stack_trace_snippet: str = ""
+    suggested_remediation: str = ""
+
+
+def extract_stack_trace_snippet(content: str, max_lines: int = 25) -> str:
+    """Extract a concise stack trace snippet from raw crash report text."""
+    lines = content.splitlines()
+    if not lines:
+        return ""
+    start_idx = 0
+    for idx, line in enumerate(lines):
+        if any(marker in line for marker in ("Exception:", "Error:", "Time: ", "Description: ")):
+            start_idx = idx
+            break
+    snippet_lines: list[str] = []
+    for line in lines[start_idx : start_idx + max_lines]:
+        if line.startswith("-- System Details --") or line.startswith("-- Mod List --"):
+            break
+        snippet_lines.append(line)
+    return "\n".join(snippet_lines).strip()
 
 
 class PatternCrashAnalyzer(CrashClassifier):
@@ -133,13 +218,16 @@ class PatternCrashAnalyzer(CrashClassifier):
         suggestions: dict[FailureCode, str] = {
             FailureCode.MEMORY_EXHAUSTED: "Increase -Xmx in launch config or reduce world size",
             FailureCode.PORT_CONFLICT: "Change server-port in server.properties",
-            FailureCode.PORT_ALREADY_BOUND: "Stop the other process using the port, or change server-port",
+            FailureCode.PORT_ALREADY_BOUND: (
+                "Stop the other process using the port, or change server-port"
+            ),
             FailureCode.JAVA_VERSION_MISMATCH: "Install correct Java version or update server jar",
             FailureCode.INVALID_JAR_PATH: "Verify server.jar exists in the server directory",
             FailureCode.MEMORY_CONFIGURATION_ERROR: "Fix JVM memory flags in launch configuration",
             FailureCode.NETWORK_BIND_FAILURE: "Check network interface and port availability",
             FailureCode.FILE_NOT_FOUND: "Restore missing files from backup",
             FailureCode.PERMISSION_ERROR: "Check file permissions on server directory",
+            FailureCode.MOD_CRASH: "Check or disable the conflicting or failing mod",
             FailureCode.TMUX_SESSION_LOST: "Check tmux installation and session management",
             FailureCode.STARTUP_TIMEOUT: "Increase startup_timeout or check JVM health",
             FailureCode.RUNTIME_PROCESS_LOST: "Restart the server",
@@ -149,3 +237,51 @@ class PatternCrashAnalyzer(CrashClassifier):
             FailureCode.JAVA_PROCESS_NOT_FOUND: "Reinstall Java and verify PATH",
         }
         return suggestions.get(failure_code, "Restart and monitor server logs")
+
+    def analyze_crash_content(self, content: str) -> CrashReportAnalysis:
+        blamed_mod: str | None = None
+        for pat in FORGE_BLAME_PATTERNS:
+            match = pat.search(content)
+            if match:
+                groups = [g for g in match.groups() if g]
+                blamed_mod = groups[-1] if groups else None
+                break
+
+        if not blamed_mod:
+            for pat in FABRIC_BLAME_PATTERNS:
+                match = pat.search(content)
+                if match:
+                    groups = [g for g in match.groups() if g]
+                    blamed_mod = groups[-1] if groups else None
+                    break
+
+        failure_code = FailureCode.UNKNOWN_RUNTIME_FAILURE
+        summary = "Unknown crash"
+
+        if blamed_mod:
+            failure_code = FailureCode.MOD_CRASH
+            summary = f"Mod failure: {blamed_mod}"
+        else:
+            for pattern, code, label in CRASH_REPORT_PATTERNS:
+                if pattern.search(content):
+                    failure_code = code
+                    summary = label
+                    break
+
+        snippet = extract_stack_trace_snippet(content)
+
+        if blamed_mod:
+            remediation = (
+                f"Disable, remove, or update blamed mod '{blamed_mod}'. "
+                "Check for incompatible versions or missing dependencies."
+            )
+        else:
+            remediation = self._suggest_action(failure_code)
+
+        return CrashReportAnalysis(
+            failure_code=failure_code,
+            summary=summary,
+            blamed_mod=blamed_mod,
+            stack_trace_snippet=snippet,
+            suggested_remediation=remediation,
+        )

@@ -47,6 +47,12 @@ export interface WSPongMessage {
   type: "pong";
 }
 
+export interface WSConsoleMessage {
+  type: "console";
+  server_id: string;
+  lines: string[];
+}
+
 export type ServerMessage =
   | WSEventMessage
   | WSStateMessage
@@ -55,7 +61,8 @@ export type ServerMessage =
   | WSStateSyncMessage
   | WSAuthExpiredMessage
   | WSErrorMessage
-  | WSPongMessage;
+  | WSPongMessage
+  | WSConsoleMessage;
 
 // Client → Server
 export interface WSSubscribeMessage {

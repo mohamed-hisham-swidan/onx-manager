@@ -11,6 +11,7 @@ import type {
   WSStateMessage,
   WSEventMessage,
   WSErrorMessage,
+  WSConsoleMessage,
 } from "./types";
 
 export interface CacheUpdate {
@@ -28,6 +29,7 @@ export interface WSHandlerConfig {
   onMetrics?: (serverId: string, tps: number, players: number, ramMb: number) => void;
   onMetricsBatch?: (serverId: string, samples: Array<Record<string, unknown>>) => void;
   onEvent?: (event: Record<string, unknown>) => void;
+  onConsole?: (serverId: string, lines: string[]) => void;
   onError?: (code: string, message: string) => void;
 }
 
@@ -62,6 +64,9 @@ export class WSHandler {
       case "event":
         this._handleEvent(message);
         break;
+      case "console":
+        this._handleConsole(message);
+        break;
       case "error":
         this._handleError(message);
         break;
@@ -70,6 +75,10 @@ export class WSHandler {
       default:
         break;
     }
+  }
+
+  private _handleConsole(message: WSConsoleMessage): void {
+    this._config.onConsole?.(message.server_id, message.lines);
   }
 
   private _handleStateSync(message: WSStateSyncMessage): void {

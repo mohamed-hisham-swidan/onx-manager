@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import app.modules.health.infrastructure.models  # noqa: F401
 from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
 from app.core.exceptions import ServerNotFoundError

@@ -149,3 +149,57 @@ class TestPatternCrashAnalyzer:
         bundle = _make_bundle(log_lines=["Permission denied"])
         result = await PatternCrashAnalyzer().classify(bundle)
         assert result.failure_code == FailureCode.PERMISSION_ERROR.value
+
+    async def test_forge_mod_loading_exception_blames_mod(self):
+        crash_text = (
+            "---- Minecraft Crash Report ----\n"
+            "// Who set us up the TNT?\n"
+            "Time: 2026-09-14 01:00:00 UTC\n"
+            "Description: Mod loading error\n"
+            "\n"
+            "net.minecraftforge.fml.ModLoadingException: Mod ironchest (id ironchest) "
+            "encountered an error during the common_setup event phase\n"
+            "\tat net.minecraftforge.fml.javafmlmod.FMLModContainer.acceptEvent"
+            "(FMLModContainer.java:124)\n"
+            "-- System Details --\n"
+            "Details:\n"
+            "\tMinecraft Version: 1.20.1\n"
+        )
+        bundle = _make_bundle(
+            log_lines=[],
+            crash_reports=[{"content": crash_text}],
+        )
+        result = await PatternCrashAnalyzer().classify(bundle)
+        assert result.failure_code == FailureCode.MOD_CRASH.value
+
+        analyzer = PatternCrashAnalyzer()
+        analysis = analyzer.analyze_crash_content(crash_text)
+        assert analysis.failure_code == FailureCode.MOD_CRASH
+        assert analysis.blamed_mod == "ironchest"
+        assert "ironchest" in analysis.suggested_remediation
+        assert "ModLoadingException" in analysis.stack_trace_snippet
+
+    async def test_forge_loader_exception_blames_mod(self):
+        crash_text = (
+            "Time: 2026-09-14 01:00:00\n"
+            "cpw.mods.fml.common.LoaderExceptionModCrash: Caught exception from jei (11.6.0.1018)\n"
+            "\tat cpw.mods.fml.common.LoadController.transition(LoadController.java:163)\n"
+        )
+        analyzer = PatternCrashAnalyzer()
+        analysis = analyzer.analyze_crash_content(crash_text)
+        assert analysis.failure_code == FailureCode.MOD_CRASH
+        assert analysis.blamed_mod == "jei"
+        assert "jei" in analysis.suggested_remediation
+
+    async def test_fabric_mod_resolution_exception_blames_mod(self):
+        crash_text = (
+            "net.fabricmc.loader.impl.FormattedException: Some of your mods are incompatible!\n"
+            "\t - Mod 'Sodium' (sodium) requires version 0.5.0 or later of mod "
+            "'Fabric API' (fabric-api)\n"
+            "-- System Details --\n"
+        )
+        analyzer = PatternCrashAnalyzer()
+        analysis = analyzer.analyze_crash_content(crash_text)
+        assert analysis.failure_code == FailureCode.MOD_CRASH
+        assert analysis.blamed_mod == "sodium"
+        assert "sodium" in analysis.suggested_remediation

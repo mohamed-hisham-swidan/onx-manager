@@ -2,6 +2,11 @@ from app.modules.health.application.commands.evaluate_health import (
     EvaluateHealthCommand,
     EvaluateHealthHandler,
 )
+from app.modules.health.application.queries.get_crash_reports import (
+    CrashReportSummary,
+    GetServerCrashReportsHandler,
+    GetServerCrashReportsQuery,
+)
 from app.modules.health.application.queries.get_health_status import (
     GetHealthStatusHandler,
     GetHealthStatusQuery,
@@ -22,4 +27,7 @@ __all__ = [
     "GetHealthTimelineQuery",
     "GetHealthTimelineHandler",
     "HealthTimelineReadModel",
+    "GetServerCrashReportsQuery",
+    "GetServerCrashReportsHandler",
+    "CrashReportSummary",
 ]

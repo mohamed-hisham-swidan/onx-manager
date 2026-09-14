@@ -271,3 +271,13 @@ export interface FileContentResponse {
   content: string;
   is_binary?: boolean;
 }
+
+export interface CrashReportSummary {
+  filename: string;
+  timestamp: string;
+  failure_code: string;
+  blamed_mod: string | null;
+  stack_trace_snippet: string;
+  suggested_remediation: string;
+  raw_content: string;
+}

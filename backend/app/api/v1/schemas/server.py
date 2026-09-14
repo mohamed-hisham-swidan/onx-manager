@@ -104,6 +104,16 @@ class ConsoleResponse(BaseModel):
     lines: list[str]
 
 
+class CrashReportSummaryResponse(BaseModel):
+    filename: str
+    timestamp: str
+    failure_code: str
+    blamed_mod: str | None = None
+    stack_trace_snippet: str = ""
+    suggested_remediation: str = ""
+    raw_content: str = ""
+
+
 class RuntimeDiagnosticsResponse(BaseModel):
     server_id: str
     server_name: str = ""

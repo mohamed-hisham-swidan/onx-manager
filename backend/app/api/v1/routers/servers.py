@@ -2,6 +2,7 @@ import secrets
 import shutil
 import zipfile
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 
@@ -23,6 +24,7 @@ from app.api.v1.schemas.server import (
     ClaimLocalhostResponse,
     CommandRequest,
     ConsoleResponse,
+    CrashReportSummaryResponse,
     ReconcileRequest,
     ReconciliationResultResponse,
     RuntimeDiagnosticsResponse,
@@ -39,6 +41,7 @@ from app.core.config import AppSettings
 from app.core.event_bus import EventBus
 from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
+from app.modules.health.application import GetServerCrashReportsQuery
 from app.modules.server.application import (
     CreateServerCommand,
     DeleteServerCommand,
@@ -367,6 +370,30 @@ async def get_server_console(
 ) -> ConsoleResponse:
     result = await query_bus.ask(GetServerConsoleQuery(server_id=server_id, tail=tail))
     return ConsoleResponse(server_id=result.server_id, lines=result.lines)
+
+
+@router.get("/{server_id}/crash-reports", response_model=list[CrashReportSummaryResponse])
+async def get_server_crash_reports(
+    server_id: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_server_permission("server.{id}.view"))],
+    limit: int = Query(default=5, ge=1, le=50),
+) -> list[CrashReportSummaryResponse]:
+    summaries = await query_bus.ask(
+        GetServerCrashReportsQuery(server_id=server_id, limit=limit)
+    )
+    return [
+        CrashReportSummaryResponse(
+            filename=s.filename,
+            timestamp=s.timestamp,
+            failure_code=s.failure_code,
+            blamed_mod=s.blamed_mod,
+            stack_trace_snippet=s.stack_trace_snippet,
+            suggested_remediation=s.suggested_remediation,
+            raw_content=s.raw_content,
+        )
+        for s in summaries
+    ]
 
 
 @router.get("/{server_id}/runtime", response_model=RuntimeDiagnosticsResponse)

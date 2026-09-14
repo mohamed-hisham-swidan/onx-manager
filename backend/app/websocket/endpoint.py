@@ -15,6 +15,7 @@ from app.websocket.dispatcher import WS_DISPATCH_ALLOWLIST, EventDispatcher, Met
 from app.websocket.handlers import WSConnectionHandler
 from app.websocket.manager import ConnectionRegistry
 from app.websocket.rate_limiter import WSRateLimiter
+from app.websocket.serializers import MessageSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,15 @@ async def stop_websocket_services() -> None:
 def get_metrics_batcher() -> MetricsBatcher | None:
     """Return the global active MetricsBatcher instance, if any."""
     return _batcher
+
+
+async def broadcast_console_lines(server_id: str, lines: list[str]) -> int:
+    """Broadcast console output lines to subscribers on server:<server_id>:console."""
+    if _registry is None or not lines:
+        return 0
+    channel = f"server:{server_id}:console"
+    msg = MessageSerializer.console_message(server_id, lines)
+    return await _registry.broadcast(channel, msg.to_json())
 
 
 @router.websocket("/ws")

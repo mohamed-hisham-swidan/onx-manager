@@ -50,6 +50,7 @@ export const queryKeys = {
   },
   console: {
     history: (serverId: string) => ["console", "history", serverId] as const,
+    crashReports: (serverId: string) => ["console", "crash-reports", serverId] as const,
   },
   settings: {
     all: ["settings"] as const,

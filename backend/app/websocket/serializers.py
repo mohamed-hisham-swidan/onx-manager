@@ -113,3 +113,11 @@ class MessageSerializer:
             type="pong",
             data={},
         )
+
+    @staticmethod
+    def console_message(server_id: str, lines: list[str]) -> WSMessage:
+        return WSMessage(
+            type="console",
+            data={"server_id": server_id, "lines": lines},
+            channel=f"server:{server_id}:console",
+        )

@@ -10,12 +10,41 @@ from app.modules.shared.value_objects import ServerId
 class GetServerConsoleQuery(Query):
     server_id: str
     tail: int = 100
+    fallback_to_disk: bool = True
 
 
 class ConsoleReadModel:
     def __init__(self, server_id: str, lines: list[str]) -> None:
         self.server_id = server_id
         self.lines = lines
+
+
+def read_log_tail_from_disk(
+    log_file: Path,
+    tail: int = 100,
+    buffer_size: int = 256 * 1024,
+) -> list[str]:
+    """Reads up to `tail` lines from the end of a log file safely without memory exhaustion."""
+    if not log_file.is_file():
+        return ["No log file exists on disk yet"]
+    try:
+        file_size = log_file.stat().st_size
+        if file_size == 0:
+            return ["No log file exists on disk yet"]
+        with open(log_file, "rb") as f:
+            if file_size > buffer_size:
+                f.seek(file_size - buffer_size)
+                chunk = f.read(buffer_size)
+                lines = chunk.decode("utf-8", errors="replace").splitlines()
+                if len(lines) > 1:
+                    lines = lines[1:]  # Discard partial first line
+            else:
+                chunk = f.read()
+                lines = chunk.decode("utf-8", errors="replace").splitlines()
+        clean = [line.rstrip("\r\n") for line in lines]
+        return clean[-tail:] if clean else ["No log file exists on disk yet"]
+    except (OSError, PermissionError):
+        return ["No log file exists on disk yet"]
 
 
 class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
@@ -47,7 +76,28 @@ class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
                 except Exception:
                     pass
 
-            # 2. Fall back to recorded evidence crash log tail
+            # 2. Fall back to reading logs/latest.log on disk if permitted
+            if query.fallback_to_disk:
+                server_dir: Path | None = None
+                if server.deployment and server.deployment.root_path:
+                    server_dir = Path(server.deployment.server_directory())
+                if not server_dir or not server_dir.is_dir():
+                    from app.core.config import AppSettings
+
+                    default_dir = Path(AppSettings().servers_data_dir).resolve() / query.server_id
+                    if default_dir.is_dir():
+                        server_dir = default_dir
+
+                if server_dir and server_dir.is_dir():
+                    log_file = server_dir / "logs" / "latest.log"
+                    if log_file.is_file():
+                        disk_lines = read_log_tail_from_disk(
+                            log_file,
+                            tail=query.tail,
+                        )
+                        return ConsoleReadModel(server_id=query.server_id, lines=disk_lines)
+
+            # 3. Fall back to recorded evidence crash log tail
             try:
                 import json
 
@@ -73,25 +123,15 @@ class GetServerConsoleHandler(QueryHandler[GetServerConsoleQuery]):
             except Exception:
                 pass
 
-            # 3. Fall back to in-memory cached crash log lines if present
+            # 4. Fall back to in-memory cached crash log lines if present
             if server.runtime and getattr(server.runtime, "last_log_lines", None):
                 return ConsoleReadModel(
                     server_id=query.server_id,
                     lines=server.runtime.last_log_lines[-query.tail:],
                 )
 
-            # 3. Fall back to reading logs/latest.log on disk if server directory exists
-            if server.deployment and server.deployment.root_path:
-                server_dir = server.deployment.server_directory()
-                log_file = Path(server_dir) / "logs" / "latest.log"
-                if log_file.is_file():
-                    try:
-                        with open(log_file, encoding="utf-8", errors="replace") as f:
-                            disk_lines = [
-                                line.rstrip("\r\n") for line in f.readlines()[-query.tail:]
-                            ]
-                            return ConsoleReadModel(server_id=query.server_id, lines=disk_lines)
-                    except Exception:
-                        pass
-
-            return ConsoleReadModel(server_id=query.server_id, lines=[])
+            # 5. Clean empty state
+            return ConsoleReadModel(
+                server_id=query.server_id,
+                lines=["No log file exists on disk yet"],
+            )
