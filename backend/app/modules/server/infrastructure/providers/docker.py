@@ -145,6 +145,60 @@ def resolve_docker_image(
     return AppSettings().docker_default_image
 
 
+def build_docker_server_cmd(
+    startup_command: list[str] | None = None,
+    startup_jar: str | None = None,
+    jvm_flags: list[str] | None = None,
+    memory_min_mb: int = 1024,
+    memory_max_mb: int = 2048,
+    cpu_cores: int = 0,
+    image: str = "",
+    force_itzg_entrypoint: bool = False,
+) -> list[str]:
+    """Build the CMD arguments for launching a Minecraft server inside a Docker container.
+
+    Verbatim behavioral extraction of the original docker.py:364-402 launch-translation
+    logic (SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 Step 1).
+
+    Inputs are already-resolved values; callers do all pre-resolution (startup_command
+    from launch_config or deployment, startup_jar from launch_config/deployment/cfg,
+    jvm_flags from launch_config or cfg).
+
+    Deltas intentionally excluded from this helper (reported as separate proposed items):
+    - (a) itzg entrypoint gating: old code used `launch_config is None`; callers must
+          pass force_itzg_entrypoint=True when that condition holds.
+    - (b) Jar glob fallback: old code had no glob — default was "server.jar".
+          test_runner.py resolves jars via sorted glob before calling here.
+    - (c) Disk-based run.sh detection: old code never checked disk; test_runner.py
+          checks disk at staging time and passes startup_command explicitly.
+    """
+    # Script detection: only from startup_command, never from disk (verbatim old behaviour).
+    is_script = False
+    if startup_command:
+        cmd_str = " ".join(startup_command)
+        if "run.sh" in cmd_str or "run.bat" in cmd_str:
+            is_script = True
+
+    if is_script:
+        return ["bash", "/data/run.sh", "nogui"]
+
+    # itzg entrypoint passthrough: verbatim equivalent of old `launch_config is None` guard.
+    if "itzg" in image and force_itzg_entrypoint:
+        return []
+
+    # Jar name resolution (no glob fallback — old code defaulted to "server.jar").
+    jar_name = "server.jar"
+    if startup_jar:
+        jar_name = Path(startup_jar.replace("\\", "/")).name
+
+    flags = list(jvm_flags or [])
+    jar_cmd = ["java", *flags, f"-Xms{memory_min_mb}M", f"-Xmx{memory_max_mb}M"]
+    if cpu_cores > 0:
+        jar_cmd.append(f"-XX:ActiveProcessorCount={cpu_cores}")
+    jar_cmd.extend(["-jar", f"/data/{jar_name}", "nogui"])
+    return jar_cmd
+
+
 class DockerProvider(ServerProvider):
     def __init__(self, docker_host: str | None = None) -> None:
         self._docker_host = docker_host
@@ -361,45 +415,59 @@ class DockerProvider(ServerProvider):
 
         create_args.append(image)
 
-        # Launch translation (Decision 4)
-        is_script = False
+        # Launch translation (Decision 4 & SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 Step 1)
+        startup_cmd = None
         if launch_config and launch_config.startup_command:
-            cmd_str = " ".join(launch_config.startup_command)
+            startup_cmd = (
+                list(launch_config.startup_command)
+                if isinstance(launch_config.startup_command, (list, tuple))
+                else [launch_config.startup_command]
+            )
+        elif deployment and deployment.startup_command:
+            startup_cmd = (
+                list(deployment.startup_command)
+                if isinstance(deployment.startup_command, (list, tuple))
+                else [deployment.startup_command]
+            )
+
+        resolved_jar = None
+        if launch_config and launch_config.startup_jar:
+            resolved_jar = launch_config.startup_jar
+        elif deployment and deployment.startup_jar:
+            resolved_jar = deployment.startup_jar
+        elif cfg.get("jar_path"):
+            resolved_jar = str(cfg["jar_path"])
+
+        resolved_jvm_flags = None
+        if launch_config and launch_config.jvm_flags:
+            resolved_jvm_flags = launch_config.jvm_flags
+        elif cfg.get("java_args"):
+            resolved_jvm_flags = cfg["java_args"]
+
+        is_script = False
+        if startup_cmd:
+            cmd_str = " ".join(startup_cmd)
             if "run.sh" in cmd_str or "run.bat" in cmd_str:
                 is_script = True
-        elif deployment and deployment.startup_command:
-            if "run.sh" in deployment.startup_command or "run.bat" in deployment.startup_command:
-                is_script = True
+        elif server_dir and (Path(server_dir) / "run.sh").is_file():
+            is_script = True
 
-        if is_script:
-            if server_dir:
-                self._write_user_jvm_args(
-                    server_dir, memory_min, memory_max, cpu_cores, launch_config, cfg
-                )
-            create_args.extend(["bash", "/data/run.sh", "nogui"])
-        else:
-            if "itzg" in image and launch_config is None:
-                pass  # Use default itzg entrypoint configured via env vars
-            else:
-                startup_jar = "server.jar"
-                if launch_config and launch_config.startup_jar:
-                    startup_jar = Path(launch_config.startup_jar.replace("\\", "/")).name
-                elif deployment and deployment.startup_jar:
-                    startup_jar = Path(deployment.startup_jar.replace("\\", "/")).name
-                elif cfg.get("jar_path"):
-                    startup_jar = Path(str(cfg["jar_path"]).replace("\\", "/")).name
+        if is_script and server_dir:
+            self._write_user_jvm_args(
+                server_dir, memory_min, memory_max, cpu_cores, launch_config, cfg
+            )
 
-                jvm_flags: list[str] = []
-                if launch_config and launch_config.jvm_flags:
-                    jvm_flags.extend(launch_config.jvm_flags)
-                elif cfg.get("java_args"):
-                    jvm_flags.extend(cfg["java_args"])
-
-                jar_cmd = ["java", *jvm_flags, f"-Xms{memory_min}M", f"-Xmx{memory_max}M"]
-                if cpu_cores > 0:
-                    jar_cmd.append(f"-XX:ActiveProcessorCount={cpu_cores}")
-                jar_cmd.extend(["-jar", f"/data/{startup_jar}", "nogui"])
-                create_args.extend(jar_cmd)
+        server_cmd = build_docker_server_cmd(
+            startup_command=startup_cmd,
+            startup_jar=resolved_jar,
+            jvm_flags=resolved_jvm_flags,
+            memory_min_mb=memory_min,
+            memory_max_mb=memory_max,
+            cpu_cores=cpu_cores,
+            image=image,
+            force_itzg_entrypoint=(launch_config is None),
+        )
+        create_args.extend(server_cmd)
 
         returncode, output = await self._docker_command(*create_args)
         if returncode != 0 and ("Conflict" in output or "already in use" in output):
