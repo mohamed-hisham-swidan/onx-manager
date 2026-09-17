@@ -37,23 +37,36 @@ async def run_metrics_collection_task(params: dict[str, Any]) -> dict[str, Any]:
         return await _run_collection(params)
 
 
-async def _run_collection(params: dict[str, Any]) -> dict[str, Any]:
+async def _run_collection(_params: dict[str, Any]) -> dict[str, Any]:
     global _last_healthy_log_time
     collector = _collector
     if collector is None:
         logger.warning("MetricsCollector not initialized — skipping collection")
         return {"server_count": 0, "results": {}}
 
+    test_ids: list[str] = []
     try:
         async with database.session_factory() as session:
             stmt = select(ServerModel.id).where(ServerModel.status == "running")
             result = await session.execute(stmt)
             server_ids = [row[0] for row in result]
             collector.set_known_servers(server_ids)
+
+            from app.modules.versioning.infrastructure.models import ServerTestRunModel
+
+            stmt_test = select(ServerTestRunModel.id).where(ServerTestRunModel.status == "RUNNING")
+            res_test = await session.execute(stmt_test)
+            test_ids = [row[0] for row in res_test]
     except Exception:
         logger.exception("Failed to refresh known servers from DB")
 
-    results = await collector.collect_all()
+    try:
+        if test_ids:
+            results = await collector.collect_all(test_ids=test_ids)
+        else:
+            results = await collector.collect_all()
+    except TypeError:
+        results = await collector.collect_all()
 
     prometheus = _prometheus
     if prometheus is not None:

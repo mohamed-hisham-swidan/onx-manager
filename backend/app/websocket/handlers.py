@@ -199,6 +199,177 @@ class WSConnectionHandler:
             expires_at = float(claims.get("exp", time.time() + 3600))
             self._authenticator.refresh_token(connection_id, new_token, expires_at)
 
+        elif msg_type == "exec_input":
+            target_type = str(data.get("target_type", "server"))
+            target_id = str(data.get("target_id", ""))
+            input_data = str(data.get("input", ""))
+            if not target_id:
+                await self._send_json(
+                    ws,
+                    MessageSerializer.error_message(
+                        "INVALID_PAYLOAD", "target_id is required"
+                    ).to_dict(),
+                )
+                return
+
+            permissions = self._authorizer.get_permissions(user_id)
+            is_admin = "admin:full" in permissions
+
+            if target_type == "test":
+                from sqlalchemy import select
+
+                from app.core.persistence.db import database
+                from app.modules.server.infrastructure.providers import (
+                    ServerHandle,
+                    provider_factory,
+                )
+                from app.modules.versioning.infrastructure.models import ServerTestRunModel
+
+                async with database.session_factory() as session:
+                    stmt = select(ServerTestRunModel).where(ServerTestRunModel.id == target_id)
+                    res = await session.execute(stmt)
+                    test_run = res.scalar_one_or_none()
+
+                if not test_run:
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.error_message(
+                            "TARGET_NOT_FOUND", f"Test run not found: {target_id}"
+                        ).to_dict(),
+                    )
+                    return
+
+                server_id = test_run.server_id
+                has_perm = (
+                    is_admin
+                    or f"server.{server_id}.console" in permissions
+                    or "server:test:execute" in permissions
+                    or f"server.{server_id}.test:execute" in permissions
+                )
+                if not has_perm:
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.error_message(
+                            "PERMISSION_DENIED",
+                            f"Not authorized to execute commands on test run: {target_id}",
+                        ).to_dict(),
+                    )
+                    return
+
+                container_name = f"onx-test-{target_id}"
+                handle = ServerHandle(
+                    provider="docker",
+                    server_id=server_id,
+                    external_id=container_name,
+                )
+                try:
+                    provider = provider_factory.get("docker")
+                    output = await provider.write_exec_input(handle, input_data)
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.exec_result_message(
+                            target_id=target_id,
+                            target_type=target_type,
+                            output=output or "",
+                            exit_code=0,
+                        ).to_dict(),
+                    )
+                except Exception as exc:
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.error_message(
+                            "EXEC_FAILED", f"Failed to execute command on test {target_id}: {exc}"
+                        ).to_dict(),
+                    )
+
+            elif target_type == "server":
+                from app.core.persistence.db import database
+                from app.modules.server.domain.value_objects import (
+                    default_provider_for_platform,
+                )
+                from app.modules.server.infrastructure.providers import (
+                    ServerHandle,
+                    provider_factory,
+                )
+                from app.modules.server.infrastructure.repository import SQLServerRepository
+                from app.modules.shared.value_objects import ServerId
+
+                server_id = target_id
+                server = None
+                try:
+                    async with database.session_factory() as session:
+                        repo = SQLServerRepository(session)
+                        server = await repo.get(ServerId(server_id))
+                except Exception:
+                    server = None
+
+                if not server:
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.error_message(
+                            "TARGET_NOT_FOUND", f"Server not found: {server_id}"
+                        ).to_dict(),
+                    )
+                    return
+
+                has_perm = (
+                    is_admin
+                    or f"server.{server_id}.console" in permissions
+                    or "server:write" in permissions
+                    or f"server.{server_id}.write" in permissions
+                )
+                if not has_perm:
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.error_message(
+                            "PERMISSION_DENIED",
+                            f"Not authorized to execute commands on server: {server_id}",
+                        ).to_dict(),
+                    )
+                    return
+
+                provider_name = server.runtime.provider or default_provider_for_platform()
+                handle = ServerHandle(
+                    provider=provider_name,
+                    server_id=server_id,
+                    external_id=server.runtime.external_id,
+                )
+                try:
+                    provider = provider_factory.get(provider_name)
+                    output = await provider.write_exec_input(handle, input_data)
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.exec_result_message(
+                            target_id=target_id,
+                            target_type=target_type,
+                            output=output or "",
+                            exit_code=0,
+                        ).to_dict(),
+                    )
+                except Exception as exc:
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.error_message(
+                            "EXEC_FAILED", f"Failed to execute command on server {server_id}: {exc}"
+                        ).to_dict(),
+                    )
+
+            else:
+                await self._send_json(
+                    ws,
+                    MessageSerializer.error_message(
+                        "INVALID_PAYLOAD", f"Unknown target_type: {target_type}"
+                    ).to_dict(),
+                )
+
+        elif msg_type == "exec_resize":
+            cols = data.get("cols", 80)
+            rows = data.get("rows", 24)
+            await self._send_json(
+                ws,
+                {"type": "exec_resize_ack", "cols": cols, "rows": rows},
+            )
+
         else:
             await self._send_json(
                 ws,

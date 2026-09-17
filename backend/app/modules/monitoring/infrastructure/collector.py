@@ -46,6 +46,101 @@ class ServerMetrics:
     cpu_percent: float = 0.0
     uptime_seconds: float = 0.0
     world_size_bytes: int = 0
+    net_rx_mb: float = 0.0
+    net_tx_mb: float = 0.0
+    block_read_mb: float = 0.0
+    block_write_mb: float = 0.0
+
+
+@dataclass
+class ContainerStats:
+    name: str
+    cpu_percent: float = 0.0
+    ram_used_mb: float = 0.0
+    net_rx_mb: float = 0.0
+    net_tx_mb: float = 0.0
+    block_read_mb: float = 0.0
+    block_write_mb: float = 0.0
+
+
+def _parse_size_str_to_mb(val: str) -> float:
+    import re
+
+    val = val.strip().lower()
+    if not val:
+        return 0.0
+    m = re.match(r"^([\d.]+)\s*([a-z]+)?$", val)
+    if not m:
+        return 0.0
+    num = float(m.group(1))
+    unit = (m.group(2) or "b").lower()
+    if unit in ("gib", "gb"):
+        return num * 1024.0
+    if unit in ("mib", "mb"):
+        return num
+    if unit in ("kib", "kb"):
+        return num / 1024.0
+    if unit == "b":
+        return num / (1024.0 * 1024.0)
+    return num
+
+
+def parse_docker_stats_output(output: str) -> dict[str, ContainerStats]:
+    import json
+
+    result: dict[str, ContainerStats] = {}
+    core_count = (_psutil.cpu_count() or 1) if _HAS_PSUTIL else 1
+
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except Exception:
+            continue
+
+        name = data.get("Name") or data.get("Container") or ""
+        if not name:
+            continue
+
+        raw_cpu = 0.0
+        cpu_str = str(data.get("CPUPerc", "0")).replace("%", "").strip()
+        try:
+            raw_cpu = float(cpu_str)
+        except ValueError:
+            raw_cpu = 0.0
+        cpu_percent = min(100.0, max(0.0, raw_cpu / core_count))
+
+        mem_str = str(data.get("MemUsage", "0B"))
+        used_mem_part = mem_str.split("/")[0].strip() if "/" in mem_str else mem_str
+        ram_used_mb = _parse_size_str_to_mb(used_mem_part)
+
+        net_str = str(data.get("NetIO", "0B / 0B"))
+        net_parts = net_str.split("/")
+        net_rx_mb = _parse_size_str_to_mb(net_parts[0]) if len(net_parts) > 0 else 0.0
+        net_tx_mb = _parse_size_str_to_mb(net_parts[1]) if len(net_parts) > 1 else 0.0
+
+        block_str = str(data.get("BlockIO", "0B / 0B"))
+        block_parts = block_str.split("/")
+        block_read_mb = _parse_size_str_to_mb(block_parts[0]) if len(block_parts) > 0 else 0.0
+        block_write_mb = _parse_size_str_to_mb(block_parts[1]) if len(block_parts) > 1 else 0.0
+
+        stats = ContainerStats(
+            name=name,
+            cpu_percent=cpu_percent,
+            ram_used_mb=ram_used_mb,
+            net_rx_mb=net_rx_mb,
+            net_tx_mb=net_tx_mb,
+            block_read_mb=block_read_mb,
+            block_write_mb=block_write_mb,
+        )
+        result[name] = stats
+        cid = data.get("Container")
+        if cid and cid != name:
+            result[cid] = stats
+
+    return result
 
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent.parent
@@ -156,7 +251,8 @@ def _parse_tick_query(response: str) -> float | None:
 
     Examples:
     - "Target tick rate: 20.0 per second."
-    - "The target tick rate is 20.0 per second. The average tick time is 0.1ms (target 50.0ms), with 20.0 ticks per second (100% of target)."
+    - "The target tick rate is 20.0 per second. The average tick time is 0.1ms (target 50.0ms), "
+      "with 20.0 ticks per second (100% of target)."
     - "The average tick time is 12.3ms, with 19.8 ticks per second"
     """
     import re
@@ -230,6 +326,7 @@ class MetricsCollector:
         self._per_server_timeout = per_server_timeout
         self._proc_cache: dict[int, tuple[float, Any]] = {}
         self._rcon_clients: dict[str, PersistentRCONClient] = {}
+        self._docker_stats_cache: dict[str, ContainerStats] = {}
 
     async def close(self) -> None:
         for client in self._rcon_clients.values():
@@ -240,6 +337,56 @@ class MetricsCollector:
     def set_known_servers(self, server_ids: list[str]) -> None:
         self._known_servers = list(server_ids)
 
+    async def fetch_docker_stats(self) -> dict[str, ContainerStats]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker",
+                "stats",
+                "--no-stream",
+                "--format",
+                "{{json .}}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            if proc.returncode == 0 and stdout:
+                return parse_docker_stats_output(stdout.decode("utf-8", errors="replace"))
+        except (FileNotFoundError, TimeoutError, OSError, Exception) as exc:
+            logger.debug("docker stats batch query failed: %s", exc)
+        return {}
+
+    async def collect_test_run(self, test_id: str) -> ServerMetrics | None:
+        """Collect metrics for an ephemeral test container from the docker stats cache."""
+        container_name = f"onx-test-{test_id}"
+        cstats = self._docker_stats_cache.get(container_name)
+        if cstats is None:
+            logger.debug("Test container %s not found in docker stats sweep", container_name)
+            return None
+
+        metric = ServerMetrics(
+            server_id=f"test:{test_id}",
+            tps=None,
+            players=0,
+            ram_used_mb=cstats.ram_used_mb,
+            cpu_percent=cstats.cpu_percent,
+            net_rx_mb=cstats.net_rx_mb,
+            net_tx_mb=cstats.net_tx_mb,
+            block_read_mb=cstats.block_read_mb,
+            block_write_mb=cstats.block_write_mb,
+        )
+
+        if self._event_bus:
+            await self._event_bus.publish(
+                MetricCollectedEvent(
+                    server_id=f"test:{test_id}",
+                    tps=None,
+                    players=0,
+                    ram_mb=metric.ram_used_mb,
+                    cpu=metric.cpu_percent,
+                ),
+            )
+        return metric
+
     async def collect(self, server_id: str) -> ServerMetrics:
         metric = ServerMetrics(server_id=server_id)
         try:
@@ -247,7 +394,12 @@ class MetricsCollector:
             players = 0
             ram_used_mb = 0.0
             cpu_percent = 0.0
+            net_rx_mb = 0.0
+            net_tx_mb = 0.0
+            block_read_mb = 0.0
+            block_write_mb = 0.0
 
+            container_name = None
             pid = None
             rcon_host = "127.0.0.1"
             props_path = None
@@ -256,13 +408,28 @@ class MetricsCollector:
                     server_repo = SQLServerRepository(session)
                     server = await server_repo.get(ServerId(server_id))
                     pid = server.runtime.pid
+                    container_name = server.runtime.external_id
                     rcon_host = server.runtime.host or "127.0.0.1"
                     if server.deployment and server.deployment.root_path:
                         props_path = server.deployment.properties_path()
             except Exception:
                 logger.debug("Server lookup failed for %s, using defaults", server_id)
 
-            if pid is not None:
+            # Check docker stats first for CPU/RAM/Net/Block
+            cstats = None
+            if container_name and container_name in self._docker_stats_cache:
+                cstats = self._docker_stats_cache[container_name]
+            elif f"onx-server-{server_id}" in self._docker_stats_cache:
+                cstats = self._docker_stats_cache[f"onx-server-{server_id}"]
+
+            if cstats is not None:
+                ram_used_mb = cstats.ram_used_mb
+                cpu_percent = cstats.cpu_percent
+                net_rx_mb = cstats.net_rx_mb
+                net_tx_mb = cstats.net_tx_mb
+                block_read_mb = cstats.block_read_mb
+                block_write_mb = cstats.block_write_mb
+            elif pid is not None:
                 ram_used_mb, cpu_percent = _collect_process_metrics(pid, self._proc_cache)
 
             rcon_port = 25575
@@ -312,6 +479,10 @@ class MetricsCollector:
                 players=players,
                 ram_used_mb=ram_used_mb,
                 cpu_percent=cpu_percent,
+                net_rx_mb=net_rx_mb,
+                net_tx_mb=net_tx_mb,
+                block_read_mb=block_read_mb,
+                block_write_mb=block_write_mb,
             )
 
             for attempt in range(3):
@@ -348,27 +519,41 @@ class MetricsCollector:
 
         return metric
 
-    async def collect_all(self) -> dict[str, ServerMetrics]:
-        if not self._known_servers:
-            return {}
+    async def collect_all(self, test_ids: list[str] | None = None) -> dict[str, ServerMetrics]:
+        # Batch refresh docker stats for all containers in one command
+        self._docker_stats_cache = await self.fetch_docker_stats()
 
-        semaphore = asyncio.Semaphore(2)
+        results: dict[str, ServerMetrics] = {}
+        if self._known_servers:
+            semaphore = asyncio.Semaphore(2)
 
-        async def collect_one(server_id: str) -> ServerMetrics:
-            async with semaphore:
+            async def collect_one(server_id: str) -> ServerMetrics:
+                async with semaphore:
+                    try:
+                        return await asyncio.wait_for(
+                            self.collect(server_id),
+                            timeout=self._per_server_timeout,
+                        )
+                    except TimeoutError:
+                        logger.warning("Metrics collection timed out for %s", server_id)
+                        return ServerMetrics(server_id=server_id)
+
+            collected = await asyncio.gather(
+                *(collect_one(server_id) for server_id in self._known_servers)
+            )
+            for m in collected:
+                results[m.server_id] = m
+
+        if test_ids:
+            for tid in test_ids:
                 try:
-                    return await asyncio.wait_for(
-                        self.collect(server_id),
-                        timeout=self._per_server_timeout,
-                    )
-                except TimeoutError:
-                    logger.warning("Metrics collection timed out for %s", server_id)
-                    return ServerMetrics(server_id=server_id)
+                    tm = await self.collect_test_run(tid)
+                    if tm is not None:
+                        results[tm.server_id] = tm
+                except Exception as exc:
+                    logger.debug("Test container %s metric collection skipped: %s", tid, exc)
 
-        collected = await asyncio.gather(
-            *(collect_one(server_id) for server_id in self._known_servers)
-        )
-        return {m.server_id: m for m in collected}
+        return results
 
 
 class MetricCollectedEvent(DomainEvent):

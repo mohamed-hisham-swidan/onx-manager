@@ -8,6 +8,7 @@ import type { ChannelState } from "./types";
 
 export const VALID_CHANNEL_PREFIXES = [
   "server",
+  "test",
   "backup",
   "plugin",
   "monitoring",
@@ -136,7 +137,7 @@ export class ChannelManager {
       return (VALID_CHANNEL_PREFIXES as readonly string[]).includes(parts[0]);
     }
     if (parts.length === 3) {
-      return parts[0] === "server" && parts[2] === "console";
+      return (parts[0] === "server" || parts[0] === "test") && (parts[2] === "console" || parts[2] === "metrics");
     }
     return false;
   }

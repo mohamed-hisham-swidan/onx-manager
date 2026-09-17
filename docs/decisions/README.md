@@ -18,6 +18,10 @@ This directory captures significant architectural decisions made during the proj
 | 0012 | [Same-Filesystem Staging for Atomic File Swaps](0012-same-filesystem-staging-for-atomic-swaps.md) | 2026-08-04 | Accepted | Files staged for atomic swap onto live data must live on the same filesystem as the target — never the OS default temp dir (/tmp). |
 | DECISION-2026-09-10-001 | [Build Phase 5 (Containers) before Phase 4 (Community Features)](DECISION-2026-09-10-001.md) | 2026-09-10 | Accepted | Build order reversed to execute Phase 5 before Phase 4 to avoid rework in Phase 4 Feature 2. |
 | DECISION-2026-09-12-001 | [Redefine Phase 4 Feature 1 as Standalone Git/CI-CD-Inspired Versioning & Test System](DECISION-2026-09-12-001.md) | 2026-09-12 | Accepted | Redefine Feature 1 as a standalone subsystem with branch/commit tracking, isolated test containers, and multi-node groundwork. |
+| 0013 | [Domain-Model-First for Stage A Entities](0013-domain-model-first-for-stage-a-entities.md) | 2026-09-17 | Accepted | Formalize Revision, Materialization, PersistentDataset, and Runtime in domain layer first before schema extensions. |
+| 0014 | [Shared Commit DAG Migration Strategy and Branch Lifecycle](0014-shared-commit-dag-migration-and-branch-lifecycle.md) | 2026-09-17 | Accepted | Branch state machine (created/active/archived) and additive transition path from linear history to shared DAG in Stage B. |
+| 0015 | [Runtime Domain Entity and ServerProvider Relationship](0015-runtime-entity-and-server-provider-relationship.md) | 2026-09-17 | Accepted | Runtime pins immutable Commit ID; wraps existing ServerProvider without breaking provider contracts; preserves per-server lock. |
+| 0016 | [PersistentDataset Boundary and Non-Mutation Isolation](0016-persistent-dataset-boundary-and-isolation.md) | 2026-09-17 | Accepted | Mutable dataset writes cannot silently mutate versioned Tree/Commit or overwrite tracked configs. |
 
 ## New ADRs
 

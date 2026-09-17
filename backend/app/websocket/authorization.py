@@ -16,6 +16,9 @@ CHANNEL_PATTERNS: dict[str, set[str]] = {
     "user:{user_id}": {"user:read"},
     "provision:*": {"server:read"},
     "provision:{server_id}": {"server:read"},
+    "test:*": {"server:read"},
+    "test:{test_id}:console": {"server:read"},
+    "test:{test_id}:metrics": {"server:read"},
 }
 
 MAX_CHANNELS_PER_CONNECTION = 50
@@ -28,6 +31,7 @@ WILDCARD_CHANNELS: set[str] = {
     "metrics:*",
     "auth:*",
     "provision:*",
+    "test:*",
 }
 
 
@@ -54,9 +58,8 @@ class ChannelAuthorizer:
             return required.issubset(permissions)
 
         for pattern, required in CHANNEL_PATTERNS.items():
-            if self._match_pattern(channel, pattern):
-                if required.issubset(permissions):
-                    return True
+            if self._match_pattern(channel, pattern) and required.issubset(permissions):
+                return True
 
         return False
 
@@ -70,7 +73,7 @@ class ChannelAuthorizer:
         channel_parts = channel.split(":")
         if len(pattern_parts) != len(channel_parts):
             return False
-        for p, c in zip(pattern_parts, channel_parts):
+        for p, c in zip(pattern_parts, channel_parts, strict=False):
             if p.startswith("{") and p.endswith("}"):
                 continue
             if p != c:
@@ -90,6 +93,7 @@ class ChannelAuthorizer:
             return False
         valid_prefixes = {
             "server",
+            "test",
             "backup",
             "plugin",
             "monitoring",
@@ -100,6 +104,7 @@ class ChannelAuthorizer:
         }
         if parts[0] not in valid_prefixes:
             return False
-        if len(parts) == 3 and not (parts[0] == "server" and parts[2] == "console"):
-            return False
-        return True
+        return not (
+            len(parts) == 3
+            and not (parts[0] in ("server", "test") and parts[2] in ("console", "metrics"))
+        )

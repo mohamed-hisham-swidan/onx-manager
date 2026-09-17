@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, WebSocket, status
 
@@ -31,6 +32,7 @@ _event_bus: EventBus | None = None
 _batcher: MetricsBatcher | None = None
 _bridge: MetricsBridgeHandler | None = None
 _dispatcher: EventDispatcher | None = None
+_console_stream_manager: Any = None
 
 
 class MetricsBridgeHandler(EventHandler):
@@ -53,7 +55,8 @@ class MetricsBridgeHandler(EventHandler):
 
 
 def init_websocket(event_bus: EventBus) -> None:
-    global _registry, _authenticator, _authorizer, _buffer, _rate_limiter, _handler, _event_bus
+    global _registry, _authenticator, _authorizer, _buffer
+    global _rate_limiter, _handler, _event_bus, _console_stream_manager
     _registry = ConnectionRegistry()
     _authenticator = WSAuthenticator()
     _authorizer = ChannelAuthorizer()
@@ -62,10 +65,15 @@ def init_websocket(event_bus: EventBus) -> None:
     _handler = WSConnectionHandler(_registry, _authenticator, _authorizer, _buffer, _rate_limiter)
     _event_bus = event_bus
 
+    from app.modules.server.infrastructure.console_stream import ConsoleStreamManager
+
+    _console_stream_manager = ConsoleStreamManager(broadcast_channel_lines)
+    _registry.add_subscription_listener(_console_stream_manager.on_subscription_change)
+
 
 async def start_websocket_services() -> None:
-    """Start MetricsBatcher, MetricsBridgeHandler, and EventDispatcher."""
-    global _batcher, _bridge, _dispatcher
+    """Start MetricsBatcher, MetricsBridgeHandler, EventDispatcher, and ConsoleStreamManager."""
+    global _batcher, _bridge, _dispatcher, _console_stream_manager
     if _registry is None or _event_bus is None or _buffer is None:
         logger.warning("start_websocket_services called before init_websocket")
         return
@@ -79,6 +87,8 @@ async def start_websocket_services() -> None:
     # Decision 1: instantiate and start EventDispatcher with the 31-type allowlist.
     _dispatcher = EventDispatcher(_registry, _buffer, _event_bus)
     await _dispatcher.start(event_types=WS_DISPATCH_ALLOWLIST)
+    if _console_stream_manager is not None:
+        await _console_stream_manager.start()
     logger.info(
         "WebSocket services started (batcher window=%.2fs, dispatcher subscribed %d types)",
         live.metrics_interval_seconds,
@@ -87,13 +97,15 @@ async def start_websocket_services() -> None:
 
 
 async def stop_websocket_services() -> None:
-    """Stop MetricsBatcher and EventDispatcher gracefully."""
-    global _dispatcher
+    """Stop MetricsBatcher, EventDispatcher, and ConsoleStreamManager gracefully."""
+    global _dispatcher, _console_stream_manager
     if _batcher is not None:
         await _batcher.stop()
     if _dispatcher is not None:
         await _dispatcher.stop()
         _dispatcher = None
+    if _console_stream_manager is not None:
+        await _console_stream_manager.stop()
     logger.info("WebSocket services stopped")
 
 
@@ -102,12 +114,29 @@ def get_metrics_batcher() -> MetricsBatcher | None:
     return _batcher
 
 
+def get_console_stream_manager() -> Any:
+    """Return the active ConsoleStreamManager instance, if any."""
+    return _console_stream_manager
+
+
 async def broadcast_console_lines(server_id: str, lines: list[str]) -> int:
     """Broadcast console output lines to subscribers on server:<server_id>:console."""
+    return await broadcast_channel_lines(f"server:{server_id}:console", lines)
+
+
+async def broadcast_channel_lines(channel: str, lines: list[str]) -> int:
+    """Broadcast console output lines to subscribers on any console channel (server or test)."""
     if _registry is None or not lines:
         return 0
-    channel = f"server:{server_id}:console"
-    msg = MessageSerializer.console_message(server_id, lines)
+    parts = channel.split(":")
+    if len(parts) == 3 and parts[0] == "test" and parts[2] == "console":
+        msg = MessageSerializer.test_console_message(parts[1], lines)
+    elif len(parts) == 3 and parts[0] == "server" and parts[2] == "console":
+        msg = MessageSerializer.console_message(parts[1], lines)
+    else:
+        from app.websocket.serializers import WSMessage
+
+        msg = WSMessage(type="console", data={"channel": channel, "lines": lines}, channel=channel)
     return await _registry.broadcast(channel, msg.to_json())
 
 

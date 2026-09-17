@@ -4,6 +4,8 @@ import { createAuthenticatedApi } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
 import { useServerMetrics } from "@/server_manager/hooks/useServerMetrics";
 import { useConsoleStream } from "@/hooks/useWebSocket";
+import { useWSStore } from "@/stores/wsStore";
+import { ConnectionState } from "@/websocket/types";
 import { Icon } from "@/components/ui/Icon";
 import { CrashReportViewerModal } from "./CrashReportViewerModal";
 
@@ -73,12 +75,32 @@ export function ServerConsole({
   const [followLog, setFollowLog] = useState(true);
   const [isCrashModalOpen, setIsCrashModalOpen] = useState(false);
 
+  const isWsConnected = useWSStore((s) => s.connected);
+  const connectionState = useWSStore((s) => s.connectionState);
+
   // Fetch initial console history (with offline fallback on disk)
-  const { data: history } = useQuery({
+  // Stage E: Disable 3s polling query while WS connection is active to avoid double-fetching.
+  const { data: history, refetch: refetchHistory } = useQuery({
     queryKey: queryKeys.console.history(serverId),
     queryFn: () => api.getServerConsole(serverId, 200),
-    refetchInterval: 3000,
+    refetchInterval: isWsConnected ? false : 3000,
   });
+
+  // Reconnect re-tail: when WS connection re-establishes (from RECONNECTING/DISCONNECTED to CONNECTED),
+  // backfill recent lines via HTTP tail and reset accumulated live lines to avoid duplicates.
+  const prevConnectionStateRef = useRef(connectionState);
+  useEffect(() => {
+    const prev = prevConnectionStateRef.current;
+    if (
+      (prev === ConnectionState.RECONNECTING || prev === ConnectionState.DISCONNECTED) &&
+      connectionState === ConnectionState.CONNECTED
+    ) {
+      refetchHistory().then(() => {
+        setLiveLines([]);
+      });
+    }
+    prevConnectionStateRef.current = connectionState;
+  }, [connectionState, refetchHistory]);
 
   // Fetch recent crash reports for crash detection banner
   const { data: crashReports, isLoading: isLoadingCrashes } = useQuery({

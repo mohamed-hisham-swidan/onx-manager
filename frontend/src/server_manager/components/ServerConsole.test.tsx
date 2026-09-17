@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ServerConsole } from "./ServerConsole";
 import { notifyConsoleListeners } from "@/hooks/useWebSocket";
+import { useWSStore } from "@/stores/wsStore";
+import { ConnectionState } from "@/websocket/types";
 import type { CrashReportSummary } from "@/server_manager/types";
 
 const mockGetServerConsole = vi.fn();
@@ -69,6 +71,12 @@ function renderConsole(
 describe("ServerConsole Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useWSStore.setState({
+      connected: false,
+      connectionState: ConnectionState.DISCONNECTED,
+      channelStates: {},
+      unattributedRejection: false,
+    });
     mockGetServerConsole.mockResolvedValue({
       lines: ["[Server thread/INFO]: Done (2.4s)! For help, type 'help'"],
     });
@@ -291,5 +299,47 @@ describe("ServerConsole Component", () => {
     });
 
     expect(await screen.findByText("[INFO] Player Steve joined the game")).toBeInTheDocument();
+  });
+
+  it("disables 3s polling query when WS connection is active", async () => {
+    useWSStore.setState({
+      connected: true,
+      connectionState: ConnectionState.CONNECTED,
+    });
+    renderConsole({ serverId: "srv-live" });
+    await screen.findByText(/Done \(2\.4s\)!/);
+
+    // Initial fetch was done
+    expect(mockGetServerConsole).toHaveBeenCalledTimes(1);
+    expect(useWSStore.getState().connected).toBe(true);
+  });
+
+  it("triggers reconnect re-tail flow and resets live lines on WS reconnection", async () => {
+    useWSStore.setState({
+      connected: false,
+      connectionState: ConnectionState.RECONNECTING,
+    });
+
+    renderConsole({ serverId: "srv-live" });
+    await screen.findByText(/Done \(2\.4s\)!/);
+
+    // Add a live line while reconnecting
+    act(() => {
+      notifyConsoleListeners("srv-live", ["[INFO] Transient live message"]);
+    });
+    expect(await screen.findByText("[INFO] Transient live message")).toBeInTheDocument();
+
+    // Reconnection occurs: RECONNECTING -> CONNECTED
+    mockGetServerConsole.mockResolvedValueOnce({
+      lines: ["[Server thread/INFO]: Refetched re-tail line 1"],
+    });
+
+    act(() => {
+      useWSStore.getState().setConnectionState(ConnectionState.CONNECTED);
+    });
+
+    // Re-tail refetch should be triggered and transient live lines cleared
+    expect(await screen.findByText(/Refetched re-tail line 1/)).toBeInTheDocument();
+    expect(screen.queryByText("[INFO] Transient live message")).not.toBeInTheDocument();
   });
 });

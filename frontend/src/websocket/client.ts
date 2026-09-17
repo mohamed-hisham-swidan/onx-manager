@@ -171,6 +171,15 @@ export class WSClient {
     this.send({ type: "unsubscribe", channels });
   }
 
+  sendExecInput(targetId: string, input: string, targetType: "server" | "test" = "server"): void {
+    this.send({
+      type: "exec_input",
+      target_id: targetId,
+      target_type: targetType,
+      input,
+    } as any);
+  }
+
   refreshToken(token: string, sub: string): void {
     if (typeof this._config.token !== "function") {
       this._config.token = token;

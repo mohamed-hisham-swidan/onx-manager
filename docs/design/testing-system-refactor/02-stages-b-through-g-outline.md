@@ -28,7 +28,7 @@ Each stage below lists: what it covers, what from the source report it borrows, 
 
 **Covers:** WebSocket console streaming, interactive exec, reconnect/cursors, per-runtime metrics, correlated logs/events, historical retention.
 **Report basis:** §Observability & Control, Appendix B sources 12-14 (OpenTelemetry).
-**Trigger for spec:** Stage D's `Runtime` entity is live enough to attach real console/metrics streams to.
+**Trigger for spec:** **RESOLVED & RESCOPED (Stage E Build):** Per ADR-0015 and Stage D spec §(e), domain `Runtime` entity instantiation is deferred to Stage F; Stage E triggers and attaches directly to shipped `ServerHandle`, `server_id`, and `onx-test-{test_id}` container identities.
 
 ## Stage F — Test Platform
 

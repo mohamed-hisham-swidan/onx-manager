@@ -722,6 +722,15 @@ class DockerProvider(ServerProvider):
             )
         return stdout
 
+    async def write_exec_input(
+        self,
+        handle: ServerHandle,
+        input_data: str,
+        _interactive: bool = False,
+    ) -> str:
+        clean = input_data.rstrip("\r\n")
+        return await self.execute_command(handle, clean)
+
     async def destroy(self, handle: ServerHandle) -> None:
         self._rcon_cache.pop(handle.server_id, None)
         container_name = handle.external_id or f"{IDENTITY.temp_prefix_new}{handle.server_id}"

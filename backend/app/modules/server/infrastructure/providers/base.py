@@ -88,6 +88,19 @@ class ServerProvider(ABC):
     @abstractmethod
     async def destroy(self, handle: ServerHandle) -> None: ...
 
+    async def write_exec_input(
+        self,
+        handle: ServerHandle,
+        input_data: str,
+        _interactive: bool = False,
+    ) -> str:
+        """Write interactive input/command to running server or container.
+
+        Default implementation strips trailing newline and delegates to execute_command().
+        """
+        clean = input_data.rstrip("\r\n")
+        return await self.execute_command(handle, clean)
+
     def capabilities(self) -> list[str]:
         """Return the list of public, externally usable capabilities supported by this provider.
 

@@ -121,3 +121,28 @@ class MessageSerializer:
             data={"server_id": server_id, "lines": lines},
             channel=f"server:{server_id}:console",
         )
+
+    @staticmethod
+    def test_console_message(test_id: str, lines: list[str]) -> WSMessage:
+        return WSMessage(
+            type="console",
+            data={"test_id": test_id, "lines": lines},
+            channel=f"test:{test_id}:console",
+        )
+
+    @staticmethod
+    def exec_result_message(
+        target_id: str,
+        target_type: str,
+        output: str,
+        exit_code: int = 0,
+    ) -> WSMessage:
+        return WSMessage(
+            type="exec_result",
+            data={
+                "target_id": target_id,
+                "target_type": target_type,
+                "output": output,
+                "exit_code": exit_code,
+            },
+        )
