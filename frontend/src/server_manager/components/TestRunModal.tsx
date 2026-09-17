@@ -103,7 +103,7 @@ export function TestRunModal({
         if (e.target === e.currentTarget && !isLaunching) onClose();
       }}
     >
-      <div className="relative w-full max-w-xl rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-850 p-6 space-y-6">
+      <div className="relative w-full max-w-xl rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 p-6 space-y-6">
         <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">

@@ -4,6 +4,7 @@ import { useServersList, useStartServer, useStopServer, useRestartServer, useDel
 import { STATUS_MAP } from "@/server_manager/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { LoaderBadge } from "@/components/ui/LoaderBadge";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
@@ -297,7 +298,10 @@ export function ServersPage() {
                         </Link>
                       </td>
                       <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">
-                        {s.minecraft_version}
+                        <div className="flex items-center gap-1.5">
+                          <LoaderBadge loader={s.server_type} />
+                          <span>{s.minecraft_version}</span>
+                        </div>
                       </td>
                       <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">{s.port}</td>
                       <td className="px-4 py-3">

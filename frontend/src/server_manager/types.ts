@@ -355,6 +355,8 @@ export interface RunIsolatedTestRequest {
 
 export interface PromoteCommitRequest {
   keep_world_changes?: boolean;
+  force?: boolean;
+  force_reason?: string;
 }
 
 export interface BotSettings {

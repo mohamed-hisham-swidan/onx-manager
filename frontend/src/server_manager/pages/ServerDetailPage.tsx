@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import { ComingSoonState } from "@/components/ComingSoonState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { LoaderBadge } from "@/components/ui/LoaderBadge";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
@@ -254,6 +255,7 @@ export function ServerDetailPage() {
                 {server.name}
               </h2>
               <StatusBadge status={server.status} />
+              <LoaderBadge loader={server.server_type} />
               <span
                 data-testid="server-provider-badge"
                 className={

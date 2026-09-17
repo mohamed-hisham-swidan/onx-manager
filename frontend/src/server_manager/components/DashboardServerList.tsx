@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { LoaderBadge } from "@/components/ui/LoaderBadge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useStartServer, useStopServer, useRestartServer, useRetryProvisioningServer } from "@/server_manager/hooks/useServers";
 import { STATUS_MAP } from "@/server_manager/types";
@@ -123,9 +124,10 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
               >
                 {server.name}
               </Link>
-              <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                {server.minecraft_version} · port {server.port}
-              </p>
+              <div className="flex items-center gap-1.5 truncate text-xs text-gray-500 dark:text-gray-400">
+                <LoaderBadge loader={server.server_type} />
+                <span>{server.minecraft_version} · port {server.port}</span>
+              </div>
             </div>
 
             <StatusBadge status={status} />

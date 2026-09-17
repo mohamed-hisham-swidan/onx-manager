@@ -7,6 +7,7 @@ const mockApi = {
   createServerBranch: vi.fn(),
   getServerCommits: vi.fn(),
   createServerCommit: vi.fn(),
+  getServerTestRuns: vi.fn(),
   runIsolatedTest: vi.fn(),
   getTestStatus: vi.fn(),
   promoteTestCommit: vi.fn(),
@@ -88,6 +89,7 @@ describe("ServerVersioningPage", () => {
     vi.mocked(mockApi.getServerCommits).mockResolvedValue(mockCommits);
     vi.mocked(mockApi.getBotSettings).mockResolvedValue(mockBotSettings);
     vi.mocked(mockApi.getPreflightStatus).mockResolvedValue(mockPreflight);
+    vi.mocked(mockApi.getServerTestRuns).mockResolvedValue([]);
   });
 
   const renderPage = () =>
@@ -260,6 +262,119 @@ describe("ServerVersioningPage", () => {
     await waitFor(() => {
       expect(mockApi.promoteTestCommit).toHaveBeenCalledWith("srv-vers-1", "test-pass-99", {
         keep_world_changes: true,
+      });
+    });
+  });
+
+  it("renders dark theme classes on empty state panels when branch has no commits", async () => {
+    vi.mocked(mockApi.getServerCommits).mockResolvedValue([]);
+    renderPage();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/No snapshot commits yet on branch/i)
+      ).toBeInTheDocument();
+    });
+
+    // Verify empty state container has dark:bg-gray-800 and not dark:bg-gray-850
+    const emptyCommitMsg = screen.getByText(/No snapshot commits yet on branch/i);
+    const commitPanel = emptyCommitMsg.closest(".rounded-xl");
+    expect(commitPanel).not.toBeNull();
+    expect(commitPanel).toHaveClass("dark:bg-gray-800");
+    expect(commitPanel?.className).not.toContain("gray-850");
+
+    // Verify isolated test runs empty state container has dark:bg-gray-800 and not dark:bg-gray-850
+    const emptyTestMsg = screen.getByText(/No isolated test runs active or recorded/i);
+    const testPanel = emptyTestMsg.closest(".rounded-xl");
+    expect(testPanel).not.toBeNull();
+    expect(testPanel).toHaveClass("dark:bg-gray-800");
+    expect(testPanel?.className).not.toContain("gray-850");
+  });
+
+  it("displays recorded test runs and opens console logs modal", async () => {
+    const mockRuns = [
+      {
+        id: "test-run-123456",
+        server_id: "srv-vers-1",
+        commit_id: "c-111222333",
+        status: "PASSED",
+        bot_count: 10,
+        bot_tech: "mineflayer",
+        duration_minutes: 15,
+        placement_mode: "sidecar",
+        ephemeral_port: 25566,
+        failure_reason: null,
+        log_output: "[STARTUP] Spawning test container\n[TEST] 10/10 bots joined\n[DONE] Verification passed",
+        created_at: "2026-09-15T10:00:00Z",
+      },
+    ];
+    vi.mocked(mockApi.getServerTestRuns).mockResolvedValue(mockRuns);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("1 runs recorded")).toBeInTheDocument();
+      expect(screen.getByText("ID: test-run")).toBeInTheDocument();
+      expect(screen.getByText("PASSED")).toBeInTheDocument();
+    });
+
+    const logsBtn = screen.getByRole("button", { name: "Logs" });
+    fireEvent.click(logsBtn);
+
+    expect(screen.getByText(/Test Run Console Output/i)).toBeInTheDocument();
+    expect(screen.getByText(/10\/10 bots joined/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText(/Test Run Console Output/i)).not.toBeInTheDocument();
+  });
+
+  it("allows force promoting a failed test run with mandatory bypass reason", async () => {
+    const mockFailedRuns = [
+      {
+        id: "test-fail-999999",
+        server_id: "srv-vers-1",
+        commit_id: "c-111222333",
+        status: "FAILED",
+        bot_count: 5,
+        bot_tech: "fakeplayer_next",
+        duration_minutes: 10,
+        placement_mode: "sidecar",
+        ephemeral_port: 25567,
+        failure_reason: "Handshake timed out",
+        log_output: "Handshake error",
+        created_at: "2026-09-15T10:05:00Z",
+      },
+    ];
+    vi.mocked(mockApi.getServerTestRuns).mockResolvedValue(mockFailedRuns);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("FAILED")).toBeInTheDocument();
+      expect(screen.getByText(/Handshake timed out/i)).toBeInTheDocument();
+    });
+
+    const forceBtn = screen.getByRole("button", { name: /Force Promote/i });
+    expect(forceBtn).toBeInTheDocument();
+    fireEvent.click(forceBtn);
+
+    expect(screen.getByText("Force Promotion Override")).toBeInTheDocument();
+    expect(screen.getByText(/server:version:promote:force/i)).toBeInTheDocument();
+
+    const confirmBtn = screen.getByRole("button", { name: "Confirm Force Promotion" });
+    expect(confirmBtn).toBeDisabled();
+
+    const reasonInput = screen.getByLabelText(/Bypass Reason/i);
+    fireEvent.change(reasonInput, { target: { value: "Manually verified in local client" } });
+    expect(confirmBtn).not.toBeDisabled();
+
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(mockApi.promoteTestCommit).toHaveBeenCalledWith("srv-vers-1", "test-fail-999999", {
+        keep_world_changes: false,
+        force: true,
+        force_reason: "Manually verified in local client",
       });
     });
   });

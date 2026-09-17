@@ -391,6 +391,10 @@ export function createApiClient(
         method: "POST",
         body,
       }),
+    getServerTestRuns: (serverId: string, limit?: number) =>
+      request<ServerTestRun[]>(`/api/v1/servers/${serverId}/versioning/tests`, {
+        params: { limit: limit?.toString() },
+      }),
     getTestStatus: (serverId: string, testId: string) =>
       request<ServerTestRun>(`/api/v1/servers/${serverId}/versioning/tests/${testId}`),
     promoteTestCommit: (serverId: string, testId: string, body: PromoteCommitRequest) =>

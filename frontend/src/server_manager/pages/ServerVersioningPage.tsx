@@ -51,23 +51,33 @@ export function ServerVersioningPage() {
   const [inspectCommit, setInspectCommit] = useState<ServerCommit | null>(null);
   const [viewLogTestRun, setViewLogTestRun] = useState<ServerTestRun | null>(null);
 
+  const [forceReason, setForceReason] = useState("");
+
+  const promoteTestRun = useMemo(
+    () => testRuns.find((r) => r.id === promoteTestId) || null,
+    [testRuns, promoteTestId]
+  );
+  const isForcePromote = Boolean(promoteTestRun && promoteTestRun.status !== "PASSED");
+
   useEffect(() => {
     if (!serverId) return;
     let isMounted = true;
 
     const run = async () => {
       try {
-        const [branchesData, commitsData, settingsData, preflightData] = await Promise.all([
+        const [branchesData, commitsData, settingsData, preflightData, testRunsData] = await Promise.all([
           api.getServerBranches(serverId),
           api.getServerCommits(serverId),
           api.getBotSettings(serverId),
           api.getPreflightStatus(serverId),
+          api.getServerTestRuns(serverId).catch(() => []),
         ]);
 
         if (!isMounted) return;
         setBranches(branchesData);
         setCommits(commitsData);
         setPreflight(preflightData);
+        setTestRuns(testRunsData);
 
         if (settingsData) {
           setSettingsBotCount(settingsData.effective_bot_count);
@@ -99,6 +109,25 @@ export function ServerVersioningPage() {
       isMounted = false;
     };
   }, [serverId, selectedBranch, api, refreshKey]);
+
+  // Polling: refresh test runs every 3 seconds only while active runs exist
+  const hasActiveRuns = useMemo(
+    () => testRuns.some((r) => r.status === "RUNNING" || r.status === "PENDING"),
+    [testRuns]
+  );
+
+  useEffect(() => {
+    if (!hasActiveRuns || !serverId) return;
+    const interval = setInterval(async () => {
+      try {
+        const runs = await api.getServerTestRuns(serverId);
+        setTestRuns(runs);
+      } catch {
+        // Silent catch on background polling error
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [hasActiveRuns, serverId, api]);
 
   const handleCreateBranch = async () => {
     if (!serverId || !newBranchName.trim()) return;
@@ -135,10 +164,18 @@ export function ServerVersioningPage() {
     try {
       await api.promoteTestCommit(serverId, promoteTestId, {
         keep_world_changes: keepWorldChanges,
+        ...(isForcePromote
+          ? { force: true, ...(forceReason.trim() ? { force_reason: forceReason.trim() } : {}) }
+          : {}),
       });
       setIsPromoteModalOpen(false);
       setPromoteTestId(null);
-      setActionSuccess("Test commit promoted to production successfully.");
+      setForceReason("");
+      setActionSuccess(
+        isForcePromote
+          ? "Commit forcibly promoted to production (audit logged)."
+          : "Test commit promoted to production successfully."
+      );
       refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to promote commit.");
@@ -213,7 +250,7 @@ export function ServerVersioningPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setIsSettingsModalOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-750 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 transition-colors"
           >
             <Icon name="settings" size={14} />
             Verification Defaults
@@ -248,7 +285,7 @@ export function ServerVersioningPage() {
       )}
 
       {/* Preflight & Storage Health Banner */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-850 p-4 shadow-sm">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 p-4 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div
@@ -325,7 +362,7 @@ export function ServerVersioningPage() {
       </div>
 
       {/* Commit History Timeline */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-850 shadow-sm overflow-hidden">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
         <div className="border-b border-gray-200 dark:border-gray-800 px-6 py-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">
             Commit History Timeline
@@ -372,7 +409,7 @@ export function ServerVersioningPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setInspectCommit(commit)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750 transition-colors"
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
                   >
                     <Icon name="file" size={14} />
                     Inspect Manifest
@@ -392,7 +429,7 @@ export function ServerVersioningPage() {
       </div>
 
       {/* Isolated Test Runs Section */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-850 shadow-sm overflow-hidden">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
         <div className="border-b border-gray-200 dark:border-gray-800 px-6 py-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">
             Isolated Test Runs
@@ -467,7 +504,7 @@ export function ServerVersioningPage() {
                     </button>
                   )}
 
-                  {run.status === "PASSED" && (
+                  {run.status === "PASSED" ? (
                     <button
                       onClick={() => {
                         setPromoteTestId(run.id);
@@ -478,7 +515,19 @@ export function ServerVersioningPage() {
                       <Icon name="check" size={14} />
                       Promote to Live
                     </button>
-                  )}
+                  ) : run.status === "FAILED" ? (
+                    <button
+                      onClick={() => {
+                        setPromoteTestId(run.id);
+                        setIsPromoteModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/60 transition-colors"
+                      title="Force promotion with administrative override"
+                    >
+                      <Icon name="alert" size={14} />
+                      Force Promote
+                    </button>
+                  ) : null}
 
                   {(run.status === "RUNNING" || run.status === "PASSED" || run.status === "FAILED") && (
                     <button
@@ -513,7 +562,7 @@ export function ServerVersioningPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
         >
-          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-850 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-800 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700">
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">Create New Branch</h3>
             <div>
               <label htmlFor="branch-name-input" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -553,7 +602,7 @@ export function ServerVersioningPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
         >
-          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-850 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-800 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700">
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">Create Snapshot Commit</h3>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Captures all configs, mod jars, and creates an instant COW world snapshot on branch &lsquo;{selectedBranch}&rsquo;.
@@ -596,14 +645,59 @@ export function ServerVersioningPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
         >
-          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-850 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400">
-              <Icon name="check" size={24} />
-              <h3 className="text-base font-semibold text-gray-900 dark:text-white">Promote Verified Commit</h3>
-            </div>
-            <p className="text-xs text-gray-600 dark:text-gray-300">
-              This will atomically swap verified config and addon files into your production server. If the server is running, it will be safely restarted.
-            </p>
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-800 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700">
+            {isForcePromote ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                  <Icon name="alert" size={24} />
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                    Force Promotion Override
+                  </h3>
+                </div>
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 p-3 space-y-2 text-xs">
+                  <p className="text-amber-800 dark:text-amber-200">
+                    This test run did not pass (status: <strong>{promoteTestRun?.status}</strong>).
+                    Promoting this commit bypasses automated verification gating and requires the{" "}
+                    <code className="font-mono bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded text-amber-900 dark:text-amber-200">
+                      server:version:promote:force
+                    </code>{" "}
+                    permission.
+                  </p>
+                  <p className="text-amber-700 dark:text-amber-300/80">
+                    This administrative bypass will be permanently recorded in the server activity log.
+                  </p>
+                </div>
+                <div>
+                  <label
+                    htmlFor="force-reason-input"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    Bypass Reason (Required for audit log)
+                  </label>
+                  <input
+                    id="force-reason-input"
+                    type="text"
+                    value={forceReason}
+                    onChange={(e) => setForceReason(e.target.value)}
+                    placeholder="e.g. Verified manually in offline client"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400">
+                  <Icon name="check" size={24} />
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                    Promote Verified Commit
+                  </h3>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-300">
+                  This will atomically swap verified config and addon files into your production
+                  server. If the server is running, it will be safely restarted.
+                </p>
+              </>
+            )}
 
             <div className="rounded-lg bg-gray-50 dark:bg-gray-900 p-3 border border-gray-200 dark:border-gray-800">
               <label className="flex items-start gap-2 cursor-pointer">
@@ -615,23 +709,32 @@ export function ServerVersioningPage() {
                 />
                 <span className="text-xs text-gray-700 dark:text-gray-300">
                   <strong className="block text-gray-900 dark:text-white">Keep World Changes</strong>
-                  Also copy world block/entity modifications made by test bots into production. Leave unchecked for config-only promotion.
+                  Also copy world block/entity modifications made by test bots into production. Leave
+                  unchecked for config-only promotion.
                 </span>
               </label>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button
-                onClick={() => setIsPromoteModalOpen(false)}
+                onClick={() => {
+                  setIsPromoteModalOpen(false);
+                  setForceReason("");
+                }}
                 className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:text-gray-300"
               >
                 Cancel
               </button>
               <button
                 onClick={handlePromote}
-                className="rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 shadow-sm"
+                disabled={isForcePromote && !forceReason.trim()}
+                className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors ${
+                  isForcePromote
+                    ? "bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    : "bg-emerald-600 hover:bg-emerald-500"
+                }`}
               >
-                Confirm Promotion
+                {isForcePromote ? "Confirm Force Promotion" : "Confirm Promotion"}
               </button>
             </div>
           </div>
@@ -645,7 +748,7 @@ export function ServerVersioningPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
         >
-          <div className="w-full max-w-2xl rounded-xl bg-white dark:bg-gray-850 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[85vh] flex flex-col">
+          <div className="w-full max-w-2xl rounded-xl bg-white dark:bg-gray-800 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-800 pb-3">
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">
@@ -710,7 +813,7 @@ export function ServerVersioningPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
         >
-          <div className="w-full max-w-3xl rounded-xl bg-white dark:bg-gray-850 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[85vh] flex flex-col">
+          <div className="w-full max-w-3xl rounded-xl bg-white dark:bg-gray-800 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-800 pb-3">
               <h3 className="text-base font-semibold text-gray-900 dark:text-white">
                 Test Run Console Output ({viewLogTestRun.id.slice(0, 8)})
@@ -744,7 +847,7 @@ export function ServerVersioningPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
         >
-          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-850 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-800 p-6 space-y-4 shadow-2xl border border-gray-200 dark:border-gray-700">
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">
               Bot Verification Server Defaults
             </h3>
