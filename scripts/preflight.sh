@@ -139,12 +139,34 @@ print_process() {
     log_raw "       PID ${pid}  $(ps -p "${pid}" -o pid,ppid,cmd --no-headers 2>/dev/null || echo '(unreadable)')"
 }
 
+is_caller_or_ancestor() {
+    local target="$1"
+    [ -z "$target" ] && return 1
+    if [ "$target" = "$$" ]; then
+        return 0
+    fi
+    local curr="$$"
+    while [ -n "$curr" ] && [ "$curr" -gt 1 ]; do
+        if [ "$curr" = "$target" ]; then
+            return 0
+        fi
+        curr="$(ps -o ppid= -p "$curr" 2>/dev/null || true)"
+        curr="$(echo "$curr" | tr -d '[:space:]')"
+    done
+    return 1
+}
+
 kill_safe() {
     local pid="$1"
     local source_desc="$2"
 
     if ! kill -0 "${pid}" 2>/dev/null; then
         return 0  # already gone
+    fi
+
+    if is_caller_or_ancestor "${pid}"; then
+        log_info "PID ${pid} is caller/ancestor of preflight script — preserved"
+        return 0
     fi
 
     if ! belongs_to_project "${pid}"; then
@@ -196,6 +218,10 @@ FORCE_CLEAN=false
 
 is_protected() {
     local target="$1"
+    [ -z "$target" ] && return 1
+    if is_caller_or_ancestor "$target"; then
+        return 0
+    fi
     for p in "${PROTECTED_PIDS[@]}"; do
         if [ "$p" = "$target" ]; then
             return 0

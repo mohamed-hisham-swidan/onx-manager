@@ -248,53 +248,55 @@ class MetricsCollector:
             ram_used_mb = 0.0
             cpu_percent = 0.0
 
-            async with database.session_factory() as session:
-                server_repo = SQLServerRepository(session)
-                try:
+            pid = None
+            rcon_host = "127.0.0.1"
+            props_path = None
+            try:
+                async with database.session_factory() as session:
+                    server_repo = SQLServerRepository(session)
                     server = await server_repo.get(ServerId(server_id))
                     pid = server.runtime.pid
-
-                    if pid is not None:
-                        ram_used_mb, cpu_percent = _collect_process_metrics(pid, self._proc_cache)
-
                     rcon_host = server.runtime.host or "127.0.0.1"
-                    rcon_port = 25575
-                    rcon_password = ""
-
                     if server.deployment and server.deployment.root_path:
                         props_path = server.deployment.properties_path()
-                        props = _read_server_properties(props_path)
-                        if props.get("enable-rcon", "").lower() in ("true", "yes", "1"):
-                            try:
-                                rcon_port = int(props.get("rcon.port", "25575"))
-                            except (ValueError, TypeError):
-                                rcon_port = 25575
-                            rcon_password = props.get("rcon.password", "")
+            except Exception:
+                logger.debug("Server lookup failed for %s, using defaults", server_id)
 
-                    if rcon_password:
-                        client = self._rcon_clients.get(server_id)
-                        if (
-                            client is None
-                            or client.host != rcon_host
-                            or client.port != rcon_port
-                            or client.password != rcon_password
-                        ):
-                            if client is not None:
-                                with contextlib.suppress(Exception):
-                                    await client.close()
-                            client = PersistentRCONClient(rcon_host, rcon_port, rcon_password)
-                            self._rcon_clients[server_id] = client
-                        rcon_tps, rcon_players = await _collect_rcon_metrics(client)
-                        tps = rcon_tps
-                        players = rcon_players
-                    else:
-                        stale = self._rcon_clients.pop(server_id, None)
-                        if stale is not None:
-                            with contextlib.suppress(Exception):
-                                await stale.close()
+            if pid is not None:
+                ram_used_mb, cpu_percent = _collect_process_metrics(pid, self._proc_cache)
 
-                except Exception:
-                    logger.debug("Server lookup failed for %s, using defaults", server_id)
+            rcon_port = 25575
+            rcon_password = ""
+            if props_path:
+                props = _read_server_properties(props_path)
+                if props.get("enable-rcon", "").lower() in ("true", "yes", "1"):
+                    try:
+                        rcon_port = int(props.get("rcon.port", "25575"))
+                    except (ValueError, TypeError):
+                        rcon_port = 25575
+                    rcon_password = props.get("rcon.password", "")
+
+            if rcon_password:
+                client = self._rcon_clients.get(server_id)
+                if (
+                    client is None
+                    or client.host != rcon_host
+                    or client.port != rcon_port
+                    or client.password != rcon_password
+                ):
+                    if client is not None:
+                        with contextlib.suppress(Exception):
+                            await client.close()
+                    client = PersistentRCONClient(rcon_host, rcon_port, rcon_password)
+                    self._rcon_clients[server_id] = client
+                rcon_tps, rcon_players = await _collect_rcon_metrics(client)
+                tps = rcon_tps
+                players = rcon_players
+            else:
+                stale = self._rcon_clients.pop(server_id, None)
+                if stale is not None:
+                    with contextlib.suppress(Exception):
+                        await stale.close()
 
             point = MetricPoint(
                 tps=tps,
@@ -312,11 +314,23 @@ class MetricsCollector:
                 cpu_percent=cpu_percent,
             )
 
-            async with database.session_factory() as session:
-                repo = SQLMetricRepository(session)
-                sid = ServerId(server_id)
-                await repo.record(sid, point)
-                await session.commit()
+            for attempt in range(3):
+                try:
+                    async with database.session_factory() as session:
+                        repo = SQLMetricRepository(session)
+                        sid = ServerId(server_id)
+                        await repo.record(sid, point)
+                        await session.commit()
+                    break
+                except Exception as exc:
+                    is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                    if is_lock and attempt < 2:
+                        await asyncio.sleep(0.05 * (attempt + 1))
+                        continue
+                    if is_lock:
+                        logger.warning("Metrics record dropped due to database lock: %s", exc)
+                        break
+                    raise
 
             if self._event_bus:
                 await self._event_bus.publish(
@@ -335,18 +349,22 @@ class MetricsCollector:
         return metric
 
     async def collect_all(self) -> dict[str, ServerMetrics]:
-        async def collect_one(server_id: str) -> ServerMetrics:
-            try:
-                return await asyncio.wait_for(
-                    self.collect(server_id),
-                    timeout=self._per_server_timeout,
-                )
-            except TimeoutError:
-                logger.warning("Metrics collection timed out for %s", server_id)
-                return ServerMetrics(server_id=server_id)
-
         if not self._known_servers:
             return {}
+
+        semaphore = asyncio.Semaphore(2)
+
+        async def collect_one(server_id: str) -> ServerMetrics:
+            async with semaphore:
+                try:
+                    return await asyncio.wait_for(
+                        self.collect(server_id),
+                        timeout=self._per_server_timeout,
+                    )
+                except TimeoutError:
+                    logger.warning("Metrics collection timed out for %s", server_id)
+                    return ServerMetrics(server_id=server_id)
+
         collected = await asyncio.gather(
             *(collect_one(server_id) for server_id in self._known_servers)
         )

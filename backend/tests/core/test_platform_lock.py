@@ -23,12 +23,11 @@ class TestSetCloexecOnAllFds:
     def test_posix_sets_cloexec(self) -> None:
         mock_fcntl = MagicMock()
         mock_fcntl.fcntl.return_value = 0
-        with patch("os.name", "posix"):
-            with patch.dict("sys.modules", {"fcntl": mock_fcntl}):
-                with patch("os.listdir", return_value=["0", "1", "2", "3", "invalid"]):
-                    set_cloexec_on_all_fds()
-                    # Only fd=3 (>2) should have fcntl called
-                    assert mock_fcntl.fcntl.call_count >= 2
+        with patch("os.name", "posix"), patch.dict("sys.modules", {"fcntl": mock_fcntl}):
+            with patch("os.listdir", return_value=["0", "1", "2", "3", "invalid"]):
+                set_cloexec_on_all_fds()
+                # Only fd=3 (>2) should have fcntl called
+                assert mock_fcntl.fcntl.call_count >= 2
 
 
 class TestPlatformLockDispatch:

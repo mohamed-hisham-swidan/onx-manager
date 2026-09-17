@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -11,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.modules.activity.domain.entities import ServerActivityLog
 from app.modules.activity.domain.repository import ActivityRepository
 from app.modules.activity.infrastructure.models import ServerActivityLogModel
+
+logger = logging.getLogger(__name__)
 
 
 class SQLActivityRepository(ActivityRepository):
@@ -37,7 +41,7 @@ class SQLActivityRepository(ActivityRepository):
             async with database.session_factory() as s:
                 yield s
 
-    async def save(self, log: ServerActivityLog) -> None:
+    async def save(self, log: ServerActivityLog, max_retries: int = 3) -> None:
         details_str = json.dumps(log.details) if log.details else None
         model = ServerActivityLogModel(
             id=log.id,
@@ -49,9 +53,25 @@ class SQLActivityRepository(ActivityRepository):
             summary=log.summary,
             details_json=details_str,
         )
-        async with self._get_session() as s:
-            s.add(model)
-            await s.commit()
+        for attempt in range(max_retries):
+            try:
+                async with self._get_session() as s:
+                    s.add(model)
+                    await s.commit()
+                return
+            except Exception as exc:
+                is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                if is_lock and attempt < max_retries - 1:
+                    await asyncio.sleep(0.05 * (attempt + 1))
+                    continue
+                if is_lock:
+                    logger.warning(
+                        "Activity log save failed after %d retries due to database lock: %s",
+                        max_retries,
+                        exc,
+                    )
+                    return
+                raise
 
     async def list_by_server(
         self,

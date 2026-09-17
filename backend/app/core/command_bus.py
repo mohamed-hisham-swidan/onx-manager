@@ -45,6 +45,35 @@ class Middleware(ABC):
     ) -> CommandResult: ...
 
 
+class DatabaseBusyRetryMiddleware(Middleware):
+    """Middleware that retries commands on transient SQLite database locks."""
+
+    def __init__(self, max_retries: int = 3, initial_delay: float = 0.05) -> None:
+        self._max_retries = max_retries
+        self._initial_delay = initial_delay
+
+    async def __call__(self, command: Command, next_middleware: Any) -> CommandResult:
+        import asyncio
+
+        for attempt in range(self._max_retries):
+            try:
+                res: CommandResult = await next_middleware(command)
+                if not res.success and res.error_code == "UNEXPECTED_ERROR":
+                    err_text = (res.error or "").lower()
+                    is_lock = "locked" in err_text or "busy" in err_text
+                    if is_lock and attempt < self._max_retries - 1:
+                        await asyncio.sleep(self._initial_delay * (2**attempt))
+                        continue
+                return res
+            except Exception as exc:
+                err_text = str(exc).lower()
+                is_lock = "locked" in err_text or "busy" in err_text
+                if is_lock and attempt < self._max_retries - 1:
+                    await asyncio.sleep(self._initial_delay * (2**attempt))
+                    continue
+                raise
+
+
 class CommandBus:
     def __init__(self) -> None:
         self._handlers: dict[type[Command], CommandHandler] = {}

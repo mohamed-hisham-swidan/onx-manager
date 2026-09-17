@@ -317,19 +317,44 @@ async def test_test_runs_and_lifecycle_endpoints(seed_server, tmp_path):
                 assert status_data["id"] == test_id
                 assert status_data["status"] == "RUNNING"
 
-                # Promote test without server:version:promote -> 403
-                res = await client.post(
-                    f"/api/v1/servers/{srv_id}/versioning/tests/{test_id}/promote",
-                    json={"keep_world_changes": True},
-                    headers=auth_headers(["server:test:execute"]),
+                # GET test runs list without server:version:read -> 403
+                res = await client.get(
+                    f"/api/v1/servers/{srv_id}/versioning/tests",
+                    headers=auth_headers(["server:read"]),
                 )
                 assert res.status_code == 403
 
-                # Promote test with server:version:promote -> 200
+                # GET test runs list with server:version:read -> 200
+                res = await client.get(
+                    f"/api/v1/servers/{srv_id}/versioning/tests",
+                    headers=auth_headers(["server:version:read"]),
+                )
+                assert res.status_code == 200
+                runs_list = res.json()
+                assert len(runs_list) >= 1
+                assert runs_list[0]["id"] == test_id
+
+                # Promote test while RUNNING without force -> 422
                 res = await client.post(
                     f"/api/v1/servers/{srv_id}/versioning/tests/{test_id}/promote",
-                    json={"keep_world_changes": True},
+                    json={"keep_world_changes": True, "force": False},
                     headers=auth_headers(["server:version:promote"]),
+                )
+                assert res.status_code == 422
+
+                # Force promote without server:version:promote:force -> 403
+                res = await client.post(
+                    f"/api/v1/servers/{srv_id}/versioning/tests/{test_id}/promote",
+                    json={"keep_world_changes": True, "force": True, "force_reason": "Bypass"},
+                    headers=auth_headers(["server:version:promote"]),
+                )
+                assert res.status_code == 403
+
+                headers = auth_headers(["server:version:promote", "server:version:promote:force"])
+                res = await client.post(
+                    f"/api/v1/servers/{srv_id}/versioning/tests/{test_id}/promote",
+                    json={"keep_world_changes": True, "force": True, "force_reason": "Bypass"},
+                    headers=headers,
                 )
                 assert res.status_code == 200
 

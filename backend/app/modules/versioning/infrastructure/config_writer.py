@@ -13,14 +13,16 @@ def write_test_server_properties(
     server_port: int = 25565,
     rcon_port: int | None = None,
     rcon_password: str | None = None,
+    bot_count: int = 10,
 ) -> str:
     """Writes server.properties strictly for an isolated test deployment.
 
-    SAFETY-CRITICAL INVARIANT (§3.5.3):
+    SAFETY-CRITICAL INVARIANT (§3.5.3, §3.4):
     1. Accepts ONLY TestServerDeployment at type-level and checks isinstance at runtime.
     2. Enforces online-mode=false AND enforce-secure-profile=false unconditionally.
     3. Production online_mode or secure profile flags are NEVER read or preserved.
     4. Writes strictly to deployment.properties_path() inside .onx/tests/<test_id>/.
+    5. Scales max-players >= bot_count + 5 to prevent connection rejection in test container.
     """
     if not isinstance(deployment, TestServerDeployment):
         raise TestIsolationViolationError(
@@ -57,6 +59,15 @@ def write_test_server_properties(
     # HARD INVARIANT: Offline-mode isolation guarantee
     props["online-mode"] = "false"
     props["enforce-secure-profile"] = "false"
+
+    # HARD INVARIANT: Capacity scaling for bot verification (§3.4)
+    base_max = 20
+    if base_properties and "max-players" in base_properties:
+        try:
+            base_max = int(base_properties["max-players"])
+        except (ValueError, TypeError):
+            base_max = 20
+    props["max-players"] = str(max(base_max, bot_count + 5))
 
     # Format into server.properties format
     lines = [
