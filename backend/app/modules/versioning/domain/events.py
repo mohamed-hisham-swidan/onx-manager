@@ -9,10 +9,29 @@ class BranchCreatedEvent(DomainEvent):
     branch_id: str
 
 
+class BranchArchivedEvent(DomainEvent):
+    server_id: str
+    branch_name: str
+    branch_id: str
+
+
+class TagCreatedEvent(DomainEvent):
+    server_id: str
+    tag_name: str
+    commit_id: str
+
+
 class CommitCreatedEvent(DomainEvent):
     server_id: str
     commit_id: str
     message: str
+    branch_name: str
+
+
+class MergeCommitCreatedEvent(DomainEvent):
+    server_id: str
+    commit_id: str
+    parent_commit_ids: list[str]
     branch_name: str
 
 
@@ -39,3 +58,5 @@ class CommitPromotedEvent(DomainEvent):
     commit_id: str
     test_id: str
     keep_world_changes: bool = False
+    forced: bool = False
+    actor_id: str | None = None

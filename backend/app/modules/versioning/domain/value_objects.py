@@ -60,19 +60,19 @@ class ModReference:
 
 @dataclass(frozen=True)
 class CommitManifest:
+    """Immutable manifest of all non-world server state captured in a commit."""
+
     server_type: str
     minecraft_version: str
-    configs: dict[str, str] = field(default_factory=dict)
-    mods: list[dict[str, Any]] = field(default_factory=list)
+    configs: dict[str, str] = field(default_factory=dict)  # relative path -> content
+    mods: list[dict[str, Any]] = field(default_factory=list)  # list of ModReference dicts
     env_vars: dict[str, str] = field(default_factory=dict)
     java_args: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "server_type": (
-                self.server_type.value
-                if hasattr(self.server_type, "value")
-                else self.server_type
+            "server_type": str(
+                self.server_type.value if hasattr(self.server_type, "value") else self.server_type
             ),
             "minecraft_version": str(self.minecraft_version),
             "configs": self.configs,
@@ -84,8 +84,8 @@ class CommitManifest:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CommitManifest:
         return cls(
-            server_type=data["server_type"],
-            minecraft_version=data["minecraft_version"],
+            server_type=data.get("server_type", "vanilla"),
+            minecraft_version=data.get("minecraft_version", "1.21.1"),
             configs=data.get("configs", {}),
             mods=data.get("mods", []),
             env_vars=data.get("env_vars", {}),
@@ -95,19 +95,29 @@ class CommitManifest:
 
 @dataclass(frozen=True)
 class BotVerificationConfig:
-    bot_count: int = 5
-    duration_minutes: int = 10
-    preferred_tech: BotTech = BotTech.AUTO
+    """Resolved configuration for a bot verification run."""
+
+    bot_count: int = 10
+    duration_minutes: int = 15
+    bot_tech: BotTech = BotTech.AUTO
     placement_mode: PlacementMode = PlacementMode.SIDECAR
-    connect_grace_seconds: int = 30
-    watchdog_overrun_minutes: int = 5
+    join_stagger_seconds: float = 3.0
+    connect_grace_seconds: float = 60.0
+    watchdog_overrun_minutes: float = 5.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "bot_count": self.bot_count,
             "duration_minutes": self.duration_minutes,
-            "preferred_tech": self.preferred_tech.value,
-            "placement_mode": self.placement_mode.value,
+            "bot_tech": self.bot_tech.value
+            if isinstance(self.bot_tech, BotTech)
+            else self.bot_tech,
+            "placement_mode": (
+                self.placement_mode.value
+                if isinstance(self.placement_mode, PlacementMode)
+                else self.placement_mode
+            ),
+            "join_stagger_seconds": self.join_stagger_seconds,
             "connect_grace_seconds": self.connect_grace_seconds,
             "watchdog_overrun_minutes": self.watchdog_overrun_minutes,
         }
@@ -205,4 +215,25 @@ class Revision:
             server_id=target_server_id,
             resolved_from=f"branch:{branch_name}@{head_commit_id}",
             source_branch=branch_name,
+        )
+
+    @classmethod
+    def from_tag(
+        cls,
+        tag_name: str,
+        commit_id: str,
+        tag_server_id: str,
+        target_server_id: str,
+    ) -> Revision:
+        if tag_server_id != target_server_id:
+            raise ValueError(
+                f"Cannot resolve tag '{tag_name}' from server '{tag_server_id}' "
+                f"for target server '{target_server_id}'"
+            )
+        if not commit_id:
+            raise ValueError(f"Tag '{tag_name}' has no target commit to resolve")
+        return cls(
+            commit_id=commit_id,
+            server_id=target_server_id,
+            resolved_from=f"tag:{tag_name}@{commit_id}",
         )

@@ -1,4 +1,4 @@
-from app.core.command_bus import CommandBus
+from app.core.command_bus import CommandBus, DatabaseBusyRetryMiddleware
 from app.core.event_bus import EventBus
 from app.core.query_bus import QueryBus
 from app.modules.activity.application import (
@@ -168,18 +168,34 @@ from app.modules.server.application import (
     UpdateServerConfigHandler,
 )
 from app.modules.versioning.application import (
+    ArchiveBranchCommand,
+    ArchiveBranchHandler,
     CreateBranchCommand,
     CreateBranchHandler,
     CreateCommitCommand,
     CreateCommitHandler,
+    CreateTagCommand,
+    CreateTagHandler,
+    DiffCommitsHandler,
+    DiffCommitsQuery,
     DiscardTestCommand,
     DiscardTestHandler,
+    GetBranchHistoryHandler,
+    GetBranchHistoryQuery,
     GetCommitHistoryHandler,
     GetCommitHistoryQuery,
     GetServerBranchesHandler,
     GetServerBranchesQuery,
+    GetServerTagHandler,
+    GetServerTagQuery,
+    GetServerTagsHandler,
+    GetServerTagsQuery,
+    GetServerTestRunsHandler,
+    GetServerTestRunsQuery,
     GetTestStatusHandler,
     GetTestStatusQuery,
+    MergeCommitsCommand,
+    MergeCommitsHandler,
     PromoteCommitCommand,
     PromoteCommitHandler,
     RunIsolatedTestCommand,
@@ -256,6 +272,7 @@ def _register_event_handlers(event_bus: EventBus) -> None:
 
 
 def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> None:
+    command_bus.add_middleware(DatabaseBusyRetryMiddleware())
     command_bus.register(CreateServerCommand, CreateServerHandler(event_bus))
     command_bus.register(DeleteServerCommand, DeleteServerHandler(event_bus))
     command_bus.register(StartServerCommand, StartServerHandler(event_bus))
@@ -313,13 +330,18 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(UpdateAccessModeCommand, UpdateAccessModeHandler(event_bus))
 
     command_bus.register(CreateBranchCommand, CreateBranchHandler(event_bus=event_bus))
+    command_bus.register(ArchiveBranchCommand, ArchiveBranchHandler(event_bus=event_bus))
     command_bus.register(CreateCommitCommand, CreateCommitHandler(event_bus=event_bus))
+    command_bus.register(CreateTagCommand, CreateTagHandler(event_bus=event_bus))
+    command_bus.register(MergeCommitsCommand, MergeCommitsHandler(event_bus=event_bus))
     command_bus.register(RunIsolatedTestCommand, RunIsolatedTestHandler(event_bus=event_bus))
     command_bus.register(
         PromoteCommitCommand,
         PromoteCommitHandler(command_bus=command_bus, event_bus=event_bus),
     )
     command_bus.register(DiscardTestCommand, DiscardTestHandler())
+
+
 
 
 def _register_query_handlers(query_bus: QueryBus) -> None:
@@ -353,6 +375,13 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(ListInvitesQuery, ListInvitesHandler())
 
     query_bus.register(GetServerBranchesQuery, GetServerBranchesHandler())
+    query_bus.register(GetBranchHistoryQuery, GetBranchHistoryHandler())
     query_bus.register(GetCommitHistoryQuery, GetCommitHistoryHandler())
+    query_bus.register(GetServerTagsQuery, GetServerTagsHandler())
+    query_bus.register(GetServerTagQuery, GetServerTagHandler())
+    query_bus.register(DiffCommitsQuery, DiffCommitsHandler())
+    query_bus.register(GetServerTestRunsQuery, GetServerTestRunsHandler())
     query_bus.register(GetTestStatusQuery, GetTestStatusHandler())
     query_bus.register(GetServerActivityQuery, GetServerActivityHandler(SQLActivityRepository()))
+
+

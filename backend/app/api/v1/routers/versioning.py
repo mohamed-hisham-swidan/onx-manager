@@ -13,22 +13,35 @@ from app.api.v1.schemas.versioning import (
     CommitResponse,
     CreateBranchRequest,
     CreateCommitRequest,
+    CreateTagRequest,
+    DiffResponse,
+    MergeCommitsRequest,
     PreflightResponse,
     PromoteCommitRequest,
     RunIsolatedTestRequest,
+    TagResponse,
     TestRunResponse,
 )
 from app.core.command_bus import CommandBus
+from app.core.exceptions import PermissionDenied
 from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
 from app.modules.server.infrastructure.models import ServerModel
 from app.modules.versioning.application import (
+    ArchiveBranchCommand,
     CreateBranchCommand,
     CreateCommitCommand,
+    CreateTagCommand,
+    DiffCommitsQuery,
     DiscardTestCommand,
+    GetBranchHistoryQuery,
     GetCommitHistoryQuery,
     GetServerBranchesQuery,
+    GetServerTagQuery,
+    GetServerTagsQuery,
+    GetServerTestRunsQuery,
     GetTestStatusQuery,
+    MergeCommitsCommand,
     PromoteCommitCommand,
     RunIsolatedTestCommand,
 )
@@ -67,6 +80,32 @@ async def create_branch(
     return check_command_result(res)
 
 
+@router.post("/branches/{name}/archive", response_model=dict[str, Any])
+async def archive_branch(
+    server_id: str,
+    name: str,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> dict[str, Any]:
+    cmd = ArchiveBranchCommand(server_id=server_id, name=name)
+    res = await command_bus.send(cmd)
+    return check_command_result(res)
+
+
+@router.get("/branches/{name}/history", response_model=list[CommitResponse])
+async def get_branch_history(
+    server_id: str,
+    name: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[CommitResponse]:
+    commits = await query_bus.ask(
+        GetBranchHistoryQuery(server_id=server_id, branch_name=name, limit=limit)
+    )
+    return [CommitResponse(**c) for c in commits]
+
+
 @router.get("/commits", response_model=list[CommitResponse])
 async def list_commits(
     server_id: str,
@@ -79,6 +118,24 @@ async def list_commits(
         GetCommitHistoryQuery(server_id=server_id, branch_id=branch_id, limit=limit)
     )
     return [CommitResponse(**c) for c in commits]
+
+
+@router.get("/commits/diff", response_model=DiffResponse)
+async def diff_commits_endpoint(
+    server_id: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    from_commit_id: str = Query(..., alias="from"),
+    to_commit_id: str = Query(..., alias="to"),
+) -> DiffResponse:
+    diff = await query_bus.ask(
+        DiffCommitsQuery(
+            server_id=server_id,
+            from_commit_id=from_commit_id,
+            to_commit_id=to_commit_id,
+        )
+    )
+    return DiffResponse(**diff)
 
 
 @router.post("/commits", response_model=dict[str, Any], status_code=201)
@@ -97,6 +154,65 @@ async def create_commit(
     )
     res = await command_bus.send(cmd)
     return check_command_result(res)
+
+
+@router.post("/commits/merge", response_model=dict[str, Any], status_code=201)
+async def merge_commits_endpoint(
+    server_id: str,
+    body: MergeCommitsRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> dict[str, Any]:
+    author_id = body.author_id or _current_user.get("sub")
+    cmd = MergeCommitsCommand(
+        server_id=server_id,
+        target_branch_name=body.target_branch_name,
+        parent_commit_ids=body.parent_commit_ids,
+        message=body.message,
+        author_id=author_id,
+        manifest=body.manifest,
+    )
+    res = await command_bus.send(cmd)
+    return check_command_result(res)
+
+
+@router.post("/tags", response_model=dict[str, Any], status_code=201)
+async def create_tag(
+    server_id: str,
+    body: CreateTagRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> dict[str, Any]:
+    cmd = CreateTagCommand(
+        server_id=server_id,
+        name=body.name,
+        commit_id=body.commit_id,
+    )
+    res = await command_bus.send(cmd)
+    return check_command_result(res)
+
+
+@router.get("/tags", response_model=list[TagResponse])
+async def list_tags(
+    server_id: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> list[TagResponse]:
+    tags = await query_bus.ask(GetServerTagsQuery(server_id=server_id))
+    return [TagResponse(**t) for t in tags]
+
+
+@router.get("/tags/{name}", response_model=TagResponse)
+async def get_tag(
+    server_id: str,
+    name: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> TagResponse:
+    tag = await query_bus.ask(GetServerTagQuery(server_id=server_id, name=name))
+    if tag is None:
+        raise HTTPException(status_code=404, detail=f"Tag '{name}' not found")
+    return TagResponse(**tag)
 
 
 @router.post("/tests", response_model=dict[str, Any], status_code=202)
@@ -118,6 +234,17 @@ async def run_isolated_test(
     return check_command_result(res)
 
 
+@router.get("/tests", response_model=list[TestRunResponse])
+async def list_test_runs(
+    server_id: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    limit: int = Query(default=50, ge=1, le=100),
+) -> list[TestRunResponse]:
+    data = await query_bus.ask(GetServerTestRunsQuery(server_id=server_id, limit=limit))
+    return [TestRunResponse(**item) for item in data]
+
+
 @router.get("/tests/{test_id}", response_model=TestRunResponse)
 async def get_test_status(
     server_id: str,
@@ -135,12 +262,19 @@ async def promote_commit(
     test_id: str,
     body: PromoteCommitRequest,
     command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    _current_user: Annotated[dict, Depends(require_permission("server:version:promote"))],
+    current_user: Annotated[dict, Depends(require_permission("server:version:promote"))],
 ) -> dict[str, Any]:
+    if body.force:
+        user_perms = current_user.get("permissions", [])
+        if "admin:full" not in user_perms and "server:version:promote:force" not in user_perms:
+            raise PermissionDenied("missing required permission: server:version:promote:force")
     cmd = PromoteCommitCommand(
         server_id=server_id,
         test_id=test_id,
         keep_world_changes=body.keep_world_changes,
+        force=body.force,
+        force_reason=body.force_reason,
+        actor_id=current_user.get("sub") or current_user.get("username"),
     )
     res = await command_bus.send(cmd)
     return check_command_result(res)

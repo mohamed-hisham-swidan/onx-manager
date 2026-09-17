@@ -16,6 +16,7 @@ class BranchResponse(BaseModel):
     name: str
     head_commit_id: str | None = None
     created_at: str
+    status: str = "created"
 
 
 class CreateCommitRequest(BaseModel):
@@ -29,11 +30,45 @@ class CommitResponse(BaseModel):
     server_id: str
     branch_id: str | None = None
     parent_commit_id: str | None = None
+    parent_commit_ids: list[str] = Field(default_factory=list)
     author_id: str | None = None
     message: str
     manifest: dict[str, Any]
     world_snapshot_id: str | None = None
     created_at: str
+
+
+class CreateTagRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    commit_id: str = Field(..., min_length=1)
+
+
+class TagResponse(BaseModel):
+    id: str
+    server_id: str
+    name: str
+    commit_id: str
+    created_at: str
+
+
+class MergeCommitsRequest(BaseModel):
+    target_branch_name: str = Field(..., min_length=1, max_length=100)
+    parent_commit_ids: list[str] = Field(..., min_length=2)
+    message: str = Field(..., min_length=1, max_length=500)
+    author_id: str | None = None
+    manifest: dict[str, Any] | None = None
+
+
+class DiffResponse(BaseModel):
+    from_commit_id: str
+    to_commit_id: str
+    has_changes: bool
+    server_type: dict[str, str] | None = None
+    minecraft_version: dict[str, str] | None = None
+    java_args: dict[str, str] | None = None
+    configs: dict[str, Any]
+    env_vars: dict[str, Any]
+    mods: dict[str, Any]
 
 
 class RunIsolatedTestRequest(BaseModel):
@@ -63,6 +98,8 @@ class TestRunResponse(BaseModel):
 
 class PromoteCommitRequest(BaseModel):
     keep_world_changes: bool = False
+    force: bool = False
+    force_reason: str | None = None
 
 
 class BotSettingsRequest(BaseModel):

@@ -7,6 +7,7 @@ from app.modules.versioning.domain.entities import (
     ServerCommit,
     ServerTestRun,
     ServerWorldSnapshot,
+    Tag,
 )
 
 
@@ -70,3 +71,20 @@ class VersioningRepository(ABC):
     @abstractmethod
     async def save_test_run(self, test_run: ServerTestRun) -> ServerTestRun:
         pass
+
+    # Commit Parents
+    async def get_commit_parents(self, commit_id: str) -> list[str]:
+        _ = commit_id
+        return []
+
+    # Tags
+    async def get_tag(self, server_id: str, name: str) -> Tag | None:
+        _ = (server_id, name)
+        return None
+
+    async def list_tags(self, server_id: str) -> list[Tag]:
+        _ = server_id
+        return []
+
+    async def save_tag(self, tag: Tag) -> Tag:
+        return tag

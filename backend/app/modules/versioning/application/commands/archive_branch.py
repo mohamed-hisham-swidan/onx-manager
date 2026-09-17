@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+import asyncio
+
+from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.event_bus import DomainEvent, EventBus
+from app.core.exceptions import NotFoundError
+from app.modules.server.domain.repository import ServerRepository
+from app.modules.versioning.domain.events import BranchArchivedEvent
+from app.modules.versioning.domain.repository import VersioningRepository
+
+
+class ArchiveBranchCommand(Command):
+    server_id: str
+    name: str
+
+
+class ArchiveBranchHandler(CommandHandler[ArchiveBranchCommand]):
+    def __init__(
+        self,
+        server_repo: ServerRepository | None = None,
+        versioning_repo: VersioningRepository | None = None,
+        event_bus: EventBus | None = None,
+    ) -> None:
+        self._server_repo = server_repo
+        self._versioning_repo = versioning_repo
+        self._event_bus = event_bus
+
+    async def handle(self, command: ArchiveBranchCommand) -> CommandResult:
+        from app.core.persistence.db import database
+        from app.modules.server.infrastructure.repository import SQLServerRepository
+        from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
+
+        events: list[DomainEvent] = []
+
+        if self._server_repo is not None and self._versioning_repo is not None:
+            res = await self._execute(command, self._server_repo, self._versioning_repo, events)
+        else:
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    async with database.session_factory() as session:
+                        server_repo = self._server_repo or SQLServerRepository(session)
+                        versioning_repo = self._versioning_repo or SQLVersioningRepository(session)
+                        events.clear()
+                        res = await self._execute(command, server_repo, versioning_repo, events)
+                        await session.commit()
+                    break
+                except Exception as exc:
+                    is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                    if is_lock and attempt < max_retries - 1:
+                        await asyncio.sleep(0.05 * (2**attempt))
+                        continue
+                    raise
+
+        if self._event_bus is not None and res.success:
+            for ev in events:
+                await self._event_bus.publish(ev)
+
+        return res
+
+    async def _execute(
+        self,
+        command: ArchiveBranchCommand,
+        server_repo: ServerRepository,
+        versioning_repo: VersioningRepository,
+        events: list[DomainEvent] | None = None,
+    ) -> CommandResult:
+        from app.modules.shared.value_objects import ServerId
+
+        try:
+            await server_repo.get(ServerId(command.server_id))
+        except Exception as exc:
+            raise NotFoundError(f"Server '{command.server_id}' not found") from exc
+
+        branch = await versioning_repo.get_branch_by_name(command.server_id, command.name)
+        if branch is None:
+            raise NotFoundError(
+                f"Branch '{command.name}' not found on server '{command.server_id}'"
+            )
+
+        branch.archive()
+        await versioning_repo.save_branch(branch)
+
+        event = BranchArchivedEvent(
+            server_id=command.server_id,
+            branch_name=branch.name,
+            branch_id=branch.id,
+        )
+        if events is not None:
+            events.append(event)
+        elif self._event_bus is not None:
+            await self._event_bus.publish(event)
+
+        return CommandResult(
+            success=True,
+            entity_id=branch.id,
+            details={
+                "branch_id": branch.id,
+                "name": branch.name,
+                "server_id": command.server_id,
+                "status": branch.status.value,
+            },
+        )

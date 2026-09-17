@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from app.modules.server.domain.aggregate import Server
 from app.modules.versioning.domain.value_objects import (
     BotTech,
     BranchStatus,
@@ -22,26 +21,44 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-Project = Server
+@dataclass(frozen=True)
+class Project:
+    """Logical root environment.
+
+    Stage A scope: maps 1:1 with the existing Server identity.
+    """
+
+    id: str  # server_id
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("Project id cannot be empty")
 
 
+@dataclass
 class Repository:
-    """Represents the version control repository aggregate for a project/server."""
+    """Owns commit history and branch references for a Project."""
 
-    def __init__(self, server_id: str) -> None:
-        if not server_id:
-            raise ValueError("Repository server_id cannot be empty")
-        self.server_id = server_id
+    project_id: str  # server_id
+
+    def __post_init__(self) -> None:
+        if not self.project_id:
+            raise ValueError("Repository project_id cannot be empty")
 
 
 @dataclass
 class ServerBranch:
+    """Named mutable pointer to a Commit with lifecycle state machine.
+
+    Lifecycle: created -> active -> archived.
+    """
+
     id: str
     server_id: str
     name: str
     head_commit_id: str | None = None
-    status: BranchStatus = BranchStatus.CREATED
     created_at: datetime = field(default_factory=_utcnow)
+    status: BranchStatus = BranchStatus.CREATED
 
     def __post_init__(self) -> None:
         if not self.server_id:
@@ -49,22 +66,22 @@ class ServerBranch:
         if not self.name:
             raise ValueError("Branch name cannot be empty")
 
-    def advance_head(self, commit_id: str) -> None:
-        if self.status == BranchStatus.ARCHIVED:
-            raise ValueError(f"Cannot commit to archived branch '{self.name}'")
-        if not commit_id:
-            raise ValueError("Cannot advance head to empty commit_id")
-        self.head_commit_id = commit_id
-        if self.status == BranchStatus.CREATED:
-            self.status = BranchStatus.ACTIVE
-
-    def archive(self) -> None:
-        self.status = BranchStatus.ARCHIVED
-
     def activate(self) -> None:
         if self.status == BranchStatus.ARCHIVED:
             raise ValueError(f"Cannot activate archived branch '{self.name}'")
         self.status = BranchStatus.ACTIVE
+
+    def archive(self) -> None:
+        self.status = BranchStatus.ARCHIVED
+
+    def advance_head(self, commit_id: str) -> None:
+        if self.status == BranchStatus.ARCHIVED:
+            raise ValueError(f"Cannot commit to archived branch '{self.name}'")
+        if not commit_id:
+            raise ValueError("Cannot advance branch head to empty commit_id")
+        self.head_commit_id = commit_id
+        if self.status == BranchStatus.CREATED:
+            self.status = BranchStatus.ACTIVE
 
 
 Branch = ServerBranch
@@ -81,13 +98,16 @@ class ServerWorldSnapshot:
 
 @dataclass
 class ServerCommit:
+    """Immutable snapshot of a Tree with DAG ancestry (multi-parent capable)."""
+
     id: str
     server_id: str
     message: str
     manifest: CommitManifest
-    author_id: str | None = None
+    branch_id: str | None = None
     parent_commit_id: str | None = None
     parent_commit_ids: list[str] = field(default_factory=list)
+    author_id: str | None = None
     world_snapshot_id: str | None = None
     created_at: datetime = field(default_factory=_utcnow)
 
@@ -96,20 +116,84 @@ class ServerCommit:
             raise ValueError("Commit id cannot be empty")
         if not self.server_id:
             raise ValueError("Commit server_id cannot be empty")
+
+        # Synchronize parent_commit_id and parent_commit_ids
         if not self.parent_commit_ids and self.parent_commit_id:
             self.parent_commit_ids = [self.parent_commit_id]
         elif self.parent_commit_ids and not self.parent_commit_id:
             self.parent_commit_id = self.parent_commit_ids[0]
 
-    def validate_parent(self, parent_commit: ServerCommit | None) -> None:
+        # Prevent duplicate parents in parent_commit_ids
+        if len(self.parent_commit_ids) != len(set(self.parent_commit_ids)):
+            raise ValueError("Duplicate parent commit references are not allowed")
+
+        # Prevent self-parenting
+        if self.id in self.parent_commit_ids:
+            raise ValueError(
+                f"Self-parenting rejected: commit '{self.id}' cannot be its own parent"
+            )
+
+    @property
+    def tree(self) -> Tree:
+        return Tree.from_manifest(self.manifest)
+
+    def validate_parent(self, parent: ServerCommit | None) -> None:
+        """Validates parent commit ancestry and server ownership."""
         if self.parent_commit_id is not None:
-            if parent_commit is None:
-                raise ValueError(f"Parent commit '{self.parent_commit_id}' not found")
-            if parent_commit.server_id != self.server_id:
-                raise ValueError("Parent commit belongs to a different server")
+            if parent is None:
+                raise ValueError(
+                    f"Dangling parent_commit_id '{self.parent_commit_id}': parent commit not found"
+                )
+            if parent.id != self.parent_commit_id:
+                raise ValueError(
+                    f"Parent commit ID mismatch: expected '{self.parent_commit_id}', "
+                    f"got '{parent.id}'"
+                )
+            if parent.server_id != self.server_id:
+                raise ValueError(
+                    f"Cross-server parent rejected: parent server '{parent.server_id}' "
+                    f"does not match commit server '{self.server_id}'"
+                )
+
+    def validate_parents(self, parents: list[ServerCommit]) -> None:
+        """Validates all parent commits for multi-parent merge commits."""
+        parent_map = {p.id: p for p in parents}
+        for pid in self.parent_commit_ids:
+            if pid not in parent_map:
+                raise ValueError(f"Dangling parent commit '{pid}': parent commit not found")
+            p = parent_map[pid]
+            if p.server_id != self.server_id:
+                raise ValueError(
+                    f"Cross-server parent rejected: parent server '{p.server_id}' "
+                    f"does not match commit server '{self.server_id}'"
+                )
 
 
 Commit = ServerCommit
+
+
+@dataclass(frozen=True)
+class Tag:
+    """Immutable named pointer to a specific Commit within a repository/server."""
+
+    id: str
+    server_id: str
+    name: str
+    commit_id: str
+    created_at: datetime = field(default_factory=_utcnow)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("Tag id cannot be empty")
+        if not self.server_id:
+            raise ValueError("Tag server_id cannot be empty")
+        if not self.name or not self.name.strip():
+            raise ValueError("Tag name cannot be empty")
+        if not self.commit_id:
+            raise ValueError("Tag commit_id cannot be empty")
+
+
+ServerTag = Tag
 
 
 @dataclass
@@ -117,11 +201,13 @@ class Materialization:
     """Represents materialized filesystem state for a specific commit."""
 
     id: str
-    server_id: str
     commit_id: str
     root_path: str
     status: MaterializationStatus = MaterializationStatus.PENDING
+    path_classification: dict[str, PathClassification] = field(default_factory=dict)
     created_at: datetime = field(default_factory=_utcnow)
+    server_id: str = ""
+    revision: str = ""
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -130,11 +216,13 @@ class Materialization:
             raise ValueError("Materialization commit_id cannot be empty")
         if not self.root_path:
             raise ValueError("Materialization root_path cannot be empty")
-        norm = os.path.normpath(self.root_path).replace("\\", "/")
-        if ".." in norm.split("/"):
-            raise ValueError(f"Materialization root_path contains path traversal: {self.root_path}")
-        if not (norm.startswith(".onx/tests/") or "/.onx/tests/" in norm):
-            raise ValueError(f"Materialization root_path must be under .onx/tests/: {self.root_path}")
+        norm = os.path.normpath(self.root_path)
+        is_managed = (".onx" in norm and "tests" in norm) or norm.startswith(".onx/tests")
+        if not is_managed or ".." in self.root_path:
+            raise ValueError(
+                "Materialization root_path must be an isolated .onx/tests directory "
+                f"without traversal escapes: {self.root_path}"
+            )
 
     @property
     def is_ready(self) -> bool:
@@ -155,11 +243,23 @@ class Materialization:
 
     def mark_stale(self) -> None:
         if self.status == MaterializationStatus.REMOVED:
-            raise ValueError("Cannot mark removed materialization as stale")
+            raise ValueError("Cannot transition removed materialization to stale")
         self.status = MaterializationStatus.STALE
 
     def mark_removed(self) -> None:
         self.status = MaterializationStatus.REMOVED
+
+    def stage_path(self, relative_path: str, classification: PathClassification) -> str:
+        if self.status == MaterializationStatus.REMOVED:
+            raise ValueError("Cannot stage path into removed materialization")
+        norm_rel = os.path.normpath(relative_path)
+        if norm_rel.startswith("..") or os.path.isabs(relative_path):
+            raise ValueError(f"Staging path escapes materialization root: {relative_path}")
+        target = os.path.normpath(os.path.join(self.root_path, norm_rel))
+        if not target.startswith(os.path.normpath(self.root_path)):
+            raise ValueError(f"Staging path escapes materialization root: {relative_path}")
+        self.path_classification[norm_rel] = classification
+        return target
 
 
 @dataclass
@@ -270,15 +370,14 @@ class ServerTestRun:
     id: str
     server_id: str
     commit_id: str
+    node_id: str = "local"
     status: TestRunStatus = TestRunStatus.PENDING
-    created_at: datetime = field(default_factory=_utcnow)
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
     ephemeral_port: int | None = None
-    container_id: str | None = None
-    failure_reason: str | None = None
     log_output: str | None = None
-    bot_count: int = 5
+    failure_reason: str | None = None
+    created_at: datetime = field(default_factory=_utcnow)
+    expires_at: datetime | None = None
+    bot_count: int = 10
     duration_minutes: int = 15
     placement_mode: PlacementMode = PlacementMode.SIDECAR
     bot_tech: BotTech = BotTech.AUTO
@@ -297,14 +396,16 @@ class ServerTestRun:
         self.status = TestRunStatus.RUNNING
         self.ephemeral_port = ephemeral_port
 
-    def mark_passed(self) -> None:
+    def mark_passed(self, log_output: str | None = None) -> None:
         self.status = TestRunStatus.PASSED
-        self.completed_at = _utcnow()
+        if log_output:
+            self.log_output = log_output
 
-    def mark_failed(self, reason: str | None = None) -> None:
+    def mark_failed(self, reason: str, log_output: str | None = None) -> None:
         self.status = TestRunStatus.FAILED
         self.failure_reason = reason
-        self.completed_at = _utcnow()
+        if log_output:
+            self.log_output = log_output
 
     def mark_cancelled(self, reason: str = "Cancelled by user") -> None:
         self.status = TestRunStatus.CANCELLED

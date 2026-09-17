@@ -137,6 +137,10 @@ permissions:
     description: Promote a commit or test run to production
     scope: server_id
 
+  server:version:promote:force:
+    description: Force-promote an unverified commit to production bypassing test gating
+    scope: server_id
+
   server:history:read:
     description: View server operational activity logs and change history
     scope: server_id
@@ -222,11 +226,15 @@ route_permissions:
 
   # versioning
   "POST /api/v1/servers/{server_id}/versioning/branches": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/branches/{name}/archive": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/commits": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/commits/merge": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/tags": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/tests": {permission: "server:test:execute", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/tests/{test_id}/promote": {permission: "server:version:promote", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/tests/{test_id}/discard": {permission: "server:test:execute", status: enforced}
   "PUT /api/v1/servers/{server_id}/versioning/settings": {permission: "server:test:configure", status: enforced}
+
 
 
   # auth
@@ -333,10 +341,16 @@ route_permissions:
 
   # versioning
   "GET /api/v1/servers/{server_id}/versioning/branches": {permission: "server:version:read", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/branches/{name}/history": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/commits": {permission: "server:version:read", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/commits/diff": {permission: "server:version:read", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/tags": {permission: "server:version:read", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/tags/{name}": {permission: "server:version:read", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/tests": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/tests/{test_id}": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/settings": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/preflight": {permission: "server:version:read", status: enforced}
+
 
   # ── WebSocket ───────────────────────────────────────────────────────────────
   # Status verified by code trace (2026-08-09). Evidence:

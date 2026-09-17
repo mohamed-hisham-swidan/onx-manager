@@ -27,9 +27,34 @@ class ServerBranchModel(Base):
     server_id = Column(String(36), nullable=False, index=True)
     name = Column(String(64), nullable=False)
     head_commit_id = Column(String(36), nullable=True)
+    status = Column(String(32), nullable=False, default="created")
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     __table_args__ = (UniqueConstraint("server_id", "name", name="uq_server_branch_name"),)
+
+
+class ServerTagModel(Base):
+    __tablename__ = "server_tags"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(String(36), nullable=False, index=True)
+    name = Column(String(64), nullable=False)
+    commit_id = Column(String(36), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (UniqueConstraint("server_id", "name", name="uq_server_tag_name"),)
+
+
+class ServerCommitParentModel(Base):
+    __tablename__ = "server_commit_parents"
+
+    commit_id = Column(String(36), primary_key=True, index=True)
+    parent_commit_id = Column(String(36), primary_key=True, index=True)
+    parent_index = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("commit_id", "parent_index", name="uq_commit_parent_index"),
+    )
 
 
 class ServerWorldSnapshotModel(Base):
