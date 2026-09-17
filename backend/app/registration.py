@@ -170,20 +170,34 @@ from app.modules.server.application import (
 from app.modules.versioning.application import (
     ArchiveBranchCommand,
     ArchiveBranchHandler,
+    AutoCommitLiveChangesCommand,
+    AutoCommitLiveChangesHandler,
+    ConfirmImportReviewCommand,
+    ConfirmImportReviewHandler,
     CreateBranchCommand,
     CreateBranchHandler,
     CreateCommitCommand,
     CreateCommitHandler,
+    CreateMaterializationCommand,
+    CreateMaterializationHandler,
     CreateTagCommand,
     CreateTagHandler,
     DiffCommitsHandler,
     DiffCommitsQuery,
     DiscardTestCommand,
     DiscardTestHandler,
+    DismissImportReviewCommand,
+    DismissImportReviewHandler,
     GetBranchHistoryHandler,
     GetBranchHistoryQuery,
     GetCommitHistoryHandler,
     GetCommitHistoryQuery,
+    GetMaterializationFileHandler,
+    GetMaterializationFileQuery,
+    GetMaterializationsHandler,
+    GetMaterializationsQuery,
+    GetMaterializationTreeHandler,
+    GetMaterializationTreeQuery,
     GetServerBranchesHandler,
     GetServerBranchesQuery,
     GetServerTagHandler,
@@ -198,8 +212,18 @@ from app.modules.versioning.application import (
     MergeCommitsHandler,
     PromoteCommitCommand,
     PromoteCommitHandler,
+    RemoveMaterializationCommand,
+    RemoveMaterializationHandler,
+    RevertImportReviewCommand,
+    RevertImportReviewHandler,
     RunIsolatedTestCommand,
     RunIsolatedTestHandler,
+    ScanLiveChangesHandler,
+    ScanLiveChangesQuery,
+    SetMaterializationEditModeCommand,
+    SetMaterializationEditModeHandler,
+    WriteMaterializedFileCommand,
+    WriteMaterializedFileHandler,
 )
 
 
@@ -340,7 +364,38 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
         PromoteCommitHandler(command_bus=command_bus, event_bus=event_bus),
     )
     command_bus.register(DiscardTestCommand, DiscardTestHandler())
-
+    command_bus.register(
+        CreateMaterializationCommand,
+        CreateMaterializationHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        RemoveMaterializationCommand,
+        RemoveMaterializationHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        SetMaterializationEditModeCommand,
+        SetMaterializationEditModeHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        WriteMaterializedFileCommand,
+        WriteMaterializedFileHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        AutoCommitLiveChangesCommand,
+        AutoCommitLiveChangesHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        ConfirmImportReviewCommand,
+        ConfirmImportReviewHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        DismissImportReviewCommand,
+        DismissImportReviewHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        RevertImportReviewCommand,
+        RevertImportReviewHandler(event_bus=event_bus),
+    )
 
 
 
@@ -383,5 +438,8 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(GetServerTestRunsQuery, GetServerTestRunsHandler())
     query_bus.register(GetTestStatusQuery, GetTestStatusHandler())
     query_bus.register(GetServerActivityQuery, GetServerActivityHandler(SQLActivityRepository()))
-
+    query_bus.register(GetMaterializationsQuery, GetMaterializationsHandler())
+    query_bus.register(GetMaterializationTreeQuery, GetMaterializationTreeHandler())
+    query_bus.register(GetMaterializationFileQuery, GetMaterializationFileHandler())
+    query_bus.register(ScanLiveChangesQuery, ScanLiveChangesHandler())
 

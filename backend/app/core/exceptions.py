@@ -64,6 +64,18 @@ class InvalidJarError(ValidationError):
         self.http_status = 400
 
 
+class MaterializationFileTooLargeError(ValidationError):
+    def __init__(self, path: str, size_bytes: int, max_bytes: int) -> None:
+        super().__init__(
+            f"File '{path}' exceeds maximum read size of {max_bytes} bytes "
+            f"(actual: {size_bytes} bytes)",
+            field="path",
+            details={"path": path, "size_bytes": size_bytes, "max_bytes": max_bytes},
+        )
+        self.code = "FILE_TOO_LARGE"
+        self.http_status = 413
+
+
 class AuthenticationError(MCSError):
     def __init__(self, message: str = "") -> None:
         super().__init__(

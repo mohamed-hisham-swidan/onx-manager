@@ -7,35 +7,56 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.deps import get_command_bus, get_query_bus, require_permission
 from app.api.errors import check_command_result
 from app.api.v1.schemas.versioning import (
+    AutoCommitLiveChangesRequest,
+    AutoCommitLiveChangesResponse,
     BotSettingsRequest,
     BotSettingsResponse,
     BranchResponse,
     CommitResponse,
     CreateBranchRequest,
     CreateCommitRequest,
+    CreateMaterializationRequest,
     CreateTagRequest,
     DiffResponse,
+    ImportReviewActionResponse,
+    MaterializationCreateResponse,
+    MaterializationFileResponse,
+    MaterializationListItemResponse,
+    MaterializationTreeResponse,
     MergeCommitsRequest,
     PreflightResponse,
     PromoteCommitRequest,
     RunIsolatedTestRequest,
+    ScanLiveChangesRequest,
+    ScanLiveChangesResponse,
+    SetEditModeRequest,
+    SetEditModeResponse,
     TagResponse,
     TestRunResponse,
+    WriteMaterializedFileRequest,
+    WriteMaterializedFileResponse,
 )
 from app.core.command_bus import CommandBus
-from app.core.exceptions import PermissionDenied
+from app.core.exceptions import MaterializationFileTooLargeError, PermissionDenied
 from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
 from app.modules.server.infrastructure.models import ServerModel
 from app.modules.versioning.application import (
     ArchiveBranchCommand,
+    AutoCommitLiveChangesCommand,
+    ConfirmImportReviewCommand,
     CreateBranchCommand,
     CreateCommitCommand,
+    CreateMaterializationCommand,
     CreateTagCommand,
     DiffCommitsQuery,
     DiscardTestCommand,
+    DismissImportReviewCommand,
     GetBranchHistoryQuery,
     GetCommitHistoryQuery,
+    GetMaterializationFileQuery,
+    GetMaterializationsQuery,
+    GetMaterializationTreeQuery,
     GetServerBranchesQuery,
     GetServerTagQuery,
     GetServerTagsQuery,
@@ -43,7 +64,12 @@ from app.modules.versioning.application import (
     GetTestStatusQuery,
     MergeCommitsCommand,
     PromoteCommitCommand,
+    RemoveMaterializationCommand,
+    RevertImportReviewCommand,
     RunIsolatedTestCommand,
+    ScanLiveChangesQuery,
+    SetMaterializationEditModeCommand,
+    WriteMaterializedFileCommand,
 )
 from app.modules.versioning.infrastructure.config_resolver import BotConfigResolver
 from app.modules.versioning.infrastructure.resource_probe import ResourcePreflightProbe
@@ -399,3 +425,217 @@ async def get_preflight_status(
         passed=reflink_ok and headroom.passed,
         error=error_msg,
     )
+
+
+# --- Stage C Materialization & Import Review Endpoints ---
+
+
+@router.post("/materializations", response_model=MaterializationCreateResponse, status_code=201)
+async def create_materialization(
+    server_id: str,
+    body: CreateMaterializationRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> MaterializationCreateResponse:
+    cmd = CreateMaterializationCommand(
+        server_id=server_id,
+        revision_type=body.revision_type,
+        ref=body.ref,
+        mode=body.mode,
+    )
+    res = await command_bus.send(cmd)
+    data = check_command_result(res)
+    return MaterializationCreateResponse(**data)
+
+
+@router.get("/materializations", response_model=list[MaterializationListItemResponse])
+async def list_materializations(
+    server_id: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> list[MaterializationListItemResponse]:
+    query = GetMaterializationsQuery(server_id=server_id)
+    items = await query_bus.ask(query)
+    return [MaterializationListItemResponse(**m) for m in items]
+
+
+@router.get("/materializations/{mat_id}/tree", response_model=MaterializationTreeResponse)
+async def get_materialization_tree(
+    server_id: str,
+    mat_id: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    path: str = "",
+) -> MaterializationTreeResponse:
+    query = GetMaterializationTreeQuery(
+        materialization_id=mat_id,
+        server_id=server_id,
+        path=path,
+    )
+    data = await query_bus.ask(query)
+    return MaterializationTreeResponse(**data)
+
+
+@router.get("/materializations/{mat_id}/files", response_model=MaterializationFileResponse)
+async def get_materialization_file(
+    server_id: str,
+    mat_id: str,
+    path: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> MaterializationFileResponse:
+    query = GetMaterializationFileQuery(
+        materialization_id=mat_id,
+        server_id=server_id,
+        path=path,
+    )
+    try:
+        data = await query_bus.ask(query)
+    except MaterializationFileTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=exc.message) from exc
+    return MaterializationFileResponse(**data)
+
+
+@router.post("/materializations/{mat_id}/edit-mode", response_model=SetEditModeResponse)
+async def set_materialization_edit_mode(
+    server_id: str,
+    mat_id: str,
+    body: SetEditModeRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> SetEditModeResponse:
+    cmd = SetMaterializationEditModeCommand(
+        materialization_id=mat_id,
+        server_id=server_id,
+        enabled=body.enabled,
+    )
+    res = await command_bus.send(cmd)
+    data = check_command_result(res)
+    return SetEditModeResponse(**data)
+
+
+@router.put("/materializations/{mat_id}/files", response_model=WriteMaterializedFileResponse)
+async def write_materialized_file(
+    server_id: str,
+    mat_id: str,
+    body: WriteMaterializedFileRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> WriteMaterializedFileResponse:
+    cmd = WriteMaterializedFileCommand(
+        materialization_id=mat_id,
+        server_id=server_id,
+        path=body.path,
+        content=body.content,
+    )
+    res = await command_bus.send(cmd)
+    data = check_command_result(res)
+    return WriteMaterializedFileResponse(**data)
+
+
+@router.delete("/materializations/{mat_id}", response_model=dict[str, Any])
+async def remove_materialization(
+    server_id: str,
+    mat_id: str,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> dict[str, Any]:
+    cmd = RemoveMaterializationCommand(
+        materialization_id=mat_id,
+        server_id=server_id,
+    )
+    res = await command_bus.send(cmd)
+    return check_command_result(res)
+
+
+@router.post("/import-review/scan", response_model=ScanLiveChangesResponse)
+async def scan_live_changes(
+    server_id: str,
+    body: ScanLiveChangesRequest,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> ScanLiveChangesResponse:
+    query = ScanLiveChangesQuery(
+        server_id=server_id,
+        source=body.source,
+    )
+    data = await query_bus.ask(query)
+    return ScanLiveChangesResponse(**data)
+
+
+@router.post(
+    "/import-review/auto-commit",
+    response_model=AutoCommitLiveChangesResponse,
+    status_code=201,
+)
+async def auto_commit_live_changes(
+    server_id: str,
+    body: AutoCommitLiveChangesRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> AutoCommitLiveChangesResponse:
+    cmd = AutoCommitLiveChangesCommand(
+        server_id=server_id,
+        branch=body.branch,
+    )
+    res = await command_bus.send(cmd)
+    data = check_command_result(res)
+    return AutoCommitLiveChangesResponse(**data)
+
+
+@router.post(
+    "/import-review/{review_id}/confirm",
+    response_model=ImportReviewActionResponse,
+)
+async def confirm_import_review(
+    server_id: str,
+    review_id: str,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> ImportReviewActionResponse:
+    cmd = ConfirmImportReviewCommand(
+        review_id=review_id,
+        server_id=server_id,
+    )
+    res = await command_bus.send(cmd)
+    data = check_command_result(res)
+    return ImportReviewActionResponse(**data)
+
+
+@router.post(
+    "/import-review/{review_id}/dismiss",
+    response_model=ImportReviewActionResponse,
+)
+async def dismiss_import_review(
+    server_id: str,
+    review_id: str,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> ImportReviewActionResponse:
+    cmd = DismissImportReviewCommand(
+        review_id=review_id,
+        server_id=server_id,
+    )
+    res = await command_bus.send(cmd)
+    data = check_command_result(res)
+    return ImportReviewActionResponse(**data)
+
+
+@router.post(
+    "/import-review/{review_id}/revert",
+    response_model=ImportReviewActionResponse,
+)
+async def revert_import_review(
+    server_id: str,
+    review_id: str,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> ImportReviewActionResponse:
+    cmd = RevertImportReviewCommand(
+        review_id=review_id,
+        server_id=server_id,
+    )
+    res = await command_bus.send(cmd)
+    data = check_command_result(res)
+    return ImportReviewActionResponse(**data)
+

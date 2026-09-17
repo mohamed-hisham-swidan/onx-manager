@@ -129,3 +129,96 @@ class PreflightResponse(BaseModel):
     min_required_cores: int
     passed: bool
     error: str | None = None
+
+
+# --- Stage C Schemas ---
+
+
+class CreateMaterializationRequest(BaseModel):
+    revision_type: str = Field(..., pattern="^(commit|branch|tag)$")
+    ref: str = Field(..., min_length=1)
+    mode: str = Field(default="readonly", pattern="^(readonly|editable)$")
+
+
+class MaterializationCreateResponse(BaseModel):
+    materialization_id: str
+    revision: str
+    mode: str
+    status: str
+    root: str
+
+
+class MaterializationListItemResponse(BaseModel):
+    id: str
+    revision: str
+    mode: str
+    status: str
+    stale: bool
+    created_at: str
+
+
+class MaterializationTreeEntry(BaseModel):
+    path: str
+    classification: str
+    size_bytes: int
+    origin: str
+
+
+class MaterializationTreeResponse(BaseModel):
+    entries: list[MaterializationTreeEntry]
+
+
+class MaterializationFileResponse(BaseModel):
+    content: str
+    encoding: str
+    path: str
+    size_bytes: int
+
+
+class SetEditModeRequest(BaseModel):
+    enabled: bool
+
+
+class SetEditModeResponse(BaseModel):
+    mode: str
+
+
+class WriteMaterializedFileRequest(BaseModel):
+    path: str = Field(..., min_length=1)
+    content: str
+
+
+class WriteMaterializedFileResponse(BaseModel):
+    path: str
+    bytes_written: int
+
+
+class ScanLiveChangesRequest(BaseModel):
+    source: str = Field(..., min_length=1)
+
+
+class LiveChangeEntry(BaseModel):
+    path: str
+    change: str
+    classification: str
+
+
+class ScanLiveChangesResponse(BaseModel):
+    changes: list[LiveChangeEntry]
+    auto_commit: str | None = None
+
+
+class AutoCommitLiveChangesRequest(BaseModel):
+    branch: str = Field(default="main", min_length=1)
+
+
+class AutoCommitLiveChangesResponse(BaseModel):
+    commit_id: str | None = None
+    review_id: str | None = None
+    changes: list[LiveChangeEntry] = Field(default_factory=list)
+
+
+class ImportReviewActionResponse(BaseModel):
+    status: str
+    revert_commit_id: str | None = None
+

@@ -28,6 +28,26 @@ class MaterializationStatus(enum.StrEnum):
     REMOVED = "removed"
 
 
+class MaterializationMode(enum.StrEnum):
+    READONLY = "readonly"
+    EDITABLE = "editable"
+
+
+class ImportReviewStatus(enum.StrEnum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    REVERTED = "reverted"
+    DISMISSED = "dismissed"
+
+
+MATERIALIZATION_ROOT_TESTS: str = ".onx/tests"
+MATERIALIZATION_ROOT_WORKTREES: str = ".onx/worktrees"
+ALLOWED_MATERIALIZATION_ROOTS: tuple[str, ...] = (
+    MATERIALIZATION_ROOT_TESTS,
+    MATERIALIZATION_ROOT_WORKTREES,
+)
+
+
 class PathClassification(enum.StrEnum):
     TRACKED = "tracked"
     PERSISTENT = "persistent"

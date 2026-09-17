@@ -9,6 +9,8 @@ from app.modules.versioning.domain.value_objects import (
     BotTech,
     BranchStatus,
     CommitManifest,
+    ImportReviewStatus,
+    MaterializationMode,
     MaterializationStatus,
     PathClassification,
     PlacementMode,
@@ -198,7 +200,11 @@ ServerTag = Tag
 
 @dataclass
 class Materialization:
-    """Represents materialized filesystem state for a specific commit."""
+    """Represents an isolated filesystem working tree derived from versioned state.
+
+    Lifecycle: pending -> ready -> stale -> removed.
+    Enforces path isolation under an isolated .onx/tests or .onx/worktrees root.
+    """
 
     id: str
     commit_id: str
@@ -206,6 +212,7 @@ class Materialization:
     status: MaterializationStatus = MaterializationStatus.PENDING
     path_classification: dict[str, PathClassification] = field(default_factory=dict)
     created_at: datetime = field(default_factory=_utcnow)
+    mode: MaterializationMode = MaterializationMode.READONLY
     server_id: str = ""
     revision: str = ""
 
@@ -214,27 +221,15 @@ class Materialization:
             raise ValueError("Materialization id cannot be empty")
         if not self.commit_id:
             raise ValueError("Materialization commit_id cannot be empty")
-        if not self.root_path:
-            raise ValueError("Materialization root_path cannot be empty")
         norm = os.path.normpath(self.root_path)
-        is_managed = (".onx" in norm and "tests" in norm) or norm.startswith(".onx/tests")
-        if not is_managed or ".." in self.root_path:
+        is_managed_root = (
+            (".onx" in norm and "tests" in norm) or (".onx" in norm and "worktrees" in norm)
+        )
+        if not is_managed_root or ".." in self.root_path:
             raise ValueError(
                 "Materialization root_path must be an isolated .onx/tests directory "
-                f"without traversal escapes: {self.root_path}"
+                f"or .onx/worktrees directory without traversal escapes: {self.root_path}"
             )
-
-    @property
-    def is_ready(self) -> bool:
-        return self.status == MaterializationStatus.READY
-
-    @property
-    def is_stale(self) -> bool:
-        return self.status == MaterializationStatus.STALE
-
-    @property
-    def is_removed(self) -> bool:
-        return self.status == MaterializationStatus.REMOVED
 
     def mark_ready(self) -> None:
         if self.status == MaterializationStatus.REMOVED:
@@ -249,6 +244,11 @@ class Materialization:
     def mark_removed(self) -> None:
         self.status = MaterializationStatus.REMOVED
 
+    def set_mode(self, mode: MaterializationMode) -> None:
+        if self.status == MaterializationStatus.REMOVED:
+            raise ValueError("Cannot set edit mode on removed materialization")
+        self.mode = mode
+
     def stage_path(self, relative_path: str, classification: PathClassification) -> str:
         if self.status == MaterializationStatus.REMOVED:
             raise ValueError("Cannot stage path into removed materialization")
@@ -260,6 +260,59 @@ class Materialization:
             raise ValueError(f"Staging path escapes materialization root: {relative_path}")
         self.path_classification[norm_rel] = classification
         return target
+
+
+@dataclass
+class ImportReview:
+    """Represents a review record for changes imported automatically from live disk."""
+
+    id: str
+    server_id: str
+    commit_id: str
+    parent_commit_id: str | None = None
+    branch_name: str = "main"
+    status: ImportReviewStatus = ImportReviewStatus.PENDING
+    changes: list[dict[str, Any]] = field(default_factory=list)
+    revert_commit_id: str | None = None
+    created_at: datetime = field(default_factory=_utcnow)
+    updated_at: datetime = field(default_factory=_utcnow)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("ImportReview id cannot be empty")
+        if not self.server_id:
+            raise ValueError("ImportReview server_id cannot be empty")
+        if not self.commit_id:
+            raise ValueError("ImportReview commit_id cannot be empty")
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in (
+            ImportReviewStatus.CONFIRMED,
+            ImportReviewStatus.REVERTED,
+            ImportReviewStatus.DISMISSED,
+        )
+
+    def confirm(self) -> None:
+        if self.is_terminal:
+            raise ValueError(f"Cannot confirm terminal import review ({self.status})")
+        self.status = ImportReviewStatus.CONFIRMED
+        self.updated_at = _utcnow()
+
+    def dismiss(self) -> None:
+        if self.is_terminal:
+            raise ValueError(f"Cannot dismiss terminal import review ({self.status})")
+        self.status = ImportReviewStatus.DISMISSED
+        self.updated_at = _utcnow()
+
+    def revert(self, revert_commit_id: str) -> None:
+        if self.is_terminal:
+            raise ValueError(f"Cannot revert terminal import review ({self.status})")
+        if not revert_commit_id:
+            raise ValueError("revert_commit_id cannot be empty")
+        self.status = ImportReviewStatus.REVERTED
+        self.revert_commit_id = revert_commit_id
+        self.updated_at = _utcnow()
 
 
 @dataclass

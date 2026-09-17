@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from app.modules.versioning.domain.entities import (
+    ImportReview,
+    Materialization,
     ServerBranch,
     ServerCommit,
     ServerTestRun,
@@ -88,3 +90,28 @@ class VersioningRepository(ABC):
 
     async def save_tag(self, tag: Tag) -> Tag:
         return tag
+
+    # Materializations
+    async def get_materialization(self, materialization_id: str) -> Materialization | None:
+        _ = materialization_id
+        return None
+
+    async def list_materializations(self, server_id: str) -> list[Materialization]:
+        _ = server_id
+        return []
+
+    async def save_materialization(self, materialization: Materialization) -> Materialization:
+        return materialization
+
+    # Import Reviews
+    async def get_import_review(self, review_id: str) -> ImportReview | None:
+        _ = review_id
+        return None
+
+    async def list_import_reviews(self, server_id: str, limit: int = 50) -> list[ImportReview]:
+        _ = (server_id, limit)
+        return []
+
+    async def save_import_review(self, review: ImportReview) -> ImportReview:
+        return review
+

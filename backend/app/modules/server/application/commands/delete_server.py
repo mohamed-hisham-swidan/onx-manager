@@ -161,7 +161,13 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
             command.server_id,
         )
 
+        with contextlib.suppress(Exception):
+            from app.modules.versioning.application import cleanup_server_materializations
+
+            await cleanup_server_materializations(sid, self._event_bus)
+
         if server_dir:
+
             try:
                 local_fs.delete_dir(server_dir)
                 logger.info(

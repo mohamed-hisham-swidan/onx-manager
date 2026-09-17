@@ -4,6 +4,8 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.versioning.domain.entities import (
+    ImportReview,
+    Materialization,
     ServerBranch,
     ServerCommit,
     ServerTestRun,
@@ -14,6 +16,10 @@ from app.modules.versioning.domain.repository import VersioningRepository
 from app.modules.versioning.domain.value_objects import (
     BotTech,
     CommitManifest,
+    ImportReviewStatus,
+    MaterializationMode,
+    MaterializationStatus,
+    PathClassification,
     PlacementMode,
     TestRunStatus,
 )
@@ -21,6 +27,8 @@ from app.modules.versioning.infrastructure.models import (
     ServerBranchModel,
     ServerCommitModel,
     ServerCommitParentModel,
+    ServerImportReviewModel,
+    ServerMaterializationModel,
     ServerTagModel,
     ServerTestRunModel,
     ServerWorldSnapshotModel,
@@ -295,6 +303,97 @@ class SQLVersioningRepository(VersioningRepository):
         await self._session.flush()
         return tag
 
+    # Materializations
+    async def get_materialization(self, materialization_id: str) -> Materialization | None:
+        model = await self._session.get(ServerMaterializationModel, materialization_id)
+        return self._materialization_to_domain(model) if model else None
+
+    async def list_materializations(self, server_id: str) -> list[Materialization]:
+        stmt = (
+            select(ServerMaterializationModel)
+            .where(ServerMaterializationModel.server_id == server_id)
+            .order_by(desc(ServerMaterializationModel.created_at))
+        )
+        res = await self._session.execute(stmt)
+        return [self._materialization_to_domain(m) for m in res.scalars().all()]
+
+    async def save_materialization(self, materialization: Materialization) -> Materialization:
+        model = await self._session.get(ServerMaterializationModel, materialization.id)
+        classification_data = {
+            k: v.value if hasattr(v, "value") else str(v)
+            for k, v in materialization.path_classification.items()
+        }
+        status_val = (
+            materialization.status.value
+            if hasattr(materialization.status, "value")
+            else str(materialization.status)
+        )
+        mode_val = (
+            materialization.mode.value
+            if hasattr(materialization.mode, "value")
+            else str(materialization.mode)
+        )
+        if model is None:
+            model = ServerMaterializationModel(
+                id=materialization.id,
+                server_id=materialization.server_id,
+                commit_id=materialization.commit_id,
+                root_path=materialization.root_path,
+                status=status_val,
+                mode=mode_val,
+                revision=materialization.revision,
+                path_classification=classification_data,
+                created_at=materialization.created_at,
+            )
+            self._session.add(model)
+        else:
+            model.status = status_val
+            model.mode = mode_val
+            model.revision = materialization.revision
+            model.path_classification = classification_data
+        await self._session.flush()
+        return materialization
+
+    # Import Reviews
+    async def get_import_review(self, review_id: str) -> ImportReview | None:
+        model = await self._session.get(ServerImportReviewModel, review_id)
+        return self._import_review_to_domain(model) if model else None
+
+    async def list_import_reviews(self, server_id: str, limit: int = 50) -> list[ImportReview]:
+        stmt = (
+            select(ServerImportReviewModel)
+            .where(ServerImportReviewModel.server_id == server_id)
+            .order_by(desc(ServerImportReviewModel.created_at))
+            .limit(limit)
+        )
+        res = await self._session.execute(stmt)
+        return [self._import_review_to_domain(m) for m in res.scalars().all()]
+
+    async def save_import_review(self, review: ImportReview) -> ImportReview:
+        model = await self._session.get(ServerImportReviewModel, review.id)
+        status_val = review.status.value if hasattr(review.status, "value") else str(review.status)
+        if model is None:
+            model = ServerImportReviewModel(
+                id=review.id,
+                server_id=review.server_id,
+                commit_id=review.commit_id,
+                parent_commit_id=review.parent_commit_id,
+                branch_name=review.branch_name,
+                status=status_val,
+                changes=review.changes,
+                revert_commit_id=review.revert_commit_id,
+                created_at=review.created_at,
+                updated_at=review.updated_at,
+            )
+            self._session.add(model)
+        else:
+            model.status = status_val
+            model.changes = review.changes
+            model.revert_commit_id = review.revert_commit_id
+            model.updated_at = review.updated_at
+        await self._session.flush()
+        return review
+
     # Model mappers
     @staticmethod
     def _branch_to_domain(m: ServerBranchModel) -> ServerBranch:
@@ -388,5 +487,59 @@ class SQLVersioningRepository(VersioningRepository):
             bot_tech=(
                 BotTech(m.bot_tech) if m.bot_tech in BotTech._value2member_map_ else BotTech.AUTO
             ),
+        )
+
+    @staticmethod
+    def _materialization_to_domain(m: ServerMaterializationModel) -> Materialization:
+        classifications: dict[str, PathClassification] = {}
+        if isinstance(m.path_classification, dict):
+            for k, v in m.path_classification.items():
+                try:
+                    classifications[k] = PathClassification(v)
+                except ValueError:
+                    classifications[k] = PathClassification.TRACKED
+
+        mode = (
+            MaterializationMode(m.mode)
+            if m.mode in MaterializationMode._value2member_map_
+            else MaterializationMode.READONLY
+        )
+        status = (
+            MaterializationStatus(m.status)
+            if m.status in MaterializationStatus._value2member_map_
+            else MaterializationStatus.PENDING
+        )
+
+        return Materialization(
+            id=m.id,
+            commit_id=m.commit_id,
+            root_path=m.root_path,
+            status=status,
+            path_classification=classifications,
+            created_at=m.created_at,
+            mode=mode,
+            server_id=m.server_id,
+            revision=m.revision,
+        )
+
+    @staticmethod
+    def _import_review_to_domain(m: ServerImportReviewModel) -> ImportReview:
+        status = (
+            ImportReviewStatus(m.status)
+            if m.status in ImportReviewStatus._value2member_map_
+            else ImportReviewStatus.PENDING
+        )
+
+        return ImportReview(
+            id=m.id,
+            server_id=m.server_id,
+            commit_id=m.commit_id,
+            parent_commit_id=m.parent_commit_id,
+            branch_name=m.branch_name,
+            status=status,
+            changes=list(m.changes) if isinstance(m.changes, list) else [],
+            revert_commit_id=m.revert_commit_id,
+            created_at=m.created_at,
+            updated_at=m.updated_at,
         )
 
