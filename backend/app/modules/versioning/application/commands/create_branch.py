@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
-from app.core.event_bus import EventBus
+from app.core.event_bus import DomainEvent, EventBus
 from app.core.exceptions import ConflictError, NotFoundError
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.domain.entities import ServerBranch
+from app.modules.versioning.domain.events import BranchCreatedEvent
 from app.modules.versioning.domain.repository import VersioningRepository
 
 
@@ -32,28 +34,46 @@ class CreateBranchHandler(CommandHandler[CreateBranchCommand]):
         from app.modules.server.infrastructure.repository import SQLServerRepository
         from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
 
-        if self._server_repo is not None and self._versioning_repo is not None:
-            return await self._execute(command, self._server_repo, self._versioning_repo)
+        events: list[DomainEvent] = []
 
-        async with database.session_factory() as session:
-            server_repo = self._server_repo or SQLServerRepository(session)
-            versioning_repo = self._versioning_repo or SQLVersioningRepository(session)
-            res = await self._execute(command, server_repo, versioning_repo)
-            await session.commit()
-            return res
+        if self._server_repo is not None and self._versioning_repo is not None:
+            res = await self._execute(command, self._server_repo, self._versioning_repo, events)
+        else:
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    async with database.session_factory() as session:
+                        server_repo = self._server_repo or SQLServerRepository(session)
+                        versioning_repo = self._versioning_repo or SQLVersioningRepository(session)
+                        events.clear()
+                        res = await self._execute(command, server_repo, versioning_repo, events)
+                        await session.commit()
+                    break
+                except Exception as exc:
+                    is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                    if is_lock and attempt < max_retries - 1:
+                        await asyncio.sleep(0.05 * (2**attempt))
+                        continue
+                    raise
+
+        if self._event_bus is not None and res.success:
+            for ev in events:
+                await self._event_bus.publish(ev)
+
+        return res
 
     async def _execute(
         self,
         command: CreateBranchCommand,
         server_repo: ServerRepository,
         versioning_repo: VersioningRepository,
+        events: list[DomainEvent] | None = None,
     ) -> CommandResult:
         from app.modules.shared.value_objects import ServerId
-        from app.modules.versioning.domain.events import BranchCreatedEvent
 
         # Verify server exists
         try:
-            server = await server_repo.get(ServerId(command.server_id))
+            await server_repo.get(ServerId(command.server_id))
         except Exception as exc:
             raise NotFoundError(f"Server '{command.server_id}' not found") from exc
 
@@ -64,22 +84,34 @@ class CreateBranchHandler(CommandHandler[CreateBranchCommand]):
                 f"Branch '{command.name}' already exists on server '{command.server_id}'"
             )
 
+        if command.head_commit_id:
+            head_commit = await versioning_repo.get_commit(command.head_commit_id)
+            if head_commit is None or head_commit.server_id != command.server_id:
+                raise NotFoundError(
+                    f"Head commit '{command.head_commit_id}' not found on "
+                    f"server '{command.server_id}'"
+                )
+
+        from app.modules.versioning.domain.value_objects import BranchStatus
+
         branch = ServerBranch(
             id=str(uuid.uuid4()),
             server_id=command.server_id,
             name=command.name,
             head_commit_id=command.head_commit_id,
+            status=BranchStatus.ACTIVE if command.head_commit_id else BranchStatus.CREATED,
         )
         await versioning_repo.save_branch(branch)
 
-        if self._event_bus is not None:
-            await self._event_bus.publish(
-                BranchCreatedEvent(
-                    server_id=command.server_id,
-                    branch_name=branch.name,
-                    branch_id=branch.id,
-                )
-            )
+        event = BranchCreatedEvent(
+            server_id=command.server_id,
+            branch_name=branch.name,
+            branch_id=branch.id,
+        )
+        if events is not None:
+            events.append(event)
+        elif self._event_bus is not None:
+            await self._event_bus.publish(event)
 
         return CommandResult(
             success=True,
