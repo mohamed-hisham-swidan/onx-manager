@@ -66,6 +66,8 @@ _DEFAULTS: dict[str, Any] = {
     "bot_join_stagger_seconds": 3.0,
     "bot_connect_grace_seconds": 60.0,
     "bot_watchdog_overrun_minutes": 5.0,
+    "global_max_concurrent_runs": 3,
+    "stale_run_timeout_hours": 6.0,
 }
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
@@ -106,6 +108,8 @@ class LiveSettings:
     bot_join_stagger_seconds: float = 3.0
     bot_connect_grace_seconds: float = 60.0
     bot_watchdog_overrun_minutes: float = 5.0
+    global_max_concurrent_runs: int = 3
+    stale_run_timeout_hours: float = 6.0
 
 
 _live: LiveSettings | None = None

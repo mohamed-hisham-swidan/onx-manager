@@ -434,6 +434,10 @@ class ServerTestRun:
     duration_minutes: int = 15
     placement_mode: PlacementMode = PlacementMode.SIDECAR
     bot_tech: BotTech = BotTech.AUTO
+    # Stage D admission earmarks (nullable: runs created before b1e2100000017
+    # carry None and fall back to recomputation; all Stage D rows write values).
+    reserved_ram_mb: int | None = None
+    reserved_cores: int | None = None
 
     @property
     def is_terminal(self) -> bool:

@@ -70,6 +70,10 @@ class VersioningRepository(ABC):
     async def list_test_runs(self, server_id: str, limit: int = 20) -> list[ServerTestRun]:
         pass
 
+    async def list_active_test_runs(self) -> list[ServerTestRun]:
+        """Global PENDING/RUNNING runs across all servers (Stage D admission ledger)."""
+        return []
+
     @abstractmethod
     async def save_test_run(self, test_run: ServerTestRun) -> ServerTestRun:
         pass

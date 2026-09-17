@@ -10,7 +10,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.core.exceptions import ConflictError
 from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyzer
 from app.modules.server.infrastructure.providers.docker import (
     build_docker_server_cmd,
@@ -126,188 +125,177 @@ class DockerTestExecutionRunner(TestExecutionRunner):
     """
 
     def __init__(self) -> None:
-        self._server_locks: dict[str, asyncio.Lock] = {}
         self._active_runs: dict[str, TestHandle] = {}
 
-    def _get_server_lock(self, server_id: str) -> asyncio.Lock:
-        if server_id not in self._server_locks:
-            self._server_locks[server_id] = asyncio.Lock()
-        return self._server_locks[server_id]
-
     async def run_test(self, spec: TestSpec) -> TestHandle:
-        lock = self._get_server_lock(spec.server_id)
-        if lock.locked():
-            raise ConflictError("A test run is already active for this server.")
+        # Stage D: concurrency is governed by the global admission gate
+        # (RunIsolatedTestHandler → admit()), not by a per-server lock.
+        # This runner is a plain executor: materialize → launch → verify.
+        # 1. Check storage COW capability
+        StorageCapabilityProbe.assert_supports_reflink(spec.server_dir)
 
-        await lock.acquire()
-        try:
-            # 1. Check storage COW capability
-            StorageCapabilityProbe.assert_supports_reflink(spec.server_dir)
+        # 2. Check physical system headroom (second-line defense; admission
+        # already earmarked headroom before this call)
+        server_type = spec.commit.manifest.server_type
+        ResourcePreflightProbe.assert_sufficient_resources(
+            bot_count=spec.bot_config.bot_count,
+            server_type=server_type,
+        )
 
-            # 2. Check physical system headroom
-            server_type = spec.commit.manifest.server_type
-            ResourcePreflightProbe.assert_sufficient_resources(
-                bot_count=spec.bot_config.bot_count,
-                server_type=server_type,
-            )
+        # 3. Materialize test directory under .onx/tests/<test_id>
+        test_root = Path(spec.server_dir) / ".onx" / "tests" / spec.test_id
+        test_dir_str = str(test_root.resolve())
+        test_root.mkdir(parents=True, exist_ok=True)
 
-            # 3. Materialize test directory under .onx/tests/<test_id>
-            test_root = Path(spec.server_dir) / ".onx" / "tests" / spec.test_id
-            test_dir_str = str(test_root.resolve())
-            test_root.mkdir(parents=True, exist_ok=True)
+        # 4. COW world clone
+        BtrfsZfsSnapshotDriver.clone_world(spec.server_dir, test_dir_str)
 
-            # 4. COW world clone
-            BtrfsZfsSnapshotDriver.clone_world(spec.server_dir, test_dir_str)
+        # 5. Write manifest configs & mod jars into test directory
+        manifest = spec.commit.manifest
+        for rel_path, content in manifest.configs.items():
+            if rel_path != "server.properties":  # server.properties written via test writer
+                tgt = test_root / rel_path
+                tgt.parent.mkdir(parents=True, exist_ok=True)
+                tgt.write_text(content, encoding="utf-8")
 
-            # 5. Write manifest configs & mod jars into test directory
-            manifest = spec.commit.manifest
-            for rel_path, content in manifest.configs.items():
-                if rel_path != "server.properties":  # server.properties written via test writer
-                    tgt = test_root / rel_path
-                    tgt.parent.mkdir(parents=True, exist_ok=True)
-                    tgt.write_text(content, encoding="utf-8")
+        # Copy mods
+        live_mods = Path(spec.server_dir) / "mods"
+        test_mods = test_root / "mods"
+        if live_mods.is_dir():
+            test_mods.mkdir(parents=True, exist_ok=True)
+            for mod_ref in manifest.mods:
+                src_mod = Path(spec.server_dir) / mod_ref["filename"]
+                if src_mod.is_file():
+                    dst_mod = test_root / mod_ref["filename"]
+                    # FOLLOW-UP (SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.2):
+                    # Now uses stage_file_reflink_or_copy which checks returncode.
+                    # Previously: subprocess.run([...], check=False) + except Exception fallback
+                    # did NOT catch a found-but-failing cp (e.g. MSYS2 without --reflink),
+                    # silently leaving mod jars absent.  This call is now safe.
+                    stage_file_reflink_or_copy(src_mod, dst_mod)
 
-            # Copy mods
-            live_mods = Path(spec.server_dir) / "mods"
-            test_mods = test_root / "mods"
-            if live_mods.is_dir():
-                test_mods.mkdir(parents=True, exist_ok=True)
-                for mod_ref in manifest.mods:
-                    src_mod = Path(spec.server_dir) / mod_ref["filename"]
-                    if src_mod.is_file():
-                        dst_mod = test_root / mod_ref["filename"]
-                        # FOLLOW-UP (SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.2):
-                        # Now uses stage_file_reflink_or_copy which checks returncode.
-                        # Previously: subprocess.run([...], check=False) + except Exception fallback
-                        # did NOT catch a found-but-failing cp (e.g. MSYS2 without --reflink),
-                        # silently leaving mod jars absent.  This call is now safe.
-                        stage_file_reflink_or_copy(src_mod, dst_mod)
-
-            # 5b. Stage server executable (jar or run.sh / user_jvm_args.txt)
-            # SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.2 — Executable Staging.
-            staged_startup_jar: str | None = None
-            server_startup_cmd: list[str] | None = None
-            run_sh_src = Path(spec.server_dir) / "run.sh"
-            if run_sh_src.is_file():
-                run_sh_dst = test_root / "run.sh"
-                stage_file_reflink_or_copy(run_sh_src, run_sh_dst)
-                run_sh_dst.chmod(0o755)
-                jvm_args_src = Path(spec.server_dir) / "user_jvm_args.txt"
-                if jvm_args_src.is_file():
-                    stage_file_reflink_or_copy(jvm_args_src, test_root / "user_jvm_args.txt")
-                # Explicit startup command — build_docker_server_cmd does no disk detection.
-                server_startup_cmd = ["bash", "run.sh", "nogui"]
+        # 5b. Stage server executable (jar or run.sh / user_jvm_args.txt)
+        # SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.2 — Executable Staging.
+        staged_startup_jar: str | None = None
+        server_startup_cmd: list[str] | None = None
+        run_sh_src = Path(spec.server_dir) / "run.sh"
+        if run_sh_src.is_file():
+            run_sh_dst = test_root / "run.sh"
+            stage_file_reflink_or_copy(run_sh_src, run_sh_dst)
+            run_sh_dst.chmod(0o755)
+            jvm_args_src = Path(spec.server_dir) / "user_jvm_args.txt"
+            if jvm_args_src.is_file():
+                stage_file_reflink_or_copy(jvm_args_src, test_root / "user_jvm_args.txt")
+            # Explicit startup command — build_docker_server_cmd does no disk detection.
+            server_startup_cmd = ["bash", "run.sh", "nogui"]
+        else:
+            # Resolve the startup jar to stage.
+            # CommitManifest has no startup_jar field; always fall through to "server.jar"
+            # default then glob. (getattr guard removed — was permanently dead code.)
+            candidate_jar: Path | None = None
+            default_jar = Path(spec.server_dir) / "server.jar"
+            if default_jar.is_file():
+                candidate_jar = default_jar
             else:
-                # Resolve the startup jar to stage.
-                # CommitManifest has no startup_jar field; always fall through to "server.jar"
-                # default then glob. (getattr guard removed — was permanently dead code.)
-                candidate_jar: Path | None = None
-                default_jar = Path(spec.server_dir) / "server.jar"
-                if default_jar.is_file():
-                    candidate_jar = default_jar
-                else:
-                    jars = sorted(Path(spec.server_dir).glob("*.jar"))
-                    if jars:
-                        candidate_jar = jars[0]
-                if candidate_jar is not None:
-                    staged_startup_jar = candidate_jar.name
-                    stage_file_reflink_or_copy(candidate_jar, test_root / candidate_jar.name)
+                jars = sorted(Path(spec.server_dir).glob("*.jar"))
+                if jars:
+                    candidate_jar = jars[0]
+            if candidate_jar is not None:
+                staged_startup_jar = candidate_jar.name
+                stage_file_reflink_or_copy(candidate_jar, test_root / candidate_jar.name)
 
-            # 6. Safety-Critical: Write test server.properties via TestServerDeployment
-            test_deployment = TestServerDeployment(test_id=spec.test_id, test_dir=test_dir_str)
-            base_props = {}
-            if "server.properties" in manifest.configs:
-                for line in manifest.configs["server.properties"].splitlines():
-                    if "=" in line and not line.strip().startswith("#"):
-                        k, v = line.split("=", 1)
-                        base_props[k.strip()] = v.strip()
+        # 6. Safety-Critical: Write test server.properties via TestServerDeployment
+        test_deployment = TestServerDeployment(test_id=spec.test_id, test_dir=test_dir_str)
+        base_props = {}
+        if "server.properties" in manifest.configs:
+            for line in manifest.configs["server.properties"].splitlines():
+                if "=" in line and not line.strip().startswith("#"):
+                    k, v = line.split("=", 1)
+                    base_props[k.strip()] = v.strip()
 
-            write_test_server_properties(
-                deployment=test_deployment,
-                base_properties=base_props,
-                server_port=25565,
-                bot_count=spec.bot_config.bot_count,
-            )
+        write_test_server_properties(
+            deployment=test_deployment,
+            base_properties=base_props,
+            server_port=25565,
+            bot_count=spec.bot_config.bot_count,
+        )
 
-            # 7. Resolve Docker image + build startup CMD and launch container
-            image = resolve_docker_image(minecraft_version=spec.minecraft_version)
-            container_name = f"onx-test-{spec.test_id}"
-            host_mount = resolve_host_mount_path(test_dir_str)
+        # 7. Resolve Docker image + build startup CMD and launch container
+        image = resolve_docker_image(minecraft_version=spec.minecraft_version)
+        container_name = f"onx-test-{spec.test_id}"
+        host_mount = resolve_host_mount_path(test_dir_str)
 
-            # Build server CMD — startup_command passed explicitly (no disk detection in helper).
-            # SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.1
-            server_cmd = build_docker_server_cmd(
-                startup_command=server_startup_cmd,
-                startup_jar=staged_startup_jar,
-                image=image,
-            )
+        # Build server CMD — startup_command passed explicitly (no disk detection in helper).
+        # SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.1
+        server_cmd = build_docker_server_cmd(
+            startup_command=server_startup_cmd,
+            startup_jar=staged_startup_jar,
+            image=image,
+        )
 
-            # Memory budget: 2 GB min / 4 GB max, with 512 MB Docker headroom.
-            memory_max_mb = 4096
-            docker_cmd = [
-                "docker",
-                "run",
-                "-d",
-                "--name",
-                container_name,
-                "--network",
-                "bridge",
-                "-v",
-                f"{host_mount}:/data",
-                "-w",
-                "/data",
-                "--memory",
-                f"{memory_max_mb + 512}m",
-                # Host UID mapping (Must-Fix 5): match the regular-server launch contract
-                # (docker.py --user uid:gid) so container writes land on disk as the
-                # host user. Without this, a root-owned boot (e.g. auto-created
-                # plugins/) denies later host-side writes (PermissionError, run 61d84dd5).
-                # Must precede IMAGE: everything after IMAGE is the container CMD,
-                # and a misplaced --user there kills the entrypoint (run 6f354058).
-                *(
-                    ["--user", f"{os.getuid()}:{os.getgid()}"]
-                    if hasattr(os, "getuid")
-                    and hasattr(os, "getgid")
-                    and sys.platform != "win32"
-                    else []
-                ),
-                "-e",
-                "EULA=TRUE",
-                "-e",
-                "ONLINE_MODE=FALSE",
-                image,
-            ]
-            docker_cmd.extend(server_cmd)
+        # Memory budget: 2 GB min / 4 GB max, with 512 MB Docker headroom.
+        memory_max_mb = 4096
+        docker_cmd = [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            container_name,
+            "--network",
+            "bridge",
+            "-v",
+            f"{host_mount}:/data",
+            "-w",
+            "/data",
+            "--memory",
+            f"{memory_max_mb + 512}m",
+            # Host UID mapping (Must-Fix 5): match the regular-server launch contract
+            # (docker.py --user uid:gid) so container writes land on disk as the
+            # host user. Without this, a root-owned boot (e.g. auto-created
+            # plugins/) denies later host-side writes (PermissionError, run 61d84dd5).
+            # Must precede IMAGE: everything after IMAGE is the container CMD,
+            # and a misplaced --user there kills the entrypoint (run 6f354058).
+            *(
+                ["--user", f"{os.getuid()}:{os.getgid()}"]
+                if hasattr(os, "getuid")
+                and hasattr(os, "getgid")
+                and sys.platform != "win32"
+                else []
+            ),
+            "-e",
+            "EULA=TRUE",
+            "-e",
+            "ONLINE_MODE=FALSE",
+            image,
+        ]
+        docker_cmd.extend(server_cmd)
 
-            res = await asyncio.to_thread(
-                subprocess.run, docker_cmd, capture_output=True, text=True, timeout=30
-            )
-            if res.returncode != 0:
-                raise RuntimeError(f"Failed to start isolated test container: {res.stderr.strip()}")
+        res = await asyncio.to_thread(
+            subprocess.run, docker_cmd, capture_output=True, text=True, timeout=30
+        )
+        if res.returncode != 0:
+            raise RuntimeError(f"Failed to start isolated test container: {res.stderr.strip()}")
 
-            handle = TestHandle(
-                test_id=spec.test_id,
-                server_id=spec.server_id,
-                container_name=container_name,
-                test_dir=test_dir_str,
-                sidecar_runner=None,
-                status=TestRunStatus.RUNNING,
-            )
-            self._active_runs[spec.test_id] = handle
+        handle = TestHandle(
+            test_id=spec.test_id,
+            server_id=spec.server_id,
+            container_name=container_name,
+            test_dir=test_dir_str,
+            sidecar_runner=None,
+            status=TestRunStatus.RUNNING,
+        )
+        self._active_runs[spec.test_id] = handle
 
-            # Launch background verification execution
-            asyncio.create_task(self._execute_verification(spec, handle, test_deployment, lock))
-            return handle
-        except Exception:
-            lock.release()
-            raise
+        # Launch background verification execution (no lock is held: admission
+        # owns concurrency policy; failures surface via handle + DB outcome).
+        asyncio.create_task(self._execute_verification(spec, handle, test_deployment))
+        return handle
 
     async def _execute_verification(
         self,
         spec: TestSpec,
         handle: TestHandle,
         test_deployment: TestServerDeployment,
-        lock: asyncio.Lock,
     ) -> None:
         """Background execution of bot verification against the test container."""
         bot_cfg = spec.bot_config
@@ -567,7 +555,6 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             # Must-Fix 6A: remove the test container on EVERY exit path
             # (success, timeout, exception, cancellation). Previously the
             # container leaked (e.g. still Up 8h after a crashed run).
-            # Guarded so a cleanup failure can never skip lock release below.
             try:
                 await self.cleanup_test(handle)
             except Exception as cleanup_exc:
@@ -576,8 +563,6 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     spec.test_id,
                     cleanup_exc,
                 )
-            if lock.locked():
-                lock.release()
 
     async def _persist_test_outcome(
         self,

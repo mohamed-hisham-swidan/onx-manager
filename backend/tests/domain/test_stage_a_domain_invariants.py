@@ -44,7 +44,6 @@ from app.modules.versioning.domain.value_objects import (
 from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
 from app.modules.versioning.infrastructure.test_runner import (
     DockerTestExecutionRunner,
-    TestSpec,
 )
 
 # ============================================================================
@@ -113,45 +112,78 @@ def test_invariant_1_runtime_factory_rejects_branch_reference() -> None:
 
 
 # ============================================================================
-# Invariant 2: Preserved Per-Server Lock Policy
+# Invariant 2: Global Admission Policy (Stage D — REWRITTEN, see note)
 # ============================================================================
+#
+# NOTE (Stage D spec §d): the Stage A per-server in-memory lock
+# (DockerTestExecutionRunner._server_locks + "already active" ConflictError)
+# was intentionally DELETED and subsumed by the global admission gate
+# (application/scheduling/admission.admit). The old assertion below proved
+# lock presence; it is replaced — not skipped — by assertions proving the
+# NEW policy: same-server concurrency admitted under a global cap, denial
+# past the cap, and stored RAM/core earmarks on every admitted row.
 
 
 @pytest.mark.asyncio
-async def test_invariant_2_existing_server_lock_policy_preserved() -> None:
-    """DockerTestExecutionRunner rejects concurrent test runs on the same server."""
+async def test_invariant_2_existing_server_lock_policy_preserved(tmp_path) -> None:
+    """Stage D policy: no per-server lock; global admission with earmarks governs."""
+    from types import SimpleNamespace
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.persistence.base import Base
+    from app.modules.versioning.application.scheduling.admission import admit
+    from app.modules.versioning.infrastructure.resource_probe import (
+        ResourcePreflightProbe,
+    )
+
+    # The lock machinery itself is gone (§d deletion proof).
     runner = DockerTestExecutionRunner()
-    server_id = "srv-lock-test"
+    assert not hasattr(runner, "_server_locks")
+    assert not hasattr(runner, "_get_server_lock")
 
-    # Acquire lock for server
-    lock = runner._get_server_lock(server_id)
-    await lock.acquire()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/inv2.db")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
-    manifest = CommitManifest(server_type="paper", minecraft_version="1.21.1")
-    commit = ServerCommit(
-        id="commit-1",
-        server_id=server_id,
-        message="lock test",
-        manifest=manifest,
-    )
-    spec = TestSpec(
-        test_id="test-run-1",
-        server_id=server_id,
-        commit=commit,
-        server_dir="/tmp/srv",
-        bot_config=MagicMock(bot_count=5),
-        minecraft_version="1.21.1",
-    )
+    mem = SimpleNamespace(available=64 * 1024 * 1024 * 1024)
 
     try:
-        with pytest.raises(ConflictError, match="A test run is already active for this server"):
-            await runner.run_test(spec)
-    finally:
-        lock.release()
+        exp_ram, exp_cores = ResourcePreflightProbe.calculate_required_resources(
+            5, "paper"
+        )
+        # Three same-server admissions succeed under a cap of 3 (the old lock
+        # allowed exactly one per server — this is the behavior change).
+        with (
+            patch("psutil.virtual_memory", return_value=mem),
+            patch("os.cpu_count", return_value=32),
+        ):
+            for i in range(3):
+                res = await admit(
+                    server_id="srv-lock-test",
+                    commit_id="commit-1",
+                    bot_count=5,
+                    server_type="paper",
+                    engine=engine,
+                    max_runs=3,
+                )
+                assert res.test_run.status == TestRunStatus.PENDING
+                assert res.test_run.reserved_ram_mb == exp_ram
+                assert res.test_run.reserved_cores == exp_cores
+                assert res.occupied_count == i
 
-    # Different server can acquire lock independently without conflict
-    other_server_lock = runner._get_server_lock("srv-other")
-    assert not other_server_lock.locked()
+            # Fourth global admission is denied with 409 (cap), not admitted.
+            with pytest.raises(ConflictError, match="Global concurrent test-run cap"):
+                await admit(
+                    server_id="srv-lock-test",
+                    commit_id="commit-1",
+                    bot_count=5,
+                    server_type="paper",
+                    engine=engine,
+                    max_runs=3,
+                )
+    finally:
+        await engine.dispose()
 
 
 # ============================================================================

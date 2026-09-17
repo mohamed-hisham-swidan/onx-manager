@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     JSON,
     BigInteger,
+    CheckConstraint,
     Column,
     DateTime,
     Integer,
@@ -98,6 +99,26 @@ class ServerTestRunModel(Base):
     duration_minutes = Column(Integer, nullable=False, default=15)
     placement_mode = Column(String(32), nullable=False, default="sidecar")
     bot_tech = Column(String(32), nullable=False, default="auto")
+    # Stage D admission earmarks (nullable for pre-b1e2100000017 rows).
+    reserved_ram_mb = Column(Integer, nullable=True)
+    reserved_cores = Column(Integer, nullable=True)
+
+
+class ServerAdmissionLeaseModel(Base):
+    """Single-row cross-process mutex for test-run admission (Stage D).
+
+    Exactly one row (id=1) exists; admission claims it inside its transaction
+    (SELECT ... FOR UPDATE on Postgres-family, BEGIN IMMEDIATE ordering on
+    SQLite) so reap-read-check-earmark serializes across worker processes.
+    """
+
+    __tablename__ = "server_admission_lease"
+
+    id = Column(Integer, primary_key=True)
+    holder = Column(String(128), nullable=False, default="")
+    acquired_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (CheckConstraint("id = 1", name="ck_admission_lease_singleton"),)
 
 
 class ServerMaterializationModel(Base):

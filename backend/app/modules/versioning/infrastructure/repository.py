@@ -223,6 +223,19 @@ class SQLVersioningRepository(VersioningRepository):
         res = await self._session.execute(stmt)
         return [self._test_run_to_domain(m) for m in res.scalars().all()]
 
+    async def list_active_test_runs(self) -> list[ServerTestRun]:
+        stmt = (
+            select(ServerTestRunModel)
+            .where(
+                ServerTestRunModel.status.in_(
+                    [TestRunStatus.PENDING.value, TestRunStatus.RUNNING.value]
+                )
+            )
+            .order_by(ServerTestRunModel.created_at)
+        )
+        res = await self._session.execute(stmt)
+        return [self._test_run_to_domain(m) for m in res.scalars().all()]
+
     async def save_test_run(self, test_run: ServerTestRun) -> ServerTestRun:
         model = await self._session.get(ServerTestRunModel, test_run.id)
         if model is None:
@@ -251,6 +264,8 @@ class SQLVersioningRepository(VersioningRepository):
                     if isinstance(test_run.bot_tech, BotTech)
                     else test_run.bot_tech
                 ),
+                reserved_ram_mb=test_run.reserved_ram_mb,
+                reserved_cores=test_run.reserved_cores,
             )
             self._session.add(model)
         else:
@@ -263,6 +278,10 @@ class SQLVersioningRepository(VersioningRepository):
             model.log_output = test_run.log_output
             model.failure_reason = test_run.failure_reason
             model.expires_at = test_run.expires_at
+            if test_run.reserved_ram_mb is not None:
+                model.reserved_ram_mb = test_run.reserved_ram_mb
+            if test_run.reserved_cores is not None:
+                model.reserved_cores = test_run.reserved_cores
         await self._session.flush()
         return test_run
 
@@ -487,6 +506,8 @@ class SQLVersioningRepository(VersioningRepository):
             bot_tech=(
                 BotTech(m.bot_tech) if m.bot_tech in BotTech._value2member_map_ else BotTech.AUTO
             ),
+            reserved_ram_mb=m.reserved_ram_mb,
+            reserved_cores=m.reserved_cores,
         )
 
     @staticmethod

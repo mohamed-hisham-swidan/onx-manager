@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.core.exceptions import ConflictError
 from app.modules.server.infrastructure.providers.docker import build_docker_server_cmd
 from app.modules.versioning.domain.entities import ServerCommit
 from app.modules.versioning.domain.value_objects import (
@@ -107,8 +106,14 @@ async def test_docker_test_runner_successful_execution_pipeline() -> None:
 
 
 @pytest.mark.asyncio
-async def test_docker_test_runner_concurrent_runs_rejected_with_conflict() -> None:
+async def test_docker_test_runner_concurrent_runs_no_longer_rejected() -> None:
+    """Stage D: the runner holds no per-server lock; admission owns the policy.
+
+    Two same-server run_test() calls are both accepted here (concurrency is
+    governed by application/scheduling/admission.admit, not by the runner).
+    """
     runner = DockerTestExecutionRunner()
+    assert not hasattr(runner, "_server_locks")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         srv_dir = Path(tmpdir) / "server"
@@ -144,12 +149,16 @@ async def test_docker_test_runner_concurrent_runs_rejected_with_conflict() -> No
         ):
             handle1 = await runner.run_test(spec1)
 
-            # Attempt second run on same server while first is active
-            with pytest.raises(ConflictError) as exc_info:
-                await runner.run_test(spec2)
+            # Second run on the same server is accepted (was ConflictError pre-Stage-D).
+            handle2 = await runner.run_test(spec2)
 
-            assert "already active" in str(exc_info.value)
+            assert handle1.test_id == "t-1"
+            assert handle2.test_id == "t-2"
+            assert handle1.container_name != handle2.container_name
             await handle1.wait_for_completion()
+            await handle2.wait_for_completion()
+            await runner.cleanup_test(handle1)
+            await runner.cleanup_test(handle2)
 
 
 @pytest.mark.asyncio
