@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from unittest.mock import AsyncMock, patch
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, PropertyMock, patch
 
 import pytest
 
+from app.core.persistence.db import database
 from app.modules.server.infrastructure.console_stream import (
     ConsoleStreamManager,
     partition_lines_by_size,
@@ -178,3 +181,170 @@ async def test_flusher_batching_and_size_partitioning():
     # Should have flushed at least one batch of 5 and remaining 2
     total_lines = sum(len(c) for c in broadcasted_chunks)
     assert total_lines == 7
+
+
+@pytest.mark.asyncio
+async def test_file_tail_producer_streams_growing_file(tmp_path: Path):
+    log_file = tmp_path / "latest.log"
+    # Write initial lines before producer starts
+    log_file.write_text("initial-1\ninitial-2\n", encoding="utf-8")
+
+    manager = ConsoleStreamManager(broadcast_fn=AsyncMock())
+    manager._running = True
+    queue: asyncio.Queue[str] = asyncio.Queue()
+
+    producer = asyncio.create_task(manager._file_tail_producer(log_file, queue))
+    # Give producer time to seek to EOF
+    await asyncio.sleep(0.05)
+    assert queue.empty(), "Initial lines should not be queued (tail 0 behavior)"
+
+    # Append new lines
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write("appended-1\nappended-2\n")
+
+    # Wait for 250ms polling loop
+    await asyncio.sleep(0.35)
+
+    manager._running = False
+    producer.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await producer
+
+    queued: list[str] = []
+    while not queue.empty():
+        queued.append(queue.get_nowait())
+
+    assert queued == ["appended-1", "appended-2"]
+
+
+@pytest.mark.asyncio
+async def test_file_tail_producer_handles_missing_and_rotated_file(tmp_path: Path):
+    log_file = tmp_path / "latest.log"
+    # File does not exist initially
+
+    manager = ConsoleStreamManager(broadcast_fn=AsyncMock())
+    manager._running = True
+    queue: asyncio.Queue[str] = asyncio.Queue()
+
+    producer = asyncio.create_task(manager._file_tail_producer(log_file, queue))
+    # Wait while file does not exist - producer should not crash
+    await asyncio.sleep(0.1)
+    assert not producer.done()
+    assert queue.empty()
+
+    # Now create file and write lines
+    log_file.write_text("created-line-1\ncreated-line-2\n", encoding="utf-8")
+    await asyncio.sleep(0.35)
+
+    queued: list[str] = []
+    while not queue.empty():
+        queued.append(queue.get_nowait())
+    assert queued == ["created-line-1", "created-line-2"]
+
+    # Now simulate file rotation / truncation: write a shorter new file
+    log_file.write_text("rotated-line-1\n", encoding="utf-8")
+    await asyncio.sleep(0.35)
+
+    while not queue.empty():
+        queued.append(queue.get_nowait())
+    assert queued == ["created-line-1", "created-line-2", "rotated-line-1"]
+
+    manager._running = False
+    producer.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await producer
+
+
+@pytest.mark.asyncio
+async def test_resolve_target_routing():
+    manager = ConsoleStreamManager(broadcast_fn=AsyncMock())
+
+    # 1. Test channel -> docker
+    target_name, mode, log_path = await manager._resolve_target("test:run-123:console")
+    assert target_name == "onx-test-run-123"
+    assert mode == "docker"
+    assert log_path is None
+
+    def create_mock_db(server_model):
+        mock_session = AsyncMock()
+        mock_session.get.return_value = server_model
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_session
+        mock_ctx.__aexit__.return_value = None
+        return mock_ctx
+
+    # 2. Live server - local_windows -> file_tail
+    win_server = SimpleNamespace(
+        id="s-win",
+        provider="local_windows",
+        external_id="ext-win",
+        root_path="/srv/win_mc",
+        working_directory=".",
+    )
+    with patch.object(
+        type(database),
+        "session_factory",
+        new_callable=PropertyMock,
+        return_value=lambda: create_mock_db(win_server),
+    ):
+        target_name, mode, log_path = await manager._resolve_target("server:s-win:console")
+        assert target_name == "ext-win"
+        assert mode == "file_tail"
+        assert log_path == Path("/srv/win_mc/logs/latest.log")
+
+    # 3. Live server - local on Linux -> tmux
+    lin_server = SimpleNamespace(
+        id="s-lin",
+        provider="local",
+        external_id="ext-lin",
+        root_path="/srv/lin_mc",
+        working_directory=".",
+    )
+    with (
+        patch.object(
+            type(database),
+            "session_factory",
+            new_callable=PropertyMock,
+            return_value=lambda: create_mock_db(lin_server),
+        ),
+        patch("sys.platform", "linux"),
+    ):
+        target_name, mode, log_path = await manager._resolve_target("server:s-lin:console")
+        assert target_name == "ext-lin"
+        assert mode == "tmux"
+        assert log_path is None
+
+    # 4. Live server - local on win32 -> file_tail
+    with (
+        patch.object(
+            type(database),
+            "session_factory",
+            new_callable=PropertyMock,
+            return_value=lambda: create_mock_db(lin_server),
+        ),
+        patch("sys.platform", "win32"),
+    ):
+        target_name, mode, log_path = await manager._resolve_target("server:s-lin:console")
+        assert target_name == "ext-lin"
+        assert mode == "file_tail"
+        assert log_path == Path("/srv/lin_mc/logs/latest.log")
+
+    # 5. Live server - docker -> docker
+    doc_server = SimpleNamespace(
+        id="s-doc",
+        provider="docker",
+        external_id="ext-docker",
+        root_path=None,
+        working_directory=".",
+    )
+    with patch.object(
+        type(database),
+        "session_factory",
+        new_callable=PropertyMock,
+        return_value=lambda: create_mock_db(doc_server),
+    ):
+        target_name, mode, log_path = await manager._resolve_target("server:s-doc:console")
+        assert target_name == "ext-docker"
+        assert mode == "docker"
+        assert log_path is None
+

@@ -6,8 +6,10 @@ import hashlib
 import json
 import logging
 import shlex
+import sys
 from collections import deque
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from app.core.persistence.db import database
 from app.modules.server.infrastructure.models import ServerModel
@@ -137,14 +139,18 @@ class ConsoleStreamManager:
         parts = channel.split(":")
         return len(parts) == 3 and parts[0] in ("server", "test") and parts[2] == "console"
 
-    async def _resolve_target(self, channel: str) -> tuple[str, bool]:
-        """Resolve channel to (container_or_session_name, is_docker)."""
+    async def _resolve_target(self, channel: str) -> tuple[str, str, Path | None]:
+        """Resolve channel to (target_name, mode, log_path).
+
+        mode is one of: "docker", "tmux", "file_tail".
+        log_path is populated when mode is "file_tail".
+        """
         parts = channel.split(":")
         target_type = parts[0]
         target_id = parts[1]
 
         if target_type == "test":
-            return f"onx-test-{target_id}", True
+            return f"onx-test-{target_id}", "docker", None
 
         # Live server
         async with database.session_factory() as session:
@@ -152,10 +158,32 @@ class ConsoleStreamManager:
             if server:
                 provider = (server.provider or "docker").lower()
                 external_id = server.external_id or f"onx-server-{target_id}"
-                is_docker = provider not in ("local", "local_linux", "local_windows")
-                return external_id, is_docker
 
-        return f"onx-server-{target_id}", True
+                is_local = provider in ("local", "local_linux", "local_windows")
+                is_windows_local = provider == "local_windows" or (
+                    is_local and sys.platform == "win32"
+                )
+
+                if is_windows_local:
+                    server_dir: Path | None = None
+                    if server.root_path:
+                        server_dir = Path(server.root_path)
+                        if server.working_directory and server.working_directory != ".":
+                            server_dir = server_dir / server.working_directory
+                    if not server_dir:
+                        from app.core.config import AppSettings
+
+                        server_dir = Path(AppSettings().servers_data_dir).resolve() / target_id
+
+                    log_path = server_dir / "logs" / "latest.log"
+                    return external_id, "file_tail", log_path
+
+                if is_local:
+                    return external_id, "tmux", None
+
+                return external_id, "docker", None
+
+        return f"onx-server-{target_id}", "docker", None
 
     async def _run_stream_loop(self, channel: str) -> None:
         queue: asyncio.Queue[str] = asyncio.Queue()
@@ -163,17 +191,22 @@ class ConsoleStreamManager:
         producer_task: asyncio.Task[None] | None = None
 
         try:
-            target_name, is_docker = await self._resolve_target(channel)
+            target_name, mode, log_path = await self._resolve_target(channel)
 
             flusher_task = asyncio.create_task(
                 self._flusher(channel, queue),
                 name=f"flusher-{channel}",
             )
 
-            if is_docker:
+            if mode == "docker":
                 producer_task = asyncio.create_task(
                     self._docker_logs_producer(target_name, queue),
                     name=f"docker-producer-{channel}",
+                )
+            elif mode == "file_tail" and log_path is not None:
+                producer_task = asyncio.create_task(
+                    self._file_tail_producer(log_path, queue),
+                    name=f"file-tail-producer-{channel}",
                 )
             else:
                 producer_task = asyncio.create_task(
@@ -292,6 +325,46 @@ class ConsoleStreamManager:
             except Exception:
                 pass
             await asyncio.sleep(0.25)
+
+    async def _file_tail_producer(
+        self,
+        log_path: Path,
+        queue: asyncio.Queue[str],
+    ) -> None:
+        log_path = Path(log_path)
+        last_offset = 0
+        try:
+            if log_path.is_file():
+                last_offset = log_path.stat().st_size
+        except OSError:
+            last_offset = 0
+
+        while self._running:
+            try:
+                if log_path.is_file():
+                    current_size = log_path.stat().st_size
+                    if current_size < last_offset:
+                        # File was truncated or rotated
+                        last_offset = 0
+
+                    if current_size > last_offset:
+                        with open(log_path, encoding="utf-8", errors="replace") as f:
+                            f.seek(last_offset)
+                            while self._running:
+                                line = f.readline()
+                                if not line:
+                                    break
+                                await self._enqueue_line(queue, line.rstrip("\r\n"))
+                                last_offset = f.tell()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.debug("file tail producer for %s encountered: %s", log_path, exc)
+
+            try:
+                await asyncio.sleep(0.25)
+            except asyncio.CancelledError:
+                break
 
     async def _flusher(
         self,
