@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import BranchProtectedError, NotFoundError
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.application.commands.create_commit import (
     CreateCommitCommand,
@@ -80,6 +80,12 @@ class AutoCommitLiveChangesHandler(CommandHandler[AutoCommitLiveChangesCommand])
         if branch is None:
             raise NotFoundError(
                 f"Branch '{command.branch}' not found on server '{command.server_id}'"
+            )
+
+        if branch.is_protected and not branch.can_commit_directly():
+            raise BranchProtectedError(
+                f"Cannot auto-commit live changes directly to protected branch '{branch.name}'. "
+                "Live changes must be reviewed and committed to a working branch."
             )
 
         server_dir = (

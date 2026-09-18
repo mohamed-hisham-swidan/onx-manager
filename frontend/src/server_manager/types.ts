@@ -282,12 +282,29 @@ export interface CrashReportSummary {
   raw_content: string;
 }
 
+export interface BranchProtectionPolicy {
+  require_test_pass: boolean;
+  allow_direct_commit: boolean;
+  allow_force_bypass: boolean;
+  prevent_deletion: boolean;
+}
+
+export interface BranchProtectionResponse {
+  server_id: string;
+  branch_name: string;
+  is_protected: boolean;
+  policy: BranchProtectionPolicy | null;
+}
+
 export interface ServerBranch {
   id: string;
   server_id: string;
   name: string;
   head_commit_id: string | null;
   created_at: string;
+  status?: string;
+  is_protected?: boolean;
+  protection_policy?: BranchProtectionPolicy | null;
 }
 
 export interface CreateBranchRequest {

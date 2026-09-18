@@ -6,6 +6,12 @@ from app.modules.versioning.application.commands.auto_commit_live_changes import
     AutoCommitLiveChangesCommand,
     AutoCommitLiveChangesHandler,
 )
+from app.modules.versioning.application.commands.branch_protection import (
+    RemoveBranchProtectionCommand,
+    RemoveBranchProtectionHandler,
+    SetBranchProtectionCommand,
+    SetBranchProtectionHandler,
+)
 from app.modules.versioning.application.commands.confirm_import_review import (
     ConfirmImportReviewCommand,
     ConfirmImportReviewHandler,
@@ -83,6 +89,10 @@ from app.modules.versioning.application.queries.get_branch_history import (
     GetBranchHistoryHandler,
     GetBranchHistoryQuery,
 )
+from app.modules.versioning.application.queries.get_branch_protection import (
+    GetBranchProtectionHandler,
+    GetBranchProtectionQuery,
+)
 from app.modules.versioning.application.queries.get_commit_history import (
     GetCommitHistoryHandler,
     GetCommitHistoryQuery,
@@ -159,6 +169,8 @@ __all__ = [
     "DismissImportReviewHandler",
     "GetBranchHistoryHandler",
     "GetBranchHistoryQuery",
+    "GetBranchProtectionHandler",
+    "GetBranchProtectionQuery",
     "GetCommitHistoryHandler",
     "GetCommitHistoryQuery",
     "GetMaterializationFileHandler",
@@ -189,6 +201,8 @@ __all__ = [
     "PromoteCommitHandler",
     "PruneTestArtifactsCommand",
     "PruneTestArtifactsHandler",
+    "RemoveBranchProtectionCommand",
+    "RemoveBranchProtectionHandler",
     "RemoveMaterializationCommand",
     "RemoveMaterializationHandler",
     "RevertImportReviewCommand",
@@ -197,6 +211,8 @@ __all__ = [
     "RunIsolatedTestHandler",
     "ScanLiveChangesHandler",
     "ScanLiveChangesQuery",
+    "SetBranchProtectionCommand",
+    "SetBranchProtectionHandler",
     "SetMaterializationEditModeCommand",
     "SetMaterializationEditModeHandler",
     "UpdateTestDefinitionCommand",

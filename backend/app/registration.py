@@ -194,6 +194,8 @@ from app.modules.versioning.application import (
     DismissImportReviewHandler,
     GetBranchHistoryHandler,
     GetBranchHistoryQuery,
+    GetBranchProtectionHandler,
+    GetBranchProtectionQuery,
     GetCommitHistoryHandler,
     GetCommitHistoryQuery,
     GetMaterializationFileHandler,
@@ -224,6 +226,8 @@ from app.modules.versioning.application import (
     PromoteCommitHandler,
     PruneTestArtifactsCommand,
     PruneTestArtifactsHandler,
+    RemoveBranchProtectionCommand,
+    RemoveBranchProtectionHandler,
     RemoveMaterializationCommand,
     RemoveMaterializationHandler,
     RevertImportReviewCommand,
@@ -232,6 +236,8 @@ from app.modules.versioning.application import (
     RunIsolatedTestHandler,
     ScanLiveChangesHandler,
     ScanLiveChangesQuery,
+    SetBranchProtectionCommand,
+    SetBranchProtectionHandler,
     SetMaterializationEditModeCommand,
     SetMaterializationEditModeHandler,
     UpdateTestDefinitionCommand,
@@ -426,6 +432,14 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
         PruneTestArtifactsCommand,
         PruneTestArtifactsHandler(),
     )
+    command_bus.register(
+        SetBranchProtectionCommand,
+        SetBranchProtectionHandler(),
+    )
+    command_bus.register(
+        RemoveBranchProtectionCommand,
+        RemoveBranchProtectionHandler(),
+    )
 
 
 def _register_query_handlers(query_bus: QueryBus) -> None:
@@ -474,4 +488,5 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(GetTestDefinitionQuery, GetTestDefinitionHandler())
     query_bus.register(ListTestDefinitionsQuery, ListTestDefinitionsHandler())
     query_bus.register(GetTestRunEvidenceQuery, GetTestRunEvidenceHandler())
+    query_bus.register(GetBranchProtectionQuery, GetBranchProtectionHandler())
 

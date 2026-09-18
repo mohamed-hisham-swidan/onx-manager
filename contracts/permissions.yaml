@@ -141,6 +141,14 @@ permissions:
     description: Force-promote an unverified commit to production bypassing test gating
     scope: server_id
 
+  server:version:branch:protect:
+    description: Configure branch protection policies and toggle protected status
+    scope: server_id
+
+  server:version:branch:bypass_protection:
+    description: Force direct commits to protected branches bypassing test requirements
+    scope: server_id
+
   server:history:read:
     description: View server operational activity logs and change history
     scope: server_id
@@ -227,6 +235,8 @@ route_permissions:
   # versioning
   "POST /api/v1/servers/{server_id}/versioning/branches": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/branches/{name}/archive": {permission: "server:version:commit", status: enforced}
+  "PUT /api/v1/servers/{server_id}/versioning/branches/{name}/protection": {permission: "server:version:branch:protect", status: enforced}
+  "DELETE /api/v1/servers/{server_id}/versioning/branches/{name}/protection": {permission: "server:version:branch:protect", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/commits": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/commits/merge": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/tags": {permission: "server:version:commit", status: enforced}
@@ -354,6 +364,7 @@ route_permissions:
   # versioning
   "GET /api/v1/servers/{server_id}/versioning/branches": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/branches/{name}/history": {permission: "server:version:read", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/branches/{name}/protection": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/commits": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/commits/diff": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/tags": {permission: "server:version:read", status: enforced}

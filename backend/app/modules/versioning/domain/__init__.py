@@ -10,6 +10,7 @@ from app.modules.versioning.domain.diff import (
 )
 from app.modules.versioning.domain.entities import (
     Branch,
+    BranchProtectionPolicy,
     Commit,
     Materialization,
     PersistentDataset,
@@ -52,6 +53,7 @@ __all__ = [
     "BotVerificationConfig",
     "Branch",
     "BranchCreatedEvent",
+    "BranchProtectionPolicy",
     "BranchStatus",
     "Commit",
     "CommitCreatedEvent",

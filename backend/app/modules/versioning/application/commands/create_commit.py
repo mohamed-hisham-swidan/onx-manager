@@ -7,7 +7,14 @@ from pathlib import Path
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import (
+    BranchProtectedError,
+    ConflictError,
+    NotFoundError,
+    PermissionDenied,
+)
+from app.modules.activity.domain.entities import ServerActivityLog
+from app.modules.activity.domain.repository import ActivityRepository
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.domain.entities import (
     ServerBranch,
@@ -25,6 +32,9 @@ class CreateCommitCommand(Command):
     message: str
     branch_name: str = "main"
     author_id: str | None = None
+    force: bool = False
+    force_reason: str | None = None
+    caller_permissions: list[str] | None = None
 
 
 class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
@@ -33,20 +43,26 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
         server_repo: ServerRepository | None = None,
         versioning_repo: VersioningRepository | None = None,
         event_bus: EventBus | None = None,
+        activity_repo: ActivityRepository | None = None,
     ) -> None:
         self._server_repo = server_repo
         self._versioning_repo = versioning_repo
         self._event_bus = event_bus
+        self._activity_repo = activity_repo
 
     async def handle(self, command: CreateCommitCommand) -> CommandResult:
         from app.core.persistence.db import database
+        from app.modules.activity.infrastructure.repository import SQLActivityRepository
         from app.modules.server.infrastructure.repository import SQLServerRepository
         from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
 
         events: list[DomainEvent] = []
 
         if self._server_repo is not None and self._versioning_repo is not None:
-            res = await self._execute(command, self._server_repo, self._versioning_repo, events)
+            activity_repo = self._activity_repo or SQLActivityRepository()
+            res = await self._execute(
+                command, self._server_repo, self._versioning_repo, activity_repo, events
+            )
         else:
             max_retries = 3
             for attempt in range(max_retries):
@@ -54,8 +70,11 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
                     async with database.session_factory() as session:
                         server_repo = self._server_repo or SQLServerRepository(session)
                         versioning_repo = self._versioning_repo or SQLVersioningRepository(session)
+                        activity_repo = self._activity_repo or SQLActivityRepository(session)
                         events.clear()
-                        res = await self._execute(command, server_repo, versioning_repo, events)
+                        res = await self._execute(
+                            command, server_repo, versioning_repo, activity_repo, events
+                        )
                         await session.commit()
                     break
                 except Exception as exc:
@@ -76,6 +95,7 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
         command: CreateCommitCommand,
         server_repo: ServerRepository,
         versioning_repo: VersioningRepository,
+        activity_repo: ActivityRepository,
         events: list[DomainEvent] | None = None,
     ) -> CommandResult:
         from app.modules.shared.value_objects import ServerId
@@ -107,6 +127,35 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
             await versioning_repo.save_branch(branch)
         elif branch.status == BranchStatus.ARCHIVED:
             raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
+        elif branch.is_protected and not branch.can_commit_directly():
+            if command.force:
+                perms = command.caller_permissions or []
+                if (
+                    "admin:full" not in perms
+                    and "server:version:branch:bypass_protection" not in perms
+                ):
+                    raise PermissionDenied(
+                        "Caller lacks 'server:version:branch:bypass_protection' "
+                        "to bypass branch protection"
+                    )
+                audit_log = ServerActivityLog(
+                    id=str(uuid.uuid4()),
+                    server_id=command.server_id,
+                    event_type="versioning.branch_protection_bypassed",
+                    summary=f"Direct commit to protected branch '{branch.name}' was force-bypassed",
+                    actor_type="user" if command.author_id else "system",
+                    actor_id=command.author_id,
+                    details={
+                        "branch": branch.name,
+                        "reason": command.force_reason or "",
+                    },
+                )
+                await activity_repo.save(audit_log)
+            else:
+                raise BranchProtectedError(
+                    f"Direct commits to protected branch '{branch.name}' are forbidden. "
+                    "Changes must be verified via an isolated test run and promoted."
+                )
 
         # 4. Create COW world snapshot
         snapshot_id = str(uuid.uuid4())

@@ -49,9 +49,38 @@ class Repository:
             raise ValueError("Repository project_id cannot be empty")
 
 
+@dataclass(frozen=True)
+class BranchProtectionPolicy:
+    """Configurable policy for a protected branch."""
+
+    require_test_pass: bool = True
+    allow_direct_commit: bool = False
+    allow_force_bypass: bool = True
+    prevent_deletion: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "require_test_pass": self.require_test_pass,
+            "allow_direct_commit": self.allow_direct_commit,
+            "allow_force_bypass": self.allow_force_bypass,
+            "prevent_deletion": self.prevent_deletion,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> BranchProtectionPolicy:
+        if not data:
+            return cls()
+        return cls(
+            require_test_pass=bool(data.get("require_test_pass", True)),
+            allow_direct_commit=bool(data.get("allow_direct_commit", False)),
+            allow_force_bypass=bool(data.get("allow_force_bypass", True)),
+            prevent_deletion=bool(data.get("prevent_deletion", True)),
+        )
+
+
 @dataclass
 class ServerBranch:
-    """Named mutable pointer to a Commit with lifecycle state machine.
+    """A named pointer to a Commit in a Repository.
 
     Lifecycle: created -> active -> archived.
     """
@@ -62,6 +91,8 @@ class ServerBranch:
     head_commit_id: str | None = None
     created_at: datetime = field(default_factory=_utcnow)
     status: BranchStatus = BranchStatus.CREATED
+    is_protected: bool = False
+    protection_policy: BranchProtectionPolicy | None = None
 
     def __post_init__(self) -> None:
         if not self.server_id:
@@ -85,6 +116,32 @@ class ServerBranch:
         self.head_commit_id = commit_id
         if self.status == BranchStatus.CREATED:
             self.status = BranchStatus.ACTIVE
+
+    def protect(self, policy: BranchProtectionPolicy | None = None) -> None:
+        if self.status == BranchStatus.ARCHIVED:
+            raise ValueError(f"Cannot configure protection on archived branch '{self.name}'")
+        self.is_protected = True
+        self.protection_policy = policy or BranchProtectionPolicy()
+
+    def unprotect(self) -> None:
+        if self.status == BranchStatus.ARCHIVED:
+            raise ValueError(f"Cannot unprotect archived branch '{self.name}'")
+        self.is_protected = False
+        self.protection_policy = None
+
+    def can_commit_directly(self) -> bool:
+        if self.status == BranchStatus.ARCHIVED:
+            return False
+        if not self.is_protected:
+            return True
+        policy = self.protection_policy or BranchProtectionPolicy()
+        return policy.allow_direct_commit
+
+    def can_archive(self) -> bool:
+        if not self.is_protected:
+            return True
+        policy = self.protection_policy or BranchProtectionPolicy()
+        return not policy.prevent_deletion
 
 
 Branch = ServerBranch

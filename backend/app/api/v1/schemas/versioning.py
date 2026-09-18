@@ -17,12 +17,16 @@ class BranchResponse(BaseModel):
     head_commit_id: str | None = None
     created_at: str
     status: str = "created"
+    is_protected: bool = False
+    protection_policy: dict[str, Any] | None = None
 
 
 class CreateCommitRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=500)
     branch_name: str = Field(default="main", min_length=1, max_length=100)
     author_id: str | None = None
+    force: bool = False
+    force_reason: str | None = None
 
 
 class CommitResponse(BaseModel):
@@ -282,4 +286,28 @@ class AutoCommitLiveChangesResponse(BaseModel):
 class ImportReviewActionResponse(BaseModel):
     status: str
     revert_commit_id: str | None = None
+
+
+class BranchProtectionPolicySchema(BaseModel):
+    require_test_pass: bool = Field(
+        True, description="Require a passing test run before commit promotion"
+    )
+    allow_direct_commit: bool = Field(
+        False, description="Allow direct commits without test/promotion"
+    )
+    allow_force_bypass: bool = Field(
+        True, description="Allow admins with bypass permission to force commit"
+    )
+    prevent_deletion: bool = Field(True, description="Prevent branch archival or deletion")
+
+
+class SetBranchProtectionRequest(BaseModel):
+    policy: BranchProtectionPolicySchema | None = None
+
+
+class BranchProtectionResponse(BaseModel):
+    server_id: str
+    branch_name: str
+    is_protected: bool
+    policy: BranchProtectionPolicySchema | None = None
 

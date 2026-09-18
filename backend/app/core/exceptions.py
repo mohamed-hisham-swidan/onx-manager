@@ -141,6 +141,11 @@ class DuplicateResourceError(ConflictError):
         super().__init__(f"{resource_type} '{identifier}' already exists")
 
 
+class BranchProtectedError(ConflictError):
+    def __init__(self, message: str = "") -> None:
+        super().__init__(message or "Branch is protected")
+
+
 class RateLimitExceeded(MCSError):
     def __init__(self, retry_after: int = 60) -> None:
         super().__init__(

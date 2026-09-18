@@ -32,6 +32,8 @@ class ServerBranchModel(Base):
     name = Column(String(64), nullable=False)
     head_commit_id = Column(String(36), nullable=True)
     status = Column(String(32), nullable=False, default="created")
+    is_protected = Column(Boolean, nullable=False, default=False)
+    protection_policy = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     __table_args__ = (UniqueConstraint("server_id", "name", name="uq_server_branch_name"),)

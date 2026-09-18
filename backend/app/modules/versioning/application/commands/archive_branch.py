@@ -4,7 +4,7 @@ import asyncio
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import BranchProtectedError, NotFoundError
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.domain.events import BranchArchivedEvent
 from app.modules.versioning.domain.repository import VersioningRepository
@@ -77,6 +77,12 @@ class ArchiveBranchHandler(CommandHandler[ArchiveBranchCommand]):
         if branch is None:
             raise NotFoundError(
                 f"Branch '{command.name}' not found on server '{command.server_id}'"
+            )
+
+        if branch.is_protected and not branch.can_archive():
+            raise BranchProtectedError(
+                f"Cannot archive protected branch '{branch.name}'. "
+                "Unprotect the branch before archiving."
             )
 
         branch.archive()

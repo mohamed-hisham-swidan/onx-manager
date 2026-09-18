@@ -11,6 +11,7 @@ from app.api.v1.schemas.versioning import (
     AutoCommitLiveChangesResponse,
     BotSettingsRequest,
     BotSettingsResponse,
+    BranchProtectionResponse,
     BranchResponse,
     CommitResponse,
     CreateBranchRequest,
@@ -30,6 +31,7 @@ from app.api.v1.schemas.versioning import (
     RunIsolatedTestRequest,
     ScanLiveChangesRequest,
     ScanLiveChangesResponse,
+    SetBranchProtectionRequest,
     SetEditModeRequest,
     SetEditModeResponse,
     TagResponse,
@@ -59,6 +61,7 @@ from app.modules.versioning.application import (
     DiscardTestCommand,
     DismissImportReviewCommand,
     GetBranchHistoryQuery,
+    GetBranchProtectionQuery,
     GetCommitHistoryQuery,
     GetMaterializationFileQuery,
     GetMaterializationsQuery,
@@ -73,10 +76,12 @@ from app.modules.versioning.application import (
     ListTestDefinitionsQuery,
     MergeCommitsCommand,
     PromoteCommitCommand,
+    RemoveBranchProtectionCommand,
     RemoveMaterializationCommand,
     RevertImportReviewCommand,
     RunIsolatedTestCommand,
     ScanLiveChangesQuery,
+    SetBranchProtectionCommand,
     SetMaterializationEditModeCommand,
     UpdateTestDefinitionCommand,
     WriteMaterializedFileCommand,
@@ -126,6 +131,61 @@ async def archive_branch(
     cmd = ArchiveBranchCommand(server_id=server_id, name=name)
     res = await command_bus.send(cmd)
     return check_command_result(res)
+
+
+@router.get("/branches/{name}/protection", response_model=BranchProtectionResponse)
+async def get_branch_protection(
+    server_id: str,
+    name: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> BranchProtectionResponse:
+    res = await query_bus.ask(
+        GetBranchProtectionQuery(server_id=server_id, branch_name=name)
+    )
+    return BranchProtectionResponse(**res)
+
+
+@router.put("/branches/{name}/protection", response_model=BranchProtectionResponse)
+async def set_branch_protection(
+    server_id: str,
+    name: str,
+    body: SetBranchProtectionRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:branch:protect"))],
+) -> BranchProtectionResponse:
+    policy_dict = body.policy.model_dump() if body.policy else None
+    cmd = SetBranchProtectionCommand(
+        server_id=server_id,
+        branch_name=name,
+        policy=policy_dict,
+    )
+    res = await command_bus.send(cmd)
+    data = check_command_result(res)
+    return BranchProtectionResponse(
+        server_id=data["server_id"],
+        branch_name=data["branch_name"],
+        is_protected=data["is_protected"],
+        policy=data["policy"],
+    )
+
+
+@router.delete("/branches/{name}/protection", response_model=BranchProtectionResponse)
+async def remove_branch_protection(
+    server_id: str,
+    name: str,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:branch:protect"))],
+) -> BranchProtectionResponse:
+    cmd = RemoveBranchProtectionCommand(server_id=server_id, branch_name=name)
+    res = await command_bus.send(cmd)
+    data = check_command_result(res)
+    return BranchProtectionResponse(
+        server_id=data["server_id"],
+        branch_name=data["branch_name"],
+        is_protected=data["is_protected"],
+        policy=data.get("policy"),
+    )
 
 
 @router.get("/branches/{name}/history", response_model=list[CommitResponse])
@@ -187,6 +247,9 @@ async def create_commit(
         message=body.message,
         branch_name=body.branch_name,
         author_id=author_id,
+        force=body.force,
+        force_reason=body.force_reason,
+        caller_permissions=_current_user.get("permissions", []),
     )
     res = await command_bus.send(cmd)
     return check_command_result(res)

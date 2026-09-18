@@ -74,6 +74,7 @@ class SQLVersioningRepository(VersioningRepository):
             if hasattr(branch.status, "value")
             else str(branch.status)
         )
+        policy_data = branch.protection_policy.to_dict() if branch.protection_policy else None
         if model is None:
             model = ServerBranchModel(
                 id=branch.id,
@@ -81,6 +82,8 @@ class SQLVersioningRepository(VersioningRepository):
                 name=branch.name,
                 head_commit_id=branch.head_commit_id,
                 status=status_val,
+                is_protected=branch.is_protected,
+                protection_policy=policy_data,
                 created_at=branch.created_at,
             )
             self._session.add(model)
@@ -88,6 +91,8 @@ class SQLVersioningRepository(VersioningRepository):
             model.name = branch.name
             model.head_commit_id = branch.head_commit_id
             model.status = status_val
+            model.is_protected = branch.is_protected
+            model.protection_policy = policy_data
         await self._session.flush()
         return branch
 
@@ -553,6 +558,16 @@ class SQLVersioningRepository(VersioningRepository):
         else:
             status = BranchStatus.ACTIVE if m.head_commit_id else BranchStatus.CREATED
 
+        is_protected = bool(getattr(m, "is_protected", False))
+        policy_data = getattr(m, "protection_policy", None)
+        from app.modules.versioning.domain.entities import BranchProtectionPolicy
+
+        protection_policy = (
+            BranchProtectionPolicy.from_dict(policy_data)
+            if policy_data
+            else (BranchProtectionPolicy() if is_protected else None)
+        )
+
         return ServerBranch(
             id=m.id,
             server_id=m.server_id,
@@ -560,6 +575,8 @@ class SQLVersioningRepository(VersioningRepository):
             head_commit_id=m.head_commit_id,
             created_at=m.created_at,
             status=status,
+            is_protected=is_protected,
+            protection_policy=protection_policy,
         )
 
     @staticmethod
