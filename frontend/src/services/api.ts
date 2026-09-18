@@ -49,26 +49,44 @@ import type {
 import { useAuthStore } from "@/stores/authStore";
 import type {
   ActivityLogListResponse,
+  AutoCommitLiveChangesRequest,
+  AutoCommitLiveChangesResponse,
   BotSettings,
   BotSettingsRequest,
+  BranchProtectionResponse,
   CommandRequest,
   ConsoleResponse,
   CrashReportSummary,
   CreateBranchRequest,
   CreateCommitRequest,
+  CreateMaterializationRequest,
+  CreateTagRequest,
+  CreateTestDefinitionRequest,
+  DiffResponse,
+  EvidenceBundle,
   GetActivityParams,
+  ImportReviewActionResponse,
+  MaterializationCreateResponse,
+  MaterializationFileResponse,
+  MaterializationListItemResponse,
+  MaterializationTreeResponse,
   PreflightStatus,
   PromoteCommitRequest,
   RunIsolatedTestRequest,
+  ScanLiveChangesResponse,
   ScanResult,
   ServerBranch,
   ServerCommit,
   ServerCreateRequest,
   ServerDetailResponse,
   ServerResponse,
+  ServerTag,
   ServerTestRun,
   ServerUpdateRequest,
+  SetBranchProtectionRequest,
+  SetEditModeResponse,
   SoftwareInfo,
+  TestDefinition,
 } from "@/server_manager/types";
 
 export class ApiError extends Error {
@@ -417,6 +435,168 @@ export function createApiClient(
       request<PreflightStatus>(`/api/v1/servers/${serverId}/versioning/preflight`, {
         params: { bot_count: botCount?.toString() },
       }),
+
+    // Branch Protection (Stage G)
+    getBranchProtection: (serverId: string, branchName: string) =>
+      request<BranchProtectionResponse>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/protection`,
+      ),
+    setBranchProtection: (serverId: string, branchName: string, body: SetBranchProtectionRequest) =>
+      request<Record<string, unknown>>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/protection`,
+        {
+          method: "PUT",
+          body,
+        },
+      ),
+    removeBranchProtection: (serverId: string, branchName: string) =>
+      request<Record<string, unknown>>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/protection`,
+        {
+          method: "DELETE",
+        },
+      ),
+
+    // Test Definitions & Evidence (Stage F)
+    getTestDefinitions: (serverId: string) =>
+      request<TestDefinition[]>(`/api/v1/servers/${serverId}/versioning/test-definitions`),
+    createTestDefinition: (serverId: string, body: CreateTestDefinitionRequest) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/versioning/test-definitions`, {
+        method: "POST",
+        body,
+      }),
+    updateTestDefinition: (
+      serverId: string,
+      definitionId: string,
+      body: Partial<CreateTestDefinitionRequest>,
+    ) =>
+      request<Record<string, unknown>>(
+        `/api/v1/servers/${serverId}/versioning/test-definitions/${definitionId}`,
+        {
+          method: "PUT",
+          body,
+        },
+      ),
+    deleteTestDefinition: (serverId: string, definitionId: string) =>
+      request<Record<string, unknown>>(
+        `/api/v1/servers/${serverId}/versioning/test-definitions/${definitionId}`,
+        {
+          method: "DELETE",
+        },
+      ),
+    getTestEvidence: (serverId: string, testId: string) =>
+      request<EvidenceBundle>(`/api/v1/servers/${serverId}/versioning/tests/${testId}/evidence`),
+
+    // Materializations & Import Reviews (Stage C)
+    getMaterializations: (serverId: string) =>
+      request<MaterializationListItemResponse[]>(
+        `/api/v1/servers/${serverId}/versioning/materializations`,
+      ),
+    createMaterialization: (serverId: string, body: CreateMaterializationRequest) =>
+      request<MaterializationCreateResponse>(
+        `/api/v1/servers/${serverId}/versioning/materializations`,
+        {
+          method: "POST",
+          body,
+        },
+      ),
+    deleteMaterialization: (serverId: string, matId: string) =>
+      request<Record<string, unknown>>(
+        `/api/v1/servers/${serverId}/versioning/materializations/${matId}`,
+        {
+          method: "DELETE",
+        },
+      ),
+    setMaterializationMode: (serverId: string, matId: string, enabled: boolean) =>
+      request<SetEditModeResponse>(
+        `/api/v1/servers/${serverId}/versioning/materializations/${matId}/edit-mode`,
+        {
+          method: "POST",
+          body: { enabled },
+        },
+      ),
+    getMaterializationTree: (serverId: string, matId: string) =>
+      request<MaterializationTreeResponse>(
+        `/api/v1/servers/${serverId}/versioning/materializations/${matId}/tree`,
+      ),
+    getMaterializationFile: (serverId: string, matId: string, path: string) =>
+      request<MaterializationFileResponse>(
+        `/api/v1/servers/${serverId}/versioning/materializations/${matId}/files`,
+        {
+          params: { path },
+        },
+      ),
+    writeMaterializationFile: (
+      serverId: string,
+      matId: string,
+      path: string,
+      content: string,
+    ) =>
+      request<Record<string, unknown>>(
+        `/api/v1/servers/${serverId}/versioning/materializations/${matId}/files`,
+        {
+          method: "PUT",
+          body: { path, content },
+        },
+      ),
+    getLiveChanges: (serverId: string, source: string = "server") =>
+      request<ScanLiveChangesResponse>(
+        `/api/v1/servers/${serverId}/versioning/import-review/scan`,
+        {
+          method: "POST",
+          body: { source },
+        },
+      ),
+    autoCommitLiveChanges: (serverId: string, body?: AutoCommitLiveChangesRequest) =>
+      request<AutoCommitLiveChangesResponse>(
+        `/api/v1/servers/${serverId}/versioning/import-review/auto-commit`,
+        {
+          method: "POST",
+          body: body || { branch: "main" },
+        },
+      ),
+    confirmImportReview: (serverId: string, reviewId: string) =>
+      request<ImportReviewActionResponse>(
+        `/api/v1/servers/${serverId}/versioning/import-review/${encodeURIComponent(reviewId)}/confirm`,
+        {
+          method: "POST",
+        },
+      ),
+    dismissImportReview: (serverId: string, reviewId: string) =>
+      request<ImportReviewActionResponse>(
+        `/api/v1/servers/${serverId}/versioning/import-review/${encodeURIComponent(reviewId)}/dismiss`,
+        {
+          method: "POST",
+        },
+      ),
+    revertImportReview: (serverId: string, reviewId: string) =>
+      request<ImportReviewActionResponse>(
+        `/api/v1/servers/${serverId}/versioning/import-review/${encodeURIComponent(reviewId)}/revert`,
+        {
+          method: "POST",
+        },
+      ),
+
+    // Branch Management, Tags & Diffing (Stage B)
+    archiveBranch: (serverId: string, branchName: string) =>
+      request<Record<string, unknown>>(
+        `/api/v1/servers/${serverId}/versioning/branches/${encodeURIComponent(branchName)}/archive`,
+        {
+          method: "POST",
+        },
+      ),
+    getServerTags: (serverId: string) =>
+      request<ServerTag[]>(`/api/v1/servers/${serverId}/versioning/tags`),
+    createTag: (serverId: string, body: CreateTagRequest) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/versioning/tags`, {
+        method: "POST",
+        body,
+      }),
+    diffCommits: (serverId: string, fromCommitId: string, toCommitId: string) =>
+      request<DiffResponse>(`/api/v1/servers/${serverId}/versioning/commits/diff`, {
+        params: { from: fromCommitId, to: toCommitId },
+      }),
+
     sendServerCommand: (serverId: string, body: CommandRequest) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/command`, { method: "POST", body }),
 

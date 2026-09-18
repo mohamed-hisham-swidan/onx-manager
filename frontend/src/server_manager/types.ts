@@ -325,11 +325,17 @@ export interface CommitManifest {
   java_args: string;
 }
 
+export interface SetBranchProtectionRequest {
+  policy?: Partial<BranchProtectionPolicy> | null;
+}
+
 export interface ServerCommit {
   id: string;
   server_id: string;
   branch_id: string | null;
+  parent_id?: string | null;
   parent_commit_id: string | null;
+  parent_commit_ids?: string[];
   author_id: string | null;
   message: string;
   manifest: CommitManifest;
@@ -341,6 +347,142 @@ export interface CreateCommitRequest {
   message: string;
   branch_name?: string;
   author_id?: string | null;
+  force?: boolean;
+  force_reason?: string | null;
+}
+
+export type RevisionType = "commit" | "branch" | "tag";
+export type MaterializationMode = "readonly" | "editable";
+
+export interface CreateMaterializationRequest {
+  revision_type: RevisionType;
+  ref: string;
+  mode?: MaterializationMode;
+}
+
+export interface MaterializationCreateResponse {
+  materialization_id: string;
+  id?: string;
+  revision: string;
+  mode: MaterializationMode;
+  status: string;
+  root: string;
+}
+
+export interface MaterializationListItemResponse {
+  id: string;
+  revision: string;
+  mode: MaterializationMode;
+  status: string;
+  stale: boolean;
+  created_at: string;
+}
+
+export interface MaterializationTreeEntry {
+  path: string;
+  classification: string;
+  is_dir?: boolean;
+  size_bytes: number;
+  origin?: string;
+}
+
+export interface MaterializationTreeResponse {
+  entries: MaterializationTreeEntry[];
+}
+
+export interface MaterializationFileResponse {
+  content: string;
+  encoding: string;
+  path: string;
+  size_bytes: number;
+}
+
+export interface SetEditModeRequest {
+  enabled: boolean;
+}
+
+export interface SetEditModeResponse {
+  mode: string;
+}
+
+export interface LiveChangeEntry {
+  path: string;
+  classification?: string;
+  change?: string;
+  change_type?: string;
+  size_bytes?: number;
+}
+
+export interface ScanLiveChangesResponse {
+  changes: LiveChangeEntry[];
+  has_changes?: boolean;
+  auto_commit?: string | null;
+  review_id?: string | null;
+  base_commit_id?: string | null;
+  detected_at?: string;
+}
+
+export interface AutoCommitLiveChangesRequest {
+  branch?: string;
+  message?: string;
+}
+
+export interface AutoCommitLiveChangesResponse {
+  commit_id?: string | null;
+  review_id?: string | null;
+  changes?: LiveChangeEntry[];
+}
+
+export interface ImportReviewActionResponse {
+  status: string;
+  success?: boolean;
+  action?: string;
+  review_id?: string;
+  commit_id?: string | null;
+  revert_commit_id?: string | null;
+  message?: string;
+}
+
+export interface ServerTag {
+  id: string;
+  server_id: string;
+  name: string;
+  commit_id: string;
+  created_at: string;
+}
+
+export interface CreateTagRequest {
+  name: string;
+  commit_id: string;
+}
+
+export interface DictDiff {
+  added?: Record<string, string>;
+  removed?: Record<string, string>;
+  modified?: Record<string, { from?: string; to?: string } | Record<string, string>>;
+}
+
+export interface ModDiffEntry {
+  filename: string;
+  sha256?: string;
+}
+
+export interface ModDiff {
+  added?: (string | ModDiffEntry)[];
+  removed?: (string | ModDiffEntry)[];
+  modified?: (string | ModDiffEntry)[];
+}
+
+export interface DiffResponse {
+  from_commit_id: string;
+  to_commit_id: string;
+  has_changes: boolean;
+  server_type: Record<string, string> | null;
+  minecraft_version: Record<string, string> | null;
+  java_args: Record<string, string> | null;
+  configs: DictDiff;
+  env_vars: DictDiff;
+  mods: ModDiff;
 }
 
 export type TestRunStatus = "PENDING" | "RUNNING" | "PASSED" | "FAILED" | "CANCELLED";

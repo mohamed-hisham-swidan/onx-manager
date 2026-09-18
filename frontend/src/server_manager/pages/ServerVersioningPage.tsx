@@ -3,11 +3,21 @@ import { useParams } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { createAuthenticatedApi } from "@/services/api";
 import { TestRunModal } from "@/server_manager/components/TestRunModal";
+import { BranchProtectionModal } from "@/server_manager/components/BranchProtectionModal";
+import { TestDefinitionsModal } from "@/server_manager/components/TestDefinitionsModal";
+import { TestEvidenceModal } from "@/server_manager/components/TestEvidenceModal";
+import { MaterializationBrowserModal } from "@/server_manager/components/MaterializationBrowserModal";
+import { ImportReviewModal } from "@/server_manager/components/ImportReviewModal";
+import { ManageBranchesModal } from "@/server_manager/components/ManageBranchesModal";
+import { CreateTagModal } from "@/server_manager/components/CreateTagModal";
+import { CommitDiffModal } from "@/server_manager/components/CommitDiffModal";
 import type {
   ServerBranch,
   ServerCommit,
   ServerTestRun,
   PreflightStatus,
+  ServerTag,
+  ScanLiveChangesResponse,
 } from "@/server_manager/types";
 
 export function ServerVersioningPage() {
@@ -19,6 +29,8 @@ export function ServerVersioningPage() {
   const [commits, setCommits] = useState<ServerCommit[]>([]);
   const [testRuns, setTestRuns] = useState<ServerTestRun[]>([]);
   const [preflight, setPreflight] = useState<PreflightStatus | null>(null);
+  const [tags, setTags] = useState<ServerTag[]>([]);
+  const [liveChanges, setLiveChanges] = useState<ScanLiveChangesResponse | null>(null);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +47,8 @@ export function ServerVersioningPage() {
 
   const [isNewCommitOpen, setIsNewCommitOpen] = useState(false);
   const [newCommitMessage, setNewCommitMessage] = useState("");
+  const [commitForceBypass, setCommitForceBypass] = useState(false);
+  const [commitForceReason, setCommitForceReason] = useState("");
 
   const [testModalCommitId, setTestModalCommitId] = useState<string | null>(null);
 
@@ -53,6 +67,31 @@ export function ServerVersioningPage() {
 
   const [forceReason, setForceReason] = useState("");
 
+  // Stage B/C/F/G modal controls
+  const [isProtectionModalOpen, setIsProtectionModalOpen] = useState(false);
+  const [protectionModalBranch, setProtectionModalBranch] = useState<ServerBranch | null>(null);
+  const [isTestDefinitionsOpen, setIsTestDefinitionsOpen] = useState(false);
+  const [evidenceModalTestId, setEvidenceModalTestId] = useState<string | null>(null);
+  const [isMaterializationOpen, setIsMaterializationOpen] = useState(false);
+  const [isLiveChangesOpen, setIsLiveChangesOpen] = useState(false);
+  const [isManageBranchesOpen, setIsManageBranchesOpen] = useState(false);
+  const [tagModalCommitId, setTagModalCommitId] = useState<string | null>(null);
+  const [diffParams, setDiffParams] = useState<{ from: string; to: string } | null>(null);
+
+  const currentBranchObj = useMemo(
+    () => branches.find((b) => b.name === selectedBranch) || null,
+    [branches, selectedBranch]
+  );
+
+  const isDirectCommitBlocked = Boolean(
+    currentBranchObj?.is_protected &&
+    currentBranchObj.protection_policy &&
+    !currentBranchObj.protection_policy.allow_direct_commit
+  );
+  const allowForceBypass = Boolean(
+    currentBranchObj?.protection_policy?.allow_force_bypass
+  );
+
   const promoteTestRun = useMemo(
     () => testRuns.find((r) => r.id === promoteTestId) || null,
     [testRuns, promoteTestId]
@@ -65,12 +104,14 @@ export function ServerVersioningPage() {
 
     const run = async () => {
       try {
-        const [branchesData, commitsData, settingsData, preflightData, testRunsData] = await Promise.all([
+        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData] = await Promise.all([
           api.getServerBranches(serverId),
           api.getServerCommits(serverId),
           api.getBotSettings(serverId),
           api.getPreflightStatus(serverId),
-          api.getServerTestRuns(serverId).catch(() => []),
+          api.getServerTestRuns?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
+          api.getServerTags?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
+          api.getLiveChanges?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
         ]);
 
         if (!isMounted) return;
@@ -78,6 +119,8 @@ export function ServerVersioningPage() {
         setCommits(commitsData);
         setPreflight(preflightData);
         setTestRuns(testRunsData);
+        setTags(tagsData);
+        setLiveChanges(liveData);
 
         if (settingsData) {
           setSettingsBotCount(settingsData.effective_bot_count);
@@ -149,8 +192,13 @@ export function ServerVersioningPage() {
       await api.createServerCommit(serverId, {
         message: newCommitMessage.trim(),
         branch_name: selectedBranch,
+        ...(commitForceBypass
+          ? { force: true, force_reason: commitForceReason.trim() || undefined }
+          : {}),
       });
       setNewCommitMessage("");
+      setCommitForceBypass(false);
+      setCommitForceReason("");
       setIsNewCommitOpen(false);
       setActionSuccess("Snapshot commit created successfully.");
       refresh();
@@ -284,6 +332,31 @@ export function ServerVersioningPage() {
         </div>
       )}
 
+      {/* Live Changes Callout Banner */}
+      {Boolean(liveChanges?.has_changes || (liveChanges?.changes && liveChanges.changes.length > 0)) && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50/80 p-4 dark:border-amber-800 dark:bg-amber-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-100 dark:bg-amber-900/60 rounded-lg text-amber-700 dark:text-amber-300 shrink-0">
+              <Icon name="alert" size={20} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                Uncommitted Live Server Changes Detected
+              </h3>
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                {liveChanges?.changes?.length || 0} file{liveChanges?.changes?.length === 1 ? "" : "s"} modified or created on the server filesystem since HEAD.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsLiveChangesOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors shadow-sm shrink-0"
+          >
+            Review & Commit Changes
+          </button>
+        </div>
+      )}
+
       {/* Preflight & Storage Health Banner */}
       <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 p-4 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -332,8 +405,8 @@ export function ServerVersioningPage() {
       </div>
 
       {/* Branch Navigation Toolbar */}
-      <div className="flex items-center justify-between gap-4 bg-gray-50 dark:bg-gray-800/60 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-gray-50 dark:bg-gray-800/60 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="flex flex-wrap items-center gap-2">
           <Icon name="folder" size={16} className="text-gray-500" />
           <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Branch:</span>
           <select
@@ -343,16 +416,59 @@ export function ServerVersioningPage() {
           >
             {branches.map((b) => (
               <option key={b.id} value={b.name}>
-                {b.name}
+                {b.name} {b.is_protected ? "🔒" : ""} {b.status === "archived" ? "(archived)" : ""}
               </option>
             ))}
           </select>
+
+          {currentBranchObj?.is_protected && (
+            <span className="inline-flex items-center gap-1 rounded bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              Protected
+            </span>
+          )}
+
+          {currentBranchObj?.status === "archived" && (
+            <span className="inline-flex items-center rounded bg-gray-200 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-semibold text-gray-700 dark:text-gray-300">
+              Archived (Read-Only)
+            </span>
+          )}
+
           <button
             onClick={() => setIsNewBranchOpen(true)}
             className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/50 transition-colors"
           >
             <Icon name="plus" size={12} />
             New Branch
+          </button>
+
+          <button
+            onClick={() => {
+              setProtectionModalBranch(currentBranchObj);
+              setIsProtectionModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+          >
+            <Icon name="settings" size={12} />
+            Protection Rules
+          </button>
+
+          <button
+            onClick={() => setIsManageBranchesOpen(true)}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+          >
+            <Icon name="backup" size={12} />
+            Manage Branches
+          </button>
+
+          <button
+            onClick={() => setIsMaterializationOpen(true)}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/50 transition-colors"
+          >
+            <Icon name="folder" size={12} />
+            Explore Worktree
           </button>
         </div>
 
@@ -379,51 +495,88 @@ export function ServerVersioningPage() {
           </div>
         ) : (
           <div className="divide-y divide-gray-100 dark:divide-gray-800">
-            {filteredCommits.map((commit) => (
-              <div
-                key={commit.id}
-                className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-2 py-0.5 rounded">
-                      {commit.id.slice(0, 8)}
-                    </span>
-                    <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                      {commit.message}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-                    <span>Type: {commit.manifest?.server_type} ({commit.manifest?.minecraft_version})</span>
-                    <span>•</span>
-                    <span>{new Date(commit.created_at).toLocaleString()}</span>
-                    {commit.author_id && (
-                      <>
-                        <span>•</span>
-                        <span>Author: {commit.author_id}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
+            {filteredCommits.map((commit) => {
+              const commitTags = tags.filter((t) => t.commit_id === commit.id);
+              const parentId = commit.parent_id || commit.parent_commit_id || (commit.parent_commit_ids && commit.parent_commit_ids[0]);
+              const isMerge = commit.parent_commit_ids && commit.parent_commit_ids.length > 1;
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setInspectCommit(commit)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <Icon name="file" size={14} />
-                    Inspect Manifest
-                  </button>
-                  <button
-                    onClick={() => setTestModalCommitId(commit.id)}
-                    className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-900/60 transition-colors"
-                  >
-                    <Icon name="play" size={14} />
-                    Run Isolated Test
-                  </button>
+              return (
+                <div
+                  key={commit.id}
+                  className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
+                >
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-2 py-0.5 rounded">
+                        {commit.id.slice(0, 8)}
+                      </span>
+                      {isMerge && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300">
+                          MERGE ({commit.parent_commit_ids!.length} parents)
+                        </span>
+                      )}
+                      {commitTags.map((tag) => (
+                        <span
+                          key={tag.name}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                        >
+                          🏷️ {tag.name}
+                        </span>
+                      ))}
+                      <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                        {commit.message}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                      <span>Type: {commit.manifest?.server_type} ({commit.manifest?.minecraft_version})</span>
+                      <span>•</span>
+                      <span>{new Date(commit.created_at).toLocaleString()}</span>
+                      {commit.author_id && (
+                        <>
+                          <span>•</span>
+                          <span>Author: {commit.author_id}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => setTagModalCommitId(commit.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+                      title="Create immutable tag"
+                    >
+                      <Icon name="backup" size={12} />
+                      Tag
+                    </button>
+                    {parentId && (
+                      <button
+                        onClick={() => setDiffParams({ from: parentId, to: commit.id })}
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+                        title="View changes against parent commit"
+                      >
+                        <Icon name="activity" size={12} />
+                        Diff
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setInspectCommit(commit)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <Icon name="file" size={14} />
+                      Inspect Manifest
+                    </button>
+                    <button
+                      onClick={() => setTestModalCommitId(commit.id)}
+                      className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-900/60 transition-colors"
+                    >
+                      <Icon name="play" size={14} />
+                      Run Isolated Test
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -434,9 +587,18 @@ export function ServerVersioningPage() {
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">
             Isolated Test Runs
           </h2>
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            {testRuns.length} runs recorded
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsTestDefinitionsOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+            >
+              <Icon name="settings" size={12} />
+              Test Profiles
+            </button>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {testRuns.length} runs recorded
+            </span>
+          </div>
         </div>
 
         {testRuns.length === 0 ? (
@@ -495,6 +657,14 @@ export function ServerVersioningPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setEvidenceModalTestId(run.id)}
+                    className="inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50/60 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300 transition-colors"
+                    title="View diagnostic evidence and root-cause analysis"
+                  >
+                    <Icon name="activity" size={12} />
+                    Evidence
+                  </button>
                   {run.log_output && (
                     <button
                       onClick={() => setViewLogTestRun(run)}
@@ -607,6 +777,59 @@ export function ServerVersioningPage() {
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Captures all configs, mod jars, and creates an instant COW world snapshot on branch &lsquo;{selectedBranch}&rsquo;.
             </p>
+
+            {currentBranchObj?.status === "archived" && (
+              <div className="rounded-lg bg-gray-100 dark:bg-gray-700/60 p-3 text-xs text-gray-700 dark:text-gray-300">
+                ⚠️ Branch &lsquo;{selectedBranch}&rsquo; is archived and read-only. Committing is disabled.
+              </div>
+            )}
+
+            {isDirectCommitBlocked && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg text-xs space-y-2">
+                <div className="flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-200">
+                  <Icon name="alert" size={14} />
+                  <span>Direct Commits Blocked by Protection Policy</span>
+                </div>
+                <p className="text-amber-700 dark:text-amber-300">
+                  Branch &lsquo;{selectedBranch}&rsquo; requires changes to be verified in an isolated test run and promoted.
+                </p>
+                {allowForceBypass ? (
+                  <div className="pt-2 border-t border-amber-200 dark:border-amber-800/60 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={commitForceBypass}
+                        onChange={(e) => setCommitForceBypass(e.target.checked)}
+                        className="rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="font-semibold text-amber-900 dark:text-amber-100">
+                        Emergency Force Bypass
+                      </span>
+                    </label>
+                    {commitForceBypass && (
+                      <div>
+                        <label className="block text-[11px] font-medium text-amber-800 dark:text-amber-300 mb-1">
+                          Bypass Reason (Audit Logged)
+                        </label>
+                        <input
+                          type="text"
+                          value={commitForceReason}
+                          onChange={(e) => setCommitForceReason(e.target.value)}
+                          placeholder="e.g. Hotfix for critical crash"
+                          className="w-full rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-900 dark:text-white"
+                          required
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-red-600 dark:text-red-400 font-semibold text-[11px]">
+                    Force bypass is disabled on this branch.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div>
               <label htmlFor="commit-message-input" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Commit Message
@@ -617,7 +840,8 @@ export function ServerVersioningPage() {
                 value={newCommitMessage}
                 onChange={(e) => setNewCommitMessage(e.target.value)}
                 placeholder="e.g. Pre-WorldEdit update snapshot"
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                disabled={currentBranchObj?.status === "archived"}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -629,9 +853,14 @@ export function ServerVersioningPage() {
               </button>
               <button
                 onClick={handleCreateCommit}
-                className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
+                disabled={
+                  !newCommitMessage.trim() ||
+                  currentBranchObj?.status === "archived" ||
+                  (isDirectCommitBlocked && (!allowForceBypass || !commitForceBypass || !commitForceReason.trim()))
+                }
+                className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Commit Snapshot
+                {commitForceBypass ? "Force Commit Snapshot" : "Commit Snapshot"}
               </button>
             </div>
           </div>
@@ -932,6 +1161,96 @@ export function ServerVersioningPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Stage G: Branch Protection Modal */}
+      {isProtectionModalOpen && (
+        <BranchProtectionModal
+          isOpen={isProtectionModalOpen}
+          onClose={() => setIsProtectionModalOpen(false)}
+          serverId={serverId!}
+          branch={protectionModalBranch}
+          onProtectionUpdated={refresh}
+        />
+      )}
+
+      {/* Stage F: Test Definitions Profile Modal */}
+      {isTestDefinitionsOpen && (
+        <TestDefinitionsModal
+          isOpen={isTestDefinitionsOpen}
+          onClose={() => setIsTestDefinitionsOpen(false)}
+          serverId={serverId!}
+          onDefinitionsChanged={refresh}
+        />
+      )}
+
+      {/* Stage F: Diagnostic Test Evidence Modal */}
+      {evidenceModalTestId && (
+        <TestEvidenceModal
+          isOpen={Boolean(evidenceModalTestId)}
+          onClose={() => setEvidenceModalTestId(null)}
+          serverId={serverId!}
+          testId={evidenceModalTestId}
+        />
+      )}
+
+      {/* Stage C: Worktree Materialization Explorer */}
+      {isMaterializationOpen && (
+        <MaterializationBrowserModal
+          isOpen={isMaterializationOpen}
+          onClose={() => setIsMaterializationOpen(false)}
+          serverId={serverId!}
+          initialRevision={{ revision_type: "branch", revision_ref: selectedBranch }}
+        />
+      )}
+
+      {/* Stage C: Live Uncommitted Changes Review Modal */}
+      {isLiveChangesOpen && (
+        <ImportReviewModal
+          isOpen={isLiveChangesOpen}
+          onClose={() => setIsLiveChangesOpen(false)}
+          serverId={serverId!}
+          liveData={liveChanges}
+          onReviewResolved={refresh}
+        />
+      )}
+
+      {/* Stage B: Manage Branches & Archive Modal */}
+      {isManageBranchesOpen && (
+        <ManageBranchesModal
+          isOpen={isManageBranchesOpen}
+          onClose={() => setIsManageBranchesOpen(false)}
+          serverId={serverId!}
+          branches={branches}
+          currentBranchName={selectedBranch}
+          onBranchesChanged={refresh}
+          onOpenProtectionModal={(b) => {
+            setProtectionModalBranch(b);
+            setIsProtectionModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* Stage B: Create Immutable Tag Modal */}
+      {tagModalCommitId && (
+        <CreateTagModal
+          isOpen={Boolean(tagModalCommitId)}
+          onClose={() => setTagModalCommitId(null)}
+          serverId={serverId!}
+          commitId={tagModalCommitId}
+          onTagCreated={refresh}
+        />
+      )}
+
+      {/* Stage B: Commit Diff Inspector */}
+      {diffParams && (
+        <CommitDiffModal
+          isOpen={Boolean(diffParams)}
+          onClose={() => setDiffParams(null)}
+          serverId={serverId!}
+          fromCommitId={diffParams.from}
+          toCommitId={diffParams.to}
+        />
       )}
     </div>
   );

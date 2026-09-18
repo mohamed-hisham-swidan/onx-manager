@@ -15,6 +15,11 @@ const mockApi = {
   getBotSettings: vi.fn(),
   updateBotSettings: vi.fn(),
   getPreflightStatus: vi.fn(),
+  getServerTags: vi.fn().mockResolvedValue([]),
+  getLiveChanges: vi.fn().mockResolvedValue(null),
+  getBranchProtection: vi.fn().mockResolvedValue({ is_protected: false, policy: null }),
+  getTestDefinitions: vi.fn().mockResolvedValue([]),
+  getMaterializations: vi.fn().mockResolvedValue([]),
 };
 
 vi.mock("@/services/api", () => ({

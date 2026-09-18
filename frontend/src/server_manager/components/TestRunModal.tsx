@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { createAuthenticatedApi } from "@/services/api";
-import type { PreflightStatus } from "@/server_manager/types";
+import type { PreflightStatus, TestDefinition } from "@/server_manager/types";
 
 export interface TestRunModalProps {
   isOpen: boolean;
@@ -19,6 +19,8 @@ export function TestRunModal({
   onTestStarted,
 }: TestRunModalProps) {
   const api = useMemo(() => createAuthenticatedApi(), []);
+  const [definitions, setDefinitions] = useState<TestDefinition[]>([]);
+  const [selectedDefId, setSelectedDefId] = useState<string>("");
   const [botCount, setBotCount] = useState<number>(10);
   const [durationMinutes, setDurationMinutes] = useState<number>(15);
   const [placementMode, setPlacementMode] = useState<string>("sidecar");
@@ -40,6 +42,21 @@ export function TestRunModal({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, isLaunching, onClose]);
+
+  // Fetch test definitions when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+    api
+      .getTestDefinitions(serverId)
+      .then((defs) => {
+        if (isMounted) setDefinitions(defs);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, serverId, api]);
 
   // Fetch preflight whenever botCount or isOpen changes
   useEffect(() => {
@@ -79,6 +96,7 @@ export function TestRunModal({
         duration_minutes: durationMinutes,
         placement_mode: placementMode,
         bot_tech: botTech,
+        test_definition_id: selectedDefId || undefined,
       });
       const testId = (res as { test_id?: string; entity_id?: string }).test_id ||
         (res as { entity_id?: string }).entity_id ||
@@ -134,6 +152,41 @@ export function TestRunModal({
         {error && (
           <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300">
             {error}
+          </div>
+        )}
+
+        {/* Profile Selector */}
+        {definitions.length > 0 && (
+          <div>
+            <label
+              htmlFor="test-profile-select"
+              className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
+              Test Profile (Optional)
+            </label>
+            <select
+              id="test-profile-select"
+              value={selectedDefId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setSelectedDefId(id);
+                const def = definitions.find((d) => d.id === id);
+                if (def) {
+                  setBotCount(def.bot_count);
+                  setDurationMinutes(Math.max(1, Math.round(def.duration_seconds / 60)));
+                  if (def.placement_mode) setPlacementMode(def.placement_mode);
+                  if (def.bot_technology) setBotTech(def.bot_technology);
+                }
+              }}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">Custom Settings (Manual)</option>
+              {definitions.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} ({d.bot_count} bots, {Math.round(d.duration_seconds / 60)}m)
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
