@@ -1,33 +1,37 @@
-## Current State (2026-09-13)
+## Current State (2026-09-18)
 
 **Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
 - Phase 0 (Ground Truth/Baseline Freeze): CLOSED
-- Phase 1 (Bug Triage & Classification): CLOSED — commit 4a130ce
-  + e06e4d9 (stale-reference follow-up)
-- Phase 2 (Backend Stabilization): CLOSED — commit e17da25, all 6
-  CI checks green (windows-ci backend/frontend, Backend Tests,
-  Frontend CI, Verification Cadence backend/frontend)
-- Phase 3 (Frontend Stabilization): CLOSED — commit 0de35cb, syntax highlighting confirmed working (not broken),
-  comment feature closed Deferred (undefined, same as extended
-  files), Workstream A confirmed, full suite green (75 files/642
-  tests)
-- **Phase 5 (Containers System): CLOSED (2026-09-11 / 2026-09-12)** — All 6 batches complete & pushed to origin/master (HEAD `183ae7b`).
-  `DockerProvider` fully implemented with async CLI-subprocess driver, volume mounts, Forge/NeoForge `run.sh` launch translation, bridge networking, RCON loopback security, Windows WSL2 Linux container policy, DooD compose policy (`docker-compose.dood.yml`), provider conformance contract suite (87 tests), and CI build-smoke probe.
-- **Post-Phase-5 Bug Remediation (2026-09-12 / 2026-09-13): CLOSED** — All 4 defect tracks resolved, verified with 43 new regression tests (3,233 tests total, 5/5 CI quality gates PASS, pushed to `origin/master`):
-  - Jar download timeouts & infrastructure error detail propagation (`9d7f700`)
-  - Container crash diagnostics, Java version mismatch classification, clean stop mapping, provider tags, and file editor navigation (`74786be`)
-  - Container real dynamic IP resolution in GUI & console (`77416c8`)
-  - Bug 3: Server identity loss on restart & provider-badge flip remediation via authoritative `identity_writer.py`, reconciliation deterministic adopt-vs-heal scoring, and broadened volume-filter container cleanup (`2adf213`)
+- Phase 1 (Bug Triage & Classification): CLOSED — commit `4a130ce` + `e06e4d9`
+- Phase 2 (Backend Stabilization): CLOSED — commit `e17da25`
+- Phase 3 (Frontend Stabilization): CLOSED — commit `0de35cb`
+- **Phase 5 (Containers System): CLOSED (2026-09-11 / 2026-09-12)** — All 6 batches complete & pushed to origin/master (`183ae7b`).
 - **Phase 4 (Community Features): CLOSED (2026-09-14)** — All 5 features implemented & verified: Git-Inspired Versioning & Bot Testing, Test Environment, Custom Mod Support, Change History Log, Unified Log/Crash Readability.
-- **Enterprise Branch Runtime — Stage A (Domain Reconstruction): CLOSED (2026-09-17)** — Domain model formalized in `backend/app/modules/versioning/domain/` (Project, Repository, Tree, Commit immutability, Branch created->active->archived state machine, Revision value object, Materialization lifecycle & root isolation, Runtime pinned to immutable Commit ID, PersistentDataset mutable boundary isolation, Run/TestRun terminal state protections); ADRs 0013, 0014, 0015, 0016 recorded; 2,753 backend tests passing (20 new invariant tests), 6/6 CI quality gates PASS.
-- **Enterprise Branch Runtime — Stage B (Real Version Control): CLOSED (2026-09-17)** — Persistent commit DAG with additive `server_commit_parents` junction table, cycle detection, multi-parent merge history, immutable server tags (`server_tags`), deterministic tree and commit diffing (`diff_trees`, `diff_commits`), branch archiving (`ArchiveBranchCommand` and persistent `status` column on `server_branches`), revision resolution (`Revision.from_tag()`), repository history queries (`GetBranchHistoryQuery`, `DiffCommitsQuery`, `GetServerTagsQuery`, `GetServerTagQuery`), and 7 new FastAPI endpoints guarded by RBAC permissions in `contracts/permissions.yaml` (129 routes verified). Reversible Alembic migration `b1e2100000015` with idempotent inspection. 2,793 backend tests passing / 6 skipped (32 new Stage B tests, 0 regressions across all existing tests), 6/6 CI quality gates PASS.
-- **Enterprise Branch Runtime — Stage C (Filesystem & Materialization Engine): CLOSED (2026-09-17)** — Domain `Materialization` entity (PENDING, READY, STALE, REMOVED) and `ImportReview` aggregate with terminal state machine; atomic filesystem engine (`fs_atomic.py`, `tree_writer.py`) with root escape validation; Alembic migration `b1e2100000016` adding `server_materializations` and `server_import_reviews` tables; 12 CQRS commands/queries and FastAPI endpoints registered in `contracts/permissions.yaml` (141 live routes verified). 2,829 backend tests passing / 6 skipped, 6/6 CI quality gates PASS.
-- **Enterprise Branch Runtime — Stage D (Runtime Scheduling & Admission Control): CLOSED (2026-09-17)** — Global admission scheduler (`RuntimeAdmissionScheduler`) with static + dynamic RAM headroom gating, FIFO run queue, concurrency caps, and dynamic host headroom verification; 2,844 backend tests passing, 6/6 CI quality gates PASS.
-- **Enterprise Branch Runtime — Stage E (Console & Observability): CLOSED (2026-09-17)** — Demand-driven `ConsoleStreamManager` (`docker logs -f --timestamps --tail 0` with tmux capture fallback, 5s subscriber debounce, batch flush at 50 lines / 100ms, 64KB frame partitioning, non-silent queue overflow drop marker); WS `exec_input` and `exec_resize` client messages with RBAC checks; additive `write_exec_input` provider extension per ADR-0015; unified `docker stats` batch telemetry with multi-core CPU normalization clamped to 100%; frontend reconnect re-tail backfill and polling suppression when WS is connected; 2,859 backend tests passing / 6 skipped, 6/6 CI quality gates PASS (141/141 route contract preserved).
-- **Then: Stage F (Test Platform & Verification Drivers)**: Next refactor phase.
+- **Enterprise Branch Runtime — Stage A (Domain Reconstruction): CLOSED (2026-09-17)** — Domain model formalized in `backend/app/modules/versioning/domain/` (Project, Repository, Tree, Commit immutability, Branch created->active->archived state machine, Revision value object, Materialization lifecycle & root isolation, Runtime pinned to immutable Commit ID, PersistentDataset mutable boundary isolation, Run/TestRun terminal state protections); ADRs 0013, 0014, 0015, 0016 recorded; 2,753 backend tests passing, 6/6 CI quality gates PASS. Commit `e72a219`.
+- **Enterprise Branch Runtime — Stage B (Real Version Control): CLOSED (2026-09-17)** — Persistent commit DAG with additive `server_commit_parents` junction table, cycle detection, multi-parent merge history, immutable server tags (`server_tags`), deterministic tree and commit diffing (`diff_trees`, `diff_commits`), branch archiving (`ArchiveBranchCommand` and persistent `status` column on `server_branches`), revision resolution (`Revision.from_tag()`), repository history queries (`GetBranchHistoryQuery`, `DiffCommitsQuery`, `GetServerTagsQuery`, `GetServerTagQuery`), and 7 new FastAPI endpoints (129 routes verified). Alembic migration `b1e2100000015`. 2,793 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `641ea58`.
+- **Enterprise Branch Runtime — Stage C (Filesystem & Materialization Engine): CLOSED (2026-09-17)** — Domain `Materialization` entity (PENDING, READY, STALE, REMOVED) and `ImportReview` aggregate with terminal state machine; atomic filesystem engine (`fs_atomic.py`, `tree_writer.py`) with root escape validation; Alembic migration `b1e2100000016` adding `server_materializations` and `server_import_reviews` tables; 12 CQRS commands/queries and FastAPI endpoints registered in `contracts/permissions.yaml` (141 live routes verified). 2,829 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `8f10a4d`.
+- **Enterprise Branch Runtime — Stage D (Runtime Scheduling & Admission Control): CLOSED (2026-09-17)** — Global admission scheduler (`RuntimeAdmissionScheduler`) with static + dynamic RAM headroom gating, FIFO run queue, concurrency caps, and dynamic host headroom verification; Alembic migration `b1e2100000017` creating `server_admission_leases`; 2,829 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `e77a82c`.
+- **Enterprise Branch Runtime — Stage E (Console & Observability): CLOSED (2026-09-17)** — Demand-driven `ConsoleStreamManager` (`docker logs -f --timestamps --tail 0` with tmux capture fallback, 5s subscriber debounce, batch flush at 50 lines / 100ms, 64KB frame partitioning, non-silent queue overflow drop marker); WS `exec_input` and `exec_resize` client messages with RBAC checks; additive `write_exec_input` provider extension per ADR-0015; unified `docker stats` batch telemetry with multi-core CPU normalization clamped to 100%; frontend reconnect re-tail backfill and polling suppression when WS is connected; 2,859 backend tests passing / 6 skipped, 6/6 CI quality gates PASS (141/141 route contract preserved). Commits `41da076` / `0b64ef2`.
+- **Enterprise Branch Runtime — Stage F (Test Platform & Verification Drivers): CLOSED (2026-09-18)** — Reusable `TestDefinition` configurations aggregate, 1:1 `Runtime` entity container attach model via `server_runtimes` table, automated `PatternCrashAnalyzer` mod blame integration, structured `EvidenceBundle` generation, and lazy 24h debug artifact pruning in admission reaping; Alembic migration `b1e2100000018`; 6 new FastAPI endpoints (147 live routes verified); 2,882 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `785c7cc`.
+- **Enterprise Branch Runtime — Stage G (Protected Branches): CLOSED (2026-09-18)** — `BranchProtectionPolicy` frozen dataclass (require_test_pass, allow_direct_commit, allow_force_bypass, prevent_deletion), `ServerBranch` lifecycle methods (`protect`, `unprotect`, `can_commit_directly`, `can_archive`), `BranchProtectedError` (HTTP 409), `CreateCommitCommand` protection enforcement with administrative emergency bypass permission and audit logging, strict `AutoCommitLiveChangesCommand` and `ArchiveBranchCommand` rejection, and 3 new REST endpoints; Alembic migration `b1e2100000019` advancing route contract to 150/150 routes; 2,906 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `ba8b539`.
+- **Enterprise Branch Runtime — Frontend UI Batch: CLOSED (2026-09-18)** — Complete user interfaces for Stages B, C, F, G: `BranchProtectionModal.tsx`, `TestDefinitionsModal.tsx`, `TestEvidenceModal.tsx`, `MaterializationBrowserModal.tsx`, `ImportReviewModal.tsx`, `ManageBranchesModal.tsx`, `CreateTagModal.tsx`, `CommitDiffModal.tsx`, and full page integration in `ServerVersioningPage.tsx`; all 22 versioning routes wired in `api.ts`; 0 TypeScript errors; 730 frontend tests passing across 83 test files (100% green); 6/6 CI quality gates PASS. Commit `8b219ba`.
+- **Next: Phase 6 (Final Installs / Wrap-up) — READY**: Installer polish, distribution packaging, first-run experience, documentation review.
 
 
 **Resolved recently (for reference, don't re-investigate):**
+- Fix 1 / Fix 1.5 Bot Verification Results Honesty & Folia/Pufferfish Decoupling (2026-09-18; D0, Lane A, roadmap drift Micro):
+  - Honest bot verification outcome counting: `test_runner.py` fakeplayer branch now strictly computes `passed = (spawned_bots == bot_cfg.bot_count)`, reports `connected_bots = spawned_bots`, and details failure reason on mismatch as `Spawned {spawned_bots}/{bot_count} FakePlayer bots via RCON: {err_msg}`; replaced fragile substring match with exact command token check (`scmd.split()[1] == 'spawn'`); stopped zeroing out honest `connected_bots` on failed runs in `evidence_bundle["assertions"]["bots_spawned_actual"]` and `BotVerificationResult`.
+  - Strategy Result formalization & artifact fail-fast: replaced 3-tuple with frozen dataclass `StrategyResult(mode, driver, reason, downgraded_from, artifact_ok)` across production and test unpack sites; added pure helper `is_fakeplayer_artifact_usable` validating artifact existence, non-placeholder bytes, and jar header/size via `validate_jar`; falls back to `SMOKE_TEST` with `downgraded_from='fakeplayer_next'` and non-raising failure reason / evidence assertions when artifact is missing or 30-byte placeholder.
+  - Folia & Pufferfish config decoupling: constrained `PAPER_FAMILY_TYPES` in `config_resolver.py` to `{'paper', 'purpur'}`; AUTO mode on Folia/Pufferfish now cleanly defaults to `MINEFLAYER`, while explicit `fakeplayer_next` requests raise `UnsupportedBotTechError` (HTTP 400); existing stored records self-heal per run.
+  - Test suites: added 6 dedicated regression tests in `test_bot_verification_regression.py`; 2,912 backend tests passing / 6 skipped (2,918 collected), 730 frontend tests passing across 83 files (3,642 total tests); all 6 CI quality gates PASS (150/150 routes, ruff baseline clean, stray DB clean).
+- Enterprise Branch Runtime Platform (Stages A–G & Frontend Batch, 2026-09-16 – 2026-09-18):
+  - Full Git-inspired version control with commit DAG, tags, branch archiving, and commit diff inspector.
+  - Worktree materialization engine with read-only/edit modes, atomic filesystem primitives, and uncommitted live changes review.
+  - Database-backed concurrent admission gate (`server_admission_leases`) with dynamic host RAM/CPU headroom accounting.
+  - Demand-driven console streaming follower, WS bidirectional interactive exec/input, and unified multi-core container metrics.
+  - First-class test definitions platform, 1:1 runtime container attach, automated crash correlation with mod blame, and structured evidence bundles.
+  - Protected branches policy enforcement with direct-commit blocking and administrative emergency force bypass.
+  - Dedicated production-grade frontend UI modals and views for all versioning features with 100% test coverage.
 - Post-Phase-5 Container & Identity Bug Tracks (2026-09-12 / 2026-09-13):
   - `9d7f700`: Fixed rigid 120s jar download timeout with activity-based socket read/connect timeouts, streaming `.part` writes, and structured `details` in `CommandResult` / `InfrastructureError`.
   - `74786be`: Implemented `resolve_docker_image()` for Java 8/17/21/25, added container `collect_diagnostics()`, mapped `exited 0` to `ServerRuntimeStatus.STOPPED`, added `ConfirmDialog` on server stop, and added provider tags in console/details.
@@ -73,10 +77,10 @@
 # ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-09-13. Every claim below was verified against source code, the database,
+2026-09-18. Every claim below was verified against source code, the database,
 and a live test run.
 
-**Last verified:** 2026-09-13
+**Last verified:** 2026-09-18
 **App version (code):** `0.1.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
@@ -85,43 +89,43 @@ and a live test run.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 309 | `find backend/app -name "*.py"` (added `identity_writer.py`) |
-| Backend test files | 167 | `find backend/tests -name "test_*.py"` (added 4 Bug 3 regression suites) |
-| Frontend test files | 75 | `find frontend/src -name "*.test.*"` |
-| REST routers (`api/v1/routers/`) | 15 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users` |
-| Live routes | 106 | `./scripts/check-route-contract` (106 live routes vs 106 entries in `contracts/permissions.yaml`) |
-| Alembic migration revisions | 30 | `backend/alembic/versions/` (head `b1e2100000010`) |
-| Architecture Decision Records | 14 | `docs/decisions/0001`–`0012` + `DECISION-2026-09-10-001` + `DECISION-2026-09-12-001` |
+| Backend Python source files | 340+ | `backend/app/` (including domain aggregates, commands, queries, providers) |
+| Backend test files | 185+ | `backend/tests/` (including 15+ dedicated versioning and refactor suites) |
+| Frontend test files | 83 | `find frontend/src -name "*.test.*"` |
+| REST routers (`api/v1/routers/`) | 16 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users, versioning` |
+| Live routes | 150 | `./scripts/check-route-contract` (150 live routes vs 150 entries in `contracts/permissions.yaml`) |
+| Alembic migration revisions | 39 | `backend/alembic/versions/` (head `b1e2100000019`) |
+| Architecture Decision Records & Decisions | 22 | `docs/decisions/` (ADRs 0001–0016 + 6 formal DECISION records) |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
-| DDD modules | 10 | `auth, backup, event_store, exposure, health, monitoring, plugin, server, shared, storage` |
+| DDD modules | 11 | `auth, backup, event_store, exposure, health, monitoring, plugin, server, shared, storage, versioning` |
 | CI workflows | 6 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml, windows-ci.yml}` — full backend pytest + DooD build smoke + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence; Windows CI |
 
 ---
 
-## 2. Test suite (measured 2026-09-13)
+## 2. Test suite (measured 2026-09-18)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **2574** |
-| Passed | **2568** |
+| Collected | **2918** |
+| Passed | **2912** |
 | Skipped | **6** |
 | Failed | **0** |
 
 Backend CI runs the full suite on every push/PR to `master`
-(`.github/workflows/backend-tests.yml`), followed by a DB compatibility-floor
-check, a Ruff-baseline regression gate, and the `docker-build-smoke` DooD packaging gate.
+(`.github/workflows/backend-tests.yml`), followed by all 6 CI quality gates
+(`check-db-revision`, `check-route-contract`, `check-ruff-baseline`, `check-version-propagation`, `check-ps1-bom`, `check-stray-db`).
 
 ### Frontend — `frontend/` `npx vitest run`
 
 | Metric | Value |
 |--------|-------|
-| Test files | **75** |
-| Tests | **665 passed** across 75 test files |
+| Test files | **83** |
+| Tests | **730 passed** across 83 test files |
 
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
-on every push/PR to `master`. Total test count: **3,233 tests passed** (0 failed).
+on every push/PR to `master`. Total test count: **3,642 tests passed** (0 failed, 6 skipped).
 
 ---
 
@@ -131,9 +135,10 @@ on every push/PR to `master`. Total test count: **3,233 tests passed** (0 failed
 
 | Property | Value |
 |----------|-------|
-| Alembic revision | `b1e2100000010` — **at head** |
-| Head revision | `b1e2100000010` (head == current) |
-| New tables / columns | `system_state`, `invitations`, `server_memberships`, Phase-7 exposure tables (`host_playit_agent`, `server_exposure`, `server_exposure_target`, `panel_exposure`), nullable `metric_points.tps`, `servers.running_start_time` (`b1e2100000009`), and `servers.cpu_cores` / `servers.cpu_affinity` (`b1e2100000010`) |
+| Alembic revision | `b1e2100000019` — **at head** |
+| Head revision | `b1e2100000019` (head == current) |
+| Revisions count | 39 migrations |
+| Refactor tables / columns | `server_commit_parents`, `server_tags`, `server_branches.status`, `server_branches.is_protected`, `server_branches.protection_policy`, `server_materializations`, `server_import_reviews`, `server_admission_leases`, `server_runtimes`, `server_test_definitions`, `server_test_runs.runtime_id`, `server_test_runs.test_definition_id`, `server_test_runs.evidence_bundle`, `server_test_runs.artifacts_purged` |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` automatically inspects, backs up, and reconciles DB schema before services start |
 
 ---
@@ -347,11 +352,12 @@ instead of trusting memory (Blueprint V5 §2.4):
 Checks executed each run (identical locally via `scripts/reverify`):
 
 1. `python ../scripts/check-version-propagation` — pyproject.toml / package.json / runtime agree (0.1.0)
-2. `python ../scripts/check-db-revision` — database schema matches compatible migration head
+2. `python ../scripts/check-db-revision` — database schema matches compatible migration head (`b1e2100000019`)
 3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
-4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 106 entries match 106 live routes
-5. `python -m pytest -q` (backend) — full suite 2,568 passed / 6 skipped (2,574 collected)
-6. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — 75 files / 665 tests passing, build succeeds
+4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 150 entries match 150 live routes
+5. `python ../scripts/check-ps1-bom` — PowerShell scripts UTF-8 BOM encoding
+6. `python -m pytest -q` (backend) — full suite 2,912 passed / 6 skipped (2,918 collected)
+7. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — 83 files / 730 tests passing, build succeeds
 
 ### 7.3 Execution status
 
