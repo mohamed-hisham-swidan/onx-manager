@@ -356,6 +356,15 @@ class FakePlayerNextDriver:
 
     PLUGIN_DOWNLOAD_URL = "https://github.com/craftaro/fakeplayer-next/releases/download/v0.3.0/fakeplayer-next-0.3.0.jar"
 
+    PLACEHOLDER_ARTIFACT = b"PK\x03\x04fakeplayer-next-placeholder"
+
+    @classmethod
+    def get_artifact_path(cls, test_deployment: TestServerDeployment | None = None) -> Path:
+        """Returns the expected fakeplayer-next plugin path for a deployment."""
+        if test_deployment is not None:
+            return Path(test_deployment.server_dir) / "plugins" / "fakeplayer-next.jar"
+        return Path("plugins/fakeplayer-next.jar")
+
     @classmethod
     def install_plugin_into_test_directory(cls, test_deployment: TestServerDeployment) -> Path:
         """Installs fakeplayer-next plugin jar into test deployment plugins/ directory only."""
@@ -364,7 +373,7 @@ class FakePlayerNextDriver:
         plugin_path = plugins_dir / "fakeplayer-next.jar"
 
         if not plugin_path.exists():
-            plugin_path.write_bytes(b"PK\x03\x04fakeplayer-next-placeholder")
+            plugin_path.write_bytes(cls.PLACEHOLDER_ARTIFACT)
 
         return plugin_path
 

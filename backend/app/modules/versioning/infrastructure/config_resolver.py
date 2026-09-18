@@ -19,7 +19,7 @@ class BotConfigResolver:
     Enforces server-type-aware auto bot_tech selection and zero arbitrary numeric ceilings.
     """
 
-    PAPER_FAMILY_TYPES: frozenset[str] = frozenset({"paper", "purpur", "folia", "pufferfish"})
+    PAPER_FAMILY_TYPES: frozenset[str] = frozenset({"paper", "purpur"})
 
     @classmethod
     def resolve_config(

@@ -22,45 +22,45 @@ from app.modules.versioning.infrastructure.config_writer import write_test_serve
 
 def test_compatibility_resolution_matrix() -> None:
     # Paper and Purpur default to FakePlayer-Next
-    mode, driver, _ = resolve_verification_strategy("paper", "1.21.1", BotTech.AUTO)
-    assert (mode, driver) == (VerificationMode.FULL_BOT, "fakeplayer_next")
+    strat = resolve_verification_strategy("paper", "1.21.1", BotTech.AUTO)
+    assert (strat.mode, strat.driver) == (VerificationMode.FULL_BOT, "fakeplayer_next")
 
-    mode, driver, _ = resolve_verification_strategy("purpur", "1.20.4", BotTech.AUTO)
-    assert (mode, driver) == (VerificationMode.FULL_BOT, "fakeplayer_next")
+    strat = resolve_verification_strategy("purpur", "1.20.4", BotTech.AUTO)
+    assert (strat.mode, strat.driver) == (VerificationMode.FULL_BOT, "fakeplayer_next")
 
     # Vanilla and Fabric default to Mineflayer
-    mode, driver, _ = resolve_verification_strategy("vanilla", "1.20.4", BotTech.AUTO)
-    assert (mode, driver) == (VerificationMode.FULL_BOT, "mineflayer")
+    strat = resolve_verification_strategy("vanilla", "1.20.4", BotTech.AUTO)
+    assert (strat.mode, strat.driver) == (VerificationMode.FULL_BOT, "mineflayer")
 
-    mode, driver, _ = resolve_verification_strategy("fabric", "1.20.1", BotTech.AUTO)
-    assert (mode, driver) == (VerificationMode.FULL_BOT, "mineflayer")
+    strat = resolve_verification_strategy("fabric", "1.20.1", BotTech.AUTO)
+    assert (strat.mode, strat.driver) == (VerificationMode.FULL_BOT, "mineflayer")
 
-    mode, driver, _ = resolve_verification_strategy("forge", "1.20.1", BotTech.AUTO)
-    assert (mode, driver) == (VerificationMode.SMOKE_TEST, "none")
+    strat = resolve_verification_strategy("forge", "1.20.1", BotTech.AUTO)
+    assert (strat.mode, strat.driver) == (VerificationMode.SMOKE_TEST, "none")
 
-    mode, driver, _ = resolve_verification_strategy("neoforge", "1.21.1", BotTech.AUTO)
-    assert (mode, driver) == (VerificationMode.SMOKE_TEST, "none")
+    strat = resolve_verification_strategy("neoforge", "1.21.1", BotTech.AUTO)
+    assert (strat.mode, strat.driver) == (VerificationMode.SMOKE_TEST, "none")
 
     # Explicit Mineflayer on Forge is supported
-    mode, driver, _ = resolve_verification_strategy("forge", "1.20.1", BotTech.MINEFLAYER)
-    assert (mode, driver) == (VerificationMode.FULL_BOT, "mineflayer")
+    strat = resolve_verification_strategy("forge", "1.20.1", BotTech.MINEFLAYER)
+    assert (strat.mode, strat.driver) == (VerificationMode.FULL_BOT, "mineflayer")
 
     # Unsupported / exotic loaders gracefully degrade to Smoke Test
-    mode, driver, _ = resolve_verification_strategy("bedrock", "1.20", BotTech.AUTO)
-    assert (mode, driver) == (VerificationMode.SMOKE_TEST, "none")
+    strat = resolve_verification_strategy("bedrock", "1.20", BotTech.AUTO)
+    assert (strat.mode, strat.driver) == (VerificationMode.SMOKE_TEST, "none")
 
-    mode, driver, _ = resolve_verification_strategy("sponge", "1.16.5", BotTech.AUTO)
-    assert (mode, driver) == (VerificationMode.SMOKE_TEST, "none")
+    strat = resolve_verification_strategy("sponge", "1.16.5", BotTech.AUTO)
+    assert (strat.mode, strat.driver) == (VerificationMode.SMOKE_TEST, "none")
 
-    mode, driver, _ = resolve_verification_strategy("unknown_custom", "1.21.1", BotTech.AUTO)
-    assert (mode, driver) == (VerificationMode.SMOKE_TEST, "none")
+    strat = resolve_verification_strategy("unknown_custom", "1.21.1", BotTech.AUTO)
+    assert (strat.mode, strat.driver) == (VerificationMode.SMOKE_TEST, "none")
 
     # Explicit user selection overrides auto
-    mode, driver, _ = resolve_verification_strategy("paper", "1.21.1", BotTech.MINEFLAYER)
-    assert (mode, driver) == (VerificationMode.FULL_BOT, "mineflayer")
+    strat = resolve_verification_strategy("paper", "1.21.1", BotTech.MINEFLAYER)
+    assert (strat.mode, strat.driver) == (VerificationMode.FULL_BOT, "mineflayer")
 
-    mode, driver, _ = resolve_verification_strategy("vanilla", "1.20.4", BotTech.FAKEPLAYER_NEXT)
-    assert (mode, driver) == (VerificationMode.SMOKE_TEST, "none")
+    strat = resolve_verification_strategy("vanilla", "1.20.4", BotTech.FAKEPLAYER_NEXT)
+    assert (strat.mode, strat.driver) == (VerificationMode.SMOKE_TEST, "none")
 
 
 def test_compatibility_accepts_minecraft_version_objects() -> None:
@@ -73,33 +73,33 @@ def test_compatibility_accepts_minecraft_version_objects() -> None:
     from app.modules.shared.value_objects import MinecraftVersion
 
     # Exact live-failure scenario: Paper-family + fakeplayer_next
-    mode, driver, _ = resolve_verification_strategy(
+    strat = resolve_verification_strategy(
         "paper", MinecraftVersion.parse("1.21.1"), BotTech.FAKEPLAYER_NEXT
     )
-    assert (mode, driver) == (VerificationMode.FULL_BOT, "fakeplayer_next")
+    assert (strat.mode, strat.driver) == (VerificationMode.FULL_BOT, "fakeplayer_next")
 
     # Auto resolution with a constructed object
-    mode, driver, _ = resolve_verification_strategy(
+    strat = resolve_verification_strategy(
         "paper", MinecraftVersion(1, 21, 1), BotTech.AUTO
     )
-    assert (mode, driver) == (VerificationMode.FULL_BOT, "fakeplayer_next")
+    assert (strat.mode, strat.driver) == (VerificationMode.FULL_BOT, "fakeplayer_next")
 
     # Version-gated path (Mineflayer cutoff 1.20.4) with objects on both sides
-    mode, driver, _ = resolve_verification_strategy(
+    strat = resolve_verification_strategy(
         "vanilla", MinecraftVersion(1, 20, 4), BotTech.AUTO
     )
-    assert (mode, driver) == (VerificationMode.FULL_BOT, "mineflayer")
+    assert (strat.mode, strat.driver) == (VerificationMode.FULL_BOT, "mineflayer")
 
-    mode, driver, _ = resolve_verification_strategy(
+    strat = resolve_verification_strategy(
         "vanilla", MinecraftVersion.parse("1.21.1"), BotTech.AUTO
     )
-    assert (mode, driver) == (VerificationMode.SMOKE_TEST, "none")
+    assert (strat.mode, strat.driver) == (VerificationMode.SMOKE_TEST, "none")
 
     # Modded loaders with objects
-    mode, driver, _ = resolve_verification_strategy(
+    strat = resolve_verification_strategy(
         "neoforge", MinecraftVersion.parse("1.21.1"), BotTech.AUTO
     )
-    assert (mode, driver) == (VerificationMode.SMOKE_TEST, "none")
+    assert (strat.mode, strat.driver) == (VerificationMode.SMOKE_TEST, "none")
 
 
 def test_max_players_scaling_and_source_manifest_isolation() -> None:

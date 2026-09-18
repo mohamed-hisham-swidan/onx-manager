@@ -356,11 +356,15 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         try:
             # 1. Resolve loader and version strategy
             server_type = spec.commit.manifest.server_type
-            mode, driver, explanation = resolve_verification_strategy(
+            strat = resolve_verification_strategy(
                 server_type=server_type,
                 minecraft_version=spec.minecraft_version,
                 bot_tech=bot_cfg.bot_tech,
+                artifact_path=FakePlayerNextDriver.get_artifact_path(test_deployment),
             )
+            mode = strat.mode
+            driver = strat.driver
+            explanation = strat.reason
             logs.append(
                 f"[BOT-VERIFY] Strategy: mode={mode.value}, driver={driver}, reason={explanation}"
             )
@@ -480,6 +484,11 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     passed = smoke_res.passed
                     connected_bots = smoke_res.connected_bots
                     failure_reason = smoke_res.failure_reason
+                    if strat.downgraded_from is not None:
+                        if failure_reason:
+                            failure_reason = f"{strat.reason}; {failure_reason}"
+                        else:
+                            failure_reason = strat.reason
                     if smoke_res.log_output:
                         logs.append(smoke_res.log_output)
 
@@ -499,6 +508,8 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     last_error: str | None = None
 
                     for scmd in spawn_cmds:
+                        tokens = scmd.strip().split()
+                        is_spawn = len(tokens) >= 2 and tokens[1] == "spawn"
                         try:
                             res = await asyncio.to_thread(
                                 subprocess.run,
@@ -509,7 +520,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                             )
                             if res.returncode == 0:
                                 successful_spawns += 1
-                                if "spawn" in scmd:
+                                if is_spawn:
                                     spawned_bots += 1
                             else:
                                 last_error = (
@@ -534,21 +545,19 @@ class DockerTestExecutionRunner(TestExecutionRunner):
 
                     if not is_alive:
                         passed = False
+                        connected_bots = spawned_bots
                         failure_reason = (
                             "Test server container terminated during FakePlayer bot verification"
                         )
-                    elif successful_spawns == 0 and len(spawn_cmds) > 0:
-                        passed = False
-                        err_msg = last_error or "Unknown RCON error"
-                        failure_reason = f"Failed to spawn FakePlayer bots via RCON: {err_msg}"
                     else:
-                        passed = True
-                        if spawned_bots > 0:
-                            connected_bots = spawned_bots
-                        elif bot_cfg.bot_count == 0:
-                            connected_bots = successful_spawns
-                        else:
-                            connected_bots = bot_cfg.bot_count
+                        passed = (spawned_bots == bot_cfg.bot_count)
+                        connected_bots = spawned_bots
+                        if not passed:
+                            err_msg = last_error or "Unknown RCON error"
+                            failure_reason = (
+                                f"Spawned {spawned_bots}/{bot_cfg.bot_count} "
+                                f"FakePlayer bots via RCON: {err_msg}"
+                            )
 
                 else:
                     # Mineflayer bot technology
@@ -715,11 +724,19 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     "container_started": True,
                     "boot_gate_passed": boot_passed if "boot_passed" in locals() else False,
                     "bots_spawned_target": bot_cfg.bot_count,
-                    "bots_spawned_actual": connected_bots if passed else 0,
+                    "bots_spawned_actual": connected_bots,
                     "crash_reports_found": len(list(crash_dir.glob("crash-*.txt")))
                     if crash_dir.is_dir()
                     else 0,
                     "clean_shutdown": passed,
+                    **(
+                        {
+                            "strategy_downgraded_from": strat.downgraded_from,
+                            "downgrade_reason": strat.reason,
+                        }
+                        if strat.downgraded_from
+                        else {}
+                    ),
                 },
                 "crash_analysis": {
                     "blamed_mod": blamed_mod,
@@ -783,7 +800,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
 
             result = BotVerificationResult(
                 passed=passed,
-                connected_bots=connected_bots if passed else 0,
+                connected_bots=connected_bots,
                 total_bots=bot_cfg.bot_count,
                 disconnects=0 if passed else 1,
                 survived_duration_seconds=duration_s if passed else 0.0,

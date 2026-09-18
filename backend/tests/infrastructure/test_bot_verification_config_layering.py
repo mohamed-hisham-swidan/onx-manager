@@ -51,31 +51,38 @@ def test_server_type_aware_auto_resolution() -> None:
     mineflayer on others.
     """
     # Paper-family servers -> fakeplayer_next
-    for s_type in ["paper", "purpur", "folia", "pufferfish"]:
+    for s_type in ["paper", "purpur"]:
         cfg = BotConfigResolver.resolve_config(s_type, run_overrides={"bot_tech": "auto"})
         assert cfg.bot_tech == BotTech.FAKEPLAYER_NEXT
 
     # Other server types -> mineflayer
-    for s_type in ["vanilla", "forge", "fabric", "neoforge", "spigot", "bukkit"]:
+    for s_type in [
+        "folia",
+        "pufferfish",
+        "vanilla",
+        "forge",
+        "fabric",
+        "neoforge",
+        "spigot",
+        "bukkit",
+    ]:
         cfg = BotConfigResolver.resolve_config(s_type, run_overrides={"bot_tech": "auto"})
         assert cfg.bot_tech == BotTech.MINEFLAYER
 
 
 def test_explicit_fakeplayer_next_on_unsupported_server_fails() -> None:
-    """Explicit fakeplayer_next on Forge/Fabric must immediately fail with
+    """Explicit fakeplayer_next on Forge/Fabric/Folia/Pufferfish must immediately fail with
     UnsupportedBotTechError.
     """
-    with pytest.raises(UnsupportedBotTechError) as exc_info:
-        BotConfigResolver.resolve_config("forge", run_overrides={"bot_tech": "fakeplayer_next"})
+    for s_type in ["forge", "fabric", "folia", "pufferfish"]:
+        with pytest.raises(UnsupportedBotTechError) as exc_info:
+            BotConfigResolver.resolve_config(s_type, run_overrides={"bot_tech": "fakeplayer_next"})
 
-    err = exc_info.value
-    assert err.code == "UNSUPPORTED_BOT_TECH_FOR_SERVER_TYPE"
-    assert err.http_status == 400
-    assert "fakeplayer_next" in err.message
-    assert "forge" in err.message
-
-    with pytest.raises(UnsupportedBotTechError):
-        BotConfigResolver.resolve_config("fabric", run_overrides={"bot_tech": "fakeplayer_next"})
+        err = exc_info.value
+        assert err.code == "UNSUPPORTED_BOT_TECH_FOR_SERVER_TYPE"
+        assert err.http_status == 400
+        assert "fakeplayer_next" in err.message
+        assert s_type in err.message
 
 
 def test_explicit_mineflayer_allowed_on_paper() -> None:

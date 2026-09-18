@@ -72,6 +72,11 @@ async def test_docker_test_runner_successful_execution_pipeline() -> None:
         test_dir_path = Path(tmpdir) / "server" / ".onx" / "tests" / "t-abc12345"
         logs_dir = test_dir_path / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
+        plugins_dir = test_dir_path / "plugins"
+        plugins_dir.mkdir(parents=True, exist_ok=True)
+        (plugins_dir / "fakeplayer-next.jar").write_bytes(
+            b"PK\x03\x04" + b"\x00" * 1_048_576
+        )
         (logs_dir / "latest.log").write_text(
             "[12:00:10] [Server thread/INFO]: Done (5.12s)! For help, type 'help'\n",
             encoding="utf-8",
@@ -641,6 +646,11 @@ async def test_fakeplayer_next_rcon_failure_fails_test_run() -> None:
         test_dir_path = Path(tmpdir) / "server" / ".onx" / "tests" / spec.test_id
         logs_dir = test_dir_path / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
+        plugins_dir = test_dir_path / "plugins"
+        plugins_dir.mkdir(parents=True, exist_ok=True)
+        (plugins_dir / "fakeplayer-next.jar").write_bytes(
+            b"PK\x03\x04" + b"\x00" * 1_048_576
+        )
         (logs_dir / "latest.log").write_text(
             "[12:00:10] [Server thread/INFO]: Done (2.1s)! For help, type 'help'\n",
             encoding="utf-8",
