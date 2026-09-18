@@ -53,6 +53,15 @@ class TestRunCompletedEvent(DomainEvent):
     failure_reason: str | None = None
 
 
+class TestRunFailedEvent(DomainEvent):
+    __test__ = False
+    server_id: str
+    test_id: str
+    commit_id: str
+    failure_code: str | None = None
+    blamed_mod: str | None = None
+
+
 class CommitPromotedEvent(DomainEvent):
     server_id: str
     commit_id: str

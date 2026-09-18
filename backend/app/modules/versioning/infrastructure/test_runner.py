@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -9,6 +10,7 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyzer
 from app.modules.server.infrastructure.providers.docker import (
@@ -17,10 +19,11 @@ from app.modules.server.infrastructure.providers.docker import (
     resolve_host_mount_path,
 )
 from app.modules.versioning.domain.deployment import TestServerDeployment
-from app.modules.versioning.domain.entities import ServerCommit
+from app.modules.versioning.domain.entities import Runtime, ServerCommit
 from app.modules.versioning.domain.value_objects import (
     BotVerificationConfig,
     PlacementMode,
+    RuntimeStatus,
     TestRunStatus,
 )
 from app.modules.versioning.infrastructure.bot_drivers import (
@@ -90,6 +93,7 @@ class TestHandle:
     test_dir: str
     sidecar_runner: PooledRunner | None
     status: TestRunStatus
+    runtime_id: str | None = None
     _completion_future: asyncio.Future[BotVerificationResult] = field(
         default_factory=asyncio.Future
     )
@@ -110,7 +114,7 @@ class TestExecutionRunner(ABC):
         pass
 
     @abstractmethod
-    async def cleanup_test(self, handle: TestHandle) -> None:
+    async def cleanup_test(self, handle: TestHandle, passed: bool = True) -> None:
         pass
 
 
@@ -124,8 +128,34 @@ class DockerTestExecutionRunner(TestExecutionRunner):
     - Automated bot runtime sanity verification.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, event_bus: Any | None = None) -> None:
         self._active_runs: dict[str, TestHandle] = {}
+        self._event_bus = event_bus
+
+    async def _persist_runtime(self, runtime: Runtime) -> None:
+        from app.core.persistence.db import database
+        from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
+
+        try:
+            _ = database.session_factory
+        except RuntimeError:
+            return
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                async with database.session_factory() as session:
+                    repo = SQLVersioningRepository(session)
+                    await repo.save_runtime(runtime)
+                    await session.commit()
+                break
+            except Exception as exc:
+                is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                if is_lock and attempt < max_retries - 1:
+                    await asyncio.sleep(0.05 * (2**attempt))
+                    continue
+                logger.debug("Failed to persist runtime %s: %s", runtime.id, exc)
+                break
 
     async def run_test(self, spec: TestSpec) -> TestHandle:
         # Stage D: concurrency is governed by the global admission gate
@@ -276,6 +306,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         if res.returncode != 0:
             raise RuntimeError(f"Failed to start isolated test container: {res.stderr.strip()}")
 
+        runtime_id = f"rt-{spec.test_id[:12]}"
         handle = TestHandle(
             test_id=spec.test_id,
             server_id=spec.server_id,
@@ -283,8 +314,22 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             test_dir=test_dir_str,
             sidecar_runner=None,
             status=TestRunStatus.RUNNING,
+            runtime_id=runtime_id,
         )
         self._active_runs[spec.test_id] = handle
+
+        runtime = Runtime(
+            id=runtime_id,
+            server_id=spec.server_id,
+            commit_id=spec.commit.id,
+            container_id=container_name,
+            port=25565,
+            status=RuntimeStatus.RUNNING,
+        )
+        try:
+            await self._persist_runtime(runtime)
+        except Exception as rt_err:
+            logger.debug("Initial runtime persistence skipped: %s", rt_err)
 
         # Launch background verification execution (no lock is held: admission
         # owns concurrency policy; failures surface via handle + DB outcome).
@@ -449,21 +494,61 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                         run_id=spec.test_id[:8],
                         bot_count=bot_cfg.bot_count,
                     )
+                    successful_spawns = 0
+                    spawned_bots = 0
+                    last_error: str | None = None
+
                     for scmd in spawn_cmds:
                         try:
-                            await asyncio.to_thread(
+                            res = await asyncio.to_thread(
                                 subprocess.run,
                                 ["docker", "exec", handle.container_name, "rcon-cli", scmd],
                                 capture_output=True,
                                 text=True,
                                 timeout=5,
                             )
+                            if res.returncode == 0:
+                                successful_spawns += 1
+                                if "spawn" in scmd:
+                                    spawned_bots += 1
+                            else:
+                                last_error = (
+                                    res.stderr.strip() or f"rcon-cli exit code {res.returncode}"
+                                )
+                                logger.debug("FakePlayer RCON spawn command failed: %s", last_error)
                         except Exception as e:
+                            last_error = str(e)
                             logger.debug("Failed injecting fakeplayer command: %s", e)
 
                     await asyncio.sleep(min(duration_s, 1.0))
-                    passed = True
-                    connected_bots = bot_cfg.bot_count
+
+                    # Check container liveness before declaring outcome
+                    liveness = await asyncio.to_thread(
+                        subprocess.run,
+                        ["docker", "inspect", "-f", "{{.State.Running}}", handle.container_name],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    is_alive = liveness.returncode == 0 and "true" in liveness.stdout.lower()
+
+                    if not is_alive:
+                        passed = False
+                        failure_reason = (
+                            "Test server container terminated during FakePlayer bot verification"
+                        )
+                    elif successful_spawns == 0 and len(spawn_cmds) > 0:
+                        passed = False
+                        err_msg = last_error or "Unknown RCON error"
+                        failure_reason = f"Failed to spawn FakePlayer bots via RCON: {err_msg}"
+                    else:
+                        passed = True
+                        if spawned_bots > 0:
+                            connected_bots = spawned_bots
+                        elif bot_cfg.bot_count == 0:
+                            connected_bots = successful_spawns
+                        else:
+                            connected_bots = bot_cfg.bot_count
 
                 else:
                     # Mineflayer bot technology
@@ -530,15 +615,170 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 outcome = "clean" if passed else "unhealthy"
                 await pool.release(sidecar, outcome=outcome)
 
+            # 1. Container-Level Diagnostics (§c)
+            inspect_exit_code = 0 if passed else 1
+            inspect_oom = False
+            try:
+                insp = await asyncio.to_thread(
+                    subprocess.run,
+                    ["docker", "inspect", handle.container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if insp.returncode == 0:
+                    try:
+                        insp_data = json.loads(insp.stdout)
+                        if isinstance(insp_data, list) and insp_data:
+                            state = insp_data[0].get("State", {})
+                            inspect_exit_code = state.get("ExitCode", inspect_exit_code)
+                            inspect_oom = bool(state.get("OOMKilled", False))
+                            if inspect_oom:
+                                failure_reason = (
+                                    "Test server container was killed by OOM killer "
+                                    "(exit code 137). Earmarked RAM exceeded."
+                                )
+                                passed = False
+                            elif inspect_exit_code != 0 and not failure_reason:
+                                failure_reason = (
+                                    f"Test server container terminated unexpectedly with "
+                                    f"exit code {inspect_exit_code}."
+                                )
+                                passed = False
+                    except Exception as json_err:
+                        logger.debug(
+                            "Failed parsing docker inspect json for %s: %s",
+                            handle.container_name,
+                            json_err,
+                        )
+            except Exception as insp_exc:
+                logger.debug("Failed docker inspect for %s: %s", handle.container_name, insp_exc)
+
+            if not passed:
+                try:
+                    c_logs = await asyncio.to_thread(
+                        subprocess.run,
+                        ["docker", "logs", "--tail", "100", "--timestamps", handle.container_name],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if c_logs.stdout:
+                        logs.append(f"[CONTAINER STDERR/LOGS]\n{c_logs.stdout}")
+                except Exception as log_tail_err:
+                    logger.debug("Failed capturing container stderr tail: %s", log_tail_err)
+
+            # 2. Crash Correlation & Mod Blame (§d)
+            blamed_mod: str | None = None
+            failure_code: str | None = None
+            crash_summary: str | None = None
+            crash_report_rel_path: str | None = None
+            crash_dir = Path(handle.test_dir) / "crash-reports"
+            if crash_dir.is_dir():
+                crash_files = list(crash_dir.glob("crash-*.txt"))
+                if crash_files:
+                    first_crash = crash_files[0]
+                    crash_report_rel_path = f"crash-reports/{first_crash.name}"
+                    try:
+                        content = first_crash.read_text(encoding="utf-8", errors="replace")
+                        analyzer = PatternCrashAnalyzer()
+                        analysis = analyzer.analyze_crash_content(content)
+                        blamed_mod = analysis.blamed_mod
+                        failure_code = (
+                            analysis.failure_code.value
+                            if hasattr(analysis.failure_code, "value")
+                            else str(analysis.failure_code)
+                        )
+                        crash_summary = analysis.summary
+                        if not failure_reason:
+                            blamed_str = blamed_mod or "Unknown mod"
+                            failure_reason = (
+                                f"Crash detected in test run. Blamed mod: {blamed_str} "
+                                f"({failure_code})"
+                            )
+                    except Exception as crash_err:
+                        logger.debug("Failed analyzing crash content: %s", crash_err)
+
+            # 3. Structured Assertions & Evidence Bundle Schema (§e)
+            evidence_bundle = {
+                "test_id": spec.test_id,
+                "server_id": spec.server_id,
+                "commit_id": spec.commit.id,
+                "runtime": {
+                    "runtime_id": handle.runtime_id,
+                    "container_name": handle.container_name,
+                    "exit_code": inspect_exit_code,
+                    "oom_killed": inspect_oom,
+                    "duration_seconds": duration_s if passed else 0.0,
+                },
+                "assertions": {
+                    "container_started": True,
+                    "boot_gate_passed": boot_passed if "boot_passed" in locals() else False,
+                    "bots_spawned_target": bot_cfg.bot_count,
+                    "bots_spawned_actual": connected_bots if passed else 0,
+                    "crash_reports_found": len(list(crash_dir.glob("crash-*.txt")))
+                    if crash_dir.is_dir()
+                    else 0,
+                    "clean_shutdown": passed,
+                },
+                "crash_analysis": {
+                    "blamed_mod": blamed_mod,
+                    "failure_code": failure_code,
+                    "summary": crash_summary or failure_reason,
+                    "crash_report_path": crash_report_rel_path,
+                },
+                "log_tail": [line for line in logs[-100:] if line.strip()],
+            }
+
+            # 4. Dispatch TestRunFailedEvent if failed (§d.3)
+            if not passed and self._event_bus is not None:
+                try:
+                    from app.modules.versioning.domain.events import TestRunFailedEvent
+
+                    await self._event_bus.publish(
+                        TestRunFailedEvent(
+                            server_id=spec.server_id,
+                            test_id=spec.test_id,
+                            commit_id=spec.commit.id,
+                            failure_code=failure_code,
+                            blamed_mod=blamed_mod,
+                        )
+                    )
+                except Exception as eb_err:
+                    logger.debug("Failed publishing TestRunFailedEvent: %s", eb_err)
+
+            # 5. Update Runtime Entity (§b)
+            if handle.runtime_id:
+                try:
+                    runtime = Runtime(
+                        id=handle.runtime_id,
+                        server_id=spec.server_id,
+                        commit_id=spec.commit.id,
+                        container_id=handle.container_name,
+                        port=25565,
+                        status=RuntimeStatus.TERMINATED if passed else RuntimeStatus.CRASHED,
+                        exit_code=inspect_exit_code,
+                        oom_killed=inspect_oom,
+                    )
+                    if not passed:
+                        runtime.mark_crashed(exit_code=inspect_exit_code, oom_killed=inspect_oom)
+                    else:
+                        runtime.mark_terminated(exit_code=inspect_exit_code)
+                    await self._persist_runtime(runtime)
+                except Exception as rt_err:
+                    logger.debug("Failed persisting final runtime state: %s", rt_err)
+
             handle.status = TestRunStatus.PASSED if passed else TestRunStatus.FAILED
             capped_log = cap_log_output("\n".join(logs))
 
-            # Persist real outcome to SQLite DB
+            # 6. Persist Real Outcome to SQLite DB
             await self._persist_test_outcome(
                 test_id=spec.test_id,
                 passed=passed,
                 failure_reason=failure_reason,
                 log_output=capped_log,
+                runtime_id=handle.runtime_id,
+                evidence_bundle=evidence_bundle,
             )
 
             result = BotVerificationResult(
@@ -552,11 +792,10 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             )
             handle.set_result(result)
             self._active_runs.pop(spec.test_id, None)
-            # Must-Fix 6A: remove the test container on EVERY exit path
-            # (success, timeout, exception, cancellation). Previously the
-            # container leaked (e.g. still Up 8h after a crashed run).
+
+            # 7. Cleanup & Retention (§f)
             try:
-                await self.cleanup_test(handle)
+                await self.cleanup_test(handle, passed=passed)
             except Exception as cleanup_exc:
                 logger.warning(
                     "Test container cleanup failed for %s: %s",
@@ -570,6 +809,8 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         passed: bool,
         failure_reason: str | None,
         log_output: str,
+        runtime_id: str | None = None,
+        evidence_bundle: dict[str, Any] | None = None,
     ) -> None:
         """Persists the terminal verification outcome to SQLite using busy-retry resilience."""
         from app.core.persistence.db import database
@@ -597,6 +838,10 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                                 reason=failure_reason or "Verification failed",
                                 log_output=log_output,
                             )
+                        if runtime_id is not None:
+                            run.runtime_id = runtime_id
+                        if evidence_bundle is not None:
+                            run.evidence_bundle = evidence_bundle
                         await repo.save_test_run(run)
                         await session.commit()
                 break
@@ -608,8 +853,14 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 logger.exception("Failed to persist test run outcome for %s: %s", test_id, exc)
                 break
 
-    async def cleanup_test(self, handle: TestHandle) -> None:
-        """Removes test container and test directory."""
+    async def cleanup_test(self, handle: TestHandle, passed: bool = True) -> None:
+        """Removes test container, and test directory (unless failed and retention active)."""
+        from app.core.config import AppSettings
+
+        settings = AppSettings()
+        retention_hours = getattr(settings, "test_artifact_retention_hours", 24)
+
+        # 1. Unconditionally remove the container
         try:
             await asyncio.to_thread(
                 subprocess.run,
@@ -621,16 +872,22 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         except Exception as e:
             logger.debug("Failed to remove test container %s: %s", handle.container_name, e)
 
-        try:
-            if os.path.exists(handle.test_dir):
-                shutil.rmtree(handle.test_dir, ignore_errors=True)
+        # 2. Retain failed test directory for retention_hours if active
+        if passed or retention_hours <= 0:
+            try:
                 if os.path.exists(handle.test_dir):
-                    # Stale root-owned leftovers (pre---user-parity runs) are not
-                    # removable by the host user — warn loudly instead of swallowing.
-                    logger.warning(
-                        "Test directory %s still exists after cleanup; "
-                        "likely root-owned leftovers from a pre-parity run",
-                        handle.test_dir,
-                    )
-        except Exception as e:
-            logger.warning("Failed to remove test directory %s: %s", handle.test_dir, e)
+                    shutil.rmtree(handle.test_dir, ignore_errors=True)
+                    if os.path.exists(handle.test_dir):
+                        logger.warning(
+                            "Test directory %s still exists after cleanup; "
+                            "likely root-owned leftovers from a pre-parity run",
+                            handle.test_dir,
+                        )
+            except Exception as e:
+                logger.warning("Failed to remove test directory %s: %s", handle.test_dir, e)
+        else:
+            logger.info(
+                "Retaining failed test directory %s for %sh debugging retention",
+                handle.test_dir,
+                retention_hours,
+            )

@@ -42,6 +42,10 @@ from app.modules.versioning.application.commands.promote_commit import (
     PromoteCommitCommand,
     PromoteCommitHandler,
 )
+from app.modules.versioning.application.commands.prune_test_artifacts import (
+    PruneTestArtifactsCommand,
+    PruneTestArtifactsHandler,
+)
 from app.modules.versioning.application.commands.remove_materialization import (
     RemoveMaterializationCommand,
     RemoveMaterializationHandler,
@@ -58,6 +62,14 @@ from app.modules.versioning.application.commands.run_isolated_test import (
 from app.modules.versioning.application.commands.set_materialization_edit_mode import (
     SetMaterializationEditModeCommand,
     SetMaterializationEditModeHandler,
+)
+from app.modules.versioning.application.commands.test_definitions import (
+    CreateTestDefinitionCommand,
+    CreateTestDefinitionHandler,
+    DeleteTestDefinitionCommand,
+    DeleteTestDefinitionHandler,
+    UpdateTestDefinitionCommand,
+    UpdateTestDefinitionHandler,
 )
 from app.modules.versioning.application.commands.write_materialized_file import (
     WriteMaterializedFileCommand,
@@ -101,6 +113,10 @@ from app.modules.versioning.application.queries.get_tags import (
     GetServerTagsHandler,
     GetServerTagsQuery,
 )
+from app.modules.versioning.application.queries.get_test_evidence import (
+    GetTestRunEvidenceHandler,
+    GetTestRunEvidenceQuery,
+)
 from app.modules.versioning.application.queries.get_test_status import (
     GetTestStatusHandler,
     GetTestStatusQuery,
@@ -108,6 +124,12 @@ from app.modules.versioning.application.queries.get_test_status import (
 from app.modules.versioning.application.queries.scan_live_changes import (
     ScanLiveChangesHandler,
     ScanLiveChangesQuery,
+)
+from app.modules.versioning.application.queries.test_definitions import (
+    GetTestDefinitionHandler,
+    GetTestDefinitionQuery,
+    ListTestDefinitionsHandler,
+    ListTestDefinitionsQuery,
 )
 
 __all__ = [
@@ -125,6 +147,10 @@ __all__ = [
     "CreateMaterializationHandler",
     "CreateTagCommand",
     "CreateTagHandler",
+    "CreateTestDefinitionCommand",
+    "CreateTestDefinitionHandler",
+    "DeleteTestDefinitionCommand",
+    "DeleteTestDefinitionHandler",
     "DiffCommitsHandler",
     "DiffCommitsQuery",
     "DiscardTestCommand",
@@ -149,12 +175,20 @@ __all__ = [
     "GetServerTagsQuery",
     "GetServerTestRunsHandler",
     "GetServerTestRunsQuery",
+    "GetTestDefinitionHandler",
+    "GetTestDefinitionQuery",
+    "GetTestRunEvidenceHandler",
+    "GetTestRunEvidenceQuery",
     "GetTestStatusHandler",
     "GetTestStatusQuery",
+    "ListTestDefinitionsHandler",
+    "ListTestDefinitionsQuery",
     "MergeCommitsCommand",
     "MergeCommitsHandler",
     "PromoteCommitCommand",
     "PromoteCommitHandler",
+    "PruneTestArtifactsCommand",
+    "PruneTestArtifactsHandler",
     "RemoveMaterializationCommand",
     "RemoveMaterializationHandler",
     "RevertImportReviewCommand",
@@ -165,6 +199,8 @@ __all__ = [
     "ScanLiveChangesQuery",
     "SetMaterializationEditModeCommand",
     "SetMaterializationEditModeHandler",
+    "UpdateTestDefinitionCommand",
+    "UpdateTestDefinitionHandler",
     "WriteMaterializedFileCommand",
     "WriteMaterializedFileHandler",
     "cleanup_server_materializations",

@@ -77,6 +77,7 @@ class RunIsolatedTestRequest(BaseModel):
     duration_minutes: int | None = None
     placement_mode: str | None = None
     bot_tech: str | None = None
+    test_definition_id: str | None = None
 
 
 class TestRunResponse(BaseModel):
@@ -94,6 +95,66 @@ class TestRunResponse(BaseModel):
     duration_minutes: int
     placement_mode: str
     bot_tech: str
+    runtime_id: str | None = None
+    test_definition_id: str | None = None
+    artifacts_purged: bool = False
+    evidence_bundle: dict[str, Any] | None = None
+
+
+class TestDefinitionCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+    server_type: str = Field(default="vanilla", min_length=1, max_length=50)
+    bot_technology: str = Field(default="mineflayer")
+    bot_count: int = Field(default=5, ge=0, le=100)
+    duration_seconds: int = Field(default=60, ge=10, le=3600)
+    join_stagger_seconds: float = Field(default=1.0, ge=0.0)
+    connect_grace_seconds: int = Field(default=20, ge=0)
+    placement_mode: str = Field(default="sidecar")
+    assertion_rules: dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: int = Field(default=300, ge=30, le=7200)
+
+
+class TestDefinitionUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+    server_type: str | None = Field(default=None, min_length=1, max_length=50)
+    bot_technology: str | None = None
+    bot_count: int | None = Field(default=None, ge=0, le=100)
+    duration_seconds: int | None = Field(default=None, ge=10, le=3600)
+    join_stagger_seconds: float | None = Field(default=None, ge=0.0)
+    connect_grace_seconds: int | None = Field(default=None, ge=0)
+    placement_mode: str | None = None
+    assertion_rules: dict[str, Any] | None = None
+    timeout_seconds: int | None = Field(default=None, ge=30, le=7200)
+
+
+class TestDefinitionResponse(BaseModel):
+    id: str
+    server_id: str
+    name: str
+    description: str = ""
+    server_type: str = "vanilla"
+    bot_technology: str = "mineflayer"
+    bot_count: int = 5
+    duration_seconds: int = 60
+    join_stagger_seconds: float = 1.0
+    connect_grace_seconds: int = 20
+    placement_mode: str = "sidecar"
+    assertion_rules: dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: int = 300
+    created_at: str
+    updated_at: str
+
+
+class EvidenceBundleResponse(BaseModel):
+    test_id: str
+    server_id: str
+    commit_id: str
+    runtime: dict[str, Any] = Field(default_factory=dict)
+    assertions: dict[str, Any] = Field(default_factory=dict)
+    crash_analysis: dict[str, Any] = Field(default_factory=dict)
+    log_tail: list[str] = Field(default_factory=list)
 
 
 class PromoteCommitRequest(BaseModel):

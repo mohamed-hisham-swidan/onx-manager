@@ -55,6 +55,7 @@ class AppSettings(BaseSettings):
     import_staging_dir: str = "data/staging"
     docker_default_image: str = "eclipse-temurin:21-jre-jammy"
     host_data_dir: str = ""
+    test_artifact_retention_hours: float = 24.0
 
     model_config = {"env_prefix": "ONX_", "extra": "ignore"}
 

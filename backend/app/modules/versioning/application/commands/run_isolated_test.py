@@ -23,6 +23,7 @@ class RunIsolatedTestCommand(Command):
     duration_minutes: int | None = None
     placement_mode: str | None = None
     bot_tech: str | None = None
+    test_definition_id: str | None = None
 
 
 class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
@@ -104,12 +105,41 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
                 )
 
         # 3. Resolve layered bot configuration (§3.5.6)
+        bot_count = command.bot_count
+        duration_minutes = command.duration_minutes
+        placement_mode = command.placement_mode
+        bot_tech = command.bot_tech
+
+        if command.test_definition_id:
+            test_def = await versioning_repo.get_test_definition(command.test_definition_id)
+            if test_def is None or test_def.server_id != command.server_id:
+                raise NotFoundError(
+                    f"TestDefinition '{command.test_definition_id}' not found "
+                    f"for server '{command.server_id}'"
+                )
+            if bot_count is None:
+                bot_count = test_def.bot_count
+            if duration_minutes is None:
+                duration_minutes = max(1, test_def.duration_seconds // 60)
+            if placement_mode is None:
+                placement_mode = (
+                    test_def.placement_mode.value
+                    if hasattr(test_def.placement_mode, "value")
+                    else str(test_def.placement_mode)
+                )
+            if bot_tech is None:
+                bot_tech = (
+                    test_def.bot_technology.value
+                    if hasattr(test_def.bot_technology, "value")
+                    else str(test_def.bot_technology)
+                )
+
         server_bot_settings = getattr(server, "bot_verification_settings", None)
         run_overrides = {
-            "bot_count": command.bot_count,
-            "duration_minutes": command.duration_minutes,
-            "placement_mode": command.placement_mode,
-            "bot_tech": command.bot_tech,
+            "bot_count": bot_count,
+            "duration_minutes": duration_minutes,
+            "placement_mode": placement_mode,
+            "bot_tech": bot_tech,
         }
         bot_cfg = BotConfigResolver.resolve_config(
             server_type=server.server_type,
@@ -132,6 +162,7 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
         )
         test_run = reservation.test_run
         test_id = test_run.id
+        test_run.test_definition_id = command.test_definition_id
         test_run.mark_running()
         await versioning_repo.save_test_run(test_run)
 
@@ -180,5 +211,6 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
                 "duration_minutes": bot_cfg.duration_minutes,
                 "bot_tech": bot_cfg.bot_tech.value,
                 "placement_mode": bot_cfg.placement_mode.value,
+                "test_definition_id": command.test_definition_id,
             },
         )

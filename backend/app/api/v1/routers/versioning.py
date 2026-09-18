@@ -18,6 +18,7 @@ from app.api.v1.schemas.versioning import (
     CreateMaterializationRequest,
     CreateTagRequest,
     DiffResponse,
+    EvidenceBundleResponse,
     ImportReviewActionResponse,
     MaterializationCreateResponse,
     MaterializationFileResponse,
@@ -32,6 +33,9 @@ from app.api.v1.schemas.versioning import (
     SetEditModeRequest,
     SetEditModeResponse,
     TagResponse,
+    TestDefinitionCreateRequest,
+    TestDefinitionResponse,
+    TestDefinitionUpdateRequest,
     TestRunResponse,
     WriteMaterializedFileRequest,
     WriteMaterializedFileResponse,
@@ -49,6 +53,8 @@ from app.modules.versioning.application import (
     CreateCommitCommand,
     CreateMaterializationCommand,
     CreateTagCommand,
+    CreateTestDefinitionCommand,
+    DeleteTestDefinitionCommand,
     DiffCommitsQuery,
     DiscardTestCommand,
     DismissImportReviewCommand,
@@ -61,7 +67,10 @@ from app.modules.versioning.application import (
     GetServerTagQuery,
     GetServerTagsQuery,
     GetServerTestRunsQuery,
+    GetTestDefinitionQuery,
+    GetTestRunEvidenceQuery,
     GetTestStatusQuery,
+    ListTestDefinitionsQuery,
     MergeCommitsCommand,
     PromoteCommitCommand,
     RemoveMaterializationCommand,
@@ -69,6 +78,7 @@ from app.modules.versioning.application import (
     RunIsolatedTestCommand,
     ScanLiveChangesQuery,
     SetMaterializationEditModeCommand,
+    UpdateTestDefinitionCommand,
     WriteMaterializedFileCommand,
 )
 from app.modules.versioning.infrastructure.config_resolver import BotConfigResolver
@@ -255,6 +265,7 @@ async def run_isolated_test(
         duration_minutes=body.duration_minutes,
         placement_mode=body.placement_mode,
         bot_tech=body.bot_tech,
+        test_definition_id=body.test_definition_id,
     )
     res = await command_bus.send(cmd)
     return check_command_result(res)
@@ -280,6 +291,17 @@ async def get_test_status(
 ) -> TestRunResponse:
     data = await query_bus.ask(GetTestStatusQuery(server_id=server_id, test_id=test_id))
     return TestRunResponse(**data)
+
+
+@router.get("/tests/{test_id}/evidence", response_model=EvidenceBundleResponse)
+async def get_test_run_evidence(
+    server_id: str,
+    test_id: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> EvidenceBundleResponse:
+    data = await query_bus.ask(GetTestRunEvidenceQuery(server_id=server_id, test_id=test_id))
+    return EvidenceBundleResponse(**data)
 
 
 @router.post("/tests/{test_id}/promote", response_model=dict[str, Any])
@@ -314,6 +336,93 @@ async def discard_test(
     _current_user: Annotated[dict, Depends(require_permission("server:test:execute"))],
 ) -> dict[str, Any]:
     cmd = DiscardTestCommand(server_id=server_id, test_id=test_id)
+    res = await command_bus.send(cmd)
+    return check_command_result(res)
+
+
+@router.get("/test-definitions", response_model=list[TestDefinitionResponse])
+async def list_test_definitions(
+    server_id: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> list[TestDefinitionResponse]:
+    data = await query_bus.ask(ListTestDefinitionsQuery(server_id=server_id))
+    return [TestDefinitionResponse(**item) for item in data]
+
+
+@router.post("/test-definitions", response_model=dict[str, Any], status_code=201)
+async def create_test_definition(
+    server_id: str,
+    body: TestDefinitionCreateRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:test:configure"))],
+) -> dict[str, Any]:
+    cmd = CreateTestDefinitionCommand(
+        server_id=server_id,
+        name=body.name,
+        description=body.description,
+        server_type=body.server_type,
+        bot_technology=body.bot_technology,
+        bot_count=body.bot_count,
+        duration_seconds=body.duration_seconds,
+        join_stagger_seconds=body.join_stagger_seconds,
+        connect_grace_seconds=body.connect_grace_seconds,
+        placement_mode=body.placement_mode,
+        assertion_rules=body.assertion_rules,
+        timeout_seconds=body.timeout_seconds,
+    )
+    res = await command_bus.send(cmd)
+    return check_command_result(res)
+
+
+@router.get("/test-definitions/{id}", response_model=TestDefinitionResponse)
+async def get_test_definition(
+    server_id: str,
+    id: str,
+    query_bus: Annotated[QueryBus, Depends(get_query_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> TestDefinitionResponse:
+    data = await query_bus.ask(GetTestDefinitionQuery(server_id=server_id, definition_id=id))
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Test definition '{id}' not found")
+    return TestDefinitionResponse(**data)
+
+
+@router.put("/test-definitions/{id}", response_model=dict[str, Any])
+async def update_test_definition(
+    server_id: str,
+    id: str,
+    body: TestDefinitionUpdateRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:test:configure"))],
+) -> dict[str, Any]:
+    cmd = UpdateTestDefinitionCommand(
+        server_id=server_id,
+        definition_id=id,
+        name=body.name,
+        description=body.description,
+        server_type=body.server_type,
+        bot_technology=body.bot_technology,
+        bot_count=body.bot_count,
+        duration_seconds=body.duration_seconds,
+        join_stagger_seconds=body.join_stagger_seconds,
+        connect_grace_seconds=body.connect_grace_seconds,
+        placement_mode=body.placement_mode,
+        assertion_rules=body.assertion_rules,
+        timeout_seconds=body.timeout_seconds,
+    )
+    res = await command_bus.send(cmd)
+    return check_command_result(res)
+
+
+@router.delete("/test-definitions/{id}", response_model=dict[str, Any])
+async def delete_test_definition(
+    server_id: str,
+    id: str,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:test:configure"))],
+) -> dict[str, Any]:
+    cmd = DeleteTestDefinitionCommand(server_id=server_id, definition_id=id)
     res = await command_bus.send(cmd)
     return check_command_result(res)
 

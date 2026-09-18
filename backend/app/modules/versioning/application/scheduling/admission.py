@@ -21,9 +21,11 @@ Admission vocabulary only — no new Runtime-named concepts (Stage D spec §a).
 from __future__ import annotations
 
 import logging
+import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -116,6 +118,79 @@ async def _claim_global_lock(conn: Any, holder: str = "") -> None:
         )
 
 
+async def reap_stale_reservations(
+    conn: Any,
+    *,
+    at: datetime | None = None,
+    stale_hours: float | None = None,
+    artifact_retention_hours: float | None = None,
+) -> int:
+    """Reaps phantom active reservations and prunes expired test artifacts.
+
+    Invoked inside the admission transaction under global lock; can also be called
+    directly by test maintenance commands or tests.
+    """
+    now = at or datetime.now(UTC)
+    stale = stale_hours if stale_hours is not None else STALE_TIMEOUT_HOURS_DEFAULT
+    run_tbl = ServerTestRunModel.__table__
+
+    # 1. Stale reservations -> CANCELLED
+    cutoff = now - timedelta(hours=stale)
+    res = await conn.execute(
+        run_tbl.update()
+        .where(run_tbl.c.status.in_(_ACTIVE_STATUSES), run_tbl.c.created_at < cutoff)
+        .values(status=TestRunStatus.CANCELLED.value, failure_reason=STALE_REAP_REASON)
+    )
+    reaped = res.rowcount
+
+    # 2. Expired test artifacts -> delete directory + mark artifacts_purged = True
+    try:
+        from app.core.config import AppSettings
+
+        settings = AppSettings()
+        hours = (
+            artifact_retention_hours
+            if artifact_retention_hours is not None
+            else getattr(settings, "test_artifact_retention_hours", 24)
+        )
+        art_cutoff = now - timedelta(hours=hours)
+
+        art_stmt = (
+            run_tbl.select()
+            .where(
+                run_tbl.c.status.in_([TestRunStatus.FAILED.value, TestRunStatus.CANCELLED.value]),
+                run_tbl.c.artifacts_purged.is_(False),
+                run_tbl.c.created_at < art_cutoff,
+            )
+        )
+        expired_rows = (await conn.execute(art_stmt)).mappings().all()
+
+        if expired_rows:
+            servers_root = Path(settings.servers_data_dir).resolve()
+            expired_ids = []
+            for row in expired_rows:
+                s_id = row["server_id"]
+                t_id = row["id"]
+                t_dir = servers_root / s_id / ".onx" / "tests" / t_id
+                if t_dir.exists():
+                    try:
+                        shutil.rmtree(t_dir, ignore_errors=True)
+                    except Exception as exc:
+                        logger.warning("Failed pruning test artifact directory %s: %s", t_dir, exc)
+                expired_ids.append(t_id)
+
+            if expired_ids:
+                await conn.execute(
+                    run_tbl.update()
+                    .where(run_tbl.c.id.in_(expired_ids))
+                    .values(artifacts_purged=True)
+                )
+    except Exception as exc:
+        logger.warning("Artifact pruning during lazy reap encountered error: %s", exc)
+
+    return reaped
+
+
 async def admit(
     *,
     server_id: str,
@@ -161,14 +236,9 @@ async def admit(
     async with eng.connect() as conn:
         await _claim_global_lock(conn, holder=f"admit:{server_id}")
         try:
-            # 1. Lazy reap of phantom reservations (crash-during-reservation self-heals
-            # here; stored earmarks die with the terminal transition — nothing else to clean).
-            cutoff = at - timedelta(hours=stale)
-            await conn.execute(
-                run_tbl.update()
-                .where(run_tbl.c.status.in_(_ACTIVE_STATUSES), run_tbl.c.created_at < cutoff)
-                .values(status=TestRunStatus.CANCELLED.value, failure_reason=STALE_REAP_REASON)
-            )
+            # 1. Lazy reap of phantom reservations and expired test artifacts
+            # (zero standalone background polling loops).
+            await reap_stale_reservations(conn, at=at, stale_hours=stale)
 
             # 2. Global occupied set.
             rows = (

@@ -6,11 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.versioning.domain.entities import (
     ImportReview,
     Materialization,
+    Runtime,
     ServerBranch,
     ServerCommit,
     ServerTestRun,
     ServerWorldSnapshot,
     Tag,
+    TestDefinition,
 )
 from app.modules.versioning.domain.repository import VersioningRepository
 from app.modules.versioning.domain.value_objects import (
@@ -21,6 +23,7 @@ from app.modules.versioning.domain.value_objects import (
     MaterializationStatus,
     PathClassification,
     PlacementMode,
+    RuntimeStatus,
     TestRunStatus,
 )
 from app.modules.versioning.infrastructure.models import (
@@ -29,7 +32,9 @@ from app.modules.versioning.infrastructure.models import (
     ServerCommitParentModel,
     ServerImportReviewModel,
     ServerMaterializationModel,
+    ServerRuntimeModel,
     ServerTagModel,
+    ServerTestDefinitionModel,
     ServerTestRunModel,
     ServerWorldSnapshotModel,
 )
@@ -266,6 +271,10 @@ class SQLVersioningRepository(VersioningRepository):
                 ),
                 reserved_ram_mb=test_run.reserved_ram_mb,
                 reserved_cores=test_run.reserved_cores,
+                runtime_id=test_run.runtime_id,
+                test_definition_id=test_run.test_definition_id,
+                evidence_bundle=test_run.evidence_bundle,
+                artifacts_purged=test_run.artifacts_purged,
             )
             self._session.add(model)
         else:
@@ -282,6 +291,13 @@ class SQLVersioningRepository(VersioningRepository):
                 model.reserved_ram_mb = test_run.reserved_ram_mb
             if test_run.reserved_cores is not None:
                 model.reserved_cores = test_run.reserved_cores
+            if test_run.runtime_id is not None:
+                model.runtime_id = test_run.runtime_id
+            if test_run.test_definition_id is not None:
+                model.test_definition_id = test_run.test_definition_id
+            if test_run.evidence_bundle is not None:
+                model.evidence_bundle = test_run.evidence_bundle
+            model.artifacts_purged = test_run.artifacts_purged
         await self._session.flush()
         return test_run
 
@@ -413,6 +429,116 @@ class SQLVersioningRepository(VersioningRepository):
         await self._session.flush()
         return review
 
+    # Test Definitions
+    async def get_test_definition(self, definition_id: str) -> TestDefinition | None:
+        model = await self._session.get(ServerTestDefinitionModel, definition_id)
+        return self._test_definition_to_domain(model) if model else None
+
+    async def list_test_definitions(self, server_id: str) -> list[TestDefinition]:
+        stmt = (
+            select(ServerTestDefinitionModel)
+            .where(ServerTestDefinitionModel.server_id == server_id)
+            .order_by(ServerTestDefinitionModel.created_at)
+        )
+        res = await self._session.execute(stmt)
+        return [self._test_definition_to_domain(m) for m in res.scalars().all()]
+
+    async def save_test_definition(self, definition: TestDefinition) -> TestDefinition:
+        model = await self._session.get(ServerTestDefinitionModel, definition.id)
+        bot_tech = (
+            definition.bot_technology.value
+            if isinstance(definition.bot_technology, BotTech)
+            else definition.bot_technology
+        )
+        placement_mode = (
+            definition.placement_mode.value
+            if isinstance(definition.placement_mode, PlacementMode)
+            else definition.placement_mode
+        )
+        if model is None:
+            model = ServerTestDefinitionModel(
+                id=definition.id,
+                server_id=definition.server_id,
+                name=definition.name,
+                description=definition.description,
+                server_type=definition.server_type,
+                bot_technology=bot_tech,
+                bot_count=definition.bot_count,
+                duration_seconds=definition.duration_seconds,
+                join_stagger_seconds=definition.join_stagger_seconds,
+                connect_grace_seconds=definition.connect_grace_seconds,
+                placement_mode=placement_mode,
+                assertion_rules=definition.assertion_rules,
+                timeout_seconds=definition.timeout_seconds,
+                created_at=definition.created_at,
+                updated_at=definition.updated_at,
+            )
+            self._session.add(model)
+        else:
+            model.name = definition.name
+            model.description = definition.description
+            model.server_type = definition.server_type
+            model.bot_technology = bot_tech
+            model.bot_count = definition.bot_count
+            model.duration_seconds = definition.duration_seconds
+            model.join_stagger_seconds = definition.join_stagger_seconds
+            model.connect_grace_seconds = definition.connect_grace_seconds
+            model.placement_mode = placement_mode
+            model.assertion_rules = definition.assertion_rules
+            model.timeout_seconds = definition.timeout_seconds
+            model.updated_at = definition.updated_at
+        await self._session.flush()
+        return definition
+
+    async def delete_test_definition(self, definition_id: str) -> bool:
+        model = await self._session.get(ServerTestDefinitionModel, definition_id)
+        if model:
+            await self._session.delete(model)
+            await self._session.flush()
+            return True
+        return False
+
+    # Runtimes
+    async def get_runtime(self, runtime_id: str) -> Runtime | None:
+        model = await self._session.get(ServerRuntimeModel, runtime_id)
+        return self._runtime_to_domain(model) if model else None
+
+    async def save_runtime(self, runtime: Runtime) -> Runtime:
+        model = await self._session.get(ServerRuntimeModel, runtime.id)
+        status_val = (
+            runtime.status.value
+            if isinstance(runtime.status, RuntimeStatus)
+            else runtime.status
+        )
+        if model is None:
+            model = ServerRuntimeModel(
+                id=runtime.id,
+                server_id=runtime.server_id,
+                commit_id=runtime.commit_id,
+                materialization_id=runtime.materialization_id,
+                provider_type=runtime.provider_type,
+                container_id=runtime.container_id,
+                pid=runtime.pid,
+                port=runtime.port,
+                status=status_val,
+                exit_code=runtime.exit_code,
+                oom_killed=runtime.oom_killed,
+                started_at=runtime.started_at,
+                stopped_at=runtime.stopped_at,
+                created_at=runtime.created_at,
+            )
+            self._session.add(model)
+        else:
+            model.container_id = runtime.container_id
+            model.pid = runtime.pid
+            model.port = runtime.port
+            model.status = status_val
+            model.exit_code = runtime.exit_code
+            model.oom_killed = runtime.oom_killed
+            model.stopped_at = runtime.stopped_at
+        await self._session.flush()
+        return runtime
+
     # Model mappers
     @staticmethod
     def _branch_to_domain(m: ServerBranchModel) -> ServerBranch:
@@ -508,6 +634,10 @@ class SQLVersioningRepository(VersioningRepository):
             ),
             reserved_ram_mb=m.reserved_ram_mb,
             reserved_cores=m.reserved_cores,
+            runtime_id=m.runtime_id,
+            test_definition_id=m.test_definition_id,
+            evidence_bundle=m.evidence_bundle,
+            artifacts_purged=bool(m.artifacts_purged) if m.artifacts_purged is not None else False,
         )
 
     @staticmethod
@@ -562,5 +692,59 @@ class SQLVersioningRepository(VersioningRepository):
             revert_commit_id=m.revert_commit_id,
             created_at=m.created_at,
             updated_at=m.updated_at,
+        )
+
+    @staticmethod
+    def _test_definition_to_domain(m: ServerTestDefinitionModel) -> TestDefinition:
+        bot_tech = (
+            BotTech(m.bot_technology)
+            if m.bot_technology in BotTech._value2member_map_
+            else BotTech.MINEFLAYER
+        )
+        placement_mode = (
+            PlacementMode(m.placement_mode)
+            if m.placement_mode in PlacementMode._value2member_map_
+            else PlacementMode.SIDECAR
+        )
+        return TestDefinition(
+            id=m.id,
+            server_id=m.server_id,
+            name=m.name,
+            description=m.description or "",
+            server_type=m.server_type,
+            bot_technology=bot_tech,
+            bot_count=m.bot_count,
+            duration_seconds=m.duration_seconds,
+            join_stagger_seconds=m.join_stagger_seconds,
+            connect_grace_seconds=m.connect_grace_seconds,
+            placement_mode=placement_mode,
+            assertion_rules=m.assertion_rules or {},
+            timeout_seconds=m.timeout_seconds,
+            created_at=m.created_at,
+            updated_at=m.updated_at,
+        )
+
+    @staticmethod
+    def _runtime_to_domain(m: ServerRuntimeModel) -> Runtime:
+        status = (
+            RuntimeStatus(m.status)
+            if m.status in RuntimeStatus._value2member_map_
+            else RuntimeStatus.STARTING
+        )
+        return Runtime(
+            id=m.id,
+            server_id=m.server_id,
+            commit_id=m.commit_id,
+            materialization_id=m.materialization_id,
+            provider_type=m.provider_type,
+            container_id=m.container_id,
+            pid=m.pid,
+            port=m.port,
+            status=status,
+            exit_code=m.exit_code,
+            oom_killed=bool(m.oom_killed) if m.oom_killed is not None else False,
+            started_at=m.started_at,
+            stopped_at=m.stopped_at,
+            created_at=m.created_at,
         )
 

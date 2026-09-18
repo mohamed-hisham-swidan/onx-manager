@@ -14,6 +14,7 @@ from app.modules.versioning.domain.value_objects import (
     MaterializationStatus,
     PathClassification,
     PlacementMode,
+    RuntimeStatus,
     TestRunStatus,
     Tree,
 )
@@ -326,9 +327,17 @@ class Runtime:
 
     id: str
     commit_id: str
-    materialization_id: str
+    materialization_id: str | None = None
     provider_type: str = "docker"
     server_id: str | None = None
+    container_id: str | None = None
+    pid: int | None = None
+    port: int | None = None
+    status: RuntimeStatus = RuntimeStatus.STARTING
+    exit_code: int | None = None
+    oom_killed: bool = False
+    started_at: datetime = field(default_factory=_utcnow)
+    stopped_at: datetime | None = None
     created_at: datetime = field(default_factory=_utcnow)
 
     def __post_init__(self) -> None:
@@ -336,8 +345,8 @@ class Runtime:
             raise ValueError("Runtime id cannot be empty")
         if not self.commit_id:
             raise ValueError("Runtime commit_id cannot be empty")
-        if not self.materialization_id:
-            raise ValueError("Runtime materialization_id cannot be empty")
+        if self.materialization_id == "":
+            raise ValueError("Runtime materialization_id cannot be empty string")
         if self.commit_id.startswith("branch:") or self.commit_id.startswith("refs/"):
             raise ValueError("Runtime cannot bind directly to a mutable branch reference")
 
@@ -346,26 +355,142 @@ class Runtime:
             raise ValueError("Runtime commit_id is immutable and cannot be changed after creation")
         super().__setattr__(name, value)
 
+    def mark_running(
+        self,
+        container_id: str | None = None,
+        pid: int | None = None,
+        port: int | None = None,
+    ) -> None:
+        self.status = RuntimeStatus.RUNNING
+        if container_id is not None:
+            self.container_id = container_id
+        if pid is not None:
+            self.pid = pid
+        if port is not None:
+            self.port = port
+
+    def mark_terminated(self, exit_code: int = 0) -> None:
+        self.status = RuntimeStatus.TERMINATED
+        self.exit_code = exit_code
+        self.stopped_at = _utcnow()
+
+    def mark_crashed(self, exit_code: int | None = None, oom_killed: bool = False) -> None:
+        self.status = RuntimeStatus.CRASHED
+        self.exit_code = exit_code
+        self.oom_killed = oom_killed
+        self.stopped_at = _utcnow()
+
     @classmethod
     def create(
         cls,
         id: str,
         commit_id: str,
-        materialization: Materialization,
+        materialization: Materialization | None = None,
         provider_type: str = "docker",
         server_id: str | None = None,
+        container_id: str | None = None,
+        pid: int | None = None,
+        port: int | None = None,
+        status: RuntimeStatus = RuntimeStatus.STARTING,
     ) -> Runtime:
-        if materialization.status == MaterializationStatus.REMOVED:
+        if materialization is not None and materialization.status == MaterializationStatus.REMOVED:
             raise ValueError("Runtime cannot reference a removed Materialization")
         if not commit_id or commit_id.startswith("branch:") or commit_id.startswith("refs/"):
             raise ValueError("Runtime cannot bind directly to a mutable branch reference")
         return cls(
             id=id,
             commit_id=commit_id,
-            materialization_id=materialization.id,
+            materialization_id=materialization.id if materialization is not None else None,
             provider_type=provider_type,
             server_id=server_id,
+            container_id=container_id,
+            pid=pid,
+            port=port,
+            status=status,
         )
+
+
+@dataclass
+class TestDefinition:
+    """Reusable, persistent test specification aggregate (DECISION-2026-09-17-003)."""
+
+    __test__ = False
+
+    id: str
+    server_id: str
+    name: str
+    description: str = ""
+    server_type: str = "vanilla"
+    bot_technology: BotTech = BotTech.MINEFLAYER
+    bot_count: int = 5
+    duration_seconds: int = 60
+    join_stagger_seconds: float = 1.0
+    connect_grace_seconds: int = 20
+    placement_mode: PlacementMode = PlacementMode.SIDECAR
+    assertion_rules: dict[str, Any] = field(default_factory=dict)
+    timeout_seconds: int = 300
+    created_at: datetime = field(default_factory=_utcnow)
+    updated_at: datetime = field(default_factory=_utcnow)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("TestDefinition id cannot be empty")
+        if not self.server_id:
+            raise ValueError("TestDefinition server_id cannot be empty")
+        if not self.name or not self.name.strip():
+            raise ValueError("TestDefinition name cannot be empty")
+        if self.bot_count < 0 or self.bot_count > 100:
+            raise ValueError(f"Invalid bot_count: {self.bot_count} (must be between 0 and 100)")
+        if self.duration_seconds < 10 or self.duration_seconds > 3600:
+            raise ValueError(f"Invalid duration_seconds: {self.duration_seconds} (must be 10-3600)")
+        if self.timeout_seconds < 30 or self.timeout_seconds > 7200:
+            raise ValueError(f"Invalid timeout_seconds: {self.timeout_seconds} (must be 30-7200)")
+
+    def update(
+        self,
+        name: str | None = None,
+        description: str | None = None,
+        server_type: str | None = None,
+        bot_technology: BotTech | None = None,
+        bot_count: int | None = None,
+        duration_seconds: int | None = None,
+        join_stagger_seconds: float | None = None,
+        connect_grace_seconds: int | None = None,
+        placement_mode: PlacementMode | None = None,
+        assertion_rules: dict[str, Any] | None = None,
+        timeout_seconds: int | None = None,
+    ) -> None:
+        if name is not None:
+            if not name.strip():
+                raise ValueError("TestDefinition name cannot be empty")
+            self.name = name.strip()
+        if description is not None:
+            self.description = description
+        if server_type is not None:
+            self.server_type = server_type
+        if bot_technology is not None:
+            self.bot_technology = bot_technology
+        if bot_count is not None:
+            if bot_count < 0 or bot_count > 100:
+                raise ValueError(f"Invalid bot_count: {bot_count}")
+            self.bot_count = bot_count
+        if duration_seconds is not None:
+            if duration_seconds < 10 or duration_seconds > 3600:
+                raise ValueError(f"Invalid duration_seconds: {duration_seconds}")
+            self.duration_seconds = duration_seconds
+        if join_stagger_seconds is not None:
+            self.join_stagger_seconds = join_stagger_seconds
+        if connect_grace_seconds is not None:
+            self.connect_grace_seconds = connect_grace_seconds
+        if placement_mode is not None:
+            self.placement_mode = placement_mode
+        if assertion_rules is not None:
+            self.assertion_rules = assertion_rules
+        if timeout_seconds is not None:
+            if timeout_seconds < 30 or timeout_seconds > 7200:
+                raise ValueError(f"Invalid timeout_seconds: {timeout_seconds}")
+            self.timeout_seconds = timeout_seconds
+        self.updated_at = _utcnow()
 
 
 @dataclass
@@ -438,6 +563,11 @@ class ServerTestRun:
     # carry None and fall back to recomputation; all Stage D rows write values).
     reserved_ram_mb: int | None = None
     reserved_cores: int | None = None
+    # Stage F: Runtime attach, TestDefinition link, structured evidence & retention
+    runtime_id: str | None = None
+    test_definition_id: str | None = None
+    evidence_bundle: dict[str, Any] | None = None
+    artifacts_purged: bool = False
 
     @property
     def is_terminal(self) -> bool:

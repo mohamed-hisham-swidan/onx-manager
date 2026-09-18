@@ -327,6 +327,66 @@ export interface CreateCommitRequest {
 }
 
 export type TestRunStatus = "PENDING" | "RUNNING" | "PASSED" | "FAILED" | "CANCELLED";
+export type RuntimeStatus = "STARTING" | "RUNNING" | "TERMINATED" | "CRASHED";
+
+export interface RuntimeInfo {
+  id: string;
+  server_id?: string | null;
+  commit_id: string;
+  materialization_id?: string | null;
+  provider_type: string;
+  container_id?: string | null;
+  pid?: number | null;
+  port?: number | null;
+  status: RuntimeStatus;
+  exit_code?: number | null;
+  oom_killed: boolean;
+  started_at?: string | null;
+  stopped_at?: string | null;
+  created_at: string;
+}
+
+export interface EvidenceBundle {
+  test_id: string;
+  server_id: string;
+  commit_id: string;
+  runtime: Record<string, unknown>;
+  assertions: Record<string, unknown>;
+  crash_analysis: Record<string, unknown>;
+  log_tail: string[];
+}
+
+export interface TestDefinition {
+  id: string;
+  server_id: string;
+  name: string;
+  description: string;
+  server_type: string;
+  bot_technology: string;
+  bot_count: number;
+  duration_seconds: number;
+  join_stagger_seconds: number;
+  connect_grace_seconds: number;
+  placement_mode: string;
+  assertion_rules: Record<string, unknown>;
+  timeout_seconds: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateTestDefinitionRequest {
+  name: string;
+  description?: string;
+  server_type?: string;
+  bot_technology?: string;
+  bot_count?: number;
+  duration_seconds?: number;
+  join_stagger_seconds?: number;
+  connect_grace_seconds?: number;
+  placement_mode?: string;
+  assertion_rules?: Record<string, unknown>;
+  timeout_seconds?: number;
+}
 
 export interface ServerTestRun {
   id: string;
@@ -343,6 +403,10 @@ export interface ServerTestRun {
   duration_minutes: number;
   placement_mode: string;
   bot_tech: string;
+  runtime_id?: string | null;
+  test_definition_id?: string | null;
+  artifacts_purged?: boolean;
+  evidence_bundle?: EvidenceBundle | null;
 }
 
 export interface RunIsolatedTestRequest {
@@ -351,6 +415,7 @@ export interface RunIsolatedTestRequest {
   duration_minutes?: number | null;
   placement_mode?: string | null;
   bot_tech?: string | null;
+  test_definition_id?: string | null;
 }
 
 export interface PromoteCommitRequest {

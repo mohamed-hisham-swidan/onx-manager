@@ -599,3 +599,73 @@ async def test_verification_exception_still_removes_container() -> None:
             f"expected docker rm -f {handle.container_name} after exception-path "
             f"completion; captured: {captured_cmds}"
         )
+
+
+@pytest.mark.asyncio
+async def test_fakeplayer_next_rcon_failure_fails_test_run() -> None:
+    """Reproduction test: when FakePlayer RCON injection fails, the test run
+
+    MUST fail, not falsely pass.
+    """
+    runner = DockerTestExecutionRunner()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        srv_dir = Path(tmpdir) / "server"
+        srv_dir.mkdir()
+        (srv_dir / "server.properties").write_text(
+            "online-mode=true\n", encoding="utf-8"
+        )
+
+        manifest = CommitManifest(
+            server_type="paper",
+            minecraft_version="1.21.1",
+            configs={"server.properties": "online-mode=true\n"},
+        )
+        commit = ServerCommit(
+            id="c-fp-fail",
+            server_id="srv-fp-fail",
+            message="fakeplayer fail test",
+            manifest=manifest,
+        )
+        bot_cfg = BotVerificationConfig(
+            bot_count=5, duration_minutes=1, bot_tech=BotTech.FAKEPLAYER_NEXT
+        )
+        spec = TestSpec(
+            test_id="t-fp-fail",
+            server_id="srv-fp-fail",
+            commit=commit,
+            server_dir=str(srv_dir),
+            bot_config=bot_cfg,
+        )
+
+        test_dir_path = Path(tmpdir) / "server" / ".onx" / "tests" / spec.test_id
+        logs_dir = test_dir_path / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (logs_dir / "latest.log").write_text(
+            "[12:00:10] [Server thread/INFO]: Done (2.1s)! For help, type 'help'\n",
+            encoding="utf-8",
+        )
+
+        def mock_subprocess(cmd, **_kwargs):
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            if "rcon-cli" in cmd_str:
+                return MagicMock(returncode=1, stdout="", stderr="Error: connection refused\n")
+            if "inspect" in cmd_str:
+                if "State.Running" in cmd_str:
+                    return MagicMock(returncode=0, stdout="true\n", stderr="")
+                return MagicMock(returncode=0, stdout="172.17.0.5\n", stderr="")
+            return MagicMock(returncode=0, stdout="container-id\n", stderr="")
+
+        with (
+            patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
+            patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
+            patch("subprocess.run", side_effect=mock_subprocess),
+        ):
+            handle = await runner.run_test(spec)
+            res = await handle.wait_for_completion()
+
+        assert res.passed is False, f"Expected passed=False on RCON failure, got {res.passed}"
+        assert handle.status == TestRunStatus.FAILED
+        failure_msg = res.failure_reason or ""
+        assert "Error: connection refused" in failure_msg or "Failed to spawn" in failure_msg
+

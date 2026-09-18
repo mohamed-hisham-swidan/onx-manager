@@ -5,11 +5,13 @@ from abc import ABC, abstractmethod
 from app.modules.versioning.domain.entities import (
     ImportReview,
     Materialization,
+    Runtime,
     ServerBranch,
     ServerCommit,
     ServerTestRun,
     ServerWorldSnapshot,
     Tag,
+    TestDefinition,
 )
 
 
@@ -118,4 +120,28 @@ class VersioningRepository(ABC):
 
     async def save_import_review(self, review: ImportReview) -> ImportReview:
         return review
+
+    # Test Definitions
+    async def get_test_definition(self, definition_id: str) -> TestDefinition | None:
+        _ = definition_id
+        return None
+
+    async def list_test_definitions(self, server_id: str) -> list[TestDefinition]:
+        _ = server_id
+        return []
+
+    async def save_test_definition(self, definition: TestDefinition) -> TestDefinition:
+        return definition
+
+    async def delete_test_definition(self, definition_id: str) -> bool:
+        _ = definition_id
+        return False
+
+    # Runtimes
+    async def get_runtime(self, runtime_id: str) -> Runtime | None:
+        _ = runtime_id
+        return None
+
+    async def save_runtime(self, runtime: Runtime) -> Runtime:
+        return runtime
 

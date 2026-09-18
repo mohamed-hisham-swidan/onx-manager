@@ -182,6 +182,10 @@ from app.modules.versioning.application import (
     CreateMaterializationHandler,
     CreateTagCommand,
     CreateTagHandler,
+    CreateTestDefinitionCommand,
+    CreateTestDefinitionHandler,
+    DeleteTestDefinitionCommand,
+    DeleteTestDefinitionHandler,
     DiffCommitsHandler,
     DiffCommitsQuery,
     DiscardTestCommand,
@@ -206,12 +210,20 @@ from app.modules.versioning.application import (
     GetServerTagsQuery,
     GetServerTestRunsHandler,
     GetServerTestRunsQuery,
+    GetTestDefinitionHandler,
+    GetTestDefinitionQuery,
+    GetTestRunEvidenceHandler,
+    GetTestRunEvidenceQuery,
     GetTestStatusHandler,
     GetTestStatusQuery,
+    ListTestDefinitionsHandler,
+    ListTestDefinitionsQuery,
     MergeCommitsCommand,
     MergeCommitsHandler,
     PromoteCommitCommand,
     PromoteCommitHandler,
+    PruneTestArtifactsCommand,
+    PruneTestArtifactsHandler,
     RemoveMaterializationCommand,
     RemoveMaterializationHandler,
     RevertImportReviewCommand,
@@ -222,6 +234,8 @@ from app.modules.versioning.application import (
     ScanLiveChangesQuery,
     SetMaterializationEditModeCommand,
     SetMaterializationEditModeHandler,
+    UpdateTestDefinitionCommand,
+    UpdateTestDefinitionHandler,
     WriteMaterializedFileCommand,
     WriteMaterializedFileHandler,
 )
@@ -396,7 +410,22 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
         RevertImportReviewCommand,
         RevertImportReviewHandler(event_bus=event_bus),
     )
-
+    command_bus.register(
+        CreateTestDefinitionCommand,
+        CreateTestDefinitionHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        UpdateTestDefinitionCommand,
+        UpdateTestDefinitionHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        DeleteTestDefinitionCommand,
+        DeleteTestDefinitionHandler(event_bus=event_bus),
+    )
+    command_bus.register(
+        PruneTestArtifactsCommand,
+        PruneTestArtifactsHandler(),
+    )
 
 
 def _register_query_handlers(query_bus: QueryBus) -> None:
@@ -442,4 +471,7 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(GetMaterializationTreeQuery, GetMaterializationTreeHandler())
     query_bus.register(GetMaterializationFileQuery, GetMaterializationFileHandler())
     query_bus.register(ScanLiveChangesQuery, ScanLiveChangesHandler())
+    query_bus.register(GetTestDefinitionQuery, GetTestDefinitionHandler())
+    query_bus.register(ListTestDefinitionsQuery, ListTestDefinitionsHandler())
+    query_bus.register(GetTestRunEvidenceQuery, GetTestRunEvidenceHandler())
 

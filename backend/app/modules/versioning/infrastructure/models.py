@@ -5,9 +5,12 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
+    Float,
+    ForeignKey,
     Integer,
     String,
     Text,
@@ -102,6 +105,58 @@ class ServerTestRunModel(Base):
     # Stage D admission earmarks (nullable for pre-b1e2100000017 rows).
     reserved_ram_mb = Column(Integer, nullable=True)
     reserved_cores = Column(Integer, nullable=True)
+    # Stage F: Runtime entity & TestDefinition links, evidence bundle & retention
+    runtime_id = Column(
+        String(64), ForeignKey("server_runtimes.id", ondelete="SET NULL"), nullable=True
+    )
+    test_definition_id = Column(
+        String(64), ForeignKey("server_test_definitions.id", ondelete="SET NULL"), nullable=True
+    )
+    evidence_bundle = Column(JSON, nullable=True)
+    artifacts_purged = Column(Boolean, nullable=False, default=False)
+
+
+class ServerTestDefinitionModel(Base):
+    __tablename__ = "server_test_definitions"
+
+    id = Column(String(64), primary_key=True)
+    server_id = Column(
+        String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name = Column(String(100), nullable=False)
+    description = Column(String(500), nullable=False, default="")
+    server_type = Column(String(32), nullable=False, default="vanilla")
+    bot_technology = Column(String(32), nullable=False, default="mineflayer")
+    bot_count = Column(Integer, nullable=False, default=5)
+    duration_seconds = Column(Integer, nullable=False, default=60)
+    join_stagger_seconds = Column(Float, nullable=False, default=1.0)
+    connect_grace_seconds = Column(Integer, nullable=False, default=20)
+    placement_mode = Column(String(32), nullable=False, default="sidecar")
+    assertion_rules = Column(JSON, nullable=False, default=dict)
+    timeout_seconds = Column(Integer, nullable=False, default=300)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+class ServerRuntimeModel(Base):
+    __tablename__ = "server_runtimes"
+
+    id = Column(String(64), primary_key=True)
+    server_id = Column(
+        String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    commit_id = Column(String(64), ForeignKey("server_commits.id"), nullable=False)
+    materialization_id = Column(String(64), nullable=True)
+    provider_type = Column(String(32), nullable=False, default="docker")
+    container_id = Column(String(255), nullable=True)
+    pid = Column(Integer, nullable=True)
+    port = Column(Integer, nullable=True)
+    status = Column(String(32), nullable=False, default="starting")
+    exit_code = Column(Integer, nullable=True)
+    oom_killed = Column(Boolean, nullable=False, default=False)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    stopped_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
 
 class ServerAdmissionLeaseModel(Base):

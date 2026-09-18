@@ -15,6 +15,13 @@ class TestRunStatus(enum.StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class RuntimeStatus(enum.StrEnum):
+    STARTING = "starting"
+    RUNNING = "running"
+    TERMINATED = "terminated"
+    CRASHED = "crashed"
+
+
 class BranchStatus(enum.StrEnum):
     CREATED = "created"
     ACTIVE = "active"

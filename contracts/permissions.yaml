@@ -243,6 +243,9 @@ route_permissions:
   "POST /api/v1/servers/{server_id}/versioning/import-review/{review_id}/confirm": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/import-review/{review_id}/dismiss": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/import-review/{review_id}/revert": {permission: "server:version:commit", status: enforced}
+  "POST /api/v1/servers/{server_id}/versioning/test-definitions": {permission: "server:test:configure", status: enforced}
+  "PUT /api/v1/servers/{server_id}/versioning/test-definitions/{id}": {permission: "server:test:configure", status: enforced}
+  "DELETE /api/v1/servers/{server_id}/versioning/test-definitions/{id}": {permission: "server:test:configure", status: enforced}
 
 
 
@@ -357,11 +360,14 @@ route_permissions:
   "GET /api/v1/servers/{server_id}/versioning/tags/{name}": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/tests": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/tests/{test_id}": {permission: "server:version:read", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/tests/{test_id}/evidence": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/settings": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/preflight": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/materializations": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/materializations/{mat_id}/tree": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/materializations/{mat_id}/files": {permission: "server:version:read", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/test-definitions": {permission: "server:version:read", status: enforced}
+  "GET /api/v1/servers/{server_id}/versioning/test-definitions/{id}": {permission: "server:version:read", status: enforced}
 
 
   # ── WebSocket ───────────────────────────────────────────────────────────────
