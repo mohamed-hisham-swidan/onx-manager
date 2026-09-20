@@ -1083,7 +1083,10 @@ def write_server_properties(
     return dest
 
 
-def _generate_rcon_password() -> str:
+def generate_rcon_password() -> str:
     """Generate a secure random RCON password."""
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(32))
+
+
+_generate_rcon_password = generate_rcon_password

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyzer
+from app.modules.server.application.services.jar_service import generate_rcon_password
 from app.modules.server.infrastructure.providers.docker import (
     build_docker_server_cmd,
     resolve_docker_image,
@@ -21,6 +23,7 @@ from app.modules.server.infrastructure.providers.docker import (
 from app.modules.versioning.domain.deployment import TestServerDeployment
 from app.modules.versioning.domain.entities import Runtime, ServerCommit
 from app.modules.versioning.domain.value_objects import (
+    BotTech,
     BotVerificationConfig,
     PlacementMode,
     RuntimeStatus,
@@ -39,12 +42,18 @@ from app.modules.versioning.infrastructure.bot_pool import (
 )
 from app.modules.versioning.infrastructure.btrfs_zfs_driver import BtrfsZfsSnapshotDriver
 from app.modules.versioning.infrastructure.compatibility import (
+    StrategyResult,
     VerificationMode,
     resolve_verification_strategy,
 )
 from app.modules.versioning.infrastructure.config_writer import write_test_server_properties
 from app.modules.versioning.infrastructure.resource_probe import ResourcePreflightProbe
 from app.modules.versioning.infrastructure.storage_probe import StorageCapabilityProbe
+from app.modules.versioning.infrastructure.test_env import (
+    build_test_container_env,
+    clean_test_plugins_dir,
+    resolve_test_docker_image,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +77,23 @@ def stage_file_reflink_or_copy(src: Path, dst: Path) -> None:
             shutil.copy2(src, dst)
     except Exception:
         shutil.copy2(src, dst)
+
+
+class _PrelaunchFatalError(Exception):
+    def __init__(self, step_name: str, original_exc: Exception) -> None:
+        super().__init__(f"pre-launch failed: {step_name}: {type(original_exc).__name__}")
+        self.step_name = step_name
+        self.original_exc = original_exc
+
+
+@contextlib.contextmanager
+def _class_b_step(step_name: str):
+    try:
+        yield
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        raise _PrelaunchFatalError(step_name, exc) from None
 
 
 @dataclass(frozen=True)
@@ -157,111 +183,339 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 logger.debug("Failed to persist runtime %s: %s", runtime.id, exc)
                 break
 
+    def _downgrade_to_smoke(
+        self,
+        step_name: str,
+        exc: Exception,
+        prior_strat: StrategyResult | None,
+        bot_cfg: BotVerificationConfig,
+        server_type: str,
+    ) -> StrategyResult:
+        exc_type = type(exc).__name__
+        logger.warning("Pre-launch step %s failed: %s", step_name, exc_type)
+        was_fakeplayer = (
+            prior_strat is not None
+            and (
+                prior_strat.driver == "fakeplayer_next"
+                or prior_strat.downgraded_from == "fakeplayer_next"
+            )
+        ) or (
+            prior_strat is None
+            and (
+                bot_cfg.bot_tech == BotTech.FAKEPLAYER_NEXT
+                or (
+                    bot_cfg.bot_tech == BotTech.AUTO
+                    and (server_type or "").lower() in ("paper", "purpur")
+                )
+            )
+        )
+        return StrategyResult(
+            mode=VerificationMode.SMOKE_TEST,
+            driver="none",
+            reason=f"pre-launch step failed: {step_name}: {exc_type}",
+            downgraded_from="fakeplayer_next" if was_fakeplayer else None,
+            artifact_ok=False,
+        )
+
+    async def _handle_prelaunch_fatal_failure(
+        self,
+        spec: TestSpec,
+        step_name: str,
+        exc: Exception,
+        test_dir_str: str,
+    ) -> TestHandle:
+        exc_type = type(exc).__name__
+        logger.warning("Pre-launch step %s failed: %s", step_name, exc_type)
+        failure_reason = f"pre-launch failed: {step_name}: {exc_type}"
+        logs = [f"[PRE-LAUNCH FAILURE] {failure_reason}"]
+        container_name = f"onx-test-{spec.test_id}"
+
+        evidence_bundle = {
+            "test_id": spec.test_id,
+            "server_id": spec.server_id,
+            "commit_id": spec.commit.id,
+            "runtime": {
+                "runtime_id": None,
+                "container_name": container_name,
+                "exit_code": 1,
+                "oom_killed": False,
+                "duration_seconds": 0.0,
+            },
+            "assertions": {
+                "container_started": False,
+                "boot_gate_passed": False,
+                "bots_spawned_target": spec.bot_config.bot_count,
+                "bots_spawned_actual": 0,
+                "crash_reports_found": 0,
+                "clean_shutdown": False,
+            },
+            "crash_analysis": {
+                "blamed_mod": None,
+                "failure_code": None,
+                "summary": failure_reason,
+                "crash_report_path": None,
+            },
+            "log_tail": logs,
+        }
+
+        if self._event_bus is not None:
+            try:
+                from app.modules.versioning.domain.events import TestRunFailedEvent
+
+                await self._event_bus.publish(
+                    TestRunFailedEvent(
+                        server_id=spec.server_id,
+                        test_id=spec.test_id,
+                        commit_id=spec.commit.id,
+                        failure_code=None,
+                        blamed_mod=None,
+                    )
+                )
+            except Exception as eb_err:
+                logger.debug("Failed publishing TestRunFailedEvent: %s", eb_err)
+
+        capped_log = cap_log_output("\n".join(logs))
+        await self._persist_test_outcome(
+            test_id=spec.test_id,
+            passed=False,
+            failure_reason=failure_reason,
+            log_output=capped_log,
+            runtime_id=None,
+            evidence_bundle=evidence_bundle,
+        )
+
+        handle = TestHandle(
+            test_id=spec.test_id,
+            server_id=spec.server_id,
+            container_name=container_name,
+            test_dir=test_dir_str,
+            sidecar_runner=None,
+            status=TestRunStatus.FAILED,
+            runtime_id=None,
+        )
+        result = BotVerificationResult(
+            passed=False,
+            connected_bots=0,
+            total_bots=spec.bot_config.bot_count,
+            disconnects=0,
+            survived_duration_seconds=0.0,
+            failure_reason=failure_reason,
+            logs=logs,
+        )
+        handle.set_result(result)
+
+        try:
+            await self.cleanup_test(handle, passed=False)
+        except Exception as cleanup_exc:
+            logger.warning(
+                "Test container cleanup failed for %s: %s",
+                spec.test_id,
+                cleanup_exc,
+            )
+
+        return handle
+
     async def run_test(self, spec: TestSpec) -> TestHandle:
         # Stage D: concurrency is governed by the global admission gate
         # (RunIsolatedTestHandler → admit()), not by a per-server lock.
         # This runner is a plain executor: materialize → launch → verify.
-        # 1. Check storage COW capability
-        StorageCapabilityProbe.assert_supports_reflink(spec.server_dir)
+        manifest = spec.commit.manifest
+        server_type = manifest.server_type
+        mc_version = manifest.minecraft_version or spec.minecraft_version
 
-        # 2. Check physical system headroom (second-line defense; admission
-        # already earmarked headroom before this call)
-        server_type = spec.commit.manifest.server_type
-        ResourcePreflightProbe.assert_sufficient_resources(
-            bot_count=spec.bot_config.bot_count,
-            server_type=server_type,
-        )
-
-        # 3. Materialize test directory under .onx/tests/<test_id>
         test_root = Path(spec.server_dir) / ".onx" / "tests" / spec.test_id
         test_dir_str = str(test_root.resolve())
-        test_root.mkdir(parents=True, exist_ok=True)
 
-        # 4. COW world clone
-        BtrfsZfsSnapshotDriver.clone_world(spec.server_dir, test_dir_str)
+        try:
+            # 1. Check storage COW capability (Class B)
+            with _class_b_step("StorageCapabilityProbe"):
+                StorageCapabilityProbe.assert_supports_reflink(spec.server_dir)
 
-        # 5. Write manifest configs & mod jars into test directory
-        manifest = spec.commit.manifest
-        for rel_path, content in manifest.configs.items():
-            if rel_path != "server.properties":  # server.properties written via test writer
-                tgt = test_root / rel_path
-                tgt.parent.mkdir(parents=True, exist_ok=True)
-                tgt.write_text(content, encoding="utf-8")
+            # 2. Check physical system headroom (Class B)
+            with _class_b_step("ResourcePreflightProbe"):
+                ResourcePreflightProbe.assert_sufficient_resources(
+                    bot_count=spec.bot_config.bot_count,
+                    server_type=server_type,
+                )
 
-        # Copy mods
-        live_mods = Path(spec.server_dir) / "mods"
-        test_mods = test_root / "mods"
-        if live_mods.is_dir():
-            test_mods.mkdir(parents=True, exist_ok=True)
-            for mod_ref in manifest.mods:
-                src_mod = Path(spec.server_dir) / mod_ref["filename"]
-                if src_mod.is_file():
-                    dst_mod = test_root / mod_ref["filename"]
-                    # FOLLOW-UP (SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.2):
-                    # Now uses stage_file_reflink_or_copy which checks returncode.
-                    # Previously: subprocess.run([...], check=False) + except Exception fallback
-                    # did NOT catch a found-but-failing cp (e.g. MSYS2 without --reflink),
-                    # silently leaving mod jars absent.  This call is now safe.
-                    stage_file_reflink_or_copy(src_mod, dst_mod)
+            # 3. Materialize test directory under .onx/tests/<test_id> (Class B)
+            with _class_b_step("test dir creation/materialization"):
+                test_root.mkdir(parents=True, exist_ok=True)
 
-        # 5b. Stage server executable (jar or run.sh / user_jvm_args.txt)
-        # SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.2 — Executable Staging.
-        staged_startup_jar: str | None = None
-        server_startup_cmd: list[str] | None = None
-        run_sh_src = Path(spec.server_dir) / "run.sh"
-        if run_sh_src.is_file():
-            run_sh_dst = test_root / "run.sh"
-            stage_file_reflink_or_copy(run_sh_src, run_sh_dst)
-            run_sh_dst.chmod(0o755)
-            jvm_args_src = Path(spec.server_dir) / "user_jvm_args.txt"
-            if jvm_args_src.is_file():
-                stage_file_reflink_or_copy(jvm_args_src, test_root / "user_jvm_args.txt")
-            # Explicit startup command — build_docker_server_cmd does no disk detection.
-            server_startup_cmd = ["bash", "run.sh", "nogui"]
-        else:
-            # Resolve the startup jar to stage.
-            # CommitManifest has no startup_jar field; always fall through to "server.jar"
-            # default then glob. (getattr guard removed — was permanently dead code.)
-            candidate_jar: Path | None = None
-            default_jar = Path(spec.server_dir) / "server.jar"
-            if default_jar.is_file():
-                candidate_jar = default_jar
-            else:
-                jars = sorted(Path(spec.server_dir).glob("*.jar"))
-                if jars:
-                    candidate_jar = jars[0]
-            if candidate_jar is not None:
-                staged_startup_jar = candidate_jar.name
-                stage_file_reflink_or_copy(candidate_jar, test_root / candidate_jar.name)
+            # 4. COW world clone (Class B)
+            with _class_b_step("world clone"):
+                BtrfsZfsSnapshotDriver.clone_world(spec.server_dir, test_dir_str)
 
-        # 6. Safety-Critical: Write test server.properties via TestServerDeployment
-        test_deployment = TestServerDeployment(test_id=spec.test_id, test_dir=test_dir_str)
-        base_props = {}
-        if "server.properties" in manifest.configs:
-            for line in manifest.configs["server.properties"].splitlines():
-                if "=" in line and not line.strip().startswith("#"):
-                    k, v = line.split("=", 1)
-                    base_props[k.strip()] = v.strip()
+            # 5. Write manifest configs & mod jars into test directory (Class B)
+            staged_startup_jar: str | None = None
+            server_startup_cmd: list[str] | None = None
+            with _class_b_step("config/mod staging"):
+                for rel_path, content in manifest.configs.items():
+                    if rel_path != "server.properties":
+                        tgt = test_root / rel_path
+                        tgt.parent.mkdir(parents=True, exist_ok=True)
+                        tgt.write_text(content, encoding="utf-8")
 
-        write_test_server_properties(
-            deployment=test_deployment,
-            base_properties=base_props,
-            server_port=25565,
-            bot_count=spec.bot_config.bot_count,
-        )
+                # Copy mods
+                live_mods = Path(spec.server_dir) / "mods"
+                test_mods = test_root / "mods"
+                if live_mods.is_dir():
+                    test_mods.mkdir(parents=True, exist_ok=True)
+                    for mod_ref in manifest.mods:
+                        src_mod = Path(spec.server_dir) / mod_ref["filename"]
+                        if src_mod.is_file():
+                            dst_mod = test_root / mod_ref["filename"]
+                            stage_file_reflink_or_copy(src_mod, dst_mod)
 
-        # 7. Resolve Docker image + build startup CMD and launch container
-        image = resolve_docker_image(minecraft_version=spec.minecraft_version)
-        container_name = f"onx-test-{spec.test_id}"
-        host_mount = resolve_host_mount_path(test_dir_str)
+                # 5b. Stage server executable (jar or run.sh / user_jvm_args.txt)
+                run_sh_src = Path(spec.server_dir) / "run.sh"
+                if run_sh_src.is_file():
+                    run_sh_dst = test_root / "run.sh"
+                    stage_file_reflink_or_copy(run_sh_src, run_sh_dst)
+                    run_sh_dst.chmod(0o755)
+                    jvm_args_src = Path(spec.server_dir) / "user_jvm_args.txt"
+                    if jvm_args_src.is_file():
+                        stage_file_reflink_or_copy(jvm_args_src, test_root / "user_jvm_args.txt")
+                    server_startup_cmd = ["bash", "run.sh", "nogui"]
+                else:
+                    candidate_jar: Path | None = None
+                    default_jar = Path(spec.server_dir) / "server.jar"
+                    if default_jar.is_file():
+                        candidate_jar = default_jar
+                    else:
+                        jars = sorted(Path(spec.server_dir).glob("*.jar"))
+                        if jars:
+                            candidate_jar = jars[0]
+                    if candidate_jar is not None:
+                        staged_startup_jar = candidate_jar.name
+                        stage_file_reflink_or_copy(candidate_jar, test_root / candidate_jar.name)
 
-        # Build server CMD — startup_command passed explicitly (no disk detection in helper).
-        # SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.1
-        server_cmd = build_docker_server_cmd(
-            startup_command=server_startup_cmd,
-            startup_jar=staged_startup_jar,
-            image=image,
-        )
+            test_deployment = TestServerDeployment(test_id=spec.test_id, test_dir=test_dir_str)
+
+            # Class A: clean_test_plugins_dir
+            strat: StrategyResult | None = None
+            try:
+                clean_test_plugins_dir(Path(test_deployment.server_dir))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                strat = self._downgrade_to_smoke(
+                    "clean_test_plugins_dir", exc, strat, spec.bot_config, server_type
+                )
+
+            # Class A: artifact staging/check
+            artifact_path: Path | str | None = None
+            if strat is None:
+                try:
+                    artifact_path = FakePlayerNextDriver.get_artifact_path(test_deployment)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    strat = self._downgrade_to_smoke(
+                        "artifact staging/check", exc, strat, spec.bot_config, server_type
+                    )
+
+            # Class A: resolve_verification_strategy
+            if strat is None:
+                try:
+                    strat = resolve_verification_strategy(
+                        server_type=server_type,
+                        minecraft_version=mc_version,
+                        bot_tech=spec.bot_config.bot_tech,
+                        artifact_path=artifact_path,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    strat = self._downgrade_to_smoke(
+                        "resolve_verification_strategy", exc, strat, spec.bot_config, server_type
+                    )
+
+            # Class A: resolve_test_docker_image
+            image: str
+            try:
+                image, strat = resolve_test_docker_image(
+                    minecraft_version=mc_version,
+                    strategy=strat,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                strat = self._downgrade_to_smoke(
+                    "resolve_test_docker_image", exc, strat, spec.bot_config, server_type
+                )
+                image = resolve_docker_image(minecraft_version=mc_version)
+
+            # Class B: write_test_server_properties
+            base_props = {}
+            if "server.properties" in manifest.configs:
+                for line in manifest.configs["server.properties"].splitlines():
+                    if "=" in line and not line.strip().startswith("#"):
+                        k, v = line.split("=", 1)
+                        base_props[k.strip()] = v.strip()
+
+            with _class_b_step("write_test_server_properties"):
+                write_test_server_properties(
+                    deployment=test_deployment,
+                    base_properties=base_props,
+                    server_port=25565,
+                    bot_count=spec.bot_config.bot_count,
+                )
+
+            # Class A: generate_rcon_password + env build
+            rcon_password: str | None = None
+            proc_env: dict[str, str] | None = None
+            container_env: dict[str, str]
+            try:
+                if strat.driver == "fakeplayer_next":
+                    rcon_password = generate_rcon_password()
+                    proc_env = {**os.environ, "RCON_PASSWORD": rcon_password}
+
+                container_env = build_test_container_env(
+                    server_type=server_type,
+                    minecraft_version=mc_version,
+                    strategy=strat,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                strat = self._downgrade_to_smoke(
+                    "generate_rcon_password + env build",
+                    exc,
+                    strat,
+                    spec.bot_config,
+                    server_type,
+                )
+                image = resolve_docker_image(minecraft_version=mc_version)
+                rcon_password = None
+                proc_env = None
+                container_env = build_test_container_env(
+                    server_type=server_type,
+                    minecraft_version=mc_version,
+                    strategy=strat,
+                )
+
+            container_name = f"onx-test-{spec.test_id}"
+            host_mount = resolve_host_mount_path(test_dir_str)
+
+            # Build server CMD — startup_command passed explicitly (no disk detection in helper).
+            # SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.1
+            server_cmd = build_docker_server_cmd(
+                startup_command=server_startup_cmd,
+                startup_jar=staged_startup_jar,
+                image=image,
+            )
+
+        except _PrelaunchFatalError as fatal_err:
+            return await self._handle_prelaunch_fatal_failure(
+                spec, fatal_err.step_name, fatal_err.original_exc, test_dir_str
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as unexpected_exc:
+            return await self._handle_prelaunch_fatal_failure(
+                spec, "pre-launch", unexpected_exc, test_dir_str
+            )
 
         # Memory budget: 2 GB min / 4 GB max, with 512 MB Docker headroom.
         memory_max_mb = 4096
@@ -287,24 +541,46 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             # and a misplaced --user there kills the entrypoint (run 6f354058).
             *(
                 ["--user", f"{os.getuid()}:{os.getgid()}"]
-                if hasattr(os, "getuid")
-                and hasattr(os, "getgid")
-                and sys.platform != "win32"
+                if hasattr(os, "getuid") and hasattr(os, "getgid") and sys.platform != "win32"
                 else []
             ),
-            "-e",
-            "EULA=TRUE",
-            "-e",
-            "ONLINE_MODE=FALSE",
-            image,
         ]
+        for env_k, env_v in container_env.items():
+            docker_cmd.extend(["-e", f"{env_k}={env_v}"])
+
+        # Fix B1: RCON_PASSWORD is passed without value in argv; value is in proc_env
+        if strat.driver == "fakeplayer_next":
+            docker_cmd.extend(["-e", "RCON_PASSWORD"])
+
+        docker_cmd.append(image)
         docker_cmd.extend(server_cmd)
 
-        res = await asyncio.to_thread(
-            subprocess.run, docker_cmd, capture_output=True, text=True, timeout=30
-        )
+        try:
+            res = await asyncio.to_thread(
+                subprocess.run,
+                docker_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=proc_env,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Docker test container startup timed out after 30s") from None
+        except subprocess.CalledProcessError as cpe:
+            raise RuntimeError(
+                f"Docker test container startup failed with exit code {cpe.returncode}"
+            ) from None
+        except Exception as exc:
+            err_msg = str(exc)
+            if rcon_password and rcon_password in err_msg:
+                err_msg = err_msg.replace(rcon_password, "[REDACTED]")
+            raise RuntimeError(f"Failed to launch test container: {err_msg}") from None
+
         if res.returncode != 0:
-            raise RuntimeError(f"Failed to start isolated test container: {res.stderr.strip()}")
+            err_msg = res.stderr.strip()[:200]
+            if rcon_password and rcon_password in err_msg:
+                err_msg = err_msg.replace(rcon_password, "[REDACTED]")
+            raise RuntimeError(f"Failed to start isolated test container: {err_msg}")
 
         runtime_id = f"rt-{spec.test_id[:12]}"
         handle = TestHandle(
@@ -333,7 +609,14 @@ class DockerTestExecutionRunner(TestExecutionRunner):
 
         # Launch background verification execution (no lock is held: admission
         # owns concurrency policy; failures surface via handle + DB outcome).
-        asyncio.create_task(self._execute_verification(spec, handle, test_deployment))
+        asyncio.create_task(
+            self._execute_verification(
+                spec,
+                handle,
+                test_deployment,
+                strategy=strat,
+            )
+        )
         return handle
 
     async def _execute_verification(
@@ -341,6 +624,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         spec: TestSpec,
         handle: TestHandle,
         test_deployment: TestServerDeployment,
+        strategy: StrategyResult | None = None,
     ) -> None:
         """Background execution of bot verification against the test container."""
         bot_cfg = spec.bot_config
@@ -354,14 +638,32 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         pool = get_bot_runner_pool()
 
         try:
-            # 1. Resolve loader and version strategy
+            # 1. Resolve loader and version strategy (defensive post-launch re-check)
             server_type = spec.commit.manifest.server_type
-            strat = resolve_verification_strategy(
-                server_type=server_type,
-                minecraft_version=spec.minecraft_version,
-                bot_tech=bot_cfg.bot_tech,
-                artifact_path=FakePlayerNextDriver.get_artifact_path(test_deployment),
-            )
+            mc_version = spec.commit.manifest.minecraft_version or spec.minecraft_version
+            if strategy is not None and strategy.mode == VerificationMode.SMOKE_TEST:
+                strat = strategy
+            else:
+                try:
+                    art_path = FakePlayerNextDriver.get_artifact_path(test_deployment)
+                except Exception:
+                    art_path = None
+                current_strat = resolve_verification_strategy(
+                    server_type=server_type,
+                    minecraft_version=mc_version,
+                    bot_tech=bot_cfg.bot_tech,
+                    artifact_path=art_path,
+                )
+                if strategy is not None:
+                    if (
+                        strategy.mode == VerificationMode.FULL_BOT
+                        and current_strat.mode == VerificationMode.SMOKE_TEST
+                    ):
+                        strat = current_strat
+                    else:
+                        strat = strategy
+                else:
+                    strat = current_strat
             mode = strat.mode
             driver = strat.driver
             explanation = strat.reason
@@ -418,9 +720,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                             f"({analysis.failure_code.value})"
                         )
                     except Exception:
-                        boot_failure_reason = (
-                            f"Server crashed during boot: {first_crash.name}"
-                        )
+                        boot_failure_reason = f"Server crashed during boot: {first_crash.name}"
                     logs.append(f"[BOOT-GATE] {boot_failure_reason}")
                     break
 
@@ -428,7 +728,10 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 liveness_check = await asyncio.to_thread(
                     subprocess.run,
                     [
-                        "docker", "inspect", "-f", "{{.State.Running}}",
+                        "docker",
+                        "inspect",
+                        "-f",
+                        "{{.State.Running}}",
                         handle.container_name,
                     ],
                     capture_output=True,
@@ -436,8 +739,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     timeout=5,
                 )
                 is_alive = (
-                    liveness_check.returncode == 0
-                    and "true" in liveness_check.stdout.lower()
+                    liveness_check.returncode == 0 and "true" in liveness_check.stdout.lower()
                 )
                 if not is_alive:
                     boot_failure_reason = (
@@ -550,7 +852,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                             "Test server container terminated during FakePlayer bot verification"
                         )
                     else:
-                        passed = (spawned_bots == bot_cfg.bot_count)
+                        passed = spawned_bots == bot_cfg.bot_count
                         connected_bots = spawned_bots
                         if not passed:
                             err_msg = last_error or "Unknown RCON error"

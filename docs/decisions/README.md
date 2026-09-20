@@ -22,6 +22,7 @@ This directory captures significant architectural decisions made during the proj
 | 0014 | [Shared Commit DAG Migration Strategy and Branch Lifecycle](0014-shared-commit-dag-migration-and-branch-lifecycle.md) | 2026-09-17 | Accepted | Branch state machine (created/active/archived) and additive transition path from linear history to shared DAG in Stage B. |
 | 0015 | [Runtime Domain Entity and ServerProvider Relationship](0015-runtime-entity-and-server-provider-relationship.md) | 2026-09-17 | Accepted | Runtime pins immutable Commit ID; wraps existing ServerProvider without breaking provider contracts; preserves per-server lock. |
 | 0016 | [PersistentDataset Boundary and Non-Mutation Isolation](0016-persistent-dataset-boundary-and-isolation.md) | 2026-09-17 | Accepted | Mutable dataset writes cannot silently mutate versioned Tree/Commit or overwrite tracked configs. |
+| DECISION-2026-09-18-003 | [FakePlayer-Next Plugin Sourcing & Pre-Launch Staging (Fix 2)](DECISION-2026-09-18-003-fakeplayer-next-plugin-sourcing.md) | 2026-09-18 | Accepted | Sourcing FakePlayer-Next release assets via GitHub API digest verification, local caching, pre-launch staging, and itzg container RCON env. |
 
 ## New ADRs
 

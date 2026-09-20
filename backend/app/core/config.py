@@ -54,6 +54,9 @@ class AppSettings(BaseSettings):
     import_max_zip_size_mb: int = 0
     import_staging_dir: str = "data/staging"
     docker_default_image: str = "eclipse-temurin:21-jre-jammy"
+    docker_test_image: str = (
+        "itzg/minecraft-server:java25@sha256:dc7913a69c878594ff7b568862b2cd5541fac6e409d1dc86f0313b1ef7a4d9d4"
+    )
     host_data_dir: str = ""
     test_artifact_retention_hours: float = 24.0
 

@@ -48,6 +48,9 @@ def write_test_server_properties(
     props["server-port"] = str(server_port)
     props["query.port"] = str(server_port)
 
+    # In test containers, RCON configuration is authoritatively driven by container
+    # environment variables (ENABLE_RCON, RCON_PORT, RCON_PASSWORD). server.properties
+    # keeps enable-rcon=false by default so credentials never touch disk (DECISION-2026-09-18-003).
     if rcon_port is not None:
         props["enable-rcon"] = "true"
         props["rcon.port"] = str(rcon_port)

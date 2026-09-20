@@ -361,9 +361,16 @@ class FakePlayerNextDriver:
     @classmethod
     def get_artifact_path(cls, test_deployment: TestServerDeployment | None = None) -> Path:
         """Returns the expected fakeplayer-next plugin path for a deployment."""
-        if test_deployment is not None:
-            return Path(test_deployment.server_dir) / "plugins" / "fakeplayer-next.jar"
-        return Path("plugins/fakeplayer-next.jar")
+        plugins_dir = (
+            Path(test_deployment.server_dir) / "plugins"
+            if test_deployment is not None
+            else Path("plugins")
+        )
+        if plugins_dir.is_dir():
+            candidates = sorted(plugins_dir.glob("fakeplayer*.jar"))
+            if candidates:
+                return candidates[0]
+        return plugins_dir / "fakeplayer-next.jar"
 
     @classmethod
     def install_plugin_into_test_directory(cls, test_deployment: TestServerDeployment) -> Path:
