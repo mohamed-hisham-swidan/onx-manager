@@ -44,6 +44,7 @@ from app.modules.versioning.infrastructure.btrfs_zfs_driver import BtrfsZfsSnaps
 from app.modules.versioning.infrastructure.compatibility import (
     StrategyResult,
     VerificationMode,
+    is_fakeplayer_artifact_usable,
     resolve_verification_strategy,
 )
 from app.modules.versioning.infrastructure.config_writer import write_test_server_properties
@@ -190,6 +191,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         prior_strat: StrategyResult | None,
         bot_cfg: BotVerificationConfig,
         server_type: str,
+        reason: str | None = None,
     ) -> StrategyResult:
         exc_type = type(exc).__name__
         logger.warning("Pre-launch step %s failed: %s", step_name, exc_type)
@@ -209,10 +211,11 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 )
             )
         )
+        msg = reason or f"pre-launch step failed: {step_name}: {exc_type}"
         return StrategyResult(
             mode=VerificationMode.SMOKE_TEST,
             driver="none",
-            reason=f"pre-launch step failed: {step_name}: {exc_type}",
+            reason=msg,
             downgraded_from="fakeplayer_next" if was_fakeplayer else None,
             artifact_ok=False,
         )
@@ -407,7 +410,45 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             artifact_path: Path | str | None = None
             if strat is None:
                 try:
-                    artifact_path = FakePlayerNextDriver.get_artifact_path(test_deployment)
+                    candidate = FakePlayerNextDriver.get_artifact_path(test_deployment)
+                    is_usable, _ = is_fakeplayer_artifact_usable(candidate)
+                    if is_usable:
+                        artifact_path = candidate
+                    else:
+                        is_fp_eligible = (
+                            spec.bot_config.bot_tech in (BotTech.AUTO, BotTech.FAKEPLAYER_NEXT)
+                        ) and ((server_type or "").lower() in ("paper", "purpur"))
+                        if is_fp_eligible:
+                            from app.core.config import AppSettings
+                            from app.modules.versioning.infrastructure.plugin_artifact import (
+                                ArtifactFailure,
+                                ensure_plugin_artifact,
+                                stage_plugin_artifact,
+                            )
+
+                            settings = AppSettings()
+                            data_root = Path(settings.servers_data_dir).parent
+                            art_res = await ensure_plugin_artifact(data_root=data_root)
+                            if isinstance(art_res, ArtifactFailure):
+                                strat = self._downgrade_to_smoke(
+                                    "artifact staging/check",
+                                    RuntimeError(art_res.reason),
+                                    strat,
+                                    spec.bot_config,
+                                    server_type,
+                                    reason=(
+                                        f"pre-launch step failed: artifact staging/check: "
+                                        f"{art_res.reason}"
+                                    ),
+                                )
+                            else:
+                                staged_jar = stage_plugin_artifact(
+                                    cached=art_res,
+                                    test_dir=Path(test_deployment.server_dir),
+                                )
+                                artifact_path = staged_jar
+                        else:
+                            artifact_path = candidate
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -798,7 +839,6 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     logs.append(
                         f"[BOT-VERIFY] Spawning {bot_cfg.bot_count} fakeplayer-next bots in-process"
                     )
-                    FakePlayerNextDriver.install_plugin_into_test_directory(test_deployment)
 
                     # Execute /fp spawn commands via docker exec or RCON
                     spawn_cmds = FakePlayerNextDriver.format_spawn_commands(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -19,6 +19,7 @@ from app.modules.versioning.infrastructure.bot_drivers import (
 )
 from app.modules.versioning.infrastructure.compatibility import (
     VerificationMode,
+    is_fakeplayer_artifact_usable,
     resolve_verification_strategy,
 )
 from app.modules.versioning.infrastructure.config_resolver import BotConfigResolver
@@ -116,9 +117,7 @@ async def test_fakeplayer_partial_spawn_zero_spawns_fails() -> None:
 
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
-            patch.object(
-                ResourcePreflightProbe, "assert_sufficient_resources", return_value=None
-            ),
+            patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
             patch("subprocess.run", side_effect=mock_subprocess),
         ):
             handle = await runner.run_test(spec)
@@ -164,9 +163,7 @@ async def test_fakeplayer_partial_spawn_three_of_five_fails() -> None:
 
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
-            patch.object(
-                ResourcePreflightProbe, "assert_sufficient_resources", return_value=None
-            ),
+            patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
             patch("subprocess.run", side_effect=mock_subprocess),
         ):
             handle = await runner.run_test(spec)
@@ -205,9 +202,7 @@ async def test_fakeplayer_all_spawns_succeed() -> None:
 
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
-            patch.object(
-                ResourcePreflightProbe, "assert_sufficient_resources", return_value=None
-            ),
+            patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
             patch("subprocess.run", side_effect=mock_subprocess),
         ):
             handle = await runner.run_test(spec)
@@ -251,7 +246,7 @@ async def test_fakeplayer_placeholder_or_missing_artifact_downgrades_to_smoke() 
     """
     runner = DockerTestExecutionRunner()
     with tempfile.TemporaryDirectory() as tmpdir:
-        # 1. Missing artifact case
+        # 1. Missing artifact case (pure Fix 1 path in compatibility.py)
         spec_missing, test_dir_missing = _setup_test_spec(
             tmpdir,
             test_id="t-art-missing",
@@ -270,11 +265,17 @@ async def test_fakeplayer_placeholder_or_missing_artifact_downgrades_to_smoke() 
         )
         assert strat.mode == VerificationMode.SMOKE_TEST
         assert strat.driver == "none"
+        assert strat.driver != "fakeplayer_next"
         assert "plugin artifact" in strat.reason.lower()
         assert strat.downgraded_from == "fakeplayer_next"
         assert strat.artifact_ok is False
 
-        # 2. Placeholder artifact case (30 bytes)
+        usable_missing, reason_missing = is_fakeplayer_artifact_usable(missing_plugin)
+        assert usable_missing is False
+        assert reason_missing is not None
+        assert "plugin artifact" in reason_missing.lower()
+
+        # 2. Placeholder artifact case (30 bytes, pure Fix 1 path in compatibility.py)
         spec_placeholder, test_dir_ph = _setup_test_spec(
             tmpdir,
             test_id="t-art-ph",
@@ -292,9 +293,15 @@ async def test_fakeplayer_placeholder_or_missing_artifact_downgrades_to_smoke() 
         )
         assert strat_ph.mode == VerificationMode.SMOKE_TEST
         assert strat_ph.driver == "none"
+        assert strat_ph.driver != "fakeplayer_next"
         assert "plugin artifact" in strat_ph.reason.lower()
         assert strat_ph.downgraded_from == "fakeplayer_next"
         assert strat_ph.artifact_ok is False
+
+        usable_ph, reason_ph = is_fakeplayer_artifact_usable(ph_plugin)
+        assert usable_ph is False
+        assert reason_ph is not None
+        assert "plugin artifact" in reason_ph.lower()
 
         # 3. Integration through runner: must not raise, surfaces downgrade in evidence
         def mock_subprocess(cmd, **_kwargs):
@@ -305,12 +312,77 @@ async def test_fakeplayer_placeholder_or_missing_artifact_downgrades_to_smoke() 
                 return MagicMock(returncode=0, stdout="172.17.0.2\n", stderr="")
             return MagicMock(returncode=0, stdout="container-123\n", stderr="")
 
+        import aiohttp
+
+        expected_real_reason = (
+            "pre-launch step failed: artifact staging/check: network error: ClientConnectionError"
+        )
+        orig_downgrade = runner._downgrade_to_smoke
+
+        # (i) Missing file case through runner
+        saved_strats_missing: list = []
+
+        def capture_strat_missing(*args, **kwargs):
+            s = orig_downgrade(*args, **kwargs)
+            saved_strats_missing.append(s)
+            return s
+
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
-            patch.object(
-                ResourcePreflightProbe, "assert_sufficient_resources", return_value=None
-            ),
+            patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
             patch("subprocess.run", side_effect=mock_subprocess),
+            patch.object(
+                aiohttp.ClientSession,
+                "get",
+                side_effect=aiohttp.ClientConnectionError("Connection refused"),
+            ),
+            patch.object(runner, "_downgrade_to_smoke", side_effect=capture_strat_missing),
+            patch.object(runner, "_persist_test_outcome", new_callable=AsyncMock) as mock_persist_m,
+        ):
+            handle_missing = await runner.run_test(spec_missing)
+            res_missing = await handle_missing.wait_for_completion()
+
+        assert res_missing is not None
+        assert res_missing.connected_bots == 0
+        assert res_missing.failure_reason is not None
+        assert res_missing.failure_reason == expected_real_reason
+        assert res_missing.failure_reason.startswith(
+            "pre-launch step failed: artifact staging/check"
+        )
+        assert len(saved_strats_missing) == 1
+        strat_m = saved_strats_missing[0]
+        assert strat_m.mode == VerificationMode.SMOKE_TEST
+        assert strat_m.driver != "fakeplayer_next"
+        assert strat_m.driver == "none"
+        assert strat_m.downgraded_from == "fakeplayer_next"
+
+        mock_persist_m.assert_awaited_once()
+        eb_m = mock_persist_m.await_args.kwargs.get("evidence_bundle") or {}
+        assertions_m = eb_m.get("assertions", {})
+        assert assertions_m.get("strategy_downgraded_from") == "fakeplayer_next"
+        assert assertions_m.get("downgrade_reason") == expected_real_reason
+
+        # (ii) Placeholder-on-disk case through runner with network failing
+        saved_strats_ph: list = []
+
+        def capture_strat_ph(*args, **kwargs):
+            s = orig_downgrade(*args, **kwargs)
+            saved_strats_ph.append(s)
+            return s
+
+        with (
+            patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
+            patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
+            patch("subprocess.run", side_effect=mock_subprocess),
+            patch.object(
+                aiohttp.ClientSession,
+                "get",
+                side_effect=aiohttp.ClientConnectionError("Connection refused"),
+            ),
+            patch.object(runner, "_downgrade_to_smoke", side_effect=capture_strat_ph),
+            patch.object(
+                runner, "_persist_test_outcome", new_callable=AsyncMock
+            ) as mock_persist_ph,
         ):
             handle = await runner.run_test(spec_placeholder)
             res = await handle.wait_for_completion()
@@ -318,7 +390,94 @@ async def test_fakeplayer_placeholder_or_missing_artifact_downgrades_to_smoke() 
         assert res is not None
         assert res.connected_bots == 0
         assert res.failure_reason is not None
+        assert res.failure_reason == expected_real_reason
+        assert res.failure_reason.startswith("pre-launch step failed: artifact staging/check")
+        assert len(saved_strats_ph) == 1
+        strat_ph_obj = saved_strats_ph[0]
+        assert strat_ph_obj.mode == VerificationMode.SMOKE_TEST
+        assert strat_ph_obj.driver != "fakeplayer_next"
+        assert strat_ph_obj.driver == "none"
+        assert strat_ph_obj.downgraded_from == "fakeplayer_next"
+
+        mock_persist_ph.assert_awaited_once()
+        evidence_bundle = mock_persist_ph.await_args.kwargs.get("evidence_bundle") or {}
+        assertions = evidence_bundle.get("assertions", {})
+        assert assertions.get("strategy_downgraded_from") == "fakeplayer_next"
+        assert assertions.get("downgrade_reason") == expected_real_reason
+
+
+@pytest.mark.asyncio
+async def test_fakeplayer_placeholder_or_missing_artifact_downgrades_to_smoke_mocked() -> None:
+    """Mock-based variant: ensure_plugin_artifact returning canned ArtifactFailure."""
+    from app.modules.versioning.infrastructure.plugin_artifact import ArtifactFailure
+
+    runner = DockerTestExecutionRunner()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        spec_placeholder, test_dir_ph = _setup_test_spec(
+            tmpdir,
+            test_id="t-art-ph-mock",
+            bot_count=5,
+            with_valid_artifact=False,
+        )
+        ph_plugin = test_dir_ph / "plugins" / "fakeplayer-next.jar"
+        ph_plugin.write_bytes(b"PK\x03\x04fakeplayer-next-placeholder")
+
+        def mock_subprocess(cmd, **_kwargs):
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            if "inspect" in cmd_str:
+                if "State.Running" in cmd_str:
+                    return MagicMock(returncode=0, stdout="true\n", stderr="")
+                return MagicMock(returncode=0, stdout="172.17.0.2\n", stderr="")
+            return MagicMock(returncode=0, stdout="container-123\n", stderr="")
+
+        saved_strats: list = []
+        orig_downgrade = runner._downgrade_to_smoke
+
+        def capture_strat(*args, **kwargs):
+            s = orig_downgrade(*args, **kwargs)
+            saved_strats.append(s)
+            return s
+
+        expected_mock_reason = (
+            "pre-launch step failed: artifact staging/check: "
+            "plugin artifact missing or placeholder; falling back to smoke test"
+        )
+
+        with (
+            patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
+            patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
+            patch("subprocess.run", side_effect=mock_subprocess),
+            patch.object(runner, "_downgrade_to_smoke", side_effect=capture_strat),
+            patch(
+                "app.modules.versioning.infrastructure.plugin_artifact.ensure_plugin_artifact",
+                new_callable=AsyncMock,
+                return_value=ArtifactFailure(
+                    "plugin artifact missing or placeholder; falling back to smoke test"
+                ),
+            ),
+            patch.object(runner, "_persist_test_outcome", new_callable=AsyncMock) as mock_persist,
+        ):
+            handle = await runner.run_test(spec_placeholder)
+            res = await handle.wait_for_completion()
+
+        assert res is not None
+        assert res.connected_bots == 0
+        assert res.failure_reason is not None
+        assert res.failure_reason == expected_mock_reason
         assert "plugin artifact" in res.failure_reason.lower()
+
+        assert len(saved_strats) == 1
+        strat_obj = saved_strats[0]
+        assert strat_obj.mode == VerificationMode.SMOKE_TEST
+        assert strat_obj.driver != "fakeplayer_next"
+        assert strat_obj.driver == "none"
+        assert strat_obj.downgraded_from == "fakeplayer_next"
+
+        mock_persist.assert_awaited_once()
+        evidence_bundle = mock_persist.await_args.kwargs.get("evidence_bundle") or {}
+        assertions = evidence_bundle.get("assertions", {})
+        assert assertions.get("strategy_downgraded_from") == "fakeplayer_next"
+        assert assertions.get("downgrade_reason") == expected_mock_reason
 
 
 def test_folia_pufferfish_config_resolution_and_rejection() -> None:

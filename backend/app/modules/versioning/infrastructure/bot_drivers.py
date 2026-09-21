@@ -354,8 +354,6 @@ class FakePlayerNextDriver:
     - Bypasses BotRunnerPool with zero sidecar footprint.
     """
 
-    PLUGIN_DOWNLOAD_URL = "https://github.com/craftaro/fakeplayer-next/releases/download/v0.3.0/fakeplayer-next-0.3.0.jar"
-
     PLACEHOLDER_ARTIFACT = b"PK\x03\x04fakeplayer-next-placeholder"
 
     @classmethod
@@ -371,18 +369,6 @@ class FakePlayerNextDriver:
             if candidates:
                 return candidates[0]
         return plugins_dir / "fakeplayer-next.jar"
-
-    @classmethod
-    def install_plugin_into_test_directory(cls, test_deployment: TestServerDeployment) -> Path:
-        """Installs fakeplayer-next plugin jar into test deployment plugins/ directory only."""
-        plugins_dir = Path(test_deployment.server_dir) / "plugins"
-        plugins_dir.mkdir(parents=True, exist_ok=True)
-        plugin_path = plugins_dir / "fakeplayer-next.jar"
-
-        if not plugin_path.exists():
-            plugin_path.write_bytes(cls.PLACEHOLDER_ARTIFACT)
-
-        return plugin_path
 
     @classmethod
     def format_spawn_commands(cls, run_id: str, bot_count: int) -> list[str]:
