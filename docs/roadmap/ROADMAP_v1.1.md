@@ -1,10 +1,10 @@
 # ONX Manager — Real Engineering Roadmap
 ## v1.1 — Revised after external review
 
-**Status:** ACTIVE LIVING ROADMAP — Phases 0, 1, 2, 3, 4, and 5 CLOSED; Phase 6 (Final Installs / Wrap-up) UP NEXT. Each phase is scoped at the level needed to write individual Design Specs per stage.
+**Status:** ACTIVE LIVING ROADMAP — Phases 0, 1, 2, 3, 4, 5, and Core Architecture (Enterprise Branch Runtime Stages A–G + Frontend Batch) DONE / CLOSED; Phase 6 (Final Installs / Wrap-up) READY. Each phase is scoped at the level needed to write individual Design Specs per stage.
 **Supersedes:** `ROADMAP_v1.md` (2026-09-01 — external review found: no ground-truth baseline phase, a circular dependency between Phase 1 and Phase 2, branding conflated with functional UX, an unrecorded architecture-reorder decision, and looser language than the actual exit criteria implied). This version keeps every fact from v1.0 and fixes those five issues plus several smaller ones below.
 **Governing document:** [`docs/governance/GOVERNANCE.md`](../governance/GOVERNANCE.md).
-**Phase order:** dictated by Mohamed — ground truth first (new in v1.1), then bugs, backend, frontend, community-driven features, containers, install/wrap-up, and branding/UI polish **last**.
+**Phase order:** dictated by Mohamed — ground truth first (new in v1.1), then bugs, backend, frontend, community-driven features, containers, core architecture refactor, install/wrap-up, and branding/UI polish **last**.
 
 ## Current Release Objective
 
@@ -20,7 +20,7 @@ Any task, anywhere in this roadmap, should be explainable as serving this object
 
 **Scope — establish and freeze, with evidence, not assumption:**
 
-1. **Full test run, both platforms.** ✅ **VERIFIED (2026-09-02):** Linux CI and Windows CI suites run and verified green. Backend: 2,149 passed, 2 skipped, 0 failed; Frontend: 574 passed, 0 failed; CI quality gates: 5/5 PASS (`check-db-revision`, `check-ruff-baseline`, `check-version-propagation`, `check-route-contract`, `check-ps1-bom`). Recorded in `.ai/STATE.json`.
+1. **Full test run, both platforms.** ✅ **VERIFIED (2026-09-02):** Linux CI and Windows CI suites run and verified green. Backend: 2,149 passed, 2 skipped, 0 failed; Frontend: 574 passed, 0 failed; CI quality gates: 5/5 PASS (`check-db-revision`, `check-ruff-baseline`, `check-version-propagation`, `check-route-contract`, `check-ps1-bom`). *(Note: A 6th gate, check-stray-db, was added on 2026-09-15 under commit 2aef9d8; current gate baseline is 6/6 PASS).* Recorded in `.ai/STATE.json`.
 2. **Windows lifecycle ground truth.** ✅ **RESOLVED & VERIFIED (2026-09-02):**
    - *Live code status:* YES, live code. `LocalWindowsProvider` is registered in `provider_factory` (`backend/app/modules/server/infrastructure/providers/__init__.py:20`) and is selected automatically on Windows (`default_provider_for_platform() == "local_windows"`).
    - *Execution mechanism:* Spawns detached processes via `subprocess.Popen` with `creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW` and `stdin=subprocess.PIPE` (supporting `/stop` and `save-all` graceful console shutdown before killing). It does **NOT** use the Win32 Job Objects API. Process liveness and tree cleanup are managed via `platform_pid_alive()` (`OpenProcess` + `GetExitCodeProcess` with `PROCESS_QUERY_LIMITED_INFORMATION` / `STILL_ACTIVE`) and `taskkill /F /T /PID` in `app.core.process_utils`.
@@ -72,7 +72,7 @@ Receives everything routed here from Phase 1. Status of known contents:
 - `preflight.py` fix: ✅ Fixed & verified (`SPEC-2026-09-01-WIN-LAUNCHER-01`).
 - Bug track 2 items: ✅ Fixed & verified (`SPEC-2026-09-01-BUGTRACK2-01`).
 - Full backend suite green on **both** Linux and Windows CI: ✅ Verified (2,339 passed, 5 skipped, 0 failed of 2,344 collected; frontend 642/642 across 75 files; `SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`; figures per `.ai/STATE.json` verified 2026-09-07 run).
-- Re-verify the 5 CI quality-gate scripts genuinely pass: ✅ Verified (5/5 PASS).
+- Re-verify the 5 CI quality-gate scripts genuinely pass: ✅ Verified (5/5 PASS; expanded to 6/6 PASS on 2026-09-15 with `check-stray-db`).
 - Workstream B (diagnostics-leak) re-verification: ✅ Verified in code.
 - Files API IDOR: Closed — NOT A VULNERABILITY (RECON-verified 2026-09-08: per-server ownership/membership enforced before any filesystem access; cross-server and path-traversal tests pass).
 - FastAPI `merged_lifespan` recursion: Closed — false positive (RECON-verified 2026-09-08: zero occurrences outside this doc; only a plain lifespan in backend/app/main.py).
@@ -96,7 +96,7 @@ Receives everything routed here from Phase 1. Status of known contents:
 
 ## Phase 4 — Feature Build from Community Feedback Pool
 
-**Status:** CLOSED (2026-09-14) — All 5 Features Built, Verified, and Closed (Feature 1: Git-Inspired Versioning & Isolated-Testing System; Feature 2: Test Environment, merged into F1; Feature 3: Custom Mod Support; Feature 4: Change History Log; Feature 5: Better Log/Crash Readability). Full suite: 3,397 tests (2,697 backend, 700 frontend across 78 test files), 5/5 CI quality gates PASS.
+**Status:** DONE / CLOSED (2026-09-14) — All 5 Features Built, Verified, and Closed (Feature 1: Git-Inspired Versioning & Isolated-Testing System; Feature 2: Test Environment, merged into F1; Feature 3: Custom Mod Support; Feature 4: Change History Log; Feature 5: Better Log/Crash Readability). Full suite: 3,397 tests (2,697 backend, 700 frontend across 78 test files), 5/5 CI quality gates PASS.
 **Design Spec:** [`docs/design/PHASE_4_COMMUNITY_FEATURES_DESIGN_SPEC.md`](../design/PHASE_4_COMMUNITY_FEATURES_DESIGN_SPEC.md) (Approved 2026-09-13, D2/Major, Lane B)
 
 Features (priority order, from r/admincraft feedback pool, updated per DECISION-2026-09-12-001):
@@ -134,13 +134,30 @@ The approved design establishes 12 core architectural decisions:
 11. *Creation-Time Selection:* Creation-time provider selection in API payload, preflight `ping()` validation gate, and frontend wizard toggle.
 12. *DooD Compose Policy:* Docker-outside-of-Docker policy for ONX Compose deployments: native host primary support, with an opt-in profile (`docker-compose.dood.yml`) explicitly documenting host socket privilege escalation risks.
 
+## Core Architecture — Enterprise Branch Runtime Platform (Stages A–G & Frontend UI Batch)
+
+**Status:** DONE / CLOSED (2026-09-18) — Stages A through G backend and the complete 4-stage Frontend UI Batch (Stages B, C, F, G) built, verified, and merged. Full suite: 3,636 tests (2,906 backend, 730 frontend across 83 files), 6/6 CI quality gates PASS (150/150 API routes).
+**Design Specs:** [`docs/design/testing-system-refactor/`](../design/testing-system-refactor/) (Specs 01, 03, 04, 05, 06, 07, 08)
+**Governing Decision Records:** [`DECISION-2026-09-16-001`](../decisions/DECISION-2026-09-16-001-enterprise-branch-runtime-architecture.md), [`DECISION-2026-09-17-001`](../decisions/DECISION-2026-09-17-001-stage-b-scope.md), [`DECISION-2026-09-17-002`](../decisions/DECISION-2026-09-17-002-runtime-entity-attach-model.md), [`DECISION-2026-09-17-003`](../decisions/DECISION-2026-09-17-003-testdefinition-new-entity.md), [`DECISION-2026-09-18-001`](../decisions/DECISION-2026-09-18-001-stage-g-protected-branches.md), [`DECISION-2026-09-18-002`](../decisions/DECISION-2026-09-18-002-enterprise-versioning-frontend-batch.md).
+
+Scope and delivery summary:
+- **Stage A — Domain Reconstruction:** Formalized domain models (`Project`, `Repository`, `Commit`, `Branch`, `Revision`, `Materialization`, `Runtime`, `PersistentDataset`, `Run`), state machines, and ADRs 0013–0016. (Commit `e72a219`)
+- **Stage B — Real Version Control:** Commit DAG ancestry (`server_commit_parents`), branch lifecycle status column (`server_branches`), immutable tags (`server_tags`), deterministic diffing, and merge commit support. (Commit `641ea58`, migration `b1e2100000015`)
+- **Stage C — Filesystem Model & Materialization Engine:** Atomic tree materialization to `.onx/worktrees/`, `MaterializationMode` (readonly vs editable), and live-change import reviews (`server_materializations`, `server_import_reviews`). (Commit `8f10a4d`, migration `b1e2100000016`)
+- **Stage D — Runtime Control & Scheduling:** Database-level admission gate (`server_admission_leases`), multi-worker safety, and earmarked capacity accounting. (Commit `e77a82c`, migration `b1e2100000017`)
+- **Stage E — Console & Observability:** Demand-driven WebSocket console log streaming follower, interactive bidirectional WS exec/input, and unified multi-core container metrics. (Commits `41da076` / `0b64ef2`)
+- **Stage F — Test Platform & Verification:** Reusable `TestDefinition` profiles, 1:1 `Runtime` container attach, automated `PatternCrashAnalyzer` mod blame, and structured `EvidenceBundle` persistence. (Commit `785c7cc`, migration `b1e2100000018`)
+- **Stage G — Protected Branches:** Configurable `BranchProtectionPolicy` on `ServerBranch`, direct-commit rejection with emergency bypass permission, and deletion safeguards. (Commit `ba8b539`, migration `b1e2100000019`)
+- **Frontend UI Batch:** Complete user interfaces across Stages B, C, F, and G (`BranchProtectionModal`, `TestDefinitionsModal`, `TestEvidenceModal`, `MaterializationBrowserModal`, `ImportReviewModal`, `ManageBranchesModal`, `CreateTagModal`, `CommitDiffModal`, and page wiring). (Commit `8b219ba`)
+
 ## Phase 6 — Final Installs / Wrap-up
 
+**Status:** READY (Unblocked by completion of Phase 4, Phase 5, and Enterprise Branch Runtime Stages A–G + Frontend UI Batch)
 **Scope clarified in v1.1:** this is the *final public-facing* documentation and packaging pass — installer polish, first-run experience, distribution packaging, a last README/CONTRIBUTING review. It is **not** where documentation happens for the first time; per `GOVERNANCE.md` §10, docs stay synchronized with decisions and state continuously, throughout every phase above.
 
 ## Phase 7 — Visual / Brand Polish *(renamed and narrowed in v1.1)*
 
-Deliberately last, and now scoped tightly to what's actually branding: logo, visual identity, shapes, animation, imagery. **Functional UX fixes are explicitly excluded from this phase** — those are Lane B work that lands in Phase 3 (or wherever the fix naturally belongs) as soon as they're found, not held until here. This was v1.0's clearest gap: "Branding/UI-UX" conflated two different kinds of work with two different urgencies.
+Deliberately last, and now scoped tightly to what's actually branding: logo, visual identity, shapes, animation, imagery. **Functional UX fixes and core architecture are explicitly excluded from this phase** — functional fixes land in Phase 3 or the relevant domain stage as soon as they're found, not held until here.
 
 ---
 

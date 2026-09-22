@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import os
+import re
 import shutil
 import time
 from abc import ABC, abstractmethod
@@ -345,8 +347,89 @@ setTimeout(() => {
         )
 
 
+@dataclass(frozen=True)
+class PluginCheck:
+    enabled: bool
+    marker: str | None
+
+
+def check_plugin_enabled(log_text: str, plugin_name: str = "fakeplayer") -> PluginCheck:
+    """Checks whether the plugin enabled cleanly based on server log lines.
+
+    Pure function returning frozen PluginCheck(enabled: bool, marker: str | None).
+    """
+    if "UnknownDependencyException" in log_text or "Unknown/missing dependency plugins" in log_text:
+        return PluginCheck(enabled=False, marker="plugin failed to load: missing dependency")
+    if "zip END header not found" in log_text:
+        return PluginCheck(enabled=False, marker="plugin failed to load: corrupt jar")
+    if "Ambiguous plugin name" in log_text:
+        return PluginCheck(enabled=False, marker="plugin failed to load: ambiguous plugin name")
+    if "Invalid plugin.yml" in log_text:
+        return PluginCheck(enabled=False, marker="plugin failed to load: invalid plugin.yml")
+    if f"Could not load 'plugins/{plugin_name}" in log_text:
+        return PluginCheck(enabled=False, marker="plugin failed to load: could not load")
+
+    # Match enabled line: [<plugin_name>] Enabled in <int> ms
+    enabled_pattern = re.compile(rf"\[{re.escape(plugin_name)}\] Enabled in \d+ ms")
+    enabled_match = enabled_pattern.search(log_text)
+
+    if not enabled_match:
+        return PluginCheck(enabled=False, marker="plugin not enabled after boot")
+
+    # Check if Enabling was also present; if so, must precede Enabled
+    esc = re.escape(plugin_name)
+    enabling_pattern = re.compile(rf"\[{esc}\] Enabling {esc} v\S+")
+    enabling_match = enabling_pattern.search(log_text)
+    if enabling_match and enabling_match.start() > enabled_match.start():
+        return PluginCheck(enabled=False, marker="plugin not enabled after boot")
+
+    return PluginCheck(enabled=True, marker=None)
+
+
+def generate_bot_names_prefix(run_id: str) -> str:
+    """Generates deterministic 8-character bot name prefix 'onx' + base36(hash, 5 chars)."""
+    digest = hashlib.sha256(run_id.encode("utf-8")).digest()
+    num = int.from_bytes(digest[:4], "big")
+    chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+    base36 = ""
+    for _ in range(5):
+        base36 = chars[num % 36] + base36
+        num //= 36
+    return f"onx{base36}"
+
+
+def generate_bot_names(run_id: str, count: int) -> list[str]:
+    """Generates unique, deterministic, valid bot names for a test run.
+
+    Only [a-z0-9], total length <= 16, deterministic, unique within the run,
+    no hyphen/underscore/dot, never starting with a digit.
+    Max count is 999 (refuses >999 or <1 with ValueError).
+    """
+    if count < 1 or count > 999:
+        raise ValueError(f"Bot count must be between 1 and 999, got {count}")
+    prefix = generate_bot_names_prefix(run_id)
+    return [f"{prefix}{i:03d}" for i in range(1, count + 1)]
+
+
+@dataclass(frozen=True)
+class BotCommandGroup:
+    """Structured per-bot command group for FakePlayerNextDriver."""
+
+    name: str
+    spawn: str
+    actions: list[str]
+
+    @property
+    def stop(self) -> str:
+        return f"fp stop {self.name}"
+
+    @property
+    def all_commands(self) -> list[str]:
+        return [self.spawn, *self.actions]
+
+
 class FakePlayerNextDriver:
-    """Server-side Paper/Purpur complementary fast-path bot driver.
+    """Server-side Paper/Purpur complementary RCON-driven FakePlayer-Next plugin driver.
 
     Enforces Design Spec §3.5.2 & §3.1.2:
     - Injects fakeplayer-next plugin jar into test directory only.
@@ -371,15 +454,32 @@ class FakePlayerNextDriver:
         return plugins_dir / "fakeplayer-next.jar"
 
     @classmethod
-    def format_spawn_commands(cls, run_id: str, bot_count: int) -> list[str]:
-        """Generates /fp spawn commands for the test run."""
-        commands: list[str] = []
-        for i in range(1, bot_count + 1):
-            username = f"onx-bot-{run_id}-{i}"
-            commands.append(f"fp spawn {username}")
-            commands.append(f"fp action {username} forward")
-            commands.append(f"fp action {username} jump")
-        return commands
+    def format_spawn_commands(cls, run_id: str, bot_count: int) -> list[BotCommandGroup]:
+        """Generates per-bot command groups for the test run."""
+        names = generate_bot_names(run_id, bot_count)
+        groups: list[BotCommandGroup] = []
+        for name in names:
+            groups.append(
+                BotCommandGroup(
+                    name=name,
+                    spawn=f"fp spawn {name}",
+                    actions=[
+                        f"fp move forward {name}",
+                        f"fp jump continuous {name}",
+                    ],
+                )
+            )
+        return groups
+
+    @classmethod
+    def format_stop_command(cls, name: str) -> str:
+        """Returns cleanup stop command for a bot name."""
+        return f"fp stop {name}"
+
+    @classmethod
+    def format_stop_commands(cls, names: list[str]) -> list[str]:
+        """Returns cleanup stop commands for a list of bot names."""
+        return [f"fp stop {name}" for name in names]
 
 
 class SmokeTestRunner:

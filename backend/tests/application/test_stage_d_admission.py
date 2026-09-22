@@ -37,6 +37,8 @@ from app.modules.versioning.infrastructure.resource_probe import (
     ResourcePreflightProbe,
 )
 
+pytestmark = pytest.mark.no_isolated_db
+
 
 @pytest.fixture
 async def adm_engine(tmp_path):

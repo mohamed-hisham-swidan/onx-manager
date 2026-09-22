@@ -31,7 +31,7 @@ BACKEND_PORT="${ONX_BACKEND_PORT:-${MCS_BACKEND_PORT:-8000}}"
 FRONTEND_PORT="${ONX_FRONTEND_PORT:-${MCS_FRONTEND_PORT:-5173}}"
 PROJECT_ROOT="${ONX_PROJECT_ROOT:-${MCS_PROJECT_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}}"
 BACKEND_DIR="${PROJECT_ROOT}/backend"
-ONX_DB="${BACKEND_DIR}/data/onx.db"
+ONX_DB="${ONX_DB_PATH:-${BACKEND_DIR}/data/onx.db}"
 KILL_WAIT=5
 BOLD=""
 DIM=""
@@ -348,6 +348,28 @@ check_db_lock() {
             log_info "SQLite lock on database held by active backend (PID ${pid}) — preserved"
             continue
         fi
+
+        # Scope kill predicate to an actual server-process signature:
+        # Require cmdline to match uvicorn or app.main:app AND not match pytest/xdist/py.test
+        local cmd=""
+        if [ -r "/proc/${pid}/cmdline" ]; then
+            cmd="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
+        fi
+        if [ -z "$cmd" ]; then
+            cmd="$(ps -p "${pid}" -o cmd= 2>/dev/null || true)"
+        fi
+
+        if [[ "$cmd" == *"pytest"* ]] || [[ "$cmd" == *"xdist"* ]] || [[ "$cmd" == *"py.test"* ]]; then
+            protect_family "${pid}"
+            log_info "SQLite lock on database held by test worker (PID ${pid}) — preserved"
+            continue
+        fi
+
+        if [[ "$cmd" != *"uvicorn"* ]] && [[ "$cmd" != *"app.main:app"* ]]; then
+            log_info "SQLite lock on database held by non-server process (PID ${pid}) — preserved"
+            continue
+        fi
+
         kill_safe "${pid}" "stale SQLite lock on ${db_path}" || true
     done
 }

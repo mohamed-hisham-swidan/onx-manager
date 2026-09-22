@@ -125,6 +125,7 @@ def test_invariant_1_runtime_factory_rejects_branch_reference() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_isolated_db
 async def test_invariant_2_existing_server_lock_policy_preserved(tmp_path) -> None:
     """Stage D policy: no per-server lock; global admission with earmarks governs."""
     from types import SimpleNamespace

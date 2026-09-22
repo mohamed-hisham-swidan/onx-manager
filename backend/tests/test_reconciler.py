@@ -9,6 +9,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from alembic import command
 from app.core.persistence.reconciler import (
     DatabaseReconciler,
@@ -17,6 +19,8 @@ from app.core.persistence.reconciler import (
     ReconcileStatus,
     redact_db_url,
 )
+
+pytestmark = pytest.mark.no_isolated_db
 
 
 def test_redact_db_url():

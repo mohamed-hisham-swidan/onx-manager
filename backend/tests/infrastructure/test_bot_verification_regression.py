@@ -48,10 +48,13 @@ def _setup_test_spec(
     test_dir = srv_dir / ".onx" / "tests" / test_id
     logs_dir = test_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
-    (logs_dir / "latest.log").write_text(
-        "[12:00:10] [Server thread/INFO]: Done (4.20s)! For help, type 'help'\n",
-        encoding="utf-8",
-    )
+    log_text = "[12:00:10] [Server thread/INFO]: Done (4.20s)! For help, type 'help'\n"
+    if with_valid_artifact:
+        log_text += (
+            "[fakeplayer] Enabling fakeplayer v0.4.4\n"
+            "[fakeplayer] Enabled in 15296 ms\n"
+        )
+    (logs_dir / "latest.log").write_text(log_text, encoding="utf-8")
 
     plugins_dir = test_dir / "plugins"
     plugins_dir.mkdir(parents=True, exist_ok=True)
@@ -118,6 +121,9 @@ async def test_fakeplayer_partial_spawn_zero_spawns_fails() -> None:
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
             patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
+            patch.object(runner, "_persist_test_outcome", new_callable=AsyncMock),
+            patch.object(runner, "_persist_runtime", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock),
             patch("subprocess.run", side_effect=mock_subprocess),
         ):
             handle = await runner.run_test(spec)
@@ -153,9 +159,11 @@ async def test_fakeplayer_partial_spawn_three_of_five_fails() -> None:
             if "rcon-cli" in cmd_str:
                 parts = cmd_str.split("rcon-cli")[-1].strip().split()
                 if len(parts) >= 2 and parts[1] == "spawn":
-                    # Bot username has index, e.g. onx-bot-t-partia-4 or -5 fail
+                    # Bot username has index, e.g. 004 / 005 fail
                     bot_name = parts[2] if len(parts) > 2 else ""
-                    if bot_name.endswith("-4") or bot_name.endswith("-5"):
+                    if (
+                        bot_name.endswith(("-4", "-5", "004", "005"))
+                    ):
                         return MagicMock(returncode=1, stdout="", stderr="Spawn limit reached")
                     return MagicMock(returncode=0, stdout="Bot spawned\n", stderr="")
                 return MagicMock(returncode=0, stdout="OK\n", stderr="")
@@ -164,6 +172,9 @@ async def test_fakeplayer_partial_spawn_three_of_five_fails() -> None:
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
             patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
+            patch.object(runner, "_persist_test_outcome", new_callable=AsyncMock),
+            patch.object(runner, "_persist_runtime", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock),
             patch("subprocess.run", side_effect=mock_subprocess),
         ):
             handle = await runner.run_test(spec)
@@ -203,6 +214,9 @@ async def test_fakeplayer_all_spawns_succeed() -> None:
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
             patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
+            patch.object(runner, "_persist_test_outcome", new_callable=AsyncMock),
+            patch.object(runner, "_persist_runtime", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock),
             patch("subprocess.run", side_effect=mock_subprocess),
         ):
             handle = await runner.run_test(spec)
@@ -220,20 +234,27 @@ def test_format_spawn_commands_three_per_bot_invariant() -> None:
     """
     bot_count = 5
     run_id = "testrun"
-    cmds = FakePlayerNextDriver.format_spawn_commands(run_id=run_id, bot_count=bot_count)
-    assert len(cmds) == bot_count * 3
+    cmd_groups = FakePlayerNextDriver.format_spawn_commands(run_id=run_id, bot_count=bot_count)
+    assert len(cmd_groups) == bot_count
 
-    spawn_cmds = [c for c in cmds if c.split()[1] == "spawn"]
-    action_cmds = [c for c in cmds if c.split()[1] == "action"]
+    all_cmds = [c for grp in cmd_groups for c in grp.all_commands]
+    assert len(all_cmds) == bot_count * 3
+
+    spawn_cmds = [grp.spawn for grp in cmd_groups]
+    action_cmds = [a for grp in cmd_groups for a in grp.actions]
 
     assert len(spawn_cmds) == bot_count
     assert len(action_cmds) == bot_count * 2
 
-    for i in range(1, bot_count + 1):
-        expected_bot = f"onx-bot-{run_id}-{i}"
-        assert f"fp spawn {expected_bot}" in cmds
-        assert f"fp action {expected_bot} forward" in cmds
-        assert f"fp action {expected_bot} jump" in cmds
+    for grp in cmd_groups:
+        assert grp.spawn.startswith("fp spawn ")
+        assert len(grp.actions) == 2
+        assert grp.actions[0].startswith("fp move forward ")
+        assert grp.actions[1].startswith("fp jump continuous ")
+        assert grp.stop == f"fp stop {grp.name}"
+        assert "fp action" not in grp.spawn
+        for a in grp.actions:
+            assert "fp action" not in a
 
 
 @pytest.mark.asyncio
@@ -330,6 +351,8 @@ async def test_fakeplayer_placeholder_or_missing_artifact_downgrades_to_smoke() 
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
             patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
+            patch.object(runner, "_persist_runtime", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock),
             patch("subprocess.run", side_effect=mock_subprocess),
             patch.object(
                 aiohttp.ClientSession,
@@ -373,6 +396,8 @@ async def test_fakeplayer_placeholder_or_missing_artifact_downgrades_to_smoke() 
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
             patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
+            patch.object(runner, "_persist_runtime", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock),
             patch("subprocess.run", side_effect=mock_subprocess),
             patch.object(
                 aiohttp.ClientSession,
@@ -446,6 +471,8 @@ async def test_fakeplayer_placeholder_or_missing_artifact_downgrades_to_smoke_mo
         with (
             patch.object(StorageCapabilityProbe, "assert_supports_reflink", return_value=None),
             patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
+            patch.object(runner, "_persist_runtime", new_callable=AsyncMock),
+            patch("asyncio.sleep", new_callable=AsyncMock),
             patch("subprocess.run", side_effect=mock_subprocess),
             patch.object(runner, "_downgrade_to_smoke", side_effect=capture_strat),
             patch(

@@ -1,16 +1,71 @@
 import asyncio
 import os
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
 import pytest
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
+import app.modules.activity.infrastructure.models  # noqa: F401
+import app.modules.auth.infrastructure.models  # noqa: F401
+import app.modules.backup.infrastructure.models  # noqa: F401
+import app.modules.event_store.models  # noqa: F401
+import app.modules.exposure.infrastructure.models  # noqa: F401
+import app.modules.health.infrastructure.models  # noqa: F401
+import app.modules.monitoring.infrastructure.models  # noqa: F401
+import app.modules.plugin.infrastructure.models  # noqa: F401
+import app.modules.server.infrastructure.models  # noqa: F401
+import app.modules.versioning.infrastructure.models  # noqa: F401
 from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
 from app.core.exceptions import MCSError
 from app.core.idempotency import InMemoryIdempotencyStore
+from app.core.persistence.base import Base
+from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _isolate_db_autouse(request: pytest.FixtureRequest) -> AsyncGenerator[None, None]:
+    old_engine = database._engine
+    old_factory = database._session_factory
+
+    if request.node.get_closest_marker("no_isolated_db"):
+        try:
+            yield
+        finally:
+            database._engine = old_engine
+            database._session_factory = old_factory
+        return
+
+    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+    database._engine = engine
+    database._session_factory = factory
+
+    try:
+        yield
+    finally:
+        await engine.dispose()
+        database._engine = old_engine
+        database._session_factory = old_factory
+
+
+@pytest_asyncio.fixture
+async def init_test_db() -> AsyncGenerator[None, None]:
+    """Compatibility fixture for tests requesting init_test_db explicitly."""
+    yield
+
 
 
 @pytest.fixture(autouse=True)

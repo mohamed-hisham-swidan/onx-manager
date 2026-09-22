@@ -67,14 +67,65 @@ def test_preflight_dry_run_success():
     assert "Preflight Summary" in proc.stdout
 
 
-def test_preflight_force_clean_flag():
+def test_preflight_force_clean_flag(tmp_path: Path):
     """Verify preflight.sh recognizes --restart / --stop as force clean mode."""
+    dummy_db = tmp_path / "dummy_preflight.db"
+    dummy_db.touch()
+    env = os.environ.copy()
+    env["ONX_DB_PATH"] = str(dummy_db)
     proc = subprocess.run(
         [str(PREFLIGHT_SCRIPT), "--restart"],
         cwd=str(PROJECT_ROOT),
         capture_output=True,
         text=True,
+        env=env,
         timeout=15,
     )
     assert proc.returncode == 0, f"preflight.sh --restart failed:\n{proc.stdout}\n{proc.stderr}"
     assert "Mode: Force cleanup" in proc.stdout
+
+
+def test_preflight_db_lock_does_not_kill_pytest_workers(tmp_path: Path):
+    """Confirm preflight.sh --restart does NOT kill a process matching pytest/xdist."""
+    test_db = tmp_path / "locked_test.db"
+    test_db.touch()
+
+    code = (
+        "import sqlite3, sys, time; "
+        "conn = sqlite3.connect(sys.argv[1]); "
+        "conn.execute('BEGIN EXCLUSIVE'); "
+        "sys.stdout.write('LOCKED\\n'); sys.stdout.flush(); "
+        "time.sleep(10)"
+    )
+    worker = subprocess.Popen(
+        [sys.executable, "-c", code, str(test_db), "pytest_worker_sentinel"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        line = worker.stdout.readline()
+        assert "LOCKED" in line
+
+        env = os.environ.copy()
+        env["ONX_DB_PATH"] = str(test_db)
+
+        proc = subprocess.run(
+            [str(PREFLIGHT_SCRIPT), "--restart"],
+            cwd=str(PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=15,
+        )
+
+        assert proc.returncode == 0, f"preflight.sh failed:\n{proc.stdout}\n{proc.stderr}"
+        assert "held by test worker" in proc.stdout
+        assert worker.poll() is None
+    finally:
+        worker.terminate()
+        try:
+            worker.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            worker.kill()
+

@@ -1,9 +1,9 @@
 # Design Spec — Stage F: Test Platform, Crash Correlation & Verification
 
-**Status:** Draft — Ready for Design Review (Orchestrator.md §6)  
+**Status:** BUILT & VERIFIED (Commit `785c7cc`, 2026-09-18)
+**Migration:** `b1e2100000018` (server_runtimes, server_test_definitions, runtime_id, test_definition_id, evidence_bundle)
 **Roadmap placement:** ONX Manager Phase 7 / Enterprise Branch Runtime (Stage F)  
-**Source:** Derived from Enterprise Branch Runtime Architecture Report §4 (Test Platform), Stage F RECON, DECISION-2026-09-17-002 (Runtime Attach Model), DECISION-2026-09-17-003 (TestDefinition Domain Aggregate), and binding governance decisions.  
-**Baselines carried:** Backend tests: 2,863 passed / 6 skipped / 0 failed (2,869 collected); Frontend tests: 711 passed (79 files); DB revision: `b1e2100000017` (37 revisions); CI quality gates: 6/6 PASS; Route contract: 141/141 verified.
+**Verification:** 2,882 passed / 6 skipped / 0 failed backend, 711 frontend passed across 79 files, 6/6 CI quality gates PASS, route contract advanced to 147/147 routes.
 
 ---
 

@@ -1,9 +1,8 @@
 # Design Spec — Stage E: Console & Observability (Streaming & Unified Telemetry)
 
-**Status:** Draft — Ready for Design Review (Orchestrator.md §6)  
+**Status:** BUILT & VERIFIED (Commits `41da076` & `0b64ef2`, 2026-09-17/18)
 **Roadmap placement:** ONX Manager Phase 7 / Enterprise Branch Runtime (Stage E)  
-**Source:** Derived from Enterprise Branch Runtime Architecture Report §Observability & Control, Stage E RECON, and Mohamed's binding governance decisions (2026-09-17).  
-**Baselines carried:** Backend tests: 2,829 passed / 6 skipped / 0 failed (2,835 collected); Frontend tests: 711 passed (79 files); DB revision: `b1e2100000016` (36 revisions); CI quality gates: 6/6 PASS; Route contract: 141/141 verified.
+**Verification:** 2,859 passed / 6 skipped / 0 failed backend, 711 frontend passed across 79 files, 6/6 CI quality gates PASS, route contract preserved at 141/141.
 
 ---
 

@@ -95,7 +95,10 @@ def resolve_verification_strategy(
             return StrategyResult(
                 mode=VerificationMode.FULL_BOT,
                 driver="fakeplayer_next",
-                reason=f"Paper-based server ({st}) supported via FakePlayer-Next driver",
+                reason=(
+                    f"Paper-based server ({st}) supported via "
+                    "RCON-driven FakePlayer-Next plugin"
+                ),
                 downgraded_from=None,
                 artifact_ok=True,
             )

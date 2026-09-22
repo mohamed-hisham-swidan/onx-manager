@@ -1,5 +1,7 @@
 # API Contract
-# Cross-batch agreement on REST API behavior.
+# NOTE: For authoritative REST route and permission contracts enforced by CI,
+# refer to contracts/permissions.yaml (verified 150/150 live routes via scripts/check-route-contract).
+# This file provides high-level conventions and early cross-batch agreement on REST API behavior.
 
 version: 1.0
 base_path: /api/v1

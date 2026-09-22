@@ -178,7 +178,7 @@ See [Database docs](architecture/DATABASE.md) for full schema reference.
 
 ```bash
 cd backend
-python -m pytest tests/ -q          # All tests (1070 collected, 1068 passing)
+python -m pytest tests/ -q          # All tests (2,906 passed, 6 skipped)
 python -m pytest tests/ -x -q       # Stop on first failure
 ```
 
@@ -213,7 +213,7 @@ cd frontend && npm test            # All frontend tests
 cd frontend && npm run test:watch  # Watch mode
 ```
 
-236 frontend tests across 41 files (measured 2026-08-04). Vitest with jsdom environment.
+730 frontend tests across 83 files (measured 2026-09-18). Vitest with jsdom environment.
 
 ## Docker Development
 
@@ -262,6 +262,7 @@ python3 scripts/check-db-revision
 python3 scripts/check-ruff-baseline
 python3 scripts/check-route-contract
 python3 scripts/check-ps1-bom
+python3 scripts/check-stray-db
 
 # Full Test Suites
 (cd backend && pytest -v)

@@ -78,6 +78,8 @@ async def test_docker_test_runner_successful_execution_pipeline() -> None:
             b"PK\x03\x04" + b"\x00" * 1_048_576
         )
         (logs_dir / "latest.log").write_text(
+            "[12:00:09] [Server thread/INFO]: [fakeplayer] Enabling fakeplayer v0.4.4\n"
+            "[12:00:09] [Server thread/INFO]: [fakeplayer] Enabled in 15296 ms\n"
             "[12:00:10] [Server thread/INFO]: Done (5.12s)! For help, type 'help'\n",
             encoding="utf-8",
         )
@@ -652,6 +654,8 @@ async def test_fakeplayer_next_rcon_failure_fails_test_run() -> None:
             b"PK\x03\x04" + b"\x00" * 1_048_576
         )
         (logs_dir / "latest.log").write_text(
+            "[12:00:09] [Server thread/INFO]: [fakeplayer] Enabling fakeplayer v0.4.4\n"
+            "[12:00:09] [Server thread/INFO]: [fakeplayer] Enabled in 15296 ms\n"
             "[12:00:10] [Server thread/INFO]: Done (2.1s)! For help, type 'help'\n",
             encoding="utf-8",
         )

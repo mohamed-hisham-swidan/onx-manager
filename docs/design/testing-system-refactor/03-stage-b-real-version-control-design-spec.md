@@ -1,7 +1,9 @@
 # Design Spec — Stage B: Real Version Control
 
-**Status:** Design-Reviewed (2026-09-17) — CONDITIONAL APPROVAL pending `DECISION-2026-09-17-001` sign-off. Do not build until that decision record is approved.
-**Prerequisite verified:** Stage A CLOSED 2026-09-17 — 20/20 new invariant tests pass, 60/60 versioning suite, 2753/6/0 full backend suite (zero regressions from the 2733/6/0 baseline), 6/6 CI gates, ADRs 0013-0016 written.
+**Status:** BUILT & VERIFIED (Commit `641ea58`, 2026-09-17)
+**Migration:** `b1e2100000015` (server_commit_parents, server_tags, branch status column)
+**Prerequisite verified:** Stage A CLOSED 2026-09-17 — 20/20 new invariant tests pass, 60/60 versioning suite, 2753/6/0 full backend suite, 6/6 CI gates, ADRs 0013-0016 written.
+**Verification:** 2,793 passed / 6 skipped / 0 failed backend, 6/6 CI gates, +8 versioning routes (129 total).
 
 ---
 

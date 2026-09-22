@@ -1,10 +1,12 @@
 # Design Spec — Stage A: Domain Reconstruction (Enterprise Branch Runtime)
 
+**Status:** BUILT & VERIFIED (Commit `e72a219`, 2026-09-17)
 **Revision:** v3 — cleaned for agent clarity (2026-09-17)
 - Invariant 2 closed (option c – defer)
 - Added Old→New mapping table
 - Added concrete Acceptance Criteria
 - Language tightened to "formalize & extend"
+- Verified: 20/20 new domain tests passing, 2,753/6/0 backend, 6/6 CI gates PASS, ADRs 0013–0016 written.
 
 **Scope:** Domain-layer entities, state machines, invariants, and ADRs only. No version-control engine changes beyond what's already shipped, no filesystem materialization, no containerization, no UI. This is the foundation Stages B-G build on.
 

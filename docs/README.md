@@ -9,10 +9,10 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2568 backend tests, 665 frontend tests, 30 DB migrations). |
-| [Canonical Roadmap](roadmap/ROADMAP_v1.1.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 5 (Containers System — CLOSED) and Phase 4 (Community Feature Pool — UP NEXT). |
-| [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`0.1.0`), compatibility floor. |
-| [API Reference](API.md) | ✅ **CURRENT** | REST API reference (15 routers, 106 live routes) & WebSocket protocols. |
+| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2,906 backend tests, 730 frontend tests, 39 DB migrations). |
+| [Canonical Roadmap](roadmap/ROADMAP_v1.1.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 5 (Containers — CLOSED), Phase 4 (Community Features — CLOSED), Enterprise Branch Runtime (Stages A–G & Frontend Batch — CLOSED), Phase 6 (UP NEXT). |
+| [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`0.1.0`), compatibility floor (`b1e2100000019`). |
+| [API Reference](API.md) | ✅ **CURRENT** | REST API reference (16 routers, 150 live routes) & WebSocket protocols. |
 
 ---
 
@@ -20,9 +20,9 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [System Architecture](architecture/ARCHITECTURE.md) | ✅ **CURRENT** | Modular monolith design, 10 DDD bounded contexts, CQRS buses, outbox, supervisor. |
+| [System Architecture](architecture/ARCHITECTURE.md) | ✅ **CURRENT** | Modular monolith design, 11 DDD bounded contexts, CQRS buses, outbox, supervisor. |
 | [Technical Specs](architecture/SPECS.md) | ✅ **CURRENT** | Tech stack, repository metrics, directory layouts, feature matrices. |
-| [Database Architecture](architecture/DATABASE.md) | ✅ **CURRENT** | SQLite (`backend/data/onx.db`) & PostgreSQL models, 30 Alembic migrations (`b1e2100000010`), pre-backend reconciler. |
+| [Database Architecture](architecture/DATABASE.md) | ✅ **CURRENT** | SQLite (`backend/data/onx.db`) & PostgreSQL models, 39 Alembic migrations (`b1e2100000019`), pre-backend reconciler. |
 | [Security Architecture](architecture/SECURITY.md) | ✅ **CURRENT** | RS256 JWT auth, RBAC/ABAC route permissions, API keys, path sandboxing. |
 | [Frontend Architecture](architecture/FRONTEND.md) | ✅ **CURRENT** | React 19, Tailwind CSS v4, TanStack Query, WebSocket store. |
 | [Forge/NeoForge Provisioning Spec](architecture/SPEC-FORGE-PROVISIONING-001.md) | ✅ **CURRENT** | Unified InstallerProvisioner, non-destructive retry, failure classification. |
@@ -47,10 +47,10 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [Domain Event Catalog](reference/event-catalog.md) | ✅ **CURRENT** | 52 domain event classes across all 10 DDD modules with payload schemas. |
-| [System Module Map](reference/module-map.md) | ✅ **CURRENT** | 10 DDD modules, 15 REST routers, 19 frontend pages. |
+| [Domain Event Catalog](reference/event-catalog.md) | ✅ **CURRENT** | 61 domain event classes across 8 bounded contexts with payload schemas. |
+| [System Module Map](reference/module-map.md) | ✅ **CURRENT** | 11 DDD modules, 16 REST routers, 22 frontend pages. |
 | [Dependency Graph](reference/dependency-graph.md) | ✅ **CURRENT** | Layering rules, bounded context communication, hexagonal boundaries. |
-| [Contract Registry](reference/contract-registry.md) | ✅ **CURRENT** | RBAC route contracts (`contracts/permissions.yaml`), schemas. |
+| [Contract Registry](reference/contract-registry.md) | ✅ **CURRENT** | RBAC route contracts (`contracts/permissions.yaml`, 150 live routes), schemas. |
 
 ---
 

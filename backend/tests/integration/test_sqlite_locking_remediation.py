@@ -75,7 +75,6 @@ async def test_command_bus_busy_retry_exhaustion_bubbles_error() -> None:
 
 @pytest.mark.asyncio
 async def test_create_branch_post_commit_with_activity_subscriber() -> None:
-    database.init()
     server_id = f"test-srv-{uuid.uuid4().hex[:8]}"
 
     # Seed test server
@@ -123,7 +122,6 @@ async def test_create_branch_post_commit_with_activity_subscriber() -> None:
 
 @pytest.mark.asyncio
 async def test_create_commit_post_commit_with_activity_subscriber(tmp_path) -> None:
-    database.init()
     server_id = f"test-srv-{uuid.uuid4().hex[:8]}"
     server_dir = tmp_path / server_id
     server_dir.mkdir(parents=True, exist_ok=True)

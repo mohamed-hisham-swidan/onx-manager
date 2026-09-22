@@ -80,6 +80,7 @@ class TestAuditLog:
         assert result["valid"] is True
         assert result["checked"] == 0
 
+    @pytest.mark.no_isolated_db
     async def test_concurrent_audit_log_stays_linear(self, tmp_path, monkeypatch) -> None:
         from sqlalchemy import event as sa_event
 
@@ -163,6 +164,7 @@ class TestAuditLog:
         finally:
             await engine.dispose()
 
+    @pytest.mark.no_isolated_db
     async def test_concurrent_audit_log_genesis_race(self, tmp_path, monkeypatch) -> None:
         from sqlalchemy import event as sa_event
 

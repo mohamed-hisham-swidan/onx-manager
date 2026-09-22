@@ -8,8 +8,8 @@
 >
 > This document is generated from the router code (`backend/app/api/v1/routers/`).
 > Every endpoint below was verified directly against its router function (the
-> 15 routers: `auth, backups, exposure, files, health, invites, marketplace,
-> monitoring, plugins, schedules, servers, settings, setup, software, users`).
+> 16 routers: `auth, backups, exposure, files, health, invites, marketplace,
+> monitoring, plugins, schedules, servers, settings, setup, software, users, versioning`).
 
 ---
 
@@ -36,6 +36,7 @@
 19. [App-level endpoints](#app-level-endpoints)
 20. [WebSocket protocol](#websocket-protocol)
 21. [Exposure](#exposure)
+22. [Versioning & Branch Runtime](#versioning--branch-runtime)
 
 ---
 
@@ -1040,3 +1041,240 @@ Add a companion port forwarding rule.
 Remove a companion port forwarding rule.
 
 - **Auth:** Required (`servers:write`)
+
+---
+
+## Versioning & Branch Runtime
+
+All versioning endpoints are scoped to a server under `/api/v1/servers/{server_id}/versioning/`.
+Permissions required: `server:version:read`, `server:version:commit`, `server:version:branch:protect`, `server:test:configure`, `server:test:execute`, `server:version:promote`.
+
+### Branches & Protection
+
+#### `GET /api/v1/servers/{server_id}/versioning/branches`
+List all branches for the server.
+- **Auth:** Required (`server:version:read`)
+- **Query:** `include_archived` (boolean, default false)
+- **Response `200 OK`:** Array of `ServerBranchResponse` objects (`name`, `current_commit_id`, `status`, `is_protected`, `protection_policy`, `created_at`, `updated_at`).
+
+#### `POST /api/v1/servers/{server_id}/versioning/branches`
+Create a new branch pointing to an existing commit or revision.
+- **Auth:** Required (`server:version:commit`)
+- **Body:** `CreateBranchRequest` (`name`: string, `from_commit_id`: string | null)
+- **Response `201 Created`:** `ServerBranchResponse`
+
+#### `GET /api/v1/servers/{server_id}/versioning/branches/{name}/history`
+Retrieve the commit history log for a specific branch.
+- **Auth:** Required (`server:version:read`)
+- **Query:** `limit` (int, default 50), `before` (string, optional commit ID)
+- **Response `200 OK`:** Array of `CommitResponse` objects.
+
+#### `POST /api/v1/servers/{server_id}/versioning/branches/{name}/archive`
+Archive an active branch.
+- **Auth:** Required (`server:version:commit`)
+- **Response `200 OK`:** `ServerBranchResponse` (`status: "archived"`)
+
+#### `GET /api/v1/servers/{server_id}/versioning/branches/{name}/protection`
+Get protection status and policy for a branch.
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** `BranchProtectionResponse` (`branch_name`, `is_protected`, `policy`: `BranchProtectionPolicySchema`)
+
+#### `PUT /api/v1/servers/{server_id}/versioning/branches/{name}/protection`
+Configure protection policy on a branch.
+- **Auth:** Required (`server:version:branch:protect`)
+- **Body:** `BranchProtectionPolicySchema` (`require_test_pass`: bool, `allow_direct_commit`: bool, `allow_force_bypass`: bool, `prevent_deletion`: bool)
+- **Response `200 OK`:** `BranchProtectionResponse`
+
+#### `DELETE /api/v1/servers/{server_id}/versioning/branches/{name}/protection`
+Remove protection from a branch.
+- **Auth:** Required (`server:version:branch:protect`)
+- **Response `200 OK`:** `BranchProtectionResponse` (`is_protected: false`)
+
+### Commits, Merges, Diffs & Tags
+
+#### `GET /api/v1/servers/{server_id}/versioning/commits`
+List commits in repository.
+- **Auth:** Required (`server:version:read`)
+- **Query:** `branch` (optional string), `limit` (int, default 50)
+- **Response `200 OK`:** Array of `CommitResponse` (`id`, `message`, `parent_ids`, `tree_hash`, `author`, `created_at`)
+
+#### `POST /api/v1/servers/{server_id}/versioning/commits`
+Create a new commit on a branch. If branch is protected, requires `allow_direct_commit: true` or `force: true` with administrative bypass permission.
+- **Auth:** Required (`server:version:commit`)
+- **Body:** `CreateCommitRequest` (`branch`: string, `message`: string, `author`: string | null, `changes`: array | null, `force`: bool | null)
+- **Response `201 Created`:** `CommitResponse`
+
+#### `POST /api/v1/servers/{server_id}/versioning/commits/merge`
+Merge two branches or commits.
+- **Auth:** Required (`server:version:commit`)
+- **Body:** `MergeCommitsRequest` (`target_branch`: string, `source_ref`: string, `message`: string)
+- **Response `201 Created`:** `CommitResponse` (with multiple parent IDs)
+
+#### `GET /api/v1/servers/{server_id}/versioning/commits/diff`
+Compute file-level diff between two revisions, trees, or commits.
+- **Auth:** Required (`server:version:read`)
+- **Query:** `base_ref` (string), `target_ref` (string)
+- **Response `200 OK`:** `DiffResponse` (`base_commit_id`, `target_commit_id`, `files_changed`, `additions`, `deletions`, `diffs`: array of `FileDiff`)
+
+#### `GET /api/v1/servers/{server_id}/versioning/tags`
+List all tags in the repository.
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** Array of `ServerTagResponse` (`id`, `server_id`, `name`, `commit_id`, `message`, `tagger`, `created_at`)
+
+#### `POST /api/v1/servers/{server_id}/versioning/tags`
+Create an immutable tag pointing to a commit or branch tip.
+- **Auth:** Required (`server:version:commit`)
+- **Body:** `CreateTagRequest` (`name`: string, `target_ref`: string, `message`: string | null)
+- **Response `201 Created`:** `ServerTagResponse`
+
+#### `GET /api/v1/servers/{server_id}/versioning/tags/{name}`
+Get details of a single tag.
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** `ServerTagResponse`
+
+### Filesystem Materializations & Worktrees
+
+#### `GET /api/v1/servers/{server_id}/versioning/materializations`
+List all active materializations (isolated worktrees on disk) for the server.
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** Array of `MaterializationResponse` (`id`, `mode`, `status`, `target_revision`, `directory_path`, `created_at`)
+
+#### `POST /api/v1/servers/{server_id}/versioning/materializations`
+Create a new materialization from a revision.
+- **Auth:** Required (`server:version:commit`)
+- **Body:** `CreateMaterializationRequest` (`revision_type`: "commit" | "branch" | "tag", `revision_value`: string, `mode`: "read_only" | "edit", `label`: string | null)
+- **Response `201 Created`:** `MaterializationResponse`
+
+#### `POST /api/v1/servers/{server_id}/versioning/materializations/{mat_id}/edit-mode`
+Toggle or transition a materialization into edit mode.
+- **Auth:** Required (`server:version:commit`)
+- **Response `200 OK`:** `MaterializationResponse` (`mode: "edit"`)
+
+#### `GET /api/v1/servers/{server_id}/versioning/materializations/{mat_id}/tree`
+Get tree / file hierarchy of a materialization.
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** `MaterializationTreeResponse` (`entries`: array of `TreeEntry`)
+
+#### `GET /api/v1/servers/{server_id}/versioning/materializations/{mat_id}/files`
+Read file content from a materialization worktree.
+- **Auth:** Required (`server:version:read`)
+- **Query:** `path` (string)
+- **Response `200 OK`:** `FileContentResponse` (`path`, `content`, `size`, `is_binary`)
+
+#### `PUT /api/v1/servers/{server_id}/versioning/materializations/{mat_id}/files`
+Write file content to an edit-mode materialization worktree.
+- **Auth:** Required (`server:version:commit`)
+- **Body:** `WriteFileRequest` (`path`: string, `content`: string)
+- **Response `200 OK`:** `FileOperationResult` (`success: true`)
+
+#### `DELETE /api/v1/servers/{server_id}/versioning/materializations/{mat_id}`
+Cleanly remove and delete an isolated worktree directory from disk.
+- **Auth:** Required (`server:version:commit`)
+- **Response `200 OK`:** `MaterializationResponse` (`status: "removed"`)
+
+### Import Review & Live Changes
+
+#### `POST /api/v1/servers/{server_id}/versioning/import-review/scan`
+Scan working tree against commit baseline to detect uncommitted changes.
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** `LiveChangesResponse` (`has_uncommitted_changes`: bool, `changed_files`: array, `review_id`: string | null)
+
+#### `POST /api/v1/servers/{server_id}/versioning/import-review/auto-commit`
+Automatically commit live uncommitted changes. Fails if target branch is protected.
+- **Auth:** Required (`server:version:commit`)
+- **Body:** `AutoCommitRequest` (`branch`: string, `message`: string | null)
+- **Response `201 Created`:** `CommitResponse`
+
+#### `POST /api/v1/servers/{server_id}/versioning/import-review/{review_id}/confirm`
+Confirm and apply pending import review changes to branch.
+- **Auth:** Required (`server:version:commit`)
+- **Response `200 OK`:** `ImportReviewActionResponse`
+
+#### `POST /api/v1/servers/{server_id}/versioning/import-review/{review_id}/dismiss`
+Dismiss pending import review.
+- **Auth:** Required (`server:version:commit`)
+- **Response `200 OK`:** `ImportReviewActionResponse`
+
+#### `POST /api/v1/servers/{server_id}/versioning/import-review/{review_id}/revert`
+Revert live filesystem back to clean commit baseline.
+- **Auth:** Required (`server:version:commit`)
+- **Response `200 OK`:** `ImportReviewActionResponse`
+
+### Test Platform & Verification Drivers
+
+#### `GET /api/v1/servers/{server_id}/versioning/test-definitions`
+List reusable test definitions (e.g. startup probe, smoke test, benchmark).
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** Array of `TestDefinitionResponse` (`id`, `name`, `description`, `test_type`, `timeout_seconds`, `config`, `created_at`)
+
+#### `POST /api/v1/servers/{server_id}/versioning/test-definitions`
+Create a test definition.
+- **Auth:** Required (`server:test:configure`)
+- **Body:** `CreateTestDefinitionRequest` (`name`: string, `test_type`: string, `description`: string | null, `timeout_seconds`: int, `config`: dict)
+- **Response `201 Created`:** `TestDefinitionResponse`
+
+#### `GET /api/v1/servers/{server_id}/versioning/test-definitions/{id}`
+Get a specific test definition.
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** `TestDefinitionResponse`
+
+#### `PUT /api/v1/servers/{server_id}/versioning/test-definitions/{id}`
+Update an existing test definition.
+- **Auth:** Required (`server:test:configure`)
+- **Body:** `UpdateTestDefinitionRequest`
+- **Response `200 OK`:** `TestDefinitionResponse`
+
+#### `DELETE /api/v1/servers/{server_id}/versioning/test-definitions/{id}`
+Delete a test definition.
+- **Auth:** Required (`server:test:configure`)
+- **Response `204 No Content`**
+
+#### `GET /api/v1/servers/{server_id}/versioning/tests`
+List test runs for the server.
+- **Auth:** Required (`server:version:read`)
+- **Query:** `limit` (int, default 50)
+- **Response `200 OK`:** Array of `TestRunResponse` (`id`, `server_id`, `branch_name`, `commit_id`, `status`, `runtime_id`, `created_at`, `completed_at`)
+
+#### `POST /api/v1/servers/{server_id}/versioning/tests`
+Trigger an isolated test run under admission control.
+- **Auth:** Required (`server:test:execute`)
+- **Body:** `RunTestRequest` (`branch_name`: string, `test_definition_id`: string | null, `runtime_id`: string | null)
+- **Response `202 Accepted`:** `TestRunResponse` (`status: "queued"`)
+
+#### `GET /api/v1/servers/{server_id}/versioning/tests/{test_id}`
+Get test execution status and summary.
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** `TestRunResponse`
+
+#### `GET /api/v1/servers/{server_id}/versioning/tests/{test_id}/evidence`
+Retrieve structured evidence bundle (logs, mod blame diagnostics, exit codes).
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** `EvidenceBundleResponse` (`test_id`, `evidence_bundle`: dict, `artifacts_purged`: bool)
+
+#### `POST /api/v1/servers/{server_id}/versioning/tests/{test_id}/promote`
+Promote a verified test run to main/production branch.
+- **Auth:** Required (`server:version:promote`)
+- **Response `200 OK`:** `TestRunResponse` (`status: "promoted"`)
+
+#### `POST /api/v1/servers/{server_id}/versioning/tests/{test_id}/discard`
+Discard an unverified or failed test run.
+- **Auth:** Required (`server:test:execute`)
+- **Response `200 OK`:** `TestRunResponse` (`status: "discarded"`)
+
+### Settings & Preflight
+
+#### `GET /api/v1/servers/{server_id}/versioning/settings`
+Get versioning settings for the server.
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** `VersioningSettingsResponse`
+
+#### `PUT /api/v1/servers/{server_id}/versioning/settings`
+Update versioning settings for the server.
+- **Auth:** Required (`server:test:configure`)
+- **Body:** `UpdateVersioningSettingsRequest`
+- **Response `200 OK`:** `VersioningSettingsResponse`
+
+#### `GET /api/v1/servers/{server_id}/versioning/preflight`
+Run preflight admission checks (verifies host RAM/CPU headroom, disk space, and provider capabilities).
+- **Auth:** Required (`server:version:read`)
+- **Response `200 OK`:** `PreflightCheckResponse` (`can_materialize`: bool, `can_run_tests`: bool, `available_ram_mb`: int, `reasons`: array of string)

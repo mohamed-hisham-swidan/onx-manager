@@ -11,7 +11,7 @@ Manage multiple servers, monitor them live, handle backups, browse plugins, and 
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/Tests-2548_backend_%7C_660_frontend-brightgreen?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/Tests-2906_backend_%7C_730_frontend-brightgreen?style=flat-square)](#)
 
 </div>
 
@@ -33,6 +33,12 @@ It's built for people who want full control over their servers without relying o
 - Multi-runtime execution: host processes (tmux on Linux, native Win32 on Windows) and isolated Docker containers (`DockerProvider` with bridge networking & DooD support)
 - Real-time status updates — no page refresh needed
 - Server provisioning with automatic retry on network failures
+
+### 🌿 Git-Inspired Versioning & Bot Testing
+- Git-style commits, branches, tags, and visual commit DAG diff inspector
+- Automated isolated test environments with FakePlayer and Mineflayer bot drivers
+- Worktree materializations with live uncommitted changes import review
+- Configurable branch protection policies with administrative emergency force bypass
 
 ### 📟 Live Console & Metrics
 - Full live console with command input — just type and hit enter
@@ -151,7 +157,7 @@ start.sh        Linux/macOS launcher entry point (auto Node.js installer)
 | [Getting Started](docs/getting-started.md) | Full setup & quickstart guide |
 | [Architecture](docs/architecture/ARCHITECTURE.md) | System architecture & DDD modular monolith |
 | [Database Architecture](docs/architecture/DATABASE.md) | Schema, migrations & pre-backend reconciliation |
-| [API Reference](docs/API.md) | REST endpoints (15 routers) & WebSocket protocols |
+| [API Reference](docs/API.md) | REST endpoints (16 routers) & WebSocket protocols |
 | [Development Guide](docs/DEVELOPMENT.md) | Development workflow & preflight reconciliation |
 | [Testing Guide](docs/testing.md) | Test suites & CI verification gates |
 

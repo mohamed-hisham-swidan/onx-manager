@@ -1,8 +1,9 @@
 # Design Spec — Stage D: Runtime Control & Scheduling (Admission Overlay) — R2
 
-**Status:** Design-Reviewed (R2) — APPROVED. Build authorized.
-**Prerequisite verified:** Stages A/B/C CLOSED (Invariant 2 closed-as-defer in Stage A v3 per ADR-0015; per-server lock still in force today). RECON gate verdict: TRIGGER SATISFIED.
-**Source:** Stage D RECON (complete). Baselines carried, not re-run: backend 2829/6/0, head `b1e2100000016`, 6/6 gates, 141/141 routes. Build MUST re-run fresh at close.
+**Status:** BUILT & VERIFIED (Commit `e77a82c`, 2026-09-17)
+**Migration:** `b1e2100000017` (server_admission_leases sentinel row, earmarked reservations)
+**Prerequisite verified:** Stages A/B/C CLOSED (Invariant 2 closed-as-defer in Stage A v3 per ADR-0015; per-server lock replaced with DB admission gate).
+**Verification:** 2,829 passed / 6 skipped / 0 failed backend, 6/6 CI gates, 0 new routes (141 total).
 
 ## Goal
 

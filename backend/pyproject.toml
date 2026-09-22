@@ -63,4 +63,5 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "docker: marks tests that require or interact with a live Docker daemon",
+    "no_isolated_db: opt out of root autouse in-memory DB isolation fixture for tests managing their own engine/database",
 ]

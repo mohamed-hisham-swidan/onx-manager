@@ -8,6 +8,8 @@ from app.core.persistence.base import Base, BaseRepository, TimestampMixin
 from app.modules.auth.infrastructure.models import UserModel  # noqa: F401
 from app.modules.server.infrastructure.models import ServerModel  # noqa: F401
 
+pytestmark = pytest.mark.no_isolated_db
+
 
 class SampleModel(TimestampMixin, Base):
     __tablename__ = "test_samples"

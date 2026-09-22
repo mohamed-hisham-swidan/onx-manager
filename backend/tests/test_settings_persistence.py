@@ -172,16 +172,6 @@ class TestConsumerHotReload:
 
 
 class TestSettingsAPIEndpoints:
-    @pytest.fixture(autouse=True)
-    async def setup_db(self):
-        from app.core.config import ConfigFactory
-        from app.core.persistence.base import Base
-        from app.core.persistence.db import database
-
-        database.init(ConfigFactory.global_settings())
-        async with database.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
     @pytest.mark.asyncio
     async def test_permission_denied_without_permission(self):
         from app.modules.auth.infrastructure.jwt import create_access_token

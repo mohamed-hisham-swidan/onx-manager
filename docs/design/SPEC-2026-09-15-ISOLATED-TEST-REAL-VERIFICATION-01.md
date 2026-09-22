@@ -121,13 +121,17 @@ Refactor `DockerTestExecutionRunner._execute_verification` in `backend/app/modul
   3. No crash reports were generated in `test_dir / "crash-reports"`.
   4. The test server container remained in running status throughout the test duration.
 
-#### 3.1.2 FakePlayer-Next Paper Complementary Driver
+#### 3.1.2 FakePlayer-Next Paper Complementary Driver (Refined in Fix 2c / Commit ⑥)
 - For Paper/Purpur servers selecting `BotTech.FAKEPLAYER_NEXT`:
-  1. Copy verified `fakeplayer-next.jar` binary into `test_dir / "plugins"`.
-  2. Tail `test_dir / "logs" / "latest.log"` until the Minecraft server emits `Done (X.XXs)!` (up to a 90-second boot timeout).
-  3. Execute spawn commands via RCON using the container's RCON CLI or internal client:
-     `docker exec <container_name> rcon-cli fp spawn onx-bot-<run_id>-<n>`.
-  4. Poll player list via RCON (`list`) at periodic intervals to verify bot persistence throughout the test duration.
+  1. Verify or stage plugin artifact (e.g. `fakeplayer-0.4.4.jar` via `stage_plugin_artifact` / Modrinth cache).
+  2. Tail `test_dir / "logs" / "latest.log"` until the Minecraft server emits `Done (X.XXs)!` (with boot timeout floor `max(connect_grace_seconds, 120.0)`).
+  3. Post-boot verification: inspect `latest.log` via `check_plugin_enabled(log_text)` for clean enablement lines (`[fakeplayer] Enabling fakeplayer v0.4.4` followed by `[fakeplayer] Enabled in <N> ms`). If missing or if error markers match (missing dependency, corrupt jar, ambiguous plugin name, invalid plugin.yml, could not load), cleanly downgrade to `SMOKE_TEST` without restarting container, recording `plugin verification failed: <marker>`.
+  4. Bot naming: generate deterministic names via `generate_bot_names(run_id, count)` formatted as `onx` + 5 base36 chars + 3-digit index (e.g. `onx1a2b3001`), satisfying Minecraft rules (`[a-z0-9]`, len $\le 16$, never starting with digit).
+  5. Command grammar (real v0.4.4 grammar):
+     - Spawn: `fp spawn <bot_name>`
+     - Actions: `fp move forward <bot_name>`, `fp jump continuous <bot_name>` (NOT deprecated `fp action`)
+     - Cleanup: `fp stop <bot_name>`
+  6. Secure RCON execution: pass generated password strictly via `RCON_PASSWORD` environment variable to `docker exec -e RCON_PASSWORD=... rcon-cli <cmd>` (never in argv). Scrub secrets (`***`) from all logs, failure reasons, and evidence bundles before persistence.
 
 ---
 

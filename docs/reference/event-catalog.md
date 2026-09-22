@@ -1,7 +1,7 @@
 # Domain Event Catalog
 
 **Status:** Living Reference (Synchronized with live codebase)  
-**Total Domain Events:** 52 event classes across 7 bounded contexts  
+**Total Domain Events:** 61 event classes across 8 bounded contexts  
 **Transport:** In-process asynchronous `EventBus` with subscriber handlers and WebSocket fan-out (`EventDispatcher`)
 
 ---
@@ -128,3 +128,21 @@ Location: `backend/app/modules/monitoring/domain/events.py`
 | `MetricRecordedEvent` | `monitoring.metric_recorded` | `server_id`, `cpu_percent`, `memory_bytes`, `tps`, `players` | Emitted on each metrics sampling tick. |
 | `AlertTriggeredEvent` | `monitoring.alert_triggered` | `server_id`, `metric`, `threshold`, `current_value` | Emitted when a resource alert rule fires. |
 | `AlertResolvedEvent` | `monitoring.alert_resolved` | `server_id`, `metric` | Emitted when a previously triggered alert normalizes. |
+
+---
+
+## 8. Versioning & Branch Runtime Events (`versioning`)
+
+Location: `backend/app/modules/versioning/domain/events.py`
+
+| Event Class | Event Name | Key Payload Fields | Description |
+|---|---|---|---|
+| `BranchCreatedEvent` | `branch.created` | `server_id`, `branch_name`, `branch_id` | Emitted when a new branch is created. |
+| `BranchArchivedEvent` | `branch.archived` | `server_id`, `branch_name`, `branch_id` | Emitted when an active branch is archived. |
+| `TagCreatedEvent` | `tag.created` | `server_id`, `tag_name`, `commit_id` | Emitted when an immutable tag is created. |
+| `CommitCreatedEvent` | `commit.created` | `server_id`, `commit_id`, `message`, `branch_name` | Emitted when a new commit is created on a branch. |
+| `MergeCommitCreatedEvent` | `commit.merged` | `server_id`, `commit_id`, `parent_commit_ids`, `branch_name` | Emitted when two branches/commits are merged. |
+| `TestRunStartedEvent` | `test_run.started` | `server_id`, `test_id`, `commit_id`, `bot_count`, `duration_minutes` | Emitted when an isolated test run begins execution. |
+| `TestRunCompletedEvent` | `test_run.completed` | `server_id`, `test_id`, `commit_id`, `passed`, `failure_reason` | Emitted when a test run completes. |
+| `TestRunFailedEvent` | `test_run.failed` | `server_id`, `test_id`, `commit_id`, `failure_code`, `blamed_mod` | Emitted when a test run fails or crashes. |
+| `CommitPromotedEvent` | `commit.promoted` | `server_id`, `commit_id`, `test_id`, `keep_world_changes`, `forced`, `actor_id` | Emitted when a tested commit is promoted to main. |

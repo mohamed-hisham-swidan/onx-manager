@@ -1306,7 +1306,9 @@ async def test_run_test_artifact_success_keeps_fakeplayer_next_and_stages_before
             logs_dir = test_dir / "logs"
             logs_dir.mkdir(parents=True, exist_ok=True)
             (logs_dir / "latest.log").write_text(
-                "[Server thread/INFO]: Done (1.0s)! For help, type 'help'\n",
+                "[Server thread/INFO]: Done (1.0s)! For help, type 'help'\n"
+                "[fakeplayer] Enabling fakeplayer v0.4.4\n"
+                "[fakeplayer] Enabled in 15296 ms\n",
                 encoding="utf-8",
             )
             return MagicMock(returncode=0, stdout="container-123\n", stderr="")

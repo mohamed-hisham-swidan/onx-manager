@@ -1,8 +1,8 @@
 # System Module Map & Route Inventory
 
 **Status:** Living Reference (Synchronized with live codebase)  
-**Backend Architecture:** Modular Monolith with 10 DDD Bounded Contexts & Hexagonal Architecture  
-**Frontend Architecture:** React 19 / Vite / TanStack Query with 19 pages
+**Backend Architecture:** Modular Monolith with 11 DDD Bounded Contexts & Hexagonal Architecture  
+**Frontend Architecture:** React 19 / Vite / TanStack Query with 22 pages
 
 ---
 
@@ -11,6 +11,7 @@
 | Module Name | Domain Responsibilities | Key Aggregates & Value Objects | Physical Path |
 |---|---|---|---|
 | **`server`** | Server aggregate root, lifecycle transitions, provisioning engine, launch config, process supervision, import scanner, filesystem reconciliation | `Server`, `ServerId`, `ServerStatus`, `ServerProperties`, `LaunchConfiguration` | `backend/app/modules/server/` |
+| **`versioning`** | Git-inspired server version control, commit DAG, tags, materialization worktrees, import reviews, test definitions, admission-scheduled test runs, branch protection | `ServerBranch`, `ServerCommit`, `ServerTag`, `Materialization`, `ImportReview`, `TestDefinition`, `Runtime`, `TestRun`, `BranchProtectionPolicy` | `backend/app/modules/versioning/` |
 | **`auth`** | User entity, password hashing (bcrypt), RS256 JWT tokens, RBAC/ABAC permissions, invite codes, API keys | `User`, `UserId`, `Role`, `Permission`, `ApiKey`, `InviteCode` | `backend/app/modules/auth/` |
 | **`backup`** | Backup saga, tar/gzip archiving, restoration orchestrator, S3/local storage strategies, checksum verification | `Backup`, `BackupId`, `BackupType`, `BackupStatus` | `backend/app/modules/backup/` |
 | **`health`** | System & server health classification, filesystem integrity guard, crash analyzer, automated recovery sagas | `HealthReport`, `IntegrityCheck`, `CrashClassification`, `RecoveryAction` | `backend/app/modules/health/` |
@@ -23,7 +24,7 @@
 
 ---
 
-## 2. API Routers (`backend/app/api/v1/routers/` — 15 Routers)
+## 2. API Routers (`backend/app/api/v1/routers/` — 16 Routers)
 
 | Router | Prefix | Responsibility | Endpoint Count |
 |---|---|---|---|
@@ -42,12 +43,13 @@
 | `monitoring.py` | `/api/v1/monitoring` | Host metrics, server CPU/RAM/TPS timeseries, resource alerts | 5 |
 | `schedules.py` | `/api/v1/schedules` | Automated scheduled tasks (backups, restarts, commands) | 6 |
 | `settings.py` | `/api/v1/settings` | Live application settings inspection, runtime config updates | 5 |
+| `versioning.py` | `/api/v1/servers/{id}/versioning` | Branches, protection, commits, merge, diff, tags, materializations, import reviews, test definitions, test runs, evidence | 40 |
 
-*Total live routes: 106 (95 router endpoints + 11 system/app routes including `/ws`, `/health`, `/metrics`, `/.well-known/jwks.json`, OpenAPI). Verified by `./scripts/check-route-contract` (106/106 PASS).*
+*Total live routes: 150 (139 router endpoints + 11 system/app routes including `/ws`, `/health`, `/metrics`, `/.well-known/jwks.json`, OpenAPI). Verified by `./scripts/check-route-contract` (150/150 PASS).*
 
 ---
 
-## 3. Frontend Page Inventory (`frontend/src/` — 19 Pages)
+## 3. Frontend Page Inventory (`frontend/src/` — 22 Pages)
 
 | Page Component | Route Path | Purpose |
 |---|---|---|
@@ -63,6 +65,9 @@
 | `ServerFilesPage.tsx` | `/servers/:id/files` | In-browser file explorer, text editor, file uploader |
 | `ServerModsPage.tsx` | `/servers/:id/mods` | Mod & plugin manager for Forge, Fabric, NeoForge, Paper |
 | `ServerExposurePage.tsx` | `/servers/:id/exposure` | Game server network exposure configuration (Playit, Cloudflare, UPnP) |
+| `ServerVersioningPage.tsx` | `/servers/:id/versioning` | Enterprise versioning hub (Branches, Tags, Commits, Diffs, Worktrees, Tests, Reviews) |
+| `ServerActivityPage.tsx` | `/servers/:id/activity` | Server activity and audit log |
+| `ServerSettingsPage.tsx` | `/servers/:id/settings` | Per-server configuration and tuning |
 | `PluginListPage.tsx` | `/servers/:id/plugins` | Installed plugins table with toggle switch and uninstall |
 | `PluginMarketplacePage.tsx` | `/marketplace` | Modrinth plugin/mod marketplace browser with search, filters, pagination |
 | `PluginDetailPage.tsx` | `/marketplace/:id` | Rich plugin details with ReactMarkdown descriptions, version picker, install modal |

@@ -7,7 +7,7 @@
 | Primary database | SQLite 3 (`aiosqlite` async) default (`backend/data/onx.db`); PostgreSQL 16 (`asyncpg`) supported |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (30 revisions, head `b1e2100000010`) |
+| Migrations | Alembic (39 revisions, head `b1e2100000019`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (ACID backups & migration gate) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
@@ -157,6 +157,35 @@ Time-series data for server performance: `tps`, `players`, `ram_used_mb`, `cpu_p
 
 `alert_rules` — threshold-based alerting per server per metric: condition (`>`, `<`, `>=`, `<=`), threshold, severity, cooldown. `updated_at` added in migration `a2b2c3d4e5f7`.
 
+### Versioning & Enterprise Branch Runtime
+
+`backend/app/modules/versioning/infrastructure/models.py`
+
+Introduced in Stages A–G (`b1e2100000013` through `b1e2100000019`) to support Git-inspired version control, filesystem worktrees, admission control, and isolated test runs:
+
+- **`server_branches`** — Server branches with lifecycle tracking and protection policies.
+  - Columns: `id` (PK), `server_id` (indexed), `name`, `head_commit_id`, `status` (`created`, `active`, `archived`), `is_protected` (bool), `protection_policy` (JSON: `require_test_pass`, `allow_direct_commit`, `allow_force_bypass`, `prevent_deletion`), `created_at`.
+  - Unique constraint: `(server_id, name)`.
+- **`server_commits`** — Immutable commit snapshots.
+  - Columns: `id` (PK), `server_id` (indexed), `branch_id`, `parent_commit_id`, `author_id`, `message`, `manifest_json`, `world_snapshot_id`, `created_at`.
+- **`server_commit_parents`** — Commit DAG parent junction table (`b1e2100000015`).
+  - Columns: `commit_id` (PK, indexed), `parent_commit_id` (PK, indexed), `parent_index` (int). Supports multi-parent merge commits and graph traversal with cycle detection.
+- **`server_tags`** — Immutable symbolic tags (`b1e2100000015`).
+  - Columns: `id` (PK), `server_id` (indexed), `name`, `commit_id` (indexed), `created_at`.
+  - Unique constraint: `(server_id, name)`.
+- **`server_materializations`** — Filesystem worktrees on disk (`b1e2100000016`).
+  - Columns: `id` (PK), `server_id` (indexed), `commit_id` (indexed), `root_path`, `status` (`pending`, `ready`, `stale`, `removed`), `mode` (`readonly`, `edit`), `revision`, `path_classification` (JSON), `created_at`.
+- **`server_import_reviews`** — Live filesystem changes review aggregate (`b1e2100000016`).
+  - Columns: `id` (PK), `server_id` (indexed), `commit_id` (indexed), `parent_commit_id`, `branch_name`, `status` (`pending`, `confirmed`, `dismissed`, `reverted`), `changes` (JSON), `revert_commit_id`, `created_at`, `updated_at`.
+- **`server_admission_lease`** — Concurrency & memory admission gate serialization (`b1e2100000017`).
+  - Columns: `id` (PK, singleton CheckConstraint `id = 1`), `holder`, `acquired_at`.
+- **`server_test_definitions`** — Reusable test run configurations (`b1e2100000018`).
+  - Columns: `id` (PK), `server_id` (FK `servers.id`), `name`, `description`, `server_type`, `bot_technology`, `bot_count`, `duration_seconds`, `join_stagger_seconds`, `connect_grace_seconds`, `placement_mode`, `assertion_rules` (JSON), `timeout_seconds`, `created_at`, `updated_at`.
+- **`server_runtimes`** — 1:1 container/process execution binding (`b1e2100000018`).
+  - Columns: `id` (PK), `server_id` (FK `servers.id`), `commit_id` (FK `server_commits.id`), `materialization_id`, `provider_type`, `container_id`, `pid`, `port`, `status` (`starting`, `running`, `stopped`, `crashed`), `exit_code`, `oom_killed`, `started_at`, `stopped_at`, `created_at`.
+- **`server_test_runs`** — Test run executions.
+  - Columns: `id` (PK), `server_id` (indexed), `commit_id` (indexed), `node_id`, `status`, `ephemeral_port`, `log_output`, `failure_reason`, `bot_count`, `duration_minutes`, `placement_mode`, `bot_tech`, `reserved_ram_mb`, `reserved_cores`, `runtime_id` (FK `server_runtimes.id`), `test_definition_id` (FK `server_test_definitions.id`), `evidence_bundle` (JSON), `artifacts_purged` (bool), `created_at`, `expires_at`.
+
 ### Infrastructure Tables
 
 | Table | Purpose |
@@ -178,12 +207,23 @@ servers 1──* plugins
 servers 1──* metric_points
 servers 1──* alert_rules
 servers 1──* server_memberships   (user_id + server_id + role)
+servers 1──* server_branches
+servers 1──* server_commits
+servers 1──* server_tags
+servers 1──* server_materializations
+servers 1──* server_import_reviews
+servers 1──* server_test_definitions
+servers 1──* server_runtimes
+servers 1──* server_test_runs
 users   1──* api_keys
 users   1──* refresh_tokens
 users   *──* roles        (via user_roles)
 users   1──* server_memberships
 users   1──* invitations   (issued invitations; token_hash unique)
 servers 1──0..* invitations (server_id nullable, for server-scoped invites)
+server_commits 1──* server_commit_parents
+server_runtimes 1──0..1 server_test_runs
+server_test_definitions 1──* server_test_runs
 ```
 
 ## Migration Strategy
@@ -226,7 +266,19 @@ alembic downgrade -1
 | `b1e2100000004` | `b1e2100000003` | Server Cloudflare columns |
 | `b1e2100000005` | `b1e2100000004` | `server_registered_ports` table |
 | `b1e2100000006` | `b1e2100000005` | `server_exposure_target.playit_tunnel_id` |
-| `b1e2100000007` | `b1e2100000006` | `metric_points.tps` nullable — **head** |
+| `b1e2100000007` | `b1e2100000006` | `metric_points.tps` nullable |
+| `b1e2100000008` | `b1e2100000007` | `provisioning_error` & `provisioning_retryable` on servers |
+| `b1e2100000009` | `b1e2100000008` | `running_start_time` on servers |
+| `b1e2100000010` | `b1e2100000009` | `cpu_cores` and `cpu_affinity` on servers |
+| `b1e2100000011` | `b1e2100000010` | Hash chain unique constraints on `event_store` |
+| `b1e2100000012` | `b1e2100000011` | Custom mod support columns on `servers` |
+| `b1e2100000013` | `b1e2100000012` | Initial versioning tables: `server_branches`, `server_commits`, `server_test_runs`, `server_world_snapshots` |
+| `b1e2100000014` | `b1e2100000013` | `server_activity_logs` table |
+| `b1e2100000015` | `b1e2100000014` | Stage B: `server_tags`, `server_commit_parents`, `server_branches.status` |
+| `b1e2100000016` | `b1e2100000015` | Stage C: `server_materializations`, `server_import_reviews` |
+| `b1e2100000017` | `b1e2100000016` | Stage D: `server_admission_lease`, `reserved_ram_mb`, `reserved_cores` on `server_test_runs` |
+| `b1e2100000018` | `b1e2100000017` | Stage F: `server_test_definitions`, `server_runtimes`, `runtime_id`, `test_definition_id`, `evidence_bundle`, `artifacts_purged` |
+| `b1e2100000019` | `b1e2100000018` | Stage G: `server_branches.is_protected`, `server_branches.protection_policy` — **head** |
 
 ### Per-release compatibility floor
 
@@ -235,7 +287,7 @@ the release minimum — **fail closed**, never auto-upgraded.
 
 | Release | Minimum DB revision |
 |---------|---------------------|
-| `0.1.0` | `b1e2100000007` (current head) |
+| `0.1.0` | `b1e2100000019` (current head) |
 
 - **Authoritative source:** `backend/app/core/persistence/db_revision.py`
   (`RELEASE_MINIMUM_DB_REVISION`).
@@ -345,7 +397,7 @@ alembic upgrade head
 | `b1e2100000004` | Server Cloudflare columns |
 | `b1e2100000005` | `server_registered_ports` table |
 | `b1e2100000006` | `server_exposure_target.playit_tunnel_id` |
-| `b1e2100000007` | `metric_points.tps` nullable (**head**) |
+| `b1e2100000007` | `metric_points.tps` nullable |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.

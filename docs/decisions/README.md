@@ -22,8 +22,14 @@ This directory captures significant architectural decisions made during the proj
 | 0014 | [Shared Commit DAG Migration Strategy and Branch Lifecycle](0014-shared-commit-dag-migration-and-branch-lifecycle.md) | 2026-09-17 | Accepted | Branch state machine (created/active/archived) and additive transition path from linear history to shared DAG in Stage B. |
 | 0015 | [Runtime Domain Entity and ServerProvider Relationship](0015-runtime-entity-and-server-provider-relationship.md) | 2026-09-17 | Accepted | Runtime pins immutable Commit ID; wraps existing ServerProvider without breaking provider contracts; preserves per-server lock. |
 | 0016 | [PersistentDataset Boundary and Non-Mutation Isolation](0016-persistent-dataset-boundary-and-isolation.md) | 2026-09-17 | Accepted | Mutable dataset writes cannot silently mutate versioned Tree/Commit or overwrite tracked configs. |
+| DECISION-2026-09-16-001 | [Enterprise Branch Runtime Architecture Rebuild](DECISION-2026-09-16-001-enterprise-branch-runtime-architecture.md) | 2026-09-16 | Accepted | D2 Major architecture program structuring Stages A–G and frontend batch around 'Branch != Server != Container != Test'. |
+| DECISION-2026-09-17-001 | [Stage B (Real Version Control) Scope Authorization](DECISION-2026-09-17-001-stage-b-scope.md) | 2026-09-17 | Accepted | D2 Major persistence authorization for commit DAG junction table, branch status column, tags, and diffs. |
+| DECISION-2026-09-17-002 | [Runtime Entity 1:1 Attach Model](DECISION-2026-09-17-002-runtime-entity-attach-model.md) | 2026-09-17 | Accepted | Binds domain Runtime 1:1 to Docker test containers via server_runtimes table and runtime_id foreign key on server_test_runs. |
+| DECISION-2026-09-17-003 | [TestDefinition First-Class Domain Aggregate](DECISION-2026-09-17-003-testdefinition-new-entity.md) | 2026-09-17 | Accepted | Establishes TestDefinition entity and server_test_definitions table for persisting reusable bot test profiles. |
+| DECISION-2026-09-18-001 | [Stage G Protected Branches (Narrowed Scope)](DECISION-2026-09-18-001-stage-g-protected-branches.md) | 2026-09-18 | Accepted | Configurable BranchProtectionPolicy on ServerBranch, direct commit rejection with bypass permission, and deletion safeguards. |
+| DECISION-2026-09-18-002 | [Enterprise Versioning Frontend UI Batch](DECISION-2026-09-18-002-enterprise-versioning-frontend-batch.md) | 2026-09-18 | Accepted | Frontend interfaces across Stages B, C, F, G (BranchProtectionModal, TestDefinitionsModal, TestEvidenceModal, MaterializationBrowser, ImportReview, ManageBranches, CommitDiff). |
 | DECISION-2026-09-18-003 | [FakePlayer-Next Plugin Sourcing & Pre-Launch Staging (Fix 2)](DECISION-2026-09-18-003-fakeplayer-next-plugin-sourcing.md) | 2026-09-18 | Accepted | Sourcing FakePlayer-Next release assets via GitHub API digest verification, local caching, pre-launch staging, and itzg container RCON env. |
 
-## New ADRs
+## New ADRs and Decisions
 
 To propose a new ADR, copy an existing template and add it to this table. ADRs are numbered sequentially and never deleted — only superseded by a newer ADR.

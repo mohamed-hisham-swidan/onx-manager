@@ -33,8 +33,11 @@ from app.modules.versioning.infrastructure.bot_drivers import (
     BotVerificationResult,
     FakePlayerNextDriver,
     MineflayerBotDriver,
+    PluginCheck,
     SmokeTestRunner,
     cap_log_output,
+    check_plugin_enabled,
+    generate_bot_names_prefix,
 )
 from app.modules.versioning.infrastructure.bot_pool import (
     PooledRunner,
@@ -121,6 +124,7 @@ class TestHandle:
     sidecar_runner: PooledRunner | None
     status: TestRunStatus
     runtime_id: str | None = None
+    evidence_bundle: dict[str, Any] | None = None
     _completion_future: asyncio.Future[BotVerificationResult] = field(
         default_factory=asyncio.Future
     )
@@ -128,7 +132,13 @@ class TestHandle:
     async def wait_for_completion(self) -> BotVerificationResult:
         return await self._completion_future
 
-    def set_result(self, res: BotVerificationResult) -> None:
+    def set_result(
+        self,
+        res: BotVerificationResult,
+        evidence_bundle: dict[str, Any] | None = None,
+    ) -> None:
+        if evidence_bundle is not None:
+            self.evidence_bundle = evidence_bundle
         if not self._completion_future.done():
             self._completion_future.set_result(res)
 
@@ -158,6 +168,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
     def __init__(self, event_bus: Any | None = None) -> None:
         self._active_runs: dict[str, TestHandle] = {}
         self._event_bus = event_bus
+        self._evidence_store: dict[str, Any] = {}
 
     async def _persist_runtime(self, runtime: Runtime) -> None:
         from app.core.persistence.db import database
@@ -305,7 +316,8 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             failure_reason=failure_reason,
             logs=logs,
         )
-        handle.set_result(result)
+        self._evidence_store[spec.test_id] = evidence_bundle
+        handle.set_result(result, evidence_bundle=evidence_bundle)
 
         try:
             await self.cleanup_test(handle, passed=False)
@@ -656,6 +668,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 handle,
                 test_deployment,
                 strategy=strat,
+                rcon_password=rcon_password,
             )
         )
         return handle
@@ -666,6 +679,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         handle: TestHandle,
         test_deployment: TestServerDeployment,
         strategy: StrategyResult | None = None,
+        rcon_password: str | None = None,
     ) -> None:
         """Background execution of bot verification against the test container."""
         bot_cfg = spec.bot_config
@@ -674,6 +688,19 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         passed = False
         connected_bots = 0
         duration_s = bot_cfg.duration_minutes * 60.0
+        plugin_enabled: bool | None = None
+        spawn_ok = 0
+        spawn_failed = 0
+        actions_ok = 0
+        actions_failed = 0
+        bot_names_prefix: str | None = None
+
+        def _scrub(s: str | None) -> str:
+            if not s:
+                return ""
+            if rcon_password:
+                return s.replace(rcon_password, "***")
+            return s
 
         sidecar: PooledRunner | None = None
         pool = get_bot_runner_pool()
@@ -814,6 +841,30 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 failure_reason = boot_failure_reason
                 # Skip verification drivers — fall through to finally block.
             else:
+                if strat.driver == "fakeplayer_next":
+                    bot_names_prefix = generate_bot_names_prefix(spec.test_id[:8])
+                    plugin_log_path = Path(handle.test_dir) / "logs" / "latest.log"
+                    try:
+                        log_text = plugin_log_path.read_text(encoding="utf-8", errors="replace")
+                        plugin_check = check_plugin_enabled(log_text, plugin_name="fakeplayer")
+                    except Exception:
+                        plugin_check = PluginCheck(enabled=False, marker="plugin log unreadable")
+
+                    if not plugin_check.enabled:
+                        marker = plugin_check.marker or "plugin not enabled after boot"
+                        strat = StrategyResult(
+                            mode=VerificationMode.SMOKE_TEST,
+                            driver="none",
+                            reason=f"plugin verification failed: {marker}",
+                            downgraded_from="fakeplayer_next",
+                            artifact_ok=strat.artifact_ok,
+                        )
+                        mode = strat.mode
+                        driver = strat.driver
+                        plugin_enabled = False
+                    else:
+                        plugin_enabled = True
+
                 # 4. Branch by verification mode & driver
                 if mode == VerificationMode.SMOKE_TEST:
                     logs.append(
@@ -837,19 +888,27 @@ class DockerTestExecutionRunner(TestExecutionRunner):
 
                 elif driver == "fakeplayer_next":
                     logs.append(
-                        f"[BOT-VERIFY] Spawning {bot_cfg.bot_count} fakeplayer-next bots in-process"
+                        f"[BOT-VERIFY] Spawning {bot_cfg.bot_count} "
+                        "RCON-driven FakePlayer-Next plugin bots"
                     )
 
                     # Execute /fp spawn commands via docker exec or RCON
-                    spawn_cmds = FakePlayerNextDriver.format_spawn_commands(
+                    cmd_groups = FakePlayerNextDriver.format_spawn_commands(
                         run_id=spec.test_id[:8],
                         bot_count=bot_cfg.bot_count,
                     )
                     successful_spawns = 0
                     spawned_bots = 0
                     last_error: str | None = None
+                    disallowed_stdout_markers = (
+                        "is online",
+                        "Invalid name",
+                        "Incorrect argument",
+                        "Unknown",
+                    )
 
-                    for scmd in spawn_cmds:
+                    for grp in cmd_groups:
+                        scmd = grp.spawn
                         tokens = scmd.strip().split()
                         is_spawn = len(tokens) >= 2 and tokens[1] == "spawn"
                         try:
@@ -860,18 +919,56 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                                 text=True,
                                 timeout=5,
                             )
-                            if res.returncode == 0:
+                            out_scrubbed = _scrub(res.stdout)
+                            err_scrubbed = _scrub(res.stderr)
+                            has_disallowed = any(
+                                m in out_scrubbed for m in disallowed_stdout_markers
+                            )
+                            if res.returncode == 0 and not has_disallowed:
                                 successful_spawns += 1
                                 if is_spawn:
                                     spawned_bots += 1
+                                    spawn_ok += 1
                             else:
+                                if is_spawn:
+                                    spawn_failed += 1
                                 last_error = (
-                                    res.stderr.strip() or f"rcon-cli exit code {res.returncode}"
+                                    err_scrubbed.strip()
+                                    or out_scrubbed.strip()
+                                    or f"rcon-cli exit code {res.returncode}"
                                 )
                                 logger.debug("FakePlayer RCON spawn command failed: %s", last_error)
                         except Exception as e:
-                            last_error = str(e)
+                            if is_spawn:
+                                spawn_failed += 1
+                            last_error = _scrub(str(e))
                             logger.debug("Failed injecting fakeplayer command: %s", e)
+
+                        for acmd in grp.actions:
+                            try:
+                                res_act = await asyncio.to_thread(
+                                    subprocess.run,
+                                    ["docker", "exec", handle.container_name, "rcon-cli", acmd],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=5,
+                                )
+                                if res_act.returncode == 0:
+                                    actions_ok += 1
+                                else:
+                                    actions_failed += 1
+                            except Exception:
+                                actions_failed += 1
+
+                    for grp in cmd_groups:
+                        with contextlib.suppress(Exception):
+                            await asyncio.to_thread(
+                                subprocess.run,
+                                ["docker", "exec", handle.container_name, "rcon-cli", grp.stop],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            )
 
                     await asyncio.sleep(min(duration_s, 1.0))
 
@@ -895,7 +992,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                         passed = spawned_bots == bot_cfg.bot_count
                         connected_bots = spawned_bots
                         if not passed:
-                            err_msg = last_error or "Unknown RCON error"
+                            err_msg = _scrub(last_error or "Unknown RCON error")
                             failure_reason = (
                                 f"Spawned {spawned_bots}/{bot_cfg.bot_count} "
                                 f"FakePlayer bots via RCON: {err_msg}"
@@ -1079,6 +1176,18 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                         if strat.downgraded_from
                         else {}
                     ),
+                    **(
+                        {
+                            "plugin_enabled": plugin_enabled,
+                            "spawn_ok": spawn_ok,
+                            "spawn_failed": spawn_failed,
+                            "actions_ok": actions_ok,
+                            "actions_failed": actions_failed,
+                            "bot_names_prefix": bot_names_prefix,
+                        }
+                        if plugin_enabled is not None
+                        else {}
+                    ),
                 },
                 "crash_analysis": {
                     "blamed_mod": blamed_mod,
@@ -1088,6 +1197,23 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 },
                 "log_tail": [line for line in logs[-100:] if line.strip()],
             }
+
+            # Scrub secrets from failure_reason, logs, and evidence_bundle before persisting
+            if failure_reason and rcon_password:
+                failure_reason = failure_reason.replace(rcon_password, "***")
+            if rcon_password:
+                logs = [line.replace(rcon_password, "***") for line in logs]
+                evidence_bundle["log_tail"] = [
+                    line.replace(rcon_password, "***") for line in evidence_bundle["log_tail"]
+                ]
+                crash_sum = evidence_bundle.get("crash_analysis", {}).get("summary")
+                if crash_sum:
+                    evidence_bundle["crash_analysis"]["summary"] = crash_sum.replace(
+                        rcon_password, "***"
+                    )
+
+            self._evidence_store[spec.test_id] = evidence_bundle
+            handle.evidence_bundle = evidence_bundle
 
             # 4. Dispatch TestRunFailedEvent if failed (§d.3)
             if not passed and self._event_bus is not None:
@@ -1149,7 +1275,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 failure_reason=failure_reason,
                 logs=logs,
             )
-            handle.set_result(result)
+            handle.set_result(result, evidence_bundle=evidence_bundle)
             self._active_runs.pop(spec.test_id, None)
 
             # 7. Cleanup & Retention (§f)

@@ -1,7 +1,9 @@
 # Design Spec — Stage C: Filesystem Model & Materialization Engine
 
-**Status:** Draft — NOT yet Design-Reviewed. Do not build from this directly.
-**Prerequisite verified (carried, not re-run):** Stage B CLOSED 2026-09-17 — 2793 passed / 6 skipped / 0 failed backend, 6/6 CI gates, head `b1e2100000015`. Build MUST re-run these baselines fresh at close.
+**Status:** BUILT & VERIFIED (Commit `8f10a4d`, 2026-09-17)
+**Migration:** `b1e2100000016` (server_materializations, server_import_reviews)
+**Prerequisite verified:** Stage B CLOSED 2026-09-17 — 2,793 passed / 6 skipped / 0 failed backend, 6/6 CI gates, head `b1e2100000015`.
+**Verification:** 2,829 passed / 6 skipped / 0 failed backend, 6/6 CI gates, +12 versioning routes (141 total).
 **Source:** Stage C RECON (complete). Prior art is only the 5-line outline at `02-stages-b-through-g-outline.md:15-19`; there is no prior spec and no "runtime-change import review" definition anywhere in the repo — the semantics below are defined here for the first time, constrained by the binding decisions listed under Governance Gate Check.
 
 ## Goal

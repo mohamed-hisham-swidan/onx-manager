@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-17
 **Decision Level:** D2 (Major) — per GOVERNANCE.md §4: changes persistence strategy, core contracts, and migration strategy.
-**Lane:** Release Improvement (per GOVERNANCE.md §9) — planned platform refactor under the Enterprise Branch Runtime effort (Phase 7), not a launch blocker.
-**Status:** Proposed — pending Mohamed's sign-off. No Build Prompt is issued until this is approved.
+**Status:** Approved (Authorized by Mohamed 2026-09-17; Built & Verified in commit `641ea58`)
+**Canonical Location:** `docs/decisions/DECISION-2026-09-17-001-stage-b-scope.md`
 
 ## Context
 

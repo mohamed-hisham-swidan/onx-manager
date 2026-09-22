@@ -1,8 +1,9 @@
 # Design Spec — Enterprise Versioning Frontend UI Batch (Stages B, C, F, G)
 
-**Status:** PROPOSED (Ready for Design Review per Orchestrator.md §6)  
+**Status:** BUILT & VERIFIED (Commit `8b219ba`, 2026-09-18)
 **Author:** AI Agent (Antigravity)  
 **Date:** 2026-09-18  
+**Verification:** 730 passed / 0 failed frontend across 83 test files (100% green), 0 TypeScript errors, 2,906 passed / 6 skipped backend, 6/6 CI quality gates PASS.
 **Scope:** Frontend UI implementation covering all 4 completed backend refactor stages:
 - **Stage G:** Protected Branches UI & Policy Configuration
 - **Stage F:** Test Definition Profiles, Run Selector & Crash Evidence Viewer

@@ -15,7 +15,7 @@ repository shape, code statistics, structure, specs, and features.**
 |---|---|
 | Name | ONX Manager (Development & Self-Hosted Environment) |
 | Version | `0.1.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
-| Status | Phase 5 CLOSED — Post-Phase-5 Bug Remediation CLOSED — Phase 4 (Community Feature Pool) UP NEXT (Unblocked) — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
+| Status | Phase 0–5 CLOSED — Phase 4 CLOSED — Enterprise Branch Runtime (Stages A–G & Frontend UI Batch) CLOSED — Phase 6 (Final Installs & Wrap-up) UP NEXT — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
 | License | Apache 2.0 (`LICENSE`) |
 | Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/current-state.md`, `docs/API.md` |
 
@@ -32,7 +32,7 @@ repository shape, code statistics, structure, specs, and features.**
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |
 | DB dialect | SQLite (`aiosqlite`), PostgreSQL (`asyncpg`) |
-| Migrations | Alembic `>=1.13` (30 revisions, head `b1e2100000010`) |
+| Migrations | Alembic `>=1.13` (39 revisions, head `b1e2100000019`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (decoupled schema inspection, locks, and ACID backups) |
 | Validation / config | Pydantic v2 `>=2.5`, `pydantic-settings >=2.1` |
 | HTTP client | aiohttp `>=3.9` |
@@ -44,7 +44,7 @@ repository shape, code statistics, structure, specs, and features.**
 | Prometheus metrics | prometheus-client `>=0.20` |
 | Logging | structlog `>=24.1` |
 | Serialization / misc | PyYAML `>=6` (config), python-multipart (uploads), packaging `>=23` |
-| Architecture | Modular monolith, 10 DDD modules, CQRS with Command/Query/Event buses |
+| Architecture | Modular monolith, DDD modules (including `versioning` & `activity`), CQRS with Command/Query/Event buses |
 
 Backend dev dependencies (`[project.optional-dependencies].dev`):
 `httpx`, `pytest >=8`, `pytest-asyncio`, `pytest-cov`, `ruff`, `pyright`.
@@ -79,72 +79,56 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 ## 3. Repository shape — counts
 
-### Code size (measured 2026-09-13)
+### Code size (measured 2026-09-18)
 
 | Scope | Files | Lines | Command |
 |---|---|---|---|
-| Backend Python (app + tests + alembic) | 521 | **91,192** | `find backend/{app,tests,alembic} -name '*.py'` |
-| — `backend/app` (production) | 309 | 44,530 | `find backend/app -name '*.py'` |
-| — `backend/tests` | 181 (167 `test_*.py` + conftest etc.) | 44,682 | `find backend/tests -name '*.py'` |
-| — `backend/alembic` (env + versions) | 31 | 1,980 | `find backend/alembic -name '*.py'` |
-| Frontend `frontend/src` (TS + TSX + CSS) | 183 | **31,002** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
-| — `.tsx` | 125 | — | `find frontend/src -name '*.tsx'` |
+| Backend Python (app + tests + alembic) | 649 | **116,393** | `find backend/{app,tests,alembic} -name '*.py'` |
+| — `backend/app` (production) | 389 | 58,934 | `find backend/app -name '*.py'` |
+| — `backend/tests` | 220 | 54,751 | `find backend/tests -name '*.py'` |
+| — `backend/alembic` (env + versions) | 40 | 2,708 | `find backend/alembic -name '*.py'` |
+| Frontend `frontend/src` (TS + TSX + CSS) | 204 | **39,698** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
+| — `.tsx` | 146 | — | `find frontend/src -name '*.tsx'` |
 | — `.ts` | 57 | — | `find frontend/src -name '*.ts'` |
 | — `.css` | 1 | — | `find frontend/src -name '*.css'` |
-| **TOTAL (backend + frontend source)** | **704** | **122,194** | — |
-| Docs | 121 files | 33,243 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
+| **TOTAL (backend + frontend source)** | **853** | **156,091** | — |
+| Docs | 143 files | 36,611 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 
 | Extension | Files |
 |---|---|
-| `.py` | 521 |
-| `.tsx` | 125 |
+| `.py` | 649 |
+| `.tsx` | 146 |
 | `.ts` | 57 |
 | `.css` | 1 |
-| **Total** | **704** |
+| **Total** | **853** |
 
 ### Backend DDD modules (`backend/app/modules/`)
 
 | Module | Files | Lines | Purpose |
 |---|---|---|---|
-| server | 55 | 9,527 | Aggregate, lifecycle, discovery, reconciliation |
+| server | 58 | 10,200 | Aggregate, lifecycle, discovery, reconciliation, console stream |
+| versioning | 35 | 8,850 | Git-inspired commits, DAG, tags, worktrees, test definitions, admission |
 | exposure | 19 | 5,943 | Playit/UPnP/Cloudflare tunnel + port-forward |
 | plugin | 32 | 2,792 | Plugin lifecycle + Modrinth/CurseForge catalog |
 | health | 28 | 2,488 | Health evidence, evaluation, crash analysis |
 | auth | 31 | 2,421 | Users, RBAC/ABAC, JWT, invites |
-| monitoring | 17 | 1,224 | Metrics, RCON, alert rules |
+| monitoring | 18 | 1,450 | Metrics, RCON, alert rules, unified container telemetry |
 | backup | 18 | 1,097 | Backup/restore saga |
+| activity | 11 | 950 | Persistent server activity logs & audit records |
 | event_store | 6 | 563 | Append-only event store + DLQ |
 | storage | 5 | 441 | Storage backends (local/S3/encryption) |
 | shared | 3 | 267 | Shared value objects / exceptions |
 
-### Frontend breakdown (`frontend/src/` — 183 files / 31,002 lines)
-
-| Area | Files | Lines |
-|---|---|---|
-| `server_manager/pages` | 25 | 7,527 |
-| `server_manager/components` | 40 | 7,377 |
-| `components/ui` | 16 | 918 |
-| `components/layout` | 4 | 401 |
-| `components/guards` | 4 | 233 |
-| `server_manager/hooks` | 8 | 720 |
-| `server_manager/utils` | 10 | 575 |
-| `services` | 3 | 729 |
-| `stores` (Zustand) | 13 | 912 |
-| `types` | 1 | 540 |
-| `websocket` | 8 | 1,866 |
-| `layouts` | 4 | 382 |
-| root (`main.tsx`, `App.tsx`, `index.css`, `test-setup.ts`) | 4 | 126 |
-
-### Tests (measured 2026-09-13)
+### Tests (measured 2026-09-18)
 
 | Suite | Count | Detail |
 |---|---|---|
-| Backend | **2,568 passed / 6 skipped** (2,574 collected) | 167 `test_*.py` files across `backend/tests/` |
-| Frontend | **665 passed across 75 test files** | `npm test` (`npx vitest run`) |
-| Total | **3,233 passed (0 failed)** | Full regression verification & 5/5 CI quality gates PASS |
-| Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit` |
+| Backend | **2,906 passed / 6 skipped** (2,912 collected) | 185+ `test_*.py` files across `backend/tests/` |
+| Frontend | **730 passed across 83 test files** | `npm test` (`npx vitest run`) |
+| Total | **3,636 passed (0 failed, 6 skipped)** | Full regression verification & 6/6 CI quality gates PASS |
+| Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit`, `versioning` |
 
 ---
 
@@ -156,21 +140,21 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 backend/
 ├── app/
 │   ├── api/v1/
-│   │   ├── routers/          # 15 REST routers (96 route handlers)
+│   │   ├── routers/          # 16 REST routers (139 route handlers + 11 system routes = 150 live routes)
 │   │   └── schemas/          # Pydantic response/request models
 │   ├── core/                 # settings, version, exceptions, buses, security
-│   ├── modules/              # 9 DDD modules (server, exposure, plugin, health,
-│   │   │                     #   auth, monitoring, backup, event_store, storage, shared)
+│   ├── modules/              # 11 DDD modules (server, versioning, activity, exposure,
+│   │   │                     #   plugin, health, auth, monitoring, backup, event_store, storage, shared)
 │   │   └── <module>/{domain,application,infrastructure}/
 │   ├── tasks/                # APScheduler jobs (metrics, health, backup, cleanup)
 │   ├── websocket/            # /ws endpoint, handlers, connection registry
 │   ├── services/             # orchestrators (server, backup)
 │   └── registrations.py      # bus handler registration
-├── alembic/                  # 27 migration revisions (head b1e2100000007)
+├── alembic/                  # 39 migration revisions (head b1e2100000019)
 ├── tests/                    # api/ application/ auth/ core/ domain/ event_store/
-│                             #   infrastructure/ monitoring/ plugin/ tasks/
+│                             #   infrastructure/ monitoring/ plugin/ tasks/ versioning/
 ├── config/                   # YAML settings
-├── data/                     # runtime data (servers, playit, etc.)
+├── data/                     # runtime data (servers, onx.db, etc.)
 ├── plugins/sdk/              # plugin host SDK
 ├── Dockerfile
 └── pyproject.toml
@@ -182,21 +166,20 @@ backend/
 frontend/
 └── src/
     ├── App.tsx, main.tsx, index.css
-    ├── pages/                    # auth, dashboard, server list/detail/console,
-    │                             #   backups, plugins, monitoring, settings...
+    ├── pages/                    # auth, setup, invite, not-found...
     ├── components/
     │   ├── ui/                   # StatusBadge, EmptyState, PageHeader...
     │   ├── guards/               # route permission guards
     │   └── layout/
     ├── server_manager/
-    │   ├── pages/                # 25 pages (server + plugin marketplace)
-    │   ├── components/           # 40 components (CompatibilityCard,
-    │   │                         #   ProjectCard, ProjectVersionsList, etc.)
-    │   ├── hooks/                # 8 hooks (incl. usePlugins, useServerExposure)
+    │   ├── pages/                # 22 pages (server + versioning + marketplace)
+    │   ├── components/           # 48+ components (BranchProtectionModal, TestEvidenceModal,
+    │   │                         #   CommitDiffModal, MaterializationBrowserModal, etc.)
+    │   ├── hooks/                # hooks (usePlugins, useServerExposure, etc.)
     │   └── utils/                # versionMatching, format, etc.
     ├── services/                 # api.ts, queryClient.ts (+ tests)
     ├── stores/                   # Zustand (toast, lastUsedServer, ...)
-    ├── types/                    # shared TS types
+    ├── types/                    # shared TS types (types.ts)
     └── websocket/                # WS client + state sync
 ```
 
@@ -204,15 +187,14 @@ frontend/
 
 ```
 docs/
-├── architecture/        # 9 (ARCHITECTURE, SPECS, DATABASE, FRONTEND, SECURITY,
-│                        #   PROVISIONING, K5-review, plugins-and-marketplace, network-access)
-├── decisions/           # 13 ADRs
-├── history/             # 48 (features, phase-7, post-phase-7, archive)
-├── roadmap/             # 1 (Blueprint V5; marketplace-pagination-v3 archived to history/features)
-├── reference/           # 6
-├── runtime/             # 8
-├── status/              # 1 (history.md)
-├── plans/               # 1
+├── architecture/        # ARCHITECTURE, SPECS, DATABASE, FRONTEND, SECURITY, PROVISIONING, etc.
+├── decisions/           # 22 ADRs / DECISION records (0001–0016 + 6 DECISION records)
+├── design/              # Design specs (incl. testing-system-refactor/ 01–08)
+├── history/             # Historical features and bug remediation logs
+├── roadmap/             # ROADMAP_v1.1.md
+├── reference/           # module-map.md, event-catalog.md, etc.
+├── runtime/             # providers.md, etc.
+├── status/              # history.md
 API.md, CONTRIBUTING.md, DEPLOYMENT.md, DEVELOPMENT.md, FEATURE_IDEAS.md,
 README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 ```
@@ -223,8 +205,8 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 
 ### Backend architecture / patterns
 
-- **Modular monolith** with DDD: 9 bounded modules, each with
-  `domain` / `application` / `infrastructure` layers (ADR `0001`).
+- **Modular monolith** with DDD: 11 bounded modules, each with
+  `domain` / `application` / `infrastructure` layers (ADR `0001`, `0013`).
 - **CQRS**: `CommandBus`, `QueryBus`, `EventBus` (ADR `0002`); handlers in
   `application/commands|queries`; domain events drive sagas (backup, deployment,
   restart).
@@ -232,8 +214,13 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
   close even on commit failure.
 - **ABAC/RBAC authorization**: permission strings (`plugin:manage`, `server.x.view`, …)
   evaluated by `PermissionEvaluator`; enforced via `require_permission` /
-  `require_server_permission` dependencies + route→permission contract check.
+  `require_server_permission` dependencies + route→permission contract check (150/150 live routes).
 - **WebSocket layer**: `/ws` endpoint, channel subscriptions, auth via token,
+  metrics batching + domain-event dispatch, reconnect/backoff client.
+- **Event store**: append-only SQLite table with SHA-256 cryptographic chain +
+  dead-letter queue + replay.
+- **Schedulers**: APScheduler jobs (metrics, health recalculation, backup,
+  event cleanup) with sub-minute SQLite write bypass.
   metrics batching + domain-event dispatch, reconnect/backoff client.
 - **Event store**: append-only SQLite table with SHA-256 cryptographic chain +
   dead-letter queue + replay.
@@ -291,6 +278,36 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 - Live WebSocket console + server status invalidation; sub-second metric
   stream rendering (Sparkline, gauges).
 
+### Versioning & Enterprise Branch Runtime (Stages A–G & Frontend Batch)
+
+- **Git-inspired version control (Stage B)**: Persistent commit DAG with additive
+  `server_commit_parents` junction table, DAG cycle detection, multi-parent merge history,
+  immutable server tags (`server_tags`), deterministic tree and commit diffing (`diff_trees`, `diff_commits`),
+  branch archiving (`ArchiveBranchCommand` and persistent `status` column on `server_branches`),
+  revision resolution (`Revision.from_tag()`), and repository history queries.
+- **Filesystem & materialization engine (Stage C)**: Domain `Materialization` aggregate (`PENDING`, `READY`, `STALE`, `REMOVED`),
+  `ImportReview` aggregate with terminal state machine (`PENDING`, `CONFIRMED`, `DISMISSED`, `REVERTED`),
+  atomic filesystem engine (`fs_atomic.py`, `tree_writer.py`) with root escape validation (`.onx/worktrees/`, `.onx/tests/`),
+  and live changes review scanning (`POST /import-review/scan`).
+- **Runtime scheduling & admission control (Stage D)**: Global admission scheduler (`RuntimeAdmissionScheduler`)
+  with static + dynamic RAM/CPU headroom gating, FIFO run queue, concurrency caps, dynamic host headroom verification,
+  and `server_admission_lease` serialization.
+- **Console & observability (Stage E)**: Demand-driven `ConsoleStreamManager` (`docker logs -f --timestamps --tail 0`
+  with tmux capture fallback, 5s subscriber debounce, batch flush at 50 lines / 100ms, 64KB frame partitioning,
+  non-silent queue overflow drop marker); WS `exec_input` and `exec_resize` client messages with RBAC checks;
+  additive `write_exec_input` provider extension; unified `docker stats` batch telemetry with multi-core CPU normalization
+  clamped to 100%; frontend reconnect re-tail backfill and polling suppression when WS is connected.
+- **Test platform & verification drivers (Stage F)**: Reusable `TestDefinition` configurations aggregate,
+  1:1 `Runtime` entity container attach model via `server_runtimes` table, automated `PatternCrashAnalyzer`
+  mod blame integration, structured `EvidenceBundle` generation, and lazy 24h debug artifact pruning in admission reaping.
+- **Protected branches (Stage G)**: `BranchProtectionPolicy` frozen dataclass (`require_test_pass`, `allow_direct_commit`,
+  `allow_force_bypass`, `prevent_deletion`), `ServerBranch` lifecycle methods (`protect`, `unprotect`, `can_commit_directly`, `can_archive`),
+  `BranchProtectedError` (HTTP 409), `CreateCommitCommand` protection enforcement with administrative emergency bypass permission
+  and audit logging, strict `AutoCommitLiveChangesCommand` and `ArchiveBranchCommand` rejection.
+- **Dedicated frontend UI batch**: `BranchProtectionModal.tsx`, `TestDefinitionsModal.tsx`, `TestEvidenceModal.tsx`,
+  `MaterializationBrowserModal.tsx`, `ImportReviewModal.tsx`, `ManageBranchesModal.tsx`, `CreateTagModal.tsx`, `CommitDiffModal.tsx`,
+  and full page integration in `ServerVersioningPage.tsx` with all 22 versioning routes wired in `api.ts`.
+
 ### Backup & storage
 
 - Backup restore/create/delete/verify commands, FULL/incremental suffix rules
@@ -309,19 +326,19 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 
 | Metric | Value |
 |---|---|
-| Source lines (backend + frontend) | ~122,194 |
-| Source files (backend + frontend) | 704 |
-| Python files / lines | 521 / 91,192 |
-| TS+TSX files / lines | 182 / ~31,000 |
-| REST endpoints / live routes | 106 live routes (15 routers + app routes; 106/106 contract gate) |
-| Alembic revisions | 30 (head `b1e2100000010`) |
-| DB tables | 32 + (default dev DB at head) |
+| Source lines (backend + frontend) | **156,091** |
+| Source files (backend + frontend) | **853** |
+| Python files / lines | 649 / 116,393 |
+| TS+TSX files / lines | 203 / 39,698 |
+| REST endpoints / live routes | 150 live routes (16 routers + app routes; 150/150 contract gate) |
+| Alembic revisions | 39 (head `b1e2100000019`) |
+| DB tables | 38+ (default dev DB at head) |
 | CI workflows | 6 (backend-tests incl. docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
 | Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |
-| ADRs | 14 (`0001`–`0012` + `DECISION-2026-09-10-001` + `DECISION-2026-09-12-001`) |
-| Backend tests | 2,568 passed / 6 skipped (2,574 collected, 0 failed) |
-| Frontend tests | 665 passed across 75 test files (3,233 total tests across suites) |
-| Docs Markdown | 121 files / 33,243+ lines |
+| ADRs | 22 (`0001`–`0016` + 6 formal `DECISION` records) |
+| Backend tests | 2,906 passed / 6 skipped (2,912 collected, 0 failed) |
+| Frontend tests | 730 passed across 83 test files (3,636 total tests across suites) |
+| Docs Markdown | 143 files / 36,611+ lines |
 
 ---
 

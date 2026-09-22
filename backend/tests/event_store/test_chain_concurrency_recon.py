@@ -50,6 +50,7 @@ def _test_engine(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_isolated_db
 async def test_concurrent_append_chain_stays_linear(tmp_path, monkeypatch) -> None:
     engine = _test_engine(tmp_path)
     try:
