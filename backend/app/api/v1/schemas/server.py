@@ -36,6 +36,7 @@ class ServerCreateRequest(BaseModel):
     group_id: str = Field(default="default")
     install_dir: str | None = None
     provider: str | None = Field(default=None)
+    startup_timeout_seconds: int | None = Field(default=None, ge=30, le=1800)
 
 
 class ServerUpdateRequest(BaseModel):
@@ -48,6 +49,7 @@ class ServerUpdateRequest(BaseModel):
     cpu_cores: int | None = None
     cpu_affinity: str | None = None
     java_args: list[str] | None = None
+    startup_timeout_seconds: int | None = Field(default=None, ge=30, le=1800)
 
 
 class ServerActionRequest(BaseModel):
@@ -70,6 +72,7 @@ class ServerResponse(BaseModel):
     updated_at: datetime
     provisioning_error: str | None = None
     provisioning_retryable: bool = False
+    startup_timeout_seconds: int | None = None
 
 
 class ServerDetailResponse(ServerResponse):

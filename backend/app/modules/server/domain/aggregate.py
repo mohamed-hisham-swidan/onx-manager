@@ -111,6 +111,7 @@ class Server(AggregateRoot):
         provisioning_error: str | None = None,
         provisioning_retryable: bool = False,
         cpu: CpuAllocation | None = None,
+        startup_timeout_seconds: int | None = None,
     ) -> None:
         super().__init__()
         self._id = server_id
@@ -130,6 +131,7 @@ class Server(AggregateRoot):
         self._owner_id = owner_id
         self._provisioning_error = provisioning_error
         self._provisioning_retryable = provisioning_retryable
+        self._startup_timeout_seconds = startup_timeout_seconds
         self._has_run = (
             self._runtime.restart_count > 0
             or self._runtime.running_start_time is not None
@@ -215,6 +217,26 @@ class Server(AggregateRoot):
     def provisioning_retryable(self) -> bool:
         return self._provisioning_retryable
 
+    @property
+    def startup_timeout_seconds(self) -> int | None:
+        return self._startup_timeout_seconds
+
+    def update_startup_timeout(self, timeout_seconds: int | None) -> None:
+        if timeout_seconds is not None and not (30 <= timeout_seconds <= 1800):
+            raise InvalidValueError(
+                field="startup_timeout_seconds",
+                value=str(timeout_seconds),
+                reason="startup_timeout_seconds must be between 30 and 1800, or None",
+            )
+        if self._startup_timeout_seconds != timeout_seconds:
+            self._startup_timeout_seconds = timeout_seconds
+            self._updated_at = datetime.now(UTC)
+            self._add_event(
+                ServerConfigChangedEvent(
+                    server_id=self._id, changed_keys=["startup_timeout_seconds"]
+                ),
+            )
+
     def mark_broken(self) -> None:
         self._status = ServerStatus.BROKEN
         self._updated_at = datetime.now(UTC)
@@ -246,6 +268,7 @@ class Server(AggregateRoot):
         owner_id: str | None = None,
         cpu: CpuAllocation | None = None,
         runtime: RuntimeInfo | None = None,
+        startup_timeout_seconds: int | None = None,
     ) -> Server:
         server = cls(
             server_id=server_id,
@@ -260,6 +283,7 @@ class Server(AggregateRoot):
             owner_id=owner_id,
             cpu=cpu,
             runtime=runtime,
+            startup_timeout_seconds=startup_timeout_seconds,
         )
         server._add_event(
             ServerCreatedEvent(

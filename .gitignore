@@ -158,6 +158,7 @@ backend/config/
 # Encrypted backup artifacts (runtime data)
 # ──────────────────────────────────────────────
 backend/data/backups/
+backend/data/artifacts/
 
 # ──────────────────────────────────────────────
 # Local automation scripts & logs

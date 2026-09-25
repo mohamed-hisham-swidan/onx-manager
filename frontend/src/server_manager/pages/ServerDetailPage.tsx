@@ -14,6 +14,7 @@ import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
 import { resolveAccessAddress } from "@/server_manager/utils/accessAddress";
 import { ServerConsole } from "@/server_manager/components/ServerConsole";
 import { Sparkline } from "@/server_manager/components/Sparkline";
+import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
 import { useServerMetrics } from "@/server_manager/hooks/useServerMetrics";
 import { useClipboard } from "@/hooks/useClipboard";
 import { toast } from "@/stores/toastStore";
@@ -64,7 +65,7 @@ function renderMotd(motd: string | undefined): string {
 export function ServerDetailPage() {
   const { serverId } = useParams<{ serverId: string }>();
   const navigate = useNavigate();
-  const { data: server, isLoading, error } = useServerDetail(serverId ?? "");
+  const { data: server, isLoading, error, refetch: refetchServer } = useServerDetail(serverId ?? "");
   const { data: runtime } = useServerRuntime(serverId ?? "");
   const { data: metrics } = useServerMetrics(serverId ?? "");
   const { exposure } = useServerExposure(serverId ?? "");
@@ -291,6 +292,17 @@ export function ServerDetailPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">{actions(server)}</div>
       </div>
+
+      {server.status === "starting" && (
+        <StartingMonitorBanner
+          targetName={server.name}
+          startedAt={server.updated_at}
+          timeoutSeconds={server.startup_timeout_seconds ?? 120}
+          onCheckNow={async () => {
+            await refetchServer();
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {/* Main Column */}

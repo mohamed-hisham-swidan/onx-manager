@@ -670,6 +670,59 @@ class DockerProvider(ServerProvider):
             return ServerRuntimeStatus.STOPPED
         return ServerRuntimeStatus.UNKNOWN
 
+    async def wait_ready(
+        self,
+        server_id: str,
+        handle: ServerHandle,
+        timeout: float = 60.0,
+    ) -> bool:
+        """Poll for server boot completion using the shared signal detection layer.
+
+        Inspects crash-reports, checks container running status, and polls container
+        logs and latest.log on disk for boot completion markers (e.g. 'Done (').
+        """
+        from app.modules.server.infrastructure.signal_detection import poll_boot_signals
+
+        container_name = (
+            handle.external_id
+            or (handle.metadata or {}).get("container_name")
+            or (handle.metadata or {}).get("session_name")
+            or ""
+        )
+        meta = handle.metadata or {}
+        server_dir = meta.get("server_dir") or meta.get("root_path")
+        if not server_dir:
+            candidate = Path(AppSettings().servers_data_dir).resolve() / server_id
+            if candidate.exists():
+                server_dir = str(candidate)
+
+        crash_dir = Path(server_dir) / "crash-reports" if server_dir else None
+        log_path = Path(server_dir) / "logs" / "latest.log" if server_dir else None
+
+        async def _get_docker_logs() -> list[str]:
+            if not container_name:
+                return []
+            try:
+                return await self.console(handle, tail=50)
+            except Exception:
+                return []
+
+        async def _check_liveness() -> bool:
+            if not container_name:
+                return False
+            status = await self.status(handle)
+            return status == ServerRuntimeStatus.RUNNING
+
+        result = await poll_boot_signals(
+            timeout=timeout,
+            container_name=container_name,
+            liveness_check=_check_liveness,
+            crash_dir=crash_dir,
+            log_path=log_path,
+            get_logs=_get_docker_logs,
+        )
+        return result.passed
+
     async def console(self, handle: ServerHandle, tail: int = 100) -> list[str]:
         container_name = handle.external_id
         returncode, stdout = await self._docker_command(

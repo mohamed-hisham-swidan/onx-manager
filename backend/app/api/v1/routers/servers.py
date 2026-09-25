@@ -129,6 +129,7 @@ async def create_server(
         group_id=body.group_id,
         install_dir=body.install_dir,
         provider=body.provider,
+        startup_timeout_seconds=body.startup_timeout_seconds,
     )
     result = await command_bus.send(cmd)
     return check_command_result(result)
@@ -296,6 +297,7 @@ async def update_server(
     command_bus: CommandBus = Depends(get_command_bus),
     _current_user: dict = Depends(require_permission("server:write")),
 ) -> dict:
+    has_startup_timeout = "startup_timeout_seconds" in body.model_fields_set
     cmd = UpdateServerConfigCommand(
         server_id=server_id,
         name=body.name,
@@ -305,6 +307,8 @@ async def update_server(
         cpu_cores=body.cpu_cores,
         cpu_affinity=body.cpu_affinity,
         java_args=body.java_args,
+        startup_timeout_seconds=body.startup_timeout_seconds,
+        update_startup_timeout=has_startup_timeout,
     )
     result = await command_bus.send(cmd)
     return check_command_result(result)

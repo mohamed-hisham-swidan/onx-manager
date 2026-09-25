@@ -16,6 +16,8 @@ const mockSettings = {
   event_bus_retry_attempts: 3,
   saga_timeout_seconds: 300,
   metrics_interval_seconds: 0.2,
+  server_startup_timeout_seconds: 120,
+  test_boot_timeout_seconds: 120,
   requires_restart: ["app_name", "log_level", "debug"],
 };
 

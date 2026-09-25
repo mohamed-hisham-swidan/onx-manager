@@ -11,6 +11,7 @@ import { ImportReviewModal } from "@/server_manager/components/ImportReviewModal
 import { ManageBranchesModal } from "@/server_manager/components/ManageBranchesModal";
 import { CreateTagModal } from "@/server_manager/components/CreateTagModal";
 import { CommitDiffModal } from "@/server_manager/components/CommitDiffModal";
+import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
 import type {
   ServerBranch,
   ServerCommit,
@@ -622,6 +623,8 @@ export function ServerVersioningPage() {
                           ? "bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300"
                           : run.status === "RUNNING"
                           ? "bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 animate-pulse"
+                          : run.status === "BOOTING"
+                          ? "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 animate-pulse"
                           : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
                       }`}
                     >
@@ -634,6 +637,25 @@ export function ServerVersioningPage() {
                       Target Commit: <span className="font-mono">{run.commit_id.slice(0, 8)}</span>
                     </span>
                   </div>
+
+                  {run.status === "BOOTING" && (
+                    <div className="mt-2">
+                      <StartingMonitorBanner
+                        targetName={`Test Run ${run.id.slice(0, 8)}`}
+                        startedAt={run.created_at}
+                        timeoutSeconds={120}
+                        isTestRun={true}
+                        onCheckNow={async () => {
+                          if (serverId) {
+                            const updated = await api.getTestStatus?.(serverId, run.id);
+                            if (updated) {
+                              setTestRuns((prev) => [updated, ...prev.filter((item) => item.id !== updated.id)]);
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
 
                   <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                     <span>Bots: {run.bot_count} ({run.bot_tech})</span>

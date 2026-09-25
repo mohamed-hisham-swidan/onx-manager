@@ -22,6 +22,7 @@ export interface ServerResponse {
   updated_at: string;
   provisioning_error?: string | null;
   provisioning_retryable?: boolean;
+  startup_timeout_seconds?: number | null;
 }
 
 export interface ServerDetailResponse extends ServerResponse {
@@ -128,6 +129,7 @@ export interface ServerCreateRequest {
   java_args?: string[] | null;
   group_id?: string;
   provider?: string;
+  startup_timeout_seconds?: number | null;
 }
 
 export interface ServerUpdateRequest {
@@ -138,6 +140,7 @@ export interface ServerUpdateRequest {
   cpu_cores?: number | null;
   cpu_affinity?: string | null;
   java_args?: string[] | null;
+  startup_timeout_seconds?: number | null;
 }
 
 export interface ConsoleResponse {
@@ -485,7 +488,7 @@ export interface DiffResponse {
   mods: ModDiff;
 }
 
-export type TestRunStatus = "PENDING" | "RUNNING" | "PASSED" | "FAILED" | "CANCELLED";
+export type TestRunStatus = "PENDING" | "BOOTING" | "RUNNING" | "PASSED" | "FAILED" | "CANCELLED";
 export type RuntimeStatus = "STARTING" | "RUNNING" | "TERMINATED" | "CRASHED";
 
 export interface RuntimeInfo {

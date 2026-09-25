@@ -1232,7 +1232,7 @@ async def test_run_test_artifact_failure_downgrades_to_smoke(tmp_path: Path) -> 
         patch.object(runner, "_persist_test_outcome", new_callable=AsyncMock) as mock_persist,
     ):
         handle = await runner.run_test(spec)
-        assert handle.status == "RUNNING"
+        assert handle.status in ("BOOTING", "RUNNING")
         res = await handle.wait_for_completion()
 
     # 1. ensure_plugin_artifact was awaited exactly once
@@ -1350,7 +1350,7 @@ async def test_run_test_artifact_success_keeps_fakeplayer_next_and_stages_before
         patch.object(runner, "_persist_test_outcome", new_callable=AsyncMock) as mock_persist,
     ):
         handle = await runner.run_test(spec)
-        assert handle.status == "RUNNING"
+        assert handle.status in ("BOOTING", "RUNNING")
         res = await handle.wait_for_completion()
 
     # 1. ensure_plugin_artifact was awaited exactly once
@@ -1481,6 +1481,7 @@ async def test_secret_propagation_through_real_run_path_redirect(
         ),
         patch.object(runner, "_downgrade_to_smoke", side_effect=capture_downgrade),
         patch.object(runner, "_persist_runtime", new_callable=AsyncMock),
+        patch.object(runner, "_persist_test_status", new_callable=AsyncMock),
         patch.object(runner, "_persist_test_outcome", new_callable=AsyncMock) as mock_persist,
         caplog.at_level("DEBUG"),
     ):
@@ -1617,6 +1618,7 @@ async def test_secret_propagation_through_real_run_path_network_error(
         ),
         patch.object(runner, "_downgrade_to_smoke", side_effect=capture_downgrade),
         patch.object(runner, "_persist_runtime", new_callable=AsyncMock),
+        patch.object(runner, "_persist_test_status", new_callable=AsyncMock),
         patch.object(runner, "_persist_test_outcome", new_callable=AsyncMock) as mock_persist,
         caplog.at_level("DEBUG"),
     ):

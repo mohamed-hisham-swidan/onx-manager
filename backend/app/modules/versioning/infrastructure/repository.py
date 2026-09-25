@@ -216,7 +216,11 @@ class SQLVersioningRepository(VersioningRepository):
         stmt = select(ServerTestRunModel).where(
             ServerTestRunModel.server_id == server_id,
             ServerTestRunModel.status.in_(
-                [TestRunStatus.PENDING.value, TestRunStatus.RUNNING.value]
+                [
+                    TestRunStatus.PENDING.value,
+                    TestRunStatus.BOOTING.value,
+                    TestRunStatus.RUNNING.value,
+                ]
             ),
         )
         res = await self._session.execute(stmt)
@@ -238,7 +242,11 @@ class SQLVersioningRepository(VersioningRepository):
             select(ServerTestRunModel)
             .where(
                 ServerTestRunModel.status.in_(
-                    [TestRunStatus.PENDING.value, TestRunStatus.RUNNING.value]
+                    [
+                        TestRunStatus.PENDING.value,
+                        TestRunStatus.BOOTING.value,
+                        TestRunStatus.RUNNING.value,
+                    ]
                 )
             )
             .order_by(ServerTestRunModel.created_at)

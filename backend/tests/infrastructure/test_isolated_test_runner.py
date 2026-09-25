@@ -505,11 +505,14 @@ async def test_test_container_launch_includes_user_uid_gid() -> None:
             f"--user (idx {user_idx}) must precede IMAGE (idx {image_idx}); "
             f"cmd={run_cmd}"
         )
-        # The token immediately after IMAGE must be the server CMD (java/bash),
-        # never a docker flag.
-        assert run_cmd[image_idx + 1] in ("java", "bash"), (
-            f"token after IMAGE must start the server CMD, got {run_cmd[image_idx + 1]!r}"
-        )
+        # The token immediately after IMAGE, if present, must be the server CMD (java/bash),
+        # never a docker flag. When itzg entrypoint is forced, no trailing CMD is appended.
+        if len(run_cmd) > image_idx + 1:
+            assert run_cmd[image_idx + 1] in ("java", "bash"), (
+                f"token after IMAGE must start the server CMD, got {run_cmd[image_idx + 1]!r}"
+            )
+        else:
+            assert "itzg" in run_cmd[image_idx], "only itzg images may omit trailing CMD"
 
 
 

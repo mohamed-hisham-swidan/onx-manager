@@ -235,6 +235,8 @@ export interface SettingsResponse {
   event_bus_retry_attempts: number;
   saga_timeout_seconds: number;
   metrics_interval_seconds?: number;
+  server_startup_timeout_seconds?: number;
+  test_boot_timeout_seconds?: number;
   requires_restart?: string[];
 }
 
@@ -249,6 +251,8 @@ export interface SettingsUpdateRequest {
   event_bus_retry_attempts?: number;
   saga_timeout_seconds?: number;
   metrics_interval_seconds?: number;
+  server_startup_timeout_seconds?: number;
+  test_boot_timeout_seconds?: number;
 }
 
 export interface SettingsUpdateResponse {

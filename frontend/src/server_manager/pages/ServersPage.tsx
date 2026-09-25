@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
 import { ProvisioningProgress } from "@/server_manager/components/ProvisioningProgress";
+import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
 import type { ServerResponse } from "@/server_manager/types";
 
 type SortKey = "name" | "status" | "version";
@@ -23,12 +24,17 @@ function errorMessage(error: unknown): string {
 }
 
 export function ServersPage() {
-  const { data: servers, isLoading, error } = useServersList();
+  const { data: servers, isLoading, error, refetch: refetchServers } = useServersList();
   const startServer = useStartServer();
   const stopServer = useStopServer();
   const restartServer = useRestartServer();
   const deleteServer = useDeleteServer();
   const retryProvisioning = useRetryProvisioningServer();
+
+  const startingServers = useMemo(
+    () => (servers ?? []).filter((s) => s.status === "starting"),
+    [servers]
+  );
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -182,6 +188,18 @@ export function ServersPage() {
         />
       ) : (
         <>
+          {startingServers.map((s) => (
+            <div key={s.server_id} className="mb-4">
+              <StartingMonitorBanner
+                targetName={s.name}
+                startedAt={s.updated_at}
+                timeoutSeconds={s.startup_timeout_seconds ?? 120}
+                onCheckNow={async () => {
+                  await refetchServers();
+                }}
+              />
+            </div>
+          ))}
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Icon

@@ -9,6 +9,7 @@ class TestRunStatus(enum.StrEnum):
     __test__ = False
 
     PENDING = "PENDING"
+    BOOTING = "BOOTING"
     RUNNING = "RUNNING"
     PASSED = "PASSED"
     FAILED = "FAILED"

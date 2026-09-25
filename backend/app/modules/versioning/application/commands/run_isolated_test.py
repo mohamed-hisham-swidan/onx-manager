@@ -163,7 +163,7 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
         test_run = reservation.test_run
         test_id = test_run.id
         test_run.test_definition_id = command.test_definition_id
-        test_run.mark_running()
+        test_run.mark_booting()
         await versioning_repo.save_test_run(test_run)
 
         # 5. Launch test runner pipeline
@@ -174,6 +174,7 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
             server_dir=server.deployment.server_dir,
             bot_config=bot_cfg,
             minecraft_version=server.minecraft_version,
+            boot_timeout_seconds=getattr(server, "startup_timeout_seconds", None),
         )
 
         try:

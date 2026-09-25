@@ -82,7 +82,7 @@ Before initiating verification drivers in `_execute_verification`:
 - **Item A Resolution (FACT-based):** No new `wait_ready` API mechanism is added; filesystem log inspection is the authoritative contract.
 - **Item B Resolution (Forge/NeoForge):** Any failure in staging or booting Forge/NeoForge routes through the existing staging failure path.
 - **OQ-3 Resolution (Timeout Floor):**
-  `boot_timeout = max(bot_cfg.connect_grace_seconds, 60.0)`.
+  `boot_timeout = max(bot_cfg.connect_grace_seconds, 120.0)`.
 - **Failure Conditions During Boot-Gate:**
   1. Generation of files in `crash-reports/` -> immediately diagnose blamed mod via `PatternCrashAnalyzer` and mark `FAILED`.
   2. Container termination (`docker inspect .State.Running == false`) -> immediately mark `FAILED`.

@@ -33,6 +33,8 @@ async def get_settings_endpoint(
         "saga_timeout_seconds": live.saga_timeout_seconds,
         "panel_bind_host": live.panel_bind_host,
         "metrics_interval_seconds": live.metrics_interval_seconds,
+        "server_startup_timeout_seconds": live.server_startup_timeout_seconds,
+        "test_boot_timeout_seconds": live.test_boot_timeout_seconds,
         "requires_restart": sorted(list(RESTART_REQUIRED_FIELDS)),
     }
 
@@ -81,5 +83,7 @@ async def update_settings(
             "saga_timeout_seconds": live.saga_timeout_seconds,
             "panel_bind_host": live.panel_bind_host,
             "metrics_interval_seconds": live.metrics_interval_seconds,
+            "server_startup_timeout_seconds": live.server_startup_timeout_seconds,
+            "test_boot_timeout_seconds": live.test_boot_timeout_seconds,
         },
     }

@@ -20,6 +20,8 @@ interface FormState {
   event_bus_retry_attempts: number;
   saga_timeout_seconds: number;
   metrics_interval_seconds: number;
+  server_startup_timeout_seconds: number;
+  test_boot_timeout_seconds: number;
 }
 
 export function SettingsPage() {
@@ -118,6 +120,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
     event_bus_retry_attempts: settings.event_bus_retry_attempts ?? 3,
     saga_timeout_seconds: settings.saga_timeout_seconds ?? 300,
     metrics_interval_seconds: settings.metrics_interval_seconds ?? 0.2,
+    server_startup_timeout_seconds: settings.server_startup_timeout_seconds ?? 120,
+    test_boot_timeout_seconds: settings.test_boot_timeout_seconds ?? 120,
   });
 
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -143,7 +147,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       Number(formData.circuit_breaker_timeout_seconds) !== settings.circuit_breaker_timeout_seconds ||
       Number(formData.event_bus_retry_attempts) !== settings.event_bus_retry_attempts ||
       Number(formData.saga_timeout_seconds) !== settings.saga_timeout_seconds ||
-      Number(formData.metrics_interval_seconds) !== (settings.metrics_interval_seconds ?? 0.2)
+      Number(formData.metrics_interval_seconds) !== (settings.metrics_interval_seconds ?? 0.2) ||
+      Number(formData.server_startup_timeout_seconds) !== (settings.server_startup_timeout_seconds ?? 120) ||
+      Number(formData.test_boot_timeout_seconds) !== (settings.test_boot_timeout_seconds ?? 120)
     );
   }, [formData, settings]);
 
@@ -177,6 +183,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       event_bus_retry_attempts: settings.event_bus_retry_attempts ?? 3,
       saga_timeout_seconds: settings.saga_timeout_seconds ?? 300,
       metrics_interval_seconds: settings.metrics_interval_seconds ?? 0.2,
+      server_startup_timeout_seconds: settings.server_startup_timeout_seconds ?? 120,
+      test_boot_timeout_seconds: settings.test_boot_timeout_seconds ?? 120,
     });
     setSaveError(null);
     setSaveSuccessNotice(null);
@@ -198,6 +206,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       event_bus_retry_attempts: Number(formData.event_bus_retry_attempts),
       saga_timeout_seconds: Number(formData.saga_timeout_seconds),
       metrics_interval_seconds: Number(formData.metrics_interval_seconds),
+      server_startup_timeout_seconds: Number(formData.server_startup_timeout_seconds),
+      test_boot_timeout_seconds: Number(formData.test_boot_timeout_seconds),
     };
 
     try {
@@ -557,6 +567,57 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             />
             <p id="metrics_interval_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Frequency in seconds for sampling CPU, RAM, and streaming real-time metrics (e.g. 0.2s for live real-time, 1.0s or 5.0s for reduced CPU overhead).
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Section 6: Startup & Boot Timeouts */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+        <div className="mb-4">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Startup & Boot Timeouts</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Default boot-gate timeouts for regular servers and isolated test containers (30–1800s). No server restart required.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label htmlFor="server_startup_timeout_seconds" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              Server Startup Timeout (seconds)
+            </label>
+            <input
+              id="server_startup_timeout_seconds"
+              name="server_startup_timeout_seconds"
+              type="number"
+              min={30}
+              max={1800}
+              value={formData.server_startup_timeout_seconds}
+              onChange={handleChange}
+              aria-describedby="server_startup_timeout_seconds-help"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p id="server_startup_timeout_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Global timeout before starting monitor warns on slow server boot. Can be overridden per-server.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="test_boot_timeout_seconds" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              Test Boot Timeout (seconds)
+            </label>
+            <input
+              id="test_boot_timeout_seconds"
+              name="test_boot_timeout_seconds"
+              type="number"
+              min={30}
+              max={1800}
+              value={formData.test_boot_timeout_seconds}
+              onChange={handleChange}
+              aria-describedby="test_boot_timeout_seconds-help"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p id="test_boot_timeout_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Global timeout before isolated test containers fail boot verification.
             </p>
           </div>
         </div>

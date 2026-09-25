@@ -49,7 +49,11 @@ GLOBAL_CAP_DEFAULT = 3
 STALE_TIMEOUT_HOURS_DEFAULT = 6.0
 STALE_REAP_REASON = "stale reservation reaped"
 
-_ACTIVE_STATUSES = (TestRunStatus.PENDING.value, TestRunStatus.RUNNING.value)
+_ACTIVE_STATUSES = (
+    TestRunStatus.PENDING.value,
+    TestRunStatus.BOOTING.value,
+    TestRunStatus.RUNNING.value,
+)
 
 
 @dataclass(frozen=True)

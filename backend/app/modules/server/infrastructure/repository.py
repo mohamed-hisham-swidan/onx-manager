@@ -118,6 +118,7 @@ class SQLServerRepository(ServerRepository):
         model.owner_id = server.owner_id
         model.provisioning_error = server.provisioning_error
         model.provisioning_retryable = server.provisioning_retryable
+        model.startup_timeout_seconds = server.startup_timeout_seconds
 
         await self._session.flush()
 
@@ -218,6 +219,7 @@ class SQLServerRepository(ServerRepository):
                 cores=model.cpu_cores or 0,
                 affinity=model.cpu_affinity or "",
             ),
+            startup_timeout_seconds=model.startup_timeout_seconds,
         )
 
         from app.modules.server.domain.aggregate import ServerStatus

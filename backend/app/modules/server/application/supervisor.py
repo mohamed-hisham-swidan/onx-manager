@@ -297,7 +297,8 @@ class RuntimeSupervisor:
                 elapsed,
                 self._server_id,
             )
-            # TODO(STARTING-001): deadline-passed + process-alive -> transition to RUNNING best-effort
+            # Deadline elapsed but process still alive: best-effort transition to
+            # RUNNING below (guarded by the concurrent-stop recheck).
             try:
                 server = await self._repo_get(ServerId(self._server_id))
                 if self._stop_event.is_set():

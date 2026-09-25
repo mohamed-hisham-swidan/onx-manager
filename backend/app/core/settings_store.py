@@ -68,6 +68,8 @@ _DEFAULTS: dict[str, Any] = {
     "bot_watchdog_overrun_minutes": 5.0,
     "global_max_concurrent_runs": 3,
     "stale_run_timeout_hours": 6.0,
+    "server_startup_timeout_seconds": 120,
+    "test_boot_timeout_seconds": 120,
 }
 
 _VALID_LOG_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
@@ -110,6 +112,8 @@ class LiveSettings:
     bot_watchdog_overrun_minutes: float = 5.0
     global_max_concurrent_runs: int = 3
     stale_run_timeout_hours: float = 6.0
+    server_startup_timeout_seconds: int = 120
+    test_boot_timeout_seconds: int = 120
 
 
 _live: LiveSettings | None = None
@@ -139,6 +143,11 @@ def _coerce(field: str, value: Any) -> Any:
         if isinstance(value, bool):
             return value
         return str(value).lower() in ("true", "1", "yes")
+    if field in ("server_startup_timeout_seconds", "test_boot_timeout_seconds"):
+        try:
+            return max(30, min(1800, int(value)))
+        except (TypeError, ValueError):
+            return default
     if field == "metrics_interval_seconds":
         try:
             return round(max(0.1, min(60.0, float(value))), 2)

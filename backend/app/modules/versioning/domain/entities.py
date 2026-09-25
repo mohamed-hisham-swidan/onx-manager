@@ -634,6 +634,11 @@ class ServerTestRun:
             TestRunStatus.CANCELLED,
         )
 
+    def mark_booting(self) -> None:
+        if self.is_terminal:
+            raise ValueError(f"Cannot transition terminal test run ({self.status}) to BOOTING")
+        self.status = TestRunStatus.BOOTING
+
     def mark_running(self, ephemeral_port: int | None = None) -> None:
         if self.is_terminal:
             raise ValueError(f"Cannot transition terminal test run ({self.status}) to RUNNING")

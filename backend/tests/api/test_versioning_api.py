@@ -315,7 +315,7 @@ async def test_test_runs_and_lifecycle_endpoints(seed_server, tmp_path):
                 assert res.status_code == 200
                 status_data = res.json()
                 assert status_data["id"] == test_id
-                assert status_data["status"] == "RUNNING"
+                assert status_data["status"] in ("BOOTING", "RUNNING")
 
                 # GET test runs list without server:version:read -> 403
                 res = await client.get(

@@ -54,7 +54,9 @@ async def _run_collection(_params: dict[str, Any]) -> dict[str, Any]:
 
             from app.modules.versioning.infrastructure.models import ServerTestRunModel
 
-            stmt_test = select(ServerTestRunModel.id).where(ServerTestRunModel.status == "RUNNING")
+            stmt_test = select(ServerTestRunModel.id).where(
+                ServerTestRunModel.status.in_(["BOOTING", "RUNNING"])
+            )
             res_test = await session.execute(stmt_test)
             test_ids = [row[0] for row in res_test]
     except Exception:

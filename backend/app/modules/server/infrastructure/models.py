@@ -66,6 +66,7 @@ class ServerModel(Base, TimestampMixin):
     restart_count = Column(Integer, nullable=False, default=0)
     launch_config_json = Column(Text, nullable=True)
     bot_verification_settings = Column(JSON, nullable=True)
+    startup_timeout_seconds = Column(Integer, nullable=True)
     missing_since = Column(DateTime, nullable=True)
     owner_id = Column(
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True

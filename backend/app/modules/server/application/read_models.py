@@ -76,6 +76,7 @@ class ServerReadModel:
         updated_at: datetime,
         provisioning_error: str | None = None,
         provisioning_retryable: bool = False,
+        startup_timeout_seconds: int | None = None,
     ) -> None:
         self.server_id = server_id
         self.name = name
@@ -92,6 +93,7 @@ class ServerReadModel:
         self.updated_at = updated_at
         self.provisioning_error = provisioning_error
         self.provisioning_retryable = provisioning_retryable
+        self.startup_timeout_seconds = startup_timeout_seconds
 
     @classmethod
     def from_domain(cls, server: Server) -> ServerReadModel:
@@ -111,6 +113,7 @@ class ServerReadModel:
             updated_at=server.updated_at,
             provisioning_error=server.provisioning_error,
             provisioning_retryable=server.provisioning_retryable,
+            startup_timeout_seconds=server.startup_timeout_seconds,
         )
 
 
@@ -156,6 +159,7 @@ class ServerDetailReadModel(ServerReadModel):
         primary_world: str | None = None,
         provisioning_error: str | None = None,
         provisioning_retryable: bool = False,
+        startup_timeout_seconds: int | None = None,
     ) -> None:
         super().__init__(
             server_id=server_id,
@@ -173,6 +177,7 @@ class ServerDetailReadModel(ServerReadModel):
             updated_at=updated_at,
             provisioning_error=provisioning_error,
             provisioning_retryable=provisioning_retryable,
+            startup_timeout_seconds=startup_timeout_seconds,
         )
         self.min_memory_mb = min_memory_mb
         self.max_memory_mb = max_memory_mb
@@ -243,4 +248,5 @@ class ServerDetailReadModel(ServerReadModel):
             primary_world=dep.primary_world if dep else None,
             provisioning_error=server.provisioning_error,
             provisioning_retryable=server.provisioning_retryable,
+            startup_timeout_seconds=server.startup_timeout_seconds,
         )

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import logging
 import os
 import subprocess
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows has no fcntl; ioctl probe is skipped, `cp` fallback still runs
+    fcntl = None  # type: ignore[assignment]
 
 from app.core.exceptions import StorageCowUnavailableError
 
@@ -49,7 +53,7 @@ class StorageCapabilityProbe:
                 os.fsync(f.fileno())
 
             # 2. Attempt FICLONE ioctl first (pure Python, lowest overhead on Linux)
-            if hasattr(fcntl, "ioctl"):
+            if fcntl is not None and hasattr(fcntl, "ioctl"):
                 try:
                     with open(src_file, "rb") as s_fd, open(dst_file, "wb") as d_fd:
                         fcntl.ioctl(d_fd.fileno(), FICLONE, s_fd.fileno())

@@ -39,6 +39,8 @@ class UpdateServerConfigCommand(Command):
     cpu_cores: int | None = None
     cpu_affinity: str | None = None
     java_args: list[str] | None = None
+    startup_timeout_seconds: int | None = None
+    update_startup_timeout: bool = False
 
 
 class UpdateServerConfigHandler(CommandHandler[UpdateServerConfigCommand]):
@@ -90,6 +92,8 @@ class UpdateServerConfigHandler(CommandHandler[UpdateServerConfigCommand]):
                 server.update_cpu(CpuAllocation(cores=cores, affinity=affinity))
             if command.java_args is not None:
                 server.update_java_args(JavaArguments(command.java_args))
+            if command.update_startup_timeout or command.startup_timeout_seconds is not None:
+                server.update_startup_timeout(command.startup_timeout_seconds)
 
             if server.deployment and server.deployment.root_path:
                 props_path = server.deployment.properties_path()

@@ -690,4 +690,90 @@ class TestDockerDestroy:
             addr = await provider.get_address(handle)
             assert addr == "172.17.0.7"
 
+    @pytest.mark.asyncio
+    async def test_docker_wait_ready_success(self, tmp_path: Path) -> None:
+        provider = DockerProvider()
+        srv_dir = tmp_path / "srv-test"
+        srv_dir.mkdir()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+            metadata={"root_path": str(srv_dir)},
+        )
+
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            async def _docker_cmd(*args: Any) -> tuple[int, str]:
+                if "logs" in args:
+                    return (0, "[00:00:10 INFO] Done (10.234s)! For help, type help\n")
+                if "inspect" in args:
+                    return (0, "running 0\n")
+                return (0, "")
+
+            mock_cmd.side_effect = _docker_cmd
+            ready = await provider.wait_ready(
+                server_id="test-srv",
+                handle=handle,
+                timeout=5.0,
+            )
+            assert ready is True
+
+    @pytest.mark.asyncio
+    async def test_docker_wait_ready_timeout(self, tmp_path: Path) -> None:
+        provider = DockerProvider()
+        srv_dir = tmp_path / "srv-test"
+        srv_dir.mkdir()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+            metadata={"root_path": str(srv_dir)},
+        )
+
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            async def _docker_cmd(*args: Any) -> tuple[int, str]:
+                if "logs" in args:
+                    return (0, "[00:00:01 INFO] Preparing spawn area: 10%\n")
+                if "inspect" in args:
+                    return (0, "running 0\n")
+                return (0, "")
+
+            mock_cmd.side_effect = _docker_cmd
+            ready = await provider.wait_ready(
+                server_id="test-srv",
+                handle=handle,
+                timeout=0.05,
+            )
+            assert ready is False
+
+    @pytest.mark.asyncio
+    async def test_docker_wait_ready_crash(self, tmp_path: Path) -> None:
+        provider = DockerProvider()
+        srv_dir = tmp_path / "srv-test"
+        crash_dir = srv_dir / "crash-reports"
+        crash_dir.mkdir(parents=True)
+        crash_file = crash_dir / "crash-2026-09-23_12.00.00-server.txt"
+        crash_file.write_text("---- Minecraft Crash Report ----\nDescription: boom\n")
+
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+            metadata={"root_path": str(srv_dir)},
+        )
+
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            async def _docker_cmd(*args: Any) -> tuple[int, str]:
+                if "inspect" in args:
+                    return (0, "running 0\n")
+                return (0, "")
+
+            mock_cmd.side_effect = _docker_cmd
+            ready = await provider.wait_ready(
+                server_id="test-srv",
+                handle=handle,
+                timeout=5.0,
+            )
+            assert ready is False
+
 

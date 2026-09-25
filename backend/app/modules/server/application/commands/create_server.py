@@ -55,6 +55,7 @@ class CreateServerCommand(Command):
     group_id: str = "default"
     install_dir: str | None = None
     provider: str | None = None
+    startup_timeout_seconds: int | None = None
 
 
 class CreateServerHandler(CommandHandler[CreateServerCommand]):
@@ -162,6 +163,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 deployment=deployment,
                 runtime=runtime_info,
                 owner_id=command.creator_id,
+                startup_timeout_seconds=command.startup_timeout_seconds,
             )
             if is_forge_installer or is_neoforge_installer:
                 server.begin_provisioning()

@@ -111,6 +111,7 @@ class TestSpec:
     bot_config: BotVerificationConfig
     node_id: str = "local"
     minecraft_version: str = "1.21.1"
+    boot_timeout_seconds: int | float | None = None
 
 
 @dataclass
@@ -557,6 +558,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 startup_command=server_startup_cmd,
                 startup_jar=staged_startup_jar,
                 image=image,
+                force_itzg_entrypoint=(server_startup_cmd is None),
             )
 
         except _PrelaunchFatalError as fatal_err:
@@ -642,7 +644,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             container_name=container_name,
             test_dir=test_dir_str,
             sidecar_runner=None,
-            status=TestRunStatus.RUNNING,
+            status=TestRunStatus.BOOTING,
             runtime_id=runtime_id,
         )
         self._active_runs[spec.test_id] = handle
@@ -758,89 +760,40 @@ class DockerTestExecutionRunner(TestExecutionRunner):
 
             # 3. Boot-gate: poll <test_dir>/logs/latest.log for "Done (" before verification.
             # SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 §2.4
-            # Must-Fix 6B: floor raised 60s -> 120s. A real Paper 26.2 boot took
-            # ~65s wall-clock live (run c4273f97); Forge/modded boots take longer.
-            # Dead containers still fail fast via the liveness check below, so a
-            # higher ceiling does not slow the common failure case.
-            # Documented connect_grace_seconds default remains 60.0 everywhere;
-            # this floor is deliberately above it.
-            boot_timeout = max(getattr(bot_cfg, "connect_grace_seconds", 60.0), 120.0)
-            logs.append(
-                f"[BOOT-GATE] Waiting up to {boot_timeout:.0f}s for server boot "
-                "(polling logs/latest.log for 'Done (')..."
+            # SPEC-2026-09-23-UNIFIED-STARTING-MONITOR-01 (two-tier timeout, floor 120s).
+            from app.core.settings_store import get_live_settings
+            from app.modules.server.infrastructure.signal_detection import poll_boot_signals
+
+            live_settings = get_live_settings()
+            default_test_boot = float(live_settings.test_boot_timeout_seconds)
+            configured_timeout = (
+                float(spec.boot_timeout_seconds)
+                if spec.boot_timeout_seconds is not None
+                else default_test_boot
             )
-            boot_poll_start = asyncio.get_event_loop().time()
-            boot_passed = False
-            boot_failure_reason: str | None = None
+            boot_timeout = max(
+                getattr(bot_cfg, "connect_grace_seconds", 60.0),
+                configured_timeout,
+            )
 
-            while True:
-                # Check crash reports
-                crash_dir_check = Path(handle.test_dir) / "crash-reports"
-                if crash_dir_check.exists() and any(crash_dir_check.glob("crash-*.txt")):
-                    first_crash = next(crash_dir_check.glob("crash-*.txt"))
-                    try:
-                        content = first_crash.read_text(encoding="utf-8", errors="replace")
-                        analyzer = PatternCrashAnalyzer()
-                        analysis = analyzer.analyze_crash_content(content)
-                        blamed = analysis.blamed_mod or "Unknown mod"
-                        boot_failure_reason = (
-                            f"Server crashed during boot. Blamed mod: {blamed} "
-                            f"({analysis.failure_code.value})"
-                        )
-                    except Exception:
-                        boot_failure_reason = f"Server crashed during boot: {first_crash.name}"
-                    logs.append(f"[BOOT-GATE] {boot_failure_reason}")
-                    break
+            boot_res = await poll_boot_signals(
+                timeout=boot_timeout,
+                container_name=handle.container_name,
+                crash_dir=Path(handle.test_dir) / "crash-reports",
+                log_path=Path(handle.test_dir) / "logs" / "latest.log",
+                on_log=logs.append,
+            )
 
-                # Check container liveness
-                liveness_check = await asyncio.to_thread(
-                    subprocess.run,
-                    [
-                        "docker",
-                        "inspect",
-                        "-f",
-                        "{{.State.Running}}",
-                        handle.container_name,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                is_alive = (
-                    liveness_check.returncode == 0 and "true" in liveness_check.stdout.lower()
-                )
-                if not is_alive:
-                    boot_failure_reason = (
-                        "Test server container terminated unexpectedly before completing boot"
-                    )
-                    logs.append(f"[BOOT-GATE] {boot_failure_reason}")
-                    break
-
-                # Check latest.log
-                latest_log_path = Path(handle.test_dir) / "logs" / "latest.log"
-                if latest_log_path.exists():
-                    log_text = latest_log_path.read_text(encoding="utf-8", errors="replace")
-                    if "Done (" in log_text:
-                        boot_passed = True
-                        logs.append("[BOOT-GATE] Server boot confirmed ('Done (' found in logs).")
-                        break
-
-                elapsed = asyncio.get_event_loop().time() - boot_poll_start
-                if elapsed >= boot_timeout:
-                    boot_failure_reason = (
-                        f"Server did not complete boot within {boot_timeout:.0f}s "
-                        "(no 'Done (' found in logs/latest.log)"
-                    )
-                    logs.append(f"[BOOT-GATE] Timeout: {boot_failure_reason}")
-                    break
-
-                await asyncio.sleep(0.5)
+            boot_passed = boot_res.passed
+            boot_failure_reason = boot_res.failure_reason
 
             if not boot_passed:
                 passed = False
                 failure_reason = boot_failure_reason
                 # Skip verification drivers — fall through to finally block.
             else:
+                handle.status = TestRunStatus.RUNNING
+                await self._persist_test_status(spec.test_id, TestRunStatus.RUNNING)
                 if strat.driver == "fakeplayer_next":
                     bot_names_prefix = generate_bot_names_prefix(spec.test_id[:8])
                     plugin_log_path = Path(handle.test_dir) / "logs" / "latest.log"
@@ -1287,6 +1240,35 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     spec.test_id,
                     cleanup_exc,
                 )
+
+    async def _persist_test_status(self, test_id: str, status: TestRunStatus) -> None:
+        """Persists intermediate test run status (e.g. RUNNING after BOOTING) with busy-retry."""
+        from app.core.persistence.db import database
+        from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
+
+        try:
+            _ = database.session_factory
+        except RuntimeError:
+            return
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                async with database.session_factory() as session:
+                    repo = SQLVersioningRepository(session)
+                    run = await repo.get_test_run(test_id)
+                    if run and not run.is_terminal:
+                        run.status = status
+                        await repo.save_test_run(run)
+                        await session.commit()
+                break
+            except Exception as exc:
+                is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                if is_lock and attempt < max_retries - 1:
+                    await asyncio.sleep(0.05 * (2**attempt))
+                    continue
+                logger.debug("Failed updating intermediate test status for %s: %s", test_id, exc)
+                break
 
     async def _persist_test_outcome(
         self,

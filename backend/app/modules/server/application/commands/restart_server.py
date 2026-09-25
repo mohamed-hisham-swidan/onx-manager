@@ -14,6 +14,7 @@ from app.core.idempotency import IdempotencyKey
 from app.core.identity import IDENTITY
 from app.core.persistence.db import database
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.core.settings_store import get_live_settings
 from app.modules.backup.application.restore_service import RestoreError, consume_pending_restore
 from app.modules.backup.domain.aggregate import BackupStatus
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
@@ -394,6 +395,10 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                 handle=handle,
                 repo_get=lambda sid: sql_get_server(sid),
                 repo_save=lambda s: sql_save_server(s, self._event_bus),
+                startup_timeout=float(
+                    server.startup_timeout_seconds
+                    or get_live_settings().server_startup_timeout_seconds
+                ),
             )
 
             add_timeline_milestone(None, "Phase 2/2: Supervisor started", server_name, sid)

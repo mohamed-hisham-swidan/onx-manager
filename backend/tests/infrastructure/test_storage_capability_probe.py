@@ -1,3 +1,6 @@
+import builtins
+import importlib
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -47,3 +50,29 @@ def test_storage_capability_probe_real_filesystem_execution() -> None:
         probe_dir = Path(tmpdir) / ".onx" / "probe"
         assert not (probe_dir / "probe_src.bin").exists()
         assert not (probe_dir / "probe_dst.bin").exists()
+
+
+def test_storage_probe_imports_without_fcntl_simulated_windows() -> None:
+    """Simulates Windows (no fcntl module): the probe module must still import,
+    and probe_path must degrade to the `cp` CLI fallback instead of crashing.
+    """
+    real_import = builtins.__import__
+
+    def fake_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "fcntl":
+            raise ImportError("No module named 'fcntl' (simulated Windows)")
+        return real_import(name, *args, **kwargs)
+
+    module_name = "app.modules.versioning.infrastructure.storage_probe"
+    with patch.object(builtins, "__import__", side_effect=fake_import):
+        saved = sys.modules.pop(module_name, None)
+        try:
+            module = importlib.import_module(module_name)
+        finally:
+            sys.modules.pop(module_name, None)
+            if saved is not None:
+                sys.modules[module_name] = saved
+    assert module.fcntl is None
+    # probe_path must not crash; returns a bool via the `cp` fallback path
+    with tempfile.TemporaryDirectory() as tmpdir:
+        assert isinstance(module.StorageCapabilityProbe.probe_path(tmpdir), bool)
