@@ -4,6 +4,8 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/stores/authStore";
 import { useActivityStore, toActivityEvent } from "@/stores/activityStore";
 import { useProvisionProgressStore, toProvisionProgressEvent } from "@/stores/provisionProgressStore";
+import { useOperationStore } from "@/operations/stores/operationStore";
+import type { OperationEvent } from "@/operations/types";
 import type { MetricsSnapshot } from "@/services/api";
 import { MAX_POINTS } from "@/server_manager/components/ServerMetricsCharts";
 
@@ -61,6 +63,12 @@ export function WebSocketManager() {
       const provisionEvent = toProvisionProgressEvent(event);
       if (provisionEvent) {
         useProvisionProgressStore.getState().setProgress(event.server_id as string, provisionEvent);
+      }
+      const eventType = event.event_type as string | undefined;
+      if (eventType && eventType.startsWith("operation.")) {
+        useOperationStore.getState().handleWsEvent(event as unknown as OperationEvent, (opId) => {
+          queryClient.invalidateQueries({ queryKey: ["operations", "detail", opId] });
+        });
       }
     },
     [addEvent],

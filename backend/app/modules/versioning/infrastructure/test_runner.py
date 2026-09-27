@@ -112,6 +112,7 @@ class TestSpec:
     node_id: str = "local"
     minecraft_version: str = "1.21.1"
     boot_timeout_seconds: int | float | None = None
+    operation_id: str | None = None
 
 
 @dataclass
@@ -126,6 +127,7 @@ class TestHandle:
     status: TestRunStatus
     runtime_id: str | None = None
     evidence_bundle: dict[str, Any] | None = None
+    operation_id: str | None = None
     _completion_future: asyncio.Future[BotVerificationResult] = field(
         default_factory=asyncio.Future
     )
@@ -245,6 +247,16 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         logs = [f"[PRE-LAUNCH FAILURE] {failure_reason}"]
         container_name = f"onx-test-{spec.test_id}"
 
+        if spec.operation_id:
+            from app.modules.operations.application import get_operation_service
+
+            await get_operation_service().fail_step(
+                spec.operation_id,
+                "MATERIALIZE_STAGING",
+                safe_to_retry=True,
+                error=failure_reason,
+            )
+
         evidence_bundle = {
             "test_id": spec.test_id,
             "server_id": spec.server_id,
@@ -307,6 +319,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             sidecar_runner=None,
             status=TestRunStatus.FAILED,
             runtime_id=None,
+            operation_id=spec.operation_id,
         )
         result = BotVerificationResult(
             passed=False,
@@ -341,6 +354,10 @@ class DockerTestExecutionRunner(TestExecutionRunner):
 
         test_root = Path(spec.server_dir) / ".onx" / "tests" / spec.test_id
         test_dir_str = str(test_root.resolve())
+        if spec.operation_id:
+            from app.modules.operations.application import get_operation_service
+
+            await get_operation_service().start_step(spec.operation_id, "MATERIALIZE_STAGING")
 
         try:
             # 1. Check storage COW capability (Class B)
@@ -561,6 +578,13 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 force_itzg_entrypoint=(server_startup_cmd is None),
             )
 
+            if spec.operation_id:
+                from app.modules.operations.application import get_operation_service
+
+                await get_operation_service().complete_step(
+                    spec.operation_id, "MATERIALIZE_STAGING"
+                )
+
         except _PrelaunchFatalError as fatal_err:
             return await self._handle_prelaunch_fatal_failure(
                 spec, fatal_err.step_name, fatal_err.original_exc, test_dir_str
@@ -646,6 +670,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             sidecar_runner=None,
             status=TestRunStatus.BOOTING,
             runtime_id=runtime_id,
+            operation_id=spec.operation_id,
         )
         self._active_runs[spec.test_id] = handle
 
@@ -776,6 +801,11 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 configured_timeout,
             )
 
+            if spec.operation_id:
+                from app.modules.operations.application import get_operation_service
+
+                await get_operation_service().start_step(spec.operation_id, "BOOTSTRAP_VERIFY")
+
             boot_res = await poll_boot_signals(
                 timeout=boot_timeout,
                 container_name=handle.container_name,
@@ -790,8 +820,23 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             if not boot_passed:
                 passed = False
                 failure_reason = boot_failure_reason
+                if spec.operation_id:
+                    from app.modules.operations.application import get_operation_service
+
+                    await get_operation_service().fail_step(
+                        spec.operation_id,
+                        "BOOTSTRAP_VERIFY",
+                        safe_to_retry=True,
+                        error=boot_failure_reason,
+                    )
                 # Skip verification drivers — fall through to finally block.
             else:
+                if spec.operation_id:
+                    from app.modules.operations.application import get_operation_service
+
+                    await get_operation_service().complete_step(
+                        spec.operation_id, "BOOTSTRAP_VERIFY"
+                    )
                 handle.status = TestRunStatus.RUNNING
                 await self._persist_test_status(spec.test_id, TestRunStatus.RUNNING)
                 if strat.driver == "fakeplayer_next":
@@ -819,6 +864,13 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                         plugin_enabled = True
 
                 # 4. Branch by verification mode & driver
+                if spec.operation_id:
+                    from app.modules.operations.application import get_operation_service
+
+                    await get_operation_service().start_step(
+                        spec.operation_id, "SYNTHETIC_PLAYER"
+                    )
+
                 if mode == VerificationMode.SMOKE_TEST:
                     logs.append(
                         f"[BOT-VERIFY] Smoke Test Mode: {server_type} ({spec.minecraft_version})"
@@ -1231,6 +1283,21 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             handle.set_result(result, evidence_bundle=evidence_bundle)
             self._active_runs.pop(spec.test_id, None)
 
+            if spec.operation_id:
+                from app.modules.operations.application import get_operation_service
+
+                if passed:
+                    await get_operation_service().complete_step(
+                        spec.operation_id, "SYNTHETIC_PLAYER"
+                    )
+                else:
+                    await get_operation_service().fail_step(
+                        spec.operation_id,
+                        "SYNTHETIC_PLAYER",
+                        safe_to_retry=True,
+                        error=failure_reason or "Verification failed",
+                    )
+
             # 7. Cleanup & Retention (§f)
             try:
                 await self.cleanup_test(handle, passed=passed)
@@ -1324,6 +1391,11 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         """Removes test container, and test directory (unless failed and retention active)."""
         from app.core.config import AppSettings
 
+        if handle.operation_id:
+            from app.modules.operations.application import get_operation_service
+
+            await get_operation_service().start_step(handle.operation_id, "CLEANUP")
+
         settings = AppSettings()
         retention_hours = getattr(settings, "test_artifact_retention_hours", 24)
 
@@ -1358,3 +1430,17 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 handle.test_dir,
                 retention_hours,
             )
+
+        if handle.operation_id:
+            from app.modules.operations.application import get_operation_service
+
+            op_service = get_operation_service()
+            await op_service.complete_step(handle.operation_id, "CLEANUP")
+            if passed:
+                await op_service.complete_operation(handle.operation_id)
+            else:
+                await op_service.fail_operation(
+                    handle.operation_id,
+                    failure_code="TEST_FAILED",
+                    error_message="Test run verification failed",
+                )

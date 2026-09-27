@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class OperationStatus(StrEnum):
+    QUEUED = "QUEUED"
+    PREPARING = "PREPARING"
+    RUNNING = "RUNNING"
+    CANCEL_REQUESTED = "CANCEL_REQUESTED"
+    CANCELLED = "CANCELLED"
+    FAILED = "FAILED"
+    TIMED_OUT = "TIMED_OUT"
+    COMPLETED = "COMPLETED"
+
+
+class StepStatus(StrEnum):
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+    CANCELLED = "CANCELLED"
+
+
+class OperationType(StrEnum):
+    RUN_TEST = "RUN_TEST"
+    START_SERVER = "START_SERVER"
+    STOP_SERVER = "STOP_SERVER"
+    RESTART_SERVER = "RESTART_SERVER"
+    DELETE_SERVER = "DELETE_SERVER"
+    BACKUP_CREATE = "BACKUP_CREATE"
+    BACKUP_RESTORE = "BACKUP_RESTORE"
+    UPDATE_SERVER = "UPDATE_SERVER"
+    GENERIC = "GENERIC"
+
+
+class TargetType(StrEnum):
+    SERVER = "server"
+    BACKUP = "backup"
+    SYSTEM = "system"

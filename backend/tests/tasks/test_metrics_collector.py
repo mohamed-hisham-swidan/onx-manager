@@ -290,3 +290,50 @@ async def test_collect_evicts_rcon_client_when_rcon_disabled() -> None:
 
     assert "s1" not in instance._rcon_clients
     stale.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_default_metrics_interval_is_safe_five_seconds() -> None:
+    """Default metrics collection interval must be 5.0s to safely exceed docker stats runtime."""
+    from app.core.config import AppSettings
+    from app.core.settings_store import LiveSettings, get_live_settings
+
+    app_settings = AppSettings()
+    assert app_settings.metrics_interval_seconds == 5.0
+
+    live_settings = get_live_settings()
+    assert live_settings.metrics_interval_seconds == 5.0
+
+    ls = LiveSettings()
+    assert ls.metrics_interval_seconds == 5.0
+
+
+@pytest.mark.asyncio
+async def test_scheduler_configures_five_second_interval() -> None:
+    """Scheduler must configure interval:5.0s with direct dispatch and max_instances=1."""
+    from unittest.mock import MagicMock
+
+    from app.tasks.scheduler import CronJobModel, Scheduler
+
+    mock_session_factory = MagicMock()
+    scheduler = Scheduler(mock_session_factory)
+    mock_aps = MagicMock()
+    scheduler._aps = mock_aps
+
+    job_model = CronJobModel(
+        id="job-metrics-5s",
+        name="metrics_collect",
+        cron_expression="interval:5.0s",
+        task_name="run_metrics_collection",
+        params_json="{}",
+    )
+
+    scheduler._schedule_job(job_model)
+
+    mock_aps.add_job.assert_called_once()
+    _, kwargs = mock_aps.add_job.call_args
+    assert kwargs["trigger"] == "interval"
+    assert kwargs["seconds"] == 5.0
+    assert kwargs["max_instances"] == 1
+    assert kwargs["coalesce"] is True
+

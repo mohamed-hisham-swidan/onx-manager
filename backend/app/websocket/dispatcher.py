@@ -57,6 +57,13 @@ WS_DISPATCH_ALLOWLIST: list[str] = [
     "RecoveryFailedEvent",
     "RecoverySucceededEvent",
     "HealthStatusChangedEvent",
+    # Operations (Phase 5.5 Stage A)
+    "OperationStartedEvent",
+    "OperationStepEvent",
+    "OperationLogEvent",
+    "OperationCompletedEvent",
+    "OperationFailedEvent",
+    "OperationCancelledEvent",
 ]
 
 
@@ -175,6 +182,14 @@ class EventDispatcher(EventHandler):
             channels.add("monitoring:*")
             if server_id:
                 channels.add(f"monitoring:{server_id}")
+
+        if "Operation" in event_type and hasattr(event, "operation_id"):
+            channels.add(f"operation:{event.operation_id}")
+            channels.add("operation:*")
+            if server_id:
+                channels.add(f"server:{server_id}")
+                channels.add("server:*")
+            return channels
 
         if not channels:
             channels.add("server:*")

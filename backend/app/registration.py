@@ -1,5 +1,6 @@
 from app.core.command_bus import CommandBus, DatabaseBusyRetryMiddleware
 from app.core.event_bus import EventBus
+from app.core.idempotency import IdempotencyMiddleware, get_idempotency_store
 from app.core.query_bus import QueryBus
 from app.modules.activity.application import (
     ActivityEventSubscriber,
@@ -120,6 +121,19 @@ from app.modules.monitoring.application import (
     GetMetricsQuery,
     UpdateAlertRuleCommand,
     UpdateAlertRuleHandler,
+)
+from app.modules.operations.application import (
+    CancelOperationCommand,
+    CancelOperationHandler,
+    CreateOperationCommand,
+    CreateOperationHandler,
+    GetOperationHandler,
+    GetOperationQuery,
+    ListOperationsHandler,
+    ListOperationsQuery,
+    RetryOperationCommand,
+    RetryOperationHandler,
+    get_operation_service,
 )
 from app.modules.plugin.application import (
     DisablePluginCommand,
@@ -316,6 +330,7 @@ def _register_event_handlers(event_bus: EventBus) -> None:
 
 
 def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> None:
+    command_bus.add_middleware(IdempotencyMiddleware(get_idempotency_store()))
     command_bus.add_middleware(DatabaseBusyRetryMiddleware())
     command_bus.register(CreateServerCommand, CreateServerHandler(event_bus))
     command_bus.register(DeleteServerCommand, DeleteServerHandler(event_bus))
@@ -440,6 +455,10 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
         RemoveBranchProtectionCommand,
         RemoveBranchProtectionHandler(),
     )
+    op_service = get_operation_service(event_bus=event_bus)
+    command_bus.register(CreateOperationCommand, CreateOperationHandler(op_service))
+    command_bus.register(CancelOperationCommand, CancelOperationHandler(op_service))
+    command_bus.register(RetryOperationCommand, RetryOperationHandler(op_service))
 
 
 def _register_query_handlers(query_bus: QueryBus) -> None:
@@ -489,4 +508,6 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(ListTestDefinitionsQuery, ListTestDefinitionsHandler())
     query_bus.register(GetTestRunEvidenceQuery, GetTestRunEvidenceHandler())
     query_bus.register(GetBranchProtectionQuery, GetBranchProtectionHandler())
+    query_bus.register(GetOperationQuery, GetOperationHandler())
+    query_bus.register(ListOperationsQuery, ListOperationsHandler())
 

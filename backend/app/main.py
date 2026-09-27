@@ -23,6 +23,7 @@ from app.api.v1.routers import (
     invites,
     marketplace,
     monitoring,
+    operations,
     plugins,
     schedules,
     servers,
@@ -246,6 +247,15 @@ async def lifespan(_app: FastAPI):
         except Exception:
             logger.exception("Filesystem reconciliation failed")
 
+    # Reconcile operations interrupted by previous process termination
+    try:
+        from app.modules.operations.application import OperationRecoveryReconciler
+
+        op_reconciler = OperationRecoveryReconciler(event_bus=event_bus)
+        await op_reconciler.reconcile_on_startup()
+    except Exception:
+        logger.exception("Operation startup reconciliation failed")
+
     # ── Task Queue & Scheduler (wired up once, during startup) ──────────
     logger.info("Starting task queue and scheduler")
     from app.modules.monitoring.infrastructure.collector import MetricsCollector
@@ -357,6 +367,13 @@ async def lifespan(_app: FastAPI):
 
     # ── Shutdown ────────────────────────────────────────────────────────
     try:
+        from app.modules.operations.application import get_operation_service
+
+        await get_operation_service().executor.shutdown(grace_seconds=10.0)
+    except Exception:
+        logger.warning("Error shutting down operation executor", exc_info=True)
+
+    try:
         from app.modules.exposure.infrastructure.playit_agent import get_playit_supervisor
 
         await get_playit_supervisor().stop()
@@ -426,6 +443,7 @@ def create_app() -> FastAPI:
     app.include_router(software.router)
     app.include_router(versioning.router)
     app.include_router(activity.router)
+    app.include_router(operations.router)
     app.include_router(ws_router)
 
     from app.modules.auth.infrastructure.jwt import get_jwks

@@ -47,7 +47,7 @@ _DEFAULTS: dict[str, Any] = {
     "event_bus_retry_attempts": 3,
     "saga_timeout_seconds": 300,
     "panel_bind_host": "127.0.0.1",
-    "metrics_interval_seconds": 1.5,
+    "metrics_interval_seconds": 5.0,
     "post_running_grace_seconds": 30.0,
     "bot_verify_defaults": {
         "bot_count": 10,
@@ -89,7 +89,7 @@ class LiveSettings:
     event_bus_retry_attempts: int = 3
     saga_timeout_seconds: int = 300
     panel_bind_host: str = "127.0.0.1"
-    metrics_interval_seconds: float = 1.5
+    metrics_interval_seconds: float = 5.0
     post_running_grace_seconds: float = 30.0
     bot_verify_defaults: dict[str, Any] = dataclasses.field(
         default_factory=lambda: {

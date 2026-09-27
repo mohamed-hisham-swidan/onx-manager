@@ -88,6 +88,11 @@ import type {
   SoftwareInfo,
   TestDefinition,
 } from "@/server_manager/types";
+import type {
+  CreateOperationRequest,
+  OperationDetail,
+  OperationSummary,
+} from "@/operations/types";
 
 export class ApiError extends Error {
   constructor(
@@ -895,6 +900,37 @@ export function createApiClient(
     removeCredentials: () =>
       request<{ status: string }>("/api/v1/exposure/credentials/remove", {
         method: "POST",
+      }),
+
+    // Operations (Phase 5.5 Stage A)
+    createOperation: (body: CreateOperationRequest, idempotencyKey?: string) =>
+      request<OperationDetail>("/api/v1/operations", {
+        method: "POST",
+        body,
+        headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+      }),
+    getOperation: (operationId: string) =>
+      request<OperationDetail>(`/api/v1/operations/${operationId}`),
+    listOperations: (params?: { target_type?: string; target_id?: string; status?: string; limit?: number }) =>
+      request<OperationSummary[]>("/api/v1/operations", {
+        params: params
+          ? {
+              target_type: params.target_type,
+              target_id: params.target_id,
+              status: params.status,
+              limit: params.limit !== undefined ? String(params.limit) : undefined,
+            }
+          : undefined,
+      }),
+    cancelOperation: (operationId: string, idempotencyKey?: string) =>
+      request<OperationDetail>(`/api/v1/operations/${operationId}/cancel`, {
+        method: "POST",
+        headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+      }),
+    retryOperation: (operationId: string, idempotencyKey?: string) =>
+      request<OperationDetail>(`/api/v1/operations/${operationId}/retry`, {
+        method: "POST",
+        headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
       }),
   };
 }

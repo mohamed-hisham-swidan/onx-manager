@@ -179,3 +179,18 @@ class IdempotencyMiddleware:
         except Exception:
             await self._store.release_reservation(key_str)
             raise
+
+
+_default_idempotency_store: InMemoryIdempotencyStore | None = None
+
+
+def get_idempotency_store() -> InMemoryIdempotencyStore:
+    global _default_idempotency_store
+    if _default_idempotency_store is None:
+        _default_idempotency_store = InMemoryIdempotencyStore()
+    return _default_idempotency_store
+
+
+def reset_idempotency_store() -> None:
+    global _default_idempotency_store
+    _default_idempotency_store = None

@@ -64,3 +64,80 @@ events:
       provider_name: string
       failure_count: integer
       window_seconds: integer
+
+  operation.started:
+    version: 1
+    payload:
+      operation_id: string
+      event_seq: integer
+      type: string
+      target_type: string
+      target_id: string?
+      server_id: string?
+      actor_id: string?
+      created_at: float
+
+  operation.step:
+    version: 1
+    payload:
+      operation_id: string
+      event_seq: integer
+      server_id: string?
+      step_id: string
+      sequence: integer
+      status: string
+      progress: float?
+      elapsed_ms: integer
+      message_key: string?
+      safe_to_retry: boolean
+      context: object
+
+  operation.log:
+    version: 1
+    payload:
+      operation_id: string
+      event_seq: integer
+      server_id: string?
+      step_id: string?
+      level: string
+      message: string
+      timestamp: float
+
+  operation.completed:
+    version: 1
+    payload:
+      operation_id: string
+      event_seq: integer
+      target_type: string
+      target_id: string?
+      server_id: string?
+      type: string
+      elapsed_ms: integer
+      finished_at: float
+
+  operation.failed:
+    version: 1
+    payload:
+      operation_id: string
+      event_seq: integer
+      target_type: string
+      target_id: string?
+      server_id: string?
+      type: string
+      failure_code: string
+      error_message: string
+      failed_step_id: string?
+      elapsed_ms: integer
+      finished_at: float
+
+  operation.cancelled:
+    version: 1
+    payload:
+      operation_id: string
+      event_seq: integer
+      target_type: string
+      target_id: string?
+      server_id: string?
+      type: string
+      elapsed_ms: integer
+      finished_at: float

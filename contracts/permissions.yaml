@@ -282,6 +282,11 @@ route_permissions:
   "POST /api/v1/schedules": {permission: "global.settings", status: enforced}
   "DELETE /api/v1/schedules/{schedule_id}": {permission: "global.settings", status: enforced}
 
+  # operations
+  "POST /api/v1/operations": {permission: "server:write", status: enforced}
+  "POST /api/v1/operations/{operation_id}/cancel": {permission: "server:write", status: enforced}
+  "POST /api/v1/operations/{operation_id}/retry": {permission: "server:write", status: enforced}
+
 
   # settings
   "PATCH /api/v1/settings": {permission: "settings:write", status: enforced}
@@ -379,6 +384,10 @@ route_permissions:
   "GET /api/v1/servers/{server_id}/versioning/materializations/{mat_id}/files": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/test-definitions": {permission: "server:version:read", status: enforced}
   "GET /api/v1/servers/{server_id}/versioning/test-definitions/{id}": {permission: "server:version:read", status: enforced}
+
+  # operations
+  "GET /api/v1/operations": {permission: "server:read", status: enforced}
+  "GET /api/v1/operations/{operation_id}": {permission: "server:read", status: enforced}
 
 
   # ── WebSocket ───────────────────────────────────────────────────────────────

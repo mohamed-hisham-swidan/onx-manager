@@ -48,7 +48,7 @@ class TestSettingsPersistenceStore:
         assert live.idempotency_ttl_hours == 24
         assert live.log_level == "INFO"
         assert live.debug is False
-        assert live.metrics_interval_seconds == 1.5
+        assert live.metrics_interval_seconds == 5.0
 
     def test_auto_migrate_legacy_app_name(self, setup_temp_settings):
         """Legacy default 'mcs-manager' in settings.yaml should auto-migrate to 'onx-manager'."""

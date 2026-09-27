@@ -19,6 +19,8 @@ CHANNEL_PATTERNS: dict[str, set[str]] = {
     "test:*": {"server:read"},
     "test:{test_id}:console": {"server:read"},
     "test:{test_id}:metrics": {"server:read"},
+    "operation:*": {"admin:full"},
+    "operation:{operation_id}": {"server:read"},
 }
 
 MAX_CHANNELS_PER_CONNECTION = 50
@@ -32,6 +34,7 @@ WILDCARD_CHANNELS: set[str] = {
     "auth:*",
     "provision:*",
     "test:*",
+    "operation:*",
 }
 
 
@@ -101,6 +104,7 @@ class ChannelAuthorizer:
             "auth",
             "user",
             "provision",
+            "operation",
         }
         if parts[0] not in valid_prefixes:
             return False

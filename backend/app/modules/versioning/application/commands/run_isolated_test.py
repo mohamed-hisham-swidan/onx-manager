@@ -147,19 +147,69 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
             run_overrides=run_overrides,
         )
 
-        # 4. Global admission gate (Stage D). admit() runs reap-read-check-earmark
-        # inside one DB-serialized transaction and owns the PENDING-row insert
-        # (with RAM/core earmarks); the container starts only after it commits.
-        # Raises ConflictError (409, cap) or BotRunInsufficientResourcesError (422).
-        reservation = await admit(
-            server_id=command.server_id,
-            commit_id=target_commit_id,
-            bot_count=bot_cfg.bot_count,
-            server_type=server.server_type,
-            duration_minutes=bot_cfg.duration_minutes,
-            placement_mode=bot_cfg.placement_mode.value,
-            bot_tech=bot_cfg.bot_tech.value,
+        # Step 1: Create Operation aggregate and wire ADMISSION_CHECK step (§4.3, §6.3)
+        from app.modules.operations.application import get_operation_service
+
+        op_service = get_operation_service(event_bus=self._event_bus)
+        op = await op_service.create_operation(
+            type="RUN_TEST",
+            target_type="server",
+            target_id=command.server_id,
+            metadata={
+                "commit_id": target_commit_id,
+                "test_definition_id": command.test_definition_id,
+            },
+            initial_steps=[
+                {
+                    "step_id": "ADMISSION_CHECK",
+                    "sequence": 1,
+                    "message_key": "operations.steps.admission",
+                },
+                {
+                    "step_id": "MATERIALIZE_STAGING",
+                    "sequence": 2,
+                    "message_key": "operations.steps.materialize",
+                    "safe_to_retry": True,
+                },
+                {
+                    "step_id": "BOOTSTRAP_VERIFY",
+                    "sequence": 3,
+                    "message_key": "operations.steps.bootstrap",
+                    "safe_to_retry": True,
+                },
+                {
+                    "step_id": "SYNTHETIC_PLAYER",
+                    "sequence": 4,
+                    "message_key": "operations.steps.synthetic_player",
+                    "safe_to_retry": True,
+                },
+                {
+                    "step_id": "CLEANUP",
+                    "sequence": 5,
+                    "message_key": "operations.steps.cleanup",
+                },
+            ],
         )
+
+        await op_service.start_step(op.id, "ADMISSION_CHECK")
+        try:
+            reservation = await admit(
+                server_id=command.server_id,
+                commit_id=target_commit_id,
+                bot_count=bot_cfg.bot_count,
+                server_type=server.server_type,
+                duration_minutes=bot_cfg.duration_minutes,
+                placement_mode=bot_cfg.placement_mode.value,
+                bot_tech=bot_cfg.bot_tech.value,
+            )
+            await op_service.complete_step(op.id, "ADMISSION_CHECK")
+        except Exception as exc:
+            await op_service.fail_step(op.id, "ADMISSION_CHECK", error=str(exc))
+            await op_service.fail_operation(
+                op.id, failure_code="ADMISSION_FAILED", error_message=str(exc)
+            )
+            raise
+
         test_run = reservation.test_run
         test_id = test_run.id
         test_run.test_definition_id = command.test_definition_id
@@ -175,6 +225,7 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
             bot_config=bot_cfg,
             minecraft_version=server.minecraft_version,
             boot_timeout_seconds=getattr(server, "startup_timeout_seconds", None),
+            operation_id=op.id,
         )
 
         try:
@@ -213,5 +264,6 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
                 "bot_tech": bot_cfg.bot_tech.value,
                 "placement_mode": bot_cfg.placement_mode.value,
                 "test_definition_id": command.test_definition_id,
+                "operation_id": op.id,
             },
         )

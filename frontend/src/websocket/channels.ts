@@ -16,6 +16,7 @@ export const VALID_CHANNEL_PREFIXES = [
   "auth",
   "user",
   "provision",
+  "operation",
 ] as const;
 
 export const MAX_CHANNELS = 50;
@@ -160,6 +161,10 @@ export class ChannelManager {
 
   static isMonitoringChannel(channel: string): boolean {
     return channel.startsWith("monitoring:") || channel.startsWith("metrics:");
+  }
+
+  static isOperationChannel(channel: string): boolean {
+    return channel.startsWith("operation:");
   }
 }
 
