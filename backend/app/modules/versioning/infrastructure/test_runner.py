@@ -370,6 +370,12 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     bot_count=spec.bot_config.bot_count,
                     server_type=server_type,
                 )
+            await self._report_progress(
+                spec.operation_id,
+                "MATERIALIZE_STAGING",
+                0.2,
+                context={"phase": "preflight_checks_passed"},
+            )
 
             # 3. Materialize test directory under .onx/tests/<test_id> (Class B)
             with _class_b_step("test dir creation/materialization"):
@@ -378,6 +384,12 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             # 4. COW world clone (Class B)
             with _class_b_step("world clone"):
                 BtrfsZfsSnapshotDriver.clone_world(spec.server_dir, test_dir_str)
+            await self._report_progress(
+                spec.operation_id,
+                "MATERIALIZE_STAGING",
+                0.5,
+                context={"phase": "world_cloned"},
+            )
 
             # 5. Write manifest configs & mod jars into test directory (Class B)
             staged_startup_jar: str | None = None
@@ -422,6 +434,12 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     if candidate_jar is not None:
                         staged_startup_jar = candidate_jar.name
                         stage_file_reflink_or_copy(candidate_jar, test_root / candidate_jar.name)
+            await self._report_progress(
+                spec.operation_id,
+                "MATERIALIZE_STAGING",
+                0.7,
+                context={"phase": "configs_staged"},
+            )
 
             test_deployment = TestServerDeployment(test_id=spec.test_id, test_dir=test_dir_str)
 
@@ -689,7 +707,10 @@ class DockerTestExecutionRunner(TestExecutionRunner):
 
         # Launch background verification execution (no lock is held: admission
         # owns concurrency policy; failures surface via handle + DB outcome).
-        asyncio.create_task(
+        # The task is registered with the OperationExecutor (§4.4) so that a
+        # user cancellation reaches the running verification instead of
+        # marking the Operation CANCELLED while the container keeps running.
+        verify_task = asyncio.create_task(
             self._execute_verification(
                 spec,
                 handle,
@@ -698,6 +719,29 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 rcon_password=rcon_password,
             )
         )
+        if spec.operation_id:
+            from app.modules.operations.application import get_operation_service
+
+            try:
+                op_service = get_operation_service()
+                op_service.executor.register_task(spec.operation_id, verify_task)
+                try:
+                    op = await op_service.get_operation(spec.operation_id)
+                    op_service.executor.schedule_timeout_watch(
+                        spec.operation_id, op.timeout_seconds
+                    )
+                except Exception as timeout_err:
+                    logger.debug(
+                        "Timeout watch not armed for operation %s: %s",
+                        spec.operation_id,
+                        timeout_err,
+                    )
+            except Exception as reg_err:
+                logger.debug(
+                    "Operation task registration failed for %s: %s",
+                    spec.operation_id,
+                    reg_err,
+                )
         return handle
 
     async def _execute_verification(
@@ -713,6 +757,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         logs: list[str] = []
         failure_reason: str | None = None
         passed = False
+        cancel_finalize = False
         connected_bots = 0
         duration_s = bot_cfg.duration_minutes * 60.0
         plugin_enabled: bool | None = None
@@ -875,6 +920,12 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     logs.append(
                         f"[BOT-VERIFY] Smoke Test Mode: {server_type} ({spec.minecraft_version})"
                     )
+                    await self._report_progress(
+                        spec.operation_id,
+                        "SYNTHETIC_PLAYER",
+                        0.1,
+                        context={"phase": "smoke_test_started"},
+                    )
                     smoke_res = await SmokeTestRunner.run_smoke_test(
                         test_dir=Path(handle.test_dir),
                         container_name=handle.container_name,
@@ -895,6 +946,12 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     logs.append(
                         f"[BOT-VERIFY] Spawning {bot_cfg.bot_count} "
                         "RCON-driven FakePlayer-Next plugin bots"
+                    )
+                    await self._report_progress(
+                        spec.operation_id,
+                        "SYNTHETIC_PLAYER",
+                        0.1,
+                        context={"phase": "fakeplayer_spawn_started"},
                     )
 
                     # Execute /fp spawn commands via docker exec or RCON
@@ -965,6 +1022,18 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                             except Exception:
                                 actions_failed += 1
 
+                    await self._report_progress(
+                        spec.operation_id,
+                        "SYNTHETIC_PLAYER",
+                        spawned_bots / max(1, bot_cfg.bot_count),
+                        context={
+                            "spawn_ok": spawn_ok,
+                            "spawn_failed": spawn_failed,
+                            "actions_ok": actions_ok,
+                            "actions_failed": actions_failed,
+                        },
+                    )
+
                     for grp in cmd_groups:
                         with contextlib.suppress(Exception):
                             await asyncio.to_thread(
@@ -1023,6 +1092,12 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                         f"[BOT-VERIFY] Starting Mineflayer harness against "
                         f"{container_ip}:25565 ({bot_cfg.bot_count} bots)"
                     )
+                    await self._report_progress(
+                        spec.operation_id,
+                        "SYNTHETIC_PLAYER",
+                        0.1,
+                        context={"phase": "mineflayer_harness_started"},
+                    )
                     verify_res = await MineflayerBotDriver.run_mineflayer_verification(
                         bot_dir=bot_dir,
                         host=container_ip,
@@ -1057,8 +1132,17 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                         failure_reason = f"Crash report detected: {first_crash.name}"
 
         except asyncio.CancelledError:
+            # Cooperative cancellation (§5.4): a user cancel arrives here via
+            # the executor-registered task. A timeout/shutdown cancel arrives
+            # the same way but without the request flag set.
             failure_reason = "Test run cancelled"
             passed = False
+            try:
+                if await self._is_operation_cancellation_requested(spec.operation_id):
+                    cancel_finalize = True
+                    failure_reason = "Test run cancelled by user"
+            except asyncio.CancelledError:
+                pass
         except Exception as e:
             logger.exception("Test run encountered exception: %s", e)
             failure_reason = str(e)
@@ -1221,7 +1305,8 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             handle.evidence_bundle = evidence_bundle
 
             # 4. Dispatch TestRunFailedEvent if failed (§d.3)
-            if not passed and self._event_bus is not None:
+            # A cooperatively cancelled run is not a failure: no failure event.
+            if not passed and not cancel_finalize and self._event_bus is not None:
                 try:
                     from app.modules.versioning.domain.events import TestRunFailedEvent
 
@@ -1238,6 +1323,8 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     logger.debug("Failed publishing TestRunFailedEvent: %s", eb_err)
 
             # 5. Update Runtime Entity (§b)
+            # A cancelled run is terminated by request, never crashed.
+            runtime_terminal = passed or cancel_finalize
             if handle.runtime_id:
                 try:
                     runtime = Runtime(
@@ -1246,11 +1333,13 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                         commit_id=spec.commit.id,
                         container_id=handle.container_name,
                         port=25565,
-                        status=RuntimeStatus.TERMINATED if passed else RuntimeStatus.CRASHED,
+                        status=RuntimeStatus.TERMINATED
+                        if runtime_terminal
+                        else RuntimeStatus.CRASHED,
                         exit_code=inspect_exit_code,
                         oom_killed=inspect_oom,
                     )
-                    if not passed:
+                    if not runtime_terminal:
                         runtime.mark_crashed(exit_code=inspect_exit_code, oom_killed=inspect_oom)
                     else:
                         runtime.mark_terminated(exit_code=inspect_exit_code)
@@ -1262,14 +1351,23 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             capped_log = cap_log_output("\n".join(logs))
 
             # 6. Persist Real Outcome to SQLite DB
-            await self._persist_test_outcome(
-                test_id=spec.test_id,
-                passed=passed,
-                failure_reason=failure_reason,
-                log_output=capped_log,
-                runtime_id=handle.runtime_id,
-                evidence_bundle=evidence_bundle,
-            )
+            # A cooperatively cancelled run is recorded CANCELLED, never FAILED.
+            if cancel_finalize:
+                await self._persist_test_cancelled(
+                    test_id=spec.test_id,
+                    reason=failure_reason or "Test run cancelled by user",
+                    log_output=capped_log,
+                    runtime_id=handle.runtime_id,
+                )
+            else:
+                await self._persist_test_outcome(
+                    test_id=spec.test_id,
+                    passed=passed,
+                    failure_reason=failure_reason,
+                    log_output=capped_log,
+                    runtime_id=handle.runtime_id,
+                    evidence_bundle=evidence_bundle,
+                )
 
             result = BotVerificationResult(
                 passed=passed,
@@ -1283,7 +1381,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             handle.set_result(result, evidence_bundle=evidence_bundle)
             self._active_runs.pop(spec.test_id, None)
 
-            if spec.operation_id:
+            if spec.operation_id and not cancel_finalize:
                 from app.modules.operations.application import get_operation_service
 
                 if passed:
@@ -1299,14 +1397,61 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     )
 
             # 7. Cleanup & Retention (§f)
+            # On cooperative cancel the CLEANUP step finalizes CANCELLED
+            # (confirm_cancellation) instead of FAILED.
             try:
-                await self.cleanup_test(handle, passed=passed)
+                await self.cleanup_test(handle, passed=passed, cancelled=cancel_finalize)
             except Exception as cleanup_exc:
                 logger.warning(
                     "Test container cleanup failed for %s: %s",
                     spec.test_id,
                     cleanup_exc,
                 )
+
+    async def _report_progress(
+        self,
+        operation_id: str | None,
+        step_id: str,
+        progress: float | None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Best-effort OperationStep progress ping (Stage A §6.3).
+
+        Progress reporting must never break verification: every failure
+        (unknown operation, missing step, locked DB) is swallowed to debug.
+        """
+        if not operation_id:
+            return
+        try:
+            from app.modules.operations.application import get_operation_service
+
+            await get_operation_service().record_step_progress(
+                operation_id, step_id, progress, context=context
+            )
+        except Exception as exc:
+            logger.debug(
+                "Progress ping failed for operation %s step %s: %s",
+                operation_id,
+                step_id,
+                exc,
+            )
+
+    async def _is_operation_cancellation_requested(
+        self, operation_id: str | None
+    ) -> bool:
+        """Best-effort read of the cooperative cancellation flag (§5.4)."""
+        if not operation_id:
+            return False
+        try:
+            from app.modules.operations.application import get_operation_service
+
+            op = await get_operation_service().get_operation(operation_id)
+            return bool(op.cancellation_requested)
+        except Exception as exc:
+            logger.debug(
+                "Cancellation-flag read failed for operation %s: %s", operation_id, exc
+            )
+            return False
 
     async def _persist_test_status(self, test_id: str, status: TestRunStatus) -> None:
         """Persists intermediate test run status (e.g. RUNNING after BOOTING) with busy-retry."""
@@ -1387,14 +1532,74 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 logger.exception("Failed to persist test run outcome for %s: %s", test_id, exc)
                 break
 
-    async def cleanup_test(self, handle: TestHandle, passed: bool = True) -> None:
-        """Removes test container, and test directory (unless failed and retention active)."""
+    async def _persist_test_cancelled(
+        self,
+        test_id: str,
+        reason: str,
+        log_output: str,
+        runtime_id: str | None = None,
+    ) -> None:
+        """Persists a cooperatively cancelled run as CANCELLED (never FAILED)."""
+        from app.core.persistence.db import database
+        from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
+
+        try:
+            _ = database.session_factory
+        except RuntimeError:
+            logger.debug(
+                "Database not initialized; skipping test cancel persistence for %s", test_id
+            )
+            return
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                async with database.session_factory() as session:
+                    repo = SQLVersioningRepository(session)
+                    run = await repo.get_test_run(test_id)
+                    if run and not run.is_terminal:
+                        run.mark_cancelled(reason=reason)
+                        run.log_output = log_output
+                        if runtime_id is not None:
+                            run.runtime_id = runtime_id
+                        await repo.save_test_run(run)
+                        await session.commit()
+                break
+            except Exception as exc:
+                is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                if is_lock and attempt < max_retries - 1:
+                    await asyncio.sleep(0.05 * (2**attempt))
+                    continue
+                logger.exception("Failed to persist test run cancel for %s: %s", test_id, exc)
+                break
+
+    async def cleanup_test(
+        self, handle: TestHandle, passed: bool = True, cancelled: bool = False
+    ) -> None:
+        """Removes test container, and test directory (unless failed and retention active).
+
+        ``cancelled=True`` finalizes a cooperatively cancelled operation as
+        CANCELLED (§5.4) instead of FAILED, after the container is removed.
+        Terminal-state races (timeout/completion committed first) are left
+        intact rather than overwritten.
+        """
         from app.core.config import AppSettings
+        from app.modules.operations.domain.exceptions import (
+            InvalidStateTransitionError,
+            OperationTerminalConflictError,
+        )
 
         if handle.operation_id:
-            from app.modules.operations.application import get_operation_service
+            try:
+                from app.modules.operations.application import get_operation_service
 
-            await get_operation_service().start_step(handle.operation_id, "CLEANUP")
+                await get_operation_service().start_step(handle.operation_id, "CLEANUP")
+            except (InvalidStateTransitionError, OperationTerminalConflictError) as term_err:
+                logger.debug(
+                    "CLEANUP step start skipped for operation %s: %s",
+                    handle.operation_id,
+                    term_err,
+                )
 
         settings = AppSettings()
         retention_hours = getattr(settings, "test_artifact_retention_hours", 24)
@@ -1435,12 +1640,23 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             from app.modules.operations.application import get_operation_service
 
             op_service = get_operation_service()
-            await op_service.complete_step(handle.operation_id, "CLEANUP")
-            if passed:
-                await op_service.complete_operation(handle.operation_id)
-            else:
-                await op_service.fail_operation(
+            try:
+                await op_service.complete_step(handle.operation_id, "CLEANUP")
+                if cancelled:
+                    await op_service.confirm_cancellation(handle.operation_id)
+                elif passed:
+                    await op_service.complete_operation(handle.operation_id)
+                else:
+                    await op_service.fail_operation(
+                        handle.operation_id,
+                        failure_code="TEST_FAILED",
+                        error_message="Test run verification failed",
+                    )
+            except (InvalidStateTransitionError, OperationTerminalConflictError) as term_err:
+                # Timeout, completion, or an earlier cancel already committed a
+                # terminal state: first committed transition wins (§5.4).
+                logger.debug(
+                    "Operation %s already terminal at cleanup: %s",
                     handle.operation_id,
-                    failure_code="TEST_FAILED",
-                    error_message="Test run verification failed",
+                    term_err,
                 )

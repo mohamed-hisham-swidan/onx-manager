@@ -148,13 +148,29 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
         )
 
         # Step 1: Create Operation aggregate and wire ADMISSION_CHECK step (§4.3, §6.3)
+        # Per-operation timeout budget (§5.4): the designed timeout watcher
+        # must cover the full run (boot + bot duration + watchdog overrun),
+        # otherwise the default 600s budget would false-fire on every
+        # standard 15-minute verification run.
+        from app.core.settings_store import get_live_settings
         from app.modules.operations.application import get_operation_service
 
+        live_settings = get_live_settings()
+        run_boot_timeout = float(
+            getattr(server, "startup_timeout_seconds", None)
+            or live_settings.test_boot_timeout_seconds
+        )
+        run_timeout_seconds = int(
+            run_boot_timeout
+            + bot_cfg.duration_minutes * 60
+            + bot_cfg.watchdog_overrun_minutes * 60
+        )
         op_service = get_operation_service(event_bus=self._event_bus)
         op = await op_service.create_operation(
             type="RUN_TEST",
             target_type="server",
             target_id=command.server_id,
+            timeout_seconds=run_timeout_seconds,
             metadata={
                 "commit_id": target_commit_id,
                 "test_definition_id": command.test_definition_id,

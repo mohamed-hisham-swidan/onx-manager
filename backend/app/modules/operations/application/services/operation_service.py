@@ -274,6 +274,60 @@ class OperationService:
         # Already CANCEL_REQUESTED or CANCELLED -> return idempotent
         return op
 
+    async def confirm_cancellation(
+        self,
+        operation_id: str,
+        session: AsyncSession | None = None,
+    ) -> Operation:
+        """Worker completion of the cooperative cancellation path (Stage A §5.4).
+
+        Called by the operation worker after it observes task cancellation and
+        finishes cleanup. Transitions CANCEL_REQUESTED -> CANCELLED and emits
+        ``OperationCancelledEvent``. If a timeout (or completion) already
+        committed a terminal state first, the operation is returned untouched
+        so the race winner is never overwritten.
+        """
+        if session is not None:
+            return await self._confirm_cancellation_with_session(session, operation_id)
+        async with database.session_factory() as sess:
+            op = await self._confirm_cancellation_with_session(sess, operation_id)
+            await sess.commit()
+            return op
+
+    async def _confirm_cancellation_with_session(
+        self,
+        session: AsyncSession,
+        operation_id: str,
+    ) -> Operation:
+        repo = SQLOperationRepository(session)
+        op = await repo.get(operation_id)
+        if op is None:
+            raise OperationNotFoundError(operation_id)
+
+        if op.status == OperationStatus.CANCELLED:
+            return op
+        if op.status != OperationStatus.CANCEL_REQUESTED and not op.cancellation_requested:
+            # Timeout, completion, or failure won the race: leave it intact.
+            return op
+
+        op.cancel()
+        op.next_event_seq()
+        saved = await repo.save(op)
+
+        if self._event_bus:
+            evt = OperationCancelledEvent(
+                operation_id=saved.id,
+                event_seq=saved.last_event_seq,
+                target_type=saved.target_type,
+                target_id=saved.target_id,
+                server_id=saved.target_id if saved.target_type == "server" else None,
+                type=saved.type,
+                elapsed_ms=saved.elapsed_ms,
+            )
+            await self._event_bus.publish(evt)
+
+        return saved
+
     async def retry_operation(
         self,
         operation_id: str,

@@ -24,6 +24,7 @@ def _utcnow() -> datetime:
 class OperationExecutor:
     def __init__(self, event_bus: EventBus | None = None) -> None:
         self._running_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._timeout_watchers: dict[str, asyncio.Task[Any]] = {}
         self._event_bus = event_bus
 
     def register_task(self, operation_id: str, task: asyncio.Task[Any]) -> None:
@@ -31,6 +32,9 @@ class OperationExecutor:
 
         def _cleanup(_task: asyncio.Task[Any]) -> None:
             self._running_tasks.pop(operation_id, None)
+            watcher = self._timeout_watchers.pop(operation_id, None)
+            if watcher is not None and not watcher.done():
+                watcher.cancel()
 
         task.add_done_callback(_cleanup)
 
@@ -41,8 +45,121 @@ class OperationExecutor:
             return True
         return False
 
+    def schedule_timeout_watch(
+        self, operation_id: str, timeout_seconds: float | None
+    ) -> asyncio.Task[Any] | None:
+        """Arm the designed per-operation timeout watcher (Stage A §5.4).
+
+        The watcher sleeps for ``timeout_seconds`` then invokes
+        :meth:`_handle_timeout`, whose atomic conditional update guarantees
+        "first committed transition wins" against a concurrent cancellation.
+        The watcher is cancelled automatically when the operation task
+        completes (via the ``register_task`` done-callback) or at shutdown.
+        """
+        if timeout_seconds is None or timeout_seconds <= 0:
+            return None
+        existing = self._timeout_watchers.get(operation_id)
+        if existing is not None and not existing.done():
+            return existing
+        try:
+            watcher = asyncio.get_running_loop().create_task(
+                self._timeout_watch(operation_id, float(timeout_seconds))
+            )
+        except RuntimeError:
+            return None
+        self._timeout_watchers[operation_id] = watcher
+
+        def _forget(_task: asyncio.Task[Any]) -> None:
+            self._timeout_watchers.pop(operation_id, None)
+
+        watcher.add_done_callback(_forget)
+
+        op_task = self._running_tasks.get(operation_id)
+        if op_task is not None and op_task is not watcher:
+
+            def _cancel_watcher(_task: asyncio.Task[Any]) -> None:
+                w = self._timeout_watchers.pop(operation_id, None)
+                if w is not None and not w.done():
+                    w.cancel()
+
+            op_task.add_done_callback(_cancel_watcher)
+        return watcher
+
+    async def _timeout_watch(self, operation_id: str, timeout_seconds: float) -> None:
+        try:
+            await asyncio.sleep(timeout_seconds)
+        except asyncio.CancelledError:
+            return
+        try:
+            await self._handle_timeout(operation_id)
+        except Exception:
+            logger.exception("Timeout handling failed for operation %s", operation_id)
+
+    async def _handle_timeout(self, operation_id: str) -> bool:
+        """Designed timeout path (Stage A §5.4): atomic TIMED_OUT wins or yields.
+
+        Returns True when this call committed the TIMED_OUT transition,
+        False when cancellation/completion won the race (rowcount == 0) or
+        when persistence is unavailable.
+        """
+        from app.modules.operations.infrastructure.repository import SQLOperationRepository
+
+        try:
+            session_factory = database.session_factory
+        except RuntimeError:
+            logger.debug("Database not initialized; skipping timeout for %s", operation_id)
+            return False
+
+        try:
+            async with session_factory() as session:
+                repo = SQLOperationRepository(session)
+                won = await repo.atomic_timeout(operation_id)
+                op = await repo.get(operation_id)
+                if won and op is not None:
+                    # Keep the per-operation sequence monotonic for the
+                    # timeout event published below.
+                    op.last_event_seq += 1
+                    op = await repo.save(op)
+                await session.commit()
+        except Exception:
+            logger.exception("Timeout persistence failed for operation %s", operation_id)
+            return False
+
+        if not won:
+            # Cancellation committed first (or the operation already reached a
+            # terminal state): timeout yields, leaving it intact.
+            return False
+
+        # Timeout won: cooperatively cancel the running task (if any) so the
+        # worker aborts at its next safe boundary, then emit the failure event.
+        self.cancel_task(operation_id)
+        if self._event_bus and op is not None:
+            try:
+                evt = OperationFailedEvent(
+                    operation_id=op.id,
+                    event_seq=op.last_event_seq,
+                    target_type=op.target_type,
+                    target_id=op.target_id,
+                    server_id=op.target_id if op.target_type == "server" else None,
+                    type=op.type,
+                    failure_code="OPERATION_TIMEOUT",
+                    error_message="Operation exceeded configured timeout limit",
+                    elapsed_ms=op.elapsed_ms,
+                )
+                await self._event_bus.publish(evt)
+            except Exception:
+                logger.exception(
+                    "Failed publishing timeout event for operation %s", operation_id
+                )
+        return True
+
     async def shutdown(self, grace_seconds: float = 10.0) -> None:
         """Graceful shutdown of running operations during server lifespan shutdown."""
+        for watcher in list(self._timeout_watchers.values()):
+            if not watcher.done():
+                watcher.cancel()
+        self._timeout_watchers.clear()
+
         if not self._running_tasks:
             return
 
@@ -99,7 +216,15 @@ class OperationRecoveryReconciler:
         self._event_bus = event_bus
 
     async def reconcile_on_startup(self) -> None:
-        queue_policy = os.environ.get("ONX_OPERATION_STARTUP_QUEUE_POLICY", "PURGE").upper()
+        raw_policy = os.environ.get("ONX_OPERATION_STARTUP_QUEUE_POLICY", "PURGE")
+        queue_policy = (raw_policy or "PURGE").strip().upper()
+        if queue_policy not in ("PURGE", "RE_DISPATCH"):
+            logger.warning(
+                "Unknown ONX_OPERATION_STARTUP_QUEUE_POLICY=%r — falling back "
+                "to the documented safe default PURGE",
+                raw_policy,
+            )
+            queue_policy = "PURGE"
         now = _utcnow()
 
         async with database.session_factory() as session:
@@ -168,5 +293,26 @@ class OperationRecoveryReconciler:
                             error_message=op.error_message,
                         )
                         await self._event_bus.publish(evt)
+            else:
+                # RE_DISPATCH: per the approved design (§5.5), QUEUED rows are
+                # left untouched for re-dispatch in created_at order. Stage A
+                # ships no generic re-execution substrate (only RUN_TEST is
+                # operation-wired and its container died with the process), so
+                # the reconciler preserves the rows and logs them for an
+                # external dispatcher instead of claiming an enqueue it cannot
+                # perform. The documented safe default remains PURGE.
+                stmt_queued = (
+                    select(OperationModel)
+                    .where(OperationModel.status == OperationStatus.QUEUED.value)
+                    .order_by(OperationModel.created_at)
+                )
+                res_queued = await session.execute(stmt_queued)
+                queued_ops = res_queued.scalars().all()
+                if queued_ops:
+                    logger.info(
+                        "ONX_OPERATION_STARTUP_QUEUE_POLICY=RE_DISPATCH: "
+                        "preserving %d QUEUED operation(s) for re-dispatch",
+                        len(queued_ops),
+                    )
 
             await session.commit()
