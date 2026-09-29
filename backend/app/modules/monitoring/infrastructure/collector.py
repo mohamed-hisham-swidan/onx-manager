@@ -419,8 +419,6 @@ class MetricsCollector:
             cstats = None
             if container_name and container_name in self._docker_stats_cache:
                 cstats = self._docker_stats_cache[container_name]
-            elif f"onx-server-{server_id}" in self._docker_stats_cache:
-                cstats = self._docker_stats_cache[f"onx-server-{server_id}"]
 
             if cstats is not None:
                 ram_used_mb = cstats.ram_used_mb

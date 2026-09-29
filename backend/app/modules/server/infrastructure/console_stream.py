@@ -157,7 +157,19 @@ class ConsoleStreamManager:
             server = await session.get(ServerModel, target_id)
             if server:
                 provider = (server.provider or "docker").lower()
-                external_id = server.external_id or f"onx-server-{target_id}"
+                external_id = server.external_id or ""
+
+                server_dir: Path | None = None
+                if server.root_path:
+                    server_dir = Path(server.root_path)
+                    if server.working_directory and server.working_directory != ".":
+                        server_dir = server_dir / server.working_directory
+                if not server_dir:
+                    from app.core.config import AppSettings
+
+                    server_dir = Path(AppSettings().servers_data_dir).resolve() / target_id
+
+                log_path = server_dir / "logs" / "latest.log"
 
                 is_local = provider in ("local", "local_linux", "local_windows")
                 is_windows_local = provider == "local_windows" or (
@@ -165,25 +177,24 @@ class ConsoleStreamManager:
                 )
 
                 if is_windows_local:
-                    server_dir: Path | None = None
-                    if server.root_path:
-                        server_dir = Path(server.root_path)
-                        if server.working_directory and server.working_directory != ".":
-                            server_dir = server_dir / server.working_directory
-                    if not server_dir:
-                        from app.core.config import AppSettings
-
-                        server_dir = Path(AppSettings().servers_data_dir).resolve() / target_id
-
-                    log_path = server_dir / "logs" / "latest.log"
                     return external_id, "file_tail", log_path
 
                 if is_local:
-                    return external_id, "tmux", None
+                    if external_id:
+                        return external_id, "tmux", None
+                    return "", "file_tail", log_path
 
-                return external_id, "docker", None
+                # Docker provider
+                if external_id:
+                    return external_id, "docker", None
 
-        return f"onx-server-{target_id}", "docker", None
+                # Stopped Docker server: use disk log fallback
+                return "", "file_tail", log_path
+
+        from app.core.config import AppSettings
+
+        default_dir = Path(AppSettings().servers_data_dir).resolve() / target_id
+        return "", "file_tail", default_dir / "logs" / "latest.log"
 
     async def _run_stream_loop(self, channel: str) -> None:
         queue: asyncio.Queue[str] = asyncio.Queue()
@@ -198,7 +209,7 @@ class ConsoleStreamManager:
                 name=f"flusher-{channel}",
             )
 
-            if mode == "docker":
+            if mode == "docker" and target_name:
                 producer_task = asyncio.create_task(
                     self._docker_logs_producer(target_name, queue),
                     name=f"docker-producer-{channel}",
@@ -208,11 +219,19 @@ class ConsoleStreamManager:
                     self._file_tail_producer(log_path, queue),
                     name=f"file-tail-producer-{channel}",
                 )
-            else:
+            elif mode == "tmux" and target_name:
                 producer_task = asyncio.create_task(
                     self._tmux_poll_producer(target_name, queue),
                     name=f"tmux-producer-{channel}",
                 )
+            elif log_path is not None:
+                producer_task = asyncio.create_task(
+                    self._file_tail_producer(log_path, queue),
+                    name=f"file-tail-producer-{channel}",
+                )
+
+            if producer_task is None:
+                return
 
             done, pending = await asyncio.wait(
                 [producer_task, flusher_task],
@@ -252,6 +271,23 @@ class ConsoleStreamManager:
                 await queue.put(marker)
         await queue.put(line)
 
+    @staticmethod
+    async def _drain_stderr(stream: asyncio.StreamReader, container_name: str) -> None:
+        try:
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                logger.debug(
+                    "docker logs stderr [%s]: %s",
+                    container_name,
+                    line.decode("utf-8", errors="replace").rstrip(),
+                )
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.debug("docker logs stderr reader error [%s]: %s", container_name, exc)
+
     async def _docker_logs_producer(
         self,
         container_name: str,
@@ -260,6 +296,7 @@ class ConsoleStreamManager:
         backoff = 1.0
         while self._running:
             proc = None
+            stderr_task = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "docker",
@@ -270,11 +307,17 @@ class ConsoleStreamManager:
                     "0",
                     container_name,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
+                    stderr=asyncio.subprocess.PIPE,
                 )
                 backoff = 1.0
                 if proc.stdout is None:
                     break
+
+                if proc.stderr is not None:
+                    stderr_task = asyncio.create_task(
+                        self._drain_stderr(proc.stderr, container_name),
+                        name=f"docker-stderr-{container_name}",
+                    )
 
                 while self._running:
                     raw_line = await proc.stdout.readline()
@@ -288,6 +331,10 @@ class ConsoleStreamManager:
             except Exception as exc:
                 logger.debug("docker logs stream for %s encountered: %s", container_name, exc)
             finally:
+                if stderr_task and not stderr_task.done():
+                    stderr_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await stderr_task
                 if proc and proc.returncode is None:
                     with contextlib.suppress(Exception):
                         proc.kill()
