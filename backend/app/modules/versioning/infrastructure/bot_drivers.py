@@ -45,6 +45,18 @@ class BotVerificationResult:
     failure_reason: str | None = None
     logs: list[str] = field(default_factory=list)
 
+    @classmethod
+    def from_verdict(cls, verdict: Any, logs: list[str]) -> BotVerificationResult:
+        return cls(
+            passed=verdict.passed,
+            connected_bots=verdict.connected_bots,
+            total_bots=verdict.total_bots,
+            disconnects=verdict.disconnects,
+            survived_duration_seconds=verdict.survived_duration_seconds,
+            failure_reason=verdict.failure_reason,
+            logs=logs,
+        )
+
     @property
     def log_output(self) -> str:
         return cap_log_output("\n".join(self.logs))
@@ -57,7 +69,7 @@ class BotVerificationResult:
             "disconnects": self.disconnects,
             "survived_duration_seconds": self.survived_duration_seconds,
             "failure_reason": self.failure_reason,
-            "logs": self.logs[-50:],  # Tail 50 lines
+            "logs": self.logs[-100:],  # Tail 100 lines
         }
 
 

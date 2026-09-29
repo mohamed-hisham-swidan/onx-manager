@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -79,23 +79,61 @@ class PruneTestArtifactsHandler(CommandHandler[PruneTestArtifactsCommand]):
         pruned_count = 0
         cleaned_dirs: list[str] = []
 
-        servers_root = Path(settings.servers_data_dir).resolve()
+        from app.modules.server.infrastructure.models import ServerModel
+        from app.modules.versioning.domain.cleanup import TestCleanupPlan
+        from app.modules.versioning.domain.paths import resolve_test_dir
+
+        server_ids = {run.server_id for run in expired_runs}
+        servers_by_id: dict[str, ServerModel] = {}
+        if server_ids:
+            srv_res = await session.execute(
+                select(ServerModel).where(ServerModel.id.in_(server_ids))
+            )
+            servers_by_id = {s.id: s for s in srv_res.scalars().all()}
 
         for run in expired_runs:
             run_server_id = run.server_id
             test_id = run.id
-            test_dir = servers_root / run_server_id / ".onx" / "tests" / test_id
+            server = servers_by_id.get(run_server_id)
+            if not server or not server.root_path:
+                logger.warning(
+                    "Skipping artifact cleanup for test %s: "
+                    "server %s missing or root_path is NULL; refusing to guess path",
+                    test_id,
+                    run_server_id,
+                )
+                run.artifacts_purged = True
+                pruned_count += 1
+                continue
 
-            if test_dir.exists():
-                try:
+            root_path = server.root_path
+            working_dir = server.working_directory or "."
+            server_dir = (
+                os.path.join(root_path, working_dir)
+                if working_dir != "."
+                else root_path
+            )
+
+            try:
+                test_dir = resolve_test_dir(server_dir, test_id)
+                plan = TestCleanupPlan.create(
+                    server_id=run_server_id,
+                    test_id=test_id,
+                    container_name=f"onx-test-{test_id}",
+                    test_dir=test_dir,
+                    server_dir=server_dir,
+                    passed=False,
+                    retention_hours=0.0,
+                )
+                if plan.purge_artifacts and test_dir.exists():
                     await asyncio.to_thread(shutil.rmtree, test_dir, ignore_errors=True)
                     cleaned_dirs.append(str(test_dir))
-                except Exception as e:
-                    logger.warning(
-                        "Failed to remove expired test artifact directory %s: %s",
-                        test_dir,
-                        e,
-                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to remove expired test artifact directory for %s: %s",
+                    test_id,
+                    e,
+                )
 
             run.artifacts_purged = True
             pruned_count += 1

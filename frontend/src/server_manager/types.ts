@@ -568,6 +568,9 @@ export interface ServerTestRun {
   runtime_id?: string | null;
   test_definition_id?: string | null;
   artifacts_purged?: boolean;
+  reserved_ram_mb?: number | null;
+  reserved_cores?: number | null;
+  operation_id?: string | null;
   evidence_bundle?: EvidenceBundle | null;
 }
 

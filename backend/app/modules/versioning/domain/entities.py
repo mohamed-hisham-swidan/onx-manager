@@ -502,6 +502,10 @@ class TestDefinition:
             raise ValueError(f"Invalid duration_seconds: {self.duration_seconds} (must be 10-3600)")
         if self.timeout_seconds < 30 or self.timeout_seconds > 7200:
             raise ValueError(f"Invalid timeout_seconds: {self.timeout_seconds} (must be 30-7200)")
+        if self.assertion_rules:
+            from app.modules.versioning.domain.value_objects import AssertionRulesConfig
+
+            AssertionRulesConfig.from_dict(self.assertion_rules)
 
     def update(
         self,
@@ -542,6 +546,9 @@ class TestDefinition:
         if placement_mode is not None:
             self.placement_mode = placement_mode
         if assertion_rules is not None:
+            from app.modules.versioning.domain.value_objects import AssertionRulesConfig
+
+            AssertionRulesConfig.from_dict(assertion_rules)
             self.assertion_rules = assertion_rules
         if timeout_seconds is not None:
             if timeout_seconds < 30 or timeout_seconds > 7200:
@@ -625,6 +632,7 @@ class ServerTestRun:
     test_definition_id: str | None = None
     evidence_bundle: dict[str, Any] | None = None
     artifacts_purged: bool = False
+    operation_id: str | None = None
 
     @property
     def is_terminal(self) -> bool:
@@ -646,17 +654,23 @@ class ServerTestRun:
         self.ephemeral_port = ephemeral_port
 
     def mark_passed(self, log_output: str | None = None) -> None:
+        if self.is_terminal:
+            raise ValueError(f"Cannot transition terminal test run ({self.status}) to PASSED")
         self.status = TestRunStatus.PASSED
         if log_output:
             self.log_output = log_output
 
     def mark_failed(self, reason: str, log_output: str | None = None) -> None:
+        if self.is_terminal:
+            raise ValueError(f"Cannot transition terminal test run ({self.status}) to FAILED")
         self.status = TestRunStatus.FAILED
         self.failure_reason = reason
         if log_output:
             self.log_output = log_output
 
     def mark_cancelled(self, reason: str = "Cancelled by user") -> None:
+        if self.is_terminal:
+            raise ValueError(f"Cannot transition terminal test run ({self.status}) to CANCELLED")
         self.status = TestRunStatus.CANCELLED
         self.failure_reason = reason
 

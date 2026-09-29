@@ -27,6 +27,7 @@ from app.modules.operations.application.services.operation_service import (
     reset_operation_service,
 )
 from app.modules.operations.domain.enums import OperationStatus
+from app.modules.versioning.domain.paths import resolve_test_dir
 from app.modules.versioning.domain.value_objects import TestRunStatus
 from app.modules.versioning.infrastructure.test_runner import (
     DockerTestExecutionRunner,
@@ -132,21 +133,42 @@ async def test_runner_cleanup_cancelled_path_marks_cancelled(tmp_path):
         with contextlib.suppress(asyncio.CancelledError):
             await worker_task
 
-        test_dir = tmp_path / "t-cancel"
-        test_dir.mkdir()
+        server_dir = tmp_path / "srv-gap-1"
+        server_dir.mkdir(parents=True, exist_ok=True)
+        test_dir = resolve_test_dir(server_dir, "t-cancel")
+        test_dir.mkdir(parents=True, exist_ok=True)
         (test_dir / "debug.log").write_text("keep me")
         handle = TestHandle(
             test_id="t-cancel",
             server_id="srv-gap-1",
             container_name="onx-test-missing-xyz",
             test_dir=str(test_dir),
+            server_dir=str(server_dir),
             sidecar_runner=None,
             status=TestRunStatus.FAILED,
             operation_id=op.id,
         )
 
         runner = DockerTestExecutionRunner()
-        await runner.cleanup_test(handle, passed=False, cancelled=True)
+
+        # Regression: cleanup_test() raises when both explicit server_dir
+        # and handle.server_dir are absent
+        handle_no_srv = TestHandle(
+            test_id="t-cancel",
+            server_id="srv-gap-1",
+            container_name="onx-test-missing-xyz",
+            test_dir=str(test_dir),
+            server_dir="",
+            sidecar_runner=None,
+            status=TestRunStatus.FAILED,
+            operation_id=op.id,
+        )
+        with pytest.raises(ValueError, match="authoritative server_dir is required"):
+            await runner.cleanup_test(handle_no_srv, passed=False, cancelled=True)
+
+        await runner.cleanup_test(
+            handle, passed=False, cancelled=True, server_dir=server_dir
+        )
 
         reloaded = await svc.get_operation(op.id)
         assert reloaded.status == OperationStatus.CANCELLED
@@ -167,38 +189,42 @@ async def test_runner_cleanup_normal_paths_unchanged(tmp_path):
     svc = get_operation_service(event_bus=bus)
     try:
         runner = DockerTestExecutionRunner()
+        server_dir = tmp_path / "srv-gap-1"
+        server_dir.mkdir(parents=True, exist_ok=True)
 
         op_ok = await _make_op(svc)
         await svc.start_step(op_ok.id, "SYNTHETIC_PLAYER")
-        dir_ok = tmp_path / "t-ok"
-        dir_ok.mkdir()
+        dir_ok = resolve_test_dir(server_dir, "t-ok")
+        dir_ok.mkdir(parents=True, exist_ok=True)
         handle_ok = TestHandle(
             test_id="t-ok",
             server_id="srv-gap-1",
             container_name="onx-test-missing-xyz",
             test_dir=str(dir_ok),
+            server_dir=str(server_dir),
             sidecar_runner=None,
             status=TestRunStatus.PASSED,
             operation_id=op_ok.id,
         )
-        await runner.cleanup_test(handle_ok, passed=True)
+        await runner.cleanup_test(handle_ok, passed=True, server_dir=server_dir)
         assert (await svc.get_operation(op_ok.id)).status == OperationStatus.COMPLETED
         assert not dir_ok.exists()
 
         op_bad = await _make_op(svc)
         await svc.start_step(op_bad.id, "SYNTHETIC_PLAYER")
-        dir_bad = tmp_path / "t-bad"
-        dir_bad.mkdir()
+        dir_bad = resolve_test_dir(server_dir, "t-bad")
+        dir_bad.mkdir(parents=True, exist_ok=True)
         handle_bad = TestHandle(
             test_id="t-bad",
             server_id="srv-gap-1",
             container_name="onx-test-missing-xyz",
             test_dir=str(dir_bad),
+            server_dir=str(server_dir),
             sidecar_runner=None,
             status=TestRunStatus.FAILED,
             operation_id=op_bad.id,
         )
-        await runner.cleanup_test(handle_bad, passed=False)
+        await runner.cleanup_test(handle_bad, passed=False, server_dir=server_dir)
         reloaded_bad = await svc.get_operation(op_bad.id)
         assert reloaded_bad.status == OperationStatus.FAILED
         assert reloaded_bad.failure_code == "TEST_FAILED"

@@ -170,8 +170,10 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
             )
             await activity_repo.save(activity_log)
 
+        from app.modules.versioning.domain.paths import resolve_test_dir
+
         server_dir = server.deployment.server_dir
-        test_dir = str((Path(server_dir) / ".onx" / "tests" / command.test_id).resolve())
+        test_dir = str(resolve_test_dir(server_dir, command.test_id))
 
         # 3. Stop production server if running
         was_running = server.status in (ServerStatus.RUNNING, ServerStatus.STARTING)
@@ -205,10 +207,12 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
             server_id=command.server_id,
             container_name=f"onx-test-{command.test_id}",
             test_dir=test_dir,
+            server_dir=server_dir,
             sidecar_runner=None,
             status=test_run.status,
+            operation_id=test_run.operation_id,
         )
-        await self._test_runner.cleanup_test(handle)
+        await self._test_runner.cleanup_test(handle, passed=True, server_dir=server_dir)
 
         # 7. Restart production server if it was previously running
         if was_running and self._command_bus:

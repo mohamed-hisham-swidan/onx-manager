@@ -116,6 +116,8 @@ class ServerTestRunModel(Base):
     )
     evidence_bundle = Column(JSON, nullable=True)
     artifacts_purged = Column(Boolean, nullable=False, default=False)
+    # Stage B: Operation linkage
+    operation_id = Column(String(36), nullable=True, index=True)
 
 
 class ServerTestDefinitionModel(Base):

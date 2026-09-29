@@ -150,6 +150,16 @@ Scope and delivery summary:
 - **Stage G — Protected Branches:** Configurable `BranchProtectionPolicy` on `ServerBranch`, direct-commit rejection with emergency bypass permission, and deletion safeguards. (Commit `ba8b539`, migration `b1e2100000019`)
 - **Frontend UI Batch:** Complete user interfaces across Stages B, C, F, and G (`BranchProtectionModal`, `TestDefinitionsModal`, `TestEvidenceModal`, `MaterializationBrowserModal`, `ImportReviewModal`, `ManageBranchesModal`, `CreateTagModal`, `CommitDiffModal`, and page wiring). (Commit `8b219ba`)
 
+## Phase 5.5 — Pre-Beta Reliability (Stages A & B implemented & verified)
+
+**Status:** Stages A & B implemented & verified (3,145 backend collected / 3,139 passed / 6 skipped / 0 failed, 752 frontend passed across 89 files, 6/6 CI gates PASS; Alembic head `b1e2100000022`).
+**Design Specs:** [`docs/decisions/PHASE-5.5-STAGE-A-RELIABILITY-FOUNDATION-DESIGN.md`](../decisions/PHASE-5.5-STAGE-A-RELIABILITY-FOUNDATION-DESIGN.md) (Stage A), [`docs/decisions/PHASE-5.5-STAGE-B-TEST-RUN-ENGINE-DESIGN.md`](../decisions/PHASE-5.5-STAGE-B-TEST-RUN-ENGINE-DESIGN.md) (Stage B)
+**Governing Decision Records:** [`DECISION-2026-09-27-001`](../decisions/DECISION-2026-09-27-001-stage-b-test-run-engine.md) (D2, Test Run Engine — Accepted by owner 2026-09-27), [`DECISION-2026-09-28-001`](../decisions/DECISION-2026-09-28-001-stage-b-canonical-test-dir-amendment.md) (D1, Canonical Test Directory Grounding Amendment — Accepted by owner 2026-09-28)
+
+Scope (D2-bounded, RECON-evidenced; "Stage B" here is Phase 5.5 Test Run Engine, unrelated to the closed Enterprise Stage B above):
+- **Stage A — Reliability Foundation (done):** `Operation` aggregate + steps, `operation.*` events, dual-layer idempotency, WS projection, recovery reconciler; exactly one producer wired (`RUN_TEST`).
+- **Stage B — Test Run Engine (done):** TestDefinition execution wired directly into run overrides without lossy integer division, supporting exact `duration_seconds` and `assertion_rules`; TestRun lifecycle hardening with standard `ValueError` terminal guards, `operation_id` column and index via migration `b1e2100000022`, and `expires_at` persistence; unified assertion engine behind `BaseVerifier` (`SmokeTestVerifier`, `FakePlayerVerifier`, `MineflayerVerifier`) preserving legacy driver semantics, disconnect ceilings, and zero-target bot handling; canonical `TestCleanupPlan` engine with authoritative deployment-directory grounding (`resolve_test_dir` separator-safe traversal protection, fail-closed `server_dir` validation across discard, promote, reap, and prune); versioned schema v1 evidence bundle with fallback dual keys. Hard boundaries: admission, promotion gates, and `Operation`-as-projection unchanged; Stage C–G untouched.
+
 ## Phase 6 — Final Installs / Wrap-up
 
 **Status:** READY (Unblocked by completion of Phase 4, Phase 5, and Enterprise Branch Runtime Stages A–G + Frontend UI Batch)

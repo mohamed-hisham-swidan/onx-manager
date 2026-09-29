@@ -50,11 +50,13 @@ const sampleEvidence: EvidenceBundle = {
   },
   assertions: {
     boot_passed: false,
+    boot_gate_passed: false,
   },
   crash_analysis: {
     stack_trace: "net.minecraftforge.fml.ModLoadingException: Mod ironchest failed\n  at net.minecraftforge...",
     root_cause: "ModLoadingException: Mod ironchest failed",
     failure_reason: "Failed mod loading stage",
+    blamed_mod: "ironchest.jar",
     suspected_culprit_mods: ["ironchest.jar", "jei.jar"],
   },
   log_tail: [],

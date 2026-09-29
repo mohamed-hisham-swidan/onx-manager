@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class CreateBranchRequest(BaseModel):
@@ -103,6 +103,9 @@ class TestRunResponse(BaseModel):
     test_definition_id: str | None = None
     artifacts_purged: bool = False
     evidence_bundle: dict[str, Any] | None = None
+    reserved_ram_mb: int | None = None
+    reserved_cores: int | None = None
+    operation_id: str | None = None
 
 
 class TestDefinitionCreateRequest(BaseModel):
@@ -118,6 +121,15 @@ class TestDefinitionCreateRequest(BaseModel):
     assertion_rules: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: int = Field(default=300, ge=30, le=7200)
 
+    @field_validator("assertion_rules")
+    @classmethod
+    def validate_assertion_rules(cls, v: dict[str, Any]) -> dict[str, Any]:
+        if v:
+            from app.modules.versioning.domain.value_objects import AssertionRulesConfig
+
+            AssertionRulesConfig.from_dict(v)
+        return v
+
 
 class TestDefinitionUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
@@ -131,6 +143,15 @@ class TestDefinitionUpdateRequest(BaseModel):
     placement_mode: str | None = None
     assertion_rules: dict[str, Any] | None = None
     timeout_seconds: int | None = Field(default=None, ge=30, le=7200)
+
+    @field_validator("assertion_rules")
+    @classmethod
+    def validate_assertion_rules(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        if v is not None:
+            from app.modules.versioning.domain.value_objects import AssertionRulesConfig
+
+            AssertionRulesConfig.from_dict(v)
+        return v
 
 
 class TestDefinitionResponse(BaseModel):

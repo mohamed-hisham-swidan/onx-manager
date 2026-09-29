@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -122,6 +123,64 @@ class CommitManifest:
 
 
 @dataclass(frozen=True)
+class AssertionRulesConfig:
+    """Declarative validation rules applied against test execution outcomes."""
+
+    min_connected_bots_ratio: float | None = None
+    max_disconnects: int = 0
+    min_boot_seconds: float = 0.0
+    max_boot_seconds: float | None = None
+    disallow_crash_reports: bool = True
+    disallow_error_logs: bool = False
+    required_log_markers: list[str] = field(default_factory=list)
+    forbidden_log_markers: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> AssertionRulesConfig:
+        if not data:
+            return cls()
+        raw_ratio = data.get("min_connected_bots_ratio")
+        ratio = float(raw_ratio) if raw_ratio is not None else None
+        if ratio is not None and not 0.0 <= ratio <= 1.0:
+            raise ValueError(f"min_connected_bots_ratio must be between 0.0 and 1.0, got {ratio}")
+        max_disc = int(data.get("max_disconnects", 0))
+        if max_disc < 0:
+            raise ValueError(f"max_disconnects cannot be negative, got {max_disc}")
+        min_boot = float(data.get("min_boot_seconds", 0.0))
+        if min_boot < 0:
+            raise ValueError(f"min_boot_seconds cannot be negative, got {min_boot}")
+        max_boot = data.get("max_boot_seconds")
+        max_boot_val = float(max_boot) if max_boot is not None else None
+        if max_boot_val is not None and max_boot_val < min_boot:
+            raise ValueError(
+                f"max_boot_seconds ({max_boot_val}) cannot be less than "
+                f"min_boot_seconds ({min_boot})"
+            )
+        return cls(
+            min_connected_bots_ratio=ratio,
+            max_disconnects=max_disc,
+            min_boot_seconds=min_boot,
+            max_boot_seconds=max_boot_val,
+            disallow_crash_reports=bool(data.get("disallow_crash_reports", True)),
+            disallow_error_logs=bool(data.get("disallow_error_logs", False)),
+            required_log_markers=list(data.get("required_log_markers", [])),
+            forbidden_log_markers=list(data.get("forbidden_log_markers", [])),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "min_connected_bots_ratio": self.min_connected_bots_ratio,
+            "max_disconnects": self.max_disconnects,
+            "min_boot_seconds": self.min_boot_seconds,
+            "max_boot_seconds": self.max_boot_seconds,
+            "disallow_crash_reports": self.disallow_crash_reports,
+            "disallow_error_logs": self.disallow_error_logs,
+            "required_log_markers": self.required_log_markers,
+            "forbidden_log_markers": self.forbidden_log_markers,
+        }
+
+
+@dataclass(frozen=True)
 class BotVerificationConfig:
     """Resolved configuration for a bot verification run."""
 
@@ -132,14 +191,39 @@ class BotVerificationConfig:
     join_stagger_seconds: float = 3.0
     connect_grace_seconds: float = 60.0
     watchdog_overrun_minutes: float = 5.0
+    duration_seconds: float = 900.0
+    watchdog_overrun_seconds: float = 300.0
+    assertion_rules: AssertionRulesConfig = field(default_factory=AssertionRulesConfig)
+
+    def __post_init__(self) -> None:
+        # Reconcile duration_seconds and duration_minutes
+        if self.duration_seconds == 900.0 and self.duration_minutes != 15:
+            object.__setattr__(self, "duration_seconds", float(self.duration_minutes * 60))
+        elif self.duration_seconds != 900.0:
+            object.__setattr__(
+                self, "duration_minutes", max(1, math.ceil(self.duration_seconds / 60.0))
+            )
+
+        # Reconcile watchdog_overrun_seconds and watchdog_overrun_minutes
+        if self.watchdog_overrun_seconds == 300.0 and self.watchdog_overrun_minutes != 5.0:
+            object.__setattr__(
+                self, "watchdog_overrun_seconds", float(self.watchdog_overrun_minutes * 60)
+            )
+        elif self.watchdog_overrun_seconds != 300.0:
+            object.__setattr__(
+                self, "watchdog_overrun_minutes", self.watchdog_overrun_seconds / 60.0
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "bot_count": self.bot_count,
             "duration_minutes": self.duration_minutes,
-            "bot_tech": self.bot_tech.value
-            if isinstance(self.bot_tech, BotTech)
-            else self.bot_tech,
+            "duration_seconds": self.duration_seconds,
+            "bot_tech": (
+                self.bot_tech.value
+                if isinstance(self.bot_tech, BotTech)
+                else self.bot_tech
+            ),
             "placement_mode": (
                 self.placement_mode.value
                 if isinstance(self.placement_mode, PlacementMode)
@@ -148,6 +232,8 @@ class BotVerificationConfig:
             "join_stagger_seconds": self.join_stagger_seconds,
             "connect_grace_seconds": self.connect_grace_seconds,
             "watchdog_overrun_minutes": self.watchdog_overrun_minutes,
+            "watchdog_overrun_seconds": self.watchdog_overrun_seconds,
+            "assertion_rules": self.assertion_rules.to_dict(),
         }
 
 

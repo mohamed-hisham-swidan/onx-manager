@@ -108,7 +108,7 @@ async def test_docker_test_runner_successful_execution_pipeline() -> None:
             assert "online-mode=false" in content
 
             # Verify cleanup
-            await runner.cleanup_test(handle)
+            await runner.cleanup_test(handle, passed=True)
 
 
 
@@ -164,8 +164,8 @@ async def test_docker_test_runner_concurrent_runs_no_longer_rejected() -> None:
             assert handle1.container_name != handle2.container_name
             await handle1.wait_for_completion()
             await handle2.wait_for_completion()
-            await runner.cleanup_test(handle1)
-            await runner.cleanup_test(handle2)
+            await runner.cleanup_test(handle1, passed=True)
+            await runner.cleanup_test(handle2, passed=True)
 
 
 @pytest.mark.asyncio
@@ -221,7 +221,7 @@ async def test_docker_test_runner_crash_report_blaming_integration() -> None:
             assert res.passed is False
             assert handle.status == TestRunStatus.FAILED
             assert "ironchests" in str(res.failure_reason)
-            await runner.cleanup_test(handle)
+            await runner.cleanup_test(handle, passed=False)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -583,7 +583,7 @@ async def test_verification_exception_still_removes_container() -> None:
             patch.object(ResourcePreflightProbe, "assert_sufficient_resources", return_value=None),
             patch("subprocess.run", side_effect=capture_run),
             patch(
-                "app.modules.versioning.infrastructure.test_runner.SmokeTestRunner.run_smoke_test",
+                "app.modules.versioning.infrastructure.verifiers.SmokeTestRunner.run_smoke_test",
                 side_effect=boom,
             ),
         ):

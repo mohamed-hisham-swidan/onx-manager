@@ -22,6 +22,7 @@ from app.modules.server.infrastructure.providers.docker import (
 )
 from app.modules.versioning.domain.deployment import TestServerDeployment
 from app.modules.versioning.domain.entities import Runtime, ServerCommit
+from app.modules.versioning.domain.paths import resolve_test_dir
 from app.modules.versioning.domain.value_objects import (
     BotTech,
     BotVerificationConfig,
@@ -32,9 +33,7 @@ from app.modules.versioning.domain.value_objects import (
 from app.modules.versioning.infrastructure.bot_drivers import (
     BotVerificationResult,
     FakePlayerNextDriver,
-    MineflayerBotDriver,
     PluginCheck,
-    SmokeTestRunner,
     cap_log_output,
     check_plugin_enabled,
     generate_bot_names_prefix,
@@ -113,6 +112,7 @@ class TestSpec:
     minecraft_version: str = "1.21.1"
     boot_timeout_seconds: int | float | None = None
     operation_id: str | None = None
+    timeout_seconds: int | float | None = None
 
 
 @dataclass
@@ -125,6 +125,7 @@ class TestHandle:
     test_dir: str
     sidecar_runner: PooledRunner | None
     status: TestRunStatus
+    server_dir: str = ""
     runtime_id: str | None = None
     evidence_bundle: dict[str, Any] | None = None
     operation_id: str | None = None
@@ -154,7 +155,13 @@ class TestExecutionRunner(ABC):
         pass
 
     @abstractmethod
-    async def cleanup_test(self, handle: TestHandle, passed: bool = True) -> None:
+    async def cleanup_test(
+        self,
+        handle: TestHandle,
+        *,
+        passed: bool,
+        cancelled: bool = False,
+    ) -> None:
         pass
 
 
@@ -172,6 +179,47 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         self._active_runs: dict[str, TestHandle] = {}
         self._event_bus = event_bus
         self._evidence_store: dict[str, Any] = {}
+
+    @classmethod
+    def _build_evidence_bundle(
+        cls,
+        handle: Any,
+        runtime_data: dict[str, Any],
+        verdict: Any,
+        log_tail: list[str],
+    ) -> dict[str, Any]:
+        crash_info = getattr(verdict, "extra_context", {}).get("crash_info", {})
+        blamed_mod = crash_info.get("blamed_mod")
+        suspected = crash_info.get("suspected_culprit_mods") or ([blamed_mod] if blamed_mod else [])
+        boot_passed = any(
+            getattr(a, "passed", False)
+            for a in getattr(verdict, "assertions", [])
+            if getattr(a, "name", "") in ("boot_gate_passed", "boot_passed")
+        )
+        return {
+            "schema_version": "1.0",
+            "test_id": getattr(handle, "test_id", None),
+            "server_id": getattr(handle, "server_id", None),
+            "commit_id": getattr(handle, "commit_id", None),
+            "operation_id": getattr(handle, "operation_id", None),
+            "runtime": runtime_data,
+            "assertions": {
+                "container_started": True,
+                "boot_passed": boot_passed,
+                "boot_gate_passed": boot_passed,
+                "clean_shutdown": getattr(verdict, "passed", False),
+                "items": [
+                    a.to_dict() if hasattr(a, "to_dict") else a
+                    for a in getattr(verdict, "assertions", [])
+                ],
+            },
+            "crash_analysis": {
+                "blamed_mod": blamed_mod,
+                "suspected_culprit_mods": suspected,
+                "summary": crash_info.get("summary") or getattr(verdict, "failure_reason", None),
+            },
+            "log_tail": [line for line in log_tail[-100:] if line.strip()],
+        }
 
     async def _persist_runtime(self, runtime: Runtime) -> None:
         from app.core.persistence.db import database
@@ -258,9 +306,11 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             )
 
         evidence_bundle = {
+            "schema_version": "1.0",
             "test_id": spec.test_id,
             "server_id": spec.server_id,
             "commit_id": spec.commit.id,
+            "operation_id": spec.operation_id,
             "runtime": {
                 "runtime_id": None,
                 "container_name": container_name,
@@ -270,19 +320,23 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             },
             "assertions": {
                 "container_started": False,
+                "boot_passed": False,
                 "boot_gate_passed": False,
                 "bots_spawned_target": spec.bot_config.bot_count,
                 "bots_spawned_actual": 0,
+                "connected_bots": 0,
                 "crash_reports_found": 0,
                 "clean_shutdown": False,
+                "items": [],
             },
             "crash_analysis": {
                 "blamed_mod": None,
+                "suspected_culprit_mods": [],
                 "failure_code": None,
                 "summary": failure_reason,
                 "crash_report_path": None,
             },
-            "log_tail": logs,
+            "log_tail": [line for line in logs[-100:] if line.strip()],
         }
 
         if self._event_bus is not None:
@@ -352,7 +406,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         server_type = manifest.server_type
         mc_version = manifest.minecraft_version or spec.minecraft_version
 
-        test_root = Path(spec.server_dir) / ".onx" / "tests" / spec.test_id
+        test_root = resolve_test_dir(spec.server_dir, spec.test_id)
         test_dir_str = str(test_root.resolve())
         if spec.operation_id:
             from app.modules.operations.application import get_operation_service
@@ -685,6 +739,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             server_id=spec.server_id,
             container_name=container_name,
             test_dir=test_dir_str,
+            server_dir=spec.server_dir,
             sidecar_runner=None,
             status=TestRunStatus.BOOTING,
             runtime_id=runtime_id,
@@ -759,13 +814,14 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         passed = False
         cancel_finalize = False
         connected_bots = 0
-        duration_s = bot_cfg.duration_minutes * 60.0
+        duration_s = float(bot_cfg.duration_seconds)
         plugin_enabled: bool | None = None
         spawn_ok = 0
         spawn_failed = 0
         actions_ok = 0
         actions_failed = 0
         bot_names_prefix: str | None = None
+        verdict: Any | None = None
 
         def _scrub(s: str | None) -> str:
             if not s:
@@ -908,7 +964,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     else:
                         plugin_enabled = True
 
-                # 4. Branch by verification mode & driver
+                # 4. Delegate to appropriate BaseVerifier
                 if spec.operation_id:
                     from app.modules.operations.application import get_operation_service
 
@@ -916,231 +972,65 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                         spec.operation_id, "SYNTHETIC_PLAYER"
                     )
 
-                if mode == VerificationMode.SMOKE_TEST:
-                    logs.append(
-                        f"[BOT-VERIFY] Smoke Test Mode: {server_type} ({spec.minecraft_version})"
-                    )
-                    await self._report_progress(
-                        spec.operation_id,
-                        "SYNTHETIC_PLAYER",
-                        0.1,
-                        context={"phase": "smoke_test_started"},
-                    )
-                    smoke_res = await SmokeTestRunner.run_smoke_test(
-                        test_dir=Path(handle.test_dir),
-                        container_name=handle.container_name,
-                        timeout_seconds=min(duration_s, 60.0),
-                    )
-                    passed = smoke_res.passed
-                    connected_bots = smoke_res.connected_bots
-                    failure_reason = smoke_res.failure_reason
-                    if strat.downgraded_from is not None:
-                        if failure_reason:
-                            failure_reason = f"{strat.reason}; {failure_reason}"
-                        else:
-                            failure_reason = strat.reason
-                    if smoke_res.log_output:
-                        logs.append(smoke_res.log_output)
-
-                elif driver == "fakeplayer_next":
-                    logs.append(
-                        f"[BOT-VERIFY] Spawning {bot_cfg.bot_count} "
-                        "RCON-driven FakePlayer-Next plugin bots"
-                    )
-                    await self._report_progress(
-                        spec.operation_id,
-                        "SYNTHETIC_PLAYER",
-                        0.1,
-                        context={"phase": "fakeplayer_spawn_started"},
-                    )
-
-                    # Execute /fp spawn commands via docker exec or RCON
-                    cmd_groups = FakePlayerNextDriver.format_spawn_commands(
-                        run_id=spec.test_id[:8],
-                        bot_count=bot_cfg.bot_count,
-                    )
-                    successful_spawns = 0
-                    spawned_bots = 0
-                    last_error: str | None = None
-                    disallowed_stdout_markers = (
-                        "is online",
-                        "Invalid name",
-                        "Incorrect argument",
-                        "Unknown",
-                    )
-
-                    for grp in cmd_groups:
-                        scmd = grp.spawn
-                        tokens = scmd.strip().split()
-                        is_spawn = len(tokens) >= 2 and tokens[1] == "spawn"
-                        try:
-                            res = await asyncio.to_thread(
-                                subprocess.run,
-                                ["docker", "exec", handle.container_name, "rcon-cli", scmd],
-                                capture_output=True,
-                                text=True,
-                                timeout=5,
-                            )
-                            out_scrubbed = _scrub(res.stdout)
-                            err_scrubbed = _scrub(res.stderr)
-                            has_disallowed = any(
-                                m in out_scrubbed for m in disallowed_stdout_markers
-                            )
-                            if res.returncode == 0 and not has_disallowed:
-                                successful_spawns += 1
-                                if is_spawn:
-                                    spawned_bots += 1
-                                    spawn_ok += 1
-                            else:
-                                if is_spawn:
-                                    spawn_failed += 1
-                                last_error = (
-                                    err_scrubbed.strip()
-                                    or out_scrubbed.strip()
-                                    or f"rcon-cli exit code {res.returncode}"
-                                )
-                                logger.debug("FakePlayer RCON spawn command failed: %s", last_error)
-                        except Exception as e:
-                            if is_spawn:
-                                spawn_failed += 1
-                            last_error = _scrub(str(e))
-                            logger.debug("Failed injecting fakeplayer command: %s", e)
-
-                        for acmd in grp.actions:
-                            try:
-                                res_act = await asyncio.to_thread(
-                                    subprocess.run,
-                                    ["docker", "exec", handle.container_name, "rcon-cli", acmd],
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=5,
-                                )
-                                if res_act.returncode == 0:
-                                    actions_ok += 1
-                                else:
-                                    actions_failed += 1
-                            except Exception:
-                                actions_failed += 1
-
-                    await self._report_progress(
-                        spec.operation_id,
-                        "SYNTHETIC_PLAYER",
-                        spawned_bots / max(1, bot_cfg.bot_count),
-                        context={
-                            "spawn_ok": spawn_ok,
-                            "spawn_failed": spawn_failed,
-                            "actions_ok": actions_ok,
-                            "actions_failed": actions_failed,
-                        },
-                    )
-
-                    for grp in cmd_groups:
-                        with contextlib.suppress(Exception):
-                            await asyncio.to_thread(
-                                subprocess.run,
-                                ["docker", "exec", handle.container_name, "rcon-cli", grp.stop],
-                                capture_output=True,
-                                text=True,
-                                timeout=5,
-                            )
-
-                    await asyncio.sleep(min(duration_s, 1.0))
-
-                    # Check container liveness before declaring outcome
-                    liveness = await asyncio.to_thread(
-                        subprocess.run,
-                        ["docker", "inspect", "-f", "{{.State.Running}}", handle.container_name],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    is_alive = liveness.returncode == 0 and "true" in liveness.stdout.lower()
-
-                    if not is_alive:
-                        passed = False
-                        connected_bots = spawned_bots
-                        failure_reason = (
-                            "Test server container terminated during FakePlayer bot verification"
-                        )
-                    else:
-                        passed = spawned_bots == bot_cfg.bot_count
-                        connected_bots = spawned_bots
-                        if not passed:
-                            err_msg = _scrub(last_error or "Unknown RCON error")
-                            failure_reason = (
-                                f"Spawned {spawned_bots}/{bot_cfg.bot_count} "
-                                f"FakePlayer bots via RCON: {err_msg}"
-                            )
-
-                else:
-                    # Mineflayer bot technology
-                    if bot_cfg.placement_mode == PlacementMode.SIDECAR:
-                        try:
-                            sidecar = await pool.acquire(timeout=5.0)
-                            handle.sidecar_runner = sidecar
-                            logs.append(
-                                f"[BOT-VERIFY] Acquired pooled sidecar {sidecar.container_name}"
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "Could not acquire pooled runner: %s; falling back to host runner",
-                                e,
-                            )
-
-                    bot_dir = Path(handle.test_dir) / "bots"
-                    logs.append(
-                        f"[BOT-VERIFY] Starting Mineflayer harness against "
-                        f"{container_ip}:25565 ({bot_cfg.bot_count} bots)"
-                    )
-                    await self._report_progress(
-                        spec.operation_id,
-                        "SYNTHETIC_PLAYER",
-                        0.1,
-                        context={"phase": "mineflayer_harness_started"},
-                    )
-                    verify_res = await MineflayerBotDriver.run_mineflayer_verification(
-                        bot_dir=bot_dir,
-                        host=container_ip,
-                        port=25565,
-                        run_id=spec.test_id[:8],
-                        bot_count=bot_cfg.bot_count,
-                        duration_minutes=bot_cfg.duration_minutes,
-                        stagger_seconds=bot_cfg.join_stagger_seconds,
-                        connect_grace_seconds=bot_cfg.connect_grace_seconds,
-                    )
-                    logs.extend(verify_res.logs)
-                    passed = verify_res.passed
-                    connected_bots = verify_res.connected_bots
-                    if not passed and not failure_reason:
-                        failure_reason = verify_res.failure_reason
-
-                # 5. Post-verification crash check
-                crash_dir = Path(handle.test_dir) / "crash-reports"
-                if crash_dir.is_dir() and any(crash_dir.glob("crash-*.txt")):
-                    passed = False
-                    first_crash = next(crash_dir.glob("crash-*.txt"))
+                if bot_cfg.placement_mode == PlacementMode.SIDECAR and strat.driver == "mineflayer":
                     try:
-                        content = first_crash.read_text(encoding="utf-8", errors="replace")
-                        analyzer = PatternCrashAnalyzer()
-                        analysis = analyzer.analyze_crash_content(content)
-                        blamed = analysis.blamed_mod or "Unknown mod"
-                        failure_reason = (
-                            f"Crash detected in test run. Blamed mod: {blamed} "
-                            f"({analysis.failure_code.value})"
+                        sidecar = await pool.acquire(timeout=5.0)
+                        handle.sidecar_runner = sidecar
+                        logs.append(
+                            f"[BOT-VERIFY] Acquired pooled sidecar {sidecar.container_name}"
                         )
-                    except Exception:
-                        failure_reason = f"Crash report detected: {first_crash.name}"
+                    except Exception as e:
+                        logger.warning(
+                            "Could not acquire pooled runner: %s; falling back to host runner",
+                            e,
+                        )
+
+                from app.modules.versioning.infrastructure.verifiers import get_verifier
+
+                verifier = get_verifier(
+                    driver=strat.driver,
+                    mode=strat.mode.value if hasattr(strat.mode, "value") else str(strat.mode),
+                )
+
+                async def _progress_cb(p: float, ctx: dict[str, Any] | None) -> None:
+                    await self._report_progress(
+                        spec.operation_id, "SYNTHETIC_PLAYER", p, context=ctx
+                    )
+
+                verdict = await verifier.verify(
+                    spec=spec,
+                    handle=handle,
+                    rules=bot_cfg.assertion_rules,
+                    strategy=strat,
+                    container_ip=container_ip,
+                    rcon_password=rcon_password,
+                    on_log=logs.append,
+                    on_progress=_progress_cb,
+                )
+                passed = verdict.passed
+                failure_reason = verdict.failure_reason
+                connected_bots = verdict.connected_bots
+                if "spawn_ok" in verdict.extra_context:
+                    spawn_ok = verdict.extra_context["spawn_ok"]
+                    spawn_failed = verdict.extra_context["spawn_failed"]
+                    actions_ok = verdict.extra_context["actions_ok"]
+                    actions_failed = verdict.extra_context["actions_failed"]
 
         except asyncio.CancelledError:
-            # Cooperative cancellation (§5.4): a user cancel arrives here via
-            # the executor-registered task. A timeout/shutdown cancel arrives
-            # the same way but without the request flag set.
-            failure_reason = "Test run cancelled"
+            # Cooperative cancellation (§5.4 / §7.1.3):
+            # A user cancel arrives here with cancellation requested.
+            # A timeout arrives here without user cancellation requested.
             passed = False
+            cancel_finalize = False
             try:
                 if await self._is_operation_cancellation_requested(spec.operation_id):
                     cancel_finalize = True
                     failure_reason = "Test run cancelled by user"
+                else:
+                    run_budget = spec.timeout_seconds or 600
+                    failure_reason = (
+                        f"TEST_TIMED_OUT: Test run timed out after {run_budget}s budget"
+                    )
             except asyncio.CancelledError:
                 pass
         except Exception as e:
@@ -1237,10 +1127,19 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                         logger.debug("Failed analyzing crash content: %s", crash_err)
 
             # 3. Structured Assertions & Evidence Bundle Schema (§e)
+            assertion_items = [a.to_dict() for a in verdict.assertions] if verdict else []
+            boot_passed_val = boot_passed if "boot_passed" in locals() else False
+            is_timed_out = (not cancel_finalize) and (
+                failure_reason is not None and "TEST_TIMED_OUT" in failure_reason
+            )
+            failure_code_val = "TEST_TIMED_OUT" if is_timed_out else failure_code
+
             evidence_bundle = {
+                "schema_version": "1.0",
                 "test_id": spec.test_id,
                 "server_id": spec.server_id,
                 "commit_id": spec.commit.id,
+                "operation_id": spec.operation_id,
                 "runtime": {
                     "runtime_id": handle.runtime_id,
                     "container_name": handle.container_name,
@@ -1250,16 +1149,20 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 },
                 "assertions": {
                     "container_started": True,
-                    "boot_gate_passed": boot_passed if "boot_passed" in locals() else False,
+                    "boot_passed": boot_passed_val,
+                    "boot_gate_passed": boot_passed_val,
                     "bots_spawned_target": bot_cfg.bot_count,
                     "bots_spawned_actual": connected_bots,
+                    "connected_bots": connected_bots,
                     "crash_reports_found": len(list(crash_dir.glob("crash-*.txt")))
                     if crash_dir.is_dir()
                     else 0,
                     "clean_shutdown": passed,
+                    "strategy_driver": strat.driver,
+                    "strategy_downgraded_from": strat.downgraded_from,
+                    "items": assertion_items,
                     **(
                         {
-                            "strategy_downgraded_from": strat.downgraded_from,
                             "downgrade_reason": strat.reason,
                         }
                         if strat.downgraded_from
@@ -1280,7 +1183,8 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 },
                 "crash_analysis": {
                     "blamed_mod": blamed_mod,
-                    "failure_code": failure_code,
+                    "suspected_culprit_mods": [blamed_mod] if blamed_mod else [],
+                    "failure_code": failure_code_val,
                     "summary": crash_summary or failure_reason,
                     "crash_report_path": crash_report_rel_path,
                 },
@@ -1492,8 +1396,11 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         evidence_bundle: dict[str, Any] | None = None,
     ) -> None:
         """Persists the terminal verification outcome to SQLite using busy-retry resilience."""
+        from sqlalchemy import update
+
         from app.core.persistence.db import database
-        from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
+        from app.modules.versioning.domain.entities import TestRunStatus
+        from app.modules.versioning.infrastructure.models import ServerTestRunModel
 
         try:
             _ = database.session_factory
@@ -1503,26 +1410,42 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             )
             return
 
+        status = TestRunStatus.PASSED if passed else TestRunStatus.FAILED
+        failure_text = None if passed else (failure_reason or "Verification failed")
+
+        values_to_update: dict[str, Any] = {
+            "status": status.value,
+            "failure_reason": failure_text,
+            "log_output": log_output,
+        }
+        if runtime_id is not None:
+            values_to_update["runtime_id"] = runtime_id
+        if evidence_bundle is not None:
+            values_to_update["evidence_bundle"] = evidence_bundle
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 async with database.session_factory() as session:
-                    repo = SQLVersioningRepository(session)
-                    run = await repo.get_test_run(test_id)
-                    if run:
-                        if passed:
-                            run.mark_passed(log_output=log_output)
-                        else:
-                            run.mark_failed(
-                                reason=failure_reason or "Verification failed",
-                                log_output=log_output,
-                            )
-                        if runtime_id is not None:
-                            run.runtime_id = runtime_id
-                        if evidence_bundle is not None:
-                            run.evidence_bundle = evidence_bundle
-                        await repo.save_test_run(run)
-                        await session.commit()
+                    stmt = (
+                        update(ServerTestRunModel)
+                        .where(
+                            ServerTestRunModel.id == test_id,
+                            ServerTestRunModel.status.notin_([
+                                TestRunStatus.PASSED.value,
+                                TestRunStatus.FAILED.value,
+                                TestRunStatus.CANCELLED.value,
+                            ]),
+                        )
+                        .values(**values_to_update)
+                    )
+                    result = await session.execute(stmt)
+                    if result.rowcount == 0:
+                        logger.debug(
+                            "Test run %s was already terminal in database; outcome update skipped",
+                            test_id,
+                        )
+                    await session.commit()
                 break
             except Exception as exc:
                 is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
@@ -1540,8 +1463,11 @@ class DockerTestExecutionRunner(TestExecutionRunner):
         runtime_id: str | None = None,
     ) -> None:
         """Persists a cooperatively cancelled run as CANCELLED (never FAILED)."""
+        from sqlalchemy import update
+
         from app.core.persistence.db import database
-        from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
+        from app.modules.versioning.domain.entities import TestRunStatus
+        from app.modules.versioning.infrastructure.models import ServerTestRunModel
 
         try:
             _ = database.session_factory
@@ -1551,19 +1477,37 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             )
             return
 
+        values_to_update: dict[str, Any] = {
+            "status": TestRunStatus.CANCELLED.value,
+            "failure_reason": reason,
+            "log_output": log_output,
+        }
+        if runtime_id is not None:
+            values_to_update["runtime_id"] = runtime_id
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 async with database.session_factory() as session:
-                    repo = SQLVersioningRepository(session)
-                    run = await repo.get_test_run(test_id)
-                    if run and not run.is_terminal:
-                        run.mark_cancelled(reason=reason)
-                        run.log_output = log_output
-                        if runtime_id is not None:
-                            run.runtime_id = runtime_id
-                        await repo.save_test_run(run)
-                        await session.commit()
+                    stmt = (
+                        update(ServerTestRunModel)
+                        .where(
+                            ServerTestRunModel.id == test_id,
+                            ServerTestRunModel.status.notin_([
+                                TestRunStatus.PASSED.value,
+                                TestRunStatus.FAILED.value,
+                                TestRunStatus.CANCELLED.value,
+                            ]),
+                        )
+                        .values(**values_to_update)
+                    )
+                    result = await session.execute(stmt)
+                    if result.rowcount == 0:
+                        logger.debug(
+                            "Test run %s was already terminal in database; outcome update skipped",
+                            test_id,
+                        )
+                    await session.commit()
                 break
             except Exception as exc:
                 is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
@@ -1574,7 +1518,12 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 break
 
     async def cleanup_test(
-        self, handle: TestHandle, passed: bool = True, cancelled: bool = False
+        self,
+        handle: TestHandle,
+        *,
+        passed: bool,
+        cancelled: bool = False,
+        server_dir: Path | str | None = None,
     ) -> None:
         """Removes test container, and test directory (unless failed and retention active).
 
@@ -1588,6 +1537,8 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             InvalidStateTransitionError,
             OperationTerminalConflictError,
         )
+        from app.modules.versioning.domain.cleanup import TestCleanupPlan
+        from app.modules.versioning.infrastructure.cleanup import execute_cleanup_plan
 
         if handle.operation_id:
             try:
@@ -1601,38 +1552,31 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                     term_err,
                 )
 
+        effective_server_dir = server_dir or getattr(handle, "server_dir", "")
+        if not effective_server_dir:
+            raise ValueError(
+                f"Cannot cleanup test '{handle.test_id}': "
+                "authoritative server_dir is required and was not provided"
+            )
+
         settings = AppSettings()
         retention_hours = getattr(settings, "test_artifact_retention_hours", 24)
 
-        # 1. Unconditionally remove the container
-        try:
-            await asyncio.to_thread(
-                subprocess.run,
-                ["docker", "rm", "-f", handle.container_name],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-        except Exception as e:
-            logger.debug("Failed to remove test container %s: %s", handle.container_name, e)
-
-        # 2. Retain failed test directory for retention_hours if active
-        if passed or retention_hours <= 0:
-            try:
-                if os.path.exists(handle.test_dir):
-                    shutil.rmtree(handle.test_dir, ignore_errors=True)
-                    if os.path.exists(handle.test_dir):
-                        logger.warning(
-                            "Test directory %s still exists after cleanup; "
-                            "likely root-owned leftovers from a pre-parity run",
-                            handle.test_dir,
-                        )
-            except Exception as e:
-                logger.warning("Failed to remove test directory %s: %s", handle.test_dir, e)
-        else:
+        plan = TestCleanupPlan.create(
+            server_id=handle.server_id,
+            test_id=handle.test_id,
+            container_name=handle.container_name,
+            test_dir=Path(handle.test_dir),
+            server_dir=effective_server_dir,
+            passed=passed,
+            cancelled=cancelled,
+            retention_hours=float(retention_hours),
+        )
+        await execute_cleanup_plan(plan)
+        if not plan.purge_artifacts:
             logger.info(
                 "Retaining failed test directory %s for %sh debugging retention",
-                handle.test_dir,
+                plan.test_dir,
                 retention_hours,
             )
 

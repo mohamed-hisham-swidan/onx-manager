@@ -66,4 +66,11 @@ class GetTestStatusHandler(QueryHandler[GetTestStatusQuery]):
                 if hasattr(test_run.bot_tech, "value")
                 else str(test_run.bot_tech)
             ),
+            "runtime_id": test_run.runtime_id,
+            "test_definition_id": test_run.test_definition_id,
+            "artifacts_purged": getattr(test_run, "artifacts_purged", False),
+            "evidence_bundle": getattr(test_run, "evidence_bundle", None),
+            "reserved_ram_mb": getattr(test_run, "reserved_ram_mb", None),
+            "reserved_cores": getattr(test_run, "reserved_cores", None),
+            "operation_id": getattr(test_run, "operation_id", None),
         }

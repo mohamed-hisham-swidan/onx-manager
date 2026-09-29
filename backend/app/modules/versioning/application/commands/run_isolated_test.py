@@ -107,8 +107,13 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
         # 3. Resolve layered bot configuration (§3.5.6)
         bot_count = command.bot_count
         duration_minutes = command.duration_minutes
+        duration_seconds = None
         placement_mode = command.placement_mode
         bot_tech = command.bot_tech
+        join_stagger = None
+        connect_grace = None
+        assertion_rules = None
+        test_def = None
 
         if command.test_definition_id:
             test_def = await versioning_repo.get_test_definition(command.test_definition_id)
@@ -120,7 +125,7 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
             if bot_count is None:
                 bot_count = test_def.bot_count
             if duration_minutes is None:
-                duration_minutes = max(1, test_def.duration_seconds // 60)
+                duration_seconds = float(test_def.duration_seconds)
             if placement_mode is None:
                 placement_mode = (
                     test_def.placement_mode.value
@@ -133,13 +138,20 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
                     if hasattr(test_def.bot_technology, "value")
                     else str(test_def.bot_technology)
                 )
+            join_stagger = getattr(test_def, "join_stagger_seconds", None)
+            connect_grace = getattr(test_def, "connect_grace_seconds", None)
+            assertion_rules = getattr(test_def, "assertion_rules", None)
 
         server_bot_settings = getattr(server, "bot_verification_settings", None)
         run_overrides = {
             "bot_count": bot_count,
             "duration_minutes": duration_minutes,
+            "duration_seconds": duration_seconds,
             "placement_mode": placement_mode,
             "bot_tech": bot_tech,
+            "join_stagger_seconds": join_stagger,
+            "connect_grace_seconds": connect_grace,
+            "assertion_rules": assertion_rules,
         }
         bot_cfg = BotConfigResolver.resolve_config(
             server_type=server.server_type,
@@ -148,10 +160,7 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
         )
 
         # Step 1: Create Operation aggregate and wire ADMISSION_CHECK step (§4.3, §6.3)
-        # Per-operation timeout budget (§5.4): the designed timeout watcher
-        # must cover the full run (boot + bot duration + watchdog overrun),
-        # otherwise the default 600s budget would false-fire on every
-        # standard 15-minute verification run.
+        # Per-operation timeout budget (§7.1): Precedence 1 vs Precedence 2
         from app.core.settings_store import get_live_settings
         from app.modules.operations.application import get_operation_service
 
@@ -160,11 +169,18 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
             getattr(server, "startup_timeout_seconds", None)
             or live_settings.test_boot_timeout_seconds
         )
-        run_timeout_seconds = int(
-            run_boot_timeout
-            + bot_cfg.duration_minutes * 60
-            + bot_cfg.watchdog_overrun_minutes * 60
-        )
+        if (
+            test_def is not None
+            and getattr(test_def, "timeout_seconds", None) is not None
+            and test_def.timeout_seconds >= run_boot_timeout + bot_cfg.duration_seconds
+        ):
+            run_timeout_seconds = int(test_def.timeout_seconds)
+        else:
+            run_timeout_seconds = int(
+                run_boot_timeout
+                + bot_cfg.duration_seconds
+                + bot_cfg.watchdog_overrun_seconds
+            )
         op_service = get_operation_service(event_bus=self._event_bus)
         op = await op_service.create_operation(
             type="RUN_TEST",
@@ -229,6 +245,7 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
         test_run = reservation.test_run
         test_id = test_run.id
         test_run.test_definition_id = command.test_definition_id
+        test_run.operation_id = op.id
         test_run.mark_booting()
         await versioning_repo.save_test_run(test_run)
 
@@ -240,8 +257,9 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
             server_dir=server.deployment.server_dir,
             bot_config=bot_cfg,
             minecraft_version=server.minecraft_version,
-            boot_timeout_seconds=getattr(server, "startup_timeout_seconds", None),
+            boot_timeout_seconds=run_boot_timeout,
             operation_id=op.id,
+            timeout_seconds=run_timeout_seconds,
         )
 
         try:

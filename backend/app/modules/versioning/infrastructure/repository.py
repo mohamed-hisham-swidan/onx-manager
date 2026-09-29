@@ -255,6 +255,14 @@ class SQLVersioningRepository(VersioningRepository):
         return [self._test_run_to_domain(m) for m in res.scalars().all()]
 
     async def save_test_run(self, test_run: ServerTestRun) -> ServerTestRun:
+        if test_run.expires_at is None and test_run.created_at is not None:
+            from datetime import timedelta
+
+            from app.core.config import AppSettings
+
+            retention_hours = AppSettings().test_artifact_retention_hours
+            test_run.expires_at = test_run.created_at + timedelta(hours=retention_hours)
+
         model = await self._session.get(ServerTestRunModel, test_run.id)
         if model is None:
             model = ServerTestRunModel(
@@ -288,6 +296,7 @@ class SQLVersioningRepository(VersioningRepository):
                 test_definition_id=test_run.test_definition_id,
                 evidence_bundle=test_run.evidence_bundle,
                 artifacts_purged=test_run.artifacts_purged,
+                operation_id=test_run.operation_id,
             )
             self._session.add(model)
         else:
@@ -310,6 +319,8 @@ class SQLVersioningRepository(VersioningRepository):
                 model.test_definition_id = test_run.test_definition_id
             if test_run.evidence_bundle is not None:
                 model.evidence_bundle = test_run.evidence_bundle
+            if test_run.operation_id is not None:
+                model.operation_id = test_run.operation_id
             model.artifacts_purged = test_run.artifacts_purged
         await self._session.flush()
         return test_run
@@ -663,6 +674,7 @@ class SQLVersioningRepository(VersioningRepository):
             test_definition_id=m.test_definition_id,
             evidence_bundle=m.evidence_bundle,
             artifacts_purged=bool(m.artifacts_purged) if m.artifacts_purged is not None else False,
+            operation_id=m.operation_id,
         )
 
     @staticmethod

@@ -21,11 +21,11 @@ Admission vocabulary only — no new Runtime-named concepts (Stage D spec §a).
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -168,19 +168,54 @@ async def reap_stale_reservations(
             )
         )
         expired_rows = (await conn.execute(art_stmt)).mappings().all()
-
         if expired_rows:
-            servers_root = Path(settings.servers_data_dir).resolve()
+            from app.modules.server.infrastructure.models import ServerModel
+            from app.modules.versioning.domain.cleanup import TestCleanupPlan
+            from app.modules.versioning.domain.paths import resolve_test_dir
+
+            srv_tbl = ServerModel.__table__
+            server_ids = {row["server_id"] for row in expired_rows}
+            srv_stmt = srv_tbl.select().where(srv_tbl.c.id.in_(server_ids))
+            srv_rows = {r["id"]: r for r in (await conn.execute(srv_stmt)).mappings().all()}
+
             expired_ids = []
             for row in expired_rows:
                 s_id = row["server_id"]
                 t_id = row["id"]
-                t_dir = servers_root / s_id / ".onx" / "tests" / t_id
-                if t_dir.exists():
-                    try:
+                srv = srv_rows.get(s_id)
+                if not srv or not srv.get("root_path"):
+                    logger.warning(
+                        "Skipping artifact cleanup for test %s: "
+                        "server %s missing or root_path is NULL; refusing to guess path",
+                        t_id,
+                        s_id,
+                    )
+                    expired_ids.append(t_id)
+                    continue
+
+                root_path = srv["root_path"]
+                working_dir = srv.get("working_directory") or "."
+                server_dir = (
+                    os.path.join(root_path, working_dir)
+                    if working_dir != "."
+                    else root_path
+                )
+
+                try:
+                    t_dir = resolve_test_dir(server_dir, t_id)
+                    plan = TestCleanupPlan.create(
+                        server_id=s_id,
+                        test_id=t_id,
+                        container_name=f"onx-test-{t_id}",
+                        test_dir=t_dir,
+                        server_dir=server_dir,
+                        passed=False,
+                        retention_hours=0.0,
+                    )
+                    if plan.purge_artifacts and t_dir.exists():
                         shutil.rmtree(t_dir, ignore_errors=True)
-                    except Exception as exc:
-                        logger.warning("Failed pruning test artifact directory %s: %s", t_dir, exc)
+                except Exception as exc:
+                    logger.warning("Failed pruning test artifact directory for %s: %s", t_id, exc)
                 expired_ids.append(t_id)
 
             if expired_ids:

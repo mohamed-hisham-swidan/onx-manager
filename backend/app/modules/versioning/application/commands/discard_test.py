@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.exceptions import NotFoundError
 from app.modules.server.domain.repository import ServerRepository
@@ -58,14 +56,20 @@ class DiscardTestHandler(CommandHandler[DiscardTestCommand]):
         except Exception as exc:
             raise NotFoundError(f"Server '{command.server_id}' not found") from exc
 
+        if not server.deployment or not server.deployment.server_dir:
+            raise NotFoundError(f"Server '{command.server_id}' has no deployment")
+
+        server_dir = server.deployment.server_dir
+
         test_run = await versioning_repo.get_test_run(command.test_id)
         if test_run is None or test_run.server_id != command.server_id:
             raise NotFoundError(
                 f"Test run '{command.test_id}' not found for server '{command.server_id}'"
             )
 
-        server_dir = server.deployment.server_dir
-        test_dir = str((Path(server_dir) / ".onx" / "tests" / command.test_id).resolve())
+        from app.modules.versioning.domain.paths import resolve_test_dir
+
+        test_dir = str(resolve_test_dir(server_dir, command.test_id))
 
         # 2. Cleanup test container and directory
         handle = TestHandle(
@@ -73,14 +77,19 @@ class DiscardTestHandler(CommandHandler[DiscardTestCommand]):
             server_id=command.server_id,
             container_name=f"onx-test-{command.test_id}",
             test_dir=test_dir,
+            server_dir=server_dir,
             sidecar_runner=None,
             status=test_run.status,
+            operation_id=test_run.operation_id,
         )
-        await self._test_runner.cleanup_test(handle)
+        await self._test_runner.cleanup_test(
+            handle, passed=False, cancelled=True, server_dir=server_dir
+        )
 
         # 3. Mark test run as cancelled
-        test_run.mark_cancelled("Discarded by user")
-        await versioning_repo.save_test_run(test_run)
+        if not test_run.is_terminal:
+            test_run.mark_cancelled("Discarded by user")
+            await versioning_repo.save_test_run(test_run)
 
         return CommandResult(
             success=True,

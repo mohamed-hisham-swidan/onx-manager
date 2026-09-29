@@ -54,7 +54,12 @@ class GetTestRunEvidenceHandler(QueryHandler[GetTestRunEvidenceQuery]):
             )
 
         if run.evidence_bundle:
-            return run.evidence_bundle
+            bundle = dict(run.evidence_bundle)
+            if "schema_version" not in bundle:
+                bundle["schema_version"] = "1.0"
+            if "operation_id" not in bundle:
+                bundle["operation_id"] = getattr(run, "operation_id", None)
+            return bundle
 
         # Synthesize fallback evidence bundle if not explicitly recorded
         runtime_dict: dict[str, Any] = {}
@@ -70,19 +75,29 @@ class GetTestRunEvidenceHandler(QueryHandler[GetTestRunEvidenceQuery]):
                 }
 
         log_lines = run.log_output.splitlines()[-100:] if run.log_output else []
+        status_val = (
+            run.status.value if hasattr(run.status, "value") else str(run.status)
+        )
+        is_passed = run.is_terminal and status_val == "PASSED"
 
         return {
+            "schema_version": "1.0",
             "test_id": run.id,
             "server_id": run.server_id,
             "commit_id": run.commit_id,
+            "operation_id": getattr(run, "operation_id", None),
             "runtime": runtime_dict,
             "assertions": {
                 "container_started": bool(run.ephemeral_port or runtime_dict.get("container_id")),
+                "boot_passed": is_passed,
+                "boot_gate_passed": is_passed,
                 "bots_spawned_target": run.bot_count,
-                "clean_shutdown": run.is_terminal and run.status.value == "PASSED",
+                "clean_shutdown": is_passed,
             },
             "crash_analysis": {
                 "failure_reason": run.failure_reason,
+                "blamed_mod": None,
+                "suspected_culprit_mods": [],
             },
             "log_tail": log_lines,
         }
