@@ -337,3 +337,83 @@ async def test_scheduler_configures_five_second_interval() -> None:
     assert kwargs["max_instances"] == 1
     assert kwargs["coalesce"] is True
 
+
+@pytest.mark.asyncio
+async def test_fetch_docker_stats_cancellation_kills_and_reaps_process() -> None:
+    """Verify cancellation terminates running docker stats process without leak."""
+    from app.modules.monitoring.infrastructure.collector import MetricsCollector
+
+    collector = MetricsCollector()
+    mock_proc = AsyncMock()
+    mock_proc.kill = MagicMock()
+    mock_proc.returncode = None
+    mock_proc.communicate.side_effect = asyncio.CancelledError()
+
+    with (
+        patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await collector.fetch_docker_stats()
+
+    mock_proc.kill.assert_called_once()
+    mock_proc.wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_fetch_docker_stats_timeout_kills_and_reaps_process() -> None:
+    """Verify timeout terminates running docker stats process without leak."""
+    from app.modules.monitoring.infrastructure.collector import MetricsCollector
+
+    collector = MetricsCollector()
+    mock_proc = AsyncMock()
+    mock_proc.kill = MagicMock()
+    mock_proc.returncode = None
+
+    with (
+        patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)),
+        patch("asyncio.wait_for", AsyncMock(side_effect=TimeoutError())),
+    ):
+        result = await collector.fetch_docker_stats()
+
+    assert result == {}
+    mock_proc.kill.assert_called_once()
+    mock_proc.wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_metrics_collection_task_cancellation_releases_lock() -> None:
+    """Verify task cancellation releases _collection_lock so subsequent runs proceed."""
+    from app.tasks.definitions import metrics_collector as mod
+
+    started = asyncio.Event()
+
+    async def cancelling_collect_all() -> dict[str, object]:
+        started.set()
+        await asyncio.sleep(10)
+        return {}
+
+    mock_collector = MagicMock()
+    mock_collector.collect_all = cancelling_collect_all
+    mod._collector = mock_collector
+
+    task = asyncio.create_task(mod.run_metrics_collection_task({}))
+    await started.wait()
+
+    assert mod._collection_lock.locked()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # Lock must be released
+    assert not mod._collection_lock.locked()
+
+    # Next run should not be skipped due to lock
+    async def fast_collect_all(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {}
+
+    mock_collector.collect_all = fast_collect_all
+    second_result = await mod.run_metrics_collection_task({})
+    assert "skipped" not in second_result
+    mod._collector = None
+

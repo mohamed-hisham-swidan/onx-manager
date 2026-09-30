@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -35,14 +36,19 @@ class Scheduler:
         self._aps: Any = None
         self._task_queue: TaskQueue | None = None
         self._running = False
+        self._stopping = False
 
     def set_task_queue(self, queue: TaskQueue) -> None:
         self._task_queue = queue
+
+    def _is_shutdown_cancellation(self) -> bool:
+        return self._stopping or not self._running
 
     async def start(self) -> None:
         if self._running:
             return
         self._running = True
+        self._stopping = False
 
         import logging
 
@@ -58,9 +64,10 @@ class Scheduler:
         self._aps.start()
 
     async def stop(self) -> None:
+        self._stopping = True
+        self._running = False
         if self._aps:
             self._aps.shutdown(wait=False)
-        self._running = False
 
     async def add_job(
         self,
@@ -151,39 +158,65 @@ class Scheduler:
             trigger_kwargs = self._parse_cron(model.cron_expression)
 
         async def run_job() -> None:
-            if (
-                is_subminute_interval
-                and self._task_queue
-                and hasattr(self._task_queue, "_handlers")
-            ):
-                handler = self._task_queue._handlers.get(model.task_name)
-                if handler:
-                    try:
-                        await handler(params)
-                    except Exception:
-                        logger.exception(
-                            'Sub-minute task "%s" failed (direct execution)',
-                            model.task_name,
-                        )
-                else:
+            try:
+                if (
+                    is_subminute_interval
+                    and self._task_queue
+                    and hasattr(self._task_queue, "_handlers")
+                ):
+                    handler = self._task_queue._handlers.get(model.task_name)
+                    if handler:
+                        try:
+                            await handler(params)
+                        except asyncio.CancelledError:
+                            if self._is_shutdown_cancellation():
+                                logger.debug(
+                                    'Sub-minute task "%s" cancelled during scheduler shutdown',
+                                    model.task_name,
+                                )
+                                return
+                            raise
+                        except Exception:
+                            logger.exception(
+                                'Sub-minute task "%s" failed (direct execution)',
+                                model.task_name,
+                            )
+                    else:
+                        await self._task_queue.enqueue(model.task_name, params)
+                elif self._task_queue:
                     await self._task_queue.enqueue(model.task_name, params)
-            elif self._task_queue:
-                await self._task_queue.enqueue(model.task_name, params)
 
-            if not is_subminute_interval:
-                try:
-                    async with await self._session_factory() as session:
-                        m = await session.get(CronJobModel, model.id)
-                        if m:
-                            m.last_run_at = datetime.now(UTC)
-                            await session.commit()
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to update last_run_at for job %s: %s",
-                        model.id,
-                        exc,
-                        exc_info=True,
+                if not is_subminute_interval:
+                    try:
+                        async with await self._session_factory() as session:
+                            m = await session.get(CronJobModel, model.id)
+                            if m:
+                                m.last_run_at = datetime.now(UTC)
+                                await session.commit()
+                    except asyncio.CancelledError:
+                        if self._is_shutdown_cancellation():
+                            logger.debug(
+                                'Job "%s" timestamp update cancelled during scheduler shutdown',
+                                model.id,
+                            )
+                            return
+                        raise
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to update last_run_at for job %s: %s",
+                            model.id,
+                            exc,
+                            exc_info=True,
+                        )
+            except asyncio.CancelledError:
+                if self._is_shutdown_cancellation():
+                    logger.debug(
+                        'Scheduled job "%s" (%s) cancelled during scheduler shutdown',
+                        model.name,
+                        model.task_name,
                     )
+                    return
+                raise
 
         # misfire_grace_time=60: absorbs I/O bursts (DB queries, RCON polls, backup writes)
         # without silently dropping scheduled jobs.

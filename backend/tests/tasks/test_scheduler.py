@@ -238,3 +238,173 @@ async def test_scheduler_last_run_at_update_failure_logs_warning(
     )
 
     await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_shutdown_cancellation_produces_no_error_or_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify that shutting down with an in-flight job produces no ERROR or traceback."""
+    import asyncio
+    import logging
+    from datetime import UTC, datetime
+
+    from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+
+    from app.tasks.scheduler import CronJobModel
+
+    caplog.set_level(logging.DEBUG)
+
+    factory = FakeSessionFactory()
+    scheduler = Scheduler(factory)
+
+    job_started = asyncio.Event()
+    job_finished = asyncio.Event()
+
+    async def in_flight_handler(_params: dict) -> None:
+        job_started.set()
+        try:
+            await asyncio.sleep(10)
+        finally:
+            job_finished.set()
+
+    class QueueWithHandler(FakeQueue):
+        def __init__(self) -> None:
+            self._handlers = {"run_metrics_collection": in_flight_handler}
+
+    scheduler.set_task_queue(QueueWithHandler())
+    await scheduler.start()
+
+    error_events: list[object] = []
+    executed_events: list[object] = []
+
+    def on_event(event: object) -> None:
+        if event.code == EVENT_JOB_ERROR:
+            error_events.append(event)
+        elif event.code == EVENT_JOB_EXECUTED:
+            executed_events.append(event)
+
+    scheduler._aps.add_listener(on_event, EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
+
+    model = CronJobModel(
+        id="job-shutdown-cancel",
+        name="metrics_collect",
+        cron_expression="interval:0.1s",
+        task_name="run_metrics_collection",
+        params_json="{}",
+        enabled=1,
+        created_at=datetime.now(UTC),
+    )
+    factory.add(model)
+    scheduler._schedule_job(model)
+
+    # Wait for the in-flight job to start
+    await asyncio.wait_for(job_started.wait(), timeout=2.0)
+
+    # Stop scheduler during execution
+    await scheduler.stop()
+
+    # Wait a moment for any pending callbacks
+    await asyncio.sleep(0.05)
+
+    # Cleanup/finally block executed
+    assert job_finished.is_set()
+
+    # No ERROR logs or tracebacks
+    error_logs = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(error_logs) == 0, f"Expected 0 ERROR logs, got: {[r.message for r in error_logs]}"
+
+    # No EVENT_JOB_ERROR was emitted
+    assert len(error_events) == 0, f"Expected 0 error events, got {error_events}"
+
+
+@pytest.mark.asyncio
+async def test_scheduler_preserves_ordinary_exception_logging(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify that genuine exceptions in job handlers are still logged at ERROR level."""
+    import logging
+    from datetime import UTC, datetime
+
+    from app.tasks.scheduler import CronJobModel
+
+    caplog.set_level(logging.ERROR)
+
+    factory = FakeSessionFactory()
+    scheduler = Scheduler(factory)
+
+    async def broken_handler(_params: dict) -> None:
+        raise RuntimeError("database connection failed")
+
+    class QueueWithHandler(FakeQueue):
+        def __init__(self) -> None:
+            self._handlers = {"broken_task": broken_handler}
+
+    scheduler.set_task_queue(QueueWithHandler())
+    await scheduler.start()
+
+    model = CronJobModel(
+        id="job-broken-test",
+        name="broken_job",
+        cron_expression="interval:1.0s",
+        task_name="broken_task",
+        params_json="{}",
+        enabled=1,
+        created_at=datetime.now(UTC),
+    )
+    factory.add(model)
+    scheduler._schedule_job(model)
+
+    job = scheduler._aps.get_job("job-broken-test")
+    assert job is not None
+    await job.func()
+
+    assert any(
+        'Sub-minute task "broken_task" failed (direct execution)' in r.message
+        for r in caplog.records
+    )
+
+    await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_preserves_unrelated_cancellation() -> None:
+    """Verify that cancellation when the scheduler is NOT shutting down is re-raised."""
+    import asyncio
+    from datetime import UTC, datetime
+
+    from app.tasks.scheduler import CronJobModel
+
+    factory = FakeSessionFactory()
+    scheduler = Scheduler(factory)
+
+    async def cancelling_handler(_params: dict) -> None:
+        raise asyncio.CancelledError()
+
+    class QueueWithHandler(FakeQueue):
+        def __init__(self) -> None:
+            self._handlers = {"cancel_task": cancelling_handler}
+
+    scheduler.set_task_queue(QueueWithHandler())
+    await scheduler.start()
+
+    model = CronJobModel(
+        id="job-cancel-test",
+        name="cancel_job",
+        cron_expression="interval:1.0s",
+        task_name="cancel_task",
+        params_json="{}",
+        enabled=1,
+        created_at=datetime.now(UTC),
+    )
+    factory.add(model)
+    scheduler._schedule_job(model)
+
+    job = scheduler._aps.get_job("job-cancel-test")
+    assert job is not None
+
+    # When scheduler is running (not stopping), CancelledError must bubble up
+    with pytest.raises(asyncio.CancelledError):
+        await job.func()
+
+    await scheduler.stop()

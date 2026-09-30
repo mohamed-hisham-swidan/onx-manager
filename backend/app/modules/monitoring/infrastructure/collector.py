@@ -338,6 +338,7 @@ class MetricsCollector:
         self._known_servers = list(server_ids)
 
     async def fetch_docker_stats(self) -> dict[str, ContainerStats]:
+        proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "docker",
@@ -351,7 +352,19 @@ class MetricsCollector:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
             if proc.returncode == 0 and stdout:
                 return parse_docker_stats_output(stdout.decode("utf-8", errors="replace"))
+        except asyncio.CancelledError:
+            if proc is not None and proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                with contextlib.suppress(Exception, asyncio.CancelledError):
+                    await proc.wait()
+            raise
         except (FileNotFoundError, TimeoutError, OSError, Exception) as exc:
+            if proc is not None and proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                with contextlib.suppress(Exception):
+                    await proc.wait()
             logger.debug("docker stats batch query failed: %s", exc)
         return {}
 
