@@ -16,6 +16,10 @@ on:
       - "scripts/check-version-propagation"
       - ".github/workflows/backend-version-ci.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   version-check:
     runs-on: ubuntu-latest

@@ -71,7 +71,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | Frontend package manager | npm (`package.json` / `package-lock.json`) |
 | Lint gate | Ruff (`scripts/check-ruff-baseline` + `backend/ruff-baseline.json`, rule-preserving gate) |
 | Type check | pyright (backend dev extra), `tsc --noEmit` (frontend) |
-| CI workflows | 6 `.github/workflows/`: `backend-tests` (incl. `docker-build-smoke`), `backend-version-ci`, `route-permission-ci`, `frontend-ci`, `verification-cadence`, `windows-ci` |
+| CI workflows | 7 `.github/workflows/`: `backend-tests`, `docker-build-smoke`, `backend-version-ci`, `route-permission-ci`, `frontend-ci`, `verification-cadence`, `windows-ci` |
 | Virtualization / deployment | Dockerfiles + `docker-compose.yml` (see `docs/DEPLOYMENT.md`) |
 | Contracts | `contracts/`: `api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml` |
 
@@ -333,7 +333,7 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 | REST endpoints / live routes | 150 live routes (16 routers + app routes; 150/150 contract gate) |
 | Alembic revisions | 39 (head `b1e2100000019`) |
 | DB tables | 38+ (default dev DB at head) |
-| CI workflows | 6 (backend-tests incl. docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
+| CI workflows | 7 (backend-tests, docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
 | Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |
 | ADRs | 22 (`0001`–`0016` + 6 formal `DECISION` records) |
 | Backend tests | 2,906 passed / 6 skipped (2,912 collected, 0 failed) |

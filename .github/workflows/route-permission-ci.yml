@@ -22,6 +22,10 @@ on:
       - "scripts/check-route-contract"
       - ".github/workflows/route-permission-ci.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   route-contract:
     runs-on: ubuntu-latest

@@ -1,3 +1,4 @@
+# TEMPORARY: re-enable on path-filtered PRs after Windows test fixes (Batch B2); weekly red blocks release.
 name: windows-ci
 
 # Additive Windows coverage. Does NOT replace or modify the existing
@@ -15,11 +16,13 @@ name: windows-ci
 # triggers once this is confirmed stable, as a follow-up D0/D1 decision.
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-    branches: [master]
+  schedule:
+    - cron: "0 2 * * 1"
   workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend-windows:

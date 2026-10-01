@@ -1,0 +1,55 @@
+name: Docker Build Smoke
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "backend/Dockerfile"
+      - "backend/requirements*"
+      - ".github/workflows/docker-build-smoke.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [master]
+    paths:
+      - "backend/Dockerfile"
+      - "backend/requirements*"
+      - ".github/workflows/docker-build-smoke.yml"
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build-smoke:
+    name: Docker Image Build & DooD CLI Smoke
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend Docker image
+        run: docker build -t onx-backend:ci ./backend
+
+      - name: Smoke probe - verify static docker CLI binary
+        run: docker run --rm --entrypoint /usr/local/bin/docker onx-backend:ci -v
+
+      - name: Smoke probe - verify build tools excluded from final image
+        run: |
+          docker run --rm --entrypoint /bin/sh onx-backend:ci -c '
+            set -e
+            if which gcc >/dev/null 2>&1 || which cc >/dev/null 2>&1; then
+              echo "FAIL: gcc/cc found in runtime image layer" >&2
+              exit 1
+            fi
+            if [ -d /usr/include/python3.12 ] && [ "$(ls -A /usr/include/python3.12 2>/dev/null)" ]; then
+              echo "FAIL: python3-dev headers found in runtime image layer" >&2
+              exit 1
+            fi
+            echo "PASS: Final image is minimal and contains no C compiler or dev headers."
+          '

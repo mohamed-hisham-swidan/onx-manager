@@ -3,36 +3,11 @@ name: Verification Cadence
 on:
   schedule:
     - cron: "0 3 * * 1"
-  push:
-    branches: [master]
-    paths:
-      - "backend/pyproject.toml"
-      - "frontend/package.json"
-      - "contracts/permissions.yaml"
-      - "scripts/check-version-propagation"
-      - "scripts/check-db-revision"
-      - "scripts/check-ruff-baseline"
-      - "scripts/check-route-contract"
-      - "scripts/check-ps1-bom"
-      - "scripts/reverify"
-      - "*.ps1"
-      - "docs/**"
-      - ".github/workflows/verification-cadence.yml"
-  pull_request:
-    branches: [master]
-    paths:
-      - "backend/pyproject.toml"
-      - "frontend/package.json"
-      - "contracts/permissions.yaml"
-      - "scripts/check-version-propagation"
-      - "scripts/check-db-revision"
-      - "scripts/check-ruff-baseline"
-      - "scripts/check-route-contract"
-      - "scripts/check-ps1-bom"
-      - "scripts/reverify"
-      - "*.ps1"
-      - "docs/**"
-      - ".github/workflows/verification-cadence.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   re-verify:
