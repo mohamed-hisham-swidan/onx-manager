@@ -90,15 +90,15 @@ and a live test run.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 340+ | `backend/app/` (including domain aggregates, commands, queries, providers) |
-| Backend test files | 185+ | `backend/tests/` (including 15+ dedicated versioning and refactor suites) |
+| Backend Python source files | 412 | `backend/app/` (including domain aggregates, commands, queries, providers) |
+| Backend test files | 239 | `backend/tests/` (including 225 dedicated test suites across versioning, reliability, and modules) |
 | Frontend test files | 89 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 16 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users, versioning` |
 | Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml`) |
 | Alembic migration revisions | 42 | `backend/alembic/versions/` (head `b1e2100000022`) |
 | Architecture Decision Records & Decisions | 28 | `docs/decisions/` (ADRs 0001–0016 + 12 formal DECISION records) |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
-| DDD modules | 11 | `auth, backup, event_store, exposure, health, monitoring, plugin, server, shared, storage, versioning` |
+| DDD modules | 13 | `activity, auth, backup, event_store, exposure, health, monitoring, operations, plugin, server, shared, storage, versioning` |
 | CI workflows | 7 | `.github/workflows/{backend-tests.yml, docker-build-smoke.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml, windows-ci.yml}` — full backend pytest + DooD build smoke + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence; Windows CI |
 
 ---

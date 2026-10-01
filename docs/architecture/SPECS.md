@@ -79,47 +79,48 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 ## 3. Repository shape — counts
 
-### Code size (measured 2026-09-18)
+### Code size (measured 2026-10-02)
 
 | Scope | Files | Lines | Command |
 |---|---|---|---|
-| Backend Python (app + tests + alembic) | 649 | **116,393** | `find backend/{app,tests,alembic} -name '*.py'` |
-| — `backend/app` (production) | 389 | 58,934 | `find backend/app -name '*.py'` |
-| — `backend/tests` | 220 | 54,751 | `find backend/tests -name '*.py'` |
-| — `backend/alembic` (env + versions) | 40 | 2,708 | `find backend/alembic -name '*.py'` |
-| Frontend `frontend/src` (TS + TSX + CSS) | 204 | **39,698** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
-| — `.tsx` | 146 | — | `find frontend/src -name '*.tsx'` |
-| — `.ts` | 57 | — | `find frontend/src -name '*.ts'` |
-| — `.css` | 1 | — | `find frontend/src -name '*.css'` |
-| **TOTAL (backend + frontend source)** | **853** | **156,091** | — |
-| Docs | 143 files | 36,611 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
+| Backend Python (app + tests + alembic) | 694 | **129,766** | `find backend/{app,tests,alembic} -name '*.py'` |
+| — `backend/app` (production) | 412 | 64,817 | `find backend/app -name '*.py'` |
+| — `backend/tests` | 239 | 62,021 | `find backend/tests -name '*.py'` |
+| — `backend/alembic` (env + versions) | 43 | 2,928 | `find backend/alembic -name '*.py'` |
+| Frontend `frontend/src` (TS + TSX + CSS) | 219 | **41,516** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
+| — `.tsx` | 156 | 32,829 | `find frontend/src -name '*.tsx'` |
+| — `.ts` | 62 | 8,656 | `find frontend/src -name '*.ts'` |
+| — `.css` | 1 | 31 | `find frontend/src -name '*.css'` |
+| **TOTAL (backend + frontend source)** | **913** | **171,282** | — |
+| Docs | 173 files | 43,504 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 
 | Extension | Files |
 |---|---|
-| `.py` | 649 |
-| `.tsx` | 146 |
-| `.ts` | 57 |
+| `.py` | 694 |
+| `.tsx` | 156 |
+| `.ts` | 62 |
 | `.css` | 1 |
-| **Total** | **853** |
+| **Total** | **913** |
 
 ### Backend DDD modules (`backend/app/modules/`)
 
 | Module | Files | Lines | Purpose |
 |---|---|---|---|
-| server | 58 | 10,200 | Aggregate, lifecycle, discovery, reconciliation, console stream |
-| versioning | 35 | 8,850 | Git-inspired commits, DAG, tags, worktrees, test definitions, admission |
-| exposure | 19 | 5,943 | Playit/UPnP/Cloudflare tunnel + port-forward |
-| plugin | 32 | 2,792 | Plugin lifecycle + Modrinth/CurseForge catalog |
-| health | 28 | 2,488 | Health evidence, evaluation, crash analysis |
-| auth | 31 | 2,421 | Users, RBAC/ABAC, JWT, invites |
-| monitoring | 18 | 1,450 | Metrics, RCON, alert rules, unified container telemetry |
-| backup | 18 | 1,097 | Backup/restore saga |
-| activity | 11 | 950 | Persistent server activity logs & audit records |
-| event_store | 6 | 563 | Append-only event store + DLQ |
-| storage | 5 | 441 | Storage backends (local/S3/encryption) |
-| shared | 3 | 267 | Shared value objects / exceptions |
+| server | 64 | 15,755 | Aggregate, lifecycle, discovery, reconciliation, console stream |
+| versioning | 66 | 12,655 | Git-inspired commits, DAG, tags, worktrees, test definitions, admission |
+| exposure | 19 | 6,120 | Playit/UPnP/Cloudflare tunnel + port-forward |
+| plugin | 35 | 3,935 | Plugin lifecycle + Modrinth/CurseForge catalog |
+| health | 29 | 3,036 | Health evidence, evaluation, crash analysis |
+| auth | 31 | 2,618 | Users, RBAC/ABAC, JWT, invites |
+| operations | 14 | 2,304 | Multi-step operation state machine, steps, WS projection, idempotency |
+| monitoring | 17 | 1,600 | Metrics, RCON, alert rules, unified container telemetry |
+| backup | 18 | 1,182 | Backup/restore saga |
+| event_store | 6 | 615 | Append-only event store + DLQ |
+| activity | 11 | 485 | Persistent server activity logs & audit records |
+| storage | 5 | 472 | Storage backends (local/S3/encryption) |
+| shared | 3 | 282 | Shared value objects / exceptions |
 
 ### Tests (measured 2026-09-29)
 
@@ -143,8 +144,8 @@ backend/
 │   │   ├── routers/          # 16 REST routers (144 route handlers + 11 system routes = 155 live routes)
 │   │   └── schemas/          # Pydantic response/request models
 │   ├── core/                 # settings, version, exceptions, buses, security
-│   ├── modules/              # 11 DDD modules (server, versioning, activity, exposure,
-│   │   │                     #   plugin, health, auth, monitoring, backup, event_store, storage, shared)
+│   ├── modules/              # 13 DDD modules (server, versioning, activity, exposure,
+│   │   │                     #   plugin, health, auth, operations, monitoring, backup, event_store, storage, shared)
 │   │   └── <module>/{domain,application,infrastructure}/
 │   ├── tasks/                # APScheduler jobs (metrics, health, backup, cleanup)
 │   ├── websocket/            # /ws endpoint, handlers, connection registry
@@ -321,10 +322,10 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 
 | Metric | Value |
 |---|---|
-| Source lines (backend + frontend) | **156,091** |
-| Source files (backend + frontend) | **853** |
-| Python files / lines | 649 / 116,393 |
-| TS+TSX files / lines | 203 / 39,698 |
+| Source lines (backend + frontend) | **171,282** |
+| Source files (backend + frontend) | **913** |
+| Python files / lines | 694 / 129,766 |
+| TS+TSX files / lines | 218 / 41,485 |
 | REST endpoints / live routes | 155 live routes (16 routers + app routes; 155/155 contract gate) |
 | Alembic revisions | 42 (head `b1e2100000022`) |
 | DB tables | 40+ (default dev DB at head) |
@@ -333,7 +334,7 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 | ADRs / Decisions | 28 (`0001`–`0016` + 12 formal `DECISION` records) |
 | Backend tests | 3,139 passed / 6 skipped (3,145 collected, 0 failed) |
 | Frontend tests | 752 passed across 89 test files (3,891 total tests across suites) |
-| Docs Markdown | 143 files / 36,611+ lines |
+| Docs Markdown | 173 files / 43,504+ lines |
 
 ---
 
