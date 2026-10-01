@@ -1,0 +1,12 @@
+Applying patches
+Starting org.bukkit.craftbukkit.Main
+[22:01:43 INFO]: [bootstrap] Running Java 25 (OpenJDK 64-Bit Server VM 25.0.4+7-LTS; Eclipse Adoptium Temurin-25.0.4+7) on Linux 7.2.0-1-cachyos (amd64)
+[22:01:43 INFO]: [bootstrap] Loading Paper 26.2-123-main@5001879 (2026-09-09T17:32:22Z) for Minecraft 26.2
+[22:01:43 INFO]: [PluginInitializerManager] Initializing plugins...
+[22:01:44 ERROR]: [DirectoryProviderSource] Error loading plugin: zip END header not found
+java.util.zip.ZipException: zip END header not found
+	at java.base/java.util.zip.ZipFile$Source.findEND(Unknown Source) ~[?:?]
+	at java.base/java.util.zip.ZipFile$Source.initCEN(Unknown Source) ~[?:?]
+	at java.base/java.util.zip.ZipFile$Source.<init>(Unknown Source) ~[?:?]
+	at java.base/java.util.zip.ZipFile$Source.get(Unknown Source) ~[?:?]
+	at java.base/java.util.zip.ZipFile$CleanableResource.<init>(Unknown Source) ~[?:?]

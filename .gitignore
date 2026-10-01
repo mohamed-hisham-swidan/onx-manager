@@ -49,6 +49,7 @@ backend/config/
 # Logs
 # ──────────────────────────────────────────────
 *.log
+!backend/tests/fixtures/*.log
 logs/
 executors/logs/
 

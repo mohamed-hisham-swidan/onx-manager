@@ -1,0 +1,12 @@
+[22:15:04 INFO]: [PluginInitializerManager] Initialized 2 plugins
+[22:15:04 INFO]: [PluginInitializerManager] Paper plugins (1):
+ - CommandAPI (12.0.0)
+[22:15:04 INFO]: [PluginInitializerManager] Bukkit plugins (1):
+ - fakeplayer (0.4.4)
+[22:15:04 ERROR]: [ModernPluginLoadingStrategy] Ambiguous plugin name 'CommandAPI' for files 'plugins/CommandAPI-12.0.0-Paper.jar' and 'plugins/stray-commandapi.jar' in 'plugins'
+[22:15:04 WARN]: [ModernPluginLoadingStrategy] `CommandAPINetworking' is provided by both `CommandAPI' and `CommandAPI'
+[22:15:04 INFO]: [CommandAPI] Loaded version PaperNMS_26_2
+[22:15:04 INFO]: [CommandAPI] Hooked into Spigot successfully for Chat/ChatComponents
+[22:15:04 INFO]: [CommandAPI] Hooked into Adventure for AdventureChat/AdventureChatComponents
+[22:15:04 INFO]: [CommandAPI] Hooked into Paper for paper-specific API implementations
+[22:15:04 INFO]: [CommandAPI] Loaded platform CommandAPIPaper > CommandAPIBukkit

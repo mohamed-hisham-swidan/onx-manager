@@ -1,0 +1,14 @@
+[21:50:21 INFO]: Done preparing level "world" (13.623s)
+[21:50:21 INFO]: [CommandAPI] Enabling CommandAPI v12.0.0
+[21:50:21 INFO]: [CommandAPI] Hooked into Paper ServerResourcesReloadedEvent
+[21:50:21 INFO]: [fakeplayer] Enabling fakeplayer v0.4.4
+[21:50:22 INFO]: [com.zaxxer.hikari.HikariDataSource] fakeplayer-datasource - Starting...
+[21:50:22 INFO]: [com.zaxxer.hikari.pool.HikariPool] fakeplayer-datasource - Added connection org.sqlite.jdbc4.JDBC4Connection@4406d8f1
+[21:50:22 INFO]: [com.zaxxer.hikari.HikariDataSource] fakeplayer-datasource - Start completed.
+[21:50:23 INFO]: [fakeplayer] Using simple invsee implement
+[21:50:23 INFO]: [fakeplayer] Enabled in 15296 ms
+[21:50:23 INFO]: [spark] Starting background profiler...
+[21:50:24 INFO]: Starting remote control listener
+[21:50:24 INFO]: Thread RCON Listener started
+[21:50:24 INFO]: RCON running on 0.0.0.0:25575
+[21:50:24 INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:overworld

@@ -1,0 +1,12 @@
+[22:00:12 INFO]: Default game type: SURVIVAL
+[22:00:12 INFO]: Generating keypair
+[22:00:12 INFO]: Starting Minecraft server on *:25565
+[22:00:12 INFO]: Paper: Using libdeflate (Linux x86_64) compression from Velocity.
+[22:00:12 INFO]: Paper: Using OpenSSL 3.x.x (Linux x86_64) cipher from Velocity.
+[22:00:12 ERROR]: [ModernPluginLoadingStrategy] Could not load 'plugins/fakeplayer-0.4.4.jar' in 'plugins'
+org.bukkit.plugin.UnknownDependencyException: Unknown/missing dependency plugins: [CommandAPI]. Please download and install these plugins to run 'fakeplayer'.
+	at io.papermc.paper.plugin.entrypoint.strategy.modern.ModernPluginLoadingStrategy.loadProviders(ModernPluginLoadingStrategy.java:82) ~[paper-26.2.jar:26.2-123-5001879]
+	at io.papermc.paper.plugin.storage.SimpleProviderStorage.enter(SimpleProviderStorage.java:38) ~[paper-26.2.jar:26.2-123-5001879]
+	at io.papermc.paper.plugin.entrypoint.LaunchEntryPointHandler.enter(LaunchEntryPointHandler.java:39) ~[paper-26.2.jar:26.2-123-5001879]
+	at org.bukkit.craftbukkit.CraftServer.loadPlugins(CraftServer.java:549) ~[paper-26.2.jar:26.2-123-5001879]
+	at net.minecraft.server.dedicated.DedicatedServer.initServer(DedicatedServer.java:297) ~[paper-26.2.jar:26.2-123-5001879]
