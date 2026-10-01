@@ -111,7 +111,7 @@ Authorization is enforced at the route dependency layer in two forms:
 > the source of truth in `../contracts/permissions.yaml`.
 >
 > The full list of enforced routes is maintained in
-> [`../contracts/permissions.yaml`](../contracts/permissions.yaml) (v1.5, 85
+> [`../contracts/permissions.yaml`](../contracts/permissions.yaml) (v1.6, 155
 > effective routes), not duplicated inline here.
 
 ### 401 vs 403

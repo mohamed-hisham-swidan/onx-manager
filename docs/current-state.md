@@ -1,4 +1,4 @@
-## Current State (2026-09-18)
+## Current State (2026-10-01)
 
 **Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
 - Phase 0 (Ground Truth/Baseline Freeze): CLOSED
@@ -15,6 +15,7 @@
 - **Enterprise Branch Runtime — Stage F (Test Platform & Verification Drivers): CLOSED (2026-09-18)** — Reusable `TestDefinition` configurations aggregate, 1:1 `Runtime` entity container attach model via `server_runtimes` table, automated `PatternCrashAnalyzer` mod blame integration, structured `EvidenceBundle` generation, and lazy 24h debug artifact pruning in admission reaping; Alembic migration `b1e2100000018`; 6 new FastAPI endpoints (147 live routes verified); 2,882 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `785c7cc`.
 - **Enterprise Branch Runtime — Stage G (Protected Branches): CLOSED (2026-09-18)** — `BranchProtectionPolicy` frozen dataclass (require_test_pass, allow_direct_commit, allow_force_bypass, prevent_deletion), `ServerBranch` lifecycle methods (`protect`, `unprotect`, `can_commit_directly`, `can_archive`), `BranchProtectedError` (HTTP 409), `CreateCommitCommand` protection enforcement with administrative emergency bypass permission and audit logging, strict `AutoCommitLiveChangesCommand` and `ArchiveBranchCommand` rejection, and 3 new REST endpoints; Alembic migration `b1e2100000019` advancing route contract to 150/150 routes; 2,906 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `ba8b539`.
 - **Enterprise Branch Runtime — Frontend UI Batch: CLOSED (2026-09-18)** — Complete user interfaces for Stages B, C, F, G: `BranchProtectionModal.tsx`, `TestDefinitionsModal.tsx`, `TestEvidenceModal.tsx`, `MaterializationBrowserModal.tsx`, `ImportReviewModal.tsx`, `ManageBranchesModal.tsx`, `CreateTagModal.tsx`, `CommitDiffModal.tsx`, and full page integration in `ServerVersioningPage.tsx`; all 22 versioning routes wired in `api.ts`; 0 TypeScript errors; 730 frontend tests passing across 83 test files (100% green); 6/6 CI quality gates PASS. Commit `8b219ba`.
+- **Phase 5.5 — Pre-Beta Reliability (Stages A & B): CLOSED (2026-09-29)** — Stage A Reliability Foundation (`Operation` aggregate, idempotency, WS projection) and Stage B Test Run Engine (`TestDefinition` execution without lossy division, standard `ValueError` terminal guards, `operation_id` column/index via migration `b1e2100000022`, unified assertion engine with `BaseVerifier`, canonical `TestCleanupPlan` with separator-safe `resolve_test_dir`). 3,145 backend collected / 3,139 passed / 6 skipped / 0 failed, 752 frontend passed across 89 files, 6/6 CI quality gates PASS.
 - **Next: Phase 6 (Final Installs / Wrap-up) — READY**: Installer polish, distribution packaging, first-run experience, documentation review.
 
 
@@ -77,10 +78,10 @@
 # ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-09-18. Every claim below was verified against source code, the database,
+2026-10-01. Every claim below was verified against source code, the database,
 and a live test run.
 
-**Last verified:** 2026-09-18
+**Last verified:** 2026-10-01
 **App version (code):** `0.1.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
@@ -91,25 +92,25 @@ and a live test run.
 |------|-------|----------|
 | Backend Python source files | 340+ | `backend/app/` (including domain aggregates, commands, queries, providers) |
 | Backend test files | 185+ | `backend/tests/` (including 15+ dedicated versioning and refactor suites) |
-| Frontend test files | 83 | `find frontend/src -name "*.test.*"` |
+| Frontend test files | 89 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 16 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users, versioning` |
-| Live routes | 150 | `./scripts/check-route-contract` (150 live routes vs 150 entries in `contracts/permissions.yaml`) |
-| Alembic migration revisions | 39 | `backend/alembic/versions/` (head `b1e2100000019`) |
-| Architecture Decision Records & Decisions | 22 | `docs/decisions/` (ADRs 0001–0016 + 6 formal DECISION records) |
+| Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml`) |
+| Alembic migration revisions | 42 | `backend/alembic/versions/` (head `b1e2100000022`) |
+| Architecture Decision Records & Decisions | 28 | `docs/decisions/` (ADRs 0001–0016 + 12 formal DECISION records) |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 11 | `auth, backup, event_store, exposure, health, monitoring, plugin, server, shared, storage, versioning` |
-| CI workflows | 6 | `.github/workflows/{backend-tests.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml, windows-ci.yml}` — full backend pytest + DooD build smoke + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence; Windows CI |
+| CI workflows | 7 | `.github/workflows/{backend-tests.yml, docker-build-smoke.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml, windows-ci.yml}` — full backend pytest + DooD build smoke + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence; Windows CI |
 
 ---
 
-## 2. Test suite (measured 2026-09-18)
+## 2. Test suite (measured 2026-09-29)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
 | Metric | Value |
 |--------|-------|
-| Collected | **2918** |
-| Passed | **2912** |
+| Collected | **3145** |
+| Passed | **3139** |
 | Skipped | **6** |
 | Failed | **0** |
 
@@ -121,11 +122,11 @@ Backend CI runs the full suite on every push/PR to `master`
 
 | Metric | Value |
 |--------|-------|
-| Test files | **83** |
-| Tests | **730 passed** across 83 test files |
+| Test files | **89** |
+| Tests | **752 passed** across 89 test files |
 
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
-on every push/PR to `master`. Total test count: **3,642 tests passed** (0 failed, 6 skipped).
+on every push/PR to `master`. Total test count: **3,891 tests** (3,885 passed, 0 failed, 6 skipped).
 
 ---
 
@@ -135,10 +136,10 @@ on every push/PR to `master`. Total test count: **3,642 tests passed** (0 failed
 
 | Property | Value |
 |----------|-------|
-| Alembic revision | `b1e2100000019` — **at head** |
-| Head revision | `b1e2100000019` (head == current) |
-| Revisions count | 39 migrations |
-| Refactor tables / columns | `server_commit_parents`, `server_tags`, `server_branches.status`, `server_branches.is_protected`, `server_branches.protection_policy`, `server_materializations`, `server_import_reviews`, `server_admission_leases`, `server_runtimes`, `server_test_definitions`, `server_test_runs.runtime_id`, `server_test_runs.test_definition_id`, `server_test_runs.evidence_bundle`, `server_test_runs.artifacts_purged` |
+| Alembic revision | `b1e2100000022` — **at head** |
+| Head revision | `b1e2100000022` (head == current) |
+| Revisions count | 42 migrations |
+| Refactor tables / columns | `server_commit_parents`, `server_tags`, `server_branches.status`, `server_branches.is_protected`, `server_branches.protection_policy`, `server_materializations`, `server_import_reviews`, `server_admission_leases`, `server_runtimes`, `server_test_definitions`, `server_test_runs.runtime_id`, `server_test_runs.test_definition_id`, `server_test_runs.evidence_bundle`, `server_test_runs.artifacts_purged`, `server_operations`, `server_test_runs.operation_id` |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` automatically inspects, backs up, and reconciles DB schema before services start |
 
 ---

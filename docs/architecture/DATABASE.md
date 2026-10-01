@@ -7,7 +7,7 @@
 | Primary database | SQLite 3 (`aiosqlite` async) default (`backend/data/onx.db`); PostgreSQL 16 (`asyncpg`) supported |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (39 revisions, head `b1e2100000019`) |
+| Migrations | Alembic (42 revisions, head `b1e2100000022`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (ACID backups & migration gate) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
@@ -161,7 +161,7 @@ Time-series data for server performance: `tps`, `players`, `ram_used_mb`, `cpu_p
 
 `backend/app/modules/versioning/infrastructure/models.py`
 
-Introduced in Stages A–G (`b1e2100000013` through `b1e2100000019`) to support Git-inspired version control, filesystem worktrees, admission control, and isolated test runs:
+Introduced in Stages A–G and Phase 5.5 (`b1e2100000013` through `b1e2100000022`) to support Git-inspired version control, filesystem worktrees, admission control, operations, and isolated test runs:
 
 - **`server_branches`** — Server branches with lifecycle tracking and protection policies.
   - Columns: `id` (PK), `server_id` (indexed), `name`, `head_commit_id`, `status` (`created`, `active`, `archived`), `is_protected` (bool), `protection_policy` (JSON: `require_test_pass`, `allow_direct_commit`, `allow_force_bypass`, `prevent_deletion`), `created_at`.
@@ -278,7 +278,10 @@ alembic downgrade -1
 | `b1e2100000016` | `b1e2100000015` | Stage C: `server_materializations`, `server_import_reviews` |
 | `b1e2100000017` | `b1e2100000016` | Stage D: `server_admission_lease`, `reserved_ram_mb`, `reserved_cores` on `server_test_runs` |
 | `b1e2100000018` | `b1e2100000017` | Stage F: `server_test_definitions`, `server_runtimes`, `runtime_id`, `test_definition_id`, `evidence_bundle`, `artifacts_purged` |
-| `b1e2100000019` | `b1e2100000018` | Stage G: `server_branches.is_protected`, `server_branches.protection_policy` — **head** |
+| `b1e2100000019` | `b1e2100000018` | Stage G: `server_branches.is_protected`, `server_branches.protection_policy` |
+| `b1e2100000020` | `b1e2100000019` | `server_startup_timeout_seconds` on `servers` |
+| `b1e2100000021` | `b1e2100000020` | Phase 5.5 Stage A: `server_operations` table |
+| `b1e2100000022` | `b1e2100000021` | Phase 5.5 Stage B: `operation_id` on `server_test_runs` — **head** |
 
 ### Per-release compatibility floor
 
@@ -287,7 +290,7 @@ the release minimum — **fail closed**, never auto-upgraded.
 
 | Release | Minimum DB revision |
 |---------|---------------------|
-| `0.1.0` | `b1e2100000019` (current head) |
+| `0.1.0` | `b1e2100000022` (current head) |
 
 - **Authoritative source:** `backend/app/core/persistence/db_revision.py`
   (`RELEASE_MINIMUM_DB_REVISION`).

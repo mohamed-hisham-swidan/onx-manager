@@ -64,7 +64,7 @@ consistently in the backend, frontend, docs, and state files.
 3. **No release semantics.** `4.0.0` was a string, not a SemVer contract —
    **resolved**: SemVer 2.0.0 semantics adopted (§4.2).
 4. **No migration/version compatibility rule.** With an Alembic migration chain
-    (39 revisions, head `b1e2100000019`) and a prod DB that trails head, there was
+    (42 revisions, head `b1e2100000022`) and a prod DB that trails head, there was
     no documented rule for "which DB revision a given app version expects" —
     **resolved**: per-release minimum DB revision, fail-closed, never auto-migrated
     (§4.3).
@@ -137,7 +137,7 @@ auto-upgraded**.
 
 | Release | Minimum DB revision |
 |---------|---------------------|
-| `0.1.0` | `b1e2100000019` (current Alembic head) |
+| `0.1.0` | `b1e2100000022` (current Alembic head) |
 
 - **Authoritative declaration:** `backend/app/core/persistence/db_revision.py`
   (`RELEASE_MINIMUM_DB_REVISION`). No other runtime source duplicates it.

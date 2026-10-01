@@ -177,7 +177,7 @@ Both must be set together when running test/development backends. Because `setsi
 | Language | Python 3.12+ (`requires-python = ">=3.12"`; CI runs 3.12) |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (39 revisions, head `b1e2100000019`) |
+| Migrations | Alembic (42 revisions, head `b1e2100000022`) |
 | Version source | `backend/pyproject.toml` → `backend/app/core/version.py:get_app_version()` (runtime, OpenAPI, settings, health) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
@@ -439,20 +439,24 @@ Test isolation: sandbox database + sandbox server directory, set via `MCS_DATABA
 
 ### CI
 
-- **Backend CI** (`.github/workflows/backend-tests.yml`): full `pytest`, a DB
+- **Backend CI** (`.github/workflows/backend-tests.yml`): full `pytest`, DB
   compatibility-floor check (`scripts/check-db-revision`, minimum
-  `b1e2100000019`), and a Ruff baseline regression gate
-  (`scripts/check-ruff-baseline`). New Ruff violations fail; the 1738
-  pre-existing violations / 42 rules baseline stays tracked.
+  `b1e2100000022`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
+  (`scripts/check-stray-db`), and Ruff baseline regression gate
+  (`scripts/check-ruff-baseline`).
 - **Version propagation CI** (`.github/workflows/backend-version-ci.yml`):
   verifies `pyproject.toml`, runtime, and frontend package versions agree.
+- **Route contract CI** (`.github/workflows/route-permission-ci.yml`): verifies
+  155 live routes match `contracts/permissions.yaml`.
 - **Frontend CI** (`.github/workflows/frontend-ci.yml`): typecheck, lint, test, build.
+- **Docker build smoke** (`.github/workflows/docker-build-smoke.yml`): builds Docker image on backend Dockerfile/requirements changes.
+- **Verification cadence & Windows CI** (`verification-cadence.yml`, `windows-ci.yml`): weekly scheduled runs.
 
 Pyright is **advisory / local only** — not a CI gate.
 
 ### DB compatibility floor
 
-`0.1.0` pins minimum Alembic revision `b1e2100000019`
+`0.1.0` pins minimum Alembic revision `b1e2100000022`
 (`backend/app/core/persistence/db_revision.py`, `RELEASE_MINIMUM_DB_REVISION`).
 Startup fails closed if the live DB is below the floor; the application never
 auto-runs migrations (see `docs/VERSIONING.md` §4.3).

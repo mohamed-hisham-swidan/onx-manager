@@ -4,10 +4,10 @@
 
 | Layer | Framework | Test Count | Location |
 |---|---|---|---|
-| Backend (unit + integration + lifecycle) | pytest + pytest-asyncio | **2,906 passed / 6 skipped (2,912 collected, 0 failures)** | `backend/tests/` |
-| Frontend (component + unit) | Vitest + jsdom | **730 passed across 83 files (0 failures)** | `frontend/src/**/*.test.*` |
+| Backend (unit + integration + lifecycle) | pytest + pytest-asyncio | **3,139 passed / 6 skipped (3,145 collected, 0 failures)** | `backend/tests/` |
+| Frontend (component + unit) | Vitest + jsdom | **752 passed across 89 files (0 failures)** | `frontend/src/**/*.test.*` |
 
-> Measured 2026-09-18 (see `docs/current-state.md` §2). Backend lint is enforced as a **Ruff
+> Measured 2026-09-29 (see `docs/current-state.md` §2). Backend lint is enforced as a **Ruff
 > baseline regression gate** — new violations fail CI while the pre-existing
 > baseline remains tracked in `backend/ruff-baseline.json` (see `scripts/check-ruff-baseline`).
 
@@ -329,16 +329,16 @@ The integration suite will live in `backend/tests/e2e/` and use the existing Doc
 
 CI enforces the following 6 quality gates on every push/PR to `master`:
 
-1. **DB Compatibility Floor** (`scripts/check-db-revision`): verifies database matches compatible Alembic migration head (`b1e2100000019`).
-2. **Route/Permission Contract** (`scripts/check-route-contract`): verifies live route table matches `contracts/permissions.yaml` exactly (150 live routes vs 150 contract entries).
+1. **DB Compatibility Floor** (`scripts/check-db-revision`): verifies database matches compatible Alembic migration head (`b1e2100000022`).
+2. **Route/Permission Contract** (`scripts/check-route-contract`): verifies live route table matches `contracts/permissions.yaml` exactly (155 live routes vs 155 contract entries).
 3. **Ruff Baseline Gate** (`scripts/check-ruff-baseline`): zero new violations beyond tracked baseline (`backend/ruff-baseline.json`).
 4. **Version Propagation** (`scripts/check-version-propagation`): verifies `pyproject.toml`, runtime (`backend/app/core/version.py`), and frontend package versions agree (`0.1.0`).
 5. **PowerShell UTF-8 BOM** (`scripts/check-ps1-bom`): verifies all 5 tracked `.ps1` files contain a valid UTF-8 BOM.
 6. **Stray DB Check** (`scripts/check-stray-db`): ensures no stray or unanchored SQLite `.db` files exist in repo root or backend root.
 
 Full test suites:
-- **Backend**: `python -m pytest -q` — 2,906 passed / 6 skipped (2,912 collected)
-- **Frontend**: `npm run typecheck`, `npm run lint`, `npm test` (730 passed across 83 test files), `npm run build`
+- **Backend**: `python -m pytest -q` — 3,139 passed / 6 skipped (3,145 collected)
+- **Frontend**: `npm run typecheck`, `npm run lint`, `npm test` (752 passed across 89 test files), `npm run build`
 
 **Pyright** (backend type-checking) is **advisory / local only** — it is not a
 CI gate and does not block merges.

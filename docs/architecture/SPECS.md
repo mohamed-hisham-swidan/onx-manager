@@ -121,13 +121,13 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | storage | 5 | 441 | Storage backends (local/S3/encryption) |
 | shared | 3 | 267 | Shared value objects / exceptions |
 
-### Tests (measured 2026-09-18)
+### Tests (measured 2026-09-29)
 
 | Suite | Count | Detail |
 |---|---|---|
-| Backend | **2,906 passed / 6 skipped** (2,912 collected) | 185+ `test_*.py` files across `backend/tests/` |
-| Frontend | **730 passed across 83 test files** | `npm test` (`npx vitest run`) |
-| Total | **3,636 passed (0 failed, 6 skipped)** | Full regression verification & 6/6 CI quality gates PASS |
+| Backend | **3,139 passed / 6 skipped** (3,145 collected) | 200+ `test_*.py` files across `backend/tests/` |
+| Frontend | **752 passed across 89 test files** | `npm test` (`npx vitest run`) |
+| Total | **3,891 total (3,885 passed, 0 failed, 6 skipped)** | Full regression verification & 6/6 CI quality gates PASS |
 | Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit`, `versioning` |
 
 ---
@@ -140,7 +140,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 backend/
 ├── app/
 │   ├── api/v1/
-│   │   ├── routers/          # 16 REST routers (139 route handlers + 11 system routes = 150 live routes)
+│   │   ├── routers/          # 16 REST routers (144 route handlers + 11 system routes = 155 live routes)
 │   │   └── schemas/          # Pydantic response/request models
 │   ├── core/                 # settings, version, exceptions, buses, security
 │   ├── modules/              # 11 DDD modules (server, versioning, activity, exposure,
@@ -150,7 +150,7 @@ backend/
 │   ├── websocket/            # /ws endpoint, handlers, connection registry
 │   ├── services/             # orchestrators (server, backup)
 │   └── registrations.py      # bus handler registration
-├── alembic/                  # 39 migration revisions (head b1e2100000019)
+├── alembic/                  # 42 migration revisions (head b1e2100000022)
 ├── tests/                    # api/ application/ auth/ core/ domain/ event_store/
 │                             #   infrastructure/ monitoring/ plugin/ tasks/ versioning/
 ├── config/                   # YAML settings
@@ -214,13 +214,8 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
   close even on commit failure.
 - **ABAC/RBAC authorization**: permission strings (`plugin:manage`, `server.x.view`, …)
   evaluated by `PermissionEvaluator`; enforced via `require_permission` /
-  `require_server_permission` dependencies + route→permission contract check (150/150 live routes).
+  `require_server_permission` dependencies + route→permission contract check (155/155 live routes).
 - **WebSocket layer**: `/ws` endpoint, channel subscriptions, auth via token,
-  metrics batching + domain-event dispatch, reconnect/backoff client.
-- **Event store**: append-only SQLite table with SHA-256 cryptographic chain +
-  dead-letter queue + replay.
-- **Schedulers**: APScheduler jobs (metrics, health recalculation, backup,
-  event cleanup) with sub-minute SQLite write bypass.
   metrics batching + domain-event dispatch, reconnect/backoff client.
 - **Event store**: append-only SQLite table with SHA-256 cryptographic chain +
   dead-letter queue + replay.
@@ -330,14 +325,14 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 | Source files (backend + frontend) | **853** |
 | Python files / lines | 649 / 116,393 |
 | TS+TSX files / lines | 203 / 39,698 |
-| REST endpoints / live routes | 150 live routes (16 routers + app routes; 150/150 contract gate) |
-| Alembic revisions | 39 (head `b1e2100000019`) |
-| DB tables | 38+ (default dev DB at head) |
+| REST endpoints / live routes | 155 live routes (16 routers + app routes; 155/155 contract gate) |
+| Alembic revisions | 42 (head `b1e2100000022`) |
+| DB tables | 40+ (default dev DB at head) |
 | CI workflows | 7 (backend-tests, docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
 | Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |
-| ADRs | 22 (`0001`–`0016` + 6 formal `DECISION` records) |
-| Backend tests | 2,906 passed / 6 skipped (2,912 collected, 0 failed) |
-| Frontend tests | 730 passed across 83 test files (3,636 total tests across suites) |
+| ADRs / Decisions | 28 (`0001`–`0016` + 12 formal `DECISION` records) |
+| Backend tests | 3,139 passed / 6 skipped (3,145 collected, 0 failed) |
+| Frontend tests | 752 passed across 89 test files (3,891 total tests across suites) |
 | Docs Markdown | 143 files / 36,611+ lines |
 
 ---
