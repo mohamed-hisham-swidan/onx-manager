@@ -44,6 +44,7 @@ def _migrations_dir() -> Path:
 def load_revision_parents(scripts_dir: Path | None = None) -> dict[str, str | None]:
     """Map each revision id to its down_revision id (migration ancestry edges)."""
     cfg = AlembicConfig()
+    cfg.attributes["configure_logger"] = False
     cfg.set_main_option("script_location", str(scripts_dir or _migrations_dir()))
     script = ScriptDirectory.from_config(cfg)
     parents: dict[str, str | None] = {}

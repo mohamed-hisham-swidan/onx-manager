@@ -141,6 +141,7 @@ def get_configured_db_url() -> str:
 
     if ALEMBIC_INI.is_file():
         cfg = AlembicConfig(str(ALEMBIC_INI))
+        cfg.attributes["configure_logger"] = False
         url = cfg.get_main_option("sqlalchemy.url")
         if url:
             return canonicalize_db_url(url, BACKEND_DIR)
@@ -282,6 +283,7 @@ class DatabaseReconciler:
         cfg = AlembicConfig(str(self.alembic_ini))
         cfg.set_main_option("script_location", str(self.alembic_dir))
         cfg.set_main_option("sqlalchemy.url", self.db_url)
+        cfg.attributes["configure_logger"] = False
         return cfg
 
     def resolve_migration_graph(self) -> tuple[dict[str, str | None], str | None, list[str]]:

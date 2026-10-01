@@ -50,6 +50,7 @@ def _alembic_config(tmp_path) -> tuple[Config, str]:
     db_path = tmp_path / "migration_72b.db"
     url = f"sqlite+aiosqlite:///{db_path}"
     cfg = Config()
+    cfg.attributes["configure_logger"] = False
     cfg.set_main_option("script_location", str(_ALEMBIC_DIR))
     cfg.set_main_option("sqlalchemy.url", url)
     return cfg, str(db_path)

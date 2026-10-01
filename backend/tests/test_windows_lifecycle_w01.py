@@ -333,6 +333,7 @@ class TestAlembicMigration:
         db_file = tmp_path / "alembic_test.db"
 
         alembic_cfg = Config(str(ini_path))
+        alembic_cfg.attributes["configure_logger"] = False
         alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{db_file}")
         alembic_cfg.set_main_option("script_location", str(script_dir))
 
