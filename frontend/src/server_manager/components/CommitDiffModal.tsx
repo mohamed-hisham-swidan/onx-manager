@@ -44,9 +44,17 @@ export function CommitDiffModal({
   }, [serverId, fromCommitId, toCommitId, api]);
 
   useEffect(() => {
+    let alive = true;
     if (isOpen && fromCommitId && toCommitId) {
-      loadDiff();
+      void Promise.resolve().then(() => {
+        if (alive) {
+          loadDiff();
+        }
+      });
     }
+    return () => {
+      alive = false;
+    };
   }, [isOpen, fromCommitId, toCommitId, loadDiff]);
 
   useEffect(() => {

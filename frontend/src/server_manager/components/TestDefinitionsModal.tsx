@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
@@ -54,7 +54,7 @@ export function TestDefinitionsModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, isSubmitting, onClose]);
 
-  const loadDefinitions = () => {
+  const loadDefinitions = useCallback(() => {
     setIsLoading(true);
     api
       .getTestDefinitions(serverId)
@@ -67,13 +67,21 @@ export function TestDefinitionsModal({
         setError(msg);
         setIsLoading(false);
       });
-  };
+  }, [api, serverId]);
 
   useEffect(() => {
+    let alive = true;
     if (isOpen) {
-      loadDefinitions();
+      void Promise.resolve().then(() => {
+        if (alive) {
+          loadDefinitions();
+        }
+      });
     }
-  }, [isOpen, serverId]);
+    return () => {
+      alive = false;
+    };
+  }, [isOpen, loadDefinitions]);
 
   if (!isOpen) return null;
 

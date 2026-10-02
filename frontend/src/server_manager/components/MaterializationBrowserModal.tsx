@@ -101,9 +101,17 @@ export function MaterializationBrowserModal({
   }, [serverId, activeMatId]);
 
   useEffect(() => {
+    let alive = true;
     if (isOpen) {
-      loadMaterializations();
+      void Promise.resolve().then(() => {
+        if (alive) {
+          loadMaterializations();
+        }
+      });
     }
+    return () => {
+      alive = false;
+    };
   }, [isOpen, loadMaterializations]);
 
   const activeMat = useMemo(() => {
@@ -127,15 +135,27 @@ export function MaterializationBrowserModal({
   }, [serverId]);
 
   useEffect(() => {
+    let alive = true;
     if (activeMatId) {
-      loadTree(activeMatId);
-      setSelectedFilePath(null);
-      setFileContent("");
-      setFileDirty(false);
-      setCurrentDir("");
+      void Promise.resolve().then(() => {
+        if (alive) {
+          loadTree(activeMatId);
+          setSelectedFilePath(null);
+          setFileContent("");
+          setFileDirty(false);
+          setCurrentDir("");
+        }
+      });
     } else {
-      setTreeEntries([]);
+      void Promise.resolve().then(() => {
+        if (alive) {
+          setTreeEntries([]);
+        }
+      });
     }
+    return () => {
+      alive = false;
+    };
   }, [activeMatId, loadTree]);
 
   // Load file content when selected
