@@ -613,9 +613,35 @@ class TestDockerDestroy:
         )
         with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
             for exit_code in (0, 137, 143):
+                # OOMKilled false
+                mock_cmd.return_value = (0, f"exited {exit_code} false\n")
+                status = await provider.status(handle)
+                assert (
+                    status == ServerRuntimeStatus.STOPPED
+                ), f"Failed for exit_code={exit_code} false"
+
+                # Missing third token (tolerant parsing)
                 mock_cmd.return_value = (0, f"exited {exit_code}\n")
                 status = await provider.status(handle)
-                assert status == ServerRuntimeStatus.STOPPED, f"Failed for exit_code={exit_code}"
+                assert (
+                    status == ServerRuntimeStatus.STOPPED
+                ), f"Failed for exit_code={exit_code} missing token"
+
+    @pytest.mark.asyncio
+    async def test_docker_status_oom_killed_returns_error(self) -> None:
+        provider = DockerProvider()
+        handle = ServerHandle(
+            provider="docker",
+            server_id="test-srv",
+            external_id="onx-test-srv",
+        )
+        with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            for exit_code in (0, 137, 143, 1):
+                mock_cmd.return_value = (0, f"exited {exit_code} true\n")
+                status = await provider.status(handle)
+                assert (
+                    status == ServerRuntimeStatus.ERROR
+                ), f"Failed for exit_code={exit_code} true"
 
     @pytest.mark.asyncio
     async def test_docker_status_error_exit_returns_error(self) -> None:
@@ -626,9 +652,13 @@ class TestDockerDestroy:
             external_id="onx-test-srv",
         )
         with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
+            mock_cmd.return_value = (0, "exited 1 false\n")
+            status = await provider.status(handle)
+            assert status == ServerRuntimeStatus.ERROR
+
             mock_cmd.return_value = (0, "exited 1\n")
             status = await provider.status(handle)
-        assert status == ServerRuntimeStatus.ERROR
+            assert status == ServerRuntimeStatus.ERROR
 
     @pytest.mark.asyncio
     async def test_docker_status_running_returns_running(self) -> None:
@@ -639,9 +669,10 @@ class TestDockerDestroy:
             external_id="onx-test-srv",
         )
         with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
-            mock_cmd.return_value = (0, "running 0\n")
-            status = await provider.status(handle)
-        assert status == ServerRuntimeStatus.RUNNING
+            for out in ("running 0 false\n", "running 0 true\n", "running 0\n"):
+                mock_cmd.return_value = (0, out)
+                status = await provider.status(handle)
+                assert status == ServerRuntimeStatus.RUNNING
 
     @pytest.mark.asyncio
     async def test_docker_start_conflict_removes_old_container(self, tmp_path: Path) -> None:

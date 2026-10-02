@@ -615,6 +615,11 @@ class TestDeleteServerFS:
         assert result.success is False
         assert result.error_code == "FILESYSTEM_CLEANUP_FAILED"
         assert "filesystem directory could not be removed" in (result.error or "")
+        assert result.details is not None
+        assert "leftover_path" in result.details
+        hint = result.details["cleanup_hint"]
+        assert "may be caused by file permissions or active file locks" in hint
+        assert "manual_command" not in result.details
         mock_delete_dir.side_effect = None
 
     @pytest.mark.asyncio

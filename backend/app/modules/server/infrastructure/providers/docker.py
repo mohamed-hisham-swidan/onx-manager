@@ -646,7 +646,7 @@ class DockerProvider(ServerProvider):
             "inspect",
             container_name,
             "--format",
-            "{{.State.Status}} {{.State.ExitCode}}",
+            "{{.State.Status}} {{.State.ExitCode}} {{.State.OOMKilled}}",
         )
         if returncode != 0 or not stdout.strip():
             return ServerRuntimeStatus.STOPPED
@@ -660,9 +660,13 @@ class DockerProvider(ServerProvider):
             except ValueError:
                 exit_code = 0
 
+        oom_killed = len(parts) > 2 and parts[2].lower() in ("true", "1")
+
         if state == "running":
             return ServerRuntimeStatus.RUNNING
         if state == "exited":
+            if oom_killed:
+                return ServerRuntimeStatus.ERROR
             return (
                 ServerRuntimeStatus.STOPPED
                 if exit_code in (0, 137, 143)

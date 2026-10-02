@@ -185,10 +185,19 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                     success=False,
                     error=(
                         "Server record deleted, but filesystem directory could not be removed: "
-                        f"{exc}"
+                        f"{exc}. Manual cleanup required."
                     ),
                     error_code="FILESYSTEM_CLEANUP_FAILED",
-                    details={"server_id": command.server_id, "server_dir": server_dir},
+                    details={
+                        "server_id": command.server_id,
+                        "leftover_path": server_dir,
+                        "cleanup_hint": (
+                            "The server database record was deleted, but the directory "
+                            f"'{server_dir}' could not be removed from disk. This may be "
+                            "caused by file permissions or active file locks. "
+                            "Inspect and remove the directory on the host to free disk space."
+                        ),
+                    },
                 )
 
         return CommandResult(success=True, data={"server_id": command.server_id})
