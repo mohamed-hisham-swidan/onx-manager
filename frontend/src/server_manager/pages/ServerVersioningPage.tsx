@@ -112,7 +112,7 @@ export function ServerVersioningPage() {
           api.getPreflightStatus(serverId),
           api.getServerTestRuns?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
           api.getServerTags?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
-          api.getLiveChanges?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
+          api.getLiveChanges?.(serverId, selectedBranch || "main")?.catch(() => null) ?? Promise.resolve(null),
         ]);
 
         if (!isMounted) return;

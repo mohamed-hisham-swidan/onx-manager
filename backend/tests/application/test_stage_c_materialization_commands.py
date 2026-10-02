@@ -393,6 +393,60 @@ class TestStageCMaterializationCommands:
         assert "server.properties" in paths_changed
         assert "config/custom.json" in paths_changed
 
+        # Fallback: pseudo-source 'server' and empty source resolve to 'main'
+        scan_server = await qb.ask(
+            ScanLiveChangesQuery(
+                server_id="srv-c-1",
+                source="server",
+            )
+        )
+        assert scan_server == scan1
+
+        scan_empty = await qb.ask(
+            ScanLiveChangesQuery(
+                server_id="srv-c-1",
+                source="",
+            )
+        )
+        assert scan_empty == scan1
+
+        # Non-existent branch still raises NotFoundError
+        from app.core.exceptions import NotFoundError
+        with pytest.raises(NotFoundError):
+            await qb.ask(
+                ScanLiveChangesQuery(
+                    server_id="srv-c-1",
+                    source="non-existent-branch",
+                )
+            )
+
+    async def test_scan_live_changes_unversioned_server_returns_empty(
+        self, init_test_db, tmp_path: Path
+    ) -> None:
+        _, qb, _ = init_test_db
+        async with database.session_factory() as session:
+            unversioned = ServerModel(
+                id="srv-unversioned",
+                name="UnversionedServer",
+                server_type="paper",
+                minecraft_version="1.21.1",
+                status="STOPPED",
+                root_path=str(tmp_path / "empty_dir"),
+                deployment_host="127.0.0.1",
+                port=25566,
+                java_args="-Xmx2G",
+            )
+            session.add(unversioned)
+            await session.commit()
+
+        res = await qb.ask(
+            ScanLiveChangesQuery(
+                server_id="srv-unversioned",
+                source="server",
+            )
+        )
+        assert res == {"changes": [], "auto_commit": None}
+
     async def test_auto_commit_and_review_lifecycle(
         self, init_test_db, seed_env: Path
     ) -> None:

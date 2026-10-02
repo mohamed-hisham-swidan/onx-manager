@@ -83,13 +83,22 @@ class ScanLiveChangesHandler(QueryHandler[ScanLiveChangesQuery]):
             raise NotFoundError(f"Server '{query.server_id}' not found") from exc
 
         # Resolve source commit
-        commit: ServerCommit | None = await versioning_repo.get_commit(query.source)
+        source = query.source
+        commit: ServerCommit | None = await versioning_repo.get_commit(source)
         if commit is None or commit.server_id != query.server_id:
-            branch = await versioning_repo.get_branch_by_name(query.server_id, query.source)
+            branch = await versioning_repo.get_branch_by_name(query.server_id, source)
+            if branch is not None and branch.head_commit_id:
+                commit = await versioning_repo.get_commit(branch.head_commit_id)
+
+        # Fallback to main branch if source was pseudo-source 'server' or empty
+        if commit is None and source in ("server", ""):
+            branch = await versioning_repo.get_branch_by_name(query.server_id, "main")
             if branch is not None and branch.head_commit_id:
                 commit = await versioning_repo.get_commit(branch.head_commit_id)
 
         if commit is None:
+            if source in ("server", "main", ""):
+                return {"changes": [], "auto_commit": None}
             raise NotFoundError(
                 f"Source '{query.source}' (commit or branch) not found on server "
                 f"'{query.server_id}'"

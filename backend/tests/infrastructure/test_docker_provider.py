@@ -612,9 +612,10 @@ class TestDockerDestroy:
             external_id="onx-test-srv",
         )
         with patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd:
-            mock_cmd.return_value = (0, "exited 0\n")
-            status = await provider.status(handle)
-        assert status == ServerRuntimeStatus.STOPPED
+            for exit_code in (0, 137, 143):
+                mock_cmd.return_value = (0, f"exited {exit_code}\n")
+                status = await provider.status(handle)
+                assert status == ServerRuntimeStatus.STOPPED, f"Failed for exit_code={exit_code}"
 
     @pytest.mark.asyncio
     async def test_docker_status_error_exit_returns_error(self) -> None:

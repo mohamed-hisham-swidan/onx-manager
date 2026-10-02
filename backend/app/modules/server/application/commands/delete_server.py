@@ -167,7 +167,6 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
             await cleanup_server_materializations(sid, self._event_bus)
 
         if server_dir:
-
             try:
                 local_fs.delete_dir(server_dir)
                 logger.info(
@@ -175,12 +174,21 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                     server_name,
                     server_dir,
                 )
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     'Failed to remove filesystem directory for server "%s" — path=%s server_id=%s',
                     server_name,
                     server_dir,
                     command.server_id,
+                )
+                return CommandResult(
+                    success=False,
+                    error=(
+                        "Server record deleted, but filesystem directory could not be removed: "
+                        f"{exc}"
+                    ),
+                    error_code="FILESYSTEM_CLEANUP_FAILED",
+                    details={"server_id": command.server_id, "server_dir": server_dir},
                 )
 
         return CommandResult(success=True, data={"server_id": command.server_id})

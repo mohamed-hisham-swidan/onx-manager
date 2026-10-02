@@ -544,7 +544,7 @@ export function createApiClient(
           body: { path, content },
         },
       ),
-    getLiveChanges: (serverId: string, source: string = "server") =>
+    getLiveChanges: (serverId: string, source: string = "main") =>
       request<ScanLiveChangesResponse>(
         `/api/v1/servers/${serverId}/versioning/import-review/scan`,
         {

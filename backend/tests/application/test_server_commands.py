@@ -395,6 +395,44 @@ class TestStopServerHandler:
         assert loaded.status.value == "stopped"
         assert loaded.runtime.external_id == ""
 
+    @pytest.mark.asyncio
+    async def test_stop_server_unexpected_runtime_status_logged(
+        self, event_bus: EventBus, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+        server = await _create_test_server(
+            "test-stop-unexpected", make_running=False, with_deployment=True
+        )
+        server.start()
+        server.mark_running(pid=100, port=25565, external_id="ext-test-unexpected")
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        mock_provider = AsyncMock()
+        mock_provider.status.return_value = ServerRuntimeStatus.ERROR
+        mock_provider.stop.return_value = None
+
+        handler = StopServerHandler(event_bus)
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(
+                "app.modules.server.application.commands.stop_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+        ):
+            result = await handler.handle(
+                StopServerCommand(server_id="test-stop-unexpected", reason="test")
+            )
+
+        assert result.success is True
+        assert "stopped with unexpected status" in caplog.text
+        assert "still running after stop" not in caplog.text
+
 
 @pytest.mark.usefixtures("init_test_db")
 class TestRestartServerHandler:
@@ -563,6 +601,21 @@ class TestDeleteServerFS:
         mock_delete_dir.assert_called_once()
         call_arg = mock_delete_dir.call_args[0][0]
         assert "test-del-fs-1" in call_arg
+
+    @pytest.mark.asyncio
+    async def test_delete_filesystem_failure_returns_error_result(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus
+    ) -> None:
+        await _create_test_server("test-del-fs-err", with_deployment=True)
+        mock_delete_dir.side_effect = PermissionError("Permission denied: .onx/tests")
+
+        handler = DeleteServerHandler(event_bus)
+        result = await handler.handle(DeleteServerCommand(server_id="test-del-fs-err"))
+
+        assert result.success is False
+        assert result.error_code == "FILESYSTEM_CLEANUP_FAILED"
+        assert "filesystem directory could not be removed" in (result.error or "")
+        mock_delete_dir.side_effect = None
 
     @pytest.mark.asyncio
     async def test_double_delete_idempotent(

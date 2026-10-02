@@ -663,7 +663,11 @@ class DockerProvider(ServerProvider):
         if state == "running":
             return ServerRuntimeStatus.RUNNING
         if state == "exited":
-            return ServerRuntimeStatus.STOPPED if exit_code == 0 else ServerRuntimeStatus.ERROR
+            return (
+                ServerRuntimeStatus.STOPPED
+                if exit_code in (0, 137, 143)
+                else ServerRuntimeStatus.ERROR
+            )
         if state in ("dead", "error"):
             return ServerRuntimeStatus.ERROR
         if state in ("created", "paused"):

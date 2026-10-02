@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import os
 import shutil
+import stat
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -86,17 +87,59 @@ class LocalFileSystem(FileSystem):
     def size(self, path: str) -> int:
         return Path(path).stat().st_size
 
+    @staticmethod
+    def _force_rm_error_handler(func, path, _exc):
+        try:
+            if os.path.exists(path):
+                os.chmod(path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                func(path)
+        except Exception:
+            pass
+
     def delete(self, path: str) -> None:
         p = Path(path)
         if p.is_dir():
-            shutil.rmtree(p)
+            self.delete_dir(path)
         elif p.exists():
-            p.unlink()
+            try:
+                p.unlink()
+            except PermissionError:
+                try:
+                    os.chmod(p, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                    p.unlink()
+                except Exception:
+                    pass
 
     def delete_dir(self, path: str) -> None:
         p = Path(path)
-        if p.is_dir():
-            shutil.rmtree(p)
+        if not p.is_dir():
+            return
+        shutil.rmtree(p, onexc=self._force_rm_error_handler)
+
+        if p.exists():
+            for root, dirs, files in os.walk(p, topdown=False):
+                for fname in files:
+                    fpath = os.path.join(root, fname)
+                    try:
+                        os.chmod(fpath, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                        os.unlink(fpath)
+                    except Exception:
+                        pass
+                for dname in dirs:
+                    dpath = os.path.join(root, dname)
+                    try:
+                        os.chmod(dpath, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                        os.rmdir(dpath)
+                    except Exception:
+                        pass
+            try:
+                os.chmod(p, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                os.rmdir(p)
+            except Exception:
+                pass
+
+        if p.exists():
+            raise PermissionError(f"Directory could not be completely removed: {path}")
 
     def copy(self, source: str, dest: str) -> None:
         shutil.copy2(source, dest)

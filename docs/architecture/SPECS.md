@@ -83,16 +83,16 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 | Scope | Files | Lines | Command |
 |---|---|---|---|
-| Backend Python (app + tests + alembic) | 694 | **129,766** | `find backend/{app,tests,alembic} -name '*.py'` |
-| — `backend/app` (production) | 412 | 64,817 | `find backend/app -name '*.py'` |
-| — `backend/tests` | 239 | 62,021 | `find backend/tests -name '*.py'` |
+| Backend Python (app + tests + alembic) | 694 | **129,949** | `find backend/{app,tests,alembic} -name '*.py'` |
+| — `backend/app` (production) | 412 | 64,892 | `find backend/app -name '*.py'` |
+| — `backend/tests` | 239 | 62,129 | `find backend/tests -name '*.py'` |
 | — `backend/alembic` (env + versions) | 43 | 2,928 | `find backend/alembic -name '*.py'` |
 | Frontend `frontend/src` (TS + TSX + CSS) | 219 | **41,516** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
 | — `.tsx` | 156 | 32,829 | `find frontend/src -name '*.tsx'` |
 | — `.ts` | 62 | 8,656 | `find frontend/src -name '*.ts'` |
 | — `.css` | 1 | 31 | `find frontend/src -name '*.css'` |
-| **TOTAL (backend + frontend source)** | **913** | **171,282** | — |
-| Docs | 173 files | 43,504 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
+| **TOTAL (backend + frontend source)** | **913** | **171,465** | — |
+| Docs | 174 files | 43,680 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 
@@ -108,8 +108,8 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 | Module | Files | Lines | Purpose |
 |---|---|---|---|
-| server | 64 | 15,755 | Aggregate, lifecycle, discovery, reconciliation, console stream |
-| versioning | 66 | 12,655 | Git-inspired commits, DAG, tags, worktrees, test definitions, admission |
+| server | 64 | 15,820 | Aggregate, lifecycle, discovery, reconciliation, console stream |
+| versioning | 66 | 12,664 | Git-inspired commits, DAG, tags, worktrees, test definitions, admission |
 | exposure | 19 | 6,120 | Playit/UPnP/Cloudflare tunnel + port-forward |
 | plugin | 35 | 3,935 | Plugin lifecycle + Modrinth/CurseForge catalog |
 | health | 29 | 3,036 | Health evidence, evaluation, crash analysis |
@@ -334,7 +334,7 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 | ADRs / Decisions | 28 (`0001`–`0016` + 12 formal `DECISION` records) |
 | Backend tests | 3,139 passed / 6 skipped (3,145 collected, 0 failed) |
 | Frontend tests | 752 passed across 89 test files (3,891 total tests across suites) |
-| Docs Markdown | 173 files / 43,504+ lines |
+| Docs Markdown | 174 files / 43,680 lines |
 
 ---
 

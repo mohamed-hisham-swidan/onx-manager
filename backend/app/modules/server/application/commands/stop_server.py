@@ -112,13 +112,23 @@ class StopServerHandler(CommandHandler[StopServerCommand]):
                 try:
                     status = await asyncio.wait_for(provider.status(handle), timeout=5)
                     if status != ServerRuntimeStatus.STOPPED:
-                        logger.warning(
-                            'Server "%s" still running after stop (status=%s server_id=%s)',
-                            server_name,
-                            status.value,
-                            sid,
-                        )
-                        provider_errors.append(f"Runtime still {status.value} after stop")
+                        if status == ServerRuntimeStatus.RUNNING:
+                            logger.warning(
+                                'Server "%s" still running after stop (status=%s server_id=%s)',
+                                server_name,
+                                status.value,
+                                sid,
+                            )
+                            provider_errors.append(f"Runtime still {status.value} after stop")
+                        else:
+                            logger.warning(
+                                'Server "%s" stopped with unexpected status '
+                                "(status=%s server_id=%s)",
+                                server_name,
+                                status.value,
+                                sid,
+                            )
+                            provider_errors.append(f"Runtime status is {status.value} after stop")
                     else:
                         add_timeline_milestone(None, "Provider confirmed stopped", server_name, sid)
                 except Exception:
