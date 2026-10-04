@@ -402,6 +402,26 @@ class TestSQLAlertRuleRepository:
         assert loaded.threshold == 10.0
 
     @pytest.mark.asyncio
+    async def test_save_and_get_persists_last_triggered_at(self, db_session: AsyncSession) -> None:
+        from datetime import UTC, datetime
+
+        repo = SQLAlertRuleRepository(db_session)
+        rule = AlertRule(
+            server_id=ServerId("s1"),
+            metric_name="tps",
+            condition=AlertCondition.LESS_THAN,
+            threshold=10.0,
+            severity=AlertSeverity.WARNING,
+        )
+        ts = datetime(2026, 10, 4, 12, 0, 0, tzinfo=UTC)
+        rule._last_triggered_at = ts
+        await repo.save(rule)
+
+        loaded = await repo.get(rule._alert_rule_id)
+        assert loaded.last_triggered_at is not None
+        assert loaded.last_triggered_at.replace(tzinfo=UTC) == ts
+
+    @pytest.mark.asyncio
     async def test_get_not_found(self, db_session: AsyncSession) -> None:
         repo = SQLAlertRuleRepository(db_session)
         with pytest.raises(NotFoundError):

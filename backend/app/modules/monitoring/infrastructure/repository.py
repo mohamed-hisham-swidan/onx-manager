@@ -106,6 +106,7 @@ class SQLAlertRuleRepository:
         model.severity = rule.severity.value
         model.enabled = rule.enabled
         model.cooldown_minutes = rule.cooldown_minutes
+        model.last_triggered_at = rule.last_triggered_at
         await self._session.flush()
 
     async def delete(self, rule_id: str) -> None:
