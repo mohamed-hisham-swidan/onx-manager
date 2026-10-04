@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { toast } from "@/stores/toastStore";
+import { parseServerDate } from "@/server_manager/utils/format";
 import type { ScanLiveChangesResponse, LiveChangeEntry } from "@/server_manager/types";
 
 interface ImportReviewModalProps {
@@ -302,7 +303,7 @@ export function ImportReviewModal({
 
           {liveData.detected_at && (
             <span className="text-[11px] text-gray-400">
-              Scanned: {new Date(liveData.detected_at).toLocaleTimeString()}
+              Scanned: {parseServerDate(liveData.detected_at)?.toLocaleTimeString() ?? "—"}
             </span>
           )}
         </div>

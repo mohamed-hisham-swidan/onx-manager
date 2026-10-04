@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { toast } from "@/stores/toastStore";
+import { parseServerDate } from "@/server_manager/utils/format";
 import type { ServerBranch } from "@/server_manager/types";
 
 interface ManageBranchesModalProps {
@@ -221,7 +222,7 @@ export function ManageBranchesModal({
                       </div>
                       <p className="text-[11px] text-gray-400 font-mono mt-0.5">
                         Head: {b.head_commit_id ? b.head_commit_id.slice(0, 7) : "None"} • Created:{" "}
-                        {new Date(b.created_at).toLocaleDateString()}
+                        {parseServerDate(b.created_at)?.toLocaleDateString() ?? "—"}
                       </p>
                     </div>
                   </div>

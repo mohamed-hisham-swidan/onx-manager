@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { parseServerDate } from "@/server_manager/utils/format";
 
 export interface ActivityEvent {
   id: string;
@@ -36,24 +37,12 @@ export const useActivityStore = create<ActivityState>((set) => ({
   setEvents: (events) =>
     set({ events: events.map(normalize).slice(0, MAX_EVENTS) }),
   clear: () => set({ events: [] }),
-}));
+  }));
 
 export function toActivityEvent(raw: Record<string, unknown>): Omit<ActivityEvent, "id"> {
   const eventType = (raw.event_type as string) ?? "UnknownEvent";
-  let ts: number;
-  if (typeof raw.timestamp === "number" && !Number.isNaN(raw.timestamp)) {
-    ts = raw.timestamp > 1e11 ? raw.timestamp / 1000 : raw.timestamp;
-  } else if (typeof raw.timestamp === "string") {
-    const parsed = Number(raw.timestamp);
-    if (!Number.isNaN(parsed)) {
-      ts = parsed > 1e11 ? parsed / 1000 : parsed;
-    } else {
-      const dateMs = Date.parse(raw.timestamp);
-      ts = !Number.isNaN(dateMs) ? dateMs / 1000 : Date.now() / 1000;
-    }
-  } else {
-    ts = Date.now() / 1000;
-  }
+  const parsed = parseServerDate(raw.timestamp as string | number | null | undefined);
+  const ts = parsed ? parsed.getTime() / 1000 : Date.now() / 1000;
 
   return {
     event_type: eventType,

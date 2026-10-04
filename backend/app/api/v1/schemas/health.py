@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from app.api.v1.schemas.common import BaseResponse
 
 
-class HealthStatusResponse(BaseModel):
+class HealthStatusResponse(BaseResponse):
     server_id: str
     status: str
     previous_status: str | None = None
@@ -15,7 +17,7 @@ class HealthStatusResponse(BaseModel):
     last_updated: datetime | None = None
 
 
-class HealthTimelineEntryResponse(BaseModel):
+class HealthTimelineEntryResponse(BaseResponse):
     server_id: str
     previous_status: str | None = None
     new_status: str
@@ -23,11 +25,11 @@ class HealthTimelineEntryResponse(BaseModel):
     timestamp: datetime | None = None
 
 
-class HealthTimelineResponse(BaseModel):
+class HealthTimelineResponse(BaseResponse):
     entries: list[HealthTimelineEntryResponse]
 
 
-class ServerHealthSummaryResponse(BaseModel):
+class ServerHealthSummaryResponse(BaseResponse):
     server_id: str
     status: str
     trend: str
@@ -35,7 +37,7 @@ class ServerHealthSummaryResponse(BaseModel):
     last_updated: datetime | None = None
 
 
-class HealthDashboardResponse(BaseModel):
+class HealthDashboardResponse(BaseResponse):
     total_servers: int = 0
     healthy: int = 0
     warning: int = 0

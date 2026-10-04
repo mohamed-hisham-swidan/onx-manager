@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from app.core.event_bus import DomainEvent
+from app.core.timeutil import (
+    NAIVE_ISO_REGEX,
+    format_datetime_utc,
+    is_timestamp_field,
+)
 
 MAX_MESSAGE_SIZE = 256 * 1024
+
+
+def _ws_default(obj: Any) -> Any:
+    if isinstance(obj, datetime):
+        return format_datetime_utc(obj)
+    return str(obj)
 
 
 class WSMessage:
@@ -24,7 +36,7 @@ class WSMessage:
         return payload
 
     def to_json(self) -> bytes:
-        raw = json.dumps(self.to_dict(), ensure_ascii=False, default=str).encode("utf-8")
+        raw = json.dumps(self.to_dict(), ensure_ascii=False, default=_ws_default).encode("utf-8")
         if len(raw) > MAX_MESSAGE_SIZE:
             raise ValueError(f"Message exceeds maximum size of {MAX_MESSAGE_SIZE} bytes")
         return raw
@@ -52,7 +64,15 @@ class MessageSerializer:
         )
         serialized: dict[str, Any] = {}
         for key, value in data.items():
-            if isinstance(value, (float, str, int, bool, dict, list)):
+            if isinstance(value, datetime):
+                serialized[key] = format_datetime_utc(value)
+            elif (
+                isinstance(value, str)
+                and is_timestamp_field(key)
+                and NAIVE_ISO_REGEX.match(value)
+            ):
+                serialized[key] = value.replace(" ", "T") + "Z"
+            elif isinstance(value, (float, str, int, bool, dict, list)):
                 serialized[key] = value
             elif value is None:
                 serialized[key] = None

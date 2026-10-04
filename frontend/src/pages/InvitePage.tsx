@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { createApiClient } from "@/services/api";
 import { useAuthStore } from "@/stores/authStore";
+import { parseServerDate } from "@/server_manager/utils/format";
 
 export function InvitePage() {
   const { token = "" } = useParams<{ token: string }>();
@@ -141,7 +142,7 @@ export function InvitePage() {
               <p>Restricted to: <strong>{inviteStatus.email}</strong></p>
             )}
             {inviteStatus.expires_at && (
-              <p>Expires: {new Date(inviteStatus.expires_at).toLocaleString()}</p>
+              <p>Expires: {parseServerDate(inviteStatus.expires_at)?.toLocaleString() ?? "—"}</p>
             )}
           </div>
 

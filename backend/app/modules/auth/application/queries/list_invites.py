@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.query_bus import Query, QueryHandler
+from app.core.timeutil import format_datetime_utc
 from app.modules.auth.infrastructure.repository import SQLInvitationRepository
 
 
@@ -27,9 +28,9 @@ class ListInvitesHandler(QueryHandler[ListInvitesQuery]):
                     "status": inv.status.value if hasattr(inv.status, "value") else str(inv.status),
                     "max_uses": inv.max_uses,
                     "use_count": inv.use_count,
-                    "expires_at": inv.expires_at.isoformat() if inv.expires_at else None,
-                    "used_at": inv.used_at.isoformat() if inv.used_at else None,
-                    "created_at": inv.created_at.isoformat() if inv.created_at else None,
+                    "expires_at": format_datetime_utc(inv.expires_at) if inv.expires_at else None,
+                    "used_at": format_datetime_utc(inv.used_at) if inv.used_at else None,
+                    "created_at": format_datetime_utc(inv.created_at) if inv.created_at else None,
                 }
                 for inv in invites
             ]

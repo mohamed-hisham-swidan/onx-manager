@@ -1,9 +1,11 @@
+import datetime
 import logging
 import sys
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.encoders import ENCODERS_BY_TYPE
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -43,6 +45,7 @@ from app.core.persistence.db_revision import check_database_compatibility
 from app.core.platform_lock import set_cloexec_on_all_fds
 from app.core.query_bus import QueryBus
 from app.core.settings_store import get_live_settings, init_settings_store
+from app.core.timeutil import format_datetime_utc
 from app.core.version import get_app_version
 from app.modules.auth.infrastructure.jwt import init_jwt_from_settings
 from app.modules.plugin.infrastructure.providers import validate_plugin_providers
@@ -61,6 +64,8 @@ from app.websocket.endpoint import init_websocket, start_websocket_services, sto
 from app.websocket.endpoint import router as ws_router
 
 set_cloexec_on_all_fds()
+
+ENCODERS_BY_TYPE[datetime.datetime] = format_datetime_utc
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.main")
 

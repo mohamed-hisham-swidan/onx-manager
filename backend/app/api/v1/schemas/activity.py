@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from app.api.v1.schemas.common import BaseResponse
 
 
-class ServerActivityLogResponse(BaseModel):
+class ServerActivityLogResponse(BaseResponse):
     id: str
     server_id: str
     timestamp: float
@@ -16,7 +18,7 @@ class ServerActivityLogResponse(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-class ServerActivityLogListResponse(BaseModel):
+class ServerActivityLogListResponse(BaseResponse):
     items: list[ServerActivityLogResponse]
     total: int
     limit: int

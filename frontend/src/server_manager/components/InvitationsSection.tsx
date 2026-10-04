@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { toast } from "@/stores/toastStore";
+import { parseServerDate } from "@/server_manager/utils/format";
 import type { InvitationItem, CreateInviteRequest } from "@/types";
 import type { ServerResponse } from "@/server_manager/types";
 
@@ -237,7 +238,7 @@ export function InvitationsSection() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
-                      {invite.expires_at ? new Date(invite.expires_at).toLocaleString() : "Never"}
+                      {invite.expires_at ? (parseServerDate(invite.expires_at)?.toLocaleString() ?? "Never") : "Never"}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {invite.status === "ACTIVE" && (

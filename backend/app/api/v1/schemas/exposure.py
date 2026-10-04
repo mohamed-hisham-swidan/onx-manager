@@ -4,8 +4,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.api.v1.schemas.common import BaseResponse
 
-class AgentStatusResponse(BaseModel):
+
+class AgentStatusResponse(BaseResponse):
     claimed: bool
     process_status: str
     desired_agent_running: bool
@@ -14,13 +16,13 @@ class AgentStatusResponse(BaseModel):
     claim_expires_at: datetime | None = None
 
 
-class ClaimResponse(BaseModel):
+class ClaimResponse(BaseResponse):
     claim_code: str
     claim_url: str
     expires_at: datetime
 
 
-class PanelExposureResponse(BaseModel):
+class PanelExposureResponse(BaseResponse):
     method: str
     desired_state: str
     status: str
@@ -46,7 +48,7 @@ class PanelExposureUpdateRequest(BaseModel):
     external_port: int | None = Field(default=None, ge=1, le=65535)
 
 
-class TargetResponse(BaseModel):
+class TargetResponse(BaseResponse):
     id: str | None = None
     exposure_id: str | None = None
     protocol: str
@@ -60,7 +62,7 @@ class TargetResponse(BaseModel):
     setup_instructions: str | None = None
 
 
-class ServerExposureResponse(BaseModel):
+class ServerExposureResponse(BaseResponse):
     server_id: str
     method: str
     desired_state: str
@@ -105,7 +107,7 @@ class RegisteredPortCreateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=64)
 
 
-class RegisteredPortResponse(BaseModel):
+class RegisteredPortResponse(BaseResponse):
     id: str
     server_id: str
     service_type: str
@@ -120,5 +122,5 @@ class ReconcileRequest(BaseModel):
     scope: str = Field(default="server", pattern="^(server|all)$")
 
 
-class StopAllResponse(BaseModel):
+class StopAllResponse(BaseResponse):
     disabled_count: int

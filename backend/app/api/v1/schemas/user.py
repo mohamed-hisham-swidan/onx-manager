@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.api.v1.schemas.common import BaseResponse
+
 EMAIL_PATTERN: str = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 EMAIL_COMPILED: re.Pattern[str] = re.compile(EMAIL_PATTERN)
 
@@ -33,7 +35,7 @@ class UpdateUserRequest(BaseModel):
         return v
 
 
-class UserResponse(BaseModel):
+class UserResponse(BaseResponse):
     user_id: str
     email: str
     display_name: str

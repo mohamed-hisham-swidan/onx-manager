@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useClipboard } from "@/hooks/useClipboard";
+import { formatDateTime } from "@/server_manager/utils/format";
 import type { CrashReportSummary } from "@/server_manager/types";
 
 export interface CrashReportViewerModalProps {
@@ -135,7 +136,7 @@ export function CrashReportViewerModal({
                     {currentReport.filename}
                   </div>
                   <div className="text-[11px] text-gray-400 mt-0.5">
-                    {new Date(currentReport.timestamp).toLocaleString()}
+                    {formatDateTime(currentReport.timestamp)}
                   </div>
                 </div>
 

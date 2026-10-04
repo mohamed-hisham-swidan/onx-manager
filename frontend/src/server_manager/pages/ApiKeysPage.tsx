@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useClipboard } from "@/hooks/useClipboard";
+import { parseServerDate } from "@/server_manager/utils/format";
 
 export function ApiKeysPage() {
   const { data: apiKeys, isLoading, error } = useApiKeys();
@@ -121,7 +122,7 @@ export function ApiKeysPage() {
                 <tr key={k.api_key_id} className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{k.name}</td>
                   <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-400">{k.prefix}...</td>
-                  <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">{new Date(k.created_at).toLocaleDateString()}</td>
+                  <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">{parseServerDate(k.created_at)?.toLocaleDateString() ?? "—"}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
                       k.is_revoked

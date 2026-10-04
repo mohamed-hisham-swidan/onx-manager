@@ -2,8 +2,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.api.v1.schemas.common import BaseResponse
 
-class PluginResponse(BaseModel):
+
+class PluginResponse(BaseResponse):
     plugin_id: str
     server_id: str
     name: str
@@ -29,7 +31,7 @@ class PluginResponse(BaseModel):
     warning: str | None = None
 
 
-class PluginSearchResultResponse(BaseModel):
+class PluginSearchResultResponse(BaseResponse):
     project_id: str
     slug: str
     title: str
@@ -48,14 +50,14 @@ class PluginSearchResultResponse(BaseModel):
     color: int | None = None
 
 
-class PluginSearchResultsResponse(BaseModel):
+class PluginSearchResultsResponse(BaseResponse):
     items: list[PluginSearchResultResponse]
     total_hits: int = 0
     offset: int = 0
     limit: int = 20
 
 
-class PluginProjectResponse(BaseModel):
+class PluginProjectResponse(BaseResponse):
     project_id: str
     slug: str
     title: str
@@ -74,7 +76,7 @@ class PluginProjectResponse(BaseModel):
     server_side: str | None = None
 
 
-class PluginFileResponse(BaseModel):
+class PluginFileResponse(BaseResponse):
     url: str
     filename: str
     size_bytes: int
@@ -83,7 +85,7 @@ class PluginFileResponse(BaseModel):
     primary: bool = False
 
 
-class PluginVersionResponse(BaseModel):
+class PluginVersionResponse(BaseResponse):
     version_id: str
     project_id: str
     name: str
@@ -95,7 +97,7 @@ class PluginVersionResponse(BaseModel):
     date_published: str = ""
 
 
-class PluginVersionsResponse(BaseModel):
+class PluginVersionsResponse(BaseResponse):
     project_id: str
     versions: list[PluginVersionResponse]
     selected: PluginVersionResponse | None = None
@@ -110,7 +112,7 @@ class InstallModrinthPluginRequest(BaseModel):
     minecraft_version: str | None = None
 
 
-class InstallModrinthPluginResponse(BaseModel):
+class InstallModrinthPluginResponse(BaseResponse):
     plugin_id: str
     version: str
     filename: str

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_command_bus, get_query_bus, require_permission
 from app.api.errors import check_command_result
+from app.api.v1.schemas.common import BaseResponse
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
 from app.modules.auth.application import (
@@ -29,7 +28,7 @@ class CreateInviteRequest(BaseModel):
     expires_in_hours: int | None = 48
 
 
-class CreateInviteResponse(BaseModel):
+class CreateInviteResponse(BaseResponse):
     invite_id: str
     token: str
     token_prefix: str
@@ -46,7 +45,7 @@ class VerifyInviteRequest(BaseModel):
     token: str
 
 
-class VerifyInviteResponse(BaseModel):
+class VerifyInviteResponse(BaseResponse):
     valid: bool
     email: str | None = None
     expires_at: str | None = None
@@ -59,12 +58,28 @@ class AcceptInviteRequest(BaseModel):
     display_name: str
 
 
-class AcceptInviteResponse(BaseModel):
+class AcceptInviteResponse(BaseResponse):
     user_id: str
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int = 900
+
+
+class InviteListItemResponse(BaseResponse):
+    invite_id: str
+    token_prefix: str
+    creator_id: str
+    email: str | None = None
+    global_role: str
+    server_id: str | None = None
+    server_role: str | None = None
+    status: str
+    max_uses: int
+    use_count: int
+    expires_at: str | None = None
+    used_at: str | None = None
+    created_at: str | None = None
 
 
 @router.post("", response_model=CreateInviteResponse, status_code=201)
@@ -89,12 +104,13 @@ async def create_invite(
     return CreateInviteResponse(**data)
 
 
-@router.get("", response_model=list[dict[str, Any]])
+@router.get("", response_model=list[InviteListItemResponse])
 async def list_invites(
     _current_user: dict = Depends(require_permission("user:write")),
     query_bus: QueryBus = Depends(get_query_bus),
-) -> list[dict[str, Any]]:
-    return await query_bus.ask(ListInvitesQuery())
+) -> list[InviteListItemResponse]:
+    items = await query_bus.ask(ListInvitesQuery())
+    return [InviteListItemResponse(**item) for item in items]
 
 
 @router.delete("/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)

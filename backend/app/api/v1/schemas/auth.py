@@ -2,13 +2,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.api.v1.schemas.common import BaseResponse
+
 
 class LoginRequest(BaseModel):
     email: str = Field(pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
     password: str = Field(min_length=1)
 
 
-class LoginResponse(BaseModel):
+class LoginResponse(BaseResponse):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -28,7 +30,7 @@ class ApiKeyCreateRequest(BaseModel):
     permissions: list[str] = []
 
 
-class ApiKeyResponse(BaseModel):
+class ApiKeyResponse(BaseResponse):
     api_key_id: str
     name: str
     prefix: str

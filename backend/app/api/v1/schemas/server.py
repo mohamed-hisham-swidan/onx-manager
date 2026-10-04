@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.api.v1.schemas.common import BaseResponse
+
 VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 
 
@@ -56,7 +58,7 @@ class ServerActionRequest(BaseModel):
     reason: str = ""
 
 
-class ServerResponse(BaseModel):
+class ServerResponse(BaseResponse):
     server_id: str
     name: str
     server_type: str
@@ -102,12 +104,12 @@ class ServerDetailResponse(ServerResponse):
     primary_world: str | None = None
 
 
-class ConsoleResponse(BaseModel):
+class ConsoleResponse(BaseResponse):
     server_id: str
     lines: list[str]
 
 
-class CrashReportSummaryResponse(BaseModel):
+class CrashReportSummaryResponse(BaseResponse):
     filename: str
     timestamp: str
     failure_code: str
@@ -117,7 +119,7 @@ class CrashReportSummaryResponse(BaseModel):
     raw_content: str = ""
 
 
-class RuntimeDiagnosticsResponse(BaseModel):
+class RuntimeDiagnosticsResponse(BaseResponse):
     server_id: str
     server_name: str = ""
     status: str
@@ -145,7 +147,7 @@ class RuntimeDiagnosticsResponse(BaseModel):
     validation_chain: list[str] = []
 
 
-class RuntimeOwnershipResponse(BaseModel):
+class RuntimeOwnershipResponse(BaseResponse):
     timestamp: float
     active_servers: list[dict] = []
     orphan_tmux: list[dict] = []
@@ -156,13 +158,13 @@ class RuntimeOwnershipResponse(BaseModel):
     total_orphans: int = 0
 
 
-class ClaimLocalhostResponse(BaseModel):
+class ClaimLocalhostResponse(BaseResponse):
     success: bool
     actions: list[str] = []
     conflicts_resolved: int = 0
 
 
-class ValidationChainResponse(BaseModel):
+class ValidationChainResponse(BaseResponse):
     server_id: str
     healthy: bool
     chain: list[str] = []
@@ -181,7 +183,7 @@ class ReconcileRequest(BaseModel):
     )
 
 
-class ReconciliationResultResponse(BaseModel):
+class ReconciliationResultResponse(BaseResponse):
     imported: list[dict] = []
     updated: list[dict] = []
     deleted: list[dict] = []

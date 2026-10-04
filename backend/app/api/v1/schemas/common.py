@@ -2,14 +2,45 @@ import math
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, SerializationInfo, field_serializer, model_validator
 
+from app.core.timeutil import (
+    NAIVE_ISO_REGEX,
+    format_datetime_utc,
+    is_timestamp_field,
+)
 from app.core.version import get_app_version
 
 T = TypeVar("T")
 
+def _normalize_response_value(val: Any, field_name: str | None = None) -> Any:
+    if isinstance(val, datetime):
+        return format_datetime_utc(val)
+    if isinstance(val, str):
+        if field_name and is_timestamp_field(field_name) and NAIVE_ISO_REGEX.match(val):
+            return val.replace(" ", "T") + "Z"
+        return val
+    if isinstance(val, BaseModel):
+        return val
+    if isinstance(val, list):
+        return [_normalize_response_value(x, field_name) for x in val]
+    if isinstance(val, dict):
+        return {
+            k: _normalize_response_value(v, k if isinstance(k, str) else None)
+            for k, v in val.items()
+        }
+    return val
 
-class ErrorResponse(BaseModel):
+
+class BaseResponse(BaseModel):
+    """Base class for API responses ensuring ISO-8601 UTC ('Z') datetimes."""
+
+    @field_serializer("*", mode="plain", when_used="json")
+    def _serialize_response_fields(self, v: Any, info: SerializationInfo) -> Any:
+        return _normalize_response_value(v, info.field_name)
+
+
+class ErrorResponse(BaseResponse):
     code: str = ""
     message: str = ""
     details: dict[str, Any] | None = None
@@ -43,14 +74,14 @@ class ErrorResponse(BaseModel):
         return values
 
 
-class PaginationMeta(BaseModel):
+class PaginationMeta(BaseResponse):
     page: int = 1
     per_page: int = 20
     total: int = 0
     total_pages: int = 1
 
 
-class PaginatedResponse(BaseModel, Generic[T]):
+class PaginatedResponse(BaseResponse, Generic[T]):
     items: list[T]
     total: int
     page: int = 1
@@ -81,12 +112,12 @@ class PaginatedResponse(BaseModel, Generic[T]):
         return values
 
 
-class SuccessResponse(BaseModel):
+class SuccessResponse(BaseResponse):
     success: bool = True
     data: dict[str, Any] | None = None
 
 
-class HealthResponse(BaseModel):
+class HealthResponse(BaseResponse):
     status: str = "ok"
     version: str = get_app_version()
     database: str = "connected"

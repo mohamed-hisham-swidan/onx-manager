@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.api.v1.schemas.common import BaseResponse
+from app.core.timeutil import format_datetime_utc
 from app.modules.operations.domain.aggregate import Operation
 from app.modules.operations.domain.entities import OperationStep
 
@@ -18,7 +20,7 @@ class CreateOperationRequest(BaseModel):
     initial_steps: list[dict[str, Any]] | None = None
 
 
-class OperationStepResponse(BaseModel):
+class OperationStepResponse(BaseResponse):
     id: str
     step_id: str
     sequence: int
@@ -43,12 +45,12 @@ class OperationStepResponse(BaseModel):
             message_key=step.message_key,
             safe_to_retry=step.safe_to_retry,
             context=step.context,
-            started_at=step.started_at.isoformat() if step.started_at else None,
-            completed_at=step.completed_at.isoformat() if step.completed_at else None,
+            started_at=format_datetime_utc(step.started_at) if step.started_at else None,
+            completed_at=format_datetime_utc(step.completed_at) if step.completed_at else None,
         )
 
 
-class OperationSummaryResponse(BaseModel):
+class OperationSummaryResponse(BaseResponse):
     id: str
     type: str
     target_type: str
@@ -81,9 +83,9 @@ class OperationSummaryResponse(BaseModel):
             failure_code=op.failure_code,
             error_message=op.error_message,
             timeout_seconds=op.timeout_seconds,
-            created_at=op.created_at.isoformat() if op.created_at else "",
-            started_at=op.started_at.isoformat() if op.started_at else None,
-            finished_at=op.finished_at.isoformat() if op.finished_at else None,
+            created_at=format_datetime_utc(op.created_at) if op.created_at else "",
+            started_at=format_datetime_utc(op.started_at) if op.started_at else None,
+            finished_at=format_datetime_utc(op.finished_at) if op.finished_at else None,
             elapsed_ms=op.elapsed_ms,
         )
 

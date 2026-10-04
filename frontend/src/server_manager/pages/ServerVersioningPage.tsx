@@ -12,6 +12,7 @@ import { ManageBranchesModal } from "@/server_manager/components/ManageBranchesM
 import { CreateTagModal } from "@/server_manager/components/CreateTagModal";
 import { CommitDiffModal } from "@/server_manager/components/CommitDiffModal";
 import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
+import { formatDateTime } from "@/server_manager/utils/format";
 import type {
   ServerBranch,
   ServerCommit,
@@ -531,7 +532,7 @@ export function ServerVersioningPage() {
                     <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                       <span>Type: {commit.manifest?.server_type} ({commit.manifest?.minecraft_version})</span>
                       <span>•</span>
-                      <span>{new Date(commit.created_at).toLocaleString()}</span>
+                      <span>{formatDateTime(commit.created_at)}</span>
                       {commit.author_id && (
                         <>
                           <span>•</span>

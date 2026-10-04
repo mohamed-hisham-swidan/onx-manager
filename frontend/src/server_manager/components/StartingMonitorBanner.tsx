@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { parseServerDate } from "@/server_manager/utils/format";
 
 export interface StartingMonitorBannerProps {
   /** The server or test run name */
@@ -40,12 +41,8 @@ export function StartingMonitorBanner({
   const [mountEpoch] = useState(() => Date.now());
   const startEpoch = (() => {
     if (!startedAt) return mountEpoch;
-    if (typeof startedAt === "number") {
-      // If seconds-level timestamp (e.g. 10 digits), scale to ms
-      return startedAt < 10000000000 ? startedAt * 1000 : startedAt;
-    }
-    const parsed = new Date(startedAt).getTime();
-    return isNaN(parsed) ? mountEpoch : parsed;
+    const d = parseServerDate(startedAt);
+    return d ? d.getTime() : mountEpoch;
   })();
 
   useEffect(() => {

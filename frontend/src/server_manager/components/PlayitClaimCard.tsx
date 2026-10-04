@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useClipboard } from "@/hooks/useClipboard";
 import { Icon } from "@/components/ui/Icon";
+import { parseServerDate } from "@/server_manager/utils/format";
 
 export interface PlayitClaimCardProps {
   /** True when the agent is already claimed and verified */
@@ -44,7 +45,8 @@ export function PlayitClaimCard({
 
   const calculateRemaining = useCallback(() => {
     if (!claimExpiresAt) return 0;
-    const expiryMs = new Date(claimExpiresAt).getTime();
+    const d = parseServerDate(claimExpiresAt);
+    const expiryMs = d ? d.getTime() : 0;
     return Math.max(0, Math.floor((expiryMs - Date.now()) / 1000));
   }, [claimExpiresAt]);
 

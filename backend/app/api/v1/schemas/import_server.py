@@ -2,6 +2,8 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.api.v1.schemas.common import BaseResponse
+
 VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 
 
@@ -9,7 +11,7 @@ class ScanDirectoryRequest(BaseModel):
     path: str = Field(..., min_length=1, max_length=4096)
 
 
-class PluginInfo(BaseModel):
+class PluginInfo(BaseResponse):
     filename: str
     size_bytes: int
     name: str
@@ -18,20 +20,20 @@ class PluginInfo(BaseModel):
     api_version: str
 
 
-class ModInfo(BaseModel):
+class ModInfo(BaseResponse):
     filename: str
     size_bytes: int
     name: str
     version: str
 
 
-class WorldInfo(BaseModel):
+class WorldInfo(BaseResponse):
     name: str
     path: str
     size_bytes: int
 
 
-class ServerPropertiesInfo(BaseModel):
+class ServerPropertiesInfo(BaseResponse):
     port: int = 25565
     motd: str = "A Minecraft Server"
     max_players: int = 20
@@ -46,7 +48,7 @@ class ServerPropertiesInfo(BaseModel):
     simulation_distance: int = 10
 
 
-class ScanResult(BaseModel):
+class ScanResult(BaseResponse):
     path: str
     name: str
     server_name_declared: bool = False

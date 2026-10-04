@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +15,7 @@ from app.api.deps import (
 from app.api.errors import check_command_result
 from app.core.command_bus import CommandBus
 from app.core.query_bus import QueryBus
+from app.core.timeutil import format_datetime_utc, normalize_iso_timestamp
 from app.modules.monitoring.application import (
     CreateAlertRuleCommand,
     GetMetricsQuery,
@@ -48,9 +51,13 @@ async def get_metrics(
             "players": p.players,
             "ram_used_mb": p.ram_used_mb,
             "cpu_percent": p.cpu_percent,
-            "timestamp": p.timestamp.isoformat()
-            if hasattr(p.timestamp, "isoformat")
-            else str(p.timestamp),
+            "timestamp": format_datetime_utc(p.timestamp)
+            if isinstance(p.timestamp, datetime)
+            else (
+                normalize_iso_timestamp(p.timestamp.isoformat())
+                if hasattr(p.timestamp, "isoformat")
+                else normalize_iso_timestamp(str(p.timestamp))
+            ),
         }
         for p in points
     ]
@@ -96,7 +103,9 @@ async def list_alerts(
             "severity": r.severity.value,
             "enabled": r.enabled,
             "cooldown_minutes": r.cooldown_minutes,
-            "last_triggered_at": r.last_triggered_at.isoformat() if r.last_triggered_at else None,
+            "last_triggered_at": format_datetime_utc(r.last_triggered_at)
+            if r.last_triggered_at
+            else None,
         }
         for r in rules
     ]

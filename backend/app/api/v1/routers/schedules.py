@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, require_permission
 from app.core.identity import IDENTITY
+from app.core.timeutil import format_datetime_utc
 from app.tasks.scheduler import CronJobModel, get_scheduler
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.schedules")
@@ -51,8 +52,8 @@ async def list_schedules(
             "task_name": j.task_name,
             "params": params,
             "enabled": bool(j.enabled),
-            "last_run_at": j.last_run_at.isoformat() if j.last_run_at else None,
-            "created_at": j.created_at.isoformat() if j.created_at else None,
+            "last_run_at": format_datetime_utc(j.last_run_at) if j.last_run_at else None,
+            "created_at": format_datetime_utc(j.created_at) if j.created_at else None,
         })
     return out
 
@@ -100,7 +101,7 @@ async def create_schedule(
         "task_name": body.task_name,
         "params": body.params,
         "enabled": body.enabled,
-        "created_at": now.isoformat(),
+        "created_at": format_datetime_utc(now),
     }
 
 

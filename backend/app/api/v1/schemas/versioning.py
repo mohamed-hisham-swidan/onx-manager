@@ -4,13 +4,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.api.v1.schemas.common import BaseResponse
+
 
 class CreateBranchRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     head_commit_id: str | None = None
 
 
-class BranchResponse(BaseModel):
+class BranchResponse(BaseResponse):
     id: str
     server_id: str
     name: str
@@ -29,7 +31,7 @@ class CreateCommitRequest(BaseModel):
     force_reason: str | None = None
 
 
-class CommitResponse(BaseModel):
+class CommitResponse(BaseResponse):
     id: str
     server_id: str
     branch_id: str | None = None
@@ -47,7 +49,7 @@ class CreateTagRequest(BaseModel):
     commit_id: str = Field(..., min_length=1)
 
 
-class TagResponse(BaseModel):
+class TagResponse(BaseResponse):
     id: str
     server_id: str
     name: str
@@ -63,7 +65,7 @@ class MergeCommitsRequest(BaseModel):
     manifest: dict[str, Any] | None = None
 
 
-class DiffResponse(BaseModel):
+class DiffResponse(BaseResponse):
     from_commit_id: str
     to_commit_id: str
     has_changes: bool
@@ -84,7 +86,7 @@ class RunIsolatedTestRequest(BaseModel):
     test_definition_id: str | None = None
 
 
-class TestRunResponse(BaseModel):
+class TestRunResponse(BaseResponse):
     id: str
     server_id: str
     commit_id: str
@@ -154,7 +156,7 @@ class TestDefinitionUpdateRequest(BaseModel):
         return v
 
 
-class TestDefinitionResponse(BaseModel):
+class TestDefinitionResponse(BaseResponse):
     id: str
     server_id: str
     name: str
@@ -172,7 +174,7 @@ class TestDefinitionResponse(BaseModel):
     updated_at: str
 
 
-class EvidenceBundleResponse(BaseModel):
+class EvidenceBundleResponse(BaseResponse):
     test_id: str
     server_id: str
     commit_id: str
@@ -195,7 +197,7 @@ class BotSettingsRequest(BaseModel):
     placement_mode: str | None = None
 
 
-class BotSettingsResponse(BaseModel):
+class BotSettingsResponse(BaseResponse):
     server_id: str
     bot_count: int | None = None
     duration_minutes: int | None = None
@@ -207,7 +209,7 @@ class BotSettingsResponse(BaseModel):
     effective_placement_mode: str
 
 
-class PreflightResponse(BaseModel):
+class PreflightResponse(BaseResponse):
     reflink_supported: bool
     available_ram_mb: int
     available_cores: int
@@ -226,7 +228,7 @@ class CreateMaterializationRequest(BaseModel):
     mode: str = Field(default="readonly", pattern="^(readonly|editable)$")
 
 
-class MaterializationCreateResponse(BaseModel):
+class MaterializationCreateResponse(BaseResponse):
     materialization_id: str
     revision: str
     mode: str
@@ -234,7 +236,7 @@ class MaterializationCreateResponse(BaseModel):
     root: str
 
 
-class MaterializationListItemResponse(BaseModel):
+class MaterializationListItemResponse(BaseResponse):
     id: str
     revision: str
     mode: str
@@ -243,18 +245,18 @@ class MaterializationListItemResponse(BaseModel):
     created_at: str
 
 
-class MaterializationTreeEntry(BaseModel):
+class MaterializationTreeEntry(BaseResponse):
     path: str
     classification: str
     size_bytes: int
     origin: str
 
 
-class MaterializationTreeResponse(BaseModel):
+class MaterializationTreeResponse(BaseResponse):
     entries: list[MaterializationTreeEntry]
 
 
-class MaterializationFileResponse(BaseModel):
+class MaterializationFileResponse(BaseResponse):
     content: str
     encoding: str
     path: str
@@ -265,7 +267,7 @@ class SetEditModeRequest(BaseModel):
     enabled: bool
 
 
-class SetEditModeResponse(BaseModel):
+class SetEditModeResponse(BaseResponse):
     mode: str
 
 
@@ -274,7 +276,7 @@ class WriteMaterializedFileRequest(BaseModel):
     content: str
 
 
-class WriteMaterializedFileResponse(BaseModel):
+class WriteMaterializedFileResponse(BaseResponse):
     path: str
     bytes_written: int
 
@@ -283,13 +285,13 @@ class ScanLiveChangesRequest(BaseModel):
     source: str = Field(..., min_length=1)
 
 
-class LiveChangeEntry(BaseModel):
+class LiveChangeEntry(BaseResponse):
     path: str
     change: str
     classification: str
 
 
-class ScanLiveChangesResponse(BaseModel):
+class ScanLiveChangesResponse(BaseResponse):
     changes: list[LiveChangeEntry]
     auto_commit: str | None = None
 
@@ -298,18 +300,18 @@ class AutoCommitLiveChangesRequest(BaseModel):
     branch: str = Field(default="main", min_length=1)
 
 
-class AutoCommitLiveChangesResponse(BaseModel):
+class AutoCommitLiveChangesResponse(BaseResponse):
     commit_id: str | None = None
     review_id: str | None = None
     changes: list[LiveChangeEntry] = Field(default_factory=list)
 
 
-class ImportReviewActionResponse(BaseModel):
+class ImportReviewActionResponse(BaseResponse):
     status: str
     revert_commit_id: str | None = None
 
 
-class BranchProtectionPolicySchema(BaseModel):
+class BranchProtectionPolicySchema(BaseResponse):
     require_test_pass: bool = Field(
         True, description="Require a passing test run before commit promotion"
     )
@@ -326,7 +328,7 @@ class SetBranchProtectionRequest(BaseModel):
     policy: BranchProtectionPolicySchema | None = None
 
 
-class BranchProtectionResponse(BaseModel):
+class BranchProtectionResponse(BaseResponse):
     server_id: str
     branch_name: str
     is_protected: bool
