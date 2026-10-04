@@ -88,6 +88,7 @@ async def test_check_container_liveness() -> None:
     assert await check_container_liveness("") is False
 
 
+@pytest.mark.allow_real_signals
 @pytest.mark.asyncio
 async def test_check_pid_liveness() -> None:
     assert await check_pid_liveness(0) is False

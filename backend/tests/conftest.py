@@ -67,6 +67,76 @@ async def init_test_db() -> AsyncGenerator[None, None]:
     yield
 
 
+_ORIGINAL_OS_KILL = os.kill
+_ORIGINAL_OS_KILLPG = getattr(os, "killpg", None)
+
+
+def _is_descendant_pid(target_pid: int) -> bool:
+    if not isinstance(target_pid, int) or target_pid <= 0:
+        return False
+    try:
+        import psutil
+
+        current_proc = psutil.Process()
+        children = current_proc.children(recursive=True)
+        return target_pid in {p.pid for p in children}
+    except Exception:
+        return False
+
+
+def _is_descendant_pgid(target_pgid: int) -> bool:
+    if not isinstance(target_pgid, int) or target_pgid <= 0:
+        return False
+    try:
+        import psutil
+
+        current_proc = psutil.Process()
+        for p in current_proc.children(recursive=True):
+            try:
+                if os.getpgid(p.pid) == target_pgid or p.pid == target_pgid:
+                    return True
+            except OSError:
+                pass
+        return False
+    except Exception:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _guard_real_signals(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hermetic signal safety guard preventing tests from sending real signals to non-children.
+
+    Behavior & Safety Notes:
+    - Wraps `os.kill` and `os.killpg` during tests; allows signaling only if the target
+      PID/PGID is a verified descendant of the current pytest process (via psutil).
+    - If targeting an unrelated/non-child process, raises `AssertionError` (not `OSError`).
+    - Note on LocalLinuxProvider: `LocalLinuxProvider._is_pid_alive` (local.py ~529-545)
+      catches broad `Exception` and falls back to a real `kill -0` shell probe; tests
+      exercising `LocalLinuxProvider` with simulated/fake PIDs must mock `_is_pid_alive`
+      and/or `_run_command`/shell probes to prevent unhandled probe escapes.
+    - Win32 residual: The `ctypes.windll.kernel32.TerminateProcess` path in `process_utils.py`
+      (`platform_force_kill`) is platform-native on Windows and is not intercepted by this
+      POSIX-focused `os.kill` wrapper.
+    """
+    if request.node.get_closest_marker("allow_real_signals"):
+        return
+
+    def safe_kill(pid: int, sig: int) -> None:
+        if _is_descendant_pid(pid):
+            return _ORIGINAL_OS_KILL(pid, sig)
+        raise AssertionError(f"real os.kill({pid}, {sig}) blocked in tests")
+
+    def safe_killpg(pgid: int, sig: int) -> None:
+        if _is_descendant_pgid(pgid):
+            if _ORIGINAL_OS_KILLPG is not None:
+                return _ORIGINAL_OS_KILLPG(pgid, sig)
+            return None
+        raise AssertionError(f"real os.killpg({pgid}, {sig}) blocked in tests")
+
+    monkeypatch.setattr(os, "kill", safe_kill)
+    if hasattr(os, "killpg"):
+        monkeypatch.setattr(os, "killpg", safe_killpg)
+
 
 @pytest.fixture(autouse=True)
 def _sandbox_cwd(monkeypatch: pytest.MonkeyPatch) -> None:

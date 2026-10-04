@@ -1,0 +1,4 @@
+{
+  "$comment": "Allow-list for justified exceptions to repo signal bypass checks.",
+  "allowed_bypasses": []
+}

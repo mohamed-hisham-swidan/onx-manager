@@ -70,6 +70,14 @@ class TestPlayitProcessLifecycle:
         reset_playit_supervisor()
         reset_cloudflared_supervisor()
 
+    @pytest.fixture(autouse=True)
+    def _mock_os_signals(self):
+        with (
+            patch("os.kill") as mock_kill,
+            patch("os.killpg", create=True) as mock_killpg,
+        ):
+            yield mock_kill, mock_killpg
+
     async def test_t_pl_01_uvicorn_reload_reattachment_healthy(self, tmp_path: Path) -> None:
         """T-PL-01: Re-attaches to live, healthy daemon without spawning duplicate."""
         run_dir = tmp_path / "run" / "playit"

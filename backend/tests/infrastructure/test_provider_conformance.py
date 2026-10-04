@@ -83,20 +83,39 @@ def _mock_provider_io(request: pytest.FixtureRequest) -> Generator[None, None, N
         yield
         return
 
+    dynamic_pid = 54321 + (abs(hash(request.node.name)) % 10000)
+    recorded_kills: list[tuple[int, int]] = []
+
+    def _record_kill(pid: int, sig: int) -> None:
+        recorded_kills.append((pid, sig))
+
+    request.node.dynamic_pid = dynamic_pid
+    request.node.recorded_kills = recorded_kills
+
     mock_conn = MagicMock()
-    mock_conn.run = AsyncMock(return_value=MagicMock(returncode=0, stdout="1234\n", stderr=""))
+    mock_conn.run = AsyncMock(
+        return_value=MagicMock(returncode=0, stdout=f"{dynamic_pid}\n", stderr="")
+    )
 
     with (
+        patch("os.kill", side_effect=_record_kill),
         patch.object(DockerProvider, "_docker_command", AsyncMock(return_value=(0, "linux\n"))),
         patch.object(DockerProvider, "_ensure_image", AsyncMock()),
         patch.object(
             LocalLinuxProvider,
             "_run_command_with_output",
-            AsyncMock(return_value=(0, "1234\n")),
+            AsyncMock(return_value=(0, f"{dynamic_pid}\n")),
         ),
+        patch.object(LocalLinuxProvider, "_verify_port_free", AsyncMock()),
+        patch.object(LocalLinuxProvider, "_is_pid_alive", AsyncMock(return_value=False)),
+        patch.object(LocalWindowsProvider, "_verify_port_free", AsyncMock()),
         patch.object(SSHProvider, "_get_connection", AsyncMock(return_value=mock_conn)),
-        patch("asyncio.create_subprocess_exec", AsyncMock(return_value=MagicMock(pid=1234))),
+        patch(
+            "asyncio.create_subprocess_exec",
+            AsyncMock(return_value=MagicMock(pid=dynamic_pid)),
+        ),
         patch("asyncio.sleep", AsyncMock()),
+        patch("app.modules.server.infrastructure.providers.local.asyncio.sleep", AsyncMock()),
     ):
         yield
 
@@ -236,6 +255,7 @@ class TestProviderRuntimeExecutionContract:
     @pytest.mark.asyncio
     async def test_destroy_graceful_completion(
         self,
+        request: pytest.FixtureRequest,
         provider: ServerProvider,
         standard_handle: ServerHandle,
     ) -> None:
@@ -246,6 +266,11 @@ class TestProviderRuntimeExecutionContract:
             assert isinstance(provider, (CloudProvider, CloudProviderStub))
         except ProviderError:
             pass  # Acceptable domain error under failure simulation
+
+        if provider.provider_type == "local":
+            expected_pid = getattr(request.node, "dynamic_pid", None)
+            recorded = getattr(request.node, "recorded_kills", [])
+            assert any(pid == expected_pid for pid, _ in recorded)
 
     @pytest.mark.asyncio
     async def test_status_returns_runtime_enum(

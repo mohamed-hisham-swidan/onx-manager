@@ -15,6 +15,7 @@ from app.core.process_utils import (
 
 
 class TestPlatformPidAlivePosix:
+    @pytest.mark.allow_real_signals
     @pytest.mark.skipif(
         sys.platform == "win32",
         reason="POSIX live os.kill(pid, 0) triggers CTRL_C_EVENT on Windows",
@@ -25,6 +26,7 @@ class TestPlatformPidAlivePosix:
         with patch("sys.platform", "linux"):
             assert platform_pid_alive(current_pid) is True
 
+    @pytest.mark.allow_real_signals
     @pytest.mark.skipif(
         sys.platform == "win32",
         reason="POSIX live os.kill(pid, 0) triggers CTRL_C_EVENT on Windows",
