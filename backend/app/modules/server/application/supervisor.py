@@ -48,6 +48,12 @@ class RuntimeSupervisor:
         self._health_interval = health_interval
         self._startup_timeout = startup_timeout
         self._task: asyncio.Task[None] | None = None
+        # Invariant: _active and _stop_event move in lockstep:
+        # - When running/supervising: _active is True and _stop_event is clear.
+        # - When shutting down, stopped, or crashed: _active is False and _stop_event is set.
+        # In _handle_crash(), _active is cleared immediately to False upon entry so concurrent
+        # start_for() calls immediately recognize the dying instance as inactive and construct
+        # a fresh supervisor, even while async diagnostics persistence and OS cleanup are in-flight.
         self._active = False
         self._started_at = time.monotonic()
         self._last_heartbeat = time.time()
@@ -90,17 +96,23 @@ class RuntimeSupervisor:
             )
             return
         self._stop_event.clear()
+        self._started_at = time.monotonic()
+        self._start_duration = None
+        self._ready_at_wall = None
+        self._last_heartbeat = time.time()
+        self._active = True
         self._task = asyncio.create_task(
             self._run(),
             name=f"supervisor-{self._server_id}",
         )
 
     async def stop(self, timeout: float = 10.0) -> None:
-        self._stop_event.set()
         self._active = False
+        self._stop_event.set()
         task = self._task
         if task is None or task.done():
-            self._instances.pop(self._server_id, None)
+            if self._instances.get(self._server_id) is self:
+                self._instances.pop(self._server_id, None)
             return
         task.cancel()
         try:
@@ -140,7 +152,8 @@ class RuntimeSupervisor:
                 self._handle.external_id if hasattr(self._handle, "external_id") else "?",
                 exc_info=True,
             )
-        self._instances.pop(self._server_id, None)
+        if self._instances.get(self._server_id) is self:
+            self._instances.pop(self._server_id, None)
 
     async def _run(self) -> None:
         logger.info(
@@ -180,7 +193,8 @@ class RuntimeSupervisor:
             )
         finally:
             self._active = False
-            self._instances.pop(self._server_id, None)
+            if self._instances.get(self._server_id) is self:
+                self._instances.pop(self._server_id, None)
             logger.info(
                 'Supervisor stopped for server "%s" (%s)',
                 self._server_name,
@@ -428,6 +442,7 @@ class RuntimeSupervisor:
                         self._server_id,
                     )
                 finally:
+                    self._active = False
                     self._stop_event.set()
                 return
             self._last_heartbeat = time.time()
@@ -523,6 +538,9 @@ class RuntimeSupervisor:
             )
 
     async def _handle_crash(self, diag: RuntimeDiagnostics) -> None:
+        # Clear _active immediately upon entry so concurrent start_for() calls recognize this
+        # crashing instance as dead/dying and never reuse it while crash handling is in flight.
+        self._active = False
         if self._stop_event.is_set():
             logger.info(
                 'Server "%s" stop already requested — crash suppressed (%s)',
@@ -580,6 +598,7 @@ class RuntimeSupervisor:
                     handle_ext,
                 )
 
+        self._active = False
         self._stop_event.set()
 
     @classmethod
@@ -596,13 +615,38 @@ class RuntimeSupervisor:
     ) -> RuntimeSupervisor:
         sid = str(server.id)
         existing = cls._instances.get(sid)
-        if existing and existing._active:
-            logger.warning(
-                'Supervisor already active for server "%s" (%s), returning existing',
-                server.name,
-                sid,
+        if existing is not None:
+            is_dead_or_dying = (
+                not existing._active
+                or existing._stop_event.is_set()
+                or (existing._task is not None and existing._task.done())
             )
-            return existing
+            if is_dead_or_dying:
+                cls._instances.pop(sid, None)
+            elif existing._handle == handle and existing._provider == provider:
+                logger.warning(
+                    'Supervisor already active for server "%s" (%s), returning existing',
+                    server.name,
+                    sid,
+                )
+                return existing
+            else:
+                logger.info(
+                    'Supervisor handle/provider changed for server "%s" (%s) — '
+                    "stopping existing and constructing fresh",
+                    server.name,
+                    sid,
+                )
+                existing._active = False
+                existing._stop_event.set()
+                if existing._task is not None and not existing._task.done():
+                    existing._task.cancel()
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(existing.stop())
+                except RuntimeError:
+                    pass
+                cls._instances.pop(sid, None)
 
         supervisor = cls(
             server=server,
