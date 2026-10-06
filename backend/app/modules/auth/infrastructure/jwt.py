@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import contextlib
 import json
 import logging
 import os
@@ -16,6 +15,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPubl
 
 from app.core.config import AppSettings
 from app.core.exceptions import AuthenticationError, TokenExpiredError
+from app.core.security_files import ensure_private_key_permissions
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +48,18 @@ def init_jwt_from_settings(settings: AppSettings) -> None:
         pem_data = settings.jwt_private_key.encode()
         logger.info("Loading JWT private key from MCS_JWT_PRIVATE_KEY env var")
     elif settings.jwt_private_key_path:
+        ensure_private_key_permissions(
+            settings.jwt_private_key_path,
+            allow_insecure=settings.allow_insecure_keys,
+        )
         with open(settings.jwt_private_key_path, "rb") as f:
             pem_data = f.read()
         logger.info("Loading JWT private key from %s", settings.jwt_private_key_path)
     elif _DEFAULT_KEY_PATH.exists():
+        ensure_private_key_permissions(
+            _DEFAULT_KEY_PATH,
+            allow_insecure=settings.allow_insecure_keys,
+        )
         with open(_DEFAULT_KEY_PATH, "rb") as f:
             pem_data = f.read()
         logger.info("Loading JWT private key from %s", _DEFAULT_KEY_PATH)
@@ -81,8 +89,10 @@ def init_jwt_from_settings(settings: AppSettings) -> None:
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(pem)
-            with contextlib.suppress(OSError):
-                os.chmod(tmp_path_str, 0o600)
+            ensure_private_key_permissions(
+                tmp_path_str,
+                allow_insecure=settings.allow_insecure_keys,
+            )
             os.replace(tmp_path_str, _DEFAULT_KEY_PATH)
         except Exception:
             if os.path.exists(tmp_path_str):

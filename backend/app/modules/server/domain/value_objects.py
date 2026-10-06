@@ -7,6 +7,29 @@ import sys
 from dataclasses import dataclass, field
 from enum import Enum
 
+from app.core.exceptions import InvalidValueError
+
+_REJECTED_SHELL_CHARS: frozenset[str] = frozenset("`$;|&<>()!{}")
+
+
+def _reject_shell_metachars(value: str, field: str) -> None:
+    if not isinstance(value, str):
+        raise InvalidValueError(field=field, value=value, reason="Must be a string")
+    if len(value) > 1024:
+        raise InvalidValueError(
+            field=field,
+            value=value,
+            reason="Exceeds maximum length of 1024 characters",
+        )
+    if any(c in value for c in _REJECTED_SHELL_CHARS) or any(
+        c in value for c in ("\n", "\r", "\0")
+    ):
+        raise InvalidValueError(
+            field=field,
+            value=value,
+            reason="Contains forbidden shell metacharacters or control characters",
+        )
+
 
 def default_provider_for_platform() -> str:
     """Return the default provider type for the current platform."""
@@ -90,11 +113,16 @@ class PortNumber:
 class JavaArguments:
     args: tuple[str, ...]
 
-    def __init__(self, args: list[str] | None = None) -> None:
+    def __init__(self, args: list[str] | tuple[str, ...] | None = None) -> None:
         validated = tuple(args or [])
         for arg in validated:
-            if not arg.startswith("-"):
-                raise ValueError(f"Invalid JVM argument: {arg!r} (must start with '-')")
+            if not isinstance(arg, str) or not arg.startswith("-"):
+                raise InvalidValueError(
+                    field="java_args",
+                    value=arg,
+                    reason="Invalid JVM argument (must start with '-')",
+                )
+            _reject_shell_metachars(arg, "java_args")
         object.__setattr__(self, "args", validated)
 
     def __str__(self) -> str:
@@ -211,6 +239,27 @@ class LaunchConfiguration:
     working_directory: str = ""
 
     def __post_init__(self) -> None:
+        if not isinstance(self.java_executable, str) or not self.java_executable.strip():
+            raise InvalidValueError(
+                field="java_executable",
+                value=self.java_executable,
+                reason="java_executable must be a non-empty string",
+            )
+        _reject_shell_metachars(self.java_executable, "java_executable")
+        if re.search(r"\s+-", self.java_executable):
+            raise InvalidValueError(
+                field="java_executable",
+                value=self.java_executable,
+                reason="java_executable cannot contain command-line flags",
+            )
+        segments = [seg for seg in re.split(r"[/\\]", self.java_executable) if seg]
+        if ".." in segments:
+            raise InvalidValueError(
+                field="java_executable",
+                value=self.java_executable,
+                reason="java_executable cannot contain '..' path traversal segments",
+            )
+
         if self.startup_command is not None:
             if isinstance(self.startup_command, str):
                 raise TypeError(
@@ -235,10 +284,13 @@ class LaunchConfiguration:
                         f"startup_command element at index {i} cannot be empty "
                         f"or whitespace only: {arg!r}"
                     )
+                _reject_shell_metachars(arg, "startup_command")
             object.__setattr__(self, "startup_command", tuple(self.startup_command))
 
         if isinstance(self.jvm_flags, list):
             object.__setattr__(self, "jvm_flags", tuple(self.jvm_flags))
+        for flag in self.jvm_flags:
+            _reject_shell_metachars(flag, "jvm_flags")
 
     def effective_command(self) -> list[str]:
         if self.startup_command is not None:

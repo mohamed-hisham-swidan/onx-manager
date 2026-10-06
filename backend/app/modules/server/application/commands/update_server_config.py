@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from pydantic import Field
@@ -6,6 +7,7 @@ from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
+from app.modules.server.application.read_models import is_secret_property_key
 from app.modules.server.application.services.jar_service import update_server_properties_key
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import (
@@ -27,6 +29,8 @@ _PROP_KEY_MAP = {
     "simulation_distance": "simulation-distance",
 }
 _REVERSE_PROP_KEY_MAP = {v: k for k, v in _PROP_KEY_MAP.items()}
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateServerConfigCommand(Command):
@@ -103,6 +107,14 @@ class UpdateServerConfigHandler(CommandHandler[UpdateServerConfigCommand]):
                     if command.properties:
                         for k, v in command.properties.items():
                             file_key = _PROP_KEY_MAP.get(k, k.replace("_", "-"))
+                            if is_secret_property_key(file_key):
+                                logger.warning(
+                                    "Dropped attempt to write secret property key '%s' "
+                                    "for server %s",
+                                    file_key,
+                                    command.server_id,
+                                )
+                                continue
                             if file_key != "server-name":
                                 str_val = str(v).lower() if isinstance(v, bool) else str(v)
                                 update_server_properties_key(props_path, file_key, str_val)

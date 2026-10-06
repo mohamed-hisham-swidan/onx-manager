@@ -18,6 +18,7 @@ from app.core.identity import IDENTITY
 from app.modules.server.domain.diagnostics import RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
     CpuAllocation,
+    JavaArguments,
     LaunchConfiguration,
     ServerDeployment,
 )
@@ -170,8 +171,18 @@ class LocalLinuxProvider(ServerProvider):
         self._fs.ensure_dir(server_dir)
 
         if launch_config:
-            java_exec = launch_config.java_executable
-            jvm_flags = " ".join(launch_config.jvm_flags)
+            try:
+                LaunchConfiguration(
+                    java_executable=launch_config.java_executable,
+                    startup_command=launch_config.startup_command,
+                    jvm_flags=launch_config.jvm_flags,
+                    startup_jar=launch_config.startup_jar,
+                )
+            except Exception as exc:
+                raise ProviderError(
+                    "local", "start", f"Invalid JVM argument in stored configuration: {exc}"
+                ) from exc
+
             memory_min = cfg.get("memory_min_mb", 1024)
             memory_max = cfg.get("memory_max_mb", 2048)
             port = cfg.get("port", 25565)
@@ -202,16 +213,36 @@ class LocalLinuxProvider(ServerProvider):
                     cmd_list.append(f"-Xmx{memory_max}M")
                 if cpu_cores > 0 and not any("-XX:ActiveProcessorCount" in a for a in cmd_list):
                     cmd_list.append(f"-XX:ActiveProcessorCount={cpu_cores}")
-            cmd = " ".join(cmd_list)
+            cmd = " ".join(shlex.quote(arg) for arg in cmd_list)
+            if not is_script_launch:
+                cmd = f"exec {cmd}"
             if deployment:
-                cmd = f"cd {server_dir} && {cmd}"
+                cmd = f"cd {shlex.quote(server_dir)} && {cmd}"
         else:
             java_args = cfg.get("java_args", [])
             memory_min = cfg.get("memory_min_mb", 1024)
             memory_max = cfg.get("memory_max_mb", 2048)
             port = cfg.get("port", 25565)
             java_exec = "java"
-            jvm_flags = " ".join(java_args) if isinstance(java_args, list) else str(java_args)
+
+            if isinstance(java_args, str):
+                try:
+                    parsed_flags = shlex.split(java_args)
+                except ValueError as exc:
+                    raise ProviderError(
+                        "local", "start", f"Failed to parse stored java_args: {exc}"
+                    ) from exc
+            elif isinstance(java_args, (list, tuple)):
+                parsed_flags = list(java_args)
+            else:
+                parsed_flags = []
+
+            try:
+                JavaArguments(parsed_flags)
+            except Exception as exc:
+                raise ProviderError(
+                    "local", "start", f"Invalid JVM argument in stored configuration: {exc}"
+                ) from exc
 
             # Auto-detect script execution vs JAR execution for discovered/unconfigured servers
             has_run_script = self._fs.exists(os.path.join(server_dir, "run.sh")) or self._fs.exists(
@@ -234,12 +265,12 @@ class LocalLinuxProvider(ServerProvider):
                     self._fs.write_text(jvm_args_file, jvm_content)
                 cmd = f"cd {shlex.quote(server_dir)} && bash {shlex.quote(script_name)} nogui"
             else:
-                cpu_flag = f"-XX:ActiveProcessorCount={cpu_cores} " if cpu_cores > 0 else ""
-                cmd = (
-                    f"cd {shlex.quote(server_dir)} && {java_exec} {jvm_flags} "
-                    f"-Xms{memory_min}M -Xmx{memory_max}M {cpu_flag}"
-                    f"-jar {shlex.quote(jar)} nogui"
-                )
+                tokens = [java_exec, *parsed_flags, f"-Xms{memory_min}M", f"-Xmx{memory_max}M"]
+                if cpu_cores > 0:
+                    tokens.append(f"-XX:ActiveProcessorCount={cpu_cores}")
+                tokens.extend(["-jar", jar, "nogui"])
+                inner_cmd = " ".join(shlex.quote(t) for t in tokens)
+                cmd = f"cd {shlex.quote(server_dir)} && exec {inner_cmd}"
 
         instance_id = uuid.uuid4().hex[:16]
         marker_prefix = (

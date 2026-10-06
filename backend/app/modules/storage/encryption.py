@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import os
 import tempfile
@@ -9,10 +8,15 @@ from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from app.core.security_files import ensure_private_key_permissions
+
 _DEFAULT_KEY_PATH = Path("config/backup_encryption_key.bin")
 
 
-def load_or_create_backup_key(path: str | None = None) -> bytes:
+def load_or_create_backup_key(
+    path: str | None = None,
+    allow_insecure: bool | None = None,
+) -> bytes:
     """Load the 32-byte AES key from disk, generating and persisting it if missing.
 
     Mirrors the JWT key persistence pattern in app.modules.auth.infrastructure.jwt:
@@ -30,6 +34,7 @@ def load_or_create_backup_key(path: str | None = None) -> bytes:
         key_path = next((c for c in candidates if c.exists()), _DEFAULT_KEY_PATH)
 
     if key_path.exists():
+        ensure_private_key_permissions(key_path, allow_insecure=allow_insecure)
         data = key_path.read_bytes()
         if len(data) != 32:
             raise ValueError(
@@ -48,8 +53,7 @@ def load_or_create_backup_key(path: str | None = None) -> bytes:
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(key)
-        with contextlib.suppress(OSError):
-            os.chmod(tmp_path_str, 0o600)
+        ensure_private_key_permissions(tmp_path_str, allow_insecure=allow_insecure)
         os.replace(tmp_path_str, key_path)
     except Exception:
         if os.path.exists(tmp_path_str):
@@ -58,8 +62,11 @@ def load_or_create_backup_key(path: str | None = None) -> bytes:
     return key
 
 
-def build_backup_encryption(path: str | None = None) -> BackupEncryption:
-    return BackupEncryption(key=load_or_create_backup_key(path))
+def build_backup_encryption(
+    path: str | None = None,
+    allow_insecure: bool | None = None,
+) -> BackupEncryption:
+    return BackupEncryption(key=load_or_create_backup_key(path, allow_insecure=allow_insecure))
 
 
 class BackupEncryption:

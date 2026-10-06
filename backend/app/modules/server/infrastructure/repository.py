@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import InvalidValueError
 from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.repository import ServerFilters, ServerRepository
 from app.modules.server.domain.value_objects import (
@@ -181,6 +182,8 @@ class SQLServerRepository(ServerRepository):
                     environment=raw.get("environment", {}),
                     working_directory=raw.get("working_directory", ""),
                 )
+            except InvalidValueError:
+                raise
             except (json.JSONDecodeError, TypeError, KeyError, ValueError):
                 launch_config = None
 

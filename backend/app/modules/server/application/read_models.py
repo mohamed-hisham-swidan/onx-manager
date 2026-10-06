@@ -37,6 +37,21 @@ def resolve_display_name(server: Server) -> str:
     return server.name
 
 
+_SECRET_KEY_STEMS: tuple[str, ...] = ("password", "secret", "token", "apikey")
+_DELIM_RE = re.compile(r"[._\-]")
+
+
+def _normalize_property_key(key: str) -> str:
+    """Lowercase, strip all . _ - delimiters: 'rcon.password' -> 'rconpassword'."""
+    return _DELIM_RE.sub("", key.strip().lower())
+
+
+def is_secret_property_key(key: str) -> bool:
+    """Canonical secret test. No second regex, no bare 'key' suffix."""
+    norm = _normalize_property_key(key)
+    return norm in _SECRET_KEY_STEMS or norm.endswith(_SECRET_KEY_STEMS)
+
+
 def _read_raw_properties(deployment: ServerDeployment | None) -> dict[str, str]:
     if deployment is None or not deployment.root_path:
         return {}
@@ -52,7 +67,10 @@ def _read_raw_properties(deployment: ServerDeployment | None) -> dict[str, str]:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, value = line.partition("=")
-            result[key.strip()] = value.strip()
+            clean_key = key.strip()
+            if is_secret_property_key(clean_key):
+                continue
+            result[clean_key] = value.strip()
         return result
     except (OSError, PermissionError):
         return {}

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.exceptions import NotFoundError, ServerNotFoundError
+from app.core.exceptions import InvalidValueError, NotFoundError, ServerNotFoundError
 from app.core.persistence.base import Base
 from app.modules.auth.infrastructure.models import UserModel  # noqa: F401
 from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy, BackupType
@@ -120,6 +122,74 @@ class TestSQLServerRepository:
     async def test_get_not_found(self, server_repo: SQLServerRepository) -> None:
         with pytest.raises(ServerNotFoundError):
             await server_repo.get(ServerId("nonexistent"))
+
+    @pytest.mark.asyncio
+    async def test_hydrate_stored_unsafe_launch_config_raises_invalid_value_error(
+        self, db_session: AsyncSession, server_repo: SQLServerRepository
+    ) -> None:
+        """(a) Stored launch_config containing unsafe value raises InvalidValueError."""
+        unsafe_lc_json = json.dumps({
+            "java_executable": "java; rm -rf /",
+            "jvm_flags": ["-Xmx2G"],
+        })
+        model = ServerModel(
+            id="test-unsafe-lc",
+            name="Unsafe LC Server",
+            server_type="vanilla",
+            minecraft_version="1.21.4",
+            memory_min_mb=1024,
+            memory_max_mb=2048,
+            port=25565,
+            launch_config_json=unsafe_lc_json,
+        )
+        db_session.add(model)
+        await db_session.commit()
+
+        with pytest.raises(InvalidValueError):
+            await server_repo.get(ServerId("test-unsafe-lc"))
+
+    @pytest.mark.asyncio
+    async def test_hydrate_corrupt_json_launch_config_falls_back_to_none(
+        self, db_session: AsyncSession, server_repo: SQLServerRepository
+    ) -> None:
+        """(b) Corrupt JSON still falls back to None as before."""
+        corrupt_json = "{not a valid json string"
+        model = ServerModel(
+            id="test-corrupt-json",
+            name="Corrupt JSON Server",
+            server_type="vanilla",
+            minecraft_version="1.21.4",
+            memory_min_mb=1024,
+            memory_max_mb=2048,
+            port=25565,
+            launch_config_json=corrupt_json,
+        )
+        db_session.add(model)
+        await db_session.commit()
+
+        server = await server_repo.get(ServerId("test-corrupt-json"))
+        assert server.launch_config is None
+
+    @pytest.mark.asyncio
+    async def test_hydrate_stored_unsafe_java_args_raises_invalid_value_error(
+        self, db_session: AsyncSession, server_repo: SQLServerRepository
+    ) -> None:
+        """(c) A stored unsafe java_args raises on hydration."""
+        model = ServerModel(
+            id="test-unsafe-args",
+            name="Unsafe Args Server",
+            server_type="vanilla",
+            minecraft_version="1.21.4",
+            memory_min_mb=1024,
+            memory_max_mb=2048,
+            port=25565,
+            java_args="-Xmx1G;calc",
+        )
+        db_session.add(model)
+        await db_session.commit()
+
+        with pytest.raises(InvalidValueError):
+            await server_repo.get(ServerId("test-unsafe-args"))
 
     @pytest.mark.asyncio
     async def test_save_and_list(self, server_repo: SQLServerRepository) -> None:

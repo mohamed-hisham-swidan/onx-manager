@@ -27,6 +27,7 @@ class AppSettings(BaseSettings):
     database_url: str = f"sqlite+aiosqlite:///data/{IDENTITY.db_filename_new}"
     database_echo: bool = False
     secret_key: str = "change-me-in-production"
+    allow_insecure_keys: bool = False
     cors_origins: list[str] = ["*"]
     rate_limit_per_minute: int = 60
     idempotency_ttl_hours: int = 24

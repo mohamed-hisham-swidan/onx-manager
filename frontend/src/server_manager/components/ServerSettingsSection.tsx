@@ -267,7 +267,10 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
   // JVM Flags Validation
   const jvmFlagsValid = useMemo(() => {
     const lines = javaArgs.split("\n").map((l) => l.trim()).filter(Boolean);
-    return lines.every((line) => line.startsWith("-"));
+    const rejectedShellChars = /[`$;|&<>()!{}]/;
+    return lines.every(
+      (line) => line.startsWith("-") && line.length <= 1024 && !rejectedShellChars.test(line)
+    );
   }, [javaArgs]);
 
   // Port and Player limits
@@ -548,7 +551,9 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
                 className="w-full font-mono px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700/60 text-xs text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-shadow"
               />
               {!jvmFlagsValid && (
-                <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">All flags must start with '-'</p>
+                <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">
+                  All flags must start with &apos;-&apos; and cannot contain prohibited shell characters
+                </p>
               )}
             </div>
           </div>

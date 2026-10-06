@@ -8,6 +8,7 @@ from typing import Any
 from app.core.exceptions import ProviderError
 from app.core.identity import IDENTITY
 from app.modules.server.domain.value_objects import (
+    JavaArguments,
     LaunchConfiguration,
     ServerDeployment,
 )
@@ -57,6 +58,18 @@ class SSHProvider(ServerProvider):
         launch_config: LaunchConfiguration | None = None,
     ) -> DeploymentResult:
         _ = (deployment, launch_config)
+        if launch_config is not None:
+            try:
+                LaunchConfiguration(
+                    java_executable=launch_config.java_executable,
+                    startup_command=launch_config.startup_command,
+                    jvm_flags=launch_config.jvm_flags,
+                    startup_jar=launch_config.startup_jar,
+                )
+            except Exception as exc:
+                raise ProviderError(
+                    "ssh", "start", f"Invalid JVM argument in stored configuration: {exc}"
+                ) from exc
         cfg = config or {}
         conn = await self._get_connection()
         memory_min = cfg.get("memory_min_mb", 1024)
@@ -67,7 +80,24 @@ class SSHProvider(ServerProvider):
         java_args = cfg.get("java_args", [])
         session_name = f"{IDENTITY.temp_prefix_new}{server_id}"
 
-        jvm_args = " ".join(java_args) if isinstance(java_args, list) else java_args
+        if isinstance(java_args, str):
+            try:
+                parsed_flags = shlex.split(java_args)
+            except ValueError as exc:
+                raise ProviderError(
+                    "ssh", "start", f"Failed to parse stored java_args: {exc}"
+                ) from exc
+        elif isinstance(java_args, (list, tuple)):
+            parsed_flags = list(java_args)
+        else:
+            parsed_flags = []
+
+        try:
+            JavaArguments(parsed_flags)
+        except Exception as exc:
+            raise ProviderError(
+                "ssh", "start", f"Invalid JVM argument in stored configuration: {exc}"
+            ) from exc
 
         mkdir_result = await conn.run(f"mkdir -p {shlex.quote(server_dir)}", check=False)
         if mkdir_result.returncode != 0:
@@ -75,11 +105,21 @@ class SSHProvider(ServerProvider):
                 "ssh", "start", f"Failed to create server dir: {mkdir_result.stderr}"
             )
 
-        start_cmd = (
-            f"cd {shlex.quote(server_dir)} && java {jvm_args} "
-            f"-Xms{memory_min}M -Xmx{memory_max}M "
-            f"-jar {shlex.quote(jar_path)} nogui"
-        )
+        java_exec = launch_config.java_executable if launch_config else "java"
+        if not java_args and launch_config and launch_config.jvm_flags:
+            parsed_flags = list(launch_config.jvm_flags)
+
+        tokens = [
+            java_exec,
+            *parsed_flags,
+            f"-Xms{memory_min}M",
+            f"-Xmx{memory_max}M",
+            "-jar",
+            jar_path,
+            "nogui",
+        ]
+        inner_cmd = " ".join(shlex.quote(t) for t in tokens)
+        start_cmd = f"cd {shlex.quote(server_dir)} && exec {inner_cmd}"
 
         tmux_cmd = f"tmux new-session -d -s {shlex.quote(session_name)} {shlex.quote(start_cmd)}"
 

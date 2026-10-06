@@ -40,7 +40,7 @@ class FieldRequiredError(ValidationError):
         super().__init__(f"Field '{field}' is required", field=field)
 
 
-class InvalidValueError(ValidationError):
+class InvalidValueError(ValidationError, ValueError):
     def __init__(self, field: str, value: Any, reason: str = "") -> None:
         msg = f"Invalid value for '{field}': {value}"
         if reason:
@@ -199,6 +199,18 @@ class ProviderError(InfrastructureError):
         self.provider = provider
         self.operation = operation
         self.detail = detail
+
+
+class SecurityPermissionError(InfrastructureError):
+    """Raised when critical security permissions on files or resources cannot be established."""
+
+    def __init__(self, message: str = "", details: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            message or "Security permission check failed",
+            retryable=False,
+            details=details or {},
+        )
+        self.code = "SECURITY_PERMISSION_ERROR"
 
 
 class InternalError(MCSError):

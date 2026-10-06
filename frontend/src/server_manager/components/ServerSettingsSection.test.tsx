@@ -150,4 +150,18 @@ describe("ServerSettingsSection", () => {
     expect(callArgs.body.properties["level-seed"]).toBe("123456789");
     expect(callArgs.body.properties["server-port"]).toBe(25565);
   });
+
+  it("disables save button and displays error when JVM flags contain prohibited characters", () => {
+    renderSettings();
+
+    const jvmInput = screen.getByPlaceholderText(/-XX:\+UseG1GC/i);
+    fireEvent.change(jvmInput, { target: { value: "-Xmx1G;calc" } });
+
+    expect(
+      screen.getByText(/all flags must start with '-' and cannot contain prohibited shell characters/i)
+    ).toBeInTheDocument();
+
+    const saveButton = screen.getByRole("button", { name: /save changes/i });
+    expect(saveButton).toBeDisabled();
+  });
 });

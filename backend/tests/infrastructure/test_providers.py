@@ -332,7 +332,7 @@ class TestLocalLinuxProviderStart:
         provider = LocalLinuxProvider()
         lc = LaunchConfiguration(
             java_executable="/usr/lib/jvm/java-21/bin/java",
-            startup_command=["cd", "/srv", "&&", "java", "-jar", "paper.jar", "nogui"],
+            startup_command=["bash", "run.sh", "nogui"],
             startup_jar="irrelevant.jar",
         )
         deployment = ServerDeployment(
@@ -354,7 +354,7 @@ class TestLocalLinuxProviderStart:
                             )
 
         cmd = mock_run.call_args[0][0]
-        assert "cd /srv/minecraft && cd /srv && java -jar paper.jar nogui" in cmd
+        assert "cd /srv/minecraft && bash run.sh nogui" in cmd
 
     @pytest.mark.asyncio
     async def test_start_tmux_failure_raises(self) -> None:
@@ -370,6 +370,275 @@ class TestLocalLinuxProviderStart:
 
                         with pytest.raises(ProviderError, match="tmux session creation failed"):
                             await provider.start(server_id="fail", deployment=deployment)
+
+    @pytest.mark.asyncio
+    async def test_local_provider_start_quotes_all_jvm_args(self) -> None:
+        import shlex
+
+        provider = LocalLinuxProvider()
+        deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path="/tmp/onx/test server dir",
+        )
+        lc = LaunchConfiguration(
+            java_executable="/usr/lib/jvm/java 21/bin/java",
+            jvm_flags=(
+                '-XX:OnOutOfMemoryError="kill -9 %p"',
+                '-Dproperty="hello world"',
+                "-Dcustom.msg=welcome to minecraft",
+            ),
+            startup_jar="server.jar",
+        )
+        config = {
+            "memory_min_mb": 2048,
+            "memory_max_mb": 4096,
+            "port": 25565,
+        }
+
+        with (
+            patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)),
+            patch.object(provider, "_cleanup_stale_tmux", AsyncMock()),
+            patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run,
+            patch.object(provider, "_get_tmux_pid", AsyncMock(return_value=1234)),
+            patch.object(provider, "_fs", MagicMock()),
+        ):
+            result = await provider.start(
+                server_id="test-quoting",
+                config=config,
+                deployment=deployment,
+                launch_config=lc,
+            )
+
+        assert result.status == ServerRuntimeStatus.RUNNING
+        assert result.pid == 1234
+        full_cmd = mock_run.call_args[0][0]
+
+        expected_tokens = [
+            "/usr/lib/jvm/java 21/bin/java",
+            '-XX:OnOutOfMemoryError="kill -9 %p"',
+            '-Dproperty="hello world"',
+            "-Dcustom.msg=welcome to minecraft",
+            "-jar",
+            "server.jar",
+            "nogui",
+            "-Xms2048M",
+            "-Xmx4096M",
+        ]
+        expected_inner_cmd = " ".join(shlex.quote(t) for t in expected_tokens)
+        expected_pane_cmd = (
+            f"cd {shlex.quote('/tmp/onx/test server dir')} && exec {expected_inner_cmd}"
+        )
+
+        tmux_parts = shlex.split(full_cmd)
+        assert tmux_parts[0] == "tmux"
+        assert tmux_parts[1] == "new-session"
+        assert tmux_parts[2] == "-d"
+        assert tmux_parts[3] == "-s"
+        assert tmux_parts[4] == "onx-test-quoting"
+        assert tmux_parts[5].endswith(expected_pane_cmd)
+
+    @pytest.mark.asyncio
+    async def test_local_provider_start_legacy_path_quotes_all_jvm_args(self) -> None:
+        import shlex
+
+        from app.core.identity import IDENTITY
+
+        provider = LocalLinuxProvider()
+        deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path="/tmp/onx/test server dir",
+        )
+
+        flags_list = [
+            '-XX:OnOutOfMemoryError="kill -9 %p"',
+            '-Dproperty="hello world"',
+            "-Dcustom.msg=welcome to minecraft",
+        ]
+        config_list = {
+            "java_args": flags_list,
+            "memory_min_mb": 2048,
+            "memory_max_mb": 4096,
+            "port": 25565,
+        }
+
+        fixed_uuid_1 = MagicMock(hex="0123456789abcdef0123456789abcdef")
+        with (
+            patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)),
+            patch.object(provider, "_cleanup_stale_tmux", AsyncMock()),
+            patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run,
+            patch.object(provider, "_get_tmux_pid", AsyncMock(return_value=1234)),
+            patch.object(provider, "_fs", MagicMock()),
+            patch(
+                "app.modules.server.infrastructure.providers.local.uuid.uuid4",
+                return_value=fixed_uuid_1,
+            ),
+        ):
+            await provider.start(
+                server_id="test-legacy-list",
+                config=config_list,
+                deployment=deployment,
+                launch_config=None,
+            )
+
+        captured_list_cmd = mock_run.call_args[0][0]
+        session_list = f"{IDENTITY.temp_prefix_new}test-legacy-list"
+        tokens_list = [
+            "java",
+            *flags_list,
+            "-Xms2048M",
+            "-Xmx4096M",
+            "-jar",
+            deployment.startup_jar,
+            "nogui",
+        ]
+        expected_inner_list = " ".join(shlex.quote(t) for t in tokens_list)
+        marker_list = (
+            f"export {IDENTITY.process_marker_new}=1 "
+            f"{IDENTITY.env_prefix_new}INSTANCE_ID={fixed_uuid_1.hex[:16]}; "
+        )
+        expected_pane_list = (
+            f"{marker_list}cd {shlex.quote(deployment.server_directory())} && "
+            f"exec {expected_inner_list}"
+        )
+        expected_tmux_list = (
+            f"tmux new-session -d -s {shlex.quote(session_list)} "
+            f"{shlex.quote(expected_pane_list)}"
+        )
+        assert captured_list_cmd == expected_tmux_list
+
+        # Repeat with java_args as a single STRING with spaces to cover shlex.split branch
+        flags_str = (
+            '-XX:OnOutOfMemoryError="kill -9 %p" '
+            '-Dproperty="hello world" '
+            '"-Dcustom.msg=welcome to minecraft"'
+        )
+        config_str = {
+            "java_args": flags_str,
+            "memory_min_mb": 2048,
+            "memory_max_mb": 4096,
+            "port": 25565,
+        }
+
+        fixed_uuid_2 = MagicMock(hex="fedcba9876543210fedcba9876543210")
+        with (
+            patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)),
+            patch.object(provider, "_cleanup_stale_tmux", AsyncMock()),
+            patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run_str,
+            patch.object(provider, "_get_tmux_pid", AsyncMock(return_value=5678)),
+            patch.object(provider, "_fs", MagicMock()),
+            patch(
+                "app.modules.server.infrastructure.providers.local.uuid.uuid4",
+                return_value=fixed_uuid_2,
+            ),
+        ):
+            await provider.start(
+                server_id="test-legacy-str",
+                config=config_str,
+                deployment=deployment,
+                launch_config=None,
+            )
+
+        captured_str_cmd = mock_run_str.call_args[0][0]
+        session_str = f"{IDENTITY.temp_prefix_new}test-legacy-str"
+        parsed_str_flags = shlex.split(flags_str)
+        tokens_str = [
+            "java",
+            *parsed_str_flags,
+            "-Xms2048M",
+            "-Xmx4096M",
+            "-jar",
+            deployment.startup_jar,
+            "nogui",
+        ]
+        expected_inner_str = " ".join(shlex.quote(t) for t in tokens_str)
+        marker_str = (
+            f"export {IDENTITY.process_marker_new}=1 "
+            f"{IDENTITY.env_prefix_new}INSTANCE_ID={fixed_uuid_2.hex[:16]}; "
+        )
+        expected_pane_str = (
+            f"{marker_str}cd {shlex.quote(deployment.server_directory())} && "
+            f"exec {expected_inner_str}"
+        )
+        expected_tmux_str = (
+            f"tmux new-session -d -s {shlex.quote(session_str)} "
+            f"{shlex.quote(expected_pane_str)}"
+        )
+        assert captured_str_cmd == expected_tmux_str
+
+    @pytest.mark.asyncio
+    async def test_local_provider_start_rejects_stored_unsafe_args(self) -> None:
+        from app.core.exceptions import ProviderError
+
+        provider = LocalLinuxProvider()
+        deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path="/tmp/onx/test-server",
+        )
+        config = {
+            "java_args": ["-Xmx1G;calc"],
+            "memory_min_mb": 1024,
+            "memory_max_mb": 2048,
+        }
+
+        with (
+            patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)),
+            patch.object(provider, "_cleanup_stale_tmux", AsyncMock()),
+            patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run,
+            patch.object(provider, "_fs", MagicMock()),
+        ):
+            with pytest.raises(
+                ProviderError, match="Invalid JVM argument in stored configuration"
+            ):
+                await provider.start(
+                    server_id="test-unsafe",
+                    config=config,
+                    deployment=deployment,
+                )
+            assert mock_run.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_local_provider_start_exec_prefix_and_pid_resolution(self) -> None:
+        provider = LocalLinuxProvider()
+        deployment = ServerDeployment(
+            location_type=LocationType.LOCAL,
+            root_path="/tmp/onx/test-server",
+        )
+        config = {
+            "java_args": ["-XX:+UseG1GC"],
+            "memory_min_mb": 1024,
+            "memory_max_mb": 2048,
+        }
+
+        with (
+            patch.object(provider, "_verify_port_free", AsyncMock(return_value=True)),
+            patch.object(provider, "_cleanup_stale_tmux", AsyncMock()),
+            patch.object(provider, "_run_command", AsyncMock(return_value=0)) as mock_run,
+            patch.object(provider, "_get_tmux_pid", AsyncMock(return_value=4321)),
+            patch.object(provider, "_fs", MagicMock()),
+        ):
+            result = await provider.start(
+                server_id="test-pid-res",
+                config=config,
+                deployment=deployment,
+            )
+            assert result.pid == 4321
+            cmd = mock_run.call_args[0][0]
+            assert " && exec " in cmd
+
+            handle = ServerHandle(
+                provider="local",
+                server_id="test-pid-res",
+                external_id="test-pid-res",
+            )
+            with patch("app.modules.server.infrastructure.providers.local.os.kill"):
+                await provider.stop(handle, force=True)
+            stop_calls = [
+                call[0][0]
+                for call in mock_run.call_args_list
+                if "kill-session" in call[0][0]
+            ]
+            assert len(stop_calls) > 0
+            assert "kill-session" in stop_calls[0]
 
 
 @pytest.mark.skipif(
@@ -961,3 +1230,67 @@ class TestSSHProvider:
             )
 
         assert res.pid == 5555
+
+    @pytest.mark.asyncio
+    async def test_remote_provider_start_quotes_all_jvm_args(self) -> None:
+        import shlex
+
+        provider = SSHProvider(host="10.0.0.1")
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "7777\n"
+        mock_result.stderr = ""
+        mock_conn.run = AsyncMock(return_value=mock_result)
+
+        lc = LaunchConfiguration(
+            java_executable="/usr/lib/jvm/java 21/bin/java",
+            jvm_flags=(
+                '-XX:OnOutOfMemoryError="kill -9 %p"',
+                '-Dproperty="hello world"',
+                "-Dcustom.msg=welcome to minecraft",
+            ),
+            startup_jar="server.jar",
+        )
+        config = {
+            "server_dir": "/opt/minecraft/srv with spaces",
+            "jar_path": "server.jar",
+            "memory_min_mb": 1024,
+            "memory_max_mb": 2048,
+        }
+
+        with (
+            patch.object(provider, "_get_connection", AsyncMock(return_value=mock_conn)),
+            patch("asyncio.sleep", AsyncMock()),
+        ):
+            res = await provider.start(
+                server_id="ssh-quotes",
+                config=config,
+                launch_config=lc,
+            )
+
+        assert res.pid == 7777
+        calls = [call[0][0] for call in mock_conn.run.call_args_list]
+        tmux_cmd = calls[1]
+
+        expected_tokens = [
+            "/usr/lib/jvm/java 21/bin/java",
+            '-XX:OnOutOfMemoryError="kill -9 %p"',
+            '-Dproperty="hello world"',
+            "-Dcustom.msg=welcome to minecraft",
+            "-Xms1024M",
+            "-Xmx2048M",
+            "-jar",
+            "server.jar",
+            "nogui",
+        ]
+        expected_inner_cmd = " ".join(shlex.quote(t) for t in expected_tokens)
+        expected_pane_cmd = (
+            f"cd {shlex.quote('/opt/minecraft/srv with spaces')} && exec {expected_inner_cmd}"
+        )
+        expected_tmux_cmd = (
+            f"tmux new-session -d -s {shlex.quote('onx-ssh-quotes')} "
+            f"{shlex.quote(expected_pane_cmd)}"
+        )
+
+        assert tmux_cmd == expected_tmux_cmd
