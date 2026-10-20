@@ -217,8 +217,7 @@ class TestStageCMaterializationCommands:
             )
             await repo.save_commit(new_commit)
             branch = await repo.get_branch_by_name("srv-c-1", "main")
-            branch.head_commit_id = "c-next"
-            await repo.save_branch(branch)
+            await repo.advance_branch_head_optimistic(branch.id, "c-next", "c-initial")
             await session.commit()
 
         # Query materializations: should lazily detect branch head changed and mark STALE

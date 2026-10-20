@@ -33,6 +33,7 @@ from app.modules.versioning.domain.entities import (
 from app.modules.versioning.domain.events import CommitPromotedEvent
 from app.modules.versioning.domain.repository import VersioningRepository
 from app.modules.versioning.domain.value_objects import (
+    BranchStatus,
     CommitManifest,
     TestRunStatus,
 )
@@ -61,6 +62,19 @@ class InMemoryVersioningRepository(VersioningRepository):
     async def save_branch(self, branch: ServerBranch) -> ServerBranch:
         self.branches[branch.id] = branch
         return branch
+
+    async def advance_branch_head_optimistic(
+        self, branch_id: str, new_head: str, expected_head: str | None
+    ) -> bool:
+        branch = self.branches.get(branch_id)
+        if branch is None:
+            return False
+        if branch.status == BranchStatus.ARCHIVED:
+            return False
+        if branch.head_commit_id != expected_head:
+            return False
+        branch.advance_head(new_head)
+        return True
 
     async def get_commit(self, commit_id: str) -> ServerCommit | None:
         return self.commits.get(commit_id)

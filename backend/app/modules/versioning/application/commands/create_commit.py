@@ -5,6 +5,8 @@ import os
 import uuid
 from pathlib import Path
 
+from sqlalchemy.exc import OperationalError
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
 from app.core.exceptions import (
@@ -77,8 +79,12 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
                         )
                         await session.commit()
                     break
+                except ConflictError:
+                    raise
                 except Exception as exc:
-                    is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                    is_lock = isinstance(exc, OperationalError) and (
+                        "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                    )
                     if is_lock and attempt < max_retries - 1:
                         await asyncio.sleep(0.05 * (2**attempt))
                         continue
@@ -157,6 +163,8 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
                     "Changes must be verified via an isolated test run and promoted."
                 )
 
+        expected_head = branch.head_commit_id
+
         # 4. Create COW world snapshot
         snapshot_id = str(uuid.uuid4())
         snapshot_dir = Path(server_dir) / ".onx" / "snapshots" / snapshot_id
@@ -195,11 +203,17 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
         if branch.head_commit_id:
             parent_commit = await versioning_repo.get_commit(branch.head_commit_id)
             commit.validate_parent(parent_commit)
-        await versioning_repo.save_commit(commit)
 
-        # 7. Advance branch head and activate
-        branch.advance_head(commit_id)
-        await versioning_repo.save_branch(branch)
+        updated = await versioning_repo.advance_branch_head_optimistic(
+            branch.id, commit_id, expected_head
+        )
+        if not updated:
+            raise ConflictError(
+                f"Concurrent commit detected for branch id '{branch.id}': head moved "
+                f"from {expected_head!r} while the commit was being created. "
+                "Re-read and retry."
+            )
+        await versioning_repo.save_commit(commit)
 
         from app.modules.versioning.domain.events import CommitCreatedEvent
 

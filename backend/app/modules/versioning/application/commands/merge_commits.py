@@ -4,6 +4,8 @@ import asyncio
 import uuid
 from typing import Any
 
+from sqlalchemy.exc import OperationalError
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
 from app.core.exceptions import ConflictError, NotFoundError
@@ -55,8 +57,12 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
                         res = await self._execute(command, server_repo, versioning_repo, events)
                         await session.commit()
                     break
+                except ConflictError:
+                    raise
                 except Exception as exc:
-                    is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                    is_lock = isinstance(exc, OperationalError) and (
+                        "locked" in str(exc).lower() or "busy" in str(exc).lower()
+                    )
                     if is_lock and attempt < max_retries - 1:
                         await asyncio.sleep(0.05 * (2**attempt))
                         continue
@@ -93,6 +99,8 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
             )
         if branch.status == BranchStatus.ARCHIVED:
             raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
+
+        expected_head = branch.head_commit_id
 
         # 3. Validate parents
         if len(command.parent_commit_ids) < 2:
@@ -148,12 +156,16 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
             world_snapshot_id=parent_commits[0].world_snapshot_id,
         )
 
-        # 7. Advance branch head
-        branch.advance_head(new_commit_id)
-
-        # 8. Save commit and branch
+        # 7. Advance branch head via CAS and save commit
+        updated = await versioning_repo.advance_branch_head_optimistic(
+            branch.id, new_commit_id, expected_head
+        )
+        if not updated:
+            raise ConflictError(
+                f"Concurrent merge detected for branch id '{branch.id}': head moved "
+                f"from {expected_head!r} while the merge was being created."
+            )
         await versioning_repo.save_commit(commit)
-        await versioning_repo.save_branch(branch)
 
         commit_event = CommitCreatedEvent(
             server_id=command.server_id,

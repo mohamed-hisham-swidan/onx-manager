@@ -35,6 +35,12 @@ class VersioningRepository(ABC):
     async def save_branch(self, branch: ServerBranch) -> ServerBranch:
         pass
 
+    @abstractmethod
+    async def advance_branch_head_optimistic(
+        self, branch_id: str, new_head: str, expected_head: str | None
+    ) -> bool:
+        pass
+
     # Commits
     @abstractmethod
     async def get_commit(self, commit_id: str) -> ServerCommit | None:

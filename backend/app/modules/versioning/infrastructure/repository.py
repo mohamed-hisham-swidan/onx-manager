@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.versioning.domain.entities import (
@@ -17,6 +18,7 @@ from app.modules.versioning.domain.entities import (
 from app.modules.versioning.domain.repository import VersioningRepository
 from app.modules.versioning.domain.value_objects import (
     BotTech,
+    BranchStatus,
     CommitManifest,
     ImportReviewStatus,
     MaterializationMode,
@@ -38,6 +40,16 @@ from app.modules.versioning.infrastructure.models import (
     ServerTestRunModel,
     ServerWorldSnapshotModel,
 )
+
+
+def _is_sqlite_busy_snapshot(exc: OperationalError) -> bool:
+    orig = getattr(exc, "orig", None)
+    if orig is None:
+        return False
+    return (
+        getattr(orig, "sqlite_errorname", None) == "SQLITE_BUSY_SNAPSHOT"
+        or getattr(orig, "sqlite_errorcode", None) == 517
+    )
 
 
 class SQLVersioningRepository(VersioningRepository):
@@ -89,12 +101,39 @@ class SQLVersioningRepository(VersioningRepository):
             self._session.add(model)
         else:
             model.name = branch.name
-            model.head_commit_id = branch.head_commit_id
+            # head_commit_id is intentionally NOT assigned here
             model.status = status_val
             model.is_protected = branch.is_protected
             model.protection_policy = policy_data
         await self._session.flush()
         return branch
+
+    async def advance_branch_head_optimistic(
+        self, branch_id: str, new_head: str, expected_head: str | None
+    ) -> bool:
+        conditions = [
+            ServerBranchModel.id == branch_id,
+            ServerBranchModel.status != BranchStatus.ARCHIVED.value,
+        ]
+        if expected_head is None:
+            conditions.append(ServerBranchModel.head_commit_id.is_(None))
+        else:
+            conditions.append(ServerBranchModel.head_commit_id == expected_head)
+
+        stmt = (
+            update(ServerBranchModel)
+            .where(*conditions)
+            .values(head_commit_id=new_head, status=BranchStatus.ACTIVE.value)
+            .execution_options(synchronize_session="fetch")
+        )
+        try:
+            result = await self._session.execute(stmt)
+            await self._session.flush()
+        except OperationalError as exc:
+            if _is_sqlite_busy_snapshot(exc):
+                return False
+            raise
+        return result.rowcount == 1
 
     # Commits
     async def get_commit_parents(self, commit_id: str) -> list[str]:
