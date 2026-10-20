@@ -51,6 +51,16 @@ class TestPanelBind:
         finally:
             _reload_settings()
 
+    def test_onx_panel_bind_port_env_override(self) -> None:
+        os.environ["ONX_PANEL_BIND_PORT"] = "9005"
+        _reload_settings()
+        try:
+            _, port = get_panel_bind()
+            assert port == 9005
+        finally:
+            os.environ.pop("ONX_PANEL_BIND_PORT", None)
+            _reload_settings()
+
     def test_ingress_loopback(self) -> None:
         assert panel_ingress_target() == "http://127.0.0.1:8000"
 

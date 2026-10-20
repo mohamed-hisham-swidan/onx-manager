@@ -3,6 +3,10 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
+const backendPort = process.env.ONX_BACKEND_PORT || "8000";
+const backendHttp = `http://localhost:${backendPort}`;
+const backendWs = `ws://localhost:${backendPort}`;
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -12,11 +16,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/ws": { target: "ws://localhost:8000", ws: true },
-      "/api": { target: "http://localhost:8000" },
-      "/health": { target: "http://localhost:8000" },
-      "/docs": { target: "http://localhost:8000" },
-      "/openapi.json": { target: "http://localhost:8000" },
+      "/ws": { target: backendWs, ws: true },
+      "/api": { target: backendHttp },
+      "/health": { target: backendHttp },
+      "/docs": { target: backendHttp },
+      "/openapi.json": { target: backendHttp },
     },
   },
 });

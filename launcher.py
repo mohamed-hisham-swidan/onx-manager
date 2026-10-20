@@ -32,6 +32,7 @@ import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, auto
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Any
@@ -86,7 +87,15 @@ ONX_DIR_NAME = ".onx"
 MCS_DIR_NAME = ONX_DIR_NAME  # alias for backward compat
 BACKEND_PORT = 8000
 FRONTEND_PORT = 5173
-BACKEND_HEALTH_URL = f"http://localhost:{BACKEND_PORT}/health"
+PORT_SCAN_SPAN = 100
+MAX_PORT_ATTEMPTS = 3
+
+
+def backend_health_url(port: int) -> str:
+    return f"http://127.0.0.1:{port}/health"
+
+
+BACKEND_HEALTH_URL = backend_health_url(BACKEND_PORT)
 SWAGGER_URL = f"http://localhost:{BACKEND_PORT}/docs"
 FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"
 POLL_INTERVAL = 0.5
@@ -154,6 +163,22 @@ class SelfTestResult:
         return c("green", "✓") if self.status else c("red", "✖")
 
 
+class PortState(Enum):
+    FREE = auto()
+    OWN_HEALTHY = auto()
+    OWN_UNHEALTHY = auto()
+    HEALTHY_UNVERIFIED = auto()
+    FOREIGN = auto()
+    UNKNOWN = auto()
+
+
+@dataclass(frozen=True)
+class PortDecision:
+    port: int
+    reuse: bool
+    source: str  # "known-active" | "preferred" | "scan"
+
+
 @dataclass
 class LauncherConfig:
     backend_port: int = BACKEND_PORT
@@ -163,6 +188,7 @@ class LauncherConfig:
     open_vscode: bool = False
     auto_install_deps: bool = True
     startup_timeout: int = STARTUP_TIMEOUT
+    active_backend_port: int | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -608,6 +634,36 @@ class PIDManager:
             path.unlink()
 
     @staticmethod
+    def write_active_port(port: int) -> None:
+        MCS_DIR.mkdir(parents=True, exist_ok=True)
+        (MCS_DIR / "backend.port").write_text(f"{port}\n")
+
+    @staticmethod
+    def read_active_port() -> int | None:
+        candidates = [
+            MCS_DIR / "backend.port",
+            PROJECT_ROOT / ".mcs" / "backend.port",
+        ]
+        for path in candidates:
+            if path.is_file():
+                try:
+                    val = int(path.read_text().strip())
+                    if 1 <= val <= 65535:
+                        return val
+                except (ValueError, OSError):
+                    continue
+        return None
+
+    @staticmethod
+    def clear_active_port() -> None:
+        for path in (MCS_DIR / "backend.port", PROJECT_ROOT / ".mcs" / "backend.port"):
+            try:
+                if path.is_file():
+                    path.unlink()
+            except OSError:
+                pass
+
+    @staticmethod
     def is_alive(pid: int) -> bool:
         if pid <= 0:
             return False
@@ -752,6 +808,19 @@ class PortManager:
         return False
 
     @staticmethod
+    def can_bind(port: int, host: str = "0.0.0.0") -> bool:
+        if not (1 <= port <= 65535):
+            return False
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if os.name == "posix":
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind((host, port))
+                return True
+        except (OSError, ValueError, OverflowError):
+            return False
+
+    @staticmethod
     def find_free(start: int = 8000, end: int = 9000) -> int:
         for port in range(start, end):
             if not PortManager.is_open(port):
@@ -793,6 +862,184 @@ class PortManager:
             return None
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return None
+
+    @staticmethod
+    def belongs_to_project(pid: int) -> bool:
+        if pid <= 0:
+            return False
+
+        cmdline = ""
+        cwd = ""
+        exe = ""
+
+        try:
+            import psutil
+            p = psutil.Process(pid)
+            try:
+                cmdline = " ".join(p.cmdline())
+            except (psutil.AccessDenied, psutil.ZombieProcess, OSError):
+                cmdline = ""
+            try:
+                cwd = p.cwd()
+            except (psutil.AccessDenied, psutil.ZombieProcess, OSError):
+                cwd = ""
+            try:
+                exe = p.exe()
+            except (psutil.AccessDenied, psutil.ZombieProcess, OSError):
+                exe = ""
+        except Exception:
+            pass
+
+        if not cmdline and Path(f"/proc/{pid}/cmdline").is_file():
+            try:
+                raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+                cmdline = raw.replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
+            except (OSError, PermissionError):
+                pass
+
+        if not cwd and Path(f"/proc/{pid}/cwd").is_symlink():
+            try:
+                cwd = str(Path(f"/proc/{pid}/cwd").resolve())
+            except (OSError, PermissionError):
+                pass
+
+        if os.name == "nt" and not cmdline:
+            try:
+                ps_script = (
+                    f"Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\" | "
+                    "Select-Object CommandLine, ExecutablePath | "
+                    "ConvertTo-Json -Compress"
+                )
+                res = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if res.stdout.strip():
+                    data = json.loads(res.stdout.strip())
+                    if isinstance(data, dict):
+                        cmdline = str(data.get("CommandLine") or "")
+                        exe = str(data.get("ExecutablePath") or "")
+            except Exception:
+                pass
+
+        cmdline_lower = cmdline.lower()
+        exe_lower = exe.lower()
+        cwd_lower = cwd.lower()
+
+        # 1. Daemon / exclusions first
+        daemon_keywords = ("playit", "cloudflared", "tmux", "java")
+        for kw in daemon_keywords:
+            if kw in cmdline_lower or kw in exe_lower:
+                return False
+
+        # Exclusions for Minecraft server data directories
+        server_data_str = str(PROJECT_ROOT / "backend" / "data" / "servers").lower()
+        if server_data_str:
+            if server_data_str in cwd_lower:
+                return False
+            if server_data_str in exe_lower:
+                return False
+            if server_data_str in cmdline_lower:
+                return False
+
+        # 2. Project root path in cwd, exe, or cmdline
+        project_root_str = str(PROJECT_ROOT).lower()
+        if project_root_str:
+            if cwd_lower.startswith(project_root_str):
+                return True
+            if project_root_str in exe_lower:
+                return True
+            if project_root_str in cmdline_lower:
+                return True
+
+        # 3. Unique project identifiers
+        project_markers = ("onx-frontend", "mcs-frontend", "onx-manager", "mcs-manager", "app.main:app")
+        for marker in project_markers:
+            if marker in cmdline_lower:
+                return True
+
+        return False
+
+    @staticmethod
+    def classify_backend_port(port: int, health_timeout: float = 2.0) -> PortState:
+        if PortManager.can_bind(port):
+            return PortState.FREE
+
+        listener_pid = PortManager.get_pid_by_port(port)
+        is_healthy = check_backend_health(port, timeout=health_timeout)
+
+        if listener_pid is not None:
+            if PortManager.belongs_to_project(listener_pid):
+                return PortState.OWN_HEALTHY if is_healthy else PortState.OWN_UNHEALTHY
+            else:
+                return PortState.FOREIGN
+        else:
+            return PortState.HEALTHY_UNVERIFIED if is_healthy else PortState.UNKNOWN
+
+    @staticmethod
+    def resolve_startup_port(
+        preferred: int,
+        known_active: int | None,
+        on_own_unhealthy: Callable[[int], bool],
+        exclude_ports: set[int] | None = None,
+    ) -> PortDecision | None:
+        excluded = exclude_ports or set()
+
+        # 0. Known active port
+        if known_active is not None and known_active not in excluded:
+            active_state = PortManager.classify_backend_port(known_active, health_timeout=2.0)
+            if active_state in (PortState.OWN_HEALTHY, PortState.HEALTHY_UNVERIFIED):
+                return PortDecision(port=known_active, reuse=True, source="known-active")
+            elif active_state == PortState.OWN_UNHEALTHY:
+                freed = on_own_unhealthy(known_active)
+                if freed:
+                    PIDManager.clear_active_port()
+                else:
+                    return None
+            else:
+                PIDManager.clear_active_port()
+
+        # 1. Preferred port
+        if preferred in excluded:
+            pref_state = None
+        else:
+            pref_state = PortManager.classify_backend_port(preferred, health_timeout=2.0)
+        if pref_state == PortState.FREE:
+            return PortDecision(port=preferred, reuse=False, source="preferred")
+        elif pref_state in (PortState.OWN_HEALTHY, PortState.HEALTHY_UNVERIFIED):
+            return PortDecision(port=preferred, reuse=True, source="preferred")
+        elif pref_state == PortState.OWN_UNHEALTHY:
+            freed = on_own_unhealthy(preferred)
+            if not freed:
+                return None
+            post_state = PortManager.classify_backend_port(preferred, health_timeout=2.0)
+            if post_state == PortState.FREE:
+                return PortDecision(port=preferred, reuse=False, source="preferred")
+            return None
+
+        # 2. Fallback scan
+        for candidate in range(preferred + 1, preferred + PORT_SCAN_SPAN):
+            if not (1024 <= candidate <= 65535) or candidate in excluded:
+                continue
+            cand_state = PortManager.classify_backend_port(candidate, health_timeout=1.0)
+            if cand_state == PortState.FREE:
+                return PortDecision(port=candidate, reuse=False, source="scan")
+            elif cand_state in (PortState.OWN_HEALTHY, PortState.HEALTHY_UNVERIFIED):
+                return PortDecision(port=candidate, reuse=True, source="scan")
+            elif cand_state == PortState.OWN_UNHEALTHY:
+                freed = on_own_unhealthy(candidate)
+                if not freed:
+                    return None
+                post_state = PortManager.classify_backend_port(candidate, health_timeout=1.0)
+                if post_state == PortState.FREE:
+                    return PortDecision(port=candidate, reuse=False, source="scan")
+                return None
+            elif cand_state in (PortState.FOREIGN, PortState.UNKNOWN):
+                continue
+
+        # 3. Exhaustion
+        PIDManager.clear_active_port()
+        return None
 
     @staticmethod
     def kill_on_port(port: int) -> bool:
@@ -1051,13 +1298,19 @@ class TerminalOpener:
         return TerminalOpener._open("Backend", cmd_str, BACKEND_LOG, env, WINDOW_BACKEND)
 
     @staticmethod
-    def open_frontend() -> int | None:
+    def open_frontend(backend_port: int) -> int | None:
         if os.name == "nt":
             esc_frontend = TerminalOpener.escape_cmd_path(FRONTEND_DIR)
             cmd_str = f'cd /d "{esc_frontend}" && npm run dev'
         else:
             cmd_str = f"cd '{FRONTEND_DIR}' && npm run dev"
-        return TerminalOpener._open("Frontend", cmd_str, FRONTEND_LOG, None, WINDOW_FRONTEND)
+        return TerminalOpener._open(
+            "Frontend",
+            cmd_str,
+            FRONTEND_LOG,
+            {"ONX_BACKEND_PORT": str(backend_port)},
+            WINDOW_FRONTEND,
+        )
 
     @staticmethod
     def _open(
@@ -1594,9 +1847,10 @@ class SelfTester:
 
         # Ports
         cfg = ConfigManager.instance().load()
-        port_issues = Validator.check_ports(cfg.backend_port, cfg.frontend_port)
+        effective_backend_port = get_effective_backend_port(cfg.backend_port)
+        port_issues = Validator.check_ports(effective_backend_port, cfg.frontend_port)
         if not port_issues:
-            port_str = f"{cfg.backend_port}, {cfg.frontend_port}"
+            port_str = f"{effective_backend_port}, {cfg.frontend_port}"
             results.append(SelfTestResult("Ports available", True, port_str))
         else:
             results.append(SelfTestResult("Ports available", False, "; ".join(port_issues)))
@@ -1608,8 +1862,8 @@ class SelfTester:
         fe_alive = fe_pid is not None and PIDManager.is_alive(fe_pid)
         pa = PortManager.is_open
 
-        if be_alive or pa(cfg.backend_port):
-            results.append(SelfTestResult("Backend health", True, "Running"))
+        if be_alive or pa(effective_backend_port):
+            results.append(SelfTestResult("Backend health", True, f"Running on {effective_backend_port}"))
         else:
             results.append(SelfTestResult("Backend health", False, "Not running"))
 
@@ -1690,19 +1944,20 @@ class StatusDisplay:
     """Renders the status screen, optionally in live watch mode."""
 
     @staticmethod
-    def _collect_service(name: str, port: int) -> ServiceInfo:
+    def _collect_service(name: str, port: int, *, verify_backend: bool = False) -> ServiceInfo:
         pid = PIDManager.read(name)
         alive = pid is not None and PIDManager.is_alive(pid)
         port_open = PortManager.is_open(port)
+        panel_healthy = not verify_backend or (port_open and check_backend_health(port, timeout=1.0))
         uptime: float | None = None
         started = PIDManager.get_started_at()
         if started:
             uptime = time.time() - started
-        actual_pid = PortManager.get_pid_by_port(port) if port_open else pid
+        actual_pid = PortManager.get_pid_by_port(port) if port_open and panel_healthy else pid
         return ServiceInfo(
             name=name.capitalize(),
             pid=actual_pid or pid,
-            running=alive or port_open,
+            running=alive or (port_open and panel_healthy),
             port_open=port_open,
             port=port,
             uptime=uptime,
@@ -1757,7 +2012,8 @@ class StatusDisplay:
     @staticmethod
     def show() -> None:
         cfg = ConfigManager.instance().load()
-        be = StatusDisplay._collect_service("backend", cfg.backend_port)
+        backend_port = get_effective_backend_port(cfg.backend_port)
+        be = StatusDisplay._collect_service("backend", backend_port, verify_backend=True)
         fe = StatusDisplay._collect_service("frontend", cfg.frontend_port)
         resources = SystemMonitor.collect()
         StatusDisplay.render(be, fe, resources)
@@ -1768,7 +2024,8 @@ class StatusDisplay:
         cfg = ConfigManager.instance().load()
         try:
             while True:
-                be = StatusDisplay._collect_service("backend", cfg.backend_port)
+                backend_port = get_effective_backend_port(cfg.backend_port)
+                be = StatusDisplay._collect_service("backend", backend_port, verify_backend=True)
                 fe = StatusDisplay._collect_service("frontend", cfg.frontend_port)
                 resources = SystemMonitor.collect()
                 # Clear screen using ANSI codes
@@ -2260,17 +2517,28 @@ def ensure_python_environment() -> Path | None:
     return sys_py
 
 
-def check_backend_health() -> bool:
+def check_backend_health(port: int = BACKEND_PORT, timeout: float = 2.0) -> bool:
     try:
         import urllib.request
         req = urllib.request.Request(
-            BACKEND_HEALTH_URL,
+            backend_health_url(port),
             headers={"User-Agent": "onx-launcher/1.0"},
         )
-        with urllib.request.urlopen(req, timeout=2) as resp:
-            return resp.status == 200
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status != 200:
+                return False
+            data = json.loads(resp.read().decode("utf-8"))
+            return isinstance(data, dict) and data.get("status") == "ok" and "version" in data
     except Exception:
         return False
+
+
+def get_effective_backend_port(preferred: int) -> int:
+    """Return the recorded active port only when the panel health signature is valid."""
+    active = PIDManager.read_active_port()
+    if active is not None and check_backend_health(active, timeout=1.0):
+        return active
+    return preferred
 
 
 def check_frontend_ready() -> bool:
@@ -2551,28 +2819,121 @@ def validate_startup_prerequisites(cfg: LauncherConfig) -> tuple[bool, Path | No
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
-    be_pid = PIDManager.read("backend")
-    if be_pid and PIDManager.is_alive(be_pid) and PortManager.is_open(cfg.backend_port):
-        log_ok(f"Backend already running (PID {be_pid})")
+BIND_ERROR_MARKERS = (
+    "address already in use",
+    "errno 98",
+    "winerror 10048",
+    "only one usage of each socket address",
+)
+
+
+def _read_backend_log_from(offset: int) -> str:
+    try:
+        if not BACKEND_LOG.is_file():
+            return ""
+        with BACKEND_LOG.open("rb") as fh:
+            fh.seek(offset)
+            return fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _has_bind_error(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in BIND_ERROR_MARKERS)
+
+
+def _wait_for_backend_attempt(
+    port: int,
+    pid: int,
+    timeout: float,
+    log_offset: int,
+) -> str:
+    """Return healthy | bind | dead | timeout for one launch attempt."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if check_backend_health(port):
+            return "healthy"
+        if _has_bind_error(_read_backend_log_from(log_offset)):
+            return "bind"
+        if not PIDManager.is_alive(pid):
+            time.sleep(0.5)
+            if check_backend_health(port):
+                return "healthy"
+            return "dead"
+        time.sleep(POLL_INTERVAL)
+
+    if check_backend_health(port):
+        return "healthy"
+    if _has_bind_error(_read_backend_log_from(log_offset)):
+        return "bind"
+    return "timeout"
+
+
+def _backend_supervisor_pid(pid: int | None) -> int | None:
+    """Walk up the project-owned uvicorn/terminal chain to the top killable PID."""
+    if not pid or pid <= 0:
+        return pid
+    best = pid
+    current = pid
+    for _ in range(10):
+        try:
+            import psutil
+            proc = psutil.Process(current)
+            parent = proc.parent()
+            if parent is None or parent.pid <= 1:
+                break
+            cmdline = " ".join(parent.cmdline()).lower()
+            if not PortManager.belongs_to_project(parent.pid):
+                break
+            if not any(k in cmdline for k in ("uvicorn", "konsole", "bash -c", " tee ", "cmd.exe")):
+                break
+            best = parent.pid
+            current = parent.pid
+        except Exception:
+            break
+    return best
+
+
+def _handle_own_unhealthy(port: int) -> bool:
+    log_warn(
+        f"Port {port} is held by a project-owned backend that is not healthy. "
+        "Starting a second backend would share the SQLite database."
+    )
+    if not ask_yes_no(f"Stop the project-owned process on port {port}?", default=True):
+        log_error(f"Port {port} is occupied by a project-owned backend. Aborting.")
+        return False
+    if PortManager.kill_on_port(port):
+        PIDManager.clear_active_port()
         return True
+    return False
 
-    if PortManager.is_open(cfg.backend_port):
-        if check_backend_health():
-            actual_pid = PortManager.get_pid_by_port(cfg.backend_port) or be_pid
-            if actual_pid:
-                PIDManager.write("backend", actual_pid)
-            log_ok(f"Backend already running and healthy (PID {actual_pid})")
-            return True
 
-        pid = PortManager.get_pid_by_port(cfg.backend_port)
-        if pid and not ask_yes_no(
-            f"Port {cfg.backend_port} is in use by PID {pid} (unresponsive). Kill it?",
-            default=True,
-        ):
-            log_error(f"Port {cfg.backend_port} is occupied. Aborting.")
-            return False
-        PortManager.kill_on_port(cfg.backend_port)
+def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
+    decision = PortManager.resolve_startup_port(
+        preferred=cfg.backend_port,
+        known_active=PIDManager.read_active_port(),
+        on_own_unhealthy=_handle_own_unhealthy,
+    )
+    if decision is None:
+        ErrorHandler.show(
+            "No available backend port.",
+            f"Ports {cfg.backend_port}-{cfg.backend_port + PORT_SCAN_SPAN - 1} are occupied "
+            "by foreign processes or a project backend could not be stopped.",
+        )
+        return False
+
+    cfg.active_backend_port = decision.port
+    if decision.reuse:
+        listener_pid = PortManager.get_pid_by_port(decision.port)
+        stored_pid = PIDManager.read("backend")
+        actual_pid = stored_pid if stored_pid and PIDManager.is_alive(stored_pid) else _backend_supervisor_pid(listener_pid)
+        if actual_pid:
+            PIDManager.write("backend", actual_pid)
+        PIDManager.write_active_port(decision.port)
+        source = " (from active-port state)" if decision.source == "known-active" else ""
+        log_ok(f"Backend already running and healthy on port {decision.port} (PID {actual_pid}){source}")
+        return True
 
     if python is None:
         python = ensure_python_environment()
@@ -2586,54 +2947,91 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
             return False
 
     canonical_db_url = get_canonical_db_url()
-    log_step("Backend", "Starting in new terminal...")
-    pid = TerminalOpener.open_backend(
-        python,
-        cfg.backend_port,
-        {
-            "PYTHONPATH": str(BACKEND_DIR),
-            "ONX_DATABASE_URL": canonical_db_url,
-        },
-    )
-    if pid is None:
-        log_error("Failed to launch backend terminal")
-        return False
-    PIDManager.write("backend", pid)
+    port = decision.port
+    tried: set[int] = set()
 
-    spinner = Spinner("Waiting for backend...")
-    spinner.start()
-    deadline = time.time() + cfg.startup_timeout
-    healthy = False
-    while time.time() < deadline:
-        if check_backend_health():
-            healthy = True
-            break
-        if not PIDManager.is_alive(pid):
-            # Check one more time for race condition
-            time.sleep(1)
-            if check_backend_health():
-                healthy = True
-                break
-            log_error("Backend process died")
+    for attempt in range(1, MAX_PORT_ATTEMPTS + 1):
+        tried.add(port)
+        timeout = cfg.startup_timeout if attempt == 1 else min(15, cfg.startup_timeout)
+        log_step("Backend", f"Starting on port {port} (attempt {attempt}/{MAX_PORT_ATTEMPTS})...")
+        log_offset = BACKEND_LOG.stat().st_size if BACKEND_LOG.is_file() else 0
+        pid = TerminalOpener.open_backend(
+            python,
+            port,
+            {
+                "PYTHONPATH": str(BACKEND_DIR),
+                "ONX_DATABASE_URL": canonical_db_url,
+                "ONX_PANEL_BIND_PORT": str(port),
+            },
+        )
+        if pid is None:
+            log_error("Failed to launch backend terminal")
+            PIDManager.clear_active_port()
+            return False
+        PIDManager.write("backend", pid)
+
+        spinner = Spinner("Waiting for backend...")
+        spinner.start()
+        outcome = _wait_for_backend_attempt(port, pid, timeout, log_offset)
+        spinner.stop()
+
+        if outcome == "healthy":
+            cfg.active_backend_port = port
+            PIDManager.write_active_port(port)
+            PIDManager.write("backend", pid)
+            actual_pid = PortManager.get_pid_by_port(port) or pid
+            log_ok(f"Backend is ready on port {port} (listener PID {actual_pid})")
+            return True
+
+        if outcome == "dead" and PortManager.can_bind(port):
+            log_error("Backend process died during startup")
             ErrorHandler.show(
                 "Backend crashed during startup.",
                 "Check the logs with: python launcher.py --logs\n"
                 "Or run: cd backend && PYTHONPATH=. python -m uvicorn app.main:app --reload",
                 lambda: start_backend(cfg, python),
             )
-            break
-        time.sleep(POLL_INTERVAL)
-    spinner.stop()
+            PIDManager.clear_active_port()
+            return False
 
-    if healthy:
-        log_ok("Backend is ready")
-        actual_pid = PortManager.get_pid_by_port(cfg.backend_port)
-        if actual_pid:
-            PIDManager.write("backend", actual_pid)
-        return True
-    else:
-        log_error("Backend failed to start within timeout")
-        return False
+        if outcome == "timeout":
+            log_error(
+                f"Backend did not become healthy within {timeout:.0f}s on port {port}. "
+                "No bind evidence; not retrying."
+            )
+            PIDManager.clear_active_port()
+            return False
+
+        if attempt >= MAX_PORT_ATTEMPTS:
+            break
+
+        if outcome == "dead":
+            log_warn(f"Port {port} was taken during startup; retrying on the next candidate.")
+        else:
+            log_warn(f"Port {port} is already in use; retrying on the next candidate.")
+
+        next_decision = PortManager.resolve_startup_port(
+            preferred=cfg.backend_port,
+            known_active=None,
+            on_own_unhealthy=_handle_own_unhealthy,
+            exclude_ports=tried,
+        )
+        if next_decision is None:
+            break
+        if next_decision.reuse:
+            cfg.active_backend_port = next_decision.port
+            stored_pid = PIDManager.read("backend")
+            actual_pid = stored_pid if stored_pid and PIDManager.is_alive(stored_pid) else _backend_supervisor_pid(PortManager.get_pid_by_port(next_decision.port))
+            if actual_pid:
+                PIDManager.write("backend", actual_pid)
+            PIDManager.write_active_port(next_decision.port)
+            log_ok(f"Backend already running and healthy on port {next_decision.port} (PID {actual_pid})")
+            return True
+        port = next_decision.port
+
+    log_error(f"Backend failed to start after {MAX_PORT_ATTEMPTS} attempt(s)")
+    PIDManager.clear_active_port()
+    return False
 
 
 def start_frontend(cfg: LauncherConfig) -> bool:
@@ -2659,8 +3057,9 @@ def start_frontend(cfg: LauncherConfig) -> bool:
             return False
         PortManager.kill_on_port(cfg.frontend_port)
 
-    log_step("Frontend", "Starting in new terminal...")
-    pid = TerminalOpener.open_frontend()
+    backend_port = cfg.active_backend_port or cfg.backend_port
+    log_step("Frontend", f"Starting in new terminal (proxy -> {backend_port})...")
+    pid = TerminalOpener.open_frontend(backend_port)
     if pid is None:
         log_error("Failed to launch frontend terminal")
         return False
@@ -2766,12 +3165,13 @@ def cmd_start() -> int:
     if cfg.open_swagger:
         log_step("Swagger", "Opening API docs...")
         try:
-            webbrowser.open(SWAGGER_URL)
+            active_port = cfg.active_backend_port or cfg.backend_port
+            webbrowser.open(f"http://localhost:{active_port}/docs")
             log_ok("Swagger opened")
         except Exception as e:
             log_warn(f"Could not open Swagger: {e}")
 
-    ReadyScreen.show(elapsed, cfg.backend_port, cfg.frontend_port)
+    ReadyScreen.show(elapsed, cfg.active_backend_port or cfg.backend_port, cfg.frontend_port)
     return 0
 
 
@@ -2779,6 +3179,15 @@ def cmd_stop() -> int:
     print()
     log_info("Shutting down...")
     for name in ("frontend", "backend"):
+        if name == "backend":
+            active_port = PIDManager.read_active_port()
+            if active_port is not None:
+                supervisor = _backend_supervisor_pid(PortManager.get_pid_by_port(active_port))
+                if supervisor and PIDManager.is_alive(supervisor):
+                    PIDManager.kill_tree(supervisor)
+                    log_ok(f"Backend stopped (PID {supervisor})")
+                    PIDManager.clear(name)
+                    continue
         pid = PIDManager.read(name)
         if pid and PIDManager.is_alive(pid):
             PIDManager.kill_tree(pid)
@@ -2786,6 +3195,7 @@ def cmd_stop() -> int:
         else:
             log(f"  {c('dim', f'{name.capitalize()} not running')}")
         PIDManager.clear(name)
+    PIDManager.clear_active_port()
     PIDManager.clear_started_at()
     log_ok("All processes stopped")
     print()

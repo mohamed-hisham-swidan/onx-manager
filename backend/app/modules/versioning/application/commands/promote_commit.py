@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.core.command_bus import Command, CommandBus, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import FilesystemOperationError, NotFoundError, ValidationError
 from app.modules.activity.domain.entities import ServerActivityLog
 from app.modules.activity.domain.repository import ActivityRepository
 from app.modules.backup.application.restore_service import _atomic_replace_dir
@@ -13,6 +13,7 @@ from app.modules.server.application.commands.start_server import StartServerComm
 from app.modules.server.application.commands.stop_server import StopServerCommand
 from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.server.infrastructure.fs import FileSystem, local_fs
 from app.modules.versioning.domain.repository import VersioningRepository
 from app.modules.versioning.domain.value_objects import TestRunStatus
 from app.modules.versioning.infrastructure.test_runner import (
@@ -40,6 +41,7 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
         test_runner: TestExecutionRunner | None = None,
         event_bus: EventBus | None = None,
         activity_repo: ActivityRepository | None = None,
+        fs: FileSystem | None = None,
     ) -> None:
         self._server_repo = server_repo
         self._versioning_repo = versioning_repo
@@ -47,6 +49,7 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
         self._test_runner = test_runner or DockerTestExecutionRunner()
         self._event_bus = event_bus
         self._activity_repo = activity_repo
+        self._fs = fs or local_fs
 
     async def handle(self, command: PromoteCommitCommand) -> CommandResult:
         from app.core.persistence.db import database
@@ -184,8 +187,10 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
         manifest = commit.manifest
         for rel_path, content in manifest.configs.items():
             tgt_file = Path(server_dir) / rel_path
-            tgt_file.parent.mkdir(parents=True, exist_ok=True)
-            tgt_file.write_text(content, encoding="utf-8")
+            try:
+                self._fs.write_text_atomic(str(tgt_file), content, encoding="utf-8")
+            except OSError as exc:
+                raise FilesystemOperationError(str(tgt_file), "write", str(exc)) from exc
 
         # Swap mods directory if present in test directory
         test_mods = Path(test_dir) / "mods"

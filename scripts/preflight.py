@@ -64,8 +64,32 @@ if sys.platform != "win32":
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
-BACKEND_PORT: int = int(os.environ.get("ONX_BACKEND_PORT") or os.environ.get("MCS_BACKEND_PORT") or 8000)
+def _valid_port(value: object) -> bool:
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return False
+    return 1 <= port <= 65535
+
+
+def _read_config_backend_port() -> int | None:
+    cfg = PROJECT_ROOT / ".onx" / "config.json"
+    try:
+        raw = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    value = raw.get("backend_port") if isinstance(raw, dict) else None
+    return int(value) if _valid_port(value) else None
+
+
+_env_backend_port = os.environ.get("ONX_BACKEND_PORT") or os.environ.get("MCS_BACKEND_PORT")
+BACKEND_PORT: int = (
+    int(_env_backend_port)
+    if _valid_port(_env_backend_port)
+    else (_read_config_backend_port() or 8000)
+)
 FRONTEND_PORT: int = int(os.environ.get("ONX_FRONTEND_PORT") or os.environ.get("MCS_FRONTEND_PORT") or 5173)
+ACTIVE_BACKEND_PORT: int | None = None
 BACKEND_DIR = PROJECT_ROOT / "backend"
 ONX_DB = BACKEND_DIR / "data" / "onx.db"
 KILL_WAIT = 5  # seconds to wait for graceful termination before force-kill
@@ -267,6 +291,18 @@ def get_pids_on_port(port: int) -> list[int]:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return []
 
+def _read_active_backend_port() -> int | None:
+    """Return the recorded active port only when a listener exists on it."""
+    for path in (PROJECT_ROOT / ".onx" / "backend.port", PROJECT_ROOT / ".mcs" / "backend.port"):
+        try:
+            value = int(path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            continue
+        if _valid_port(value) and get_pids_on_port(value):
+            return value
+    return None
+
+
 # ──────────────────────────────────────────────────────────────────────
 # SQLite lock detection via CreateFileW (replaces handle.exe / openfiles)
 # ──────────────────────────────────────────────────────────────────────
@@ -394,6 +430,7 @@ _found_any    = False
 _killed_any   = False
 _failed_any   = False
 _summary: list[str] = []
+_all_procs_snapshot: list[dict] = []
 
 _force_clean = any(a in sys.argv for a in ("--stop", "--restart", "--force", "--clean", "-f"))
 
@@ -410,15 +447,16 @@ def _protect_family(pid: int, all_procs: list[dict]) -> None:
     for p in all_procs:
         if p["ppid"] == pid and p["pid"] > 0:
             _protected_pids.add(p["pid"])
-    # Parent
-    for p in all_procs:
-        if p["pid"] == pid:
-            ppid = p["ppid"]
-            if ppid > 1 and ppid not in _protected_pids:
-                for pp in all_procs:
-                    if pp["pid"] == ppid and _belongs_to_project(pp):
-                        _protected_pids.add(ppid)
+    # Project-owned ancestors (terminal wrapper, shell, etc.)
+    by_pid = {p["pid"]: p for p in all_procs}
+    proc = by_pid.get(pid)
+    while proc is not None:
+        ppid = proc["ppid"]
+        parent = by_pid.get(ppid)
+        if ppid <= 1 or parent is None or not _belongs_to_project(parent):
             break
+        _protected_pids.add(ppid)
+        proc = parent
 
 # ──────────────────────────────────────────────────────────────────────
 # Health checks (HTTP — no curl dependency on Windows)
@@ -433,11 +471,17 @@ def _http_ok(url: str) -> bool:
         return False
 
 
-def _backend_healthy() -> bool:
-    return (
-        _http_ok(f"http://127.0.0.1:{BACKEND_PORT}/health")
-        or _http_ok(f"http://127.0.0.1:{BACKEND_PORT}/api/v1/health")
-    )
+def _backend_healthy(port: int | None = None) -> bool:
+    target = port or BACKEND_PORT
+    try:
+        import urllib.request
+        with urllib.request.urlopen(f"http://127.0.0.1:{target}/health", timeout=2) as resp:
+            if resp.status != 200:
+                return False
+            payload = json.loads(resp.read().decode("utf-8"))
+            return isinstance(payload, dict) and payload.get("status") == "ok" and "version" in payload
+    except Exception:
+        return False
 
 
 def _frontend_healthy() -> bool:
@@ -515,17 +559,39 @@ def _kill_safe(pid: int, source_desc: str, all_procs: list[dict]) -> bool:
 def check_services(all_procs: list[dict]) -> None:
     """Check backend and frontend ports; protect healthy services or clean stale ones."""
 
-    # Backend port
+    # Active backend port (may differ from preferred)
+    if ACTIVE_BACKEND_PORT and ACTIVE_BACKEND_PORT != BACKEND_PORT:
+        for pid in get_pids_on_port(ACTIVE_BACKEND_PORT):
+            if not _force_clean and _backend_healthy(ACTIVE_BACKEND_PORT):
+                _protect_family(pid, all_procs)
+                log_ok(f"Active backend on port {ACTIVE_BACKEND_PORT} (PID {pid}) — preserving")
+                _summary.append(f"{GREEN}✔{RESET} Backend  PID {pid} (port {ACTIVE_BACKEND_PORT})  {GREEN}active & healthy{RESET}")
+            elif pid in _protected_pids:
+                continue
+            elif any(p["pid"] == pid and _belongs_to_project(p) for p in all_procs):
+                _kill_safe(pid, f"unhealthy backend on active port {ACTIVE_BACKEND_PORT}", all_procs)
+            else:
+                log_warn(f"Active-port listener {pid} is foreign — leaving untouched")
+
+    # Preferred backend port
     be_pids = get_pids_on_port(BACKEND_PORT)
     if be_pids:
-        if not _force_clean and _backend_healthy():
+        if not _force_clean and _backend_healthy(BACKEND_PORT):
             for pid in be_pids:
-                _protect_family(pid, all_procs)
-                log_ok(f"Healthy backend on port {BACKEND_PORT} (PID {pid}) — preserving")
-                _summary.append(f"{GREEN}✔{RESET} Backend  PID {pid} (port {BACKEND_PORT})  {GREEN}active & healthy{RESET}")
+                proc = next((p for p in all_procs if p["pid"] == pid), None)
+                if proc is not None and _belongs_to_project(proc):
+                    _protect_family(pid, all_procs)
+                    log_ok(f"Healthy backend on port {BACKEND_PORT} (PID {pid}) — preserving")
+                    _summary.append(f"{GREEN}✔{RESET} Backend  PID {pid} (port {BACKEND_PORT})  {GREEN}active & healthy{RESET}")
+                else:
+                    log_warn(f"Port {BACKEND_PORT} is held by a foreign service (PID {pid}); launcher will use another port")
         else:
             for pid in be_pids:
-                _kill_safe(pid, f"backend port {BACKEND_PORT}", all_procs)
+                proc = next((p for p in all_procs if p["pid"] == pid), None)
+                if _force_clean or (proc is not None and _belongs_to_project(proc)):
+                    _kill_safe(pid, f"backend port {BACKEND_PORT}", all_procs)
+                else:
+                    log_warn(f"Port {BACKEND_PORT} is held by a foreign service (PID {pid}); leaving untouched")
 
     # Frontend port
     fe_pids = get_pids_on_port(FRONTEND_PORT)
@@ -563,12 +629,12 @@ def check_db_lock(all_procs: list[dict]) -> None:
     if not locked:
         return
 
-    # If a healthy backend is running and protected, the lock is expected — allow it.
-    be_pids = get_pids_on_port(BACKEND_PORT)
-    if be_pids and _backend_healthy():
-        live_be_protected = any(p in _protected_pids for p in be_pids)
-        if live_be_protected:
-            log_info(f"SQLite lock on {ONX_DB.name} held by active healthy backend — preserved")
+    # If a healthy backend is running and protected on the active or preferred
+    # port, the lock is expected — allow it.
+    for port in [p for p in (ACTIVE_BACKEND_PORT, BACKEND_PORT) if p]:
+        be_pids = get_pids_on_port(port)
+        if be_pids and _backend_healthy(port) and any(p in _protected_pids for p in be_pids):
+            log_info(f"SQLite lock on {ONX_DB.name} held by active healthy backend on {port} — preserved")
             return
 
     # Lock is held by an unknown or stale process.
@@ -583,12 +649,19 @@ def scan_orphans(all_procs: list[dict]) -> None:
     """Scan for inactive/duplicate orphan project processes not holding an active port."""
     orphan_name_patterns = ("uvicorn", "vite", "node", "python", "py", "npm")
     seen: set[int] = set()
+    healthy_listener_pids: set[int] = set()
+    for port in [p for p in (ACTIVE_BACKEND_PORT, BACKEND_PORT) if p]:
+        if _backend_healthy(port):
+            healthy_listener_pids.update(get_pids_on_port(port))
 
     for proc in all_procs:
         pid = proc["pid"]
         if pid <= 0 or pid in seen:
             continue
         if pid in _protected_pids:
+            continue
+        if pid in healthy_listener_pids:
+            _protect_family(pid, all_procs)
             continue
         if pid == os.getpid() or (hasattr(os, "getppid") and pid == os.getppid()):
             continue
@@ -624,16 +697,19 @@ def cleanup_pid_files(all_procs: list[dict]) -> None:
         if not pid_dir.is_dir():
             continue
 
-        # Sync live PIDs if protected
-        be_pids = get_pids_on_port(BACKEND_PORT)
+        # Sync live PIDs if protected (active port first, then preferred)
+        be_pids: list[int] = []
+        if ACTIVE_BACKEND_PORT:
+            be_pids = [p for p in get_pids_on_port(ACTIVE_BACKEND_PORT) if p in _protected_pids]
+        if not be_pids:
+            be_pids = [p for p in get_pids_on_port(BACKEND_PORT) if p in _protected_pids]
         fe_pids = get_pids_on_port(FRONTEND_PORT)
         if be_pids:
             live_be = be_pids[0]
-            if live_be in _protected_pids:
-                try:
-                    (pid_dir / "backend.pid").write_text(str(live_be))
-                except OSError:
-                    pass
+            try:
+                (pid_dir / "backend.pid").write_text(str(live_be))
+            except OSError:
+                pass
         if fe_pids:
             live_fe = fe_pids[0]
             if live_fe in _protected_pids:
@@ -687,14 +763,28 @@ def print_summary() -> int:
     be_pids = get_pids_on_port(BACKEND_PORT)
     if be_pids:
         first_be = be_pids[0]
-        if first_be in _protected_pids or _backend_healthy():
+        first_proc = next((p for p in _all_procs_snapshot if p["pid"] == first_be), None)
+        first_is_ours = first_proc is not None and _belongs_to_project(first_proc)
+        if _backend_healthy(BACKEND_PORT) and first_is_ours:
             be_status = f"{GREEN}running (healthy){RESET}"
-        else:
-            be_status = f"{RED}in use (unclean){RESET}"
+        elif first_is_ours:
+            be_status = f"{RED}in use (project-owned, unhealthy){RESET}"
             any_unclean = True
+        else:
+            be_status = f"{YELLOW}in use (foreign; launcher will use another port){RESET}"
     else:
         be_status = f"{GREEN}free{RESET}"
     print(f"     {BOLD}Backend port {BACKEND_PORT}:{RESET} {be_status}")
+
+    if ACTIVE_BACKEND_PORT and ACTIVE_BACKEND_PORT != BACKEND_PORT:
+        active_pids = get_pids_on_port(ACTIVE_BACKEND_PORT)
+        if active_pids and _backend_healthy(ACTIVE_BACKEND_PORT):
+            active_status = f"{GREEN}running (healthy) on {ACTIVE_BACKEND_PORT}{RESET}"
+        elif active_pids:
+            active_status = f"{YELLOW}stale listener on {ACTIVE_BACKEND_PORT}{RESET}"
+        else:
+            active_status = f"{DIM}stale (no listener){RESET}"
+        print(f"     {BOLD}Active backend port:{RESET} {active_status}")
 
     # Frontend port final state
     fe_pids = get_pids_on_port(FRONTEND_PORT)
@@ -712,11 +802,14 @@ def print_summary() -> int:
     # SQLite DB final state
     db_locked = _db_is_locked(ONX_DB)
     if ONX_DB.is_file() and db_locked:
-        be_healthy_and_protected = (
-            bool(be_pids)
-            and _backend_healthy()
-            and any(p in _protected_pids for p in be_pids)
-        )
+        active_ports = [p for p in (ACTIVE_BACKEND_PORT, BACKEND_PORT) if p]
+        healthy_pids = {
+            pid
+            for port in active_ports
+            if _backend_healthy(port)
+            for pid in get_pids_on_port(port)
+        }
+        be_healthy_and_protected = any(p in _protected_pids for p in healthy_pids)
         if be_healthy_and_protected:
             db_status = f"{GREEN}active (healthy backend){RESET}"
         else:
@@ -756,6 +849,9 @@ def main() -> int:
 
     log_info("Enumerating all processes via Get-CimInstance Win32_Process...")
     all_procs = get_all_processes()
+    global ACTIVE_BACKEND_PORT, _all_procs_snapshot
+    _all_procs_snapshot = all_procs
+    ACTIVE_BACKEND_PORT = _read_active_backend_port()
     if not all_procs:
         log_warn("Could not enumerate processes (PowerShell unavailable?). Skipping process checks.")
     else:

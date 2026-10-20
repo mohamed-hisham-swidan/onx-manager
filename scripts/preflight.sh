@@ -27,9 +27,46 @@ set -euo pipefail
 # Config
 # ──────────────────────────────────────────────────────────────────────
 
-BACKEND_PORT="${ONX_BACKEND_PORT:-${MCS_BACKEND_PORT:-8000}}"
 FRONTEND_PORT="${ONX_FRONTEND_PORT:-${MCS_FRONTEND_PORT:-5173}}"
 PROJECT_ROOT="${ONX_PROJECT_ROOT:-${MCS_PROJECT_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"}}"
+
+is_valid_port() {
+    [[ "${1:-}" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+read_config_backend_port() {
+    local cfg="${PROJECT_ROOT}/.onx/config.json" value=""
+    [ -f "${cfg}" ] || return 1
+    value="$(sed -nE 's/.*"backend_port"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "${cfg}" | tail -n 1)"
+    is_valid_port "${value}" || return 1
+    printf '%s' "${value}"
+}
+
+if [ -n "${ONX_BACKEND_PORT:-}" ]; then
+    BACKEND_PORT="${ONX_BACKEND_PORT}"
+elif [ -n "${MCS_BACKEND_PORT:-}" ]; then
+    BACKEND_PORT="${MCS_BACKEND_PORT}"
+elif _cfg_port="$(read_config_backend_port)"; then
+    BACKEND_PORT="${_cfg_port}"
+else
+    BACKEND_PORT=8000
+fi
+is_valid_port "${BACKEND_PORT}" || BACKEND_PORT=8000
+
+ACTIVE_BACKEND_PORT=""
+for _port_file in "${PROJECT_ROOT}/.onx/backend.port" "${PROJECT_ROOT}/.mcs/backend.port"; do
+    if [ -f "${_port_file}" ]; then
+        _active="$(head -n 1 "${_port_file}" 2>/dev/null | tr -d '[:space:]' || true)"
+        if is_valid_port "${_active}"; then
+            ACTIVE_BACKEND_PORT="${_active}"
+            break
+        fi
+    fi
+done
+if [ -n "${ACTIVE_BACKEND_PORT}" ] && ! lsof -ti "tcp:${ACTIVE_BACKEND_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+    ACTIVE_BACKEND_PORT=""
+fi
+
 BACKEND_DIR="${PROJECT_ROOT}/backend"
 ONX_DB="${ONX_DB_PATH:-${BACKEND_DIR}/data/onx.db}"
 KILL_WAIT=5
@@ -164,6 +201,11 @@ kill_safe() {
         return 0  # already gone
     fi
 
+    if is_protected "${pid}"; then
+        log_info "PID ${pid} (${source_desc}) is protected — preserved"
+        return 0
+    fi
+
     if is_caller_or_ancestor "${pid}"; then
         log_info "PID ${pid} is caller/ancestor of preflight script — preserved"
         return 0
@@ -248,28 +290,40 @@ protect_family() {
         fi
     done
 
-    # Add parent process if it belongs to project
+    # Add project-owned ancestors (terminal wrapper, shell, etc.)
     local ppid
     ppid="$(ps -o ppid= -p "$base_pid" 2>/dev/null || true)"
     ppid="$(echo "$ppid" | tr -d '[:space:]')"
-    if [ -n "$ppid" ] && [ "$ppid" -gt 1 ] && ! is_protected "$ppid" && belongs_to_project "$ppid"; then
-        PROTECTED_PIDS+=("$ppid")
-    fi
+    while [ -n "$ppid" ] && [ "$ppid" -gt 1 ] && belongs_to_project "$ppid"; do
+        if ! is_protected "$ppid"; then
+            PROTECTED_PIDS+=("$ppid")
+        fi
+        ppid="$(ps -o ppid= -p "$ppid" 2>/dev/null || true)"
+        ppid="$(echo "$ppid" | tr -d '[:space:]')"
+    done
 }
 
 is_backend_healthy() {
-    if command -v curl &>/dev/null; then
-        local code
-        code="$(curl -s -o /dev/null -w "%{http_code}" -m 2 "http://127.0.0.1:${BACKEND_PORT}/health" 2>/dev/null || true)"
-        if [ "$code" = "200" ]; then
-            return 0
-        fi
-        code="$(curl -s -o /dev/null -w "%{http_code}" -m 2 "http://127.0.0.1:${BACKEND_PORT}/api/v1/health" 2>/dev/null || true)"
-        if [ "$code" = "200" ]; then
-            return 0
-        fi
-    fi
-    return 1
+    local port="${1:-${BACKEND_PORT}}"
+    command -v curl &>/dev/null || return 1
+    local body
+    body="$(curl -fsS --max-time 2 "http://127.0.0.1:${port}/health" 2>/dev/null || true)"
+    [ -n "${body}" ] || return 1
+    printf '%s' "${body}" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' || return 1
+    printf '%s' "${body}" | grep -Eq '"version"[[:space:]]*:' || return 1
+    return 0
+}
+
+is_listening_on() {
+    local pid="$1" port="$2"
+    lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null | tr '[:space:]' '\n' | grep -qx "${pid}"
+}
+
+port_is_open() {
+    local port="$1"
+    (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null || return 1
+    exec 3>&-
+    return 0
 }
 
 is_frontend_healthy() {
@@ -288,23 +342,50 @@ is_frontend_healthy() {
 # ──────────────────────────────────────────────────────────────────────
 
 check_services() {
-    # 1. Backend Port (8000)
+    # 1. Active backend port (may differ from preferred)
+    if [ -n "${ACTIVE_BACKEND_PORT}" ] && [ "${ACTIVE_BACKEND_PORT}" != "${BACKEND_PORT}" ]; then
+        local active_pids
+        active_pids="$(lsof -ti "tcp:${ACTIVE_BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
+        for pid in ${active_pids}; do
+            pid="$(echo "${pid}" | tr -d '[:space:]')"
+            [ -z "${pid}" ] && continue
+            if [ "${FORCE_CLEAN}" = "false" ] && is_backend_healthy "${ACTIVE_BACKEND_PORT}"; then
+                protect_family "${pid}"
+                log_ok "Active backend on port ${ACTIVE_BACKEND_PORT} (PID ${pid}) — preserving"
+                SUMMARY_LINES+=("${GREEN}✔${RESET} Backend  PID ${pid} (port ${ACTIVE_BACKEND_PORT})  ${GREEN}active & healthy${RESET}")
+            elif belongs_to_project "${pid}"; then
+                kill_safe "${pid}" "unhealthy backend on active port ${ACTIVE_BACKEND_PORT}" || true
+            else
+                log_warn "Active-port listener ${pid} is foreign — leaving untouched"
+            fi
+        done
+    fi
+
+    # 2. Preferred backend port
     local be_pids
     be_pids="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
     if [ -n "${be_pids}" ]; then
-        if [ "${FORCE_CLEAN}" = "false" ] && is_backend_healthy; then
+        if [ "${FORCE_CLEAN}" = "false" ] && is_backend_healthy "${BACKEND_PORT}"; then
             for pid in ${be_pids}; do
                 pid="$(echo "${pid}" | tr -d '[:space:]')"
                 [ -z "${pid}" ] && continue
-                protect_family "${pid}"
-                log_ok "Healthy backend running on port ${BACKEND_PORT} (PID ${pid}) — preserving"
-                SUMMARY_LINES+=("${GREEN}✔${RESET} Backend  PID ${pid} (port ${BACKEND_PORT})  ${GREEN}active & healthy${RESET}")
+                if belongs_to_project "${pid}"; then
+                    protect_family "${pid}"
+                    log_ok "Healthy backend running on port ${BACKEND_PORT} (PID ${pid}) — preserving"
+                    SUMMARY_LINES+=("${GREEN}✔${RESET} Backend  PID ${pid} (port ${BACKEND_PORT})  ${GREEN}active & healthy${RESET}")
+                else
+                    log_warn "Port ${BACKEND_PORT} is held by a foreign service (PID ${pid}); launcher will use another port"
+                fi
             done
         else
             for pid in ${be_pids}; do
                 pid="$(echo "${pid}" | tr -d '[:space:]')"
                 [ -z "${pid}" ] && continue
-                kill_safe "${pid}" "backend port ${BACKEND_PORT}" || true
+                if belongs_to_project "${pid}" || [ "${FORCE_CLEAN}" = "true" ]; then
+                    kill_safe "${pid}" "backend port ${BACKEND_PORT}" || true
+                else
+                    log_warn "Port ${BACKEND_PORT} is held by a foreign service (PID ${pid}); leaving untouched"
+                fi
             done
         fi
     fi
@@ -398,6 +479,13 @@ scan_orphans() {
                 continue
             fi
 
+            # Belt-and-braces: never kill a healthy listener on the active or preferred port
+            if { [ -n "${ACTIVE_BACKEND_PORT}" ] && is_listening_on "${pid}" "${ACTIVE_BACKEND_PORT}" && is_backend_healthy "${ACTIVE_BACKEND_PORT}"; } ||
+               { is_listening_on "${pid}" "${BACKEND_PORT}" && is_backend_healthy "${BACKEND_PORT}"; }; then
+                protect_family "${pid}"
+                continue
+            fi
+
             # Quick check before expensive belongs_to_project
             local cmdline
             cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
@@ -430,9 +518,14 @@ cleanup_pid_files() {
             continue
         fi
 
-        # Sync live PIDs if protected
-        local be_pid fe_pid
-        be_pid="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+        # Sync live PIDs if protected (active port first, then preferred)
+        local be_pid="" fe_pid
+        if [ -n "${ACTIVE_BACKEND_PORT}" ]; then
+            be_pid="$(lsof -ti "tcp:${ACTIVE_BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+        fi
+        if [ -z "${be_pid}" ] || ! is_protected "${be_pid}"; then
+            be_pid="$(lsof -ti "tcp:${BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+        fi
         fe_pid="$(lsof -ti "tcp:${FRONTEND_PORT}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
 
         if [ -n "${be_pid}" ] && is_protected "${be_pid}"; then
@@ -494,16 +587,33 @@ print_summary() {
     if [ -n "${be_pids}" ]; then
         local first_be
         first_be="$(echo "${be_pids}" | head -n 1 | tr -d '[:space:]')"
-        if is_protected "${first_be}" || is_backend_healthy; then
+        if is_backend_healthy "${BACKEND_PORT}" && belongs_to_project "${first_be}"; then
             port_status="${GREEN}running (healthy)${RESET}"
-        else
-            port_status="${RED}in use (unclean)${RESET}"
+        elif belongs_to_project "${first_be}"; then
+            port_status="${RED}in use (project-owned, unhealthy)${RESET}"
             any_unclean=true
+        else
+            port_status="${YELLOW}in use (foreign; launcher will use another port)${RESET}"
         fi
+    elif port_is_open "${BACKEND_PORT}"; then
+        port_status="${YELLOW}in use (foreign/unattributed; launcher will use another port)${RESET}"
     else
         port_status="${GREEN}free${RESET}"
     fi
     echo "     ${BOLD}Backend port ${BACKEND_PORT}:${RESET} ${port_status}"
+
+    if [ -n "${ACTIVE_BACKEND_PORT}" ] && [ "${ACTIVE_BACKEND_PORT}" != "${BACKEND_PORT}" ]; then
+        local active_pids active_status
+        active_pids="$(lsof -ti "tcp:${ACTIVE_BACKEND_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
+        if [ -n "${active_pids}" ] && is_backend_healthy "${ACTIVE_BACKEND_PORT}"; then
+            active_status="${GREEN}running (healthy) on ${ACTIVE_BACKEND_PORT}${RESET}"
+        elif [ -n "${active_pids}" ]; then
+            active_status="${YELLOW}stale listener on ${ACTIVE_BACKEND_PORT}${RESET}"
+        else
+            active_status="${DIM}stale (no listener)${RESET}"
+        fi
+        echo "     ${BOLD}Active backend port:${RESET} ${active_status}"
+    fi
 
     if [ -n "${fe_pids}" ]; then
         local first_fe

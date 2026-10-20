@@ -9,9 +9,10 @@ import pytest
 
 from app.core.command_bus import CommandBus
 from app.core.event_bus import EventBus
-from app.core.exceptions import ValidationError
+from app.core.exceptions import FilesystemOperationError, ValidationError
 from app.modules.activity.domain.entities import ServerActivityLog
 from app.modules.activity.domain.repository import ActivityRepository
+from app.modules.server.application.commands.start_server import StartServerCommand
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import ServerDeployment
@@ -186,6 +187,7 @@ def test_setup():
             "handler": handler,
             "event_bus": event_bus,
             "test_runner": test_runner,
+            "command_bus": command_bus,
         }
 
 
@@ -409,3 +411,132 @@ async def test_get_server_test_runs_query() -> None:
     assert result[0]["id"] == "t-query-4"
     assert result[1]["id"] == "t-query-3"
     assert result[2]["id"] == "t-query-2"
+
+
+@pytest.mark.asyncio
+async def test_promote_uses_atomic_text_writer_for_configs(test_setup) -> None:
+    v_repo = test_setup["v_repo"]
+    fake_fs = MagicMock()
+
+    handler = PromoteCommitHandler(
+        server_repo=test_setup["server_repo"],
+        versioning_repo=v_repo,
+        command_bus=test_setup["command_bus"],
+        test_runner=test_setup["test_runner"],
+        event_bus=test_setup["event_bus"],
+        activity_repo=test_setup["act_repo"],
+        fs=fake_fs,
+    )
+
+    configs = {
+        "server.properties": "motd=AtomicServer\n",
+        "ops.json": "[]\n",
+    }
+    commit = ServerCommit(
+        id="c-atomic",
+        server_id="srv-gate-1",
+        message="Atomic config writes",
+        manifest=CommitManifest(
+            server_type="vanilla",
+            minecraft_version="1.21.1",
+            configs=configs,
+        ),
+    )
+    await v_repo.save_commit(commit)
+    run = ServerTestRun(
+        id="t-atomic",
+        server_id="srv-gate-1",
+        commit_id="c-atomic",
+        status=TestRunStatus.PASSED,
+        created_at=time.time(),
+    )
+    await v_repo.save_test_run(run)
+
+    res = await handler.handle(
+        PromoteCommitCommand(server_id="srv-gate-1", test_id="t-atomic", force=False)
+    )
+
+    assert res.is_success
+    expected = {
+        str(test_setup["srv_dir"] / rel_path): content
+        for rel_path, content in configs.items()
+    }
+    calls = {
+        call.args[0]: call.args[1]
+        for call in fake_fs.write_text_atomic.call_args_list
+    }
+    assert calls == expected
+    for call in fake_fs.write_text_atomic.call_args_list:
+        assert call.kwargs.get("encoding") == "utf-8"
+
+
+@pytest.mark.asyncio
+async def test_promote_config_write_failure_on_second_file_raises_filesystem_error(
+    test_setup,
+) -> None:
+    v_repo = test_setup["v_repo"]
+    written: list[str] = []
+    fake_fs = MagicMock()
+
+    def write_text_atomic(path: str, content: str, encoding: str = "utf-8") -> None:
+        _ = content, encoding
+        written.append(path)
+        if len(written) == 2:
+            raise OSError("simulated disk full")
+
+    fake_fs.write_text_atomic.side_effect = write_text_atomic
+
+    test_setup["server_repo"].get.return_value.status = ServerStatus.RUNNING
+
+    handler = PromoteCommitHandler(
+        server_repo=test_setup["server_repo"],
+        versioning_repo=v_repo,
+        command_bus=test_setup["command_bus"],
+        test_runner=test_setup["test_runner"],
+        event_bus=test_setup["event_bus"],
+        activity_repo=test_setup["act_repo"],
+        fs=fake_fs,
+    )
+
+    configs = {
+        "server.properties": "motd=AtomicServer\n",
+        "ops.json": "[]\n",
+    }
+    commit = ServerCommit(
+        id="c-atomic-fail",
+        server_id="srv-gate-1",
+        message="Atomic config write failure",
+        manifest=CommitManifest(
+            server_type="vanilla",
+            minecraft_version="1.21.1",
+            configs=configs,
+        ),
+    )
+    await v_repo.save_commit(commit)
+    run = ServerTestRun(
+        id="t-atomic-fail",
+        server_id="srv-gate-1",
+        commit_id="c-atomic-fail",
+        status=TestRunStatus.PASSED,
+        created_at=time.time(),
+    )
+    await v_repo.save_test_run(run)
+
+    with pytest.raises(FilesystemOperationError) as exc_info:
+        await handler.handle(
+            PromoteCommitCommand(server_id="srv-gate-1", test_id="t-atomic-fail", force=False)
+        )
+
+    assert written == [
+        str(test_setup["srv_dir"] / "server.properties"),
+        str(test_setup["srv_dir"] / "ops.json"),
+    ]
+    assert exc_info.value.path == str(test_setup["srv_dir"] / "ops.json")
+    assert exc_info.value.operation == "write"
+
+    test_setup["test_runner"].cleanup_test.assert_not_called()
+    assert not any(
+        isinstance(call.args[0], StartServerCommand)
+        for call in test_setup["command_bus"].send.call_args_list
+    )
+    test_setup["event_bus"].publish.assert_not_called()

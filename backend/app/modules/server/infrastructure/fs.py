@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import shutil
 import stat
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class FileSystem(ABC):
@@ -51,6 +54,9 @@ class FileSystem(ABC):
 
     @abstractmethod
     def write_binary(self, path: str, content: bytes) -> None: ...
+
+    @abstractmethod
+    def write_text_atomic(self, path: str, content: str, encoding: str = "utf-8") -> None: ...
 
     @abstractmethod
     def write_binary_atomic(self, path: str, content: bytes) -> None: ...
@@ -162,19 +168,53 @@ class LocalFileSystem(FileSystem):
     def write_binary(self, path: str, content: bytes) -> None:
         Path(path).write_bytes(content)
 
+    def write_text_atomic(self, path: str, content: str, encoding: str = "utf-8") -> None:
+        self.write_binary_atomic(path, content.encode(encoding))
+
     def write_binary_atomic(self, path: str, content: bytes) -> None:
         dest = Path(path)
         parent = dest.parent
         self.ensure_dir(str(parent))
         fd, tmp_path = tempfile.mkstemp(dir=str(parent), suffix=".tmp")
+        replaced = False
         try:
-            os.write(fd, content)
-            os.close(fd)
+            try:
+                view = memoryview(content)
+                while view:
+                    try:
+                        written = os.write(fd, view)
+                    except InterruptedError:
+                        continue
+                    if written <= 0:
+                        raise OSError("short write")
+                    view = view[written:]
+                os.fsync(fd)
+            finally:
+                try:
+                    os.close(fd)
+                except OSError:
+                    logger.warning(
+                        "Failed to close temporary file descriptor for %s",
+                        path,
+                        exc_info=True,
+                    )
             os.replace(tmp_path, str(dest))
+            replaced = True
+            self._fsync_parent_dir(parent)
         except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_path)
+            if not replaced:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_path)
             raise
+
+    def _fsync_parent_dir(self, parent: Path) -> None:
+        if os.name != "posix":
+            return
+        dir_fd = os.open(str(parent), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
     def is_file(self, path: str) -> bool:
         return Path(path).is_file()
