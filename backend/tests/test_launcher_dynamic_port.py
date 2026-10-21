@@ -19,15 +19,19 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from launcher import (  # noqa: E402
+    ErrorHandler,
     LauncherConfig,
     PIDManager,
     PortDecision,
     PortManager,
     PortState,
     StatusDisplay,
+    _handle_own_unhealthy,
+    ask_yes_no,
     check_backend_health,
     get_effective_backend_port,
     start_backend,
+    start_frontend,
 )
 
 
@@ -599,3 +603,56 @@ def test_effective_backend_port_ignores_stale_active_port():
          patch("launcher.check_backend_health", return_value=False):
 
         assert get_effective_backend_port(8000) == 8000
+
+
+def test_ask_yes_no_eof_returns_false_even_when_default_true(monkeypatch):
+    monkeypatch.setattr("builtins.input", MagicMock(side_effect=EOFError))
+    assert ask_yes_no("Prompt?", default=True) is False
+
+    monkeypatch.setattr("builtins.input", MagicMock(side_effect=KeyboardInterrupt))
+    assert ask_yes_no("Prompt?", default=True) is False
+
+    monkeypatch.setattr("builtins.input", lambda _: "")
+    assert ask_yes_no("Prompt?", default=True) is True
+    assert ask_yes_no("Prompt?", default=False) is False
+
+
+def test_handle_own_unhealthy_eof_does_not_call_kill_on_port(monkeypatch, tmp_path):
+    monkeypatch.setattr("launcher.MCS_DIR", tmp_path / ".onx")
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("builtins.input", MagicMock(side_effect=EOFError))
+    mock_kill = MagicMock(return_value=True)
+    monkeypatch.setattr(PortManager, "kill_on_port", mock_kill)
+
+    result = _handle_own_unhealthy(8000)
+
+    assert result is False
+    mock_kill.assert_not_called()
+
+
+def test_error_handler_eof_does_not_retry(monkeypatch):
+    monkeypatch.setattr("builtins.input", MagicMock(side_effect=EOFError))
+    mock_retry = MagicMock(return_value=True)
+
+    result = ErrorHandler.show("Error occurred", retry_cb=mock_retry)
+
+    assert result is False
+    mock_retry.assert_not_called()
+
+
+def test_start_frontend_eof_does_not_kill_port(monkeypatch, tmp_path):
+    monkeypatch.setattr("launcher.MCS_DIR", tmp_path / ".onx")
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("builtins.input", MagicMock(side_effect=EOFError))
+    monkeypatch.setattr(PortManager, "is_open", lambda port: port == 5173)
+    monkeypatch.setattr("launcher.check_frontend_ready", lambda: False)
+    monkeypatch.setattr(PortManager, "get_pid_by_port", lambda port: 9876 if port == 5173 else None)
+    mock_kill = MagicMock(return_value=True)
+    monkeypatch.setattr(PortManager, "kill_on_port", mock_kill)
+
+    cfg = LauncherConfig(frontend_port=5173, auto_install_deps=False, open_browser=False)
+    result = start_frontend(cfg)
+
+    assert result is False
+    mock_kill.assert_not_called()
+

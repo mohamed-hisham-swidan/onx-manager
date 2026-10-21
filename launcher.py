@@ -472,7 +472,7 @@ def ask_yes_no(question: str, default: bool = False) -> bool:
             if answer == "":
                 return default
         except (EOFError, KeyboardInterrupt):
-            return default
+            return False
 
 
 # ═══════════════════════════════════════════════════════════════════════
