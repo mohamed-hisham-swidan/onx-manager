@@ -189,6 +189,7 @@ class LauncherConfig:
     auto_install_deps: bool = True
     startup_timeout: int = STARTUP_TIMEOUT
     active_backend_port: int | None = None
+    configured_backend_port: int = BACKEND_PORT
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -548,6 +549,42 @@ def print_usage() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+def _parse_preferred_port(raw_val: Any) -> int | None:
+    if isinstance(raw_val, bool) or not isinstance(raw_val, (int, str)):
+        return None
+    if isinstance(raw_val, str):
+        cleaned = raw_val.strip()
+        if not cleaned or not re.fullmatch(r"[+-]?[0-9]+", cleaned):
+            return None
+    try:
+        val = int(raw_val)
+    except (ValueError, TypeError):
+        return None
+    if 1024 <= val <= 65535:
+        return val
+    return None
+
+
+def _validate_preferred_port(source: str, raw_val: Any) -> int | None:
+    port = _parse_preferred_port(raw_val)
+    if port is None:
+        log_warn(f"Invalid {source}={raw_val!r}; must be an integer between 1024 and 65535.")
+        return None
+    return port
+
+
+def _get_active_env_override() -> tuple[str, int] | None:
+    if "ONX_BACKEND_PORT" in os.environ:
+        p = _parse_preferred_port(os.environ["ONX_BACKEND_PORT"])
+        if p is not None:
+            return ("ONX_BACKEND_PORT", p)
+    if "MCS_BACKEND_PORT" in os.environ:
+        p = _parse_preferred_port(os.environ["MCS_BACKEND_PORT"])
+        if p is not None:
+            return ("MCS_BACKEND_PORT", p)
+    return None
+
+
 class ConfigManager:
     _instance: ConfigManager | None = None
 
@@ -560,6 +597,8 @@ class ConfigManager:
             cls._instance = cls()
         return cls._instance
 
+    # The effective port is snapshotted at first load (memoized in _config)
+    # and does not track later os.environ changes.
     def load(self) -> LauncherConfig:
         if self._config is not None:
             return self._config
@@ -570,14 +609,34 @@ class ConfigManager:
                 raw = json.loads(cfg_path.read_text())
             except Exception:
                 raw = {}
+
+        if "backend_port" in raw:
+            validated = _validate_preferred_port("config backend_port", raw["backend_port"])
+            configured_port = validated if validated is not None else BACKEND_PORT
+        else:
+            configured_port = BACKEND_PORT
+
+        effective_port: int | None = None
+        if "ONX_BACKEND_PORT" in os.environ:
+            effective_port = _validate_preferred_port(
+                "ONX_BACKEND_PORT", os.environ["ONX_BACKEND_PORT"]
+            )
+        if effective_port is None and "MCS_BACKEND_PORT" in os.environ:
+            effective_port = _validate_preferred_port(
+                "MCS_BACKEND_PORT", os.environ["MCS_BACKEND_PORT"]
+            )
+        if effective_port is None:
+            effective_port = configured_port
+
         self._config = LauncherConfig(
-            backend_port=raw.get("backend_port", BACKEND_PORT),
+            backend_port=effective_port,
             frontend_port=raw.get("frontend_port", FRONTEND_PORT),
             open_browser=raw.get("open_browser", True),
             open_swagger=raw.get("open_swagger", False),
             open_vscode=raw.get("open_vscode", False),
             auto_install_deps=raw.get("auto_install_deps", True),
             startup_timeout=raw.get("startup_timeout", STARTUP_TIMEOUT),
+            configured_backend_port=configured_port,
         )
         return self._config
 
@@ -585,7 +644,7 @@ class ConfigManager:
         cfg = self.load()
         MCS_DIR.mkdir(parents=True, exist_ok=True)
         (MCS_DIR / "config.json").write_text(json.dumps({
-            "backend_port": cfg.backend_port,
+            "backend_port": cfg.configured_backend_port,
             "frontend_port": cfg.frontend_port,
             "open_browser": cfg.open_browser,
             "open_swagger": cfg.open_swagger,
@@ -596,8 +655,19 @@ class ConfigManager:
 
     def update(self, **kwargs: Any) -> None:
         cfg = self.load()
+        env_override = _get_active_env_override()
         for key, value in kwargs.items():
-            if hasattr(cfg, key):
+            if key == "backend_port":
+                cfg.configured_backend_port = value
+                if env_override is not None:
+                    env_var, env_port = env_override
+                    log_warn(
+                        f"Active environment override {env_var}={env_port} takes precedence over {key}={value}; "
+                        f"configured_backend_port updated, effective backend_port unchanged."
+                    )
+                else:
+                    cfg.backend_port = value
+            elif hasattr(cfg, key):
                 setattr(cfg, key, value)
         self._config = cfg
 

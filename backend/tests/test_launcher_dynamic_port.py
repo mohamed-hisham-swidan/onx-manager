@@ -6,6 +6,7 @@ ADR: docs/decisions/0019-dynamic-backend-port.md
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -22,6 +23,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from launcher import (  # noqa: E402
+    BACKEND_PORT,
+    ConfigManager,
     ErrorHandler,
     LauncherConfig,
     PIDManager,
@@ -33,6 +36,7 @@ from launcher import (  # noqa: E402
     _generate_attempt_token,
     _handle_own_unhealthy,
     _has_bind_error,
+    _parse_preferred_port,
     _read_backend_log_from,
     _stat_file_identity,
     _wait_for_backend_attempt,
@@ -1000,4 +1004,277 @@ def test_reader_api_requires_marker_token_and_rejects_missing():
     with pytest.raises(TypeError):
         _wait_for_backend_attempt(8000, 1234, 0.1, (1, 2, 3))  # type: ignore[call-arg]
 
+
+@pytest.fixture
+def clean_config_env(monkeypatch, tmp_path):
+    for var in ("ONX_BACKEND_PORT", "MCS_BACKEND_PORT", "BACKEND_PORT"):
+        monkeypatch.delenv(var, raising=False)
+    fake_mcs = tmp_path / ".onx"
+    fake_mcs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", fake_mcs)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+    ConfigManager._instance = None
+    try:
+        yield fake_mcs
+    finally:
+        ConfigManager._instance = None
+
+
+def test_load_precedence_onx_over_mcs_and_file(monkeypatch, clean_config_env):
+    cfg_file = clean_config_env / "config.json"
+    cfg_file.write_text(json.dumps({"backend_port": 8300}))
+    monkeypatch.setenv("ONX_BACKEND_PORT", "8100")
+    monkeypatch.setenv("MCS_BACKEND_PORT", "8200")
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8100
+    assert cfg.configured_backend_port == 8300
+
+
+def test_load_precedence_mcs_over_file(monkeypatch, clean_config_env):
+    cfg_file = clean_config_env / "config.json"
+    cfg_file.write_text(json.dumps({"backend_port": 8300}))
+    monkeypatch.delenv("ONX_BACKEND_PORT", raising=False)
+    monkeypatch.setenv("MCS_BACKEND_PORT", "8200")
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8200
+    assert cfg.configured_backend_port == 8300
+
+
+@pytest.mark.usefixtures("clean_config_env")
+def test_load_invalid_env_is_ignored_with_warning(monkeypatch):
+    warnings = []
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+    monkeypatch.setenv("ONX_BACKEND_PORT", "notanint")
+    monkeypatch.setenv("MCS_BACKEND_PORT", "8200")
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8200
+    assert any("ONX_BACKEND_PORT" in w and "notanint" in w for w in warnings)
+
+
+@pytest.mark.parametrize("invalid_port", ["80", "1023", "65536", "-1"])
+def test_load_rejects_preferred_ports_outside_1024_65535(
+    invalid_port, monkeypatch, clean_config_env
+):
+    cfg_file = clean_config_env / "config.json"
+    cfg_file.write_text(json.dumps({"backend_port": 8300}))
+    warnings = []
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+    monkeypatch.setenv("ONX_BACKEND_PORT", invalid_port)
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8300
+    assert cfg.configured_backend_port == 8300
+    assert any("ONX_BACKEND_PORT" in w and invalid_port in w for w in warnings)
+
+
+def test_load_allows_active_ports_in_1_65535(clean_config_env):
+    (clean_config_env / "backend.port").write_text("80\n")
+    assert PIDManager.read_active_port() == 80
+
+
+def test_save_does_not_persist_env_override(monkeypatch, clean_config_env):
+    cfg_file = clean_config_env / "config.json"
+    cfg_file.write_text(json.dumps({"backend_port": 8000}))
+    monkeypatch.setenv("ONX_BACKEND_PORT", "8123")
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8123
+    assert cfg.configured_backend_port == 8000
+    ConfigManager.instance().save()
+
+    data = json.loads(cfg_file.read_text())
+    assert data["backend_port"] == 8000
+
+
+def test_launcher_config_default_configured_backend_port():
+    cfg = LauncherConfig(auto_install_deps=False)
+    assert cfg.configured_backend_port == BACKEND_PORT
+    assert cfg.auto_install_deps is False
+
+
+def test_config_manager_update_sets_configured_backend_port(monkeypatch, clean_config_env):
+    cfg_file = clean_config_env / "config.json"
+    cfg_file.write_text(json.dumps({"backend_port": 8000}))
+    monkeypatch.setenv("ONX_BACKEND_PORT", "8123")
+    warnings = []
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8123
+
+    ConfigManager.instance().update(backend_port=8400)
+    assert any("ONX_BACKEND_PORT" in w and "8400" in w for w in warnings)
+    assert cfg.configured_backend_port == 8400
+    assert cfg.backend_port == 8123
+
+    ConfigManager.instance().save()
+    data = json.loads(cfg_file.read_text())
+    assert data["backend_port"] == 8400
+
+
+def test_frontend_env_contains_active_backend_port(monkeypatch):
+    captured_env = None
+
+    def fake_open(_title, _cmd, _log_file, extra_env=None, _geometry=None):
+        nonlocal captured_env
+        captured_env = extra_env
+        return 1234
+
+    monkeypatch.setattr(TerminalOpener, "_open", fake_open)
+    TerminalOpener.open_frontend(backend_port=8050)
+    assert captured_env == {"ONX_BACKEND_PORT": "8050"}
+
+
+def test_f3_precedence_four_sources_chain(monkeypatch, clean_config_env):
+    cfg_file = clean_config_env / "config.json"
+    cfg_file.write_text(json.dumps({"backend_port": 8300}))
+
+    # 1. ONX overrides all
+    monkeypatch.setenv("ONX_BACKEND_PORT", "8100")
+    monkeypatch.setenv("MCS_BACKEND_PORT", "8200")
+    ConfigManager._instance = None
+    cfg1 = ConfigManager.instance().load()
+    assert cfg1.backend_port == 8100
+    assert cfg1.configured_backend_port == 8300
+
+    # 2. MCS overrides config and default
+    monkeypatch.delenv("ONX_BACKEND_PORT", raising=False)
+    ConfigManager._instance = None
+    cfg2 = ConfigManager.instance().load()
+    assert cfg2.backend_port == 8200
+    assert cfg2.configured_backend_port == 8300
+
+    # 3. Config overrides default
+    monkeypatch.delenv("MCS_BACKEND_PORT", raising=False)
+    ConfigManager._instance = None
+    cfg3 = ConfigManager.instance().load()
+    assert cfg3.backend_port == 8300
+    assert cfg3.configured_backend_port == 8300
+
+    # 4. Default applies when config absent
+    cfg_file.unlink()
+    ConfigManager._instance = None
+    cfg4 = ConfigManager.instance().load()
+    assert cfg4.backend_port == BACKEND_PORT
+    assert cfg4.configured_backend_port == BACKEND_PORT
+
+
+@pytest.mark.usefixtures("clean_config_env")
+@pytest.mark.parametrize(
+    "invalid_val",
+    ["notanint", "0", "80", "1023", "65536", "-1", "", " "],
+)
+def test_f3_invalid_env_values_warn_and_fall_through(invalid_val, monkeypatch):
+    monkeypatch.setenv("ONX_BACKEND_PORT", invalid_val)
+    monkeypatch.setenv("MCS_BACKEND_PORT", "8200")
+    warnings = []
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8200
+    assert any("ONX_BACKEND_PORT" in w and invalid_val in w for w in warnings)
+
+
+def test_f3_save_preserves_config_port_under_env_override(monkeypatch, clean_config_env):
+    cfg_file = clean_config_env / "config.json"
+    cfg_file.write_text(json.dumps({"backend_port": 8300}))
+    monkeypatch.setenv("ONX_BACKEND_PORT", "8301")
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8301
+    assert cfg.configured_backend_port == 8300
+
+    ConfigManager.instance().save()
+    assert cfg.configured_backend_port == 8300
+    data = json.loads(cfg_file.read_text())
+    assert data["backend_port"] == 8300
+
+
+def test_f3_launcher_config_positional_construction():
+    cfg9 = LauncherConfig(8100, 5200, False, True, True, False, 45, 8105, 8100)
+    assert cfg9.backend_port == 8100
+    assert cfg9.frontend_port == 5200
+    assert cfg9.open_browser is False
+    assert cfg9.open_swagger is True
+    assert cfg9.open_vscode is True
+    assert cfg9.auto_install_deps is False
+    assert cfg9.startup_timeout == 45
+    assert cfg9.active_backend_port == 8105
+    assert cfg9.configured_backend_port == 8100
+
+    cfg8 = LauncherConfig(8100, 5200, False, True, True, False, 45, 8105)
+    assert cfg8.configured_backend_port == BACKEND_PORT
+
+
+def test_f3_config_manager_update_without_env_override(clean_config_env):
+    cfg_file = clean_config_env / "config.json"
+    cfg_file.write_text(json.dumps({"backend_port": 8000}))
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8000
+    assert cfg.configured_backend_port == 8000
+
+    ConfigManager.instance().update(backend_port=8400)
+    assert cfg.configured_backend_port == 8400
+    assert cfg.backend_port == 8400
+
+    ConfigManager.instance().save()
+    data = json.loads(cfg_file.read_text())
+    assert data["backend_port"] == 8400
+
+
+@pytest.mark.parametrize(
+    "invalid_port",
+    [80, 1023, 65536, "abc", -5, True, None],
+)
+def test_load_invalid_config_port_warns_and_falls_back(
+    invalid_port, monkeypatch, clean_config_env
+):
+    cfg_file = clean_config_env / "config.json"
+    cfg_file.write_text(json.dumps({"backend_port": invalid_port}))
+    warnings = []
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == 8000
+    assert cfg.configured_backend_port == 8000
+    assert any("config backend_port" in w for w in warnings)
+
+
+@pytest.mark.parametrize(
+    ("config_port", "expected_port"),
+    [
+        (8300, 8300),
+        (None, 8000),
+    ],
+)
+def test_load_both_env_invalid_falls_through_to_config(
+    config_port, expected_port, monkeypatch, clean_config_env
+):
+    if config_port is not None:
+        cfg_file = clean_config_env / "config.json"
+        cfg_file.write_text(json.dumps({"backend_port": config_port}))
+    monkeypatch.setenv("ONX_BACKEND_PORT", "notanint")
+    monkeypatch.setenv("MCS_BACKEND_PORT", "80")
+    warnings = []
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+    cfg = ConfigManager.instance().load()
+    assert cfg.backend_port == expected_port
+    assert cfg.configured_backend_port == expected_port
+    assert len(warnings) == 2
+    assert any("ONX_BACKEND_PORT" in w and "notanint" in w for w in warnings)
+    assert any("MCS_BACKEND_PORT" in w and "80" in w for w in warnings)
+
+
+def test_parse_preferred_port_rejects_unicode_digits():
+    assert _parse_preferred_port("٨٠٠٠") is None
+    assert _parse_preferred_port("８０００") is None
+    assert _parse_preferred_port("8000") == 8000
+    assert _parse_preferred_port(" 8000 ") == 8000
+    assert _parse_preferred_port("+8000") == 8000
 
