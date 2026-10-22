@@ -34,24 +34,82 @@ is_valid_port() {
     [[ "${1:-}" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
 }
 
-read_config_backend_port() {
-    local cfg="${PROJECT_ROOT}/.onx/config.json" value=""
-    [ -f "${cfg}" ] || return 1
-    value="$(sed -nE 's/.*"backend_port"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "${cfg}" | tail -n 1)"
-    is_valid_port "${value}" || return 1
-    printf '%s' "${value}"
+# Preferred backend port validator (1024..65535, ASCII digits, optional sign, whitespace stripped)
+# Unavoidable difference from Python: bash uses sed for config JSON rather than a full JSON parser.
+is_valid_preferred_port() {
+    local raw="${1:-}"
+    local val="${raw#"${raw%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    [[ -n "${val}" ]] || return 1
+    ( LC_ALL=C; [[ "${val}" =~ ^[+-]?[0-9]+$ ]] ) || return 1
+    [[ "${val}" =~ ^- ]] && return 1
+    val="${val#+}"
+    local stripped="${val#"${val%%[!0]*}"}"
+    [ -n "${stripped}" ] || return 1
+    [ "${#stripped}" -le 5 ] || return 1
+    local num=$(( 10#${val} ))
+    [ "$num" -ge 1024 ] && [ "$num" -le 65535 ]
 }
 
-if [ -n "${ONX_BACKEND_PORT:-}" ]; then
-    BACKEND_PORT="${ONX_BACKEND_PORT}"
-elif [ -n "${MCS_BACKEND_PORT:-}" ]; then
-    BACKEND_PORT="${MCS_BACKEND_PORT}"
-elif _cfg_port="$(read_config_backend_port)"; then
-    BACKEND_PORT="${_cfg_port}"
-else
-    BACKEND_PORT=8000
-fi
-is_valid_port "${BACKEND_PORT}" || BACKEND_PORT=8000
+normalize_preferred_port() {
+    local raw="${1:-}"
+    local val="${raw#"${raw%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    val="${val#+}"
+    printf '%s' "$(( 10#${val} ))"
+}
+
+read_config_backend_port() {
+    local cfg="${1:-${PROJECT_ROOT}/.onx/config.json}"
+    [ -f "${cfg}" ] || return 1
+    local raw=""
+    raw="$(sed -nE 's/.*"backend_port"[[:space:]]*:[[:space:]]*([^,}]+).*/\1/p' "${cfg}" | tail -n 1 | tr -d '"' | tr -d '[:space:]')"
+    [ -n "${raw}" ] || return 1
+    printf '%s' "${raw}"
+}
+
+resolve_preferred_backend_port() {
+    local cfg_file="${1:-${PROJECT_ROOT}/.onx/config.json}"
+    local val=""
+
+    # 1. ONX_BACKEND_PORT
+    if [ "${ONX_BACKEND_PORT+set}" = "set" ]; then
+        val="${ONX_BACKEND_PORT}"
+        if is_valid_preferred_port "${val}"; then
+            normalize_preferred_port "${val}"
+            return 0
+        else
+            echo "Invalid ONX_BACKEND_PORT='${val}'; must be an integer between 1024 and 65535." >&2
+        fi
+    fi
+
+    # 2. MCS_BACKEND_PORT
+    if [ "${MCS_BACKEND_PORT+set}" = "set" ]; then
+        val="${MCS_BACKEND_PORT}"
+        if is_valid_preferred_port "${val}"; then
+            normalize_preferred_port "${val}"
+            return 0
+        else
+            echo "Invalid MCS_BACKEND_PORT='${val}'; must be an integer between 1024 and 65535." >&2
+        fi
+    fi
+
+    # 3. .onx/config.json
+    if val="$(read_config_backend_port "${cfg_file}")"; then
+        if is_valid_preferred_port "${val}"; then
+            normalize_preferred_port "${val}"
+            return 0
+        else
+            echo "Invalid config backend_port=${val}; must be an integer between 1024 and 65535." >&2
+        fi
+    fi
+
+    # 4. Fallback default
+    printf '%s' "8000"
+    return 0
+}
+
+BACKEND_PORT="$(resolve_preferred_backend_port)"
 
 ACTIVE_BACKEND_PORT=""
 for _port_file in "${PROJECT_ROOT}/.onx/backend.port" "${PROJECT_ROOT}/.mcs/backend.port"; do
@@ -703,4 +761,6 @@ main() {
     exit 0
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi

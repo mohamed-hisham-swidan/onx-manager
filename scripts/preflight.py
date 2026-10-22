@@ -43,19 +43,14 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import re
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Mapping
 from ctypes import wintypes
 from pathlib import Path
-
-# ──────────────────────────────────────────────────────────────────────
-# Guard: Windows only
-# ──────────────────────────────────────────────────────────────────────
-
-if sys.platform != "win32":
-    print("preflight.py: Windows only — skipping on this platform.")
-    sys.exit(0)
+from typing import Any
 
 # ──────────────────────────────────────────────────────────────────────
 # Config
@@ -72,22 +67,6 @@ def _valid_port(value: object) -> bool:
     return 1 <= port <= 65535
 
 
-def _read_config_backend_port() -> int | None:
-    cfg = PROJECT_ROOT / ".onx" / "config.json"
-    try:
-        raw = json.loads(cfg.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    value = raw.get("backend_port") if isinstance(raw, dict) else None
-    return int(value) if _valid_port(value) else None
-
-
-_env_backend_port = os.environ.get("ONX_BACKEND_PORT") or os.environ.get("MCS_BACKEND_PORT")
-BACKEND_PORT: int = (
-    int(_env_backend_port)
-    if _valid_port(_env_backend_port)
-    else (_read_config_backend_port() or 8000)
-)
 FRONTEND_PORT: int = int(os.environ.get("ONX_FRONTEND_PORT") or os.environ.get("MCS_FRONTEND_PORT") or 5173)
 ACTIVE_BACKEND_PORT: int | None = None
 BACKEND_DIR = PROJECT_ROOT / "backend"
@@ -160,6 +139,82 @@ def log_bold(msg: str) -> None:
 def log_dim(msg: str) -> None:
     print(f"{DIM}{msg}{RESET}")
 
+
+def _parse_preferred_port(raw_val: Any) -> int | None:
+    if isinstance(raw_val, bool) or not isinstance(raw_val, (int, str)):
+        return None
+    if isinstance(raw_val, str):
+        cleaned = raw_val.strip()
+        if not cleaned or not re.fullmatch(r"[+-]?[0-9]+", cleaned):
+            return None
+        try:
+            val = int(cleaned)
+        except (ValueError, TypeError):
+            return None
+    else:
+        val = raw_val
+    if 1024 <= val <= 65535:
+        return val
+    return None
+
+
+def resolve_preferred_backend_port(
+    env: Mapping[str, str] | None = None,
+    config_path: Path | str | None = None,
+    warn: Callable[[str], None] | None = None,
+) -> int:
+    """
+    Resolve preferred backend port following:
+    ONX_BACKEND_PORT > MCS_BACKEND_PORT > .onx/config.json 'backend_port' > 8000.
+
+    Each source is validated in 1024..65535 (ASCII digits only, optional sign,
+    whitespace stripped, bool rejected). An invalid value warns naming the source
+    and is ignored, falling through to the next source.
+    """
+    if env is None:
+        env = os.environ
+    if config_path is None:
+        cfg_path = PROJECT_ROOT / ".onx" / "config.json"
+    else:
+        cfg_path = Path(config_path)
+    if warn is None:
+        warn = log_warn
+
+    def _validate(source: str, raw_val: Any) -> int | None:
+        port = _parse_preferred_port(raw_val)
+        if port is None:
+            warn(f"Invalid {source}={raw_val!r}; must be an integer between 1024 and 65535.")
+            return None
+        return port
+
+    if "ONX_BACKEND_PORT" in env:
+        p = _validate("ONX_BACKEND_PORT", env["ONX_BACKEND_PORT"])
+        if p is not None:
+            return p
+
+    if "MCS_BACKEND_PORT" in env:
+        p = _validate("MCS_BACKEND_PORT", env["MCS_BACKEND_PORT"])
+        if p is not None:
+            return p
+
+    raw: Any = {}
+    if cfg_path.is_file():
+        try:
+            raw = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            raw = {}
+
+    if isinstance(raw, dict) and "backend_port" in raw:
+        p = _validate("config backend_port", raw["backend_port"])
+        if p is not None:
+            return p
+        return 8000
+
+    return 8000
+
+
+BACKEND_PORT: int = resolve_preferred_backend_port()
+
 # ──────────────────────────────────────────────────────────────────────
 # Win32 constants (inlined — no backend imports)
 # ──────────────────────────────────────────────────────────────────────
@@ -176,7 +231,7 @@ FILE_SHARE_READ                    = 0x00000001
 OPEN_EXISTING                      = 3
 INVALID_HANDLE_VALUE               = ctypes.c_void_p(-1).value
 
-kernel32 = ctypes.windll.kernel32
+kernel32 = ctypes.windll.kernel32 if sys.platform == "win32" else None
 
 # ──────────────────────────────────────────────────────────────────────
 # PID liveness (ctypes — no wmic, no subprocess)
@@ -866,4 +921,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if sys.platform != "win32":
+        print("preflight.py: Windows only — skipping on this platform.")
+        sys.exit(0)
     sys.exit(main())
