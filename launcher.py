@@ -172,6 +172,11 @@ class PortState(Enum):
     UNKNOWN = auto()
 
 
+class ProvenanceStatus(Enum):
+    VERIFIED = auto()
+    UNKNOWN = auto()
+
+
 @dataclass(frozen=True)
 class PortDecision:
     port: int
@@ -807,6 +812,7 @@ class PIDManager:
     def kill_tree(pid: int) -> None:
         try:
             if os.name == "nt":
+                # Residual risk: taskkill /F /T cannot mirror "no SIGKILL escalation" (D-10)
                 subprocess.run(
                     ["taskkill", "/F", "/T", "/PID", str(pid)],
                     capture_output=True, timeout=5,
@@ -851,6 +857,53 @@ class PIDManager:
         path = PIDManager.mcs_path("started_at")
         if path.is_file():
             path.unlink()
+
+
+def _clear_backend_pid_if(expected_pid: int | None) -> None:
+    """Clear backend.pid only if its stored PID matches expected_pid.
+    No-op if expected_pid is None.
+    """
+    if expected_pid is None:
+        return
+    current_pid = PIDManager.read("backend")
+    if current_pid == expected_pid:
+        PIDManager.clear("backend")
+
+
+def _capture_process_create_time(pid: int) -> float | None:
+    """Capture process create_time via psutil. Returns None on failure or if pid is invalid."""
+    if pid <= 0:
+        return None
+    try:
+        import psutil
+
+        return psutil.Process(pid).create_time()
+    except Exception:
+        return None
+
+
+def _verify_process_identity(pid: int, expected_create_time: float | None) -> bool:
+    """Verify target process create_time matches expected_create_time within 0.5s tolerance.
+
+    Refuses (returns False) when expected_create_time is None (no proof, no kill; O-8).
+    """
+    if expected_create_time is None or pid <= 0:
+        return False
+    try:
+        import psutil
+
+        proc = psutil.Process(pid)
+        current = proc.create_time()
+        if abs(current - expected_create_time) > 0.5:
+            log_warn(
+                f"Process create_time mismatch for pid={pid} "
+                f"(expected {expected_create_time}, got {current}) — skipping kill"
+            )
+            return False
+        return True
+    except Exception as exc:
+        log_warn(f"Could not verify process identity for pid={pid}: {exc} — skipping kill")
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1112,9 +1165,28 @@ class PortManager:
         return None
 
     @staticmethod
-    def kill_on_port(port: int) -> bool:
+    def kill_on_port(
+        port: int,
+        expected_pid: int | None = None,
+        expected_create_time: float | None = None,
+    ) -> bool:
         """Kill process on given port. Caller should have already prompted."""
         pid = PortManager.get_pid_by_port(port)
+        if expected_pid is not None:
+            if pid != expected_pid:
+                log_warn(
+                    f"Listener on port {port} (PID {pid}) does not match "
+                    f"expected PID {expected_pid} — skipping kill"
+                )
+                return False
+        if expected_create_time is not None:
+            target_pid = expected_pid if expected_pid is not None else pid
+            if not target_pid or not _verify_process_identity(target_pid, expected_create_time):
+                log_warn(
+                    f"Process identity verification failed for PID {target_pid} "
+                    f"on port {port} — skipping kill"
+                )
+                return False
         if pid and PIDManager.is_alive(pid):
             PIDManager.kill_tree(pid)
             time.sleep(1)
@@ -3008,6 +3080,8 @@ def _backend_supervisor_pid(pid: int | None) -> int | None:
     """Walk up the project-owned uvicorn/terminal chain to the top killable PID."""
     if not pid or pid <= 0:
         return pid
+    if not PortManager.belongs_to_project(pid):
+        return None
     best = pid
     current = pid
     for _ in range(10):
@@ -3029,15 +3103,196 @@ def _backend_supervisor_pid(pid: int | None) -> int | None:
     return best
 
 
+def _check_backend_provenance(
+    port: int,
+    wrapper_pid: int | None,
+    spawn_time: float | None,
+) -> ProvenanceStatus:
+    """Determine whether listener on port belongs to the given launcher attempt.
+
+    Returns ProvenanceStatus.VERIFIED only if listener_pid == wrapper_pid (with matching
+    create_time) or listener_pid is a project-owned descendant of wrapper_pid via psutil
+    with create_time >= spawn_time. Refuses (returns UNKNOWN) when spawn_time is None (O-8).
+    """
+    if spawn_time is None or wrapper_pid is None or wrapper_pid <= 0:
+        return ProvenanceStatus.UNKNOWN
+
+    listener_pid = PortManager.get_pid_by_port(port)
+    if listener_pid is None or listener_pid <= 0:
+        return ProvenanceStatus.UNKNOWN
+
+    if not PortManager.belongs_to_project(listener_pid):
+        return ProvenanceStatus.UNKNOWN
+
+    if listener_pid == wrapper_pid:
+        if _verify_process_identity(listener_pid, spawn_time):
+            return ProvenanceStatus.VERIFIED
+        return ProvenanceStatus.UNKNOWN
+
+    try:
+        import psutil
+
+        wrapper_proc = psutil.Process(wrapper_pid)
+        descendants = wrapper_proc.children(recursive=True)
+        is_descendant = any(child.pid == listener_pid for child in descendants)
+    except Exception:
+        is_descendant = False
+
+    if not is_descendant:
+        return ProvenanceStatus.UNKNOWN
+
+    listener_create_time = _capture_process_create_time(listener_pid)
+    if listener_create_time is None or listener_create_time < spawn_time - 0.5:
+        return ProvenanceStatus.UNKNOWN
+
+    return ProvenanceStatus.VERIFIED
+
+
+def _reconcile_backend_attempt(
+    port: int,
+    wrapper_pid: int | None,
+    spawn_time: float | None,
+    cfg: LauncherConfig | None = None,
+    *,
+    allow_adopt: bool = True,
+) -> bool:
+    """Reconcile startup attempt on timeout or KeyboardInterrupt (D-2, D-10, D-12).
+
+    1. If allow_adopt is True: re-check health; if project-owned and healthy, adopt it.
+    2. Else if provenance is VERIFIED: terminate only the proven project-owned attempt tree,
+       verify port release, report survivors without SIGKILL escalation (D-10).
+    3. Else: terminate wrapper PID only (never signalling foreign or unresolved listeners).
+    4. Clean active port and clean backend.pid only if matching wrapper_pid.
+    """
+    if allow_adopt:
+        listener_pid = PortManager.get_pid_by_port(port)
+        if (
+            listener_pid is not None
+            and PortManager.belongs_to_project(listener_pid)
+            and check_backend_health(port, timeout=1.0)
+        ):
+            if cfg is not None:
+                cfg.active_backend_port = port
+            PIDManager.write_active_port(port)
+            supervisor = _backend_supervisor_pid(listener_pid) or listener_pid
+            if supervisor:
+                PIDManager.write("backend", supervisor)
+            log_ok(f"Backend is ready on port {port} (listener PID {supervisor})")
+            return True
+
+    prov = _check_backend_provenance(port, wrapper_pid, spawn_time)
+    listener_pid = PortManager.get_pid_by_port(port)
+
+    if (
+        prov == ProvenanceStatus.VERIFIED
+        and listener_pid is not None
+        and PortManager.belongs_to_project(listener_pid)
+    ):
+        listener_create_time = _capture_process_create_time(listener_pid)
+        supervisor = _backend_supervisor_pid(listener_pid)
+        if supervisor is None or not PortManager.belongs_to_project(supervisor):
+            supervisor = listener_pid
+        supervisor_create_time = (
+            listener_create_time
+            if supervisor == listener_pid
+            else _capture_process_create_time(supervisor)
+        )
+
+        if not _verify_process_identity(listener_pid, listener_create_time):
+            log_warn(
+                f"Process identity verification failed for listener PID {listener_pid} "
+                f"on port {port} — skipping kill"
+            )
+        elif not _verify_process_identity(supervisor, supervisor_create_time):
+            log_warn(
+                f"Process identity verification failed for backend PID {supervisor} "
+                f"on port {port} — skipping kill"
+            )
+        else:
+            PIDManager.kill_tree(supervisor)
+
+        if wrapper_pid and PIDManager.is_alive(wrapper_pid) and wrapper_pid != supervisor:
+            PIDManager.kill_tree(wrapper_pid)
+
+        # Verify port release (D-10)
+        if not PortManager.can_bind(port) and PortManager.get_pid_by_port(port) is not None:
+            time.sleep(0.5)
+
+        survivor = PortManager.get_pid_by_port(port)
+        if survivor is not None:
+            log_error(
+                f"Failed to free port {port}; untracked process {survivor} still listening"
+            )
+        else:
+            log_ok(f"Backend stopped (PID {supervisor})")
+    else:
+        # Foreign, unresolved, or unverified listener: DO NOT signal listener (D-2).
+        # Terminate only launcher-spawned wrapper PID if alive.
+        if wrapper_pid and PIDManager.is_alive(wrapper_pid):
+            PIDManager.kill_tree(wrapper_pid)
+
+    PIDManager.clear_active_port()
+    _clear_backend_pid_if(wrapper_pid)
+    return False
+
+
+def _resolve_reused_backend_pid(port: int) -> int | None:
+    """Resolve verified project-owned PID for a reused backend port.
+
+    Never copies stored backend.pid unless project-owned and consistent with listener.
+    Otherwise derives supervisor from listener_pid and verifies ownership.
+    """
+    listener_pid = PortManager.get_pid_by_port(port)
+    supervisor = _backend_supervisor_pid(listener_pid) if listener_pid else None
+    if supervisor is None or not PortManager.belongs_to_project(supervisor):
+        supervisor = (
+            listener_pid
+            if (listener_pid and PortManager.belongs_to_project(listener_pid))
+            else None
+        )
+
+    stored_pid = PIDManager.read("backend")
+    if (
+        stored_pid
+        and PIDManager.is_alive(stored_pid)
+        and PortManager.belongs_to_project(stored_pid)
+    ):
+        if listener_pid and (stored_pid == listener_pid or stored_pid == supervisor):
+            return stored_pid
+        if listener_pid:
+            try:
+                import psutil
+
+                proc = psutil.Process(listener_pid)
+                parents = [p.pid for p in proc.parents()]
+                if stored_pid in parents:
+                    return stored_pid
+            except Exception:
+                pass
+    return supervisor
+
+
 def _handle_own_unhealthy(port: int) -> bool:
     log_warn(
         f"Port {port} is held by a project-owned backend that is not healthy. "
         "Starting a second backend would share the SQLite database."
     )
+    expected_pid = PortManager.get_pid_by_port(port)
+    expected_create_time = (
+        _capture_process_create_time(expected_pid) if expected_pid is not None else None
+    )
+    if expected_pid is not None and expected_create_time is None:
+        log_warn(
+            f"Process identity cannot be proven for PID {expected_pid} on port {port} "
+            "— refusing to stop"
+        )
+        return False
     if not ask_yes_no(f"Stop the project-owned process on port {port}?", default=True):
         log_error(f"Port {port} is occupied by a project-owned backend. Aborting.")
         return False
-    if PortManager.kill_on_port(port):
+    if PortManager.kill_on_port(
+        port, expected_pid=expected_pid, expected_create_time=expected_create_time
+    ):
         PIDManager.clear_active_port()
         return True
     return False
@@ -3050,6 +3305,8 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
         on_own_unhealthy=_handle_own_unhealthy,
     )
     if decision is None:
+        PIDManager.clear_active_port()
+        _clear_backend_pid_if(None)
         ErrorHandler.show(
             "No available backend port.",
             f"Ports {cfg.backend_port}-{cfg.backend_port + PORT_SCAN_SPAN - 1} are occupied "
@@ -3059,19 +3316,28 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
 
     cfg.active_backend_port = decision.port
     if decision.reuse:
-        listener_pid = PortManager.get_pid_by_port(decision.port)
-        stored_pid = PIDManager.read("backend")
-        actual_pid = stored_pid if stored_pid and PIDManager.is_alive(stored_pid) else _backend_supervisor_pid(listener_pid)
-        if actual_pid:
-            PIDManager.write("backend", actual_pid)
+        actual_pid = _resolve_reused_backend_pid(decision.port)
+        if actual_pid is None:
+            log_warn(
+                f"Port {decision.port} reuse verification failed (listener vanished "
+                "or turned foreign) — aborting startup"
+            )
+            PIDManager.clear_active_port()
+            return False
+        PIDManager.write("backend", actual_pid)
         PIDManager.write_active_port(decision.port)
         source = " (from active-port state)" if decision.source == "known-active" else ""
-        log_ok(f"Backend already running and healthy on port {decision.port} (PID {actual_pid}){source}")
+        log_ok(
+            f"Backend already running and healthy on port {decision.port} "
+            f"(PID {actual_pid}){source}"
+        )
         return True
 
     if python is None:
         python = ensure_python_environment()
         if python is None:
+            PIDManager.clear_active_port()
+            _clear_backend_pid_if(None)
             ErrorHandler.show(
                 "No Python interpreter found.",
                 f"Install Python 3.12+ from https://python.org, then run:\n"
@@ -3083,6 +3349,8 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
     canonical_db_url = get_canonical_db_url()
     port = decision.port
     tried: set[int] = set()
+    last_attempt_pid: int | None = None
+    last_attempt_spawn_time: float | None = None
 
     for attempt in range(1, MAX_PORT_ATTEMPTS + 1):
         tried.add(port)
@@ -3090,25 +3358,55 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
         log_step("Backend", f"Starting on port {port} (attempt {attempt}/{MAX_PORT_ATTEMPTS})...")
         token = _write_attempt_marker(BACKEND_LOG, attempt)
         log_identity = _stat_file_identity(BACKEND_LOG)
-        pid = TerminalOpener.open_backend(
-            python,
-            port,
-            {
-                "PYTHONPATH": str(BACKEND_DIR),
-                "ONX_DATABASE_URL": canonical_db_url,
-                "ONX_PANEL_BIND_PORT": str(port),
-            },
-        )
-        if pid is None:
-            log_error("Failed to launch backend terminal")
-            PIDManager.clear_active_port()
-            return False
-        PIDManager.write("backend", pid)
+        pid = None
+        spawn_time = None
+        try:
+            pid = TerminalOpener.open_backend(
+                python,
+                port,
+                {
+                    "PYTHONPATH": str(BACKEND_DIR),
+                    "ONX_DATABASE_URL": canonical_db_url,
+                    "ONX_PANEL_BIND_PORT": str(port),
+                },
+            )
+            if pid is None:
+                log_error("Failed to launch backend terminal")
+                if last_attempt_pid and PIDManager.is_alive(last_attempt_pid):
+                    if PortManager.belongs_to_project(last_attempt_pid):
+                        if _verify_process_identity(last_attempt_pid, last_attempt_spawn_time):
+                            PIDManager.kill_tree(last_attempt_pid)
+                        else:
+                            log_warn(
+                                f"Previous wrapper PID {last_attempt_pid} process identity "
+                                "not proven — leaving untracked/unproven"
+                            )
+                    else:
+                        log_warn(
+                            f"Previous wrapper PID {last_attempt_pid} is foreign or "
+                            "unverified — skipping kill"
+                        )
+                PIDManager.clear_active_port()
+                _clear_backend_pid_if(last_attempt_pid)
+                return False
+            captured_time = _capture_process_create_time(pid)
+            # O-8: no proof, no kill
+            spawn_time = captured_time
+            PIDManager.write("backend", pid)
+            last_attempt_pid = pid
+            last_attempt_spawn_time = spawn_time
 
-        spinner = Spinner("Waiting for backend...")
-        spinner.start()
-        outcome = _wait_for_backend_attempt(port, pid, timeout, log_identity, marker_token=token)
-        spinner.stop()
+            spinner = Spinner("Waiting for backend...")
+            spinner.start()
+            try:
+                outcome = _wait_for_backend_attempt(
+                    port, pid, timeout, log_identity, marker_token=token
+                )
+            finally:
+                spinner.stop()
+        except KeyboardInterrupt:
+            _reconcile_backend_attempt(port, pid, spawn_time, cfg=cfg, allow_adopt=False)
+            raise
 
         if outcome == "healthy":
             cfg.active_backend_port = port
@@ -3124,17 +3422,21 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
                 "Backend crashed during startup.",
                 "Check the logs with: python launcher.py --logs\n"
                 "Or run: cd backend && PYTHONPATH=. python -m uvicorn app.main:app --reload",
-                lambda: start_backend(cfg, python),
             )
             PIDManager.clear_active_port()
+            _clear_backend_pid_if(pid)
             return False
 
         if outcome == "timeout":
+            adopted = _reconcile_backend_attempt(
+                port, pid, spawn_time, cfg=cfg, allow_adopt=True
+            )
+            if adopted:
+                return True
             log_error(
                 f"Backend did not become healthy within {timeout:.0f}s on port {port}. "
                 "No bind evidence; not retrying."
             )
-            PIDManager.clear_active_port()
             return False
 
         if attempt >= MAX_PORT_ATTEMPTS:
@@ -3152,20 +3454,58 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
             exclude_ports=tried,
         )
         if next_decision is None:
-            break
+            if pid and PIDManager.is_alive(pid):
+                if PortManager.belongs_to_project(pid):
+                    if _verify_process_identity(pid, spawn_time):
+                        PIDManager.kill_tree(pid)
+                    else:
+                        log_warn(
+                            f"Wrapper PID {pid} process identity not proven "
+                            "— leaving untracked/unproven"
+                        )
+                else:
+                    log_warn(
+                        f"Wrapper PID {pid} is foreign or unverified — skipping kill"
+                    )
+            PIDManager.clear_active_port()
+            _clear_backend_pid_if(pid)
+            return False
         if next_decision.reuse:
             cfg.active_backend_port = next_decision.port
-            stored_pid = PIDManager.read("backend")
-            actual_pid = stored_pid if stored_pid and PIDManager.is_alive(stored_pid) else _backend_supervisor_pid(PortManager.get_pid_by_port(next_decision.port))
-            if actual_pid:
-                PIDManager.write("backend", actual_pid)
+            actual_pid = _resolve_reused_backend_pid(next_decision.port)
+            if actual_pid is None:
+                log_warn(
+                    f"Port {next_decision.port} reuse verification failed (listener "
+                    "vanished or turned foreign) — aborting startup"
+                )
+                PIDManager.clear_active_port()
+                _clear_backend_pid_if(last_attempt_pid)
+                return False
+            PIDManager.write("backend", actual_pid)
             PIDManager.write_active_port(next_decision.port)
-            log_ok(f"Backend already running and healthy on port {next_decision.port} (PID {actual_pid})")
+            log_ok(
+                f"Backend already running and healthy on port {next_decision.port} "
+                f"(PID {actual_pid})"
+            )
             return True
         port = next_decision.port
 
+    if last_attempt_pid and PIDManager.is_alive(last_attempt_pid):
+        if PortManager.belongs_to_project(last_attempt_pid):
+            if _verify_process_identity(last_attempt_pid, last_attempt_spawn_time):
+                PIDManager.kill_tree(last_attempt_pid)
+            else:
+                log_warn(
+                    f"Wrapper PID {last_attempt_pid} process identity not proven "
+                    "— leaving untracked/unproven"
+                )
+        else:
+            log_warn(
+                f"Wrapper PID {last_attempt_pid} is foreign or unverified — skipping kill"
+            )
     log_error(f"Backend failed to start after {MAX_PORT_ATTEMPTS} attempt(s)")
     PIDManager.clear_active_port()
+    _clear_backend_pid_if(last_attempt_pid)
     return False
 
 
@@ -3313,24 +3653,118 @@ def cmd_start() -> int:
 def cmd_stop() -> int:
     print()
     log_info("Shutting down...")
-    for name in ("frontend", "backend"):
-        if name == "backend":
-            active_port = PIDManager.read_active_port()
-            if active_port is not None:
-                supervisor = _backend_supervisor_pid(PortManager.get_pid_by_port(active_port))
-                if supervisor and PIDManager.is_alive(supervisor):
+
+    # Frontend shutdown
+    frontend_pid = PIDManager.read("frontend")
+    if frontend_pid and PIDManager.is_alive(frontend_pid):
+        PIDManager.kill_tree(frontend_pid)
+        log_ok(f"Frontend stopped (PID {frontend_pid})")
+    else:
+        log(f"  {c('dim', 'Frontend not running')}")
+    PIDManager.clear("frontend")
+
+    # Backend shutdown (F1 / D-5 / D-8 / D-9)
+    backend_stopped = False
+    active_port = PIDManager.read_active_port()
+
+    # 1. Active-port listener branch
+    if active_port is not None:
+        listener_pid = PortManager.get_pid_by_port(active_port)
+        if listener_pid is not None:
+            if PortManager.belongs_to_project(listener_pid):
+                listener_create_time = _capture_process_create_time(listener_pid)
+                supervisor = _backend_supervisor_pid(listener_pid)
+                if supervisor is None or not PortManager.belongs_to_project(supervisor):
+                    supervisor = listener_pid
+                supervisor_create_time = (
+                    listener_create_time
+                    if supervisor == listener_pid
+                    else _capture_process_create_time(supervisor)
+                )
+
+                if not _verify_process_identity(listener_pid, listener_create_time):
+                    log_warn(
+                        f"Process identity verification failed for listener PID {listener_pid} "
+                        f"on port {active_port} — skipping kill"
+                    )
+                elif not _verify_process_identity(supervisor, supervisor_create_time):
+                    log_warn(
+                        f"Process identity verification failed for backend PID {supervisor} "
+                        f"on port {active_port} — skipping kill"
+                    )
+                else:
                     PIDManager.kill_tree(supervisor)
-                    log_ok(f"Backend stopped (PID {supervisor})")
-                    PIDManager.clear(name)
-                    continue
-        pid = PIDManager.read(name)
-        if pid and PIDManager.is_alive(pid):
-            PIDManager.kill_tree(pid)
-            log_ok(f"{name.capitalize()} stopped (PID {pid})")
+                    # Verify port is freed
+                    if (
+                        not PortManager.can_bind(active_port)
+                        and PortManager.get_pid_by_port(active_port) is not None
+                    ):
+                        time.sleep(0.5)
+
+                    survivor = PortManager.get_pid_by_port(active_port)
+                    if survivor is not None:
+                        log_error(
+                            f"Failed to free port {active_port}; "
+                            f"untracked process {survivor} still listening"
+                        )
+                    else:
+                        log_ok(f"Backend stopped (PID {supervisor})")
+                        PIDManager.clear_active_port()
+                        backend_stopped = True
+                        _clear_backend_pid_if(supervisor)
+                        if listener_pid != supervisor:
+                            _clear_backend_pid_if(listener_pid)
+            else:
+                log_warn(
+                    f"Port {active_port} is held by foreign PID {listener_pid} — not stopping"
+                )
+                PIDManager.clear_active_port()
         else:
-            log(f"  {c('dim', f'{name.capitalize()} not running')}")
-        PIDManager.clear(name)
-    PIDManager.clear_active_port()
+            if not PortManager.can_bind(active_port) or PortManager.is_open(active_port):
+                log_warn(
+                    f"Port {active_port} is in use but ownership cannot be established "
+                    "— not stopping"
+                )
+            PIDManager.clear_active_port()
+
+    # 2. Stored backend.pid evaluation (D-8)
+    stored_pid = PIDManager.read("backend")
+    if stored_pid is not None:
+        stored_create_time = _capture_process_create_time(stored_pid)
+        if PIDManager.is_alive(stored_pid):
+            if PortManager.belongs_to_project(stored_pid):
+                if _verify_process_identity(stored_pid, stored_create_time):
+                    PIDManager.kill_tree(stored_pid)
+                    log_ok(f"Backend stopped (PID {stored_pid})")
+                    backend_stopped = True
+                    _clear_backend_pid_if(stored_pid)
+                else:
+                    log_warn(
+                        f"Process identity verification failed for stored backend "
+                        f"PID {stored_pid} — skipping kill"
+                    )
+            else:
+                log_warn(
+                    f"Stored backend PID {stored_pid} is foreign or unverified — skipping kill"
+                )
+        else:
+            PIDManager.cleanup_stale()
+            if not backend_stopped:
+                log(f"  {c('dim', 'Backend not running')}")
+    else:
+        if not backend_stopped:
+            log(f"  {c('dim', 'Backend not running')}")
+
+    port_is_free = (
+        active_port is None
+        or (
+            PortManager.can_bind(active_port)
+            and not PortManager.is_open(active_port)
+            and PortManager.get_pid_by_port(active_port) is None
+        )
+    )
+    if port_is_free:
+        PIDManager.clear_active_port()
     PIDManager.clear_started_at()
     log_ok("All processes stopped")
     print()

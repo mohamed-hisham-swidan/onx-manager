@@ -6,11 +6,16 @@ ADR: docs/decisions/0019-dynamic-backend-port.md
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import shutil
+import signal
 import socket
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
@@ -31,18 +36,25 @@ from launcher import (  # noqa: E402
     PortDecision,
     PortManager,
     PortState,
+    ProvenanceStatus,
     StatusDisplay,
     TerminalOpener,
+    _backend_supervisor_pid,
+    _capture_process_create_time,
+    _check_backend_provenance,
+    _clear_backend_pid_if,
     _generate_attempt_token,
     _handle_own_unhealthy,
     _has_bind_error,
     _parse_preferred_port,
     _read_backend_log_from,
     _stat_file_identity,
+    _verify_process_identity,
     _wait_for_backend_attempt,
     _write_attempt_marker,
     ask_yes_no,
     check_backend_health,
+    cmd_stop,
     get_effective_backend_port,
     start_backend,
     start_frontend,
@@ -591,6 +603,7 @@ def test_start_backend_retries_only_on_bind_failure(tmp_path):
 def test_start_backend_timeout_is_not_retried(tmp_path):
     cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
     decision = PortDecision(port=8001, reuse=False, source="scan")
+    killed_pids: list[int] = []
 
     with patch("launcher.MCS_DIR", tmp_path / ".onx"), \
          patch("launcher.PROJECT_ROOT", tmp_path), \
@@ -599,11 +612,20 @@ def test_start_backend_timeout_is_not_retried(tmp_path):
          patch("launcher.get_canonical_db_url", return_value="sqlite:///test.db"), \
          patch("launcher.TerminalOpener.open_backend", return_value=4242) as mock_open, \
          patch("launcher._wait_for_backend_attempt", return_value="timeout"), \
-         patch("launcher.Spinner"):
+         patch("launcher.Spinner"), \
+         patch("launcher._capture_process_create_time", return_value=None), \
+         patch.object(PIDManager, "is_alive", return_value=True), \
+         patch.object(PIDManager, "kill_tree", side_effect=killed_pids.append):
 
         assert start_backend(cfg, Path("/fake/python")) is False
 
     assert mock_open.call_count == 1
+    assert killed_pids == [4242]
+    assert (tmp_path / ".onx" / "backend.port").exists() is False
+    assert (tmp_path / ".onx" / "backend.pid").exists() is False
+    with patch("launcher.MCS_DIR", tmp_path / ".onx"):
+        assert PIDManager.read_active_port() is None
+        assert PIDManager.read("backend") is None
 
 
 def test_status_does_not_report_foreign_port_as_backend_running():
@@ -1278,3 +1300,1765 @@ def test_parse_preferred_port_rejects_unicode_digits():
     assert _parse_preferred_port(" 8000 ") == 8000
     assert _parse_preferred_port("+8000") == 8000
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# Batch B1 (F1): Stop Path Ownership Guards & Process Identity Revalidation
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _find_foreign_python() -> str:
+    candidates = [
+        "/usr/bin/python3",
+        "/usr/local/bin/python3",
+        shutil.which("python3"),
+        shutil.which("python"),
+    ]
+    for cand in candidates:
+        if cand and os.path.exists(cand):
+            resolved = str(Path(cand).resolve()).lower()
+            if "onx-manager" not in resolved and "mcs-manager" not in resolved:
+                return cand
+    return sys.executable
+
+
+def test_cmd_stop_does_not_signal_foreign_listener_from_active_port(tmp_path, monkeypatch):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        active_port = s.getsockname()[1]
+
+    foreign_py = _find_foreign_python()
+    outside_dir = tempfile.mkdtemp()
+    code = (
+        "import socket, time\n"
+        "s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+        "s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n"
+        f"s.bind(('127.0.0.1', {active_port}))\n"
+        "s.listen(1)\n"
+        "while True:\n"
+        "    time.sleep(1)\n"
+    )
+    child = subprocess.Popen([foreign_py, "-c", code], cwd=outside_dir)
+    try:
+        for _ in range(50):
+            if PortManager.get_pid_by_port(active_port) == child.pid:
+                break
+            time.sleep(0.05)
+
+        if PortManager.get_pid_by_port(active_port) != child.pid:
+            pytest.skip("Cannot attribute listener PID on this host")
+        assert PortManager.get_pid_by_port(active_port) == child.pid
+
+        PIDManager.write_active_port(active_port)
+
+        warnings: list[str] = []
+        monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+        ret = cmd_stop()
+        assert ret == 0
+        assert child.poll() is None
+        assert PIDManager.read_active_port() is None
+        assert any(str(child.pid) in w and str(active_port) in w for w in warnings)
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+        shutil.rmtree(outside_dir, ignore_errors=True)
+
+
+def test_cmd_stop_still_stops_project_owned_listener_from_active_port(tmp_path, monkeypatch):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        active_port = s.getsockname()[1]
+
+    code = (
+        "import socket, time\n"
+        "s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+        "s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n"
+        f"s.bind(('127.0.0.1', {active_port}))\n"
+        "s.listen(1)\n"
+        "while True:\n"
+        "    time.sleep(1)\n"
+    )
+    child = subprocess.Popen([sys.executable, "-c", code])
+    try:
+        for _ in range(50):
+            if PortManager.is_open(active_port):
+                break
+            time.sleep(0.05)
+
+        for _ in range(50):
+            if PortManager.get_pid_by_port(active_port) == child.pid:
+                break
+            time.sleep(0.05)
+
+        if PortManager.get_pid_by_port(active_port) != child.pid:
+            pytest.skip("PID attribution unavailable")
+        assert PortManager.get_pid_by_port(active_port) == child.pid
+
+        PIDManager.write_active_port(active_port)
+        PIDManager.write("backend", child.pid)
+
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda pid: pid == child.pid)
+
+        ret = cmd_stop()
+        assert ret == 0
+        child.wait(timeout=3)
+        assert child.poll() is not None
+        assert PIDManager.read_active_port() is None
+        assert PIDManager.read("backend") is None
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+
+
+def test_cmd_stop_foreign_backend_pid_fallback_is_not_signalled(tmp_path, monkeypatch):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    foreign_py = _find_foreign_python()
+    outside_dir = tempfile.mkdtemp()
+    child = subprocess.Popen(
+        [foreign_py, "-c", "import time; time.sleep(10)"], cwd=outside_dir
+    )
+    try:
+        assert not PortManager.belongs_to_project(child.pid)
+        PIDManager.write("backend", child.pid)
+        assert PIDManager.read_active_port() is None
+
+        warnings: list[str] = []
+        monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+        ret = cmd_stop()
+        assert ret == 0
+        assert child.poll() is None
+        assert any(str(child.pid) in w and "foreign" in w.lower() for w in warnings)
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+        shutil.rmtree(outside_dir, ignore_errors=True)
+
+
+def test_cmd_stop_unresolved_active_listener_does_not_fall_through_to_kill(
+    tmp_path, monkeypatch
+):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        active_port = s.getsockname()[1]
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        PIDManager.write_active_port(active_port)
+        PIDManager.write("backend", child.pid)
+
+        # Explicit exception to no-mock rule per spec F7.8: simulate socket attribution failure
+        monkeypatch.setattr(PortManager, "can_bind", lambda p: p != active_port)
+        monkeypatch.setattr(PortManager, "get_pid_by_port", lambda _p: None)
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: False)
+
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_pids.append(pid))
+
+        warnings: list[str] = []
+        monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+        ret = cmd_stop()
+        assert ret == 0
+        assert child.pid not in killed_pids
+        assert child.poll() is None
+        assert PIDManager.read_active_port() is None
+        assert any("ownership cannot be established" in w for w in warnings)
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+
+
+def test_cmd_stop_missing_port_file_stops_owned_backend_pid(tmp_path, monkeypatch):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        PIDManager.write("backend", child.pid)
+        assert PIDManager.read_active_port() is None
+
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda pid: pid == child.pid)
+
+        ret = cmd_stop()
+        assert ret == 0
+        child.wait(timeout=3)
+        assert child.poll() is not None
+        assert PIDManager.read("backend") is None
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+
+def test_cmd_stop_clears_backend_pid_only_if_matching_stopped_process(
+    tmp_path, monkeypatch
+):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    # 1. Direct unit verification of _clear_backend_pid_if
+    PIDManager.write("backend", 1234)
+    _clear_backend_pid_if(None)
+    assert PIDManager.read("backend") == 1234
+    _clear_backend_pid_if(5678)
+    assert PIDManager.read("backend") == 1234
+    _clear_backend_pid_if(1234)
+    assert PIDManager.read("backend") is None
+
+    # 2. Integration with cmd_stop: mismatch leaves backend.pid intact
+    child_a = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    child_b = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        active_port = 8055
+        PIDManager.write_active_port(active_port)
+        PIDManager.write("backend", child_b.pid)
+
+        monkeypatch.setattr(
+            PortManager,
+            "get_pid_by_port",
+            lambda p: child_a.pid if p == active_port else None,
+        )
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda pid: pid == child_a.pid)
+        monkeypatch.setattr(PortManager, "can_bind", lambda _p: True)
+
+        killed: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed.append(pid))
+
+        ret = cmd_stop()
+        assert ret == 0
+        assert child_a.pid in killed
+        assert child_b.pid not in killed
+        assert PIDManager.read("backend") == child_b.pid
+    finally:
+        for p in (child_a, child_b):
+            p.terminate()
+            try:
+                p.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+
+def test_kill_on_port_rejects_mismatched_expected_pid(monkeypatch):
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        real_time = _capture_process_create_time(child.pid)
+        assert real_time is not None
+
+        monkeypatch.setattr(PortManager, "get_pid_by_port", lambda _p: child.pid)
+        killed: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed.append(pid))
+
+        # 1. Mismatched expected_pid
+        res_mismatch_pid = PortManager.kill_on_port(8000, expected_pid=child.pid + 9999)
+        assert res_mismatch_pid is False
+        assert len(killed) == 0
+
+        # 2. Mismatched expected_create_time
+        res_mismatch_time = PortManager.kill_on_port(
+            8000, expected_pid=child.pid, expected_create_time=real_time + 10.0
+        )
+        assert res_mismatch_time is False
+        assert len(killed) == 0
+
+        # 3. Matching expected_pid and expected_create_time
+        monkeypatch.setattr(PortManager, "is_open", lambda _p: False)
+        res_match = PortManager.kill_on_port(
+            8000, expected_pid=child.pid, expected_create_time=real_time
+        )
+        assert res_match is True
+        assert child.pid in killed
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+
+
+def test_process_identity_helper_unit_and_drift():
+    from app.core.process_utils import _verify_process_identity as backend_verify
+
+    # Helper unit cases
+    assert _capture_process_create_time(-1) is None
+    assert _capture_process_create_time(0) is None
+    assert _verify_process_identity(-1, 1000.0) is False
+    assert _verify_process_identity(1234, None) is False  # O-8: refusal when None
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        real_create_time = _capture_process_create_time(child.pid)
+        assert real_create_time is not None
+
+        # Unit: match, mismatch, dead
+        assert _verify_process_identity(child.pid, real_create_time) is True
+        assert (
+            _verify_process_identity(child.pid, real_create_time + 0.2) is True
+        )  # within 0.5s tolerance
+        assert (
+            _verify_process_identity(child.pid, real_create_time + 5.0) is False
+        )  # outside tolerance
+
+        # Dead PID
+        assert _verify_process_identity(9999999, real_create_time) is False
+
+        # Drift test against backend process_utils._verify_process_identity
+        # 1. Matching identity agrees
+        assert (
+            _verify_process_identity(child.pid, real_create_time)
+            == backend_verify(child.pid, real_create_time)
+            is True
+        )
+        # 2. Mismatched identity agrees
+        assert (
+            _verify_process_identity(child.pid, real_create_time + 5.0)
+            == backend_verify(child.pid, real_create_time + 5.0)
+            is False
+        )
+        # 3. Dead PID agrees
+        assert (
+            _verify_process_identity(9999999, real_create_time)
+            == backend_verify(9999999, real_create_time)
+            is False
+        )
+
+        # 4. Intentional divergence (O-8): launcher helper refuses (False)
+        # on None, while backend returns True.
+        assert _verify_process_identity(child.pid, None) is False
+        assert backend_verify(child.pid, None) is True
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+
+
+def test_cmd_stop_refuses_kill_on_listener_create_time_mismatch(tmp_path, monkeypatch):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    active_port = 8043
+    PIDManager.write_active_port(active_port)
+
+    child_listener = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    child_supervisor = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        monkeypatch.setattr(
+            PortManager,
+            "get_pid_by_port",
+            lambda p: child_listener.pid if p == active_port else None,
+        )
+        monkeypatch.setattr("launcher._backend_supervisor_pid", lambda _pid: child_supervisor.pid)
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_pids.append(pid))
+
+        warnings: list[str] = []
+        monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+        listener_reads = 0
+        real_time_listener = _capture_process_create_time(child_listener.pid)
+        real_time_supervisor = _capture_process_create_time(child_supervisor.pid)
+
+        import psutil
+
+        orig_proc = psutil.Process
+
+        class FakeProcess(orig_proc):
+            def create_time(self):
+                nonlocal listener_reads
+                if self.pid == child_listener.pid:
+                    listener_reads += 1
+                    if listener_reads > 1:
+                        return (real_time_listener or 1000.0) + 100.0
+                    return real_time_listener
+                if self.pid == child_supervisor.pid:
+                    return real_time_supervisor
+                return super().create_time()
+
+        monkeypatch.setattr(psutil, "Process", FakeProcess)
+
+        ret = cmd_stop()
+        assert ret == 0
+        assert len(killed_pids) == 0
+        assert child_listener.poll() is None
+        assert child_supervisor.poll() is None
+        assert any(
+            "verification failed for listener PID" in w and str(child_listener.pid) in w
+            for w in warnings
+        )
+    finally:
+        for p in (child_listener, child_supervisor):
+            p.terminate()
+            try:
+                p.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+
+def test_cmd_stop_refuses_kill_on_supervisor_create_time_mismatch(tmp_path, monkeypatch):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    active_port = 8044
+    PIDManager.write_active_port(active_port)
+
+    child_listener = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    child_supervisor = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        monkeypatch.setattr(
+            PortManager,
+            "get_pid_by_port",
+            lambda p: child_listener.pid if p == active_port else None,
+        )
+        monkeypatch.setattr("launcher._backend_supervisor_pid", lambda _pid: child_supervisor.pid)
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_pids.append(pid))
+
+        warnings: list[str] = []
+        monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+        supervisor_reads = 0
+        real_time_listener = _capture_process_create_time(child_listener.pid)
+        real_time_supervisor = _capture_process_create_time(child_supervisor.pid)
+
+        import psutil
+
+        orig_proc = psutil.Process
+
+        class FakeProcess(orig_proc):
+            def create_time(self):
+                nonlocal supervisor_reads
+                if self.pid == child_listener.pid:
+                    return real_time_listener
+                if self.pid == child_supervisor.pid:
+                    supervisor_reads += 1
+                    if supervisor_reads > 1:
+                        return (real_time_supervisor or 1000.0) + 100.0
+                    return real_time_supervisor
+                return super().create_time()
+
+        monkeypatch.setattr(psutil, "Process", FakeProcess)
+
+        ret = cmd_stop()
+        assert ret == 0
+        assert len(killed_pids) == 0
+        assert child_listener.poll() is None
+        assert child_supervisor.poll() is None
+        assert any(
+            "verification failed for backend PID" in w and str(child_supervisor.pid) in w
+            for w in warnings
+        )
+    finally:
+        for p in (child_listener, child_supervisor):
+            p.terminate()
+            try:
+                p.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+
+def test_cmd_stop_refuses_kill_on_stored_backend_pid_create_time_mismatch(
+    tmp_path, monkeypatch
+):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        PIDManager.write("backend", child.pid)
+        assert PIDManager.read_active_port() is None
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_pids.append(pid))
+
+        warnings: list[str] = []
+        monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+        reads = 0
+        real_time = _capture_process_create_time(child.pid)
+
+        import psutil
+
+        orig_proc = psutil.Process
+
+        class FakeProcess(orig_proc):
+            def create_time(self):
+                nonlocal reads
+                if self.pid == child.pid:
+                    reads += 1
+                    if reads > 1:
+                        return (real_time or 1000.0) + 100.0
+                    return real_time
+                return super().create_time()
+
+        monkeypatch.setattr(psutil, "Process", FakeProcess)
+
+        ret = cmd_stop()
+        assert ret == 0
+        assert len(killed_pids) == 0
+        assert child.poll() is None
+        assert any(
+            "verification failed for stored backend PID" in w and str(child.pid) in w
+            for w in warnings
+        )
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+
+
+def test_cmd_stop_preserves_active_port_when_survivor_still_holds_port(
+    tmp_path, monkeypatch
+):
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    active_port = 8042
+    PIDManager.write_active_port(active_port)
+
+    child_supervisor = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    child_survivor = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_pids.append(pid))
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+
+        def fake_get_pid(port):
+            if port == active_port:
+                if child_supervisor.pid in killed_pids:
+                    return child_survivor.pid
+                return child_supervisor.pid
+            return None
+
+        monkeypatch.setattr(PortManager, "get_pid_by_port", fake_get_pid)
+        monkeypatch.setattr(
+            PortManager,
+            "can_bind",
+            lambda port: port != active_port,
+        )
+
+        errors: list[str] = []
+        monkeypatch.setattr("launcher.log_error", errors.append)
+
+        ret = cmd_stop()
+        assert ret == 0
+        assert child_supervisor.pid in killed_pids
+        assert any("Failed to free port" in e and str(child_survivor.pid) in e for e in errors)
+        assert PIDManager.read_active_port() == active_port
+    finally:
+        for p in (child_supervisor, child_survivor):
+            p.terminate()
+            try:
+                p.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Batch B5a (F4a part 1): Dynamic Port Repair & Startup Exit Reconciliation
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_backend_supervisor_pid_foreign_pid_guard(monkeypatch):
+    """Direct test for _backend_supervisor_pid foreign-PID guard (lines ~3075-3076)."""
+    # 1. Non-positive or None PIDs return unchanged
+    assert _backend_supervisor_pid(None) is None
+    assert _backend_supervisor_pid(0) == 0
+    assert _backend_supervisor_pid(-1) == -1
+
+    # 2. Foreign PID guard returns None
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: False)
+    assert _backend_supervisor_pid(99999) is None
+
+    # 3. Project-owned PID returns itself or supervisor
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        assert _backend_supervisor_pid(child.pid) == child.pid
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+
+
+def test_check_backend_provenance_verified_and_unknown(monkeypatch):
+    """Direct test for _check_backend_provenance (VERIFIED / UNKNOWN)."""
+    # 1. Refuses when spawn_time is None (O-8)
+    assert _check_backend_provenance(8000, 1234, None) == ProvenanceStatus.UNKNOWN
+
+    # 2. Refuses when wrapper_pid is None or non-positive
+    assert _check_backend_provenance(8000, None, 1000.0) == ProvenanceStatus.UNKNOWN
+    assert _check_backend_provenance(8000, 0, 1000.0) == ProvenanceStatus.UNKNOWN
+    assert _check_backend_provenance(8000, -1, 1000.0) == ProvenanceStatus.UNKNOWN
+
+    # 3. Refuses when port has no listener
+    monkeypatch.setattr(PortManager, "get_pid_by_port", lambda _p: None)
+    assert _check_backend_provenance(8000, 1234, 1000.0) == ProvenanceStatus.UNKNOWN
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        real_time = _capture_process_create_time(child.pid)
+        assert real_time is not None
+
+        # 4. Refuses when listener is foreign
+        monkeypatch.setattr(PortManager, "get_pid_by_port", lambda _p: child.pid)
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: False)
+        assert _check_backend_provenance(8000, child.pid, real_time) == ProvenanceStatus.UNKNOWN
+
+        # 5. Returns VERIFIED when listener == wrapper_pid and create_time matches
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+        assert _check_backend_provenance(8000, child.pid, real_time) == ProvenanceStatus.VERIFIED
+
+        # 6. Returns UNKNOWN when listener == wrapper_pid but create_time mismatched
+        assert (
+            _check_backend_provenance(8000, child.pid, real_time + 10.0)
+            == ProvenanceStatus.UNKNOWN
+        )
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+
+
+def test_check_backend_provenance_descendants(monkeypatch):
+    """Direct test for _check_backend_provenance descendant attribution."""
+    code = (
+        "import subprocess, sys, time\n"
+        "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)'])\n"
+        "time.sleep(10)\n"
+    )
+    child_wrapper = subprocess.Popen([sys.executable, "-c", code])
+    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    child_listener_pid = None
+    try:
+        import psutil
+
+        proc = psutil.Process(child_wrapper.pid)
+        for _ in range(50):
+            time.sleep(0.05)
+            children = proc.children(recursive=True)
+            if children:
+                child_listener_pid = children[0].pid
+                break
+
+        assert child_listener_pid is not None
+        wrap_time = _capture_process_create_time(child_wrapper.pid)
+        listener_time = _capture_process_create_time(child_listener_pid)
+        assert wrap_time is not None and listener_time is not None
+
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+
+        # 1. Unrelated process returns UNKNOWN
+        monkeypatch.setattr(PortManager, "get_pid_by_port", lambda _p: unrelated.pid)
+        assert (
+            _check_backend_provenance(8000, child_wrapper.pid, wrap_time)
+            == ProvenanceStatus.UNKNOWN
+        )
+
+        # 2. Real descendant returns VERIFIED
+        monkeypatch.setattr(PortManager, "get_pid_by_port", lambda _p: child_listener_pid)
+        assert (
+            _check_backend_provenance(8000, child_wrapper.pid, wrap_time)
+            == ProvenanceStatus.VERIFIED
+        )
+
+        # 3. Descendant with spawn_time in future returns UNKNOWN
+        assert (
+            _check_backend_provenance(8000, child_wrapper.pid, listener_time + 10.0)
+            == ProvenanceStatus.UNKNOWN
+        )
+    finally:
+        if child_listener_pid:
+            with contextlib.suppress(OSError):
+                os.kill(child_listener_pid, signal.SIGTERM)
+        for p in (child_wrapper, unrelated):
+            p.terminate()
+            try:
+                p.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+
+def test_handle_own_unhealthy_passes_expected_args(tmp_path, monkeypatch):
+    """Direct test for _handle_own_unhealthy passing expected_pid and expected_create_time."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        real_time = _capture_process_create_time(child.pid)
+        assert real_time is not None
+
+        monkeypatch.setattr(PortManager, "get_pid_by_port", lambda _p: child.pid)
+        monkeypatch.setattr("launcher.ask_yes_no", lambda *_args, **_kwargs: True)
+
+        calls: list[tuple[int, int | None, float | None]] = []
+
+        def fake_kill_on_port(port, expected_pid=None, expected_create_time=None):
+            calls.append((port, expected_pid, expected_create_time))
+            return True
+
+        monkeypatch.setattr(PortManager, "kill_on_port", fake_kill_on_port)
+
+        PIDManager.write_active_port(8042)
+        res = _handle_own_unhealthy(8042)
+        assert res is True
+        assert len(calls) == 1
+        assert calls[0][0] == 8042
+        assert calls[0][1] == child.pid
+        assert calls[0][2] is not None
+        assert abs(calls[0][2] - real_time) < 0.001
+        assert PIDManager.read_active_port() is None
+    finally:
+        child.terminate()
+        try:
+            child.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+
+
+def test_handle_own_unhealthy_refuses_when_create_time_unreadable(
+    tmp_path, monkeypatch, free_port
+):
+    """Refuse to stop own-unhealthy backend if create_time cannot be read (O-8)."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    fake_pid = 4321
+    monkeypatch.setattr(PortManager, "get_pid_by_port", lambda _p: fake_pid)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: None)
+
+    mock_kill_on_port = MagicMock()
+    mock_kill_tree = MagicMock()
+    monkeypatch.setattr(PortManager, "kill_on_port", mock_kill_on_port)
+    monkeypatch.setattr(PIDManager, "kill_tree", mock_kill_tree)
+
+    warnings: list[str] = []
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+    PIDManager.write_active_port(free_port)
+    res = _handle_own_unhealthy(free_port)
+
+    assert res is False
+    mock_kill_on_port.assert_not_called()
+    mock_kill_tree.assert_not_called()
+    assert any("identity cannot be proven" in w for w in warnings)
+    assert PIDManager.read_active_port() == free_port
+
+
+def test_timeout_stops_project_owned_attempt_and_clears_matching_backend_pid(
+    tmp_path, monkeypatch
+):
+    """Test timeout stops proven project-owned attempt and clears matching metadata."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    active_port = 8042
+    child_wrapper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    child_supervisor = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_pids.append(pid))
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+        monkeypatch.setattr(
+            PortManager,
+            "get_pid_by_port",
+            lambda p: child_supervisor.pid if p == active_port else None,
+        )
+        monkeypatch.setattr(PortManager, "can_bind", lambda p: p == active_port)
+        monkeypatch.setattr("launcher.check_backend_health", lambda *_args, **_kwargs: False)
+        monkeypatch.setattr(
+            "launcher._check_backend_provenance",
+            lambda _port, _w_pid, _s_time: ProvenanceStatus.VERIFIED,
+        )
+        monkeypatch.setattr(
+            "launcher._backend_supervisor_pid",
+            lambda _pid: child_supervisor.pid,
+        )
+        monkeypatch.setattr(
+            TerminalOpener,
+            "open_backend",
+            lambda *_args, **_kwargs: child_wrapper.pid,
+        )
+        monkeypatch.setattr(
+            "launcher._wait_for_backend_attempt",
+            lambda *_args, **_kwargs: "timeout",
+        )
+        monkeypatch.setattr("launcher.Spinner", MagicMock())
+
+        decision = PortDecision(port=active_port, reuse=False, source="preferred")
+        monkeypatch.setattr(
+            PortManager,
+            "resolve_startup_port",
+            lambda *_args, **_kwargs: decision,
+        )
+
+        cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+        res = start_backend(cfg, Path(sys.executable))
+
+        assert res is False
+        assert child_supervisor.pid in killed_pids
+        assert child_wrapper.pid in killed_pids
+        assert child_wrapper.pid != child_supervisor.pid
+        assert PIDManager.read_active_port() is None
+        assert PIDManager.read("backend") is None
+    finally:
+        for p in (child_wrapper, child_supervisor):
+            p.terminate()
+            try:
+                p.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+
+def test_timeout_does_not_signal_foreign_listener_and_stops_wrapper(
+    tmp_path, monkeypatch
+):
+    """Test timeout does not signal foreign listener on active port and stops wrapper only."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    active_port = 8042
+    child_wrapper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    foreign_listener = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_pids.append(pid))
+        monkeypatch.setattr(
+            PortManager,
+            "belongs_to_project",
+            lambda pid: pid != foreign_listener.pid,
+        )
+        monkeypatch.setattr(
+            PortManager,
+            "get_pid_by_port",
+            lambda p: foreign_listener.pid if p == active_port else None,
+        )
+        monkeypatch.setattr("launcher.check_backend_health", lambda *_args, **_kwargs: False)
+        monkeypatch.setattr(
+            TerminalOpener,
+            "open_backend",
+            lambda *_args, **_kwargs: child_wrapper.pid,
+        )
+        monkeypatch.setattr(
+            "launcher._wait_for_backend_attempt",
+            lambda *_args, **_kwargs: "timeout",
+        )
+        monkeypatch.setattr("launcher.Spinner", MagicMock())
+
+        decision = PortDecision(port=active_port, reuse=False, source="preferred")
+        monkeypatch.setattr(
+            PortManager,
+            "resolve_startup_port",
+            lambda *_args, **_kwargs: decision,
+        )
+
+        cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+        res = start_backend(cfg, Path(sys.executable))
+
+        assert res is False
+        assert foreign_listener.pid not in killed_pids
+        assert child_wrapper.pid in killed_pids
+        assert PIDManager.read_active_port() is None
+        assert PIDManager.read("backend") is None
+    finally:
+        for p in (child_wrapper, foreign_listener):
+            p.terminate()
+            try:
+                p.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+
+def test_start_backend_keyboardinterrupt_reconciles_then_reraises(
+    tmp_path, monkeypatch
+):
+    """Test KeyboardInterrupt during attempt/wait reconciles and re-raises (D-12)."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    active_port = 8042
+    child_wrapper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_pids.append(pid))
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+        monkeypatch.setattr(
+            TerminalOpener,
+            "open_backend",
+            lambda *_args, **_kwargs: child_wrapper.pid,
+        )
+
+        def raise_keyboard_interrupt(*_args, **_kwargs):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("launcher._wait_for_backend_attempt", raise_keyboard_interrupt)
+        monkeypatch.setattr("launcher.Spinner", MagicMock())
+
+        decision = PortDecision(port=active_port, reuse=False, source="preferred")
+        monkeypatch.setattr(
+            PortManager,
+            "resolve_startup_port",
+            lambda *_args, **_kwargs: decision,
+        )
+
+        cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+
+        with pytest.raises(KeyboardInterrupt):
+            start_backend(cfg, Path(sys.executable))
+
+        assert child_wrapper.pid in killed_pids
+        assert PIDManager.read_active_port() is None
+        assert PIDManager.read("backend") is None
+    finally:
+        child_wrapper.terminate()
+        try:
+            child_wrapper.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            child_wrapper.kill()
+            child_wrapper.wait()
+
+
+def test_timeout_with_unknown_spawn_time_stops_wrapper_only(tmp_path, monkeypatch):
+    """Test timeout with unknown spawn_time yields UNKNOWN and stops wrapper only (O-8)."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    # Ephemeral unused port
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        active_port = s.getsockname()[1]
+
+    child_wrapper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    child_listener = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_pids.append(pid))
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+        monkeypatch.setattr(
+            PortManager,
+            "get_pid_by_port",
+            lambda p: child_listener.pid if p == active_port else None,
+        )
+        monkeypatch.setattr(
+            "launcher._backend_supervisor_pid",
+            lambda _pid: child_listener.pid,
+        )
+        monkeypatch.setattr("launcher.check_backend_health", lambda *_args, **_kwargs: False)
+        monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: None)
+
+        provenance_results: list[ProvenanceStatus] = []
+        real_check_provenance = _check_backend_provenance
+
+        def spy_check_provenance(port, w_pid, s_time):
+            res = real_check_provenance(port, w_pid, s_time)
+            provenance_results.append(res)
+            return res
+
+        monkeypatch.setattr("launcher._check_backend_provenance", spy_check_provenance)
+        monkeypatch.setattr(
+            TerminalOpener,
+            "open_backend",
+            lambda *_args, **_kwargs: child_wrapper.pid,
+        )
+        monkeypatch.setattr(
+            "launcher._wait_for_backend_attempt",
+            lambda *_args, **_kwargs: "timeout",
+        )
+        monkeypatch.setattr("launcher.Spinner", MagicMock())
+
+        decision = PortDecision(port=active_port, reuse=False, source="preferred")
+        monkeypatch.setattr(
+            PortManager,
+            "resolve_startup_port",
+            lambda *_args, **_kwargs: decision,
+        )
+
+        cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+        res = start_backend(cfg, Path(sys.executable))
+
+        assert res is False
+        assert provenance_results == [ProvenanceStatus.UNKNOWN]
+        assert (
+            _check_backend_provenance(active_port, child_wrapper.pid, None)
+            == ProvenanceStatus.UNKNOWN
+        )
+        assert killed_pids == [child_wrapper.pid]
+        assert child_listener.pid not in killed_pids
+        assert PIDManager.read_active_port() is None
+        assert PIDManager.read("backend") is None
+    finally:
+        for p in (child_wrapper, child_listener):
+            p.terminate()
+            try:
+                p.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+    # KeyboardInterrupt path with unknown spawn_time (re-raise + wrapper only)
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        ki_port = s.getsockname()[1]
+
+    child_wrapper_ki = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    child_listener_ki = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+    try:
+        killed_ki: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", lambda pid: killed_ki.append(pid))
+        monkeypatch.setattr(
+            PortManager,
+            "get_pid_by_port",
+            lambda p: child_listener_ki.pid if p == ki_port else None,
+        )
+        monkeypatch.setattr(
+            "launcher._backend_supervisor_pid",
+            lambda _pid: child_listener_ki.pid,
+        )
+        monkeypatch.setattr(
+            TerminalOpener,
+            "open_backend",
+            lambda *_args, **_kwargs: child_wrapper_ki.pid,
+        )
+
+        def raise_keyboard_interrupt(*_args, **_kwargs):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("launcher._wait_for_backend_attempt", raise_keyboard_interrupt)
+        decision_ki = PortDecision(port=ki_port, reuse=False, source="preferred")
+        monkeypatch.setattr(
+            PortManager,
+            "resolve_startup_port",
+            lambda *_args, **_kwargs: decision_ki,
+        )
+
+        with pytest.raises(KeyboardInterrupt):
+            start_backend(cfg, Path(sys.executable))
+
+        assert killed_ki == [child_wrapper_ki.pid]
+        assert child_listener_ki.pid not in killed_ki
+        assert PIDManager.read_active_port() is None
+        assert PIDManager.read("backend") is None
+    finally:
+        for p in (child_wrapper_ki, child_listener_ki):
+            p.terminate()
+            try:
+                p.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Batch B5b (F4a): Startup Exit Reconciliation & Cleanup
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_start_backend_initial_decision_none_cleans_metadata(
+    tmp_path, monkeypatch, free_port
+):
+    """Simulate resolve_startup_port returning None; verify metadata cleanup (D-12, AC-8)."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    PIDManager.write_active_port(free_port)
+    PIDManager.write("backend", 9876)
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", lambda *_a, **_kw: None)
+    monkeypatch.setattr(ErrorHandler, "show", lambda *_a, **_kw: False)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg)
+
+    assert res is False
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") == 9876
+
+
+def test_start_backend_python_env_none_cleans_metadata(
+    tmp_path, monkeypatch, free_port
+):
+    """Simulate ensure_python_environment returning None; verify metadata cleanup."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    PIDManager.write_active_port(free_port)
+    PIDManager.write("backend", 9876)
+
+    decision = PortDecision(port=free_port, reuse=False, source="preferred")
+    monkeypatch.setattr(PortManager, "resolve_startup_port", lambda *_a, **_kw: decision)
+    monkeypatch.setattr("launcher.ensure_python_environment", lambda: None)
+    monkeypatch.setattr(ErrorHandler, "show", lambda *_a, **_kw: False)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, python=None)
+
+    assert res is False
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") == 9876
+
+
+def test_pid_is_none_cleans_metadata(tmp_path, monkeypatch, free_port):
+    """Simulate open_backend returning None; verify previous_attempt_pid cleanup logic."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    # Case 1: First attempt fails with pid is None -> backend.pid untouched
+    PIDManager.write_active_port(free_port)
+    PIDManager.write("backend", 9876)
+
+    decision = PortDecision(port=free_port, reuse=False, source="preferred")
+    monkeypatch.setattr(PortManager, "resolve_startup_port", lambda *_a, **_kw: decision)
+    monkeypatch.setattr(TerminalOpener, "open_backend", lambda *_a, **_kw: None)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") == 9876
+
+    # Case 2: Attempt 1 succeeds (pid=1111), attempt 2 gets pid is None -> kills 1111 if proven
+    open_backend_calls = 0
+
+    def fake_open_backend(*_a, **_kw):
+        nonlocal open_backend_calls
+        open_backend_calls += 1
+        if open_backend_calls == 1:
+            return 1111
+        return None
+
+    monkeypatch.setattr(TerminalOpener, "open_backend", fake_open_backend)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+    decision2 = PortDecision(port=free_port + 1, reuse=False, source="scan")
+    resolve_calls = 0
+
+    def fake_resolve(*_a, **_kw):
+        nonlocal resolve_calls
+        resolve_calls += 1
+        return decision if resolve_calls == 1 else decision2
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", fake_resolve)
+
+    killed_pids: list[int] = []
+    monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+    monkeypatch.setattr(PIDManager, "is_alive", lambda pid: pid == 1111)
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda pid: pid == 1111)
+    monkeypatch.setattr("launcher._verify_process_identity", lambda pid, _time: pid == 1111)
+
+    PIDManager.write_active_port(free_port)
+    res2 = start_backend(cfg, Path(sys.executable))
+
+    assert res2 is False
+    assert killed_pids == [1111]
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
+
+
+def test_pid_is_none_previous_wrapper_unproven_skips_kill_and_warns(
+    tmp_path, monkeypatch, free_port
+):
+    """If previous wrapper identity is unproven on pid is None, do not kill; warn."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    decision = PortDecision(port=free_port, reuse=False, source="preferred")
+    decision2 = PortDecision(port=free_port + 1, reuse=False, source="scan")
+    resolve_calls = 0
+
+    def fake_resolve(*_a, **_kw):
+        nonlocal resolve_calls
+        resolve_calls += 1
+        return decision if resolve_calls == 1 else decision2
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", fake_resolve)
+
+    open_backend_calls = 0
+
+    def fake_open_backend(*_a, **_kw):
+        nonlocal open_backend_calls
+        open_backend_calls += 1
+        if open_backend_calls == 1:
+            return 1111
+        return None
+
+    monkeypatch.setattr(TerminalOpener, "open_backend", fake_open_backend)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+    killed_pids: list[int] = []
+    warnings: list[str] = []
+    monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+    monkeypatch.setattr(PIDManager, "is_alive", lambda pid: pid == 1111)
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda pid: pid == 1111)
+    monkeypatch.setattr("launcher._verify_process_identity", lambda _pid, _time: False)
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert killed_pids == []
+    assert any("unproven" in w or "untracked" in w for w in warnings)
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
+
+
+def test_dead_bindable_failure_clears_matching_backend_pid_without_recursive_retry(
+    tmp_path, monkeypatch, free_port
+):
+    """Dead attempt PID and bindable port clears matching backend.pid without recursion."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    decision = PortDecision(port=free_port, reuse=False, source="preferred")
+    monkeypatch.setattr(PortManager, "resolve_startup_port", lambda *_a, **_kw: decision)
+    monkeypatch.setattr(TerminalOpener, "open_backend", lambda *_a, **_kw: 1234)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "dead")
+    monkeypatch.setattr(PortManager, "can_bind", lambda _p: True)
+
+    show_calls: list[tuple] = []
+
+    def fake_show(message, fix=None, retry_cb=None):
+        show_calls.append((message, fix, retry_cb))
+        return False
+
+    monkeypatch.setattr(ErrorHandler, "show", fake_show)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert len(show_calls) == 1
+    assert "Backend crashed during startup." in show_calls[0][0]
+    # Verify no recursive callback passed to ErrorHandler.show (per D-7)
+    assert show_calls[0][2] is None
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
+
+
+def test_start_backend_reuse_verifies_stored_pid_ownership(
+    tmp_path, monkeypatch, free_port
+):
+    """Reuse path writes verified supervisor PID, refusing foreign stored backend.pid."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    decision = PortDecision(port=free_port, reuse=True, source="preferred")
+    monkeypatch.setattr(PortManager, "resolve_startup_port", lambda *_a, **_kw: decision)
+
+    foreign_stored_pid = 9999
+    listener_pid = 2001
+    supervisor_pid = 2000
+
+    PIDManager.write("backend", foreign_stored_pid)
+
+    monkeypatch.setattr(
+        PortManager, "get_pid_by_port", lambda p: listener_pid if p == free_port else None
+    )
+    monkeypatch.setattr("launcher._backend_supervisor_pid", lambda _pid: supervisor_pid)
+    monkeypatch.setattr(
+        PortManager,
+        "belongs_to_project",
+        lambda pid: pid in (listener_pid, supervisor_pid),
+    )
+    monkeypatch.setattr(PIDManager, "is_alive", lambda _pid: True)
+
+    class FakeParent:
+        pid = foreign_stored_pid
+
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def parents(self):
+            return [FakeParent()]
+
+    monkeypatch.setattr("psutil.Process", FakeProcess)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg)
+
+    assert res is True
+    assert PIDManager.read_active_port() == free_port
+    assert PIDManager.read("backend") == supervisor_pid
+    assert PIDManager.read("backend") != foreign_stored_pid
+
+
+def test_start_backend_reuse_toctou_returns_false_and_no_success_log(
+    tmp_path, monkeypatch, free_port
+):
+    """If _resolve_reused_backend_pid returns None on reuse, abort without writing port."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    decision = PortDecision(port=free_port, reuse=True, source="preferred")
+    monkeypatch.setattr(PortManager, "resolve_startup_port", lambda *_a, **_kw: decision)
+    monkeypatch.setattr("launcher._resolve_reused_backend_pid", lambda _port: None)
+
+    log_ok_calls: list[str] = []
+    log_warn_calls: list[str] = []
+    monkeypatch.setattr("launcher.log_ok", log_ok_calls.append)
+    monkeypatch.setattr("launcher.log_warn", log_warn_calls.append)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg)
+
+    assert res is False
+    assert PIDManager.read_active_port() is None
+    assert not any("PID None" in msg for msg in log_ok_calls)
+    assert any("reuse verification failed" in msg for msg in log_warn_calls)
+
+
+def test_start_backend_retry_reuse_toctou_returns_false_and_cleans_metadata(
+    tmp_path, monkeypatch, free_port
+):
+    """Retry reuse where helper returns None aborts, cleans metadata and logs warning."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    decision1 = PortDecision(port=free_port, reuse=False, source="preferred")
+    decision2 = PortDecision(port=free_port + 1, reuse=True, source="scan")
+    resolve_calls = 0
+
+    def fake_resolve(*_a, **_kw):
+        nonlocal resolve_calls
+        resolve_calls += 1
+        return decision1 if resolve_calls == 1 else decision2
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", fake_resolve)
+    monkeypatch.setattr(TerminalOpener, "open_backend", lambda *_a, **_kw: 3333)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+    monkeypatch.setattr("launcher._resolve_reused_backend_pid", lambda _port: None)
+
+    log_ok_calls: list[str] = []
+    log_warn_calls: list[str] = []
+    monkeypatch.setattr("launcher.log_ok", log_ok_calls.append)
+    monkeypatch.setattr("launcher.log_warn", log_warn_calls.append)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
+    assert not any("PID None" in msg for msg in log_ok_calls)
+    assert any("reuse verification failed" in msg for msg in log_warn_calls)
+
+
+def test_start_backend_writes_non_preferred_active_port_on_health(
+    tmp_path, monkeypatch, free_port
+):
+    """Healthy launch on non-default port writes active port file and config property."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    non_default_port = free_port if free_port != 8000 else 8042
+    decision = PortDecision(port=non_default_port, reuse=False, source="scan")
+    monkeypatch.setattr(PortManager, "resolve_startup_port", lambda *_a, **_kw: decision)
+    monkeypatch.setattr(TerminalOpener, "open_backend", lambda *_a, **_kw: 3333)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "healthy")
+    monkeypatch.setattr(PortManager, "get_pid_by_port", lambda _p: 3333)
+
+    cfg = LauncherConfig(
+        auto_install_deps=False, open_browser=False, backend_port=8000
+    )
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is True
+    assert cfg.active_backend_port == non_default_port
+    assert PIDManager.read_active_port() == non_default_port
+    assert PIDManager.read("backend") == 3333
+
+
+def test_next_decision_none_cleans_matching_backend_pid(
+    tmp_path, monkeypatch, free_port
+):
+    """Simulate candidate exhaustion during retry; verify matching PID and port cleanup."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    decision1 = PortDecision(port=free_port, reuse=False, source="preferred")
+    resolve_calls = 0
+
+    def fake_resolve(*_a, **_kw):
+        nonlocal resolve_calls
+        resolve_calls += 1
+        if resolve_calls == 1:
+            return decision1
+        return None  # Candidate scan exhausted on retry
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", fake_resolve)
+    monkeypatch.setattr(TerminalOpener, "open_backend", lambda *_a, **_kw: 4444)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+    killed_pids: list[int] = []
+    monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+    monkeypatch.setattr(PIDManager, "is_alive", lambda pid: pid == 4444)
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda pid: pid == 4444)
+    monkeypatch.setattr("launcher._verify_process_identity", lambda pid, _time: pid == 4444)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert killed_pids == [4444]
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
+
+
+def test_next_decision_none_identity_unproven_skips_kill_and_warns(
+    tmp_path, monkeypatch, free_port
+):
+    """Candidate exhaustion with unproven wrapper identity skips kill, warns, cleans state."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    decision1 = PortDecision(port=free_port, reuse=False, source="preferred")
+    resolve_calls = 0
+
+    def fake_resolve(*_a, **_kw):
+        nonlocal resolve_calls
+        resolve_calls += 1
+        return decision1 if resolve_calls == 1 else None
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", fake_resolve)
+    monkeypatch.setattr(TerminalOpener, "open_backend", lambda *_a, **_kw: 4444)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+    killed_pids: list[int] = []
+    warnings: list[str] = []
+    monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+    monkeypatch.setattr(PIDManager, "is_alive", lambda pid: pid == 4444)
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda pid: pid == 4444)
+    monkeypatch.setattr("launcher._verify_process_identity", lambda _pid, _time: False)
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert killed_pids == []
+    assert any("unproven" in w or "untracked" in w for w in warnings)
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
+
+
+def test_next_decision_none_foreign_pid_skips_kill(tmp_path, monkeypatch, free_port):
+    """Candidate exhaustion with foreign wrapper PID does not kill foreign process."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    decision1 = PortDecision(port=free_port, reuse=False, source="preferred")
+    resolve_calls = 0
+
+    def fake_resolve(*_a, **_kw):
+        nonlocal resolve_calls
+        resolve_calls += 1
+        return decision1 if resolve_calls == 1 else None
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", fake_resolve)
+    monkeypatch.setattr(TerminalOpener, "open_backend", lambda *_a, **_kw: 4444)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+    killed_pids: list[int] = []
+    monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+    monkeypatch.setattr(PIDManager, "is_alive", lambda pid: pid == 4444)
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: False)
+    monkeypatch.setattr("launcher._verify_process_identity", lambda _pid, _time: True)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert killed_pids == []
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
+
+
+def test_final_exhaustion_cleans_matching_backend_pid(
+    tmp_path, monkeypatch, free_port
+):
+    """Drive attempts to MAX_PORT_ATTEMPTS exhaustion; verify cleanup of matching last PID."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    resolve_count = 0
+
+    def fake_resolve(*_a, **_kw):
+        nonlocal resolve_count
+        p = free_port + resolve_count
+        resolve_count += 1
+        return PortDecision(port=p, reuse=False, source="preferred" if p == free_port else "scan")
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", fake_resolve)
+
+    attempt_count = 0
+
+    def fake_open_backend(*_a, **_kw):
+        nonlocal attempt_count
+        attempt_count += 1
+        return 5000 + attempt_count
+
+    monkeypatch.setattr(TerminalOpener, "open_backend", fake_open_backend)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+    killed_pids: list[int] = []
+    monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+    last_pid = 5000 + 3  # MAX_PORT_ATTEMPTS = 3
+    monkeypatch.setattr(PIDManager, "is_alive", lambda pid: pid == last_pid)
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda pid: pid == last_pid)
+    monkeypatch.setattr("launcher._verify_process_identity", lambda pid, _time: pid == last_pid)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert killed_pids == [last_pid]
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
+
+
+def test_final_exhaustion_identity_unproven_skips_kill_and_warns(
+    tmp_path, monkeypatch, free_port
+):
+    """Final retry exhaustion with unproven identity skips kill, warns, and cleans metadata."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    resolve_count = 0
+
+    def fake_resolve(*_a, **_kw):
+        nonlocal resolve_count
+        p = free_port + resolve_count
+        resolve_count += 1
+        return PortDecision(port=p, reuse=False, source="preferred" if p == free_port else "scan")
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", fake_resolve)
+
+    attempt_count = 0
+
+    def fake_open_backend(*_a, **_kw):
+        nonlocal attempt_count
+        attempt_count += 1
+        return 5000 + attempt_count
+
+    monkeypatch.setattr(TerminalOpener, "open_backend", fake_open_backend)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+    killed_pids: list[int] = []
+    warnings: list[str] = []
+    last_pid = 5000 + 3
+    monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+    monkeypatch.setattr(PIDManager, "is_alive", lambda pid: pid == last_pid)
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda pid: pid == last_pid)
+    monkeypatch.setattr("launcher._verify_process_identity", lambda _pid, _time: False)
+    monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert killed_pids == []
+    assert any("unproven" in w or "untracked" in w for w in warnings)
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
+
+
+def test_final_exhaustion_foreign_pid_skips_kill(tmp_path, monkeypatch, free_port):
+    """Final retry exhaustion with foreign PID does not kill foreign process."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+
+    resolve_count = 0
+
+    def fake_resolve(*_a, **_kw):
+        nonlocal resolve_count
+        p = free_port + resolve_count
+        resolve_count += 1
+        return PortDecision(port=p, reuse=False, source="preferred" if p == free_port else "scan")
+
+    monkeypatch.setattr(PortManager, "resolve_startup_port", fake_resolve)
+
+    attempt_count = 0
+
+    def fake_open_backend(*_a, **_kw):
+        nonlocal attempt_count
+        attempt_count += 1
+        return 5000 + attempt_count
+
+    monkeypatch.setattr(TerminalOpener, "open_backend", fake_open_backend)
+    monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.45)
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+    killed_pids: list[int] = []
+    last_pid = 5000 + 3
+    monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+    monkeypatch.setattr(PIDManager, "is_alive", lambda pid: pid == last_pid)
+    monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: False)
+    monkeypatch.setattr("launcher._verify_process_identity", lambda _pid, _time: True)
+
+    cfg = LauncherConfig(auto_install_deps=False, open_browser=False)
+    res = start_backend(cfg, Path(sys.executable))
+
+    assert res is False
+    assert killed_pids == []
+    assert PIDManager.read_active_port() is None
+    assert PIDManager.read("backend") is None
