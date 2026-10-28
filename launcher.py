@@ -3298,6 +3298,79 @@ def _handle_own_unhealthy(port: int) -> bool:
     return False
 
 
+def _terminate_attempt_wrapper(pid: int | None, spawn_time: float | None) -> None:
+    """Terminate the attempt wrapper PID if alive, verified, and project-owned (O-8)."""
+    if pid and PIDManager.is_alive(pid):
+        if PortManager.belongs_to_project(pid):
+            if _verify_process_identity(pid, spawn_time):
+                PIDManager.kill_tree(pid)
+            else:
+                log_warn(
+                    f"Wrapper PID {pid} process identity not proven "
+                    "— leaving untracked/unproven"
+                )
+        else:
+            log_warn(
+                f"Wrapper PID {pid} is foreign or unverified — skipping kill"
+            )
+    _clear_backend_pid_if(pid)
+
+
+def _reconcile_failed_attempt(
+    port: int,
+    attempt_pid: int | None = None,
+    *,
+    kill_owned: bool = True,
+    spawn_time: float | None = None,
+) -> bool:
+    """Inspect occupant on port after a failed attempt and reconcile state (D-3, D-7, D-10).
+
+    Returns True if safe to proceed to another port candidate (port is free, occupant is
+    conclusively foreign, or owned listener was stopped and port freed).
+    Returns False if startup must abort immediately (unresolved listener ownership, or owned
+    listener could not be stopped).
+    """
+    _clear_backend_pid_if(attempt_pid)
+
+    if PortManager.can_bind(port):
+        return True
+
+    listener_pid = PortManager.get_pid_by_port(port)
+    if listener_pid is None:
+        log_error(
+            f"Port {port} listener ownership is unresolved (cannot attribute PID) — "
+            "aborting startup to prevent concurrent database access"
+        )
+        _terminate_attempt_wrapper(attempt_pid, spawn_time)
+        return False
+
+    if not PortManager.belongs_to_project(listener_pid):
+        log_warn(
+            f"Port {port} is occupied by foreign process (PID {listener_pid}) — "
+            "leaving it untouched"
+        )
+        return True
+
+    if not kill_owned:
+        log_error(
+            f"Port {port} is occupied by project-owned process (PID {listener_pid}) "
+            "and kill_owned is False — aborting startup"
+        )
+        _terminate_attempt_wrapper(attempt_pid, spawn_time)
+        return False
+
+    freed = _handle_own_unhealthy(port)
+    if not freed or not PortManager.can_bind(port):
+        log_error(
+            f"Port {port} project-owned listener could not be stopped — "
+            "aborting startup"
+        )
+        _terminate_attempt_wrapper(attempt_pid, spawn_time)
+        return False
+
+    return True
+
+
 def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
     decision = PortManager.resolve_startup_port(
         preferred=cfg.backend_port,
@@ -3439,8 +3512,26 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
             )
             return False
 
+        # D-7: Retry applies ONLY to failures diagnosed as bind races
+        is_bind_race = (outcome == "bind") or (
+            outcome == "dead" and not PortManager.can_bind(port)
+        )
+        if not is_bind_race:
+            log_error("Backend crashed during startup")
+            PIDManager.clear_active_port()
+            _clear_backend_pid_if(pid)
+            return False
+
         if attempt >= MAX_PORT_ATTEMPTS:
             break
+
+        # Reconcile failed attempt before selecting next candidate (D-3, D-7)
+        if not _reconcile_failed_attempt(
+            port, pid, kill_owned=True, spawn_time=spawn_time
+        ):
+            PIDManager.clear_active_port()
+            _clear_backend_pid_if(pid)
+            return False
 
         if outcome == "dead":
             log_warn(f"Port {port} was taken during startup; retrying on the next candidate.")
