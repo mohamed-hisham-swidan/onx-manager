@@ -3298,6 +3298,54 @@ def _handle_own_unhealthy(port: int) -> bool:
     return False
 
 
+def _format_process_info(pid: int) -> str:
+    """Format PID with name and cmdline if cheaply available via psutil (D-10)."""
+    try:
+        import psutil
+
+        p = psutil.Process(pid)
+        name = ""
+        try:
+            name = p.name()
+        except Exception:
+            pass
+        cmdline = ""
+        try:
+            cmd = p.cmdline()
+            if cmd:
+                cmdline = " ".join(cmd[:5])
+        except Exception:
+            pass
+        details = []
+        if name:
+            details.append(f"name: {name}")
+        if cmdline:
+            details.append(f"cmdline: {cmdline}")
+        if details:
+            return f"PID {pid} ({', '.join(details)})"
+    except Exception:
+        pass
+    return f"PID {pid}"
+
+
+def _pid_points_at_survivor(stored_pid: int | None, survivor_pid: int | None) -> bool:
+    """Check if stored PID points at or is an ancestor of a surviving process (D-10)."""
+    if stored_pid is None or survivor_pid is None:
+        return False
+    if stored_pid == survivor_pid:
+        return True
+    try:
+        import psutil
+
+        proc = psutil.Process(survivor_pid)
+        for parent in proc.parents():
+            if parent.pid == stored_pid:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _terminate_attempt_wrapper(pid: int | None, spawn_time: float | None) -> None:
     """Terminate the attempt wrapper PID if alive, verified, and project-owned (O-8)."""
     if pid and PIDManager.is_alive(pid):
@@ -3330,9 +3378,8 @@ def _reconcile_failed_attempt(
     Returns False if startup must abort immediately (unresolved listener ownership, or owned
     listener could not be stopped).
     """
-    _clear_backend_pid_if(attempt_pid)
-
     if PortManager.can_bind(port):
+        _clear_backend_pid_if(attempt_pid)
         return True
 
     listener_pid = PortManager.get_pid_by_port(port)
@@ -3349,6 +3396,7 @@ def _reconcile_failed_attempt(
             f"Port {port} is occupied by foreign process (PID {listener_pid}) — "
             "leaving it untouched"
         )
+        _clear_backend_pid_if(attempt_pid)
         return True
 
     if not kill_owned:
@@ -3360,14 +3408,40 @@ def _reconcile_failed_attempt(
         return False
 
     freed = _handle_own_unhealthy(port)
-    if not freed or not PortManager.can_bind(port):
-        log_error(
-            f"Port {port} project-owned listener could not be stopped — "
-            "aborting startup"
-        )
-        _terminate_attempt_wrapper(attempt_pid, spawn_time)
+    survivor_pid = PortManager.get_pid_by_port(port)
+    if not freed or not PortManager.can_bind(port) or survivor_pid is not None:
+        if survivor_pid is not None:
+            survivor_desc = _format_process_info(survivor_pid)
+            log_warn(
+                f"Port {port} is still occupied after kill; "
+                f"surviving untracked process: {survivor_desc}"
+            )
+            log_error(
+                f"Port {port} project-owned listener could not be stopped "
+                f"(surviving process {survivor_desc}) — aborting startup"
+            )
+        else:
+            log_error(
+                f"Port {port} project-owned listener could not be stopped — "
+                "aborting startup"
+            )
+
+        if (
+            attempt_pid
+            and attempt_pid != survivor_pid
+            and not _pid_points_at_survivor(attempt_pid, survivor_pid)
+        ):
+            _terminate_attempt_wrapper(attempt_pid, spawn_time)
+        else:
+            stored_pid = PIDManager.read("backend")
+            points_at_survivor = survivor_pid is not None and _pid_points_at_survivor(
+                stored_pid, survivor_pid
+            )
+            if not points_at_survivor:
+                _clear_backend_pid_if(attempt_pid)
         return False
 
+    _clear_backend_pid_if(attempt_pid)
     return True
 
 
@@ -3529,8 +3603,15 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
         if not _reconcile_failed_attempt(
             port, pid, kill_owned=True, spawn_time=spawn_time
         ):
-            PIDManager.clear_active_port()
-            _clear_backend_pid_if(pid)
+            survivor_pid = PortManager.get_pid_by_port(port)
+            if not (survivor_pid is not None and PIDManager.read_active_port() == port):
+                PIDManager.clear_active_port()
+            stored_pid = PIDManager.read("backend")
+            points_at_survivor = survivor_pid is not None and _pid_points_at_survivor(
+                stored_pid, survivor_pid
+            )
+            if not points_at_survivor:
+                _clear_backend_pid_if(pid)
             return False
 
         if outcome == "dead":
@@ -3594,9 +3675,30 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
             log_warn(
                 f"Wrapper PID {last_attempt_pid} is foreign or unverified — skipping kill"
             )
+
+    survivor = PortManager.get_pid_by_port(port)
+    if survivor is not None or not PortManager.can_bind(port):
+        if survivor is not None:
+            survivor_desc = _format_process_info(survivor)
+            log_warn(
+                f"Port {port} is still occupied after kill; "
+                f"surviving untracked process: {survivor_desc}"
+            )
+            log_error(
+                f"Failed to free port {port}; untracked process {survivor_desc} still listening"
+            )
+        else:
+            log_error(f"Failed to free port {port}")
+
     log_error(f"Backend failed to start after {MAX_PORT_ATTEMPTS} attempt(s)")
-    PIDManager.clear_active_port()
-    _clear_backend_pid_if(last_attempt_pid)
+    if not (survivor is not None and PIDManager.read_active_port() == port):
+        PIDManager.clear_active_port()
+    stored_pid = PIDManager.read("backend")
+    points_at_survivor = survivor is not None and _pid_points_at_survivor(
+        stored_pid, survivor
+    )
+    if not points_at_survivor:
+        _clear_backend_pid_if(last_attempt_pid)
     return False
 
 

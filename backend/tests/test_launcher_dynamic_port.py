@@ -3493,3 +3493,167 @@ def test_final_attempt_bind_race_breaks_before_reconcile(
                 except subprocess.TimeoutExpired:
                     p.kill()
                     p.wait()
+
+
+def test_retry_aborts_when_previous_owned_listener_cannot_be_stopped(
+    tmp_path, monkeypatch, free_port
+):
+    """If previous owned listener cannot be stopped, abort startup immediately (D-3, D-10)."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+    monkeypatch.setattr("launcher.get_canonical_db_url", lambda: "sqlite:///test.db")
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher.ask_yes_no", lambda *_a, **_kw: True)
+
+    port1 = free_port
+    cand2 = free_port + 1
+
+    code = (
+        "# onx-manager\n"
+        "import socket, sys, time\n"
+        "s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+        "s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n"
+        f"s.bind(('127.0.0.1', {port1}))\n"
+        "s.listen(1)\n"
+        "sys.stdout.write('READY\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(20)\n"
+    )
+    listener_proc = subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdout=subprocess.PIPE,
+        text=True,
+        cwd=tmp_path,
+    )
+    procs = [listener_proc]
+
+    try:
+        ready = listener_proc.stdout.readline().strip()
+        assert ready == "READY"
+
+        attributed = PortManager.get_pid_by_port(port1)
+        if attributed != listener_proc.pid:
+            pytest.skip("Cannot attribute listener PID on this host")
+        assert PortManager.belongs_to_project(listener_proc.pid)
+
+        decisions = [
+            PortDecision(port=port1, reuse=False, source="preferred"),
+            PortDecision(port=cand2, reuse=False, source="scan"),
+        ]
+        monkeypatch.setattr(PortManager, "resolve_startup_port", MagicMock(side_effect=decisions))
+
+        opened_ports: list[int] = []
+
+        def fake_open_backend(_python, port, _env):
+            opened_ports.append(port)
+            return listener_proc.pid
+
+        monkeypatch.setattr(TerminalOpener, "open_backend", fake_open_backend)
+        monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+
+        warnings: list[str] = []
+        monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+        cfg = LauncherConfig(auto_install_deps=False, open_browser=False, startup_timeout=2)
+        res = start_backend(cfg, Path(sys.executable))
+
+        assert res is False
+        assert opened_ports == [port1]
+        assert any(str(listener_proc.pid) in w for w in warnings)
+        assert len(killed_pids) == 1
+        assert killed_pids == [listener_proc.pid]
+        assert PIDManager.read("backend") == listener_proc.pid
+    finally:
+        for p in procs:
+            if p.poll() is None:
+                p.terminate()
+                try:
+                    p.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    p.wait()
+
+
+def test_retry_verifies_port_freed_and_reports_survivors(
+    tmp_path, monkeypatch, free_port
+):
+    """Attempt fails, occupant survives kill_tree; report survivor without escalation (D-10)."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("launcher.BACKEND_LOG", tmp_path / "backend.log")
+    monkeypatch.setattr("launcher.get_canonical_db_url", lambda: "sqlite:///test.db")
+    monkeypatch.setattr("launcher.Spinner", MagicMock())
+    monkeypatch.setattr("launcher.ask_yes_no", lambda *_a, **_kw: True)
+
+    port1 = free_port
+
+    code = (
+        "# onx-manager\n"
+        "import socket, sys, time\n"
+        "s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+        "s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n"
+        f"s.bind(('127.0.0.1', {port1}))\n"
+        "s.listen(1)\n"
+        "sys.stdout.write('READY\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(20)\n"
+    )
+    listener_proc = subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdout=subprocess.PIPE,
+        text=True,
+        cwd=tmp_path,
+    )
+    procs = [listener_proc]
+
+    try:
+        ready = listener_proc.stdout.readline().strip()
+        assert ready == "READY"
+
+        attributed = PortManager.get_pid_by_port(port1)
+        if attributed != listener_proc.pid:
+            pytest.skip("Cannot attribute listener PID on this host")
+        assert PortManager.belongs_to_project(listener_proc.pid)
+
+        monkeypatch.setattr(
+            PortManager,
+            "resolve_startup_port",
+            lambda *_a, **_kw: PortDecision(port=port1, reuse=False, source="preferred"),
+        )
+        monkeypatch.setattr(TerminalOpener, "open_backend", lambda *_a, **_kw: listener_proc.pid)
+        monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
+
+        PIDManager.write_active_port(port1)
+
+        killed_pids: list[int] = []
+        monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
+
+        warnings: list[str] = []
+        monkeypatch.setattr("launcher.log_warn", warnings.append)
+
+        cfg = LauncherConfig(auto_install_deps=False, open_browser=False, startup_timeout=2)
+        res = start_backend(cfg, Path(sys.executable))
+
+        assert res is False
+        assert any(str(listener_proc.pid) in w for w in warnings)
+        assert len(killed_pids) == 1
+        assert killed_pids == [listener_proc.pid]
+        assert PIDManager.read("backend") == listener_proc.pid
+        assert PIDManager.read_active_port() == port1
+    finally:
+        for p in procs:
+            if p.poll() is None:
+                p.terminate()
+                try:
+                    p.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    p.wait()
