@@ -42,6 +42,7 @@ from launcher import (  # noqa: E402
     TerminalOpener,
     _backend_is_serving,
     _backend_supervisor_pid,
+    _capture_attempt_marker,
     _capture_process_create_time,
     _check_backend_provenance,
     _clear_backend_pid_if,
@@ -976,6 +977,198 @@ def test_f2_real_bind_error_end_to_end(monkeypatch, tmp_path):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+
+
+def test_read_backend_log_from_detects_same_inode_truncate_regrow(monkeypatch, tmp_path):
+    log_file = tmp_path / "backend.log"
+    monkeypatch.setattr("launcher.BACKEND_LOG", log_file)
+    monkeypatch.setattr("launcher.MCS_DIR", tmp_path / ".onx")
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    # Seed the log with a long prefix
+    log_file.write_text("Prefix log content line from previous session\n" * 20, encoding="utf-8")
+
+    token = _write_attempt_marker(log_file, 1)
+    identity = _stat_file_identity(log_file)
+    marker_bytes = _capture_attempt_marker(log_file, token)
+    saved_dev, saved_ino, saved_size = identity
+    assert marker_bytes is not None
+    assert saved_size > len(marker_bytes)
+
+    # In-place truncate (same inode) and regrow to > saved_size
+    regrown_content = (
+        marker_bytes.decode("utf-8")
+        + "appended output after regrown marker\n"
+        + "padding content to exceed saved size\n" * 30
+    )
+    regrown_bytes = regrown_content.encode("utf-8")
+    assert len(regrown_bytes) > saved_size
+
+    with log_file.open("r+b") as fh:
+        fh.truncate(0)
+        fh.seek(0)
+        fh.write(regrown_bytes)
+
+    new_st = log_file.stat()
+    assert (new_st.st_dev, new_st.st_ino) == (saved_dev, saved_ino)
+    assert new_st.st_size > saved_size
+
+    # Reader detects that bytes before saved_size mismatch marker_bytes and resets to 0
+    res = _read_backend_log_from(identity, marker_token=token, marker_bytes=marker_bytes)
+    assert "appended output after regrown marker\n" in res
+    assert "padding content to exceed saved size\n" in res
+    assert token not in res
+
+    # If the token is destroyed during regrow, reader returns empty string ("no evidence")
+    destroyed_content = "completely replaced content without marker\n" * 40
+    destroyed_bytes = destroyed_content.encode("utf-8")
+    assert len(destroyed_bytes) > saved_size
+    with log_file.open("r+b") as fh:
+        fh.truncate(0)
+        fh.seek(0)
+        fh.write(destroyed_bytes)
+
+    res_destroyed = _read_backend_log_from(
+        identity, marker_token=token, marker_bytes=marker_bytes
+    )
+    assert res_destroyed == ""
+
+
+def test_read_backend_log_from_normal_append_not_reset(monkeypatch, tmp_path):
+    log_file = tmp_path / "backend.log"
+    monkeypatch.setattr("launcher.BACKEND_LOG", log_file)
+    monkeypatch.setattr("launcher.MCS_DIR", tmp_path / ".onx")
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    log_file.write_text("Prefix log line before attempt marker\n" * 10, encoding="utf-8")
+
+    token = _write_attempt_marker(log_file, 1)
+    identity = _stat_file_identity(log_file)
+    marker_bytes = _capture_attempt_marker(log_file, token)
+    assert marker_bytes is not None
+
+    appended = "Server started successfully\nListening on port 8000\n"
+    with log_file.open("a", encoding="utf-8") as fh:
+        fh.write(appended)
+
+    # Bytes immediately before saved_size match marker_bytes -> no reset to 0
+    res = _read_backend_log_from(identity, marker_token=token, marker_bytes=marker_bytes)
+    assert res == appended
+    assert "Prefix log line" not in res
+    assert token not in res
+
+
+def test_read_backend_log_from_intact_marker_not_reset(monkeypatch, tmp_path):
+    log_file = tmp_path / "backend.log"
+    monkeypatch.setattr("launcher.BACKEND_LOG", log_file)
+    monkeypatch.setattr("launcher.MCS_DIR", tmp_path / ".onx")
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    # Seed log with prefix containing an old bind error that should NOT be picked up
+    log_file.write_text(
+        "Old attempt log with Errno 98 Address already in use\n" * 5, encoding="utf-8"
+    )
+
+    token = _write_attempt_marker(log_file, 2)
+    identity = _stat_file_identity(log_file)
+    marker_bytes = _capture_attempt_marker(log_file, token)
+    assert marker_bytes is not None
+
+    clean_lines = "INFO: Application startup complete.\nINFO: Uvicorn running\n"
+    with log_file.open("a", encoding="utf-8") as fh:
+        fh.write(clean_lines)
+
+    res = _read_backend_log_from(identity, marker_token=token, marker_bytes=marker_bytes)
+    # Intact marker before saved_size ensures reader does not reset to 0
+    assert res == clean_lines
+    assert "Address already in use" not in res
+    assert not _has_bind_error(res)
+
+
+def test_wait_for_backend_attempt_detects_bind_after_truncate_regrow(monkeypatch, tmp_path):
+    log_file = tmp_path / "backend.log"
+    monkeypatch.setattr("launcher.BACKEND_LOG", log_file)
+    monkeypatch.setattr("launcher.MCS_DIR", tmp_path / ".onx")
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    log_file.write_text("Prefix output from earlier run\n" * 25, encoding="utf-8")
+
+    token = _write_attempt_marker(log_file, 1)
+    identity = _stat_file_identity(log_file)
+    marker_bytes = _capture_attempt_marker(log_file, token)
+    saved_dev, saved_ino, saved_size = identity
+    assert marker_bytes is not None
+
+    regrown_content = (
+        marker_bytes.decode("utf-8")
+        + "[ERROR] [uvicorn.error] [Errno 98] Address already in use\n"
+        + "Padding text to exceed saved_size\n" * 30
+    )
+    regrown_bytes = regrown_content.encode("utf-8")
+    assert len(regrown_bytes) > saved_size
+
+    with log_file.open("r+b") as fh:
+        fh.truncate(0)
+        fh.seek(0)
+        fh.write(regrown_bytes)
+
+    new_st = log_file.stat()
+    assert (new_st.st_dev, new_st.st_ino) == (saved_dev, saved_ino)
+    assert new_st.st_size > saved_size
+
+    monkeypatch.setattr("launcher.check_backend_health", lambda _port: False)
+    monkeypatch.setattr(PIDManager, "is_alive", lambda _pid: True)
+
+    outcome = _wait_for_backend_attempt(
+        port=8000,
+        pid=12345,
+        timeout=0.2,
+        log_identity=identity,
+        marker_token=token,
+        marker_bytes=marker_bytes,
+    )
+    assert outcome == "bind"
+
+    # Separate assertion: if token is destroyed during regrow, outcome is "timeout" by design
+    destroyed_content = (
+        "[ERROR] [uvicorn.error] [Errno 98] Address already in use\n"
+        + "Padding text to exceed saved_size\n" * 30
+    )
+    destroyed_bytes = destroyed_content.encode("utf-8")
+    assert len(destroyed_bytes) > saved_size
+
+    with log_file.open("r+b") as fh:
+        fh.truncate(0)
+        fh.seek(0)
+        fh.write(destroyed_bytes)
+
+    outcome_destroyed = _wait_for_backend_attempt(
+        port=8000,
+        pid=12345,
+        timeout=0.2,
+        log_identity=identity,
+        marker_token=token,
+        marker_bytes=marker_bytes,
+    )
+    assert outcome_destroyed == "timeout"
+
+    # Also assert that a surviving marker region is not reset
+    prefix = "Prefix output from earlier run\n" * 25
+    intact_content = prefix + marker_bytes.decode("utf-8") + "clean log output\n"
+    with log_file.open("r+b") as fh:
+        fh.truncate(0)
+        fh.seek(0)
+        fh.write(intact_content.encode("utf-8"))
+
+    outcome_intact = _wait_for_backend_attempt(
+        port=8000,
+        pid=12345,
+        timeout=0.2,
+        log_identity=identity,
+        marker_token=token,
+        marker_bytes=marker_bytes,
+    )
+    assert outcome_intact == "timeout"
 
 
 def test_start_backend_writes_marker_before_capturing_identity(monkeypatch, tmp_path):
@@ -3257,8 +3450,8 @@ def test_retry_only_after_previous_foreign_occupant_is_ignored(
 
         attempts_waited = 0
 
-        def fake_wait(_port, _pid, _timeout, _log_id, *, marker_token=None):
-            _ = marker_token
+        def fake_wait(_port, _pid, _timeout, _log_id, *, marker_token=None, marker_bytes=None):
+            _ = (marker_token, marker_bytes)
             nonlocal attempts_waited
             attempts_waited += 1
             if attempts_waited == 1:
@@ -3310,8 +3503,8 @@ def test_retry_attempts_use_short_timeout(tmp_path, monkeypatch, free_port):
 
     recorded_timeouts: list[float] = []
 
-    def fake_wait(_port, _pid, timeout, _log_id, *, marker_token=None):
-        _ = marker_token
+    def fake_wait(_port, _pid, timeout, _log_id, *, marker_token=None, marker_bytes=None):
+        _ = (marker_token, marker_bytes)
         recorded_timeouts.append(timeout)
         if len(recorded_timeouts) == 1:
             return "bind"
@@ -3402,8 +3595,8 @@ def test_retry_after_dead_with_occupied_port_inspects_occupant_then_retries(
 
         attempts_waited = 0
 
-        def fake_wait(_port, _pid, _timeout, _log_id, *, marker_token=None):
-            _ = marker_token
+        def fake_wait(_port, _pid, _timeout, _log_id, *, marker_token=None, marker_bytes=None):
+            _ = (marker_token, marker_bytes)
             nonlocal attempts_waited
             attempts_waited += 1
             if attempts_waited == 1:

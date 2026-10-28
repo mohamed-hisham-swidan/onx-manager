@@ -3028,6 +3028,44 @@ def _write_attempt_marker(log_file: Path, attempt: int, token: str | None = None
     return token
 
 
+def _capture_attempt_marker(log_file: Path, token: str) -> bytes | None:
+    if not token:
+        return None
+    try:
+        if not log_file.is_file():
+            return None
+        size = log_file.stat().st_size
+        if size == 0:
+            return None
+        read_len = min(size, 4096)
+        with log_file.open("rb") as fh:
+            fh.seek(size - read_len)
+            chunk = fh.read(read_len)
+        if not chunk.endswith(b"\n"):
+            return None
+        last_nl = chunk[:-1].rfind(b"\n")
+        if last_nl == -1:
+            if read_len < size:
+                with log_file.open("rb") as fh:
+                    full = fh.read()
+                last_nl = full[:-1].rfind(b"\n")
+                line = full if last_nl == -1 else full[last_nl + 1 :]
+            else:
+                line = chunk
+        else:
+            line = chunk[last_nl + 1 :]
+        token_bytes = token.encode("utf-8")
+        if (
+            line.startswith(b"--- ONX LAUNCH ATTEMPT ")
+            and token_bytes in line
+            and line.endswith(b"\n")
+        ):
+            return line
+        return None
+    except OSError:
+        return None
+
+
 # Clarification from v3 design review:
 # Whenever the reader resets its offset to 0 (file identity changed or file shrank),
 # it must NEVER treat text that precedes the CURRENT attempt's marker as evidence.
@@ -3035,19 +3073,33 @@ def _write_attempt_marker(log_file: Path, attempt: int, token: str | None = None
 # the reader locates the last occurrence of the current token and only parses text
 # after it. If the token is not found, it returns empty string ('no evidence').
 # Identity is a 3-tuple of (st_dev, st_ino, st_size); marker_token is a required keyword argument.
+# Under F2b, if marker_bytes is provided, bytes immediately before saved_size are verified;
+# mismatch or short read triggers a reset to 0.
 def _read_backend_log_from(
     identity: tuple[int, int, int],
     *,
     marker_token: str,
+    marker_bytes: bytes | None = None,
 ) -> str:
     saved_dev, saved_ino, saved_size = identity
     try:
         if not BACKEND_LOG.is_file():
             return ""
         st = BACKEND_LOG.stat()
-        reset_to_zero = (st.st_dev, st.st_ino) != (saved_dev, saved_ino) or st.st_size < saved_size
+        reset_to_zero = (
+            (st.st_dev, st.st_ino) != (saved_dev, saved_ino) or st.st_size < saved_size
+        )
         with BACKEND_LOG.open("rb") as fh:
+            if not reset_to_zero and marker_bytes:
+                if saved_size < len(marker_bytes):
+                    reset_to_zero = True
+                else:
+                    fh.seek(saved_size - len(marker_bytes))
+                    if fh.read(len(marker_bytes)) != marker_bytes:
+                        reset_to_zero = True
+
             if reset_to_zero:
+                fh.seek(0)
                 content = fh.read().decode("utf-8", errors="replace")
                 if not marker_token:
                     return ""
@@ -3056,8 +3108,8 @@ def _read_backend_log_from(
                     return ""
                 newline_idx = content.find("\n", idx)
                 if newline_idx != -1:
-                    return content[newline_idx + 1:]
-                return content[idx + len(marker_token):]
+                    return content[newline_idx + 1 :]
+                return content[idx + len(marker_token) :]
             fh.seek(saved_size)
             return fh.read().decode("utf-8", errors="replace")
     except OSError:
@@ -3076,13 +3128,18 @@ def _wait_for_backend_attempt(
     log_identity: tuple[int, int, int],
     *,
     marker_token: str,
+    marker_bytes: bytes | None = None,
 ) -> str:
     """Return healthy | bind | dead | timeout for one launch attempt."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if check_backend_health(port):
             return "healthy"
-        if _has_bind_error(_read_backend_log_from(log_identity, marker_token=marker_token)):
+        if _has_bind_error(
+            _read_backend_log_from(
+                log_identity, marker_token=marker_token, marker_bytes=marker_bytes
+            )
+        ):
             return "bind"
         if not PIDManager.is_alive(pid):
             time.sleep(0.5)
@@ -3093,7 +3150,11 @@ def _wait_for_backend_attempt(
 
     if check_backend_health(port):
         return "healthy"
-    if _has_bind_error(_read_backend_log_from(log_identity, marker_token=marker_token)):
+    if _has_bind_error(
+        _read_backend_log_from(
+            log_identity, marker_token=marker_token, marker_bytes=marker_bytes
+        )
+    ):
         return "bind"
     return "timeout"
 
@@ -3526,6 +3587,7 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
         timeout = cfg.startup_timeout if attempt == 1 else min(15, cfg.startup_timeout)
         log_step("Backend", f"Starting on port {port} (attempt {attempt}/{MAX_PORT_ATTEMPTS})...")
         token = _write_attempt_marker(BACKEND_LOG, attempt)
+        marker_bytes = _capture_attempt_marker(BACKEND_LOG, token)
         log_identity = _stat_file_identity(BACKEND_LOG)
         pid = None
         spawn_time = None
@@ -3569,7 +3631,12 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
             spinner.start()
             try:
                 outcome = _wait_for_backend_attempt(
-                    port, pid, timeout, log_identity, marker_token=token
+                    port,
+                    pid,
+                    timeout,
+                    log_identity,
+                    marker_token=token,
+                    marker_bytes=marker_bytes,
                 )
             finally:
                 spinner.stop()
