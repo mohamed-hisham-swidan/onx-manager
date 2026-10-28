@@ -1898,6 +1898,12 @@ class SelfTester:
     """Runs comprehensive self-test and prints a report."""
 
     @staticmethod
+    def _check_backend_health(port: int) -> SelfTestResult:
+        if _backend_is_serving(port):
+            return SelfTestResult("Backend health", True, f"Running on {port}")
+        return SelfTestResult("Backend health", False, "Not running")
+
+    @staticmethod
     def run() -> list[SelfTestResult]:
         results: list[SelfTestResult] = []
 
@@ -1998,16 +2004,11 @@ class SelfTester:
             results.append(SelfTestResult("Ports available", False, "; ".join(port_issues)))
 
         # Try to detect running services
-        be_pid = PIDManager.read("backend")
         fe_pid = PIDManager.read("frontend")
-        be_alive = be_pid is not None and PIDManager.is_alive(be_pid)
         fe_alive = fe_pid is not None and PIDManager.is_alive(fe_pid)
         pa = PortManager.is_open
 
-        if be_alive or pa(effective_backend_port):
-            results.append(SelfTestResult("Backend health", True, f"Running on {effective_backend_port}"))
-        else:
-            results.append(SelfTestResult("Backend health", False, "Not running"))
+        results.append(SelfTester._check_backend_health(effective_backend_port))
 
         if fe_alive or pa(cfg.frontend_port):
             results.append(SelfTestResult("Frontend availability", True, "Running"))
@@ -2087,21 +2088,34 @@ class StatusDisplay:
 
     @staticmethod
     def _collect_service(name: str, port: int, *, verify_backend: bool = False) -> ServiceInfo:
+        effective_port = get_effective_backend_port(port) if verify_backend else port
         pid = PIDManager.read(name)
         alive = pid is not None and PIDManager.is_alive(pid)
-        port_open = PortManager.is_open(port)
-        panel_healthy = not verify_backend or (port_open and check_backend_health(port, timeout=1.0))
+        port_open = PortManager.is_open(effective_port)
         uptime: float | None = None
         started = PIDManager.get_started_at()
         if started:
             uptime = time.time() - started
-        actual_pid = PortManager.get_pid_by_port(port) if port_open and panel_healthy else pid
+
+        if verify_backend:
+            serving = _backend_is_serving(effective_port)
+            actual_pid = PortManager.get_pid_by_port(effective_port) if serving else None
+            return ServiceInfo(
+                name=name.capitalize(),
+                pid=actual_pid or (pid if serving else None),
+                running=serving,
+                port_open=port_open,
+                port=effective_port,
+                uptime=uptime,
+            )
+
+        actual_pid = PortManager.get_pid_by_port(effective_port) if port_open else pid
         return ServiceInfo(
             name=name.capitalize(),
             pid=actual_pid or pid,
-            running=alive or (port_open and panel_healthy),
+            running=alive or port_open,
             port_open=port_open,
-            port=port,
+            port=effective_port,
             uptime=uptime,
         )
 
@@ -2671,6 +2685,14 @@ def check_backend_health(port: int = BACKEND_PORT, timeout: float = 2.0) -> bool
                 return False
             data = json.loads(resp.read().decode("utf-8"))
             return isinstance(data, dict) and data.get("status") == "ok" and "version" in data
+    except Exception:
+        return False
+
+
+def _backend_is_serving(port: int, timeout: float = 1.0) -> bool:
+    """Return True only if the port has an open listener that returns the panel health signature."""
+    try:
+        return PortManager.is_open(port) and check_backend_health(port, timeout=timeout)
     except Exception:
         return False
 

@@ -37,8 +37,10 @@ from launcher import (  # noqa: E402
     PortManager,
     PortState,
     ProvenanceStatus,
+    SelfTester,
     StatusDisplay,
     TerminalOpener,
+    _backend_is_serving,
     _backend_supervisor_pid,
     _capture_process_create_time,
     _check_backend_provenance,
@@ -3657,3 +3659,164 @@ def test_retry_verifies_port_freed_and_reports_survivors(
                 except subprocess.TimeoutExpired:
                     p.kill()
                     p.wait()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Batch B7 (F5): Status Display & SelfTester Listener/Panel Signature Gate
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_status_reports_live_wrapper_without_listener_as_not_running(
+    tmp_path, monkeypatch, free_port
+):
+    """A live wrapper PID alone must NEVER be reported as running backend (F5, AC-10)."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    port = free_port
+    assert not PortManager.is_open(port)
+
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(10)"],
+        cwd=tmp_path,
+    )
+    try:
+        PIDManager.write("backend", proc.pid)
+        assert PIDManager.is_alive(proc.pid)
+
+        info = StatusDisplay._collect_service("backend", port, verify_backend=True)
+
+        assert _backend_is_serving(port) is False
+        assert info.running is False
+        assert info.pid is None
+        assert info.port_open is False
+        assert info.port == port
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
+
+def test_self_tester_run_backend_health_requires_listener(
+    tmp_path, monkeypatch, free_port
+):
+    """SelfTester.run 'Backend health' result must require _backend_is_serving (F5, AC-10)."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    ConfigManager._instance = None
+    ConfigManager._config = None
+
+    port = free_port
+    assert not PortManager.is_open(port)
+
+    cfg = LauncherConfig(
+        backend_port=port,
+        configured_backend_port=port,
+        auto_install_deps=False,
+        open_browser=False,
+    )
+    monkeypatch.setattr(
+        "launcher.ConfigManager.instance", lambda: MagicMock(load=lambda: cfg)
+    )
+
+    monkeypatch.setattr("launcher.Validator.check_python", lambda: ("3.12.0", "/fake/python"))
+    monkeypatch.setattr("launcher.Validator.check_node", lambda: "v20.0.0")
+    monkeypatch.setattr("launcher.Validator.check_npm", lambda: "10.0.0")
+    monkeypatch.setattr("launcher.Validator.check_project_structure", lambda: None)
+    monkeypatch.setattr("launcher.Validator.check_git", lambda: "master")
+    monkeypatch.setattr("launcher.Validator.check_venv", lambda: Path("/fake/venv"))
+    monkeypatch.setattr("launcher.find_backend_venv", lambda: None)
+    monkeypatch.setattr("launcher.Validator.check_frontend_deps", lambda: True)
+    monkeypatch.setattr("launcher.Validator.check_ports", lambda *_a, **_kw: [])
+    monkeypatch.setattr("launcher.TerminalOpener._find_terminal", lambda: ["xterm"])
+
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(10)"],
+        cwd=tmp_path,
+    )
+    try:
+        PIDManager.write("backend", proc.pid)
+        assert PIDManager.is_alive(proc.pid)
+
+        results = SelfTester.run()
+        health_results = [r for r in results if r.check == "Backend health"]
+        assert len(health_results) == 1
+        res = health_results[0]
+        assert res.status is False
+        assert "Not running" in res.detail
+
+        # Directly verify the testable seam
+        seam_res = SelfTester._check_backend_health(port)
+        assert seam_res.status is False
+        assert "Not running" in seam_res.detail
+    finally:
+        ConfigManager._instance = None
+        ConfigManager._config = None
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
+
+def test_status_uses_healthy_active_port_file(tmp_path, monkeypatch, free_port):
+    """Active port file metadata is used and effective port is reported (F5, AC-10)."""
+    mcs_dir = tmp_path / ".onx"
+    mcs_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("launcher.MCS_DIR", mcs_dir)
+    monkeypatch.setattr("launcher.PROJECT_ROOT", tmp_path)
+
+    # Ephemeral active port discovered dynamically via socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        active_port = s.getsockname()[1]
+        s.listen(1)
+
+        PIDManager.write_active_port(active_port)
+
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(10)"],
+            cwd=tmp_path,
+        )
+        try:
+            PIDManager.write("backend", proc.pid)
+
+            pref_port = free_port
+
+            monkeypatch.setattr(
+                "launcher.check_backend_health",
+                lambda p, *_a, **_kw: p == active_port,
+            )
+            monkeypatch.setattr(
+                PortManager,
+                "get_pid_by_port",
+                lambda p: proc.pid if p == active_port else None,
+            )
+
+            info = StatusDisplay._collect_service(
+                "backend", pref_port, verify_backend=True
+            )
+
+            assert info.running is True
+            assert info.port == active_port
+            assert info.port_open is True
+            assert info.pid == proc.pid
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
