@@ -22,6 +22,7 @@
 | v2 | 2026-10-20 | Applies the hard review. **MAJOR-1:** preflight now resolves and protects the active port in `check_services`, `check_db_lock`, `scan_orphans`, summary, and PID sync; foreign occupancy of the preferred port no longer makes preflight exit 1. **MAJOR-2:** fallback scanning now classifies every occupied candidate (including reuse of a healthy project backend) before spawning. **MAJOR-3/m2:** mutation row and interface cleanup. **M1:** corrected wording - an unresolvable PID skips the prompt, `kill_on_port` becomes a no-op, and startup fails at bind/timeout rather than killing. **M2:** retry failure discrimination no longer depends on wrapper death; per-attempt timeouts are defined. **M3:** explicit bash config parsing strategy. **M4:** preflight health uses the panel signature. **M5:** preference/active env meaning clarified. Minors: exact ownership markers, dirty-tree caveat, run-#2 live test, stop semantics, enum mapping, O-5. One additional conservatism fix: `HEALTHY_UNVERIFIED` is limited to unresolvable PIDs; a resolved non-project PID returning the panel signature is `FOREIGN` and is not reused (avoids proxying to another checkout's database). Owner decisions O-1..O-5 recorded as approved; ADR-0019 created. |
 | v3 | 2026-10-20 | Implementation and live verification. Wired `start_backend` to `resolve_startup_port`, added bounded retry/per-attempt timeouts and `ONX_PANEL_BIND_PORT`; propagated the active port to Vite, status, Swagger, and ReadyScreen; added `--stop` supervisor-tree cleanup and active-port clearing. Updated preflight (bash + Windows Python) for config precedence, panel-signature health, active-port protection, ancestor protection, and foreign-not-unclean summaries. Added `exclude_ports` for retries and three start-path tests. Live: backend on 8001 while 8000 is foreign, run-#2 reuse, preflight preservation, stop cleanup, and Vite `/health` proxy verified. Windows remains UNVERIFIED. |
 | v4 | 2026-10-20 | Status correctness and final local verification. `--status` now reports the backend as running only when the panel health signature validates; `get_effective_backend_port` trusts `.onx/backend.port` only when that signature is healthy, so a foreign listener on the preferred port is not shown as our backend. Added 2 tests (25 total in `test_launcher_dynamic_port.py`). Evidence: sequential backend suite 3282 passed / 6 skipped / 0 failed (3288 collected, 1006.55s); frontend 767 passed across 90 files; 6/6 quality gates PASS via `scripts/reverify`. CI and Windows remain UNVERIFIED. |
+| v5 | 2026-10-28 | Document amendments for D-3, D-7, and D-10 per `SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01`. Record dead constants `BACKEND_HEALTH_URL` and `SWAGGER_URL` in `launcher.py:98-99` marked for cleanup. |
 
 ---
 
@@ -133,6 +134,9 @@ Two backend processes sharing the same SQLite database are unsafe. Therefore a l
 
 `HEALTHY_UNVERIFIED` is reusable with a warning **only when the PID cannot be resolved**, so ownership cannot be checked; the panel signature is then the only evidence. A resolved PID that fails the ownership markers is treated as `FOREIGN` even if it returns the panel signature: reusing it could silently proxy the frontend to another checkout's database. `FOREIGN` and `UNKNOWN` are never signalled and are never reused.
 
+> **Amendment under D-3 (`SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01`):**
+> An `UNKNOWN` occupant (unresolved PID with invalid or unavailable panel signature) remaining on an attempted port blocks any subsequent candidate retry and causes startup to abort immediately. The launcher must never spawn another backend on a subsequent candidate port that could concurrently access the SQLite database while an unresolved occupant remains.
+
 ### Resolution order
 
 Evaluation runs once per launcher start, before any spawn:
@@ -177,6 +181,9 @@ Each attempt captures the current size of `.onx/logs/backend.log` before spawnin
 3. The wrapper is dead **and** the selected port is now bindable -> non-bind failure; do not retry.
 4. The wrapper is dead **and** the selected port is occupied -> bind race; retry.
 5. Attempt deadline reached with no health and no bind evidence -> generic startup timeout; do not retry, and report timeout rather than claiming a crash.
+
+> **Amendment under D-3 and D-7 (`SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01`):**
+> If rule 2 or rule 4 diagnoses a bind race, the occupant on the attempted port must be inspected before retrying. If ownership of the occupant is unresolved (`UNKNOWN`) or a project-owned process survives, the launcher must NOT retry on the next candidate and must abort immediately to protect SQLite database integrity. Retrying on the next candidate port is permitted only when no listener remains on the attempted port (`can_bind` succeeds) or the occupant is conclusively proven foreign. Generic crashes (rule 3) and timeouts (rule 5) remain non-retryable.
 
 Per-attempt timeout budget:
 
@@ -587,3 +594,18 @@ These are required before code lands. Items 1-2 are complete; items 3-6 remain f
 10. New tests pass, the sequential suite or CI run is green, and all six quality gates pass.
 11. Live verification evidence is recorded, including the run-#2 scenario; Windows is either verified or explicitly marked `UNVERIFIED`.
 12. No production Docker/nginx behavior changes.
+
+---
+
+## Amendments (SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01)
+
+This specification is formally amended by `docs/design/SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01.md`:
+
+1. **D-3 (Unresolved occupant blocks candidate retries; SQLite data safety):**
+   Following a failed attempt, if an occupant remains on the attempted port with unresolved ownership (`UNKNOWN`), startup must abort immediately without trying further candidate ports. Spawning another backend on another port while an unresolved process may be accessing the SQLite database risks database corruption and duplicate writers.
+2. **D-7 (Bind-race retry scope):**
+   Candidate port retries are strictly restricted to failures diagnosed as bind races (`outcome == "bind"` or `dead`+occupied), and only when the attempted port is free (`can_bind` succeeds) or occupied by a conclusively proven foreign process. Generic crashes and generic timeouts are non-retryable.
+3. **D-10 (No SIGKILL escalation; report survivors):**
+   No SIGKILL escalation is applied to surviving descendants during failure reconciliation or termination. If descendant processes survive SIGTERM, the launcher reports them and aborts startup without kill escalation.
+4. **Dead Constants Note (launcher.py:98-99):**
+   `BACKEND_HEALTH_URL` and `SWAGGER_URL` in `launcher.py` (lines ~98-99) are computed from the legacy fixed constant `BACKEND_PORT = 8000` and are not consumed elsewhere in the repository. They are documented as dead constants and marked for cleanup in follow-up maintenance (no code edits to `launcher.py` in Batch B9).

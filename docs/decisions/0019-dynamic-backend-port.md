@@ -68,9 +68,17 @@ running backend.
 6. **Foreign and unknown listeners are never signalled and never reused.** A resolved
    PID that fails ownership markers is foreign even if it returns the panel signature;
    `HEALTHY_UNVERIFIED` reuse is limited to unresolvable PIDs, with a warning.
+   *(Amended by D-3 in SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01: an unresolved listener
+   remaining on the attempted port after a failed launch forbids retrying on another
+   candidate port; startup must abort immediately to protect SQLite integrity.)*
 7. **Bounded bind-race retry:** at most 3 attempts. The initial attempt uses
    `startup_timeout` (default 120 s); retries use `min(15 s, startup_timeout)`. Retry
    only on bind evidence; do not retry a genuine crash or a generic timeout.
+   *(Amended by D-3 and D-7 in SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01: retrying on the
+   next candidate is permitted only for failures diagnosed as bind races (`outcome == "bind"`
+   or `dead`+occupied) and only when the attempted port is free (`can_bind` succeeds) or
+   conclusively foreign. If an occupant with unresolved ownership remains, retry is
+   prohibited and startup aborts immediately. Generic crashes and timeouts remain non-retryable.)*
 8. **Propagation:** launch uvicorn with the active port, set `ONX_PANEL_BIND_PORT` for
    the backend child, set `ONX_BACKEND_PORT` for the Vite child, and make status,
    self-test, Swagger, and ReadyScreen read the resolved port.
@@ -137,3 +145,18 @@ The full matrix is in the spec. Required evidence:
 6. Live scenario #2: run again with the backend still on `8001`; preflight preserves it,
    the launcher reuses it, and no second backend appears.
 7. Windows: same scenarios through `start.ps1`, or record `UNVERIFIED`.
+
+---
+
+## Amendments (SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01)
+
+The implementation and verification work recorded in `docs/design/SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01.md` amends this decision record:
+
+1. **D-3 (Unresolved listener forbids retry; SQLite safety):**
+   Following a failed attempt, if an occupant remains on the attempted port with unresolved ownership (`UNKNOWN`), startup must abort immediately. The launcher must never spawn another backend on a subsequent candidate port while an unresolved process might still be running and accessing the shared SQLite database. Retrying is permitted only when `can_bind` succeeds (port is free) or the occupant is conclusively proven foreign.
+2. **D-7 (Bind-race retry scope):**
+   Candidate port retries are strictly scoped to failures diagnosed as bind races (`outcome == "bind"` or `dead`+occupied). Generic crashes (`dead`+bindable) and generic startup timeouts remain non-retryable.
+3. **D-10 (No SIGKILL escalation; report survivors):**
+   During failure reconciliation and stop actions, there is no SIGKILL escalation to surviving descendants. If descendant processes survive termination (e.g. by ignoring SIGTERM), the launcher reports surviving processes and aborts without escalating.
+4. **Dead Constants Note (launcher.py:98-99):**
+   `BACKEND_HEALTH_URL` and `SWAGGER_URL` in `launcher.py` (lines ~98-99) are computed from the legacy fixed constant `BACKEND_PORT = 8000` and are not consumed elsewhere in the repository. They are recorded as dead constants and marked for cleanup in follow-up maintenance (no code edits in Batch B9).

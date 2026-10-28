@@ -60,7 +60,7 @@ npm run dev            # Vite dev server on :5173
 ```bash
 # Terminal 1 — Backend (auto-reload on file change)
 source backend/.venv/bin/activate
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000  # Default port; launcher resolves preferred port (precedence: ONX_BACKEND_PORT > MCS_BACKEND_PORT > .onx/config.json > 8000)
 
 # Terminal 2 — Frontend (HMR on file change)
 cd frontend && npm run dev
@@ -83,6 +83,7 @@ untracked real Minecraft server will not be touched.
 To force legacy behavior (kill any `mcs-*` session or Minecraft PID not in DB):
 
 ```bash
+# Note: port 8000 is default; use the active backend port from .onx/backend.port if running on a dynamic fallback port
 curl -X POST http://localhost:8000/api/v1/servers/reconcile \
   -H "Content-Type: application/json" \
   -d '{"scope": "system_wide"}'
@@ -97,7 +98,8 @@ curl -X POST http://localhost:8000/api/v1/servers/reconcile \
 Before starting, the project runs `scripts/preflight.sh` automatically to ensure a clean, reliable runtime environment without terminating healthy processes:
 
 1. **Smart Reconciliation Mode (Default)**:
-   - Probes `http://127.0.0.1:8000/health` (backend) and `http://127.0.0.1:5173` (frontend).
+   - Resolves preferred port via `ONX_BACKEND_PORT` > `MCS_BACKEND_PORT` > `.onx/config.json` > `8000` (invalid values warn and fall through), checking `.onx/backend.port` for an active fallback port.
+   - Probes backend panel health (`http://127.0.0.1:<port>/health`, requiring valid signature `status == "ok"` and `version`) and frontend (`http://127.0.0.1:5173`).
    - If a service is already running and healthy, it **preserves** the process and protects its child/parent process families.
    - Preserves active SQLite locks owned by the healthy backend.
    - Detects and terminates only inactive, stale, or dead duplicate processes that do not hold an active listening port.
@@ -116,9 +118,15 @@ Configuration via environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `MCS_BACKEND_PORT` | `8000` | Backend port to check |
+| `ONX_BACKEND_PORT` | `8000` (or `.onx/config.json`) | Preferred backend port (highest priority env override; range `1024..65535`) |
+| `MCS_BACKEND_PORT` | `8000` (or `.onx/config.json`) | Legacy backend port override (checked after `ONX_BACKEND_PORT`) |
 | `MCS_FRONTEND_PORT` | `5173` | Frontend port to check |
 | `MCS_PROJECT_ROOT` | auto-detected | Root dir for ownership checks |
+
+> **Dynamic Backend Port Behavior & Persistence:**
+> - Preferred port precedence: `ONX_BACKEND_PORT` > `MCS_BACKEND_PORT` > `.onx/config.json` `configured_backend_port` > `8000`. Invalid or out-of-range (`1024..65535`) values log a warning and fall through to the next source.
+> - Runtime active port is stored in `.onx/backend.port` (valid port range `1..65535`) upon successful health check; removed on stop or clean exit.
+> - `ConfigManager.save()` persists only `configured_backend_port` to `.onx/config.json`. Environment variable overrides are never written to config files.
 
 ## Available Scripts
 
@@ -145,7 +153,7 @@ All scripts are in `scripts/` (symlinked from project root):
 ## Frontend Commands
 
 ```bash
-npm run dev          # Vite dev server (:5173, proxies /api and /ws to :8000)
+npm run dev          # Vite dev server (:5173, proxies /api and /ws to active backend port, default :8000)
 npm run build        # tsc && vite build
 npm run preview      # Vite preview
 npm run test         # Vitest run
@@ -296,11 +304,11 @@ See [Architecture docs](architecture/ARCHITECTURE.md) for the full system design
 ## Debugging Tips
 
 - **Database lock errors**: Run `scripts/preflight.sh` to kill stale processes
-- **WebSocket not connecting**: Check Vite proxy config — `/ws` must proxy to `ws://localhost:8000` in development
+- **WebSocket not connecting**: Check Vite proxy config — `/ws` proxies to the active backend port (reads `ONX_BACKEND_PORT` propagated from `.onx/backend.port`, default `ws://localhost:8000`)
 - **Migration conflicts**: `alembic merge` to resolve branch points
 - **Stale query cache**: TanStack Query devtools (`@tanstack/react-query-devtools`) are included in the frontend
 - **401 on API calls**: Check auth store — tokens expire after 15 minutes; refresh is automatic but requires a valid refresh token
-- **FastAPI auto-docs**: Available at `http://localhost:8000/docs` (proxied from frontend dev server)
+- **FastAPI auto-docs**: Available at `http://localhost:<port>/docs` (where `<port>` is the active port from `.onx/backend.port`, default 8000; proxied from frontend dev server)
 
 ## Cross-References
 
