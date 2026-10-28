@@ -26,6 +26,3 @@ __tests__/
 .env
 .env.*
 !.env.example
-
-# Agent
-.ai/

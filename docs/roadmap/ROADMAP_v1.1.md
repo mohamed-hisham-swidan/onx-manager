@@ -3,14 +3,13 @@
 
 **Status:** ACTIVE LIVING ROADMAP — Phases 0, 1, 2, 3, 4, 5, and Core Architecture (Enterprise Branch Runtime Stages A–G + Frontend Batch) DONE / CLOSED; Phase 6 (Final Installs / Wrap-up) READY. Each phase is scoped at the level needed to write individual Design Specs per stage.
 **Supersedes:** `ROADMAP_v1.md` (2026-09-01 — external review found: no ground-truth baseline phase, a circular dependency between Phase 1 and Phase 2, branding conflated with functional UX, an unrecorded architecture-reorder decision, and looser language than the actual exit criteria implied). This version keeps every fact from v1.0 and fixes those five issues plus several smaller ones below.
-**Governing document:** [`docs/governance/GOVERNANCE.md`](../governance/GOVERNANCE.md).
 **Phase order:** dictated by Mohamed — ground truth first (new in v1.1), then bugs, backend, frontend, community-driven features, containers, core architecture refactor, install/wrap-up, and branding/UI polish **last**.
 
 ## Current Release Objective
 
 > Prepare ONX Manager for a safe, verified, cross-platform open-source release — every claim in this roadmap backed by evidence gathered in this session or later, not carried forward from a prior document.
 
-Any task, anywhere in this roadmap, should be explainable as serving this objective, or it doesn't belong in the current release scope (per `GOVERNANCE.md` §16, "why now?").
+Any task, anywhere in this roadmap, should be explainable as serving this objective, or it doesn't belong in the current release scope.
 
 ---
 
@@ -20,19 +19,19 @@ Any task, anywhere in this roadmap, should be explainable as serving this object
 
 **Scope — establish and freeze, with evidence, not assumption:**
 
-1. **Full test run, both platforms.** ✅ **VERIFIED (2026-09-02):** Linux CI and Windows CI suites run and verified green. Backend: 2,149 passed, 2 skipped, 0 failed; Frontend: 574 passed, 0 failed; CI quality gates: 5/5 PASS (`check-db-revision`, `check-ruff-baseline`, `check-version-propagation`, `check-route-contract`, `check-ps1-bom`). *(Note: A 6th gate, check-stray-db, was added on 2026-09-15 under commit 2aef9d8; current gate baseline is 6/6 PASS).* Recorded in `.ai/STATE.json`.
+1. **Full test run, both platforms.** ✅ **VERIFIED (2026-09-02):** Linux CI and Windows CI suites run and verified green. Backend: 2,149 passed, 2 skipped, 0 failed; Frontend: 574 passed, 0 failed; CI quality gates: 5/5 PASS (`check-db-revision`, `check-ruff-baseline`, `check-version-propagation`, `check-route-contract`, `check-ps1-bom`). *(Note: A 6th gate, check-stray-db, was added on 2026-09-15 under commit 2aef9d8; current gate baseline is 6/6 PASS).*
 2. **Windows lifecycle ground truth.** ✅ **RESOLVED & VERIFIED (2026-09-02):**
    - *Live code status:* YES, live code. `LocalWindowsProvider` is registered in `provider_factory` (`backend/app/modules/server/infrastructure/providers/__init__.py:20`) and is selected automatically on Windows (`default_provider_for_platform() == "local_windows"`).
    - *Execution mechanism:* Spawns detached processes via `subprocess.Popen` with `creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW` and `stdin=subprocess.PIPE` (supporting `/stop` and `save-all` graceful console shutdown before killing). It does **NOT** use the Win32 Job Objects API. Process liveness and tree cleanup are managed via `platform_pid_alive()` (`OpenProcess` + `GetExitCodeProcess` with `PROCESS_QUERY_LIMITED_INFORMATION` / `STILL_ACTIVE`) and `taskkill /F /T /PID` in `app.core.process_utils`.
    - *W-01–W-06 status:* All 6 historical design blockers from `docs/runtime/2026-08-29-windows-lifecycle-final-review.md` are resolved in code: W-01 (`running_start_time` DB persistence & `post_running_grace_seconds` setting verified in `test_windows_lifecycle_w01.py`), W-02 (`local_windows.py` provider rewrite verified in `test_local_windows_provider.py`), W-04 (`supervisor.py` exception boundary), W-05 (reconciliation grace window in `runtime_reconciliation.py`), and W-06 (`process_utils.py` cross-platform PID primitives). **Zero W-01–W-06 blockers remain.**
    - *Process survival:* Detached processes spawned with `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS` decouple from the backend process group, allowing managed servers to survive backend shutdown while preserving clean PID tracking upon restart.
 3. **`preflight.py` hang ground truth.** ✅ **RESOLVED & VERIFIED (2026-09-01):** Fixed per `SPEC-2026-09-01-WIN-LAUNCHER-01`. Root cause was unconstrained native Python invocations without STDIN lockdown causing REPL interactive hangs. Fixed via `New-OnxProcessStartInfo` shared PSI factory (mandatory `RedirectStandardInput=$true` + `StandardInput.Close()`), `Invoke-OnxProcessProbe` with `taskkill /F /T /PID` tree-kill on timeout, and `Invoke-OnxProcessSupervised`.
-4. **Repo/DB state.** ✅ **VERIFIED (2026-09-02):** Current Alembic head `b1e2100000009` (29 migrations verified). Current git state clean on master. The `_archive/` directory at repo root houses pre-reorganization artifacts, distinct from `.ai/archive/`. **Version documentation drift (CLOSED FINDING):** Documentation and `.ai/STATE.json` previously carried stale `"4.0.0"` references (historical artifact from earlier planning); actual code has been uniformly `0.1.0` across `pyproject.toml`, `package.json`, and runtime `get_app_version()` since commit `bb92fac7` (2026-08-26). All active documentation, test fixtures, and state files were systematically synchronized to `0.1.0` under `SPEC-2026-09-02-CLEANUP-AND-FULL-AUDIT-01`.
+4. **Repo/DB state.** ✅ **VERIFIED (2026-09-02):** Current Alembic head `b1e2100000009` (29 migrations verified). Current git state clean on master. The `_archive/` directory at repo root houses pre-reorganization artifacts. **Version documentation drift (CLOSED FINDING):** Documentation previously carried stale `"4.0.0"` references (historical artifact from earlier planning); actual code has been uniformly `0.1.0` across `pyproject.toml`, `package.json`, and runtime `get_app_version()` since commit `bb92fac7` (2026-08-26). All active documentation, test fixtures, and state files were systematically synchronized to `0.1.0` under `SPEC-2026-09-02-CLEANUP-AND-FULL-AUDIT-01`.
 5. **Old-roadmap claims spot-check.** ✅ **VERIFIED (2026-09-02):** Workstreams A, B, and C spot-checked and confirmed implemented in code: Workstream A (plugin markdown rendering in `PluginDetailPage.tsx`, 13/13 tests pass), Workstream B (diagnostics leak prevented in `diagnostics.py` and `get_runtime_diagnostics.py`), and Workstream C (Forge / NeoForge provisioners in `forge_provisioner.py` and `neoforge_provisioner.py`).
 
 **Gate:** Phase 0 has an owner and a hard expectation — this is investigation, not a place to live indefinitely. Target: resolved within the time it takes to run the test suites and do the two RECON passes (§2, §3 above) — not an open-ended research phase.
 
-**Exit criteria:** `.ai/STATE.json` contains real, freshly-verified numbers with no `UNVERIFIED` field left where evidence was obtainable. The Windows-lifecycle and `preflight.py` questions each have one evidence-backed answer, recorded. This baseline is then **frozen** — Phase 1 classifies against it, Phase 2/3 fix against it; nothing here gets silently re-investigated later without a new decision record.
+**Exit criteria:** The Windows-lifecycle and `preflight.py` questions each have one evidence-backed answer, recorded. This baseline is then **frozen** — Phase 1 classifies against it, Phase 2/3 fix against it; nothing here gets silently re-investigated later without a new decision record.
 
 ---
 
@@ -71,7 +70,7 @@ Receives everything routed here from Phase 1. Status of known contents:
 - Windows lifecycle real implementation/fix: ✅ Implemented & verified (`LocalWindowsProvider` live in `provider_factory`; W-01–W-06 closed; verified in `test_local_windows_provider.py` and `test_windows_lifecycle_w01.py`).
 - `preflight.py` fix: ✅ Fixed & verified (`SPEC-2026-09-01-WIN-LAUNCHER-01`).
 - Bug track 2 items: ✅ Fixed & verified (`SPEC-2026-09-01-BUGTRACK2-01`).
-- Full backend suite green on **both** Linux and Windows CI: ✅ Verified (2,339 passed, 5 skipped, 0 failed of 2,344 collected; frontend 642/642 across 75 files; `SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`; figures per `.ai/STATE.json` verified 2026-09-07 run).
+- Full backend suite green on **both** Linux and Windows CI: ✅ Verified (2,339 passed, 5 skipped, 0 failed of 2,344 collected; frontend 642/642 across 75 files; `SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`).
 - Re-verify the 5 CI quality-gate scripts genuinely pass: ✅ Verified (5/5 PASS; expanded to 6/6 PASS on 2026-09-15 with `check-stray-db`).
 - Workstream B (diagnostics-leak) re-verification: ✅ Verified in code.
 - Files API IDOR: Closed — NOT A VULNERABILITY (RECON-verified 2026-09-08: per-server ownership/membership enforced before any filesystem access; cross-server and path-traversal tests pass).
@@ -163,7 +162,7 @@ Scope (D2-bounded, RECON-evidenced; "Stage B" here is Phase 5.5 Test Run Engine,
 ## Phase 6 — Final Installs / Wrap-up
 
 **Status:** READY (Unblocked by completion of Phase 4, Phase 5, and Enterprise Branch Runtime Stages A–G + Frontend UI Batch)
-**Scope clarified in v1.1:** this is the *final public-facing* documentation and packaging pass — installer polish, first-run experience, distribution packaging, a last README/CONTRIBUTING review. It is **not** where documentation happens for the first time; per `GOVERNANCE.md` §10, docs stay synchronized with decisions and state continuously, throughout every phase above.
+**Scope clarified in v1.1:** this is the *final public-facing* documentation and packaging pass — installer polish, first-run experience, distribution packaging, a last README/CONTRIBUTING review. It is **not** where documentation happens for the first time; docs stay synchronized with decisions and state continuously, throughout every phase above.
 
 ## Phase 7 — Visual / Brand Polish *(renamed and narrowed in v1.1)*
 
@@ -182,7 +181,7 @@ Decision level: D2 (Major — roadmap drift, architectural)
 Roadmap drift: Controlled
 
 ## Context
-The prior roadmap (old ROADMAP.md / GOVERNANCE.md's original phase sketch)
+The prior roadmap (old ROADMAP.md)
 placed Docker containerization as Phase 11, well after launch-adjacent work.
 Mohamed's explicit phase order for the real roadmap places a working
 containers system at position 5 of 7, ahead of final install/wrap-up and
@@ -303,8 +302,7 @@ Accepted and completed 2026-09-11: Phase 5 (Containers System) built and closed 
 
 1. ~~What does "extended files not working properly" refer to?~~ — Resolved 2026-09-08: closed as Deferred without a definition (see Phase 1 table); no longer an open question.
 2. What does "GPS" refer to in "state-of-the-art validation of GPS/local mode/global mode"? (Phase 5)
-3. Is the agent-role-division idea (backend owner / frontend owner / network owner) something to formalize into `GOVERNANCE.md`, or keep informal?
-4. `preflight.py`'s real current status — this is now Phase 0's job to resolve with evidence, but if Mohamed already knows the answer, it saves a RECON pass.
+3. `preflight.py`'s real current status — this is now Phase 0's job to resolve with evidence, but if Mohamed already knows the answer, it saves a RECON pass.
 
 ---
 

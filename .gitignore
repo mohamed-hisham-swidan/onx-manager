@@ -85,15 +85,11 @@ Screenshot_*
 # ──────────────────────────────────────────────
 .history/
 
-# ──────────────────────────────────────────────
-# AI agent / session state (locks + bootstrap cache)
-# ──────────────────────────────────────────────
-# NOTE: .ai/ itself IS tracked (README.md, STATE.json, RULES/, archive/).
-# AGENTS.md at repo root is also tracked — every AI agent needs it on clone.
-# .ai/STATE.json IS committed and kept current (unlike the old
-# .ai/CURRENT_STATE.json generated-cache file it replaced, which is gone —
-.ai/locks/*.lock
-.ai/pls-agent-ignore-that/
+# Local-only AI/agent tooling (never tracked)
+.ai/
+/AGENTS.md
+/Orchestrator.md
+/docs/governance/GOVERNANCE.md
 
 # ──────────────────────────────────────────────
 # Coverage / Test Artifacts

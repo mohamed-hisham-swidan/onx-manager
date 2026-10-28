@@ -138,4 +138,3 @@ operation `provision`), `ForgeInstallTimeoutError` (`FORGE_INSTALL_TIMEOUT`),
 - `docs/architecture/PROVISIONING.md` (Forge section, lifecycle, layout,
   key source files) — updated.
 - `docs/plans/2026-08-19-fast-fixes.md` — updated with this run's decisions.
-- `.ai/CURRENT_STATE.json` — known_limitations + progress — updated.

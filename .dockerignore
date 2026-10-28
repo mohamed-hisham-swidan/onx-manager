@@ -57,7 +57,6 @@ backend/config/
 
 # Documentation & AI agent control directory
 docs/
-.ai/
 contracts/
 
 # Log files

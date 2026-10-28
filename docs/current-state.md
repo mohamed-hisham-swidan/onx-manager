@@ -93,7 +93,6 @@
 **Still open, not yet decided:**
 - 'GPS' definition (Phase 5 scope) — still undefined, same class of
   problem as extended-files/comment-feature (recon-confirmed undefined in code).
-- Whether to formalize agent-role division into GOVERNANCE.md.
 - Frontend visual identity — Mohamed flagged the live UI as looking
   generic/template-like; deliberately deferred to Phase 7 (Visual/
   Brand Polish) per roadmap order, not pulled forward.

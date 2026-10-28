@@ -24,4 +24,3 @@ Every test script must set BOTH variables to sandbox paths. The backend must be 
 - Production data is isolated from test/development operations
 - Test scripts are self-documenting (the sandbox paths are explicit in the command)
 - Developers must remember to set both variables (CI/CD will enforce this)
-- The `setsid` + env-var lesson is documented in `AGENTS.md` and `.ai/AI_RULES.md`

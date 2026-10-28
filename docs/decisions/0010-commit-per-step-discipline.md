@@ -25,4 +25,3 @@ This replaces the previous "batch-level commit at the end" pattern.
 - Slightly more commits, but each is smaller and focused
 - Easier code review (reviewers can verify one change at a time)
 - CI/CD can validate each commit independently
-- This discipline is now encoded in `.ai/AI_RULES.md` and `AGENTS.md`

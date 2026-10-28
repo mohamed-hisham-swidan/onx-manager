@@ -68,9 +68,6 @@ consistently in the backend, frontend, docs, and state files.
     no documented rule for "which DB revision a given app version expects" —
     **resolved**: per-release minimum DB revision, fail-closed, never auto-migrated
     (§4.3).
-5. **State files are hand-maintained.** `.ai/CURRENT_STATE.json` and
-   `.ai/PROJECT_STATE.json` carry `version` fields that can silently diverge from
-   code — managed under Phase 5.6 / B6-6.
 
 ---
 
@@ -177,8 +174,6 @@ Because state lives in SQLite/Postgres behind Alembic, define:
 
 ### 4.4 State-file discipline
 
-- `.ai/CURRENT_STATE.json` / `.ai/PROJECT_STATE.json` `version` fields align to
-  the resolved app version and note the verification date.
 - Docs do not assert a version number they cannot justify from the code;
   cross-cutting version claims are centralized in `docs/README.md`.
 
