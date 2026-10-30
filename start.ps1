@@ -4,12 +4,11 @@
     onx-manager Windows Launcher — PowerShell bootstrap
 .DESCRIPTION
     Invoked by start.bat (or wrapped by executors/start-debug.ps1). Handles:
-      1. Fast-path delegation to onx.exe if present
-      2. Python 3.12+ detection across common candidates
-      3. Auto-install via winget or official python.org installer
+      1. Python 3.12+ detection across common candidates
+      2. Auto-install via winget or official python.org installer
          (system-wide InstallAllUsers=1, with per-user fallback InstallAllUsers=0)
-      4. Preflight cleanup via scripts/preflight.py
-      5. Delegation to launcher.py
+      3. Preflight cleanup via scripts/preflight.py
+      4. Delegation to launcher.py
 
     Design notes (Revision 6 — Hardened Process-Execution Boundary):
       Spec: SPEC-2026-09-01-WIN-LAUNCHER-01
@@ -398,19 +397,7 @@ function Start-OnxBootstrap {
     }
 
     # ----------------------------------------------------------------------
-    # 1. Fast path: pre-built onx.exe
-    # ----------------------------------------------------------------------
-    $onxExe = Join-Path $scriptDir 'onx.exe'
-    if (Test-Path $onxExe) {
-        if ($env:ONX_DEBUG -eq '1') {
-            Write-Host "  Found pre-built onx.exe -- launching directly..."
-        }
-        & $onxExe @args
-        return $LASTEXITCODE
-    }
-
-    # ----------------------------------------------------------------------
-    # 2. Resolve Python interpreter
+    # 1. Resolve Python interpreter
     # ----------------------------------------------------------------------
     $venvPy = Join-Path $scriptDir 'backend\.venv\Scripts\python.exe'
 
@@ -453,7 +440,7 @@ function Start-OnxBootstrap {
         }
 
         # ----------------------------------------------------------------------
-        # 3. Auto-install Python if nothing found
+        # 2. Auto-install Python if nothing found
         # ----------------------------------------------------------------------
         if (-not $foundCmd) {
             Write-Warning 'Python 3.12+ not found on PATH. Attempting auto-install...'
@@ -504,7 +491,7 @@ function Start-OnxBootstrap {
         $pySubArg = if ($foundSubArg) { @($foundSubArg) } else { @() }
 
         # ----------------------------------------------------------------------
-        # 3b. Probe for Node.js 18+ and npm
+        # 2b. Probe for Node.js 18+ and npm
         # ----------------------------------------------------------------------
         $localNode = Join-Path $scriptDir '.onx\node'
         if (Test-Path (Join-Path $localNode 'node.exe')) {
@@ -521,7 +508,7 @@ function Start-OnxBootstrap {
     }
 
     # ----------------------------------------------------------------------
-    # 4. Validate launcher.py exists
+    # 3. Validate launcher.py exists
     # ----------------------------------------------------------------------
     $launcher = Join-Path $scriptDir 'launcher.py'
     if (-not (Test-Path $launcher)) {
@@ -529,7 +516,7 @@ function Start-OnxBootstrap {
     }
 
     # ----------------------------------------------------------------------
-    # 5. Run preflight (best-effort -- failures are warnings, not fatal)
+    # 4. Run preflight (best-effort -- failures are warnings, not fatal)
     # ----------------------------------------------------------------------
     $preflight = Join-Path $scriptDir 'scripts\preflight.py'
     if (Test-Path $preflight) {
@@ -551,7 +538,7 @@ function Start-OnxBootstrap {
     }
 
     # ----------------------------------------------------------------------
-    # 6. Launch
+    # 5. Launch
     # ----------------------------------------------------------------------
     $launcherArgs = @($pySubArg) + @($launcher) + @($args) | Where-Object { $_ -ne $null -and $_ -ne '' }
     $exitCode = Invoke-OnxProcessSupervised -Command $pyBin -Arguments $launcherArgs -WorkingDirectory $scriptDir

@@ -234,31 +234,6 @@ Both backend (uvicorn on :8000) and frontend (nginx on :80) are defined in
 `docker-compose.yml` at the repository root. Backend health checks are
 configured with a 30s interval and 5s timeout.
 
-## Windows Launcher (`start.exe`)
-
-For Windows environments, a standalone single-file launcher (`start.exe`) is provided at the repository root. It wraps `launcher.py` in onefile mode, providing one-click bootstrap: environment preflight, service health checks, terminal spawning, and browser opening.
-
-### Building `start.exe` (PyInstaller)
-
-To reproduce or rebuild the Windows executable using the provided `start.spec`:
-
-```bash
-# Install PyInstaller
-pip install pyinstaller
-
-# Build the onefile executable
-pyinstaller --clean start.spec
-
-# Copy output to root
-cp dist/start.exe ./start.exe
-```
-
-Or build directly from `launcher.py`:
-
-```bash
-pyinstaller --onefile --name start --clean launcher.py
-```
-
 ## Verification & CI Quality Gates
 
 Run the authoritative verification suite before pushing:

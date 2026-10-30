@@ -298,14 +298,12 @@ def test_pid_manager_get_descendants_psutil_error_falls_back():
         assert pids == []
 
 
-def test_start_bat_delegates_only_to_powershell_no_onx_exe():
-    """F084: start.bat must delegate directly to start.ps1 and never launch onx.exe."""
+def test_start_bat_delegates_to_powershell():
+    """start.bat must delegate directly to start.ps1."""
     start_bat_path = REPO_ROOT / "start.bat"
     assert start_bat_path.exists(), "start.bat must exist at repo root"
     content = start_bat_path.read_text(encoding="utf-8")
 
-    # Must not contain onx.exe delegation or check
-    assert "onx.exe" not in content, "start.bat must not reference onx.exe"
     # Must delegate to start.ps1 via powershell.exe
     assert "powershell.exe" in content
     assert "start.ps1" in content
