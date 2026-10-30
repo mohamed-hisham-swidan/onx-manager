@@ -1,3 +1,4 @@
+import stat
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -178,6 +179,13 @@ def test_auto_install_uses_single_installer_version():
 def test_auto_install_returns_none_if_reprobe_is_313():
     py313_path = Path("C:/Python313/python.exe")
 
+    orig_stat = Path.stat
+
+    def mock_stat(self, *args, **kwargs):
+        if "installer" in self.name:
+            return MagicMock(st_size=50_000_000, st_mode=stat.S_IFREG | 0o644)
+        return orig_stat(self, *args, **kwargs)
+
     with patch("os.name", "nt"), \
          patch(
              "shutil.which",
@@ -187,7 +195,7 @@ def test_auto_install_returns_none_if_reprobe_is_313():
          patch("time.sleep", return_value=None), \
          patch.object(launcher, "download_file", return_value=True), \
          patch("pathlib.Path.is_file", return_value=True), \
-         patch("pathlib.Path.stat", return_value=MagicMock(st_size=50_000_000)), \
+         patch.object(Path, "stat", mock_stat), \
          patch("pathlib.Path.unlink", return_value=None), \
          patch.object(launcher, "is_valid_python", return_value=False), \
          patch.object(launcher, "log_error"):
@@ -203,11 +211,18 @@ def test_auto_install_prefers_per_user_install():
         recorded_commands.append(cmd)
         return MagicMock(returncode=1)
 
+    orig_stat = Path.stat
+
+    def mock_stat(self, *args, **kwargs):
+        if "installer" in self.name:
+            return MagicMock(st_size=50_000_000, st_mode=stat.S_IFREG | 0o644)
+        return orig_stat(self, *args, **kwargs)
+
     with patch("os.name", "nt"), \
          patch("shutil.which", return_value=None), \
          patch.object(launcher, "download_file", return_value=True), \
          patch("pathlib.Path.is_file", return_value=True), \
-         patch("pathlib.Path.stat", return_value=MagicMock(st_size=50_000_000)), \
+         patch.object(Path, "stat", mock_stat), \
          patch("pathlib.Path.unlink", return_value=None), \
          patch("subprocess.run", side_effect=mock_subprocess_run), \
          patch("time.sleep", return_value=None), \
