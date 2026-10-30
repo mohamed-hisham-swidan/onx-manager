@@ -89,6 +89,24 @@ BACKEND_PORT = 8000
 FRONTEND_PORT = 5173
 PORT_SCAN_SPAN = 100
 MAX_PORT_ATTEMPTS = 3
+PINNED_PYTHON: tuple[int, int] = (3, 12)
+PINNED_PYTHON_DISPLAY = "3.12"
+PYTHON_INSTALLER_VERSION = "3.12.8"
+PYTHON_INSTALLER_URL = (
+    f"https://www.python.org/ftp/python/{PYTHON_INSTALLER_VERSION}/"
+    f"python-{PYTHON_INSTALLER_VERSION}-amd64.exe"
+)
+WINDOWS_PYTHON_STOP_TEXT = (
+    "Python 3.12.x was not found or could not be installed. "
+    "onx-manager requires exactly Python 3.12; 3.13/3.14 are not supported. "
+    "Install Python 3.12 from python.org, then re-run start.bat."
+)
+POSIX_PYTHON_STOP_TEXT = (
+    "Python 3.12.x is required. onx-manager does not support Python 3.13/3.14. "
+    "Install Python 3.12 with one of: 'uv python install 3.12' (recommended), "
+    "'brew install python@3.12' (macOS), or your distro's python3.12 package, "
+    "then re-run ./start.sh."
+)
 
 
 def backend_health_url(port: int) -> str:
@@ -1676,15 +1694,22 @@ class Validator:
         ver = platform.python_version()
         try:
             major, minor = (int(x) for x in ver.split(".")[:2])
-            if major < 3 or (major == 3 and minor < 12):
-                raise ValidationError(
-                    f"Python {ver} is too old (need 3.12+)",
-                    "Install Python 3.12+ from https://python.org",
-                )
-        except ValidationError:
-            raise
+            is_pinned = (major, minor) == PINNED_PYTHON
         except Exception:
-            pass
+            is_pinned = sys.version_info[:2] == PINNED_PYTHON
+
+        if not is_pinned:
+            raise ValidationError(
+                (
+                    f"Python {ver} is not supported: onx-manager requires exactly "
+                    f"Python {PINNED_PYTHON_DISPLAY}.x (3.13 and 3.14 are not supported)."
+                ),
+                (
+                    "Run start.ps1 (Windows) or start.sh (Linux/macOS) so Python 3.12 "
+                    "is installed and selected, or invoke launcher.py with a Python "
+                    "3.12 interpreter."
+                ),
+            )
         python_path = find_backend_venv()
         if python_path is None:
             python_path = Path("python3" if os.name != "nt" else "python")
@@ -2282,28 +2307,68 @@ def find_backend_venv() -> Path | None:
     return None
 
 
+def _venv_removal_target() -> Path | None:
+    """Validate and return backend/.venv path for removal per safe-delete guard (§5.4)."""
+    if VENV_DIR.is_symlink() or (hasattr(VENV_DIR, "is_junction") and VENV_DIR.is_junction()):
+        raise ValidationError(
+            "Refusing to delete backend/.venv: it is a symlink or junction.",
+            "Remove it manually, then re-run the launcher.",
+        )
+    if not VENV_DIR.exists():
+        return None  # no-op: nothing to delete
+    repo_root = PROJECT_ROOT.resolve()
+    expected = repo_root / "backend" / ".venv"
+    actual = VENV_DIR.resolve()
+    if actual != expected.resolve() or actual.parent != (repo_root / "backend").resolve():
+        raise ValidationError(
+            f"Refusing to delete unexpected path: {actual}",
+            f"Expected {expected}. Remove it manually, then re-run the launcher.",
+        )
+    return actual
+
+
+def _remove_stale_venv() -> None:
+    """Safely remove backend/.venv if present after passing the safe-delete guard."""
+    target = _venv_removal_target()
+    if target is None:
+        return
+    try:
+        shutil.rmtree(str(target))
+    except Exception as e:
+        raise ValidationError(
+            f"Failed to delete stale virtual environment at {target}: {e}",
+            "Remove backend/.venv manually, then re-run the launcher.",
+        ) from e
+
+
 def is_valid_python(py_path: Path | str) -> bool:
-    """Check if the given python path exists and is Python 3.12+."""
+    """Check if the given python path exists and is Python 3.12."""
     try:
         res = subprocess.run(
-            [str(py_path), "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
-            capture_output=True, text=True, timeout=5,
+            [
+                str(py_path),
+                "-c",
+                "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if res.returncode == 0:
             parts = res.stdout.strip().split(".")
             major, minor = int(parts[0]), int(parts[1])
-            return major > 3 or (major == 3 and minor >= 12)
+            return (major, minor) == PINNED_PYTHON
     except Exception:
         pass
     return False
 
 
 def find_system_python() -> Path | None:
-    """Find any available Python 3.12+ executable on the host system."""
+    """Find any available Python 3.12 executable on the host system."""
     candidates: list[Path | str] = []
 
     # Check PATH commands
-    for name in ("python", "python3", "py"):
+    for name in ("python3.12", "python", "python3", "py"):
         found = shutil.which(name)
         if found:
             candidates.append(Path(found))
@@ -2312,17 +2377,15 @@ def find_system_python() -> Path | None:
     if os.name == "nt":
         local_app = os.environ.get("LOCALAPPDATA", "")
         if local_app:
-            candidates.extend([
-                Path(local_app) / "Programs" / "Python" / "Python313" / "python.exe",
-                Path(local_app) / "Programs" / "Python" / "Python312" / "python.exe",
-            ])
+            candidates.append(
+                Path(f"{local_app}/Programs/Python/Python312/python.exe")
+            )
         program_files = os.environ.get("ProgramFiles", "C:/Program Files")
-        candidates.extend([
-            Path(program_files) / "Python313" / "python.exe",
-            Path(program_files) / "Python312" / "python.exe",
-            Path("C:/Python313/python.exe"),
-            Path("C:/Python312/python.exe"),
-        ])
+        candidates.append(Path(f"{program_files}/Python312/python.exe"))
+        program_files_x86 = os.environ.get("ProgramFiles(x86)")
+        if program_files_x86:
+            candidates.append(Path(f"{program_files_x86}/Python312/python.exe"))
+        candidates.append(Path("C:/Python312/python.exe"))
 
     for c in candidates:
         if isinstance(c, str):
@@ -2402,6 +2465,81 @@ def download_file(url: str, dest: Path, description: str = "Downloading") -> boo
     return False
 
 
+def reprobe_windows_python() -> Path | None:
+    """Re-probe for an exact Python 3.12 interpreter by absolute path on Windows."""
+    # Refresh PATH from registry if running on Windows
+    if os.name == "nt":
+        try:
+            import winreg
+
+            new_paths: list[str] = []
+            for hkey, subkey in (
+                (
+                    winreg.HKEY_LOCAL_MACHINE,
+                    r"System\CurrentControlSet\Control\Session Manager\Environment",
+                ),
+                (winreg.HKEY_CURRENT_USER, r"Environment"),
+            ):
+                try:
+                    with winreg.OpenKey(hkey, subkey) as k:
+                        val, _ = winreg.QueryValueEx(k, "Path")
+                        if val:
+                            new_paths.append(str(val))
+                except OSError:
+                    pass
+            if new_paths:
+                os.environ["PATH"] = ";".join(new_paths) + ";" + os.environ.get("PATH", "")
+        except Exception:
+            pass
+
+    # Add local AppData Python path to PATH if available
+    local_app = os.environ.get("LOCALAPPDATA", "")
+    if local_app:
+        py_dir = Path(f"{local_app}/Programs/Python/Python312")
+        scripts_dir = Path(f"{local_app}/Programs/Python/Python312/Scripts")
+        if py_dir.is_dir():
+            os.environ["PATH"] = f"{py_dir};{scripts_dir};{os.environ.get('PATH', '')}"
+
+    # Absolute path candidates in §5.1 step 8 order
+    candidates: list[Path] = []
+    if local_app:
+        candidates.append(
+            Path(f"{local_app}/Programs/Python/Python312/python.exe")
+        )
+    program_files = os.environ.get("ProgramFiles", "C:/Program Files")
+    candidates.append(Path(f"{program_files}/Python312/python.exe"))
+    program_files_x86 = os.environ.get("ProgramFiles(x86)")
+    if program_files_x86:
+        candidates.append(Path(f"{program_files_x86}/Python312/python.exe"))
+    candidates.append(Path("C:/Python312/python.exe"))
+
+    for c in candidates:
+        if c.is_file() and is_valid_python(c):
+            try:
+                return c.resolve()
+            except Exception:
+                return c
+
+    # Command-based probes to resolve absolute interpreter path
+    for cmd in (
+        ["py", f"-{PINNED_PYTHON_DISPLAY}", "-c", "import sys; print(sys.executable)"],
+        [f"python{PINNED_PYTHON_DISPLAY}", "-c", "import sys; print(sys.executable)"],
+    ):
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if res.returncode == 0 and res.stdout.strip():
+                p = Path(res.stdout.strip())
+                if p.is_file() and is_valid_python(p):
+                    try:
+                        return p.resolve()
+                    except Exception:
+                        return p
+        except Exception:
+            pass
+
+    return None
+
+
 def auto_install_python_windows() -> Path | None:
     """Auto-download and install official Python 3.12 on Windows."""
     # 1. Try winget first if available
@@ -2419,61 +2557,78 @@ def auto_install_python_windows() -> Path | None:
             if res.returncode == 0:
                 log_ok("Python 3.12 installed via winget")
                 time.sleep(2)
-                found = find_system_python()
+                found = reprobe_windows_python()
                 if found:
                     return found
         except Exception:
             pass
 
     # 2. Download official installer from python.org
-    installer_url = "https://www.python.org/ftp/python/3.12.8/python-3.12.8-amd64.exe"
+    installer_url = PYTHON_INSTALLER_URL
     tmp_dir = MCS_DIR / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    installer_path = tmp_dir / "python-3.12.8-installer.exe"
+    installer_path = tmp_dir / f"python-{PYTHON_INSTALLER_VERSION}-installer.exe"
 
     log_step("Python", "Downloading Python 3.12 installer from python.org...")
     try:
-        downloaded = download_file(installer_url, installer_path, "Downloading Python 3.12 installer")
-
-        if not downloaded or not installer_path.is_file() or installer_path.stat().st_size < 1000000:
-            log_error("Failed to download Python installer (empty or incomplete file)")
-            return None
-
-        log_ok(f"Downloaded Python installer ({installer_path.stat().st_size / (1024 * 1024):.1f} MB)")
-
-        log_step("Python", "Running Python installer (passive user install)...")
-        install_res = subprocess.run(
-            [
-                str(installer_path),
-                "/passive",
-                "InstallAllUsers=0",
-                "PrependPath=1",
-                "Include_pip=1",
-                "Include_test=0",
-            ],
-            capture_output=True, text=True, timeout=300,
+        downloaded = download_file(
+            installer_url,
+            installer_path,
+            "Downloading Python 3.12 installer",
         )
+
+        if (
+            not downloaded
+            or not installer_path.is_file()
+            or installer_path.stat().st_size < 1000000
+        ):
+            log_error("Failed to download Python installer (empty or incomplete file)")
+        else:
+            log_ok(
+                f"Downloaded Python installer "
+                f"({installer_path.stat().st_size / (1024 * 1024):.1f} MB)"
+            )
+            for install_all_users in ("InstallAllUsers=0", "InstallAllUsers=1"):
+                mode = (
+                    "per-user"
+                    if install_all_users == "InstallAllUsers=0"
+                    else "system-wide"
+                )
+                log_step("Python", f"Running Python installer ({mode})...")
+                install_res = subprocess.run(
+                    [
+                        str(installer_path),
+                        "/passive",
+                        install_all_users,
+                        "PrependPath=1",
+                        "Include_pip=1",
+                        "Include_test=0",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                if install_res.returncode == 0:
+                    log_ok(f"Python 3.12 installation complete ({mode})")
+                    time.sleep(2)
+                    found = reprobe_windows_python()
+                    if found:
+                        return found
+                else:
+                    log_warn(
+                        f"Python installer ({mode}) exited with code "
+                        f"{install_res.returncode}"
+                    )
+    except Exception as e:
+        log_error(f"Failed to auto-download/install Python: {e}")
+    finally:
         try:
-            installer_path.unlink()
+            if installer_path.is_file():
+                installer_path.unlink()
         except OSError:
             pass
 
-        if install_res.returncode == 0:
-            log_ok("Python 3.12 installation complete")
-            time.sleep(2)
-            # Add newly installed Python to current PATH
-            local_app = os.environ.get("LOCALAPPDATA", "")
-            if local_app:
-                py_dir = Path(local_app) / "Programs" / "Python" / "Python312"
-                scripts_dir = py_dir / "Scripts"
-                if py_dir.is_dir():
-                    os.environ["PATH"] = f"{py_dir};{scripts_dir};{os.environ.get('PATH', '')}"
-            return find_system_python()
-        else:
-            log_error(f"Python installer exited with code {install_res.returncode}")
-    except Exception as e:
-        log_error(f"Failed to auto-download/install Python: {e}")
-
+    log_error(WINDOWS_PYTHON_STOP_TEXT)
     return None
 
 
@@ -2630,47 +2785,201 @@ def auto_install_node_windows() -> bool:
         return False
 
 
+def install_python_posix() -> Path | None:
+    """Attempt to install Python 3.12 on Linux/macOS via uv, brew, or versioned packages."""
+    # 1. uv (recommended)
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        log_step("Python", "Attempting Python 3.12 installation via uv...")
+        try:
+            res_install = subprocess.run(
+                [uv_bin, "python", "install", PINNED_PYTHON_DISPLAY],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if res_install.returncode == 0:
+                res_find = subprocess.run(
+                    [uv_bin, "python", "find", PINNED_PYTHON_DISPLAY],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if res_find.returncode == 0:
+                    cand = Path(res_find.stdout.strip())
+                    if is_valid_python(cand):
+                        log_ok(f"Python 3.12 found via uv: {cand}")
+                        return cand.resolve()
+        except Exception as e:
+            log_warn(f"uv Python installation note: {e}")
+
+    # 2. Homebrew (macOS / Linuxbrew)
+    brew_bin = shutil.which("brew")
+    if brew_bin:
+        log_step("Python", "Attempting Python 3.12 installation via Homebrew...")
+        try:
+            res_install = subprocess.run(
+                [brew_bin, "install", f"python@{PINNED_PYTHON_DISPLAY}"],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if res_install.returncode == 0:
+                res_prefix = subprocess.run(
+                    [brew_bin, "--prefix", f"python@{PINNED_PYTHON_DISPLAY}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if res_prefix.returncode == 0:
+                    prefix = res_prefix.stdout.strip()
+                    cand = Path(prefix) / "bin" / f"python{PINNED_PYTHON_DISPLAY}"
+                    if is_valid_python(cand):
+                        log_ok(f"Python 3.12 found via Homebrew: {cand}")
+                        return cand.resolve()
+        except Exception as e:
+            log_warn(f"Homebrew Python installation note: {e}")
+
+    # 3. Versioned distro package managers (apt, dnf)
+    apt_bin = shutil.which("apt-get")
+    if apt_bin:
+        log_step("Python", "Attempting Python 3.12 installation via apt...")
+        try:
+            subprocess.run(
+                ["sudo", "apt-get", "update"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            res_install = subprocess.run(
+                [
+                    "sudo",
+                    "apt-get",
+                    "install",
+                    "-y",
+                    f"python{PINNED_PYTHON_DISPLAY}",
+                    f"python{PINNED_PYTHON_DISPLAY}-venv",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if res_install.returncode == 0:
+                cand_str = shutil.which(f"python{PINNED_PYTHON_DISPLAY}")
+                if cand_str and is_valid_python(cand_str):
+                    log_ok(f"Python 3.12 found via apt: {cand_str}")
+                    return Path(cand_str).resolve()
+        except Exception as e:
+            log_warn(f"apt Python installation note: {e}")
+
+    dnf_bin = shutil.which("dnf")
+    if dnf_bin:
+        log_step("Python", "Attempting Python 3.12 installation via dnf...")
+        try:
+            res_install = subprocess.run(
+                [
+                    "sudo",
+                    "dnf",
+                    "install",
+                    "-y",
+                    f"python{PINNED_PYTHON_DISPLAY}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if res_install.returncode == 0:
+                cand_str = shutil.which(f"python{PINNED_PYTHON_DISPLAY}")
+                if cand_str and is_valid_python(cand_str):
+                    log_ok(f"Python 3.12 found via dnf: {cand_str}")
+                    return Path(cand_str).resolve()
+        except Exception as e:
+            log_warn(f"dnf Python installation note: {e}")
+
+    # pacman: do not install unversioned python; skip to STOP
+    log_error(POSIX_PYTHON_STOP_TEXT)
+    return None
+
+
 def ensure_python_environment() -> Path | None:
-    """Ensure a Python 3.12+ environment exists for the backend (auto-downloading and creating venv if needed)."""
+    """Ensure a Python 3.12 environment exists for the backend.
+
+    Auto-downloads and creates venv if needed.
+    """
     # 1. If backend/.venv already has a valid Python, use it
     venv_py = find_backend_venv()
     if venv_py and is_valid_python(venv_py):
         return venv_py
 
-    # 2. Find system Python
+    # 2. If a venv exists and is not exact 3.12 (wrong, corrupt, or unrunnable), remove it
+    if (
+        VENV_DIR.exists()
+        or VENV_DIR.is_symlink()
+        or (hasattr(VENV_DIR, "is_junction") and VENV_DIR.is_junction())
+    ):
+        ver_str = "unknown"
+        if venv_py:
+            try:
+                res = subprocess.run(
+                    [
+                        str(venv_py),
+                        "-c",
+                        "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    ver_str = res.stdout.strip()
+            except Exception:
+                pass
+        log_info(f"Removing backend/.venv (Python {ver_str} is not 3.12).")
+        _remove_stale_venv()
+
+    # 3. Find system Python
     sys_py = find_system_python()
     if sys_py is None:
         if os.name == "nt":
-            log_warn("Python 3.12+ not found. Attempting automatic download & installation...")
+            log_warn("Python 3.12 not found. Attempting automatic download & installation...")
             sys_py = auto_install_python_windows()
         else:
-            log_error("Python 3.12+ not found on system.")
-            return None
+            log_warn("Python 3.12 not found. Attempting automatic installation...")
+            sys_py = install_python_posix()
 
     if sys_py is None:
         return None
 
-    # 3. Create backend virtual environment
+    # 4. Create backend virtual environment with exact 3.12 absolute path
     log_step("Backend", f"Creating virtual environment at {VENV_DIR}...")
     try:
+        sys_py_abs = sys_py.resolve() if isinstance(sys_py, Path) else Path(sys_py).resolve()
         VENV_DIR.parent.mkdir(parents=True, exist_ok=True)
         res = subprocess.run(
-            [str(sys_py), "-m", "venv", str(VENV_DIR)],
+            [str(sys_py_abs), "-m", "venv", str(VENV_DIR)],
             cwd=str(BACKEND_DIR),
-            capture_output=True, text=True, timeout=90,
+            capture_output=True,
+            text=True,
+            timeout=90,
         )
         if res.returncode != 0:
             log_error(f"Failed to create virtual environment:\n{res.stderr[:400]}")
-            return sys_py
+            return None
         created_venv = find_backend_venv()
-        if created_venv:
+        if created_venv and is_valid_python(created_venv):
             log_ok(f"Created virtual environment at {VENV_DIR}")
             install_backend_deps(created_venv)
             return created_venv
+        else:
+            log_error(
+                f"Created virtual environment at {VENV_DIR} does not contain "
+                f"a valid Python {PINNED_PYTHON_DISPLAY} interpreter."
+            )
+            _remove_stale_venv()
+            return None
     except Exception as e:
         log_error(f"Error creating virtual environment: {e}")
-
-    return sys_py
+        return None
 
 
 def check_backend_health(port: int = BACKEND_PORT, timeout: float = 2.0) -> bool:
@@ -2718,7 +3027,7 @@ def install_backend_deps(python: Path) -> bool:
 
     try:
         # On Windows, netifaces lacks Python 3.12 binary wheels and requires MSVC C++ tools.
-        # netifaces-plus is the official modern drop-in wheel replacement for Windows Python 3.12+.
+        # netifaces-plus is the official modern drop-in wheel replacement for Windows Python 3.12.
         if os.name == "nt":
             subprocess.run(
                 [str(python), "-m", "pip", "install", "--no-warn-script-location", "netifaces-plus", "defusedxml"],
@@ -2879,13 +3188,20 @@ def validate_startup_prerequisites(cfg: LauncherConfig) -> tuple[bool, Path | No
 
     # 1. Python environment
     log_step("Python", "Checking interpreter and virtual environment...")
-    python = ensure_python_environment()
+    try:
+        python = ensure_python_environment()
+    except ValidationError as e:
+        ErrorHandler.show(str(e), e.fix)
+        return False, None
     if python is None:
+        stop_text = (
+            WINDOWS_PYTHON_STOP_TEXT
+            if sys.platform == "win32"
+            else POSIX_PYTHON_STOP_TEXT
+        )
         ErrorHandler.show(
-            "No Python 3.12+ interpreter found.",
-            f"Install Python 3.12+ from https://python.org, then run:\n"
-            f"  cd {BACKEND_DIR} && python -m venv .venv\n"
-            f"  .venv/bin/pip install -r requirements.txt",
+            f"No Python {PINNED_PYTHON_DISPLAY} interpreter found.",
+            stop_text,
         )
         return False, None
 
@@ -3564,15 +3880,24 @@ def start_backend(cfg: LauncherConfig, python: Path | None = None) -> bool:
         return True
 
     if python is None:
-        python = ensure_python_environment()
+        try:
+            python = ensure_python_environment()
+        except ValidationError as e:
+            PIDManager.clear_active_port()
+            _clear_backend_pid_if(None)
+            ErrorHandler.show(str(e), e.fix)
+            return False
         if python is None:
             PIDManager.clear_active_port()
             _clear_backend_pid_if(None)
+            stop_text = (
+                WINDOWS_PYTHON_STOP_TEXT
+                if sys.platform == "win32"
+                else POSIX_PYTHON_STOP_TEXT
+            )
             ErrorHandler.show(
-                "No Python interpreter found.",
-                f"Install Python 3.12+ from https://python.org, then run:\n"
-                f"  cd {BACKEND_DIR} && python -m venv .venv\n"
-                f"  .venv/bin/pip install -r requirements.txt",
+                f"No Python {PINNED_PYTHON_DISPLAY} interpreter found.",
+                stop_text,
             )
             return False
 
