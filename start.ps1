@@ -4,9 +4,9 @@
     onx-manager Windows Launcher — PowerShell bootstrap
 .DESCRIPTION
     Invoked by start.bat (or wrapped by executors/start-debug.ps1). Handles:
-      1. Python 3.12+ detection across common candidates
+      1. Python 3.12 detection across common candidates
       2. Auto-install via winget or official python.org installer
-         (system-wide InstallAllUsers=1, with per-user fallback InstallAllUsers=0)
+         (per-user InstallAllUsers=0 first, with system-wide fallback InstallAllUsers=1)
       3. Preflight cleanup via scripts/preflight.py
       4. Delegation to launcher.py
 
@@ -35,8 +35,8 @@
               prevent REPL hangs, bounded 3s timeout, and diagnostic reporting.
       Fix #2: Installer argument array named $installerArgs (not $args) so
               PowerShell's automatic $args (user CLI flags) is never clobbered.
-      Fix #3: Per-user fallback (InstallAllUsers=0) actually implemented when
-              system-wide install fails, with both exit codes in error message.
+      Fix #3: Per-user install (InstallAllUsers=0) attempted first, with
+              system-wide fallback (InstallAllUsers=1).
       Fix #4: scripts/preflight.py uses Get-CimInstance + ctypes (no wmic).
       Fix #5: Long-running launcher.py executed via Invoke-OnxProcessSupervised
               (System.Diagnostics.Process with stdin closed, Task-based live
@@ -399,23 +399,30 @@ function Start-OnxBootstrap {
     # ----------------------------------------------------------------------
     # 1. Resolve Python interpreter
     # ----------------------------------------------------------------------
-    $venvPy = Join-Path $scriptDir 'backend\.venv\Scripts\python.exe'
+    $venvPy    = Join-Path $scriptDir 'backend\.venv\Scripts\python.exe'
+    $venvValid = $false
 
     if (Test-Path $venvPy) {
-        # Venv already exists -- use it directly (no sub-arg needed)
-        if ($env:ONX_DEBUG -eq '1') {
-            Write-Host "  Using virtual environment: $venvPy"
+        $res = Invoke-OnxProcessProbe -Command $venvPy -Arguments @('-c', 'import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)') -TimeoutMs 3000
+        if ($res.Success) {
+            # Venv already exists and is Python 3.12 -- use it directly (no sub-arg needed)
+            if ($env:ONX_DEBUG -eq '1') {
+                Write-Host "  Using virtual environment: $venvPy"
+            }
+            $pyBin     = $venvPy
+            $pySubArg  = @()
+            $venvValid = $true
+        } else {
+            Write-Warning "Existing virtual environment ($venvPy) is not a functional Python 3.12 interpreter. Falling through to system Python..."
         }
-        $pyBin    = $venvPy
-        $pySubArg = @()
-    } else {
+    }
+
+    if (-not $venvValid) {
         $candidates = @(
-            @{ Name='py -3.13';   Cmd='py';         SubArg='-3.13'; Args=@('-3.13', '-c', 'import sys; sys.exit(0 if sys.version_info >= (3,13) else 1)') },
-            @{ Name='py -3.12';   Cmd='py';         SubArg='-3.12'; Args=@('-3.12', '-c', 'import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)') },
-            @{ Name='python3.13'; Cmd='python3.13'; SubArg='';      Args=@('-c', 'import sys; sys.exit(0 if sys.version_info >= (3,13) else 1)') },
-            @{ Name='python3.12'; Cmd='python3.12'; SubArg='';      Args=@('-c', 'import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)') },
-            @{ Name='python3';    Cmd='python3';    SubArg='';      Args=@('-c', 'import sys; sys.exit(0 if sys.version_info >= (3,) else 1)') },
-            @{ Name='python';     Cmd='python';     SubArg='';      Args=@('-c', 'import sys; sys.exit(0 if sys.version_info >= (3,) else 1)') }
+            @{ Name='py -3.12';   Cmd='py';         SubArg='-3.12'; Args=@('-3.12', '-c', 'import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)') },
+            @{ Name='python3.12'; Cmd='python3.12'; SubArg='';      Args=@('-c', 'import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)') },
+            @{ Name='python';     Cmd='python';     SubArg='';      Args=@('-c', 'import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)') },
+            @{ Name='python3';    Cmd='python3';    SubArg='';      Args=@('-c', 'import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)') }
         )
 
         $foundCmd    = $null
@@ -439,56 +446,113 @@ function Start-OnxBootstrap {
             }
         }
 
-        # ----------------------------------------------------------------------
-        # 2. Auto-install Python if nothing found
-        # ----------------------------------------------------------------------
-        if (-not $foundCmd) {
-            Write-Warning 'Python 3.12+ not found on PATH. Attempting auto-install...'
+        if ($foundCmd) {
+            $pyBin    = $foundCmd
+            $pySubArg = if ($foundSubArg) { @($foundSubArg) } else { @() }
+        } else {
+            # ------------------------------------------------------------------
+            # 2. Auto-install Python if nothing found
+            # ------------------------------------------------------------------
+            Write-Warning 'Python 3.12 not found on PATH. Attempting auto-install...'
+
+            $pythonInstallerVersion = '3.12.8'
+            $url       = "https://www.python.org/ftp/python/$pythonInstallerVersion/python-$pythonInstallerVersion-amd64.exe"
+            $installer = Join-Path $env:TEMP "python-$pythonInstallerVersion-amd64.exe"
 
             $winget = Get-Command winget -ErrorAction SilentlyContinue
+            $wingetInstalled = $false
             if ($winget) {
                 Write-Host '  Installing Python 3.12 via winget...'
                 & winget install Python.Python.3.12 -e --silent --accept-source-agreements --accept-package-agreements
-                if ($LASTEXITCODE -ne 0) {
-                    throw "winget Python install failed (exit $LASTEXITCODE)"
+                if ($LASTEXITCODE -eq 0) {
+                    $wingetInstalled = $true
+                } else {
+                    Write-Warning "  winget Python install failed (exit $LASTEXITCODE). Falling back to official installer..."
                 }
-                $foundCmd    = 'python'
-                $foundSubArg = ''
-            } else {
-                Write-Host '  winget not available. Downloading Python 3.12 official installer...'
-                $url       = 'https://www.python.org/ftp/python/3.12.4/python-3.12.4-amd64.exe'
-                $installer = Join-Path $env:TEMP 'python-3.12.4-amd64.exe'
+            }
 
+            if (-not $wingetInstalled) {
+                Write-Host '  Downloading Python 3.12 official installer...'
                 try {
                     Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing -ErrorAction Stop
                 } catch {
                     throw "Failed to download Python installer: $_"
                 }
 
-                Write-Host '  Attempting system-wide install (InstallAllUsers=1)...'
-                $installerArgs = @('/quiet', 'InstallAllUsers=1', 'PrependPath=1', 'Include_test=0')
+                Write-Host '  Attempting per-user install (InstallAllUsers=0)...'
+                $installerArgs = @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_test=0')
                 $proc = Start-Process -FilePath $installer -ArgumentList $installerArgs -Wait -PassThru
 
                 if ($proc.ExitCode -ne 0) {
-                    Write-Warning "  System-wide install failed (exit $($proc.ExitCode)). Retrying as per-user (InstallAllUsers=0)..."
-                    $installerArgs = @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_test=0')
+                    Write-Warning "  Per-user install failed (exit $($proc.ExitCode)). Retrying system-wide (InstallAllUsers=1)..."
+                    $installerArgs = @('/quiet', 'InstallAllUsers=1', 'PrependPath=1', 'Include_test=0')
                     $proc2 = Start-Process -FilePath $installer -ArgumentList $installerArgs -Wait -PassThru
 
                     if ($proc2.ExitCode -ne 0) {
-                        throw "Python installer failed: system-wide exit=$($proc.ExitCode), per-user exit=$($proc2.ExitCode)"
+                        Write-Warning "  Python installer failed: per-user exit=$($proc.ExitCode), system-wide exit=$($proc2.ExitCode)"
+                    } else {
+                        Write-Host '  Python installed system-wide.'
                     }
-                    Write-Host '  Python installed (per-user). You may need to open a new terminal.'
                 } else {
-                    Write-Host '  Python installed system-wide.'
+                    Write-Host '  Python installed (per-user). You may need to open a new terminal.'
                 }
+            }
 
-                $foundCmd    = 'python'
-                $foundSubArg = ''
+            # ------------------------------------------------------------------
+            # Re-probe for exact Python 3.12 interpreter
+            # ------------------------------------------------------------------
+            $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+            $userPath    = [Environment]::GetEnvironmentVariable('Path', 'User')
+            if ($machinePath -or $userPath) {
+                $env:Path = "$userPath;$machinePath;$($env:Path)"
+            }
+
+            $reprobePaths = @()
+            if ($env:LOCALAPPDATA) {
+                $reprobePaths += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe')
+            }
+            if ($env:ProgramFiles) {
+                $reprobePaths += (Join-Path $env:ProgramFiles 'Python312\python.exe')
+            }
+            $progFilesX86 = ${env:ProgramFiles(x86)}
+            if ($progFilesX86) {
+                $reprobePaths += (Join-Path $progFilesX86 'Python312\python.exe')
+            }
+            $reprobePaths += 'C:\Python312\python.exe'
+
+            foreach ($cmdCandidate in @(
+                @{ Cmd = 'py'; Args = @('-3.12', '-c', 'import sys; print(sys.executable)') },
+                @{ Cmd = 'python3.12'; Args = @('-c', 'import sys; print(sys.executable)') }
+            )) {
+                $execRes = Invoke-OnxProcessProbe -Command $cmdCandidate.Cmd -Arguments $cmdCandidate.Args -TimeoutMs 3000
+                if ($execRes.Success -and $execRes.StdOut) {
+                    $resolvedPath = ($execRes.StdOut).Trim()
+                    if ($resolvedPath -and -not ($reprobePaths -contains $resolvedPath)) {
+                        $reprobePaths += $resolvedPath
+                    }
+                }
+            }
+
+            $reprobeSuccess = $false
+            foreach ($target in $reprobePaths) {
+                if (Test-Path $target) {
+                    $probeRes = Invoke-OnxProcessProbe -Command $target -Arguments @('-c', 'import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)') -TimeoutMs 3000
+                    if ($probeRes.Success) {
+                        $pyBin          = $target
+                        $pySubArg       = @()
+                        $reprobeSuccess = $true
+                        if ($env:ONX_DEBUG -eq '1') {
+                            Write-Host "  Re-probed Python 3.12 interpreter: $pyBin"
+                        }
+                        break
+                    }
+                }
+            }
+
+            if (-not $reprobeSuccess) {
+                throw "Python 3.12.x was not found or could not be installed. onx-manager requires exactly Python 3.12. Install Python 3.12 using 'winget install Python.Python.3.12' or the python.org $pythonInstallerVersion installer, then re-run start.bat."
             }
         }
-
-        $pyBin    = $foundCmd
-        $pySubArg = if ($foundSubArg) { @($foundSubArg) } else { @() }
 
         # ----------------------------------------------------------------------
         # 2b. Probe for Node.js 18+ and npm
