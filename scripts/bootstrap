@@ -6,7 +6,36 @@ echo "=== Bootstrap Development Environment ==="
 # Backend
 echo "[1/4] Creating backend virtual environment..."
 cd "$(dirname "$0")/../backend"
-python3 -m venv .venv
+PYTHON_EXACT_PROBE='import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)'
+if [ -e .venv/bin/python ] || [ -L .venv/bin/python ]; then
+    if [ -x .venv/bin/python ] && .venv/bin/python -c "$PYTHON_EXACT_PROBE" &>/dev/null; then
+        :
+    else
+        echo "Error: backend/.venv is not Python 3.12. Run 'python launcher.py' or './start.sh' to recreate it." >&2
+        exit 1
+    fi
+else
+    PY312=""
+    for cmd in python3.12 python3 python; do
+        if command -v "$cmd" &>/dev/null; then
+            cand="$(command -v "$cmd")"
+            if "$cand" -c "$PYTHON_EXACT_PROBE" &>/dev/null; then
+                PY312="$cand"
+                break
+            fi
+        fi
+    done
+    if [ -z "$PY312" ]; then
+        echo "" >&2
+        echo "  ✖ Python 3.12.x is required. onx-manager does not support Python 3.13/3.14." >&2
+        echo "  Install Python 3.12 with one of: 'uv python install 3.12' (recommended)," >&2
+        echo "  'brew install python@3.12' (macOS), or your distro's python3.12 package," >&2
+        echo "  then re-run scripts/bootstrap." >&2
+        echo "" >&2
+        exit 1
+    fi
+    "$PY312" -m venv .venv
+fi
 source .venv/bin/activate
 
 echo "[2/4] Installing backend dependencies..."

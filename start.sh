@@ -11,10 +11,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAUNCHER="${SCRIPT_DIR}/launcher.py"
 PYTHON=""
-PINNED_PYTHON="3.12"
-# Exact probe helper string (matches SPEC-2026-10-29 §4.3: sys.version_info[:2] == (3,12))
+# Exact probe helper string: accept only Python 3.12.x
 PYTHON_EXACT_PROBE='import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)'
-PYTHON_EXEC_PROBE='import sys; print(sys.executable)'
 
 is_python_312() {
     local cmd="${1:-}"
@@ -84,9 +82,12 @@ if [ -z "$PYTHON" ]; then
     if [ -z "$PYTHON" ] && command -v brew &>/dev/null; then
         echo "  ▸ Installing Python via Homebrew..."
         brew install python@3.12 || true
-        cand="$(brew --prefix python@3.12 2>/dev/null || true)/bin/python3.12"
-        if is_python_312 "$cand"; then
-            PYTHON="$cand"
+        prefix="$(brew --prefix python@3.12 2>/dev/null || true)"
+        if [ -n "$prefix" ]; then
+            cand="${prefix}/bin/python3.12"
+            if is_python_312 "$cand"; then
+                PYTHON="$cand"
+            fi
         fi
     fi
 fi
