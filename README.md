@@ -6,7 +6,7 @@
 
 Manage multiple servers, monitor them live, handle backups, browse plugins, and expose them to the internet. All in one dashboard. No cloud required.
 
-[![Python](https://img.shields.io/badge/Python-3.12+-3776ab?style=flat-square&logo=python&logoColor=white)](#)
+[![Python](https://img.shields.io/badge/Python-3.12-3776ab?style=flat-square&logo=python&logoColor=white)](#)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178c6?style=flat-square&logo=typescript&logoColor=white)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#)
@@ -80,7 +80,7 @@ It's built for people who want full control over their servers without relying o
 
 ## Quick Start (Zero Config)
 
-**Automated Setup**: If Python 3.12+ or Node.js 22 LTS is missing, the launcher will **automatically install** them with zero administrator rights required.
+**Automated Setup**: If Python 3.12 or Node.js 22 LTS is missing, the launcher will **automatically install** them with zero administrator rights required.
 
 ### Windows
 
@@ -99,7 +99,7 @@ cd onx-manager
 ```
 
 ### What the Launcher Does Automatically:
-1. **Prerequisite Gate**: Probes and verifies Python 3.12+, Node.js 22 LTS, and npm upfront before starting any server.
+1. **Prerequisite Gate**: Probes and verifies Python 3.12, Node.js 22 LTS, and npm upfront before starting any server.
 2. **Auto-Installation**: Automatically downloads and configures Python and portable Node.js 22 LTS if not present on your system.
 3. **Dependency Management**: Creates the Python virtual environment and installs backend/frontend dependencies (`pip` & `npm install`).
 4. **Database Readiness**: Automatically reconciles and applies database schema migrations to the latest revision.

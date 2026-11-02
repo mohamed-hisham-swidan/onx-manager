@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Python** 3.12+ (3.14+ supported)
+- **Python** 3.12 (exact; 3.13/3.14 are not supported by the installer)
 - **Node.js** 20+ (Node.js 22 LTS portable auto-installed on Windows if missing)
 - **PostgreSQL 16+** (optional — SQLite with WAL mode is the zero-config default)
 - **Git**
@@ -32,7 +32,7 @@ start.bat
 
 ### Debug & Tracing Launchers
 For deep troubleshooting and process tracing:
-- Windows: `executors/start-debug.bat` (or PowerShell `executors/start-debug.ps1`)
+- Windows: `executors/start-debug.ps1` (PowerShell)
 - Unix: `executors/start-debug.sh`
 
 ## Manual Setup

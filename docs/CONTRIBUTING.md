@@ -19,7 +19,7 @@ Thanks for your interest in contributing to ONX Manager! This guide covers the d
 
 | Requirement | Standard |
 |---|---|
-| Runtime | Python 3.12+ |
+| Runtime | Python 3.12 (exact for the launcher; `requires-python = ">=3.12"`) |
 | Linter | `ruff` — no new violations beyond baseline (`./scripts/check-ruff-baseline`) |
 | Type checker | `pyright` — strict mode, type hints everywhere (`./scripts/typecheck`) |
 | Testing | `pytest` — TDD preferred, coverage ≥ 90% for new code |

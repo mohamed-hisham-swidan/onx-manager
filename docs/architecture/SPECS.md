@@ -23,11 +23,11 @@ repository shape, code statistics, structure, specs, and features.**
 
 ## 2. Technology stack
 
-### Backend — Python 3.12+ (FastAPI modular monolith, CQRS)
+### Backend — Python 3.12 (installer-pinned; FastAPI modular monolith, CQRS)
 
 | Category | Choice |
 |---|---|
-| Language | Python `>=3.12` (`requires-python = ">=3.12"`, targets `py312`, Python 3.14 compatible) |
+| Language | Python `>=3.12` (`requires-python = ">=3.12"`, targets `py312`, installer pins 3.12) |
 | Web framework | FastAPI `>=0.115` (ASGI, via Uvicorn) |
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |

@@ -174,7 +174,7 @@ Both must be set together when running test/development backends. Because `setsi
 
 | Component | Choice |
 |-----------|--------|
-| Language | Python 3.12+ (`requires-python = ">=3.12"`; CI runs 3.12) |
+| Language | Python 3.12 (installer-pinned; `requires-python = ">=3.12"`; CI runs 3.12) |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
 | Migrations | Alembic (42 revisions, head `b1e2100000022`) |
