@@ -47,7 +47,11 @@ installers. The governing spec is
 - B3 `5e718a5` (`start.ps1`)
 - B4 `b46947c` (`start.sh`)
 - B5a `70f1e35` (`scripts/bootstrap` + `start.sh` tidy)
-- B5b docs wording and B6a tests: commit hash pending
+- B5b docs wording `315d5c0`
+- B6a tests `671a0ce`
+- B6b ADR + decisions index `7bd86f5`
+
+CI on 7bd86f5: Backend Tests (ubuntu-latest, push) run 41439915100 passed. windows-ci (workflow_dispatch) run 41500641374 failed with 23 failed / 3381 passed / 69 skipped; the same 23 tests failed in the scheduled windows-ci run 41416383328 on 5e718a5 (before B4-B6), so these failures predate B4-B6a; none is in backend/tests/test_start_sh_python_pin.py. One of the 23 is backend/tests/test_launcher_python_pin.py::test_check_python_accepts_312 (a Windows path-separator assertion in a pin test from B1); five are in backend/tests/test_launcher_dynamic_port.py.
 
 ## Consequences
 
@@ -76,4 +80,5 @@ installers. The governing spec is
 - Add `timeout 10` to the `scripts/bootstrap` probe (`start.sh` already has it).
 - Decide whether to tighten `requires-python` to `<3.13`.
 - Run the Windows matrix after the Dynamic Port changes.
+- Fix the Windows-only failures: the pin test test_check_python_accepts_312 first (path separator), then the 5 dynamic-port tests (CRLF and mocking); the remaining Windows failures (docker dood path normalization, btrfs/zfs, provider conformance signal.SIGKILL, server command local_windows) are unrelated to the pin.
 - CI first run pending.
