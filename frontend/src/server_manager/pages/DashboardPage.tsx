@@ -7,6 +7,7 @@ import { StatusOverviewCards } from "@/server_manager/components/StatusOverviewC
 import { DashboardServerList } from "@/server_manager/components/DashboardServerList";
 import { RecentActivity } from "@/server_manager/components/RecentActivity";
 import { useActivityStore } from "@/stores/activityStore";
+import { VoxelBanner } from "@/components/brand/VoxelBanner";
 
 export function DashboardPage() {
   const { data: servers, isLoading, error } = useServersList();
@@ -67,6 +68,7 @@ export function DashboardPage() {
         <ErrorState message={error instanceof Error ? error.message : "Failed to load servers"} />
       ) : servers && servers.length > 0 ? (
         <>
+          <VoxelBanner variant="dashboard" className="mb-2" />
           <StatusOverviewCards counts={counts} />
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">

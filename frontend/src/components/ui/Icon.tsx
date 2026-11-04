@@ -60,7 +60,13 @@ export type IconName =
   | "heart"
   | "lock"
   | "terminal"
-  | "hard-drive";
+  | "hard-drive"
+  | "world"
+  | "mod"
+  | "console"
+  | "files"
+  | "network"
+  | "version-branch";
 
 interface IconProps {
   name: IconName;
@@ -486,6 +492,49 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <polyline points="4 17 10 11 4 5" />
       <line x1="12" y1="19" x2="20" y2="19" />
+    </>
+  ),
+  world: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </>
+  ),
+  mod: (
+    <>
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </>
+  ),
+  console: (
+    <>
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </>
+  ),
+  files: (
+    <>
+      <path d="M15.5 2H8.6c-.4 0-.8.2-1.1.5L4.5 5.5c-.3.3-.5.7-.5 1.1V18c0 1.1.9 2 2 2h9.5c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
+      <path d="M18 6h1.5c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H9.5c-1.1 0-2-.9-2-2V18" />
+    </>
+  ),
+  network: (
+    <>
+      <circle cx="12" cy="5" r="3" />
+      <circle cx="5" cy="19" r="3" />
+      <circle cx="19" cy="19" r="3" />
+      <line x1="12" y1="8" x2="5" y2="16" />
+      <line x1="12" y1="8" x2="19" y2="16" />
+    </>
+  ),
+  "version-branch": (
+    <>
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
     </>
   ),
 };

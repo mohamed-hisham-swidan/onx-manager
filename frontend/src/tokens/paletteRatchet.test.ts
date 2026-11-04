@@ -85,6 +85,18 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
     reason: "Vanilla loader badge style tested in LoaderBadge.test.tsx (text-gray-700)",
   },
 
+  // Brand Assets & Visual Identity
+  "components/brand/BrandLogo.tsx": {
+    maxHex: 10,
+    maxPalette: 0,
+    reason: "Brand SVG gradient stops and fallback colors",
+  },
+  "components/brand/VoxelBanner.tsx": {
+    maxHex: 15,
+    maxPalette: 0,
+    reason: "Voxel artwork geometric gradient stops",
+  },
+
   // Operations
   "operations/components/OperationDrawer.tsx": {
     maxHex: 0,

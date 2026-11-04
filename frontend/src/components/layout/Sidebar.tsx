@@ -227,6 +227,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
             })}
           </nav>
         )}
+
+        {/* Legal Disclaimer Footer */}
+        <div className="mt-auto border-t border-border-subtle p-3 text-[10px] leading-tight text-text-muted">
+          <p>Unofficial. Not affiliated with or endorsed by Mojang or Microsoft.</p>
+        </div>
       </aside>
     </>
   );

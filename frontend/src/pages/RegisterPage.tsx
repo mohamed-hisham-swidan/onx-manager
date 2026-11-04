@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { createApiClient } from "@/services/api";
 import { useAuthStore } from "@/stores/authStore";
+import { BrandLogo } from "@/components/brand/BrandLogo";
+import { VoxelBanner } from "@/components/brand/VoxelBanner";
 
 export function RegisterPage() {
   const api = useMemo(() => createApiClient(window.location.origin, () => null), []);
@@ -119,9 +121,12 @@ export function RegisterPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface-canvas px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-center mb-6 text-text-primary tracking-tight">
-          onx-manager
-        </h1>
+        <div className="flex flex-col items-center mb-6">
+          <VoxelBanner variant="auth" className="mb-2" />
+          <h1 className="text-center">
+            <BrandLogo variant="full" size="md" />
+          </h1>
+        </div>
 
         <form
           onSubmit={handleSubmit}

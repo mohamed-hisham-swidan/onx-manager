@@ -7,6 +7,7 @@ import { useOperationStore } from "@/operations/stores/operationStore";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { ConnectionState } from "@/websocket/types";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 
 const WS_DOT: Record<ConnectionState, { dot: string; text: string; label: string; present: boolean }> = {
   connected: { dot: "bg-status-success", text: "text-status-success", label: "Live", present: true },
@@ -91,20 +92,7 @@ export function TopBar() {
             <Icon name="menu" size={22} />
           </button>
         )}
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-primary text-accent-contrast-text shadow-2xs">
-            {/* Minimalist voxel swirl brand mark */}
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <rect x="3" y="3" width="7" height="7" rx="1.5" />
-              <rect x="14" y="3" width="7" height="7" rx="1.5" />
-              <rect x="3" y="14" width="7" height="7" rx="1.5" />
-              <rect x="14" y="14" width="7" height="7" rx="1.5" />
-            </svg>
-          </div>
-          <span className="text-base font-bold tracking-tight text-text-primary">
-            onx-manager
-          </span>
-        </div>
+        <BrandLogo variant="full" size="sm" />
       </div>
 
       {isAuthenticated && (

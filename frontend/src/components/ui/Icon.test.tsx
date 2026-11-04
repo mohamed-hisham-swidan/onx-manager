@@ -50,4 +50,22 @@ describe("Icon", () => {
       expect(container.querySelector("svg")).toBeInTheDocument();
     });
   });
+
+  it("renders all domain icons (server, world, plugin, mod, backup, console, files, network, version-branch)", () => {
+    const domainIcons = [
+      "server",
+      "world",
+      "plugin",
+      "mod",
+      "backup",
+      "console",
+      "files",
+      "network",
+      "version-branch",
+    ] as const;
+    domainIcons.forEach((name) => {
+      const { container } = render(<Icon name={name} />);
+      expect(container.querySelector("svg")).toBeInTheDocument();
+    });
+  });
 });
