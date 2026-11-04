@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 import { Icon } from "@/components/ui/Icon";
 
-interface ConfirmDialogProps {
+export interface ConfirmDialogProps {
   open: boolean;
   title: string;
   description?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  variant?: "danger" | "warning" | "info";
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -17,6 +18,7 @@ export function ConfirmDialog({
   description,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
+  variant = "danger",
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -74,34 +76,50 @@ export function ConfirmDialog({
 
   if (!open) return null;
 
+  const iconColors =
+    variant === "danger"
+      ? "bg-status-danger-bg text-status-danger border border-status-danger-border"
+      : variant === "warning"
+      ? "bg-status-warning-bg text-status-warning border border-status-warning-border"
+      : "bg-status-info-bg text-status-info border border-status-info-border";
+
+  const confirmColors =
+    variant === "danger"
+      ? "bg-status-danger hover:opacity-90 text-white"
+      : variant === "warning"
+      ? "bg-status-warning hover:opacity-90 text-black"
+      : "bg-accent-primary hover:bg-accent-hover text-accent-contrast-text";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onCancel} aria-hidden="true" />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-xs" onClick={onCancel} aria-hidden="true" />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-800"
+        className="relative z-10 w-full max-w-sm rounded-xl border border-border-subtle bg-surface-card p-6 shadow-2xl transition-all"
       >
-        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">
+        <div className={`mb-4 flex h-11 w-11 items-center justify-center rounded-xl ${iconColors}`}>
           <Icon name="alert" size={22} />
         </div>
-        <h2 className="mb-1 text-base font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+        <h2 className="mb-1 text-base font-semibold text-text-primary">{title}</h2>
         {description && (
-          <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">{description}</p>
+          <p className="mb-5 text-sm text-text-muted">{description}</p>
         )}
         <div className="flex justify-end gap-2">
           <button
+            type="button"
             onClick={onCancel}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            className="rounded-lg border border-border-default px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
           >
             {cancelLabel}
           </button>
           <button
             ref={confirmButtonRef}
+            type="button"
             onClick={onConfirm}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${confirmColors}`}
           >
             {confirmLabel}
           </button>
