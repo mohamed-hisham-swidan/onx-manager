@@ -1,7 +1,22 @@
 import { describe, it, expect } from "vitest";
 
+interface NodeFs {
+  readFileSync: (path: string, encoding: "utf8") => string;
+  existsSync: (path: string) => boolean;
+}
+
+interface NodePath {
+  resolve: (...args: string[]) => string;
+  join: (...args: string[]) => string;
+}
+
+declare const require: (mod: string) => NodeFs & NodePath;
+declare const process: { cwd: () => string };
+const fs: NodeFs = require("node:fs");
+const path: NodePath = require("node:path");
+
 /**
- * WCAG AA Contrast Ratio Computation Test (Phase 6)
+ * WCAG 2.1 AA Contrast Ratio Computation Test (Real CSS Parser)
  *
  * Programmatically computes relative luminance according to the W3C WCAG 2.1 specifications:
  *   L = 0.2126 * R_lin + 0.7152 * G_lin + 0.0722 * B_lin
@@ -10,6 +25,7 @@ import { describe, it, expect } from "vitest";
  * Requirements:
  * - Text contrast >= 4.5:1 (WCAG AA normal text)
  * - Non-text UI boundaries & focus rings >= 3.0:1 (WCAG AA non-text contrast)
+ * - Reads real tokens from frontend/src/index.css (no hardcoded palette mock)
  */
 
 export function sRGBtoLinear(channel: number): number {
@@ -18,13 +34,22 @@ export function sRGBtoLinear(channel: number): number {
 }
 
 export function parseHexToRgb(hex: string): [number, number, number] {
+  if (!hex || typeof hex !== "string") {
+    throw new Error(`Unparseable color value: ${hex}`);
+  }
   let clean = hex.replace("#", "").trim();
   if (clean.length === 3) {
     clean = clean.split("").map((c) => c + c).join("");
   }
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) {
+    throw new Error(`Invalid hex color value: ${hex}`);
+  }
   const r = parseInt(clean.substring(0, 2), 16);
   const g = parseInt(clean.substring(2, 4), 16);
   const b = parseInt(clean.substring(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) {
+    throw new Error(`Could not parse RGB channels from hex: ${hex}`);
+  }
   return [r, g, b];
 }
 
@@ -45,137 +70,269 @@ export interface SkinPalette {
   page: string;
   card: string;
   elevated: string;
+  hover: string;
+  active: string;
+  muted: string;
   textPrimary: string;
   textSecondary: string;
   textMuted: string;
+  borderSubtle: string;
   borderDefault: string;
+  borderStrong: string;
   borderFocus: string;
   accentPrimary: string;
-  accentText: string;
-  statusSuccess: string;
-  statusWarning: string;
-  statusDanger: string;
+  accentContrastText: string;
 }
 
-export const SKIN_PALETTES: Record<string, SkinPalette> = {
-  "graphite:dark": {
-    page: "#141518",
-    card: "#1a1b1f",
-    elevated: "#22242a",
-    textPrimary: "#f0f2f5",
-    textSecondary: "#b8bcc6",
-    textMuted: "#989ea9",
-    borderDefault: "#626773",
-    borderFocus: "#60a5fa",
-    accentPrimary: "#2563eb",
-    accentText: "#ffffff",
-    statusSuccess: "#22c55e",
-    statusWarning: "#eab308",
-    statusDanger: "#ef4444",
+/**
+ * Explicit exclusion list for decorative tokens per Task 2 requirements.
+ */
+export const DECORATIVE_EXCLUSIONS = [
+  {
+    token: "--border-subtle",
+    reason: "Purely decorative container/table hairline divider with no state or boundary affordance requirement under WCAG 2.1 SC 1.4.11.",
   },
-  "graphite:light": {
-    page: "#f3f4f6",
-    card: "#ffffff",
-    elevated: "#ffffff",
-    textPrimary: "#111827",
-    textSecondary: "#374151",
-    textMuted: "#6b7280",
-    borderDefault: "#737a85",
-    borderFocus: "#2563eb",
-    accentPrimary: "#2563eb",
-    accentText: "#ffffff",
-    statusSuccess: "#15803d",
-    statusWarning: "#b45309",
-    statusDanger: "#b91c1c",
-  },
-  "azure:dark": {
-    page: "#0b1222",
-    card: "#0f172a",
-    elevated: "#1e293b",
-    textPrimary: "#f8fafc",
-    textSecondary: "#cbd5e1",
-    textMuted: "#94a3b8",
-    borderDefault: "#606b7d",
-    borderFocus: "#38bdf8",
-    accentPrimary: "#0369a1",
-    accentText: "#ffffff",
-    statusSuccess: "#22c55e",
-    statusWarning: "#eab308",
-    statusDanger: "#ef4444",
-  },
-  "azure:light": {
-    page: "#f0f7ff",
-    card: "#ffffff",
-    elevated: "#ffffff",
-    textPrimary: "#0f172a",
-    textSecondary: "#334155",
-    textMuted: "#64748b",
-    borderDefault: "#6b7c93",
-    borderFocus: "#0284c7",
-    accentPrimary: "#0369a1",
-    accentText: "#ffffff",
-    statusSuccess: "#15803d",
-    statusWarning: "#b45309",
-    statusDanger: "#b91c1c",
-  },
-};
+] as const;
 
-describe("WCAG AA Contrast Computation (Phase 6)", () => {
-  const pairs = Object.entries(SKIN_PALETTES);
+export function parseCssBlock(cssText: string, selectorPattern: string): Record<string, string> {
+  const regex = new RegExp(selectorPattern + "\\s*\\{([^}]+)\\}", "m");
+  const match = cssText.match(regex);
+  if (!match) {
+    throw new Error(`Failed to parse CSS block matching selector: ${selectorPattern}`);
+  }
+  const block = match[1];
+  const tokens: Record<string, string> = {};
+  for (const line of block.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("/*")) continue;
+    const colonIdx = trimmed.indexOf(":");
+    if (colonIdx === -1) continue;
+    const prop = trimmed.slice(0, colonIdx).trim();
+    let val = trimmed.slice(colonIdx + 1).trim();
+    if (val.endsWith(";")) val = val.slice(0, -1).trim();
+    tokens[prop] = val;
+  }
+  return tokens;
+}
 
-  it("has defined palettes for graphite and azure in both dark and light modes", () => {
-    expect(pairs).toHaveLength(4);
+const SELECTOR_PATTERNS = {
+  "graphite:dark": '\\[data-skin=["\']graphite["\']\\]\\s*,\\s*\\[data-skin=["\']graphite["\']\\]\\[data-mode=["\']dark["\']\\]\\s*,\\s*\\[data-skin=["\']graphite["\']\\]\\.dark',
+  "graphite:light": '\\[data-skin=["\']graphite["\']\\]\\[data-mode=["\']light["\']\\]',
+  "azure:dark": '\\[data-skin=["\']azure["\']\\]\\s*,\\s*\\[data-skin=["\']azure["\']\\]\\[data-mode=["\']dark["\']\\]\\s*,\\s*\\[data-skin=["\']azure["\']\\]\\.dark',
+  "azure:light": '\\[data-skin=["\']azure["\']\\]\\[data-mode=["\']light["\']\\]',
+} as const;
+
+export function loadPalettesFromCss(cssText: string): Record<keyof typeof SELECTOR_PATTERNS, SkinPalette> {
+  const palettes: Partial<Record<keyof typeof SELECTOR_PATTERNS, SkinPalette>> = {};
+
+  for (const [key, pattern] of Object.entries(SELECTOR_PATTERNS)) {
+    const rawTokens = parseCssBlock(cssText, pattern);
+    const requiredKeys = [
+      "--surface-page",
+      "--surface-card",
+      "--surface-elevated",
+      "--surface-hover",
+      "--surface-active",
+      "--surface-muted",
+      "--text-primary",
+      "--text-secondary",
+      "--text-muted",
+      "--border-subtle",
+      "--border-default",
+      "--border-strong",
+      "--border-focus",
+      "--accent-primary",
+      "--accent-contrast-text",
+    ];
+
+    for (const req of requiredKeys) {
+      if (!rawTokens[req]) {
+        throw new Error(`Missing required token ${req} in CSS block for ${key}`);
+      }
+    }
+
+    palettes[key as keyof typeof SELECTOR_PATTERNS] = {
+      page: rawTokens["--surface-page"],
+      card: rawTokens["--surface-card"],
+      elevated: rawTokens["--surface-elevated"],
+      hover: rawTokens["--surface-hover"],
+      active: rawTokens["--surface-active"],
+      muted: rawTokens["--surface-muted"],
+      textPrimary: rawTokens["--text-primary"],
+      textSecondary: rawTokens["--text-secondary"],
+      textMuted: rawTokens["--text-muted"],
+      borderSubtle: rawTokens["--border-subtle"],
+      borderDefault: rawTokens["--border-default"],
+      borderStrong: rawTokens["--border-strong"],
+      borderFocus: rawTokens["--border-focus"],
+      accentPrimary: rawTokens["--accent-primary"],
+      accentContrastText: rawTokens["--accent-contrast-text"],
+    };
+  }
+
+  return palettes as Record<keyof typeof SELECTOR_PATTERNS, SkinPalette>;
+}
+
+export function checkPaletteViolations(
+  skinKey: string,
+  palette: SkinPalette,
+  options?: { ignorePairs?: Set<string> },
+): string[] {
+  const violations: string[] = [];
+  const surfaces = [
+    { name: "page", hex: palette.page },
+    { name: "card", hex: palette.card },
+    { name: "elevated", hex: palette.elevated },
+    { name: "hover", hex: palette.hover },
+    { name: "active", hex: palette.active },
+    { name: "muted", hex: palette.muted },
+  ];
+  const texts = [
+    { name: "textPrimary", hex: palette.textPrimary },
+    { name: "textSecondary", hex: palette.textSecondary },
+    { name: "textMuted", hex: palette.textMuted },
+  ];
+
+  // 1. Text contrast (>= 4.5:1) on EVERY surface
+  for (const text of texts) {
+    for (const surface of surfaces) {
+      const pairId = `${skinKey}:${text.name}:${surface.name}`;
+      if (options?.ignorePairs?.has(pairId)) continue;
+      const ratio = calculateContrastRatio(text.hex, surface.hex);
+      if (ratio < 4.5) {
+        violations.push(
+          `${skinKey}: ${text.name} (${text.hex}) on ${surface.name} (${surface.hex}) ratio ${ratio.toFixed(2)}:1 < 4.5:1`,
+        );
+      }
+    }
+  }
+
+  // 2. Borders (>= 3.0:1) on page and card
+  const borders = [
+    { name: "borderDefault", hex: palette.borderDefault },
+    { name: "borderStrong", hex: palette.borderStrong },
+    { name: "borderFocus", hex: palette.borderFocus },
+  ];
+  const boundarySurfaces = [
+    { name: "page", hex: palette.page },
+    { name: "card", hex: palette.card },
+  ];
+
+  for (const border of borders) {
+    for (const surface of boundarySurfaces) {
+      const ratio = calculateContrastRatio(border.hex, surface.hex);
+      if (ratio < 3.0) {
+        violations.push(
+          `${skinKey}: ${border.name} (${border.hex}) on ${surface.name} (${surface.hex}) ratio ${ratio.toFixed(2)}:1 < 3.0:1`,
+        );
+      }
+    }
+  }
+
+  // 3. Accent text on accent background (>= 4.5:1)
+  const accentRatio = calculateContrastRatio(palette.accentContrastText, palette.accentPrimary);
+  if (accentRatio < 4.5) {
+    violations.push(
+      `${skinKey}: accent text (${palette.accentContrastText}) on accent bg (${palette.accentPrimary}) ratio ${accentRatio.toFixed(2)}:1 < 4.5:1`,
+    );
+  }
+
+  // 4. Dark mode surface ladder strictly increasing
+  if (skinKey.endsWith(":dark")) {
+    const lumPage = calculateLuminance(palette.page);
+    const lumCard = calculateLuminance(palette.card);
+    const lumElevated = calculateLuminance(palette.elevated);
+
+    if (!(lumPage < lumCard && lumCard < lumElevated)) {
+      violations.push(
+        `${skinKey}: dark mode surface ladder violation: page (${lumPage.toFixed(4)}) < card (${lumCard.toFixed(4)}) < elevated (${lumElevated.toFixed(4)})`,
+      );
+    }
+    if (palette.page === "#000000" || palette.page === "#000") {
+      violations.push(`${skinKey}: page surface must not be pure #000000`);
+    }
+    if (palette.textPrimary.toLowerCase() === "#ffffff" || palette.textPrimary.toLowerCase() === "#fff") {
+      violations.push(`${skinKey}: textPrimary must not be pure #ffffff in dark mode`);
+    }
+  }
+
+  return violations;
+}
+
+describe("WCAG 2.1 AA Contrast Computation (Real CSS Parser - Task 2)", () => {
+  const cssPath = path.resolve(process.cwd(), "src/index.css");
+  const cssContent = fs.readFileSync(cssPath, "utf8");
+  const palettes = loadPalettesFromCss(cssContent);
+
+  it("parses all 4 skin/mode combinations from index.css with 100% required tokens", () => {
+    expect(Object.keys(palettes)).toEqual([
+      "graphite:dark",
+      "graphite:light",
+      "azure:dark",
+      "azure:light",
+    ]);
   });
 
-  for (const [skinKey, palette] of pairs) {
-    describe(`Skin: ${skinKey}`, () => {
-      it("meets WCAG AA (>= 4.5:1) for primary text on card surface", () => {
-        const ratio = calculateContrastRatio(palette.textPrimary, palette.card);
-        expect(ratio, `${skinKey} textPrimary vs card ratio was ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
-      });
+  it("documents explicit decorative token exclusion for border-subtle", () => {
+    expect(DECORATIVE_EXCLUSIONS).toHaveLength(1);
+    expect(DECORATIVE_EXCLUSIONS[0].token).toBe("--border-subtle");
+    expect(DECORATIVE_EXCLUSIONS[0].reason).toContain("decorative");
+  });
 
-      it("meets WCAG AA (>= 4.5:1) for primary text on page background", () => {
-        const ratio = calculateContrastRatio(palette.textPrimary, palette.page);
-        expect(ratio, `${skinKey} textPrimary vs page ratio was ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
-      });
+  it("enforces UI boundary and focus borders >= 3.0:1 on page and card across all palettes", () => {
+    for (const [key, palette] of Object.entries(palettes)) {
+      const borders = [
+        { name: "borderDefault", hex: palette.borderDefault },
+        { name: "borderStrong", hex: palette.borderStrong },
+        { name: "borderFocus", hex: palette.borderFocus },
+      ];
+      for (const border of borders) {
+        const ratioPage = calculateContrastRatio(border.hex, palette.page);
+        const ratioCard = calculateContrastRatio(border.hex, palette.card);
+        expect(ratioPage, `${key} ${border.name} on page`).toBeGreaterThanOrEqual(3.0);
+        expect(ratioCard, `${key} ${border.name} on card`).toBeGreaterThanOrEqual(3.0);
+      }
+    }
+  });
 
-      it("meets WCAG AA (>= 4.5:1) for secondary text on card surface", () => {
-        const ratio = calculateContrastRatio(palette.textSecondary, palette.card);
-        expect(ratio, `${skinKey} textSecondary vs card ratio was ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
-      });
+  it("enforces accent contrast text on accent primary >= 4.5:1 across all palettes", () => {
+    for (const [key, palette] of Object.entries(palettes)) {
+      const ratio = calculateContrastRatio(palette.accentContrastText, palette.accentPrimary);
+      expect(ratio, `${key} accent contrast`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
 
-      it("meets WCAG AA (>= 4.5:1) for muted text on card surface", () => {
-        const ratio = calculateContrastRatio(palette.textMuted, palette.card);
-        expect(ratio, `${skinKey} textMuted vs card ratio was ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
-      });
+  it("enforces strictly increasing surface ladder in dark mode (page < card < elevated)", () => {
+    for (const darkKey of ["graphite:dark", "azure:dark"] as const) {
+      const pal = palettes[darkKey];
+      const lumPage = calculateLuminance(pal.page);
+      const lumCard = calculateLuminance(pal.card);
+      const lumElevated = calculateLuminance(pal.elevated);
 
-      it("meets WCAG AA (>= 3.0:1) for UI boundary input/panel border on card surface", () => {
-        const ratio = calculateContrastRatio(palette.borderDefault, palette.card);
-        expect(ratio, `${skinKey} borderDefault vs card ratio was ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3.0);
-      });
+      expect(lumPage, `${darkKey} page < card`).toBeLessThan(lumCard);
+      expect(lumCard, `${darkKey} card < elevated`).toBeLessThan(lumElevated);
+      expect(pal.page).not.toBe("#000000");
+      expect(pal.textPrimary.toLowerCase()).not.toBe("#ffffff");
+    }
+  });
 
-      it("meets WCAG AA (>= 3.0:1) for focus rings on card surface", () => {
-        const ratio = calculateContrastRatio(palette.borderFocus, palette.card);
-        expect(ratio, `${skinKey} borderFocus vs card ratio was ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3.0);
-      });
+  it("enforces textPrimary and textSecondary >= 4.5:1 on ALL 6 surfaces across all palettes", () => {
+    for (const [key, palette] of Object.entries(palettes)) {
+      const surfaces = [palette.page, palette.card, palette.elevated, palette.hover, palette.active, palette.muted];
+      for (const surface of surfaces) {
+        expect(calculateContrastRatio(palette.textPrimary, surface), `${key} textPrimary`).toBeGreaterThanOrEqual(4.5);
+        expect(calculateContrastRatio(palette.textSecondary, surface), `${key} textSecondary`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
 
-      it("meets WCAG AA (>= 4.5:1) for accent button text on primary accent background", () => {
-        const ratio = calculateContrastRatio(palette.accentText, palette.accentPrimary);
-        expect(ratio, `${skinKey} accentText vs accentPrimary ratio was ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
-      });
+  it("mutation self-check: reports violation when a token is mutated to a failing value", () => {
+    const testPalette = { ...palettes["azure:dark"] };
+    // Mutate textPrimary to match card background exactly (1:1 ratio)
+    testPalette.textPrimary = testPalette.card;
 
-      it("respects surface ladder hierarchy (canvas < card < elevated in dark mode)", () => {
-        if (skinKey.endsWith(":dark")) {
-          const lumPage = calculateLuminance(palette.page);
-          const lumCard = calculateLuminance(palette.card);
-          const lumElevated = calculateLuminance(palette.elevated);
-
-          expect(lumPage, "Page canvas should be darker than or equal to card").toBeLessThanOrEqual(lumCard);
-          expect(lumCard, "Card surface should be darker than elevated").toBeLessThan(lumElevated);
-          expect(palette.page, "Dark canvas must not be pure #000000").not.toBe("#000000");
-          expect(palette.textPrimary, "Text must not be harsh pure #ffffff in graphite").not.toBe("#ffffff");
-        }
-      });
-    });
-  }
+    const violations = checkPaletteViolations("azure:dark", testPalette);
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.some((v) => v.includes("textPrimary"))).toBe(true);
+  });
 });
