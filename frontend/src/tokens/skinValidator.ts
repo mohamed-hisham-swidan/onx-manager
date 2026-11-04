@@ -62,8 +62,6 @@ export interface CustomSkin {
   id: string;
   name: string;
   description?: string;
-  version?: string;
-  author?: string;
   tokens: Record<string, string>;
 }
 
@@ -75,6 +73,9 @@ export interface SkinValidationResult {
 
 const MAX_JSON_BYTES = 32 * 1024; // 32 KB limit
 const MAX_TOKENS_COUNT = 50;
+
+export const ALLOWED_ROOT_KEYS = new Set(["id", "name", "description", "tokens"]);
+const DANGEROUS_KEYS = ["__proto__", "constructor", "prototype"];
 
 // Strict color formats allowed:
 // #RGB, #RGBA, #RRGGBB, #RRGGBBAA
@@ -115,7 +116,15 @@ export function validateSkinJson(input: string | unknown): SkinValidationResult 
       return { valid: false, errors: ["Invalid JSON syntax."] };
     }
   } else if (input && typeof input === "object") {
-    parsed = input;
+    try {
+      const serialized = JSON.stringify(input);
+      if (new TextEncoder().encode(serialized).length > MAX_JSON_BYTES) {
+        return { valid: false, errors: [`Skin specification exceeds maximum payload limit of ${MAX_JSON_BYTES} bytes.`] };
+      }
+      parsed = input;
+    } catch {
+      return { valid: false, errors: ["Failed to serialize skin object for validation."] };
+    }
   } else {
     return { valid: false, errors: ["Skin input must be a valid JSON string or object."] };
   }
@@ -125,6 +134,20 @@ export function validateSkinJson(input: string | unknown): SkinValidationResult 
   }
 
   const obj = parsed as Record<string, unknown>;
+
+  // Check prototype pollution attempts at root
+  for (const dangerous of DANGEROUS_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(obj, dangerous)) {
+      errors.push(`Security violation: Prohibited property '${dangerous}' detected at root.`);
+    }
+  }
+
+  // Reject unknown root keys (allow ONLY id, name, description, tokens)
+  for (const key of Object.keys(obj)) {
+    if (!ALLOWED_ROOT_KEYS.has(key)) {
+      errors.push(`Unrecognized root property: '${key}'. Allowed root properties are: id, name, description, tokens.`);
+    }
+  }
 
   // Validate ID
   if (typeof obj.id !== "string" || !/^[a-z0-9_-]{2,32}$/.test(obj.id)) {
@@ -146,6 +169,14 @@ export function validateSkinJson(input: string | unknown): SkinValidationResult 
     errors.push("Skin 'tokens' must be an object mapping token names to valid color values.");
   } else {
     const tokens = obj.tokens as Record<string, unknown>;
+
+    // Check prototype pollution attempts in tokens
+    for (const dangerous of DANGEROUS_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(tokens, dangerous)) {
+        errors.push(`Security violation: Prohibited property '${dangerous}' detected in tokens.`);
+      }
+    }
+
     const tokenKeys = Object.keys(tokens);
 
     if (tokenKeys.length === 0) {

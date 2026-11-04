@@ -7,7 +7,6 @@ describe("Custom Skin Validator (Phase 6 Contract)", () => {
       id: "emerald-forest",
       name: "Emerald Forest",
       description: "Lush green natural Minecraft server theme",
-      version: "1.0.0",
       tokens: {
         "surface-page": "#0a130e",
         "surface-card": "#112017",
@@ -145,5 +144,83 @@ describe("Custom Skin Validator (Phase 6 Contract)", () => {
 
     expect(res.valid).toBe(true);
     expect(Object.keys(res.skin?.tokens || {})).toHaveLength(ALLOWED_TOKEN_KEYS.size);
+  });
+
+  describe("Task 1 Hardening (Reviewer Findings)", () => {
+    it("rejects reviewer bypass input with oversized object blob", () => {
+      const reviewerBypass = {
+        id: "ok-skin",
+        name: "Ok",
+        blob: "x".repeat(40000),
+        tokens: { "surface-page": "#111111" },
+      };
+
+      const res = validateSkinJson(reviewerBypass);
+      expect(res.valid).toBe(false);
+      expect(
+        res.errors.some((e) => e.includes("payload limit") || e.includes("Unrecognized root property: 'blob'")),
+      ).toBe(true);
+    });
+
+    it("rejects unknown root keys (allows only id, name, description, tokens)", () => {
+      const invalidRoot = {
+        id: "test-skin",
+        name: "Test Skin",
+        version: "1.0.0", // unknown root key
+        author: "malicious", // unknown root key
+        tokens: { "surface-page": "#111111" },
+      };
+
+      const res = validateSkinJson(invalidRoot);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("Unrecognized root property: 'version'"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("Unrecognized root property: 'author'"))).toBe(true);
+    });
+
+    it("rejects prototype pollution attempts at root (__proto__, constructor, prototype)", () => {
+      const jsonWithProto = '{"id":"hack-skin","name":"Hack","__proto__":{"polluted":true},"tokens":{"surface-page":"#111111"}}';
+      const res = validateSkinJson(jsonWithProto);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("Prohibited property '__proto__'"))).toBe(true);
+
+      const objWithConstructor = {
+        id: "hack-skin",
+        name: "Hack",
+        constructor: "polluted",
+        tokens: { "surface-page": "#111111" },
+      };
+      const res2 = validateSkinJson(objWithConstructor);
+      expect(res2.valid).toBe(false);
+      expect(res2.errors.some((e) => e.includes("Prohibited property 'constructor'"))).toBe(true);
+
+      const objWithPrototype = {
+        id: "hack-skin",
+        name: "Hack",
+        prototype: {},
+        tokens: { "surface-page": "#111111" },
+      };
+      const res3 = validateSkinJson(objWithPrototype);
+      expect(res3.valid).toBe(false);
+      expect(res3.errors.some((e) => e.includes("Prohibited property 'prototype'"))).toBe(true);
+    });
+
+    it("rejects prototype pollution attempts inside tokens (__proto__, constructor, prototype)", () => {
+      const jsonWithTokenProto = '{"id":"hack-skin","name":"Hack","tokens":{"surface-page":"#111111","__proto__":"#222222"}}';
+      const res = validateSkinJson(jsonWithTokenProto);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("Prohibited property '__proto__'"))).toBe(true);
+
+      const objWithTokenConstructor = {
+        id: "hack-skin",
+        name: "Hack",
+        tokens: {
+          "surface-page": "#111111",
+          constructor: "#222222",
+        },
+      };
+      const res2 = validateSkinJson(objWithTokenConstructor);
+      expect(res2.valid).toBe(false);
+      expect(res2.errors.some((e) => e.includes("Prohibited property 'constructor'"))).toBe(true);
+    });
   });
 });
