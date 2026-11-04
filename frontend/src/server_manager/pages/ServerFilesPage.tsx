@@ -4,14 +4,17 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi, ApiError } from "@/services/api";
 import { queryKeys } from "@/services/queryClient";
 import { Icon } from "@/components/ui/Icon";
-import { toast } from "@/stores/toastStore";
+import { Button, IconButton } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Pagination } from "@/components/ui/Pagination";
+import { EmptyState, ErrorState } from "@/components/ui/States";
 import { LoadingBar } from "@/components/ui/LoadingBar";
-import { ErrorState } from "@/components/ErrorState";
-import { EmptyState } from "@/components/EmptyState";
 import { PageSkeleton } from "@/components/Skeleton";
+import { toast } from "@/stores/toastStore";
 import type { FileItem } from "@/server_manager/types";
 import { CodeEditor } from "@/components/CodeEditor";
+
+const PAGE_SIZE = 50;
 
 const NON_EDITABLE_EXTENSIONS = new Set([
   "dat", "mca", "mcr", "sqlite", "db", "nbt", "jar", "zip", "tar", "gz", "png", "jpg", "jpeg", "gif", "ico", "class"
@@ -22,7 +25,6 @@ function isBinaryFile(fileName: string): boolean {
   return !!ext && NON_EDITABLE_EXTENSIONS.has(ext);
 }
 
-// Helper to format bytes
 function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -41,6 +43,8 @@ export function ServerFilesPage() {
   const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editingFile = useMemo<FileItem | null>(() => {
@@ -62,6 +66,7 @@ export function ServerFilesPage() {
   }
 
   const updateCurrentPath = (newPath: string) => {
+    setCurrentPage(1);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       if (newPath) {
@@ -231,6 +236,20 @@ export function ServerFilesPage() {
     updateCurrentPath(newPath);
   };
 
+
+  const filteredFiles = useMemo(() => {
+    if (!files) return [];
+    if (!searchQuery.trim()) return files;
+    const q = searchQuery.trim().toLowerCase();
+    return files.filter((f) => f.name.toLowerCase().includes(q));
+  }, [files, searchQuery]);
+
+  const paginatedFiles = useMemo(() => {
+    if (filteredFiles.length <= PAGE_SIZE) return filteredFiles;
+    const startIdx = (currentPage - 1) * PAGE_SIZE;
+    return filteredFiles.slice(startIdx, startIdx + PAGE_SIZE);
+  }, [filteredFiles, currentPage]);
+
   if (isLoading && !files) return <PageSkeleton />;
   if (error) return <ErrorState message={error.message} />;
 
@@ -250,27 +269,26 @@ export function ServerFilesPage() {
 
   if (editingFile) {
     return (
-      <div className="flex flex-col h-full bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex flex-col h-full bg-surface-panel rounded-xl shadow-sm border border-border-default overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-border-subtle bg-surface-panel">
           <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={handleCloseEditor}
-              className="p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700 rounded transition-colors"
+              aria-label="Back"
+              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-surface-hover rounded-lg transition-colors cursor-pointer"
             >
               <Icon name="chevron-left" />
             </button>
             <div>
               <nav
                 aria-label="Editor breadcrumb"
-                className={
-                  "text-xs text-gray-500 dark:text-gray-400 font-mono " +
-                  "flex items-center gap-1.5 flex-wrap"
-                }
+                className="text-xs text-text-muted font-mono flex items-center gap-1.5 flex-wrap"
               >
                 <button
                   type="button"
                   onClick={() => navigateToDirectory("")}
-                  className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+                  className="hover:text-accent-primary hover:underline cursor-pointer"
                 >
                   /files
                 </button>
@@ -278,75 +296,79 @@ export function ServerFilesPage() {
                   const pathUpTo = editorPathParts.slice(0, index + 1).join("/");
                   return (
                     <span key={pathUpTo} className="flex items-center gap-1.5">
-                      <span className="text-gray-400 dark:text-gray-600">/</span>
+                      <span className="text-border-default">/</span>
                       <button
                         type="button"
                         onClick={() => navigateToDirectory(pathUpTo)}
-                        className="hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+                        className="hover:text-accent-primary hover:underline cursor-pointer"
                       >
                         {part}
                       </button>
                     </span>
                   );
                 })}
-                <span className="text-gray-400 dark:text-gray-600">/</span>
-                <span className="text-gray-700 dark:text-gray-300 font-medium">
+                <span className="text-border-default">/</span>
+                <span className="text-text-primary font-medium">
                   {editingFile.name}
                 </span>
               </nav>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              <h2 className="text-lg font-semibold text-text-primary">
                 Editing: {editingFile.name}
               </h2>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handleCloseEditor}
-              className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
+              className="px-3 py-1.5 text-sm font-medium text-text-secondary bg-surface-canvas border border-border-default rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
             >
               Cancel
             </button>
             {!isBinary && (
-              <button
+              <Button
+                variant="primary"
                 onClick={() => saveMutation.mutate()}
                 disabled={saveMutation.isPending || isContentLoading || !!fileContentError}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"
+                loading={saveMutation.isPending}
+                icon="save"
               >
-                <Icon name="save" size={16} />
-                {saveMutation.isPending ? "Saving..." : "Save"}
-              </button>
+                Save
+              </Button>
             )}
           </div>
         </div>
         <div className="flex-1 p-4">
           {isContentLoading ? (
-            <div className="h-64 flex items-center justify-center text-gray-500">Loading content...</div>
+            <div className="h-64 flex items-center justify-center text-text-muted">Loading content...</div>
           ) : fileContentError ? (
-            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
-              <Icon name="alert" size={48} className="text-red-500 mb-3" />
-              <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">
+            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-canvas border border-border-default rounded-xl">
+              <Icon name="alert" size={48} className="text-status-danger mb-3" />
+              <h3 className="text-base font-semibold text-text-primary mb-1">
                 Failed to load file
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 max-w-sm">
+              <p className="text-sm text-text-muted mb-4 max-w-sm">
                 {fileContentError instanceof Error ? fileContentError.message : "Unable to read file content"}
               </p>
               <button
+                type="button"
                 onClick={handleCloseEditor}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-text-secondary bg-surface-panel border border-border-default rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
               >
                 Back to Files
               </button>
             </div>
           ) : isBinary ? (
-            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
-              <Icon name="file" size={48} className="text-gray-400 mb-3" />
-              <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">Binary File</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 max-w-sm">
+            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-canvas border border-border-default rounded-xl">
+              <Icon name="file" size={48} className="text-text-muted mb-3" />
+              <h3 className="text-base font-semibold text-text-primary mb-1">Binary File</h3>
+              <p className="text-sm text-text-muted mb-4 max-w-sm">
                 This file cannot be displayed or edited as text because it contains binary data.
               </p>
               <button
+                type="button"
                 onClick={() => handleDownload(editingFile)}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-accent-primary hover:bg-accent-hover rounded-lg transition-colors cursor-pointer"
               >
                 <Icon name="download" size={16} />
                 Download File
@@ -372,30 +394,48 @@ export function ServerFilesPage() {
     <div className="flex flex-col space-y-4">
       {isLoading && <LoadingBar />}
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center overflow-x-auto whitespace-nowrap text-sm font-medium text-gray-600 dark:text-gray-300">
+      {/* Toolbar & Breadcrumbs */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface-panel rounded-xl shadow-sm border border-border-default">
+        <div className="flex items-center overflow-x-auto whitespace-nowrap text-sm font-medium text-text-secondary">
           {breadcrumbs.map((crumb, idx) => (
             <React.Fragment key={crumb.path}>
               <button
+                type="button"
                 onClick={() => updateCurrentPath(crumb.path)}
-                className={`flex items-center gap-1 hover:text-blue-600 ` +
-                  `dark:hover:text-blue-400 transition-colors ${
-                    idx === breadcrumbs.length - 1
-                      ? "font-semibold text-gray-900 dark:text-white"
-                      : ""
-                  }`}
+                className={`flex items-center gap-1 hover:text-accent-primary transition-colors cursor-pointer ${
+                  idx === breadcrumbs.length - 1
+                    ? "font-semibold text-text-primary"
+                    : ""
+                }`}
               >
-                {idx === 0 && <Icon name="folder" size={16} className="text-blue-500" />}
+                {idx === 0 && <Icon name="folder" size={16} className="text-accent-primary" />}
                 <span>{crumb.name}</span>
               </button>
               {idx < breadcrumbs.length - 1 && (
-                <span className="mx-2 text-gray-400">/</span>
+                <span className="mx-2 text-border-default">/</span>
               )}
             </React.Fragment>
           ))}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Client-side filter search */}
+          <div className="relative min-w-[180px] max-w-xs">
+            <span className="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3 text-text-muted">
+              <Icon name="search" size={15} />
+            </span>
+            <input
+              type="text"
+              placeholder="Filter files..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full rounded-lg border border-border-default bg-surface-canvas py-1.5 ps-9 pe-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+            />
+          </div>
+
           <input
             type="file"
             ref={fileInputRef}
@@ -404,37 +444,36 @@ export function ServerFilesPage() {
               if (e.target.files && e.target.files[0]) {
                 uploadMutation.mutate(e.target.files[0]);
               }
-              // Reset input so the same file can be uploaded again if needed
               e.target.value = "";
             }}
           />
-          <button
+          <Button
+            variant="secondary"
+            icon="folder"
             onClick={() => setShowNewFolder(true)}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700 transition-colors"
           >
-            <Icon name="folder" size={16} />
             New Folder
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            icon="upload"
+            loading={uploadMutation.isPending}
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploadMutation.isPending}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"
           >
-            <Icon name="upload" size={16} />
-            {uploadMutation.isPending ? "Uploading..." : "Upload File"}
-          </button>
+            Upload File
+          </Button>
         </div>
       </div>
 
       {showNewFolder && (
-        <div className="flex items-center gap-2 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-          <Icon name="folder" className="text-gray-400" />
+        <div className="flex items-center gap-2 p-4 bg-surface-panel rounded-xl shadow-sm border border-border-default">
+          <Icon name="folder" className="text-text-muted" />
           <input
             type="text"
             placeholder="Folder name"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-900 dark:border-gray-600 dark:text-white"
+            className="flex-1 px-3 py-1.5 text-sm border border-border-default rounded-lg focus:outline-none focus:ring-1 focus:ring-accent-primary bg-surface-canvas text-text-primary placeholder:text-text-muted"
             autoFocus
             onKeyDown={(e) => {
               if (e.key === "Enter" && newFolderName) mkdirMutation.mutate(newFolderName);
@@ -444,69 +483,84 @@ export function ServerFilesPage() {
               }
             }}
           />
-          <button
+          <Button
+            variant="primary"
             onClick={() => mkdirMutation.mutate(newFolderName)}
             disabled={!newFolderName || mkdirMutation.isPending}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded disabled:opacity-50"
+            loading={mkdirMutation.isPending}
           >
             Create
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
             onClick={() => {
               setShowNewFolder(false);
               setNewFolderName("");
             }}
-            className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 rounded transition-colors"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      {/* File Browser Table */}
+      <div className="bg-surface-panel rounded-xl shadow-sm border border-border-default overflow-hidden">
         {files?.length === 0 && !currentPath ? (
           <EmptyState
             title="Empty Directory"
             description="No files found in this folder."
             icon="folder"
-            action={
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-4 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-              >
-                Upload File
-              </button>
-            }
+            action={{
+              label: "Upload File",
+              icon: "upload",
+              onClick: () => fileInputRef.current?.click(),
+            }}
+          />
+        ) : filteredFiles.length === 0 && searchQuery ? (
+          <EmptyState
+            title="No matching files"
+            description={`No files match "${searchQuery}".`}
+            icon="search"
+            action={{
+              label: "Clear filter",
+              onClick: () => {
+                setSearchQuery("");
+                setCurrentPage(1);
+              },
+            }}
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-              <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700/50 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
+            <table className="w-full text-sm text-left">
+              <thead className="text-xs uppercase bg-surface-canvas/50 text-text-muted border-b border-border-subtle tracking-wider font-semibold">
                 <tr>
-                  <th scope="col" className="px-6 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-6 py-3 font-medium w-32">Size</th>
-                  <th scope="col" className="px-6 py-3 font-medium w-32 text-right">Actions</th>
+                  <th scope="col" className="px-4 py-2.5">Name</th>
+                  <th scope="col" className="px-4 py-2.5 w-32">Size</th>
+                  <th scope="col" className="px-4 py-2.5 w-32 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody className="divide-y divide-border-subtle">
                 {currentPath && (
                   <tr
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer"
+                    className="hover:bg-surface-hover/50 transition-colors cursor-pointer"
                     onClick={navigateUp}
                   >
-                    <td className="px-6 py-4 flex items-center gap-3">
-                      <Icon name="folder" className="text-blue-500" />
-                      <span className="font-medium text-gray-900 dark:text-white">..</span>
+                    <td className="px-4 py-2 flex items-center gap-2.5 font-medium text-text-primary">
+                      <Icon name="folder" className="text-accent-primary" size={16} />
+                      <span>..</span>
                     </td>
-                    <td className="px-6 py-4">-</td>
-                    <td className="px-6 py-4 text-right"></td>
+                    <td className="px-4 py-2 text-text-muted">-</td>
+                    <td className="px-4 py-2 text-right"></td>
                   </tr>
                 )}
-                {files?.map((file) => (
-                  <tr key={file.path} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group">
-                    <td className="px-6 py-4">
+                {paginatedFiles.map((file) => (
+                  <tr
+                    key={file.path}
+                    className="hover:bg-surface-hover/50 transition-colors group"
+                  >
+                    <td className="px-4 py-2">
                       <div
-                        className="flex items-center gap-3 cursor-pointer"
+                        className="flex items-center gap-2.5 cursor-pointer"
                         onClick={() => {
                           if (file.is_dir) {
                             navigateTo(file.name);
@@ -519,49 +573,61 @@ export function ServerFilesPage() {
                       >
                         <Icon
                           name={file.is_dir ? "folder" : "file"}
-                          className={file.is_dir ? "text-blue-500" : "text-gray-400"}
+                          size={16}
+                          className={file.is_dir ? "text-accent-primary" : "text-text-muted"}
                         />
-                        <span className="font-medium text-gray-900 dark:text-white truncate max-w-[200px] sm:max-w-xs md:max-w-sm">
+                        <span className="font-medium text-text-primary truncate max-w-[200px] sm:max-w-xs md:max-w-sm hover:text-accent-primary transition-colors">
                           {file.name}
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-2 whitespace-nowrap text-xs font-mono text-text-muted">
                       {file.is_dir ? "-" : formatBytes(file.size)}
                     </td>
-                    <td className="px-6 py-4 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <td className="px-4 py-2 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                         {!file.is_dir && (
-                          <button
+                          <IconButton
+                            icon="download"
+                            aria-label="Download"
+                            size="sm"
+                            variant="ghost"
                             onClick={() => handleDownload(file)}
-                            className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-900/30 rounded transition-colors"
-                            title="Download"
-                          >
-                            <Icon name="download" size={16} />
-                          </button>
+                          />
                         )}
                         {!file.is_dir && !isBinaryFile(file.name) && (
-                          <button
+                          <IconButton
+                            icon="edit"
+                            aria-label="Edit"
+                            size="sm"
+                            variant="ghost"
                             onClick={() => openFileEditor(file)}
-                            className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 dark:hover:text-green-400 dark:hover:bg-green-900/30 rounded transition-colors"
-                            title="Edit"
-                          >
-                            <Icon name="edit" size={16} />
-                          </button>
+                          />
                         )}
-                        <button
+                        <IconButton
+                          icon="trash"
+                          aria-label="Delete"
+                          size="sm"
+                          variant="ghost"
                           onClick={() => setFileToDelete(file)}
-                          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/30 rounded transition-colors"
-                          title="Delete"
-                        >
-                          <Icon name="trash" size={16} />
-                        </button>
+                        />
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            {filteredFiles.length > PAGE_SIZE && (
+              <div className="border-t border-border-subtle p-3">
+                <Pagination
+                  totalItems={filteredFiles.length}
+                  pageSize={PAGE_SIZE}
+                  page={currentPage}
+                  onPageChange={setCurrentPage}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -571,6 +637,7 @@ export function ServerFilesPage() {
         title={fileToDelete?.is_dir ? "Delete Folder" : "Delete File"}
         description={`Are you sure you want to delete ${fileToDelete?.name}? ${fileToDelete?.is_dir ? "All contents will be permanently deleted. " : ""}This action cannot be undone.`}
         confirmLabel={deleteMutation.isPending ? "Deleting..." : "Delete"}
+        variant="danger"
         onConfirm={() => fileToDelete && deleteMutation.mutate(fileToDelete.path)}
         onCancel={() => setFileToDelete(null)}
       />
