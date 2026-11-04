@@ -1,16 +1,23 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useServersList } from "@/server_manager/hooks/useServers";
-import { usePluginsList, useEnablePlugin, useDisablePlugin, useUninstallPlugin } from "@/server_manager/hooks/usePlugins";
+import {
+  usePluginsList,
+  useEnablePlugin,
+  useDisablePlugin,
+  useUninstallPlugin,
+} from "@/server_manager/hooks/usePlugins";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
-import { EmptyState } from "@/components/EmptyState";
-import { ErrorState } from "@/components/ErrorState";
+import { EmptyState, ErrorState } from "@/components/ui/States";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Pagination } from "@/components/ui/Pagination";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import type { PluginResponse } from "@/types";
+
+const PAGE_SIZE = 15;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
@@ -19,7 +26,7 @@ function errorMessage(error: unknown): string {
 function SourceBadge({ plugin }: { plugin: PluginResponse }) {
   if (plugin.source === "modrinth") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+      <span className="inline-flex items-center gap-1 rounded-full bg-accent-muted/20 px-2 py-0.5 text-xs font-medium text-accent-primary border border-accent-muted/30">
         <Icon name="external" size={12} />
         Marketplace
       </span>
@@ -27,13 +34,13 @@ function SourceBadge({ plugin }: { plugin: PluginResponse }) {
   }
   if (plugin.source === "detected") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+      <span className="inline-flex items-center gap-1 rounded-full bg-surface-canvas px-2 py-0.5 text-xs font-medium text-text-secondary border border-border-default">
         Detected on disk
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+    <span className="inline-flex items-center gap-1 rounded-full bg-status-warning-bg px-2 py-0.5 text-xs font-medium text-status-warning border border-status-warning/30">
       Manual
     </span>
   );
@@ -47,6 +54,7 @@ export function PluginListPage() {
   const [touched, setTouched] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState("");
   const [uninstallTarget, setUninstallTarget] = useState<PluginResponse | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const effectiveServerId = routeServerId
     ? routeServerId
@@ -61,9 +69,16 @@ export function PluginListPage() {
   const disablePlugin = useDisablePlugin(effectiveServerId);
   const uninstallPlugin = useUninstallPlugin(effectiveServerId);
 
+  const paginatedPlugins = useMemo(() => {
+    if (!plugins || plugins.length <= PAGE_SIZE) return plugins ?? [];
+    const startIdx = (currentPage - 1) * PAGE_SIZE;
+    return plugins.slice(startIdx, startIdx + PAGE_SIZE);
+  }, [plugins, currentPage]);
+
   function handleServerChange(e: React.ChangeEvent<HTMLSelectElement>) {
     setTouched(true);
     setSelectedServerId(e.target.value);
+    setCurrentPage(1);
   }
 
   function handleInstall() {
@@ -73,7 +88,12 @@ export function PluginListPage() {
   function handleConfirmUninstall() {
     if (!uninstallTarget) return;
     uninstallPlugin.mutate(uninstallTarget.plugin_id, {
-      onSuccess: () => toast("success", "Removal requested", `"${uninstallTarget.name}" will be removed on the next server restart.`),
+      onSuccess: () =>
+        toast(
+          "success",
+          "Removal requested",
+          `"${uninstallTarget.name}" will be removed on the next server restart.`,
+        ),
       onError: (err) => toast("error", "Remove failed", errorMessage(err)),
       onSettled: () => setUninstallTarget(null),
     });
@@ -88,8 +108,9 @@ export function PluginListPage() {
         actions={
           effectiveServerId ? (
             <button
+              type="button"
               onClick={handleInstall}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
             >
               <Icon name="plus" size={16} />
               Install Plugin
@@ -107,7 +128,7 @@ export function PluginListPage() {
             id="plugin-server-select"
             value={effectiveServerId}
             onChange={handleServerChange}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+            className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
           >
             <option value="">Select a server...</option>
             {servers?.map((s) => (
@@ -130,22 +151,22 @@ export function PluginListPage() {
       ) : error ? (
         <ErrorState message={error instanceof Error ? error.message : "Failed to load plugins"} />
       ) : plugins && plugins.length > 0 ? (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+        <div className="overflow-hidden rounded-xl border border-border-default bg-surface-panel shadow-xs">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
-                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Name</th>
-                <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 sm:table-cell">Version</th>
-                <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 md:table-cell">Author</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Status</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">Actions</th>
+              <tr className="border-b border-border-subtle bg-surface-canvas/50">
+                <th className="px-4 py-3 text-left font-medium text-text-muted">Name</th>
+                <th className="hidden px-4 py-3 text-left font-medium text-text-muted sm:table-cell">Version</th>
+                <th className="hidden px-4 py-3 text-left font-medium text-text-muted md:table-cell">Author</th>
+                <th className="px-4 py-3 text-left font-medium text-text-muted">Status</th>
+                <th className="px-4 py-3 text-right font-medium text-text-muted">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              {plugins.map((p) => (
+            <tbody className="divide-y divide-border-subtle">
+              {paginatedPlugins.map((p) => (
                 <tr
                   key={p.plugin_id}
-                  className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
+                  className="hover:bg-surface-hover/50 transition-colors"
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-start gap-3">
@@ -153,45 +174,45 @@ export function PluginListPage() {
                         <img
                           src={p.icon_url}
                           alt={`${p.name} icon`}
-                          className="h-10 w-10 shrink-0 rounded-md bg-gray-100 object-cover dark:bg-gray-800"
+                          className="h-10 w-10 shrink-0 rounded-lg bg-surface-canvas object-cover border border-border-subtle"
                         />
                       ) : (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-canvas text-text-muted border border-border-subtle">
                           <Icon name="plugin" size={24} />
                         </div>
                       )}
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-gray-900 dark:text-gray-100">{p.name}</p>
+                          <p className="font-medium text-text-primary">{p.name}</p>
                           <SourceBadge plugin={p} />
                         </div>
                         {p.description && (
-                          <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400" title={p.description}>
-                        {p.description}
-                      </p>
-                    )}
-                    {p.filename && (
-                      <p className="mt-0.5 truncate font-mono text-xs text-gray-400 dark:text-gray-500" title={p.filename}>
-                        {p.filename}
-                      </p>
+                          <p className="mt-0.5 truncate text-xs text-text-muted" title={p.description}>
+                            {p.description}
+                          </p>
+                        )}
+                        {p.filename && (
+                          <p className="mt-0.5 truncate font-mono text-xs text-text-muted opacity-80" title={p.filename}>
+                            {p.filename}
+                          </p>
                         )}
                       </div>
                     </div>
                   </td>
-                  <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">
+                  <td className="hidden px-4 py-3 text-text-muted sm:table-cell">
                     {p.version === "unknown" ? (
-                      <span className="text-gray-400 dark:text-gray-500">{p.version}</span>
+                      <span className="text-text-muted opacity-50">{p.version}</span>
                     ) : (
                       p.version
                     )}
                   </td>
-                  <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">{p.author}</td>
+                  <td className="hidden px-4 py-3 text-text-muted md:table-cell">{p.author}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border ${
                         p.status === "enabled"
-                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                          : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                          ? "bg-status-success-bg text-status-success border-status-success/30"
+                          : "bg-surface-canvas text-text-muted border-border-default"
                       }`}
                     >
                       <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-current opacity-70" aria-hidden="true" />
@@ -202,6 +223,7 @@ export function PluginListPage() {
                     <div className="flex items-center justify-end gap-1">
                       {p.status === "enabled" ? (
                         <button
+                          type="button"
                           onClick={() =>
                             disablePlugin.mutate(p.plugin_id, {
                               onSuccess: () => toast("success", "Plugin disabled", `"${p.name}" is disabled.`),
@@ -211,12 +233,13 @@ export function PluginListPage() {
                           disabled={disablePlugin.isPending}
                           aria-label={`Disable ${p.name}`}
                           title="Disable"
-                          className="rounded-lg p-1.5 text-orange-600 transition-colors hover:bg-orange-100 hover:text-orange-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-orange-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-300"
+                          className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                         >
                           <Icon name="stop" size={16} />
                         </button>
                       ) : (
                         <button
+                          type="button"
                           onClick={() =>
                             enablePlugin.mutate(p.plugin_id, {
                               onSuccess: () => toast("success", "Plugin enabled", `"${p.name}" is enabled.`),
@@ -226,17 +249,18 @@ export function PluginListPage() {
                           disabled={enablePlugin.isPending}
                           aria-label={`Enable ${p.name}`}
                           title="Enable"
-                          className="rounded-lg p-1.5 text-green-600 transition-colors hover:bg-green-100 hover:text-green-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-green-400 dark:hover:bg-green-900/30 dark:hover:text-green-300"
+                          className="rounded-lg p-1.5 text-status-success transition-colors hover:bg-status-success-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                         >
                           <Icon name="play" size={16} />
                         </button>
                       )}
                       <button
+                        type="button"
                         onClick={() => setUninstallTarget(p)}
                         disabled={uninstallPlugin.isPending}
                         aria-label={`Uninstall ${p.name}`}
                         title="Uninstall"
-                        className="rounded-lg p-1.5 text-red-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-red-400 dark:hover:bg-red-900/30 dark:hover:text-red-300"
+                        className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                       >
                         <Icon name="trash" size={16} />
                       </button>
@@ -246,6 +270,17 @@ export function PluginListPage() {
               ))}
             </tbody>
           </table>
+
+          {plugins.length > PAGE_SIZE && (
+            <div className="border-t border-border-subtle p-3">
+              <Pagination
+                totalItems={plugins.length}
+                pageSize={PAGE_SIZE}
+                page={currentPage}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          )}
         </div>
       ) : (
         <EmptyState
@@ -254,8 +289,9 @@ export function PluginListPage() {
           description="Install a plugin from the marketplace, or drop a .jar file directly into the server's plugins/ folder — it will appear here automatically."
           action={
             <button
+              type="button"
               onClick={handleInstall}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
             >
               <Icon name="plus" size={16} />
               Install Plugin
@@ -274,9 +310,11 @@ export function PluginListPage() {
         }
         confirmLabel="Uninstall"
         cancelLabel="Cancel"
+        variant="danger"
         onConfirm={handleConfirmUninstall}
         onCancel={() => setUninstallTarget(null)}
       />
     </div>
   );
 }
+

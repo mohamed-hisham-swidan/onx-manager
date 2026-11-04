@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { useSettings, useUpdateSettings } from "@/server_manager/hooks/useSettings";
-import { Skeleton } from "@/components/Skeleton";
-import { ErrorState } from "@/components/ErrorState";
+import { Skeleton, ErrorState } from "@/components/ui/States";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { toast } from "@/stores/toastStore";
@@ -34,7 +33,7 @@ export function SettingsPage() {
         <Skeleton className="h-10 w-48" />
         <div className="space-y-6">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800 space-y-4">
+            <div key={i} className="rounded-xl border border-border-default bg-surface-panel p-6 space-y-4">
               <Skeleton className="h-6 w-36" />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Skeleton className="h-10 w-full" />
@@ -59,14 +58,14 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex border-b border-gray-200 dark:border-gray-700">
+      <div className="flex border-b border-border-default">
         <button
           type="button"
           onClick={() => setActiveTab("system")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
             activeTab === "system"
-              ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-              : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              ? "border-accent-primary text-accent-primary"
+              : "border-transparent text-text-muted hover:text-text-primary"
           }`}
         >
           System Settings
@@ -74,10 +73,10 @@ export function SettingsPage() {
         <button
           type="button"
           onClick={() => setActiveTab("invitations")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
             activeTab === "invitations"
-              ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-              : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              ? "border-accent-primary text-accent-primary"
+              : "border-transparent text-text-muted hover:text-text-primary"
           }`}
         >
           Invitations
@@ -85,10 +84,10 @@ export function SettingsPage() {
         <button
           type="button"
           onClick={() => setActiveTab("access")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
             activeTab === "access"
-              ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-              : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              ? "border-accent-primary text-accent-primary"
+              : "border-transparent text-text-muted hover:text-text-primary"
           }`}
         >
           Access Control
@@ -236,14 +235,14 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               type="button"
               onClick={handleReset}
               disabled={!isDirty || updateSettings.isPending}
-              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-medium text-gray-700 dark:text-gray-200 transition-colors hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-lg border border-border-default bg-surface-panel text-sm font-medium text-text-secondary transition-colors hover:bg-surface-elevated disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Discard Changes
             </button>
             <button
               type="submit"
               disabled={updateSettings.isPending}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {updateSettings.isPending ? (
                 <>
@@ -292,15 +291,15 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       )}
 
       {/* Section 1: General */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
         <div className="mb-4">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">General</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <h3 className="text-base font-semibold text-text-primary">General</h3>
+          <p className="text-xs text-text-muted">
             Core application identity and runtime logging configuration.
           </p>
           {settings.version ? (
-            <p className="mt-2 inline-flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-1.5 text-xs text-gray-600 dark:bg-gray-700/50 dark:text-gray-300">
-              <Icon name="info" size={14} className="text-gray-400 dark:text-gray-500" />
+            <p className="mt-2 inline-flex items-center gap-2 rounded-lg bg-surface-elevated border border-border-default px-3 py-1.5 text-xs text-text-secondary">
+              <Icon name="info" size={14} className="text-text-muted" />
               {settings.app_name ?? "onx-manager"} {settings.version}
             </p>
           ) : null}
@@ -309,7 +308,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
           {/* App Name */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="app_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="app_name" className="block text-sm font-medium text-text-secondary">
                 App Name
               </label>
               {restartRequiredSet.has("app_name") && <RestartBadge />}
@@ -321,9 +320,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.app_name}
               onChange={handleChange}
               aria-describedby="app_name-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="app_name-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="app_name-help" className="mt-1 text-xs text-text-muted">
               Display name for this onx-manager instance.
             </p>
           </div>
@@ -331,7 +330,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
           {/* Log Level */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="log_level" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="log_level" className="block text-sm font-medium text-text-secondary">
                 Log Level
               </label>
               {restartRequiredSet.has("log_level") && <RestartBadge />}
@@ -342,14 +341,14 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.log_level}
               onChange={handleChange}
               aria-describedby="log_level-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             >
               <option value="DEBUG">DEBUG</option>
               <option value="INFO">INFO</option>
               <option value="WARNING">WARNING</option>
               <option value="ERROR">ERROR</option>
             </select>
-            <p id="log_level-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="log_level-help" className="mt-1 text-xs text-text-muted">
               Minimum severity level for application logs.
             </p>
           </div>
@@ -357,7 +356,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
           {/* Debug Mode */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="debug" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="debug" className="block text-sm font-medium text-text-secondary">
                 Debug Mode
               </label>
               {restartRequiredSet.has("debug") && <RestartBadge />}
@@ -368,12 +367,12 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.debug ? "true" : "false"}
               onChange={handleChange}
               aria-describedby="debug-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             >
               <option value="true">Enabled</option>
               <option value="false">Disabled</option>
             </select>
-            <p id="debug-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="debug-help" className="mt-1 text-xs text-text-muted">
               Enables verbose logging and detailed error stack traces.
             </p>
           </div>
@@ -381,17 +380,17 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 2: Rate Limiting & Security */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
         <div className="mb-4">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Rate Limiting & Security</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <h3 className="text-base font-semibold text-text-primary">Rate Limiting & Security</h3>
+          <p className="text-xs text-text-muted">
             API request throttling and idempotency token retention policies.
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Rate Limit per minute */}
           <div>
-            <label htmlFor="rate_limit_per_minute" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label htmlFor="rate_limit_per_minute" className="block text-sm font-medium text-text-secondary mb-1.5">
               Rate Limit (per minute)
             </label>
             <input
@@ -403,16 +402,16 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.rate_limit_per_minute}
               onChange={handleChange}
               aria-describedby="rate_limit_per_minute-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="rate_limit_per_minute-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="rate_limit_per_minute-help" className="mt-1 text-xs text-text-muted">
               Max API requests per minute per IP address.
             </p>
           </div>
 
           {/* Idempotency TTL */}
           <div>
-            <label htmlFor="idempotency_ttl_hours" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label htmlFor="idempotency_ttl_hours" className="block text-sm font-medium text-text-secondary mb-1.5">
               Idempotency TTL (hours)
             </label>
             <input
@@ -424,9 +423,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.idempotency_ttl_hours}
               onChange={handleChange}
               aria-describedby="idempotency_ttl_hours-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="idempotency_ttl_hours-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="idempotency_ttl_hours-help" className="mt-1 text-xs text-text-muted">
               Retention period in hours for request idempotency execution keys.
             </p>
           </div>
@@ -434,17 +433,17 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 3: Circuit Breaker */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
         <div className="mb-4">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Circuit Breaker</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <h3 className="text-base font-semibold text-text-primary">Circuit Breaker</h3>
+          <p className="text-xs text-text-muted">
             Fault tolerance thresholds and automated service recovery timings.
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Max Failures */}
           <div>
-            <label htmlFor="circuit_breaker_max_failures" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label htmlFor="circuit_breaker_max_failures" className="block text-sm font-medium text-text-secondary mb-1.5">
               Max Failures
             </label>
             <input
@@ -456,16 +455,16 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.circuit_breaker_max_failures}
               onChange={handleChange}
               aria-describedby="circuit_breaker_max_failures-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="circuit_breaker_max_failures-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="circuit_breaker_max_failures-help" className="mt-1 text-xs text-text-muted">
               Consecutive errors before opening the circuit breaker.
             </p>
           </div>
 
           {/* Timeout seconds */}
           <div>
-            <label htmlFor="circuit_breaker_timeout_seconds" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label htmlFor="circuit_breaker_timeout_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
               Timeout (seconds)
             </label>
             <input
@@ -477,9 +476,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.circuit_breaker_timeout_seconds}
               onChange={handleChange}
               aria-describedby="circuit_breaker_timeout_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="circuit_breaker_timeout_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="circuit_breaker_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
               Cooldown duration in seconds before attempting half-open recovery.
             </p>
           </div>
@@ -487,17 +486,17 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 4: Event Bus & Sagas */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
         <div className="mb-4">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Event Bus & Sagas</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <h3 className="text-base font-semibold text-text-primary">Event Bus & Sagas</h3>
+          <p className="text-xs text-text-muted">
             Asynchronous event dispatch retry policies and multi-step saga execution timeouts.
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Event bus retry attempts */}
           <div>
-            <label htmlFor="event_bus_retry_attempts" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label htmlFor="event_bus_retry_attempts" className="block text-sm font-medium text-text-secondary mb-1.5">
               Event Bus Retry Attempts
             </label>
             <input
@@ -509,16 +508,16 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.event_bus_retry_attempts}
               onChange={handleChange}
               aria-describedby="event_bus_retry_attempts-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="event_bus_retry_attempts-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="event_bus_retry_attempts-help" className="mt-1 text-xs text-text-muted">
               Max delivery retries for failing async domain event handlers.
             </p>
           </div>
 
           {/* Saga timeout seconds */}
           <div>
-            <label htmlFor="saga_timeout_seconds" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label htmlFor="saga_timeout_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
               Saga Timeout (seconds)
             </label>
             <input
@@ -530,9 +529,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.saga_timeout_seconds}
               onChange={handleChange}
               aria-describedby="saga_timeout_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="saga_timeout_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="saga_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
               Maximum execution duration before rolling back a distributed saga.
             </p>
           </div>
@@ -540,17 +539,17 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 5: Monitoring & Performance */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
         <div className="mb-4">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Monitoring & Performance</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <h3 className="text-base font-semibold text-text-primary">Monitoring & Performance</h3>
+          <p className="text-xs text-text-muted">
             Real-time server metrics collection rate and CPU/RAM sampling interval.
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Metrics interval seconds */}
           <div>
-            <label htmlFor="metrics_interval_seconds" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label htmlFor="metrics_interval_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
               CPU & Metrics Sampling Interval (seconds)
             </label>
             <input
@@ -563,9 +562,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.metrics_interval_seconds}
               onChange={handleChange}
               aria-describedby="metrics_interval_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="metrics_interval_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="metrics_interval_seconds-help" className="mt-1 text-xs text-text-muted">
               Frequency in seconds for sampling CPU, RAM, and streaming real-time metrics (e.g. 0.2s for live real-time, 1.0s or 5.0s for reduced CPU overhead).
             </p>
           </div>
@@ -573,16 +572,16 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 6: Startup & Boot Timeouts */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
         <div className="mb-4">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Startup & Boot Timeouts</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <h3 className="text-base font-semibold text-text-primary">Startup & Boot Timeouts</h3>
+          <p className="text-xs text-text-muted">
             Default boot-gate timeouts for regular servers and isolated test containers (30–1800s). No server restart required.
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label htmlFor="server_startup_timeout_seconds" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label htmlFor="server_startup_timeout_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
               Server Startup Timeout (seconds)
             </label>
             <input
@@ -594,15 +593,15 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.server_startup_timeout_seconds}
               onChange={handleChange}
               aria-describedby="server_startup_timeout_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="server_startup_timeout_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="server_startup_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
               Global timeout before starting monitor warns on slow server boot. Can be overridden per-server.
             </p>
           </div>
 
           <div>
-            <label htmlFor="test_boot_timeout_seconds" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            <label htmlFor="test_boot_timeout_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
               Test Boot Timeout (seconds)
             </label>
             <input
@@ -614,9 +613,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.test_boot_timeout_seconds}
               onChange={handleChange}
               aria-describedby="test_boot_timeout_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
-            <p id="test_boot_timeout_seconds-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p id="test_boot_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
               Global timeout before isolated test containers fail boot verification.
             </p>
           </div>
@@ -629,7 +628,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
 function RestartBadge() {
   return (
     <span
-      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/50"
+      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
       title="Changes to this setting require a backend restart to take effect"
     >
       <Icon name="info" size={12} />

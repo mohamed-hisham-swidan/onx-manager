@@ -9,13 +9,15 @@ import {
 } from "@/server_manager/hooks/usePlugins";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
-import { EmptyState } from "@/components/EmptyState";
-import { ErrorState } from "@/components/ErrorState";
+import { EmptyState, ErrorState } from "@/components/ui/States";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Pagination } from "@/components/ui/Pagination";
 import { TableSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 import type { PluginResponse } from "@/types";
+
+const PAGE_SIZE = 15;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
@@ -25,7 +27,7 @@ function LoaderBadge({ loader }: { loader?: string | null }) {
   const norm = loader?.toLowerCase() || "";
   if (norm.includes("fabric")) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300">
+      <span className="inline-flex items-center gap-1 rounded-md border border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/50 px-2 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-300">
         <Icon name="fabric" size={12} />
         Fabric
       </span>
@@ -33,7 +35,7 @@ function LoaderBadge({ loader }: { loader?: string | null }) {
   }
   if (norm.includes("neoforge")) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-orange-200 bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-300">
+      <span className="inline-flex items-center gap-1 rounded-md border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/50 px-2 py-0.5 text-xs font-medium text-orange-700 dark:text-orange-300">
         <Icon name="neoforge" size={12} />
         NeoForge
       </span>
@@ -41,7 +43,7 @@ function LoaderBadge({ loader }: { loader?: string | null }) {
   }
   if (norm.includes("forge")) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+      <span className="inline-flex items-center gap-1 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
         <Icon name="forge" size={12} />
         Forge
       </span>
@@ -49,14 +51,14 @@ function LoaderBadge({ loader }: { loader?: string | null }) {
   }
   if (norm.includes("quilt")) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-purple-200 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 dark:border-purple-800 dark:bg-purple-950/50 dark:text-purple-300">
+      <span className="inline-flex items-center gap-1 rounded-md border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/50 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300">
         <Icon name="quilt" size={12} />
         Quilt
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+    <span className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-canvas px-2 py-0.5 text-xs font-medium text-text-secondary">
       <Icon name="plugin" size={12} />
       {loader || "Universal"}
     </span>
@@ -69,7 +71,7 @@ function ClientOnlyBadge({ warning }: { warning?: string | null }) {
     <span
       role="status"
       title={warning}
-      className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+      className="inline-flex items-center gap-1 rounded-full bg-status-warning-bg border border-status-warning/30 px-2.5 py-0.5 text-xs font-medium text-status-warning"
     >
       <Icon name="alert" size={12} />
       Client-only
@@ -96,21 +98,21 @@ function ModStatusToggle({
         aria-label={`${isEnabled ? "Disable" : "Enable"} ${mod.name}`}
         onClick={onToggle}
         disabled={isPending}
-        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-          isEnabled ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"
+        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+          isEnabled ? "bg-accent-primary" : "bg-border-default"
         }`}
       >
         <span className="sr-only">{isEnabled ? "Enabled" : "Disabled"}</span>
         <span
           aria-hidden="true"
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
             isEnabled ? "translate-x-5" : "translate-x-0"
           }`}
         />
       </button>
       <span
         className={`text-xs font-medium ${
-          isEnabled ? "text-emerald-600 dark:text-emerald-400" : "text-gray-500 dark:text-gray-400"
+          isEnabled ? "text-status-success" : "text-text-muted"
         }`}
       >
         {isEnabled ? "Enabled" : "Disabled"}
@@ -172,8 +174,8 @@ function ModUploadZone({
       onClick={() => !isUploading && fileInputRef.current?.click()}
       className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors cursor-pointer ${
         isDragging
-          ? "border-blue-500 bg-blue-50/50 dark:border-blue-400 dark:bg-blue-950/20"
-          : "border-gray-300 hover:border-gray-400 bg-gray-50/50 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800/30 dark:hover:border-gray-600"
+          ? "border-accent-primary bg-accent-muted/15"
+          : "border-border-default hover:border-accent-muted bg-surface-panel hover:bg-surface-hover/50"
       } ${isUploading ? "pointer-events-none opacity-60" : ""}`}
     >
       <input
@@ -184,13 +186,13 @@ function ModUploadZone({
         className="hidden"
         data-testid="mod-file-input"
       />
-      <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400">
+      <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accent-muted/20 text-accent-primary">
         <Icon name="upload" size={20} />
       </div>
-      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+      <p className="text-sm font-medium text-text-primary">
         {isUploading ? "Uploading mod..." : "Drop custom .jar mod file here, or browse"}
       </p>
-      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+      <p className="mt-1 text-xs text-text-muted">
         Supports Forge, NeoForge, Fabric, and Quilt mods (.jar)
       </p>
     </div>
@@ -207,6 +209,7 @@ export function ServerModsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loaderFilter, setLoaderFilter] = useState("all");
   const [uninstallTarget, setUninstallTarget] = useState<PluginResponse | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const effectiveServerId = routeServerId
     ? routeServerId
@@ -301,6 +304,12 @@ export function ServerModsPage() {
     });
   }, [mods, searchQuery, loaderFilter]);
 
+  const paginatedMods = useMemo(() => {
+    if (!filteredMods || filteredMods.length <= PAGE_SIZE) return filteredMods;
+    const startIdx = (currentPage - 1) * PAGE_SIZE;
+    return filteredMods.slice(startIdx, startIdx + PAGE_SIZE);
+  }, [filteredMods, currentPage]);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -310,8 +319,9 @@ export function ServerModsPage() {
         actions={
           effectiveServerId ? (
             <button
+              type="button"
               onClick={handleBrowseMarketplace}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
             >
               <Icon name="plus" size={16} />
               Browse Marketplace
@@ -329,7 +339,7 @@ export function ServerModsPage() {
             id="mods-server-select"
             value={effectiveServerId}
             onChange={handleServerChange}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+            className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
           >
             <option value="">Select a server...</option>
             {servers?.map((s) => (
@@ -355,27 +365,33 @@ export function ServerModsPage() {
           {/* Search and Filters */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative max-w-sm flex-1">
-              <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+              <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-text-muted">
                 <Icon name="search" size={16} />
               </span>
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
                 placeholder="Search mods by name, ID, or file..."
-                className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
+                className="w-full rounded-lg border border-border-default bg-surface-canvas py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
               />
             </div>
 
             <div className="flex items-center gap-2">
-              <label htmlFor="loader-filter" className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              <label htmlFor="loader-filter" className="text-xs font-medium text-text-muted">
                 Loader:
               </label>
               <select
                 id="loader-filter"
                 value={loaderFilter}
-                onChange={(e) => setLoaderFilter(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                onChange={(e) => {
+                  setLoaderFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="rounded-lg border border-border-default bg-surface-canvas px-3 py-1.5 text-xs text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
               >
                 <option value="all">All Loaders</option>
                 <option value="fabric">Fabric</option>
@@ -392,20 +408,20 @@ export function ServerModsPage() {
           ) : error ? (
             <ErrorState message={error instanceof Error ? error.message : "Failed to load mods"} />
           ) : filteredMods.length > 0 ? (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+            <div className="overflow-hidden rounded-xl border border-border-default bg-surface-panel shadow-xs">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
-                    <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">
+                  <tr className="border-b border-border-subtle bg-surface-canvas/50">
+                    <th className="px-4 py-3 text-left font-medium text-text-muted">
                       Mod
                     </th>
-                    <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 sm:table-cell">
+                    <th className="hidden px-4 py-3 text-left font-medium text-text-muted sm:table-cell">
                       Loader
                     </th>
-                    <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 md:table-cell">
+                    <th className="hidden px-4 py-3 text-left font-medium text-text-muted md:table-cell">
                       Version
                     </th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">
+                    <th className="px-4 py-3 text-left font-medium text-text-muted">
                       Status
                     </th>
                     <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">
@@ -413,11 +429,11 @@ export function ServerModsPage() {
                     </th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filteredMods.map((m) => (
+                <tbody className="divide-y divide-border-subtle">
+                  {paginatedMods.map((m) => (
                     <tr
                       key={m.plugin_id}
-                      className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
+                      className="hover:bg-surface-hover/50 transition-colors"
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-start gap-3">
@@ -425,18 +441,18 @@ export function ServerModsPage() {
                             <img
                               src={m.icon_url}
                               alt={`${m.name} icon`}
-                              className="h-10 w-10 shrink-0 rounded-md bg-gray-100 object-cover dark:bg-gray-800"
+                              className="h-10 w-10 shrink-0 rounded-lg bg-surface-canvas object-cover border border-border-subtle"
                             />
                           ) : (
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-canvas text-text-muted border border-border-subtle">
                               <Icon name="plugin" size={24} />
                             </div>
                           )}
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-medium text-gray-900 dark:text-gray-100">{m.name}</p>
+                              <p className="font-medium text-text-primary">{m.name}</p>
                               {m.mod_id && (
-                                <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                                <span className="rounded bg-surface-canvas px-1.5 py-0.5 font-mono text-[11px] text-text-muted border border-border-subtle">
                                   {m.mod_id}
                                 </span>
                               )}
@@ -444,7 +460,7 @@ export function ServerModsPage() {
                             </div>
                             {m.description && (
                               <p
-                                className="mt-0.5 line-clamp-1 text-xs text-gray-500 dark:text-gray-400"
+                                className="mt-0.5 line-clamp-1 text-xs text-text-muted"
                                 title={m.description}
                               >
                                 {m.description}
@@ -452,7 +468,7 @@ export function ServerModsPage() {
                             )}
                             {m.filename && (
                               <p
-                                className="mt-0.5 truncate font-mono text-xs text-gray-400 dark:text-gray-500"
+                                className="mt-0.5 truncate font-mono text-xs text-text-muted opacity-80"
                                 title={m.filename}
                               >
                                 {m.filename}
@@ -464,7 +480,7 @@ export function ServerModsPage() {
                       <td className="hidden px-4 py-3 sm:table-cell">
                         <LoaderBadge loader={m.loader} />
                       </td>
-                      <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">
+                      <td className="hidden px-4 py-3 text-text-muted md:table-cell">
                         {m.version || "—"}
                       </td>
                       <td className="px-4 py-3">
@@ -476,11 +492,12 @@ export function ServerModsPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
+                          type="button"
                           onClick={() => setUninstallTarget(m)}
                           disabled={uninstallMod.isPending}
                           aria-label={`Uninstall ${m.name}`}
                           title="Uninstall"
-                          className="rounded-lg p-1.5 text-red-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-red-400 dark:hover:bg-red-900/30 dark:hover:text-red-300"
+                          className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                         >
                           <Icon name="trash" size={16} />
                         </button>
@@ -489,6 +506,17 @@ export function ServerModsPage() {
                   ))}
                 </tbody>
               </table>
+
+              {filteredMods.length > PAGE_SIZE && (
+                <div className="border-t border-border-subtle p-3">
+                  <Pagination
+                    totalItems={filteredMods.length}
+                    pageSize={PAGE_SIZE}
+                    page={currentPage}
+                    onPageChange={setCurrentPage}
+                  />
+                </div>
+              )}
             </div>
           ) : (
             <EmptyState
@@ -502,18 +530,20 @@ export function ServerModsPage() {
               action={
                 searchQuery || loaderFilter !== "all" ? (
                   <button
+                    type="button"
                     onClick={() => {
                       setSearchQuery("");
                       setLoaderFilter("all");
                     }}
-                    className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300"
+                    className="inline-flex items-center gap-1 rounded-lg bg-surface-canvas border border-border-default px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
                   >
                     Clear Filters
                   </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={handleBrowseMarketplace}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
                   >
                     <Icon name="plus" size={16} />
                     Browse Marketplace
@@ -537,6 +567,7 @@ export function ServerModsPage() {
         }
         confirmLabel="Uninstall"
         cancelLabel="Cancel"
+        variant="danger"
         onConfirm={handleConfirmUninstall}
         onCancel={() => setUninstallTarget(null)}
       />

@@ -107,8 +107,8 @@ export function RegisterPage() {
 
   if (statusLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
-        <p className="text-sm text-gray-500">Loading registration status...</p>
+      <div className="min-h-screen flex items-center justify-center bg-surface-canvas px-4">
+        <p className="text-sm text-text-muted">Loading registration status...</p>
       </div>
     );
   }
@@ -117,34 +117,34 @@ export function RegisterPage() {
   const isInviteOnlyLocked = isGlobalMode && !tokenVerified;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-surface-canvas px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-center mb-6 text-gray-900 dark:text-gray-100">
+        <h1 className="text-2xl font-bold text-center mb-6 text-text-primary tracking-tight">
           onx-manager
         </h1>
 
         <form
           onSubmit={handleSubmit}
-          className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4"
+          className="bg-surface-panel rounded-xl shadow-xs border border-border-default p-6 space-y-4"
         >
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <h2 className="text-lg font-semibold text-text-primary">
             {tokenVerified ? "Accept Invitation" : "Create account"}
           </h2>
 
           {displayError && (
-            <div className="px-3 py-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg">
+            <div className="px-3 py-2 text-sm text-status-danger bg-status-danger/10 border border-status-danger/20 rounded-lg">
               {displayError}
             </div>
           )}
 
           {isInviteOnlyLocked && (
             <div className="space-y-3">
-              <div className="p-3 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+              <div className="p-3 text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 rounded-lg border border-amber-500/20">
                 This instance uses invitation-only registration. Please enter your invitation token below.
               </div>
 
               <div>
-                <label htmlFor="inviteToken" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="inviteToken" className="block text-sm font-medium text-text-secondary mb-1">
                   Invitation Token
                 </label>
                 <div className="flex gap-2">
@@ -153,14 +153,14 @@ export function RegisterPage() {
                     type="text"
                     value={inviteToken}
                     onChange={(e) => setInviteToken(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
                     placeholder="Enter token"
                   />
                   <button
                     type="button"
                     onClick={handleClickVerify}
                     disabled={verifyingToken || !inviteToken.trim()}
-                    className="px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 text-xs font-medium border border-gray-300 dark:border-gray-600 disabled:opacity-50"
+                    className="px-3 py-2 rounded-lg bg-surface-elevated hover:bg-surface-panel text-text-secondary text-xs font-medium border border-border-default disabled:opacity-50 transition-colors"
                   >
                     {verifyingToken ? "Verifying..." : "Verify"}
                   </button>
@@ -172,12 +172,12 @@ export function RegisterPage() {
           {(!isInviteOnlyLocked || tokenVerified) && (
             <>
               {tokenVerified && (
-                <div className="px-3 py-1.5 text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800 flex items-center justify-between">
+                <div className="px-3 py-1.5 text-xs text-status-online bg-status-online/10 rounded-lg border border-status-online/20 flex items-center justify-between">
                   <span>Invitation verified!</span>
                   <button
                     type="button"
                     onClick={handleChangeToken}
-                    className="text-xs text-gray-500 hover:underline"
+                    className="text-xs text-text-muted hover:underline"
                   >
                     Change
                   </button>
@@ -185,7 +185,7 @@ export function RegisterPage() {
               )}
 
               <div>
-                <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="displayName" className="block text-sm font-medium text-text-secondary mb-1">
                   Display name
                 </label>
                 <input
@@ -193,7 +193,7 @@ export function RegisterPage() {
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
                   placeholder="Your name"
                   autoComplete="name"
                   required
@@ -201,7 +201,7 @@ export function RegisterPage() {
               </div>
 
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="email" className="block text-sm font-medium text-text-secondary mb-1">
                   Email
                 </label>
                 <input
@@ -210,7 +210,7 @@ export function RegisterPage() {
                   value={emailValue}
                   onChange={(e) => !emailLocked && setEmail(e.target.value)}
                   disabled={emailLocked}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-75 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+                  className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary disabled:opacity-75 disabled:bg-surface-elevated"
                   placeholder="you@example.com"
                   autoComplete="email"
                   required
@@ -218,7 +218,7 @@ export function RegisterPage() {
               </div>
 
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="password" className="block text-sm font-medium text-text-secondary mb-1">
                   Password
                 </label>
                 <div className="relative">
@@ -227,7 +227,7 @@ export function RegisterPage() {
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 pr-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 pr-10 rounded-lg border border-border-default bg-surface-canvas text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
                     placeholder="At least 8 characters"
                     autoComplete="new-password"
                     required
@@ -235,7 +235,7 @@ export function RegisterPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
-                    className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted hover:text-text-primary"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? (
@@ -253,7 +253,7 @@ export function RegisterPage() {
               </div>
 
               <div>
-                <label htmlFor="passwordConfirm" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="passwordConfirm" className="block text-sm font-medium text-text-secondary mb-1">
                   Confirm password
                 </label>
                 <div className="relative">
@@ -262,7 +262,7 @@ export function RegisterPage() {
                     type={showPasswordConfirm ? "text" : "password"}
                     value={passwordConfirm}
                     onChange={(e) => setPasswordConfirm(e.target.value)}
-                    className="w-full px-3 py-2 pr-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 pr-10 rounded-lg border border-border-default bg-surface-canvas text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
                     placeholder="Repeat password"
                     autoComplete="new-password"
                     required
@@ -270,7 +270,7 @@ export function RegisterPage() {
                   <button
                     type="button"
                     onClick={() => setShowPasswordConfirm((v) => !v)}
-                    className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted hover:text-text-primary"
                     aria-label={showPasswordConfirm ? "Hide password" : "Show password"}
                   >
                     {showPasswordConfirm ? (
@@ -290,16 +290,16 @@ export function RegisterPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-2 px-4 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-fg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Creating account..." : tokenVerified ? "Accept & Complete Account" : "Create account"}
               </button>
             </>
           )}
 
-          <p className="text-sm text-center text-gray-500 dark:text-gray-400 pt-1">
+          <p className="text-sm text-center text-text-muted pt-1">
             Already have an account?{" "}
-            <Link to="/login" className="text-blue-600 dark:text-blue-400 hover:underline">
+            <Link to="/login" className="text-accent-primary hover:underline">
               Sign in
             </Link>
           </p>

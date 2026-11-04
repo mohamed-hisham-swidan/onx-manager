@@ -6,11 +6,13 @@ export interface EmptyStateProps {
   title: string;
   description?: string;
   icon?: IconName;
-  action?: {
-    label: string;
-    onClick: () => void;
-    icon?: IconName;
-  };
+  action?:
+    | {
+        label: string;
+        onClick: () => void;
+        icon?: IconName;
+      }
+    | React.ReactNode;
   children?: React.ReactNode;
   className?: string;
 }
@@ -38,9 +40,13 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       )}
       {action && (
         <div className="mt-6">
-          <Button onClick={action.onClick} icon={action.icon} variant="primary" size="sm">
-            {action.label}
-          </Button>
+          {React.isValidElement(action) ? (
+            action
+          ) : typeof action === "object" && "label" in action ? (
+            <Button onClick={action.onClick} icon={action.icon} variant="primary" size="sm">
+              {action.label}
+            </Button>
+          ) : null}
         </div>
       )}
       {children}
