@@ -32,6 +32,7 @@ This directory captures significant architectural decisions made during the proj
 | DECISION-2026-09-27-001 | [Stage B Test Run Engine (Phase 5.5) Scope Authorization](DECISION-2026-09-27-001-stage-b-test-run-engine.md) | 2026-09-27 | Accepted | Bounded D2 scope for TestDefinition execution, TestRun hardening, assertion engine, cleanup plans, and evidence aggregation; Stage C–G excluded. |
 | DECISION-2026-09-28-001 | [Stage B Canonical Test Directory Grounding Amendment](DECISION-2026-09-28-001-stage-b-canonical-test-dir-amendment.md) | 2026-09-28 | Accepted | D1 Standard amendment grounding canonical test-dir derivation in authoritative server deployment directory across all 5 lifecycle paths. |
 | 0020 | [Installer and launcher pin Python to exactly 3.12](0020-installer-python-312-pin.md) | 2026-11-02 | Accepted | Exact 3.12 probe in launcher/start scripts/bootstrap; versioned-only installs; venv deletion only in launcher.py. |
+| 0021 | [Frontend UX/IA Overhaul and Design Token System](0021-frontend-ux-ia-overhaul-token-system.md) | 2026-11-04 | Accepted (D1–D9; D10 provisional) | Layout/IA overhaul, design token skeleton (data-skin/mode/density), monolith modularization, shared primitives, and 19-batch execution plan. |
 
 ## New ADRs and Decisions
 
