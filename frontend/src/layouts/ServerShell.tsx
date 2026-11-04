@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { Outlet, useLocation, useParams, Link } from "react-router-dom";
 import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { LoadingBar } from "@/components/ui/LoadingBar";
 import { Toaster } from "@/components/ui/Toaster";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { RouteFallback } from "@/components/ui/RouteFallback";
 import { Icon } from "@/components/ui/Icon";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { LoaderBadge } from "@/components/ui/LoaderBadge";
@@ -246,7 +247,9 @@ export function ServerShell() {
           )}
 
           <ErrorBoundary>
-            <Outlet />
+            <Suspense fallback={<RouteFallback />}>
+              <Outlet />
+            </Suspense>
           </ErrorBoundary>
         </div>
       </main>

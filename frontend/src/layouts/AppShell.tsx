@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { LoadingBar } from "@/components/ui/LoadingBar";
 import { Toaster } from "@/components/ui/Toaster";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { RouteFallback } from "@/components/ui/RouteFallback";
 import { OperationDrawer } from "@/operations/components/OperationDrawer";
 import { useOperationStore } from "@/operations/stores/operationStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -32,7 +33,9 @@ export function AppShell() {
       >
         <div className="mx-auto max-w-7xl p-3.5 sm:p-5 lg:px-6 lg:py-5">
           <ErrorBoundary>
-            <Outlet />
+            <Suspense fallback={<RouteFallback />}>
+              <Outlet />
+            </Suspense>
           </ErrorBoundary>
         </div>
       </main>
