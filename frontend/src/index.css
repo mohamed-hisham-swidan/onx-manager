@@ -153,52 +153,138 @@
   --status-info-border: rgba(59, 130, 246, 0.3);
 }
 
-/* Graphite Skin (Neutral Dark - 0% Blue Chroma) */
-[data-skin="graphite"][data-mode="dark"] {
-  --surface-page: #0f1012;
-  --surface-card: #18191c;
-  --surface-hover: #222428;
-  --surface-active: #2d3036;
-  --surface-elevated: #202226;
+/* Graphite Skin (Neutral Deep Black / Graphite Dark - 0% Blue Chroma) */
+[data-skin="graphite"],
+[data-skin="graphite"][data-mode="dark"],
+[data-skin="graphite"].dark {
+  --surface-page: #141518;
+  --surface-card: #1a1b1f;
+  --surface-hover: #22242a;
+  --surface-active: #2b2e35;
+  --surface-elevated: #22242a;
   --surface-overlay: rgba(0, 0, 0, 0.8);
-  --surface-muted: #1c1e22;
+  --surface-muted: #1e2025;
 
   --text-primary: #f0f2f5;
-  --text-secondary: #c4c8d0;
-  --text-muted: #848995;
-  --text-inverse: #0f1012;
+  --text-secondary: #b8bcc6;
+  --text-muted: #989ea9;
+  --text-inverse: #141518;
   --text-accent: #60a5fa;
 
-  --border-subtle: #272a30;
-  --border-default: #383c44;
-  --border-strong: #4f545f;
+  --border-subtle: #2d3036;
+  --border-default: #626773;
+  --border-strong: #7b8290;
   --border-focus: #60a5fa;
+
+  --accent-primary: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-active: #1e40af;
+  --accent-contrast-text: #ffffff;
+
+  --status-success: #22c55e;
+  --status-warning: #eab308;
+  --status-danger: #ef4444;
+  --status-info: #3b82f6;
+  --status-neutral: #989ea9;
 }
 
-/* Azure Skin (Blue-Tinted Modern Dark) */
-[data-skin="azure"][data-mode="dark"] {
-  --surface-page: #0a0f1d;
+[data-skin="graphite"][data-mode="light"] {
+  --surface-page: #f3f4f6;
+  --surface-card: #ffffff;
+  --surface-hover: #f9fafb;
+  --surface-active: #e5e7eb;
+  --surface-elevated: #ffffff;
+  --surface-overlay: rgba(17, 24, 39, 0.5);
+  --surface-muted: #f3f4f6;
+
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --text-inverse: #ffffff;
+  --text-accent: #2563eb;
+
+  --border-subtle: #e5e7eb;
+  --border-default: #737a85;
+  --border-strong: #4b5563;
+  --border-focus: #2563eb;
+
+  --accent-primary: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-active: #1e40af;
+  --accent-contrast-text: #ffffff;
+
+  --status-success: #15803d;
+  --status-warning: #b45309;
+  --status-danger: #b91c1c;
+  --status-info: #1d4ed8;
+  --status-neutral: #6b7280;
+}
+
+/* Azure Skin (Blue-Tinted Modern Dark & Clean Ocean Light) */
+[data-skin="azure"],
+[data-skin="azure"][data-mode="dark"],
+[data-skin="azure"].dark {
+  --surface-page: #0b1222;
   --surface-card: #0f172a;
   --surface-hover: #1e293b;
   --surface-active: #334155;
-  --surface-elevated: #151e34;
+  --surface-elevated: #1e293b;
   --surface-overlay: rgba(0, 0, 0, 0.75);
   --surface-muted: #131c31;
 
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
   --text-muted: #94a3b8;
-  --text-inverse: #0a0f1d;
+  --text-inverse: #0b1222;
   --text-accent: #38bdf8;
 
   --border-subtle: #1e293b;
-  --border-default: #334155;
-  --border-strong: #475569;
+  --border-default: #606b7d;
+  --border-strong: #788599;
   --border-focus: #38bdf8;
 
-  --accent-primary: #0284c7;
-  --accent-hover: #0369a1;
+  --accent-primary: #0369a1;
+  --accent-hover: #0284c7;
   --accent-active: #075985;
+  --accent-contrast-text: #ffffff;
+
+  --status-success: #22c55e;
+  --status-warning: #eab308;
+  --status-danger: #ef4444;
+  --status-info: #38bdf8;
+  --status-neutral: #94a3b8;
+}
+
+[data-skin="azure"][data-mode="light"] {
+  --surface-page: #f0f7ff;
+  --surface-card: #ffffff;
+  --surface-hover: #f1f5f9;
+  --surface-active: #e2e8f0;
+  --surface-elevated: #ffffff;
+  --surface-overlay: rgba(15, 23, 42, 0.5);
+  --surface-muted: #e0f2fe;
+
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-inverse: #ffffff;
+  --text-accent: #0284c7;
+
+  --border-subtle: #e2e8f0;
+  --border-default: #6b7c93;
+  --border-strong: #475569;
+  --border-focus: #0284c7;
+
+  --accent-primary: #0369a1;
+  --accent-hover: #0284c7;
+  --accent-active: #075985;
+  --accent-contrast-text: #ffffff;
+
+  --status-success: #15803d;
+  --status-warning: #b45309;
+  --status-danger: #b91c1c;
+  --status-info: #0284c7;
+  --status-neutral: #64748b;
 }
 
 /* Density Controls */
