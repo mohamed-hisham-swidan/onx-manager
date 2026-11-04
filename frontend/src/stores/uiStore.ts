@@ -1,12 +1,15 @@
 import { create } from "zustand";
+import {
+  THEME_KEY,
+  SKIN_KEY,
+  DENSITY_KEY,
+  type Theme,
+  type Skin,
+  type Density,
+} from "@/tokens/storageKeys";
 
-const THEME_KEY = "onx_theme";
-const SKIN_KEY = "onx_skin";
-const DENSITY_KEY = "onx_density";
-
-export type Theme = "light" | "dark";
-export type Skin = "graphite" | "azure";
-export type Density = "comfortable" | "compact";
+export { THEME_KEY, SKIN_KEY, DENSITY_KEY };
+export type { Theme, Skin, Density };
 
 function loadTheme(): Theme {
   try {
