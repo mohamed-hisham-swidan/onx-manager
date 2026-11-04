@@ -81,8 +81,8 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "components/ui/LoaderBadge.tsx": {
     maxHex: 0,
-    maxPalette: 45,
-    reason: "Vanilla loader badge style tested in LoaderBadge.test.tsx (text-gray-700)",
+    maxPalette: 60,
+    reason: "Vanilla loader badge style variants (teal, purple, sky) tested in LoaderBadge.test.tsx",
   },
 
   // Brand Assets & Visual Identity
@@ -284,8 +284,8 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "server_manager/components/StartingMonitorBanner.tsx": {
     maxHex: 0,
-    maxPalette: 35,
-    reason: "Slow startup warning banner",
+    maxPalette: 55,
+    reason: "Slow startup warning banner status indicators (amber/sky variants)",
   },
   "server_manager/components/TargetCard.tsx": {
     maxHex: 0,
@@ -374,8 +374,8 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "server_manager/pages/ServerModsPage.tsx": {
     maxHex: 0,
-    maxPalette: 15,
-    reason: "Server mods page loader and status chips",
+    maxPalette: 25,
+    reason: "Server mods page loader and status chips (orange/sky variants)",
   },
   "server_manager/pages/SettingsPage.tsx": {
     maxHex: 0,
@@ -409,10 +409,12 @@ function getAllSourceFiles(dir: string): string[] {
 }
 
 const HEX_COLOR_REGEX = /#[0-9a-fA-F]{3,8}\b/g;
-const PALETTE_CLASS_REGEX = /\b(bg|text|border)-(gray|blue|indigo|slate|zinc|neutral|emerald|violet|amber|red|green|rose|cyan|yellow|orange)-[0-9]{2,3}(?:\/[0-9]+)?\b/g;
+const PALETTE_CLASS_REGEX =
+  /\b(bg|text|border|ring|fill|stroke|outline|divide|from|via|to|shadow|accent|caret|decoration)-(gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-[0-9]{2,3}(?:\/[0-9]+)?\b/g;
 
 describe("Phase 5: Palette Ratchet & Semantic Token Compliance", () => {
   const sourceFiles = getAllSourceFiles(SRC_ROOT);
+  const allowlistCount = Object.keys(ALLOWLIST).length;
 
   it("finds source files to scan", () => {
     expect(sourceFiles.length).toBeGreaterThan(30);
@@ -425,7 +427,7 @@ describe("Phase 5: Palette Ratchet & Semantic Token Compliance", () => {
     }
   });
 
-  it("ensures all unallowlisted files have ZERO raw hex literals and ZERO raw palette classes", () => {
+  it(`ensures zero unallowlisted raw color classes; ${allowlistCount} allowlisted files with caps`, () => {
     const violations: { file: string; hexCount: number; paletteCount: number; sample: string[] }[] = [];
 
     for (const file of sourceFiles) {
