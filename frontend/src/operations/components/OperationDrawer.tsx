@@ -4,6 +4,9 @@ import { OperationStepper } from "./OperationStepper";
 import { OperationFailure } from "./OperationFailure";
 import { OperationLogs } from "./OperationLogs";
 import type { OperationStatus } from "../types";
+import type { OperationLogLine } from "../stores/operationStore";
+
+const EMPTY_LOGS: OperationLogLine[] = [];
 
 export interface OperationDrawerProps {
   operationId: string | null;
@@ -42,7 +45,7 @@ export const OperationDrawer: React.FC<OperationDrawerProps> = ({
     operationId ? state.operations[operationId] : undefined
   );
   const logs = useOperationStore((state) =>
-    operationId ? state.logs[operationId] || [] : []
+    operationId && state.logs[operationId] ? state.logs[operationId] : EMPTY_LOGS
   );
   const closeDrawer = useOperationStore((state) => state.closeDrawer);
 
