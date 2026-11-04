@@ -7,74 +7,108 @@ interface StatusOverviewCardsProps {
   counts: Record<string, number>;
 }
 
-const STATUS_ORDER = ["running", "stopped", "starting", "provisioning", "stopping", "crashed", "broken", "created", "restoring"];
+const STATUS_ORDER = [
+  "running",
+  "stopped",
+  "starting",
+  "stopping",
+  "crashed",
+  "broken",
+  "provisioning",
+  "created",
+  "restoring",
+];
 
 const STATUS_ICONS: Record<string, IconName> = {
   running: "activity",
   stopped: "stop",
   starting: "restart",
-  provisioning: "server",
   stopping: "restart",
   crashed: "alert",
   broken: "alert",
+  provisioning: "server",
   created: "server",
   restoring: "backup",
-};
-
-const STATUS_ICON_COLORS: Record<string, string> = {
-  running: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  stopped: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",
-  starting: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-  provisioning: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400",
-  stopping: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-  crashed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  broken: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
-  created: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  restoring: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
 };
 
 export function StatusOverviewCards({ counts }: StatusOverviewCardsProps) {
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-      {STATUS_ORDER.map((status) => {
-        const config = STATUS_MAP[status];
-        if (!config) return null;
-        const count = counts[status] ?? 0;
-        return (
-          <Link
-            key={status}
-            to="/servers"
-            className="group flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-gray-600 dark:hover:bg-gray-700/40"
-          >
-            <div
-              className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                STATUS_ICON_COLORS[status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+    <div className="rounded-2xl border border-border-subtle bg-surface-card p-4 shadow-2xs">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon name="activity" size={16} className="text-accent-primary" />
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+            Fleet Overview
+          </h2>
+        </div>
+        <span className="text-xs text-text-muted">
+          {total} total server{total === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        {STATUS_ORDER.map((status) => {
+          const config = STATUS_MAP[status];
+          if (!config) return null;
+          const count = counts[status] ?? 0;
+          const hasCount = count > 0;
+          const isCritical = (status === "crashed" || status === "broken") && hasCount;
+
+          return (
+            <Link
+              key={status}
+              to="/servers"
+              className={`group flex items-center gap-2.5 rounded-xl border p-2.5 transition-all hover:bg-surface-hover ${
+                isCritical
+                  ? "border-status-danger-border bg-status-danger-bg/40 text-status-danger font-medium shadow-2xs"
+                  : hasCount
+                  ? "border-border-default bg-surface-muted/30 text-text-primary"
+                  : "border-border-subtle/70 bg-transparent text-text-muted opacity-70 hover:opacity-100"
               }`}
             >
-              <Icon name={STATUS_ICONS[status] ?? "server"} size={18} />
-            </div>
-            <div>
-              <p className="text-2xl font-bold leading-none text-gray-900 dark:text-gray-100">{count}</p>
-              <p className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">{config.label}</p>
-            </div>
-          </Link>
-        );
-      })}
+              <div
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                  isCritical
+                    ? "bg-status-danger/20 text-status-danger"
+                    : hasCount
+                    ? "bg-accent-primary/10 text-accent-primary"
+                    : "bg-surface-muted text-text-muted"
+                }`}
+              >
+                <Icon name={STATUS_ICONS[status] ?? "server"} size={16} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-lg font-bold leading-none text-text-primary">
+                  {count}
+                </p>
+                <p className="mt-0.5 truncate text-[11px] font-medium text-text-secondary">
+                  {config.label}
+                </p>
+              </div>
+            </Link>
+          );
+        })}
 
-      <Link
-        to="/servers"
-        className="flex flex-col gap-3 rounded-xl border border-dashed border-gray-300 bg-transparent p-4 transition-colors hover:border-blue-400 hover:bg-blue-50/50 dark:border-gray-600 dark:hover:border-blue-500 dark:hover:bg-blue-900/10"
-      >
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-          <Icon name="server" size={18} />
-        </div>
-        <div>
-          <p className="text-2xl font-bold leading-none text-gray-900 dark:text-gray-100">{total}</p>
-          <p className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">Total</p>
-        </div>
-      </Link>
+        {/* Total Summary */}
+        <Link
+          to="/servers"
+          className="group flex items-center gap-2.5 rounded-xl border border-dashed border-border-default bg-surface-muted/20 p-2.5 transition-all hover:bg-surface-hover hover:border-accent-primary"
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-muted text-text-secondary">
+            <Icon name="server" size={16} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-lg font-bold leading-none text-text-primary">
+              {total}
+            </p>
+            <p className="mt-0.5 truncate text-[11px] font-medium text-text-secondary">
+              Total
+            </p>
+          </div>
+        </Link>
+      </div>
     </div>
   );
 }

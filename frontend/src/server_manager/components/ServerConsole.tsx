@@ -87,7 +87,7 @@ export function ServerConsole({
   });
 
   // Reconnect re-tail: when WS connection re-establishes (from RECONNECTING/DISCONNECTED to CONNECTED),
-  // backfill recent lines via HTTP tail and reset accumulated live lines to avoid duplicates.
+  // or when returning to a hidden tab, backfill recent lines via HTTP tail and reset accumulated live lines.
   const prevConnectionStateRef = useRef(connectionState);
   useEffect(() => {
     const prev = prevConnectionStateRef.current;
@@ -101,6 +101,20 @@ export function ServerConsole({
     }
     prevConnectionStateRef.current = connectionState;
   }, [connectionState, refetchHistory]);
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refetchHistory().then(() => {
+          setLiveLines([]);
+        });
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [refetchHistory]);
 
   // Fetch recent crash reports for crash detection banner
   const { data: crashReports, isLoading: isLoadingCrashes } = useQuery({

@@ -5,7 +5,6 @@ import { useServerExposure } from "@/server_manager/hooks/useServerExposure";
 import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
-import { ComingSoonState } from "@/components/ComingSoonState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { LoaderBadge } from "@/components/ui/LoaderBadge";
 import { Icon } from "@/components/ui/Icon";
@@ -384,21 +383,6 @@ export function ServerDetailPage() {
                 height={20}
               />
             </div>
-            <div className="rounded-xl border border-gray-200 bg-white p-2.5 px-3 dark:border-gray-700 dark:bg-gray-800 flex flex-col justify-between">
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Network Usage</h3>
-                <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500">Coming soon</span>
-              </div>
-              <div className="h-5 flex items-center">
-                <div className="w-full border-t border-dashed border-gray-200 dark:border-gray-700" />
-              </div>
-            </div>
-          </div>
-
-          {/* Warnings/Alerts */}
-          <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Alerts & Warnings</h3>
-            <ComingSoonState title="Server Alerts" description="Coming soon" icon="bell" />
           </div>
 
           {/* Collapsible Info Section */}

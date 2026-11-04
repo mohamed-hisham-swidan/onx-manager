@@ -1,15 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { useServersList, useStartServer, useStopServer, useRestartServer, useDeleteServer, useRetryProvisioningServer } from "@/server_manager/hooks/useServers";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  useServersList,
+  useStartServer,
+  useStopServer,
+  useRestartServer,
+  useDeleteServer,
+  useRetryProvisioningServer,
+} from "@/server_manager/hooks/useServers";
 import { STATUS_MAP } from "@/server_manager/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { LoaderBadge } from "@/components/ui/LoaderBadge";
 import { Icon } from "@/components/ui/Icon";
-import { EmptyState } from "@/components/EmptyState";
-import { ErrorState } from "@/components/ErrorState";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Button } from "@/components/ui/Button";
+import { EmptyState, ErrorState } from "@/components/ui/States";
 import { TableSkeleton } from "@/components/Skeleton";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Pagination } from "@/components/ui/Pagination";
 import { toast } from "@/stores/toastStore";
 import { ProvisioningProgress } from "@/server_manager/components/ProvisioningProgress";
 import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
@@ -17,10 +25,28 @@ import type { ServerResponse } from "@/server_manager/types";
 
 type SortKey = "name" | "status" | "version";
 
-const STATUS_FILTERS = ["all", "running", "stopped", "starting", "provisioning", "provisioning_failed", "stopping", "crashed", "broken", "created", "restoring"];
+const STATUS_FILTERS = [
+  "all",
+  "running",
+  "stopped",
+  "starting",
+  "provisioning",
+  "provisioning_failed",
+  "stopping",
+  "crashed",
+  "broken",
+  "created",
+  "restoring",
+];
+
+const PAGE_SIZE = 15;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Action failed";
+}
+
+function getNow(): number {
+  return Date.now();
 }
 
 export function ServersPage() {
@@ -31,27 +57,46 @@ export function ServersPage() {
   const deleteServer = useDeleteServer();
   const retryProvisioning = useRetryProvisioningServer();
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusParam = searchParams.get("status");
+  const statusFilter = statusParam && STATUS_FILTERS.includes(statusParam) ? statusParam : "all";
+
   const startingServers = useMemo(
     () => (servers ?? []).filter((s) => s.status === "starting"),
     [servers]
   );
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [deleteTarget, setDeleteTarget] = useState<ServerResponse | null>(null);
   const [stopTarget, setStopTarget] = useState<ServerResponse | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const filterRef = useRef<HTMLDivElement>(null);
 
-  const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending || retryProvisioning.isPending;
+  const isBusy =
+    startServer.isPending ||
+    stopServer.isPending ||
+    restartServer.isPending ||
+    retryProvisioning.isPending;
   const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
-  const [now, setNow] = useState<number>(() => Date.now());
+  const [now, setNow] = useState<number>(() => getNow());
 
   const hasActiveCooldown = useMemo(
     () => Object.values(startCooldowns).some((until) => until > now),
     [startCooldowns, now]
   );
+
+  const handleStatusFilterChange = (nextStatus: string) => {
+    setCurrentPage(1);
+    const newParams = new URLSearchParams(searchParams);
+    if (nextStatus === "all") {
+      newParams.delete("status");
+    } else {
+      newParams.set("status", nextStatus);
+    }
+    setSearchParams(newParams);
+  };
 
   useEffect(() => {
     if (!isFilterOpen) return;
@@ -74,7 +119,7 @@ export function ServersPage() {
   useEffect(() => {
     if (!hasActiveCooldown) return;
     const timer = window.setInterval(() => {
-      setNow(Date.now());
+      setNow(getNow());
     }, 1000);
     return () => window.clearInterval(timer);
   }, [hasActiveCooldown]);
@@ -94,16 +139,28 @@ export function ServersPage() {
     });
   }, [servers, search, statusFilter, sortKey]);
 
-  function handleStart(server: ServerResponse) {
-    // eslint-disable-next-line react-hooks/purity
-    const currentTime = Date.now();
+  const paginatedServers = useMemo(() => {
+    const startIdx = (currentPage - 1) * PAGE_SIZE;
+    return filtered.slice(startIdx, startIdx + PAGE_SIZE);
+  }, [filtered, currentPage]);
+
+  const handleStart = (server: ServerResponse) => {
+    const currentTime = getNow();
     setNow(currentTime);
-    setStartCooldowns((prev) => ({ ...prev, [server.server_id]: currentTime + 3000 }));
+    setStartCooldowns((prev) => ({ ...prev, [server.server_id]: currentTime + 30000 }));
+
     startServer.mutate(server.server_id, {
-      onSuccess: () => toast("success", "Server started", `"${server.name}" is starting.`),
-      onError: (err) => toast("error", "Start failed", errorMessage(err)),
+      onSuccess: () => toast("success", "Server starting", `"${server.name}" start command issued.`),
+      onError: (err) => {
+        setStartCooldowns((prev) => {
+          const next = { ...prev };
+          delete next[server.server_id];
+          return next;
+        });
+        toast("error", "Start failed", errorMessage(err));
+      },
     });
-  }
+  };
 
   function handleStop(server: ServerResponse) {
     setStopTarget(server);
@@ -111,18 +168,28 @@ export function ServersPage() {
 
   function handleConfirmStop() {
     if (!stopTarget) return;
-    const target = stopTarget;
+    const s = stopTarget;
     setStopTarget(null);
-    stopServer.mutate(target.server_id, {
-      onSuccess: () => toast("success", "Server stopped", `"${target.name}" is stopping.`),
+    stopServer.mutate(s.server_id, {
+      onSuccess: () => toast("info", "Server stopping", `"${s.name}" is stopping.`),
       onError: (err) => toast("error", "Stop failed", errorMessage(err)),
     });
   }
 
   function handleRestart(server: ServerResponse) {
     restartServer.mutate(server.server_id, {
-      onSuccess: () => toast("success", "Server restarting", `"${server.name}" is restarting.`),
+      onSuccess: () => toast("info", "Server restarting", `"${server.name}" restart initiated.`),
       onError: (err) => toast("error", "Restart failed", errorMessage(err)),
+    });
+  }
+
+  function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    const s = deleteTarget;
+    setDeleteTarget(null);
+    deleteServer.mutate(s.server_id, {
+      onSuccess: () => toast("success", "Server deleted", `"${s.name}" was removed.`),
+      onError: (err) => toast("error", "Delete failed", errorMessage(err)),
     });
   }
 
@@ -133,37 +200,25 @@ export function ServersPage() {
     });
   }
 
-  function handleConfirmDelete() {
-    if (!deleteTarget) return;
-    deleteServer.mutate(deleteTarget.server_id, {
-      onSuccess: () => toast("success", "Server deleted", `"${deleteTarget.name}" was removed.`),
-      onError: (err) => toast("error", "Delete failed", errorMessage(err)),
-      onSettled: () => setDeleteTarget(null),
-    });
-  }
-
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         title="Servers"
-        description="Manage and monitor your Minecraft servers"
+        description="Manage, monitor, and deploy your Minecraft instances"
         icon="server"
         actions={
-          <>
-            <Link
-              to="/servers/import"
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-            >
-              Import
+          <div className="flex items-center gap-2">
+            <Link to="/servers/import">
+              <Button variant="secondary" size="md" icon="upload">
+                Import
+              </Button>
             </Link>
-            <Link
-              to="/servers/create"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-            >
-              <Icon name="plus" size={16} />
-              New Server
+            <Link to="/servers/create">
+              <Button variant="primary" size="md" icon="plus">
+                New Server
+              </Button>
             </Link>
-          </>
+          </div>
         }
       />
 
@@ -176,18 +231,16 @@ export function ServersPage() {
           icon="server"
           title="No servers yet"
           description="Create or import your first Minecraft server to get started."
-          action={
-            <Link
-              to="/servers/create"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-            >
-              <Icon name="plus" size={16} />
-              New Server
-            </Link>
-          }
+          action={{
+            label: "New Server",
+            onClick: () => {
+              window.location.href = "/servers/create";
+            },
+          }}
         />
       ) : (
         <>
+          {/* Starting servers monitoring banners */}
           {startingServers.map((s) => (
             <div key={s.server_id} className="mb-4">
               <StartingMonitorBanner
@@ -200,22 +253,28 @@ export function ServersPage() {
               />
             </div>
           ))}
+
+          {/* Search, Filter & Sort Toolbar */}
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Icon
                 name="search"
                 size={16}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
               />
               <input
                 type="search"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name..."
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Search servers by name..."
                 aria-label="Search servers by name"
-                className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                className="w-full rounded-xl border border-border-default bg-surface-card py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus shadow-2xs"
               />
             </div>
+
             <div className="relative" ref={filterRef}>
               <button
                 type="button"
@@ -223,16 +282,16 @@ export function ServersPage() {
                 aria-expanded={isFilterOpen}
                 aria-label="Filter and sort"
                 title="Filter and sort"
-                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors shadow-2xs cursor-pointer ${
                   statusFilter !== "all" || sortKey !== "name"
-                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-900/30 dark:text-blue-300"
-                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                    ? "border-accent-primary bg-accent-primary/10 text-accent-primary font-semibold"
+                    : "border-border-default bg-surface-card text-text-secondary hover:bg-surface-hover hover:text-text-primary"
                 }`}
               >
                 <Icon name="filter" size={16} />
                 <span>Filters</span>
                 {(statusFilter !== "all" || sortKey !== "name") && (
-                  <span className="h-2 w-2 rounded-full bg-blue-600 dark:bg-blue-400" />
+                  <span className="h-2 w-2 rounded-full bg-accent-primary" />
                 )}
               </button>
 
@@ -240,18 +299,21 @@ export function ServersPage() {
                 <div
                   role="dialog"
                   aria-label="Filter and sort options"
-                  className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-gray-200 bg-white p-4 shadow-lg dark:border-gray-700 dark:bg-gray-800"
+                  className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border-subtle bg-surface-card p-4 shadow-xl text-text-primary"
                 >
                   <div className="space-y-4">
                     <div>
-                      <label htmlFor="status-filter" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                      <label
+                        htmlFor="status-filter"
+                        className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-secondary"
+                      >
                         Filter by status
                       </label>
                       <select
                         id="status-filter"
                         value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                        onChange={(e) => handleStatusFilterChange(e.target.value)}
+                        className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus"
                       >
                         {STATUS_FILTERS.map((s) => (
                           <option key={s} value={s}>
@@ -261,15 +323,21 @@ export function ServersPage() {
                       </select>
                     </div>
 
-                    <div className="border-t border-gray-100 pt-3 dark:border-gray-700/60">
-                      <label htmlFor="sort-key" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    <div className="border-t border-border-subtle pt-3">
+                      <label
+                        htmlFor="sort-key"
+                        className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-secondary"
+                      >
                         Sort by
                       </label>
                       <select
                         id="sort-key"
                         value={sortKey}
-                        onChange={(e) => setSortKey(e.target.value as SortKey)}
-                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                        onChange={(e) => {
+                          setSortKey(e.target.value as SortKey);
+                          setCurrentPage(1);
+                        }}
+                        className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-sm text-text-primary focus:border-border-focus focus:outline-hidden focus:ring-2 focus:ring-border-focus"
                       >
                         <option value="name">Sort by name</option>
                         <option value="status">Sort by status</option>
@@ -289,39 +357,41 @@ export function ServersPage() {
               description="No servers match your current search and filters."
             />
           ) : (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-              <table className="w-full text-sm">
+            <div className="overflow-hidden rounded-2xl border border-border-subtle bg-surface-card shadow-2xs">
+              <table className="w-full text-sm text-text-primary border-collapse">
                 <thead>
-                  <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
-                    <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Name</th>
-                    <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 sm:table-cell">Version</th>
-                    <th className="hidden px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400 md:table-cell">Port</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Status</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">Actions</th>
+                  <tr className="border-b border-border-subtle bg-surface-muted/40 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                    <th className="px-4 py-3 text-left">Name</th>
+                    <th className="hidden px-4 py-3 text-left sm:table-cell">Software / Version</th>
+                    <th className="hidden px-4 py-3 text-left md:table-cell">Port</th>
+                    <th className="px-4 py-3 text-left">Status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filtered.map((s) => (
+                <tbody className="divide-y divide-border-subtle">
+                  {paginatedServers.map((s) => (
                     <tr
                       key={s.server_id}
-                      className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-700/50 dark:hover:bg-gray-700/30"
+                      className="transition-colors hover:bg-surface-hover/50"
                     >
                       <td className="max-w-0 px-4 py-3">
                         <Link
                           to={`/servers/${s.server_id}/console`}
                           title={s.name}
-                          className="block truncate font-medium text-blue-600 hover:underline dark:text-blue-400"
+                          className="block truncate font-semibold text-accent-primary hover:underline"
                         >
                           {s.name}
                         </Link>
                       </td>
-                      <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 sm:table-cell">
+                      <td className="hidden px-4 py-3 text-text-secondary sm:table-cell">
                         <div className="flex items-center gap-1.5">
                           <LoaderBadge loader={s.server_type} />
                           <span>{s.minecraft_version}</span>
                         </div>
                       </td>
-                      <td className="hidden px-4 py-3 text-gray-600 dark:text-gray-400 md:table-cell">{s.port}</td>
+                      <td className="hidden px-4 py-3 font-mono text-xs text-text-muted md:table-cell">
+                        {s.port}
+                      </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={s.status} />
                       </td>
@@ -329,22 +399,30 @@ export function ServersPage() {
                         <div className="flex items-center justify-end gap-1">
                           {["stopped", "created", "crashed", "provisioning"].includes(s.status) && (
                             <button
+                              type="button"
                               onClick={() => handleStart(s)}
-                              disabled={isBusy || (startCooldowns[s.server_id] !== undefined && now < startCooldowns[s.server_id]) || s.status === "starting" || s.status === "provisioning"}
+                              disabled={
+                                isBusy ||
+                                (startCooldowns[s.server_id] !== undefined &&
+                                  now < startCooldowns[s.server_id]) ||
+                                s.status === "starting" ||
+                                s.status === "provisioning"
+                              }
                               aria-label={`Start ${s.name}`}
                               title="Start"
-                              className="rounded-lg p-1.5 text-green-600 transition-colors hover:bg-green-100 hover:text-green-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-green-400 dark:hover:bg-green-900/30 dark:hover:text-green-300"
+                              className="rounded-lg p-1.5 text-status-success transition-colors hover:bg-status-success-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                             >
                               <Icon name="play" size={16} />
                             </button>
                           )}
                           {s.status === "provisioning_failed" && s.provisioning_retryable === false && (
                             <button
+                              type="button"
                               onClick={() => handleRetryProvisioning(s)}
                               disabled={isBusy}
                               aria-label={`Retry Provisioning ${s.name}`}
                               title="Retry Provisioning"
-                              className="rounded-lg p-1.5 text-amber-600 transition-colors hover:bg-amber-100 hover:text-amber-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-amber-400 dark:hover:bg-amber-900/30 dark:hover:text-amber-300"
+                              className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                             >
                               <Icon name="restart" size={16} />
                             </button>
@@ -352,21 +430,23 @@ export function ServersPage() {
                           {["running", "starting"].includes(s.status) && (
                             <>
                               <button
+                                type="button"
                                 onClick={() => handleStop(s)}
                                 disabled={isBusy}
                                 aria-label={`Stop ${s.name}`}
                                 title="Stop"
-                                className="rounded-lg p-1.5 text-orange-600 transition-colors hover:bg-orange-100 hover:text-orange-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-orange-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-300"
+                                className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                               >
                                 <Icon name="stop" size={16} />
                               </button>
                               {s.status === "running" && (
                                 <button
+                                  type="button"
                                   onClick={() => handleRestart(s)}
                                   disabled={isBusy}
                                   aria-label={`Restart ${s.name}`}
                                   title="Restart"
-                                  className="rounded-lg p-1.5 text-yellow-600 transition-colors hover:bg-yellow-100 hover:text-yellow-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-yellow-400 dark:hover:bg-yellow-900/30 dark:hover:text-yellow-300"
+                                  className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                                 >
                                   <Icon name="restart" size={16} />
                                 </button>
@@ -376,20 +456,21 @@ export function ServersPage() {
                           {s.status === "stopping" && (
                             <span
                               aria-label={`${s.name} is ${STATUS_MAP[s.status]?.label.toLowerCase()}`}
-                              className="inline-flex h-7 w-7 items-center justify-center text-gray-400 dark:text-gray-500"
+                              className="inline-flex h-7 w-7 items-center justify-center text-text-muted"
                             >
-                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600 dark:border-gray-600 dark:border-t-gray-300" />
+                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-border-default border-t-accent-primary" />
                             </span>
                           )}
                           {s.status === "provisioning" && (
                             <ProvisioningProgress serverId={s.server_id} className="min-w-[140px]" />
                           )}
                           <button
+                            type="button"
                             onClick={() => setDeleteTarget(s)}
                             disabled={deleteServer.isPending}
                             aria-label={`Delete ${s.name}`}
                             title="Delete"
-                            className="rounded-lg p-1.5 text-red-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-red-400 dark:hover:bg-red-900/30 dark:hover:text-red-300"
+                            className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                           >
                             <Icon name="trash" size={16} />
                           </button>
@@ -399,36 +480,50 @@ export function ServersPage() {
                   ))}
                 </tbody>
               </table>
+
+              {filtered.length > PAGE_SIZE && (
+                <div className="border-t border-border-subtle p-3">
+                  <Pagination
+                    totalItems={filtered.length}
+                    pageSize={PAGE_SIZE}
+                    page={currentPage}
+                    onPageChange={setCurrentPage}
+                  />
+                </div>
+              )}
             </div>
           )}
         </>
       )}
 
+      {/* Shared Delete Confirmation Dialog */}
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Delete server?"
         description={
           deleteTarget
-            ? `This permanently deletes "${deleteTarget.name}" and its data. This action cannot be undone.`
+            ? `This permanently deletes "${deleteTarget.name}" and all of its files and world data. This action cannot be undone.`
             : undefined
         }
         confirmLabel="Delete"
         cancelLabel="Cancel"
+        variant="danger"
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />
 
+      {/* Shared Stop Confirmation Dialog */}
       <ConfirmDialog
         open={stopTarget !== null}
         title="Stop server?"
         description={
           stopTarget
-            ? `Are you sure you want to stop "${stopTarget.name}"? ` +
-              "Active players will be disconnected."
+            ? `Are you sure you want to stop "${stopTarget.name}"? Active players will be safely disconnected.`
             : undefined
         }
         confirmLabel="Stop Server"
         cancelLabel="Cancel"
+        variant="danger"
         onConfirm={handleConfirmStop}
         onCancel={() => setStopTarget(null)}
       />
