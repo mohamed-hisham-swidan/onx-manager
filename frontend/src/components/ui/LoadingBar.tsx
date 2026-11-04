@@ -15,7 +15,7 @@ export function LoadingBar() {
       }`}
       aria-hidden="true"
     >
-      <div className="h-full w-1/3 animate-[loading-bar_1.2s_ease-in-out_infinite] bg-blue-500" />
+      <div className="h-full w-1/3 animate-[loading-bar_1.2s_ease-in-out_infinite] bg-accent-primary" />
     </div>
   );
 }

@@ -424,7 +424,7 @@ export function ServerModsPage() {
                     <th className="px-4 py-3 text-left font-medium text-text-muted">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600 dark:text-gray-400">
+                    <th className="px-4 py-3 text-right font-medium text-text-muted">
                       Actions
                     </th>
                   </tr>

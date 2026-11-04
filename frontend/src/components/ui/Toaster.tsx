@@ -2,9 +2,9 @@ import { useToastStore, type ToastType } from "@/stores/toastStore";
 import { Icon } from "./Icon";
 
 const STYLES: Record<ToastType, { ring: string; icon: "check" | "alert" | "info"; iconColor: string }> = {
-  success: { ring: "border-green-500/40", icon: "check", iconColor: "text-green-500" },
-  error: { ring: "border-red-500/40", icon: "alert", iconColor: "text-red-500" },
-  info: { ring: "border-blue-500/40", icon: "info", iconColor: "text-blue-500" },
+  success: { ring: "border-status-online/40", icon: "check", iconColor: "text-status-online" },
+  error: { ring: "border-status-danger/40", icon: "alert", iconColor: "text-status-danger" },
+  info: { ring: "border-accent-primary/40", icon: "info", iconColor: "text-accent-primary" },
 };
 
 export function Toaster() {
@@ -19,18 +19,18 @@ export function Toaster() {
           <div
             key={t.id}
             role="status"
-            className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-white p-4 shadow-lg dark:bg-gray-800 ${style.ring}`}
+            className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-surface-panel p-4 shadow-lg text-text-primary ${style.ring}`}
           >
             <Icon name={style.icon} size={18} className={`mt-0.5 shrink-0 ${style.iconColor}`} />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{t.title}</p>
+              <p className="text-sm font-medium text-text-primary">{t.title}</p>
               {t.message && (
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">{t.message}</p>
+                <p className="mt-0.5 text-sm text-text-muted">{t.message}</p>
               )}
             </div>
             <button
               onClick={() => dismiss(t.id)}
-              className="shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-200"
+              className="shrink-0 rounded p-0.5 text-text-muted transition-colors hover:text-text-primary cursor-pointer"
               aria-label="Dismiss notification"
             >
               <Icon name="x" size={16} />

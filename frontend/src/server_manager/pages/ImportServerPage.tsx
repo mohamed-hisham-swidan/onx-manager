@@ -2,6 +2,7 @@ import { useState, useRef, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { createAuthenticatedApi } from "@/services/api";
 import type { ScanResult } from "@/server_manager/types";
+import { Icon } from "@/components/ui/Icon";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -419,7 +420,7 @@ export function ImportServerPage() {
 
       {step === "done" && (
         <div className="text-center py-12">
-          <div className="text-4xl mb-4">&#10003;</div>
+          <Icon name="check" size={36} className="mx-auto mb-4 text-status-online" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Server Imported</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
             {scanResult?.name} has been imported. The original files were not modified.

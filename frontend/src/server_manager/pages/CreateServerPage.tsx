@@ -13,7 +13,8 @@ import {
   type Step,
   type WizardData,
 } from "@/server_manager/components/wizard/types";
-import type { SoftwareInfo } from "@/server_manager/types";
+import { SoftwareInfo } from "@/server_manager/types";
+import { Icon } from "@/components/ui/Icon";
 
 export function CreateServerPage() {
   const navigate = useNavigate();
@@ -254,7 +255,7 @@ export function CreateServerPage() {
 
       {step === "done" && (
         <div className="text-center py-12 bg-surface-panel rounded-xl border border-border-default p-8 shadow-xs">
-          <div className="text-4xl mb-4 text-status-success">&#10003;</div>
+          <Icon name="check" size={36} className="mx-auto mb-4 text-status-online" />
           <h3 className="text-lg font-semibold text-text-primary mb-2">Server Created</h3>
           <p className="text-sm text-text-muted mb-6">
             {data.name} is being set up. Server JAR has been downloaded and configured.

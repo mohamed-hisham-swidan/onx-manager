@@ -9,7 +9,7 @@ interface StatusBadgeProps {
 export function StatusBadge({ status, dot = true, className = "" }: StatusBadgeProps) {
   const config = STATUS_MAP[status] ?? {
     label: status || "Unknown",
-    color: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",
+    color: "bg-surface-elevated text-text-secondary border border-border-default",
   };
 
   return (

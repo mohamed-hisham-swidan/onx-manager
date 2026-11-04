@@ -1,4 +1,4 @@
-import { EmptyState } from "@/components/EmptyState";
+import { EmptyState } from "@/components/ui/States";
 import { Link } from "react-router-dom";
 
 export function NotFoundPage() {
@@ -10,7 +10,7 @@ export function NotFoundPage() {
       action={
         <Link
           to="/"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+          className="rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover"
         >
           Back to Dashboard
         </Link>
