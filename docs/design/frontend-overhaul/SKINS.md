@@ -1,0 +1,176 @@
+# Skin Architecture & Custom Skin Contract
+
+ONX Manager features an extensible, multi-skin theme engine powered entirely by CSS custom properties and HTML data attributes.
+
+---
+
+## 1. How Skins Work
+
+Theme state is tracked in `frontend/src/stores/uiStore.ts` and synchronized to the root `<html>` element as DOM attributes:
+- `data-skin="graphite | azure | <custom-id>"`
+- `data-mode="dark | light"`
+- `data-density="compact | comfortable"`
+
+CSS selectors in `src/index.css` target these attributes to redefine semantic tokens:
+```css
+/* Graphite Skin (Default) */
+:root, [data-skin="graphite"] {
+  /* Graphite dark tokens */
+}
+[data-skin="graphite"][data-mode="light"] {
+  /* Graphite light tokens */
+}
+
+/* Azure Skin */
+[data-skin="azure"] {
+  /* Azure dark tokens */
+}
+[data-skin="azure"][data-mode="light"] {
+  /* Azure light tokens */
+}
+```
+
+### Pre-Paint Initialization (Flicker Prevention)
+To eliminate white/dark flash on page reload, `frontend/src/main.tsx` reads stored preferences synchronously from `localStorage` and stamps `data-skin`, `data-mode`, and `data-density` onto `document.documentElement` **before** React mounts. This approach is 100% CSP-safe and requires no inline script tags.
+
+---
+
+## 2. Shipped First-Class Skins
+
+### 1. Graphite (Default)
+- **Aesthetic**: Deep, clean neutral black/slate with 0% blue chroma in the dark canvas.
+- **Surface Elevation**: `#0c0d0e` (canvas) < `#141618` (panel) < `#1b1e22` (card) < `#23272d` (elevated).
+- **Accents**: Modern electric cobalt (`#2563eb`), tuned to satisfy WCAG AA (5.17:1 against white text).
+- **Ideal For**: Server operators, dark room administration, high-density monitoring.
+
+### 2. Azure (Legacy Preserved)
+- **Aesthetic**: Classic deep ocean slate-blue theme.
+- **Surface Elevation**: `#0b1120` (canvas) < `#0f172a` (panel) < `#1e293b` (card) < `#334155` (elevated).
+- **Accents**: Sky cyan/blue (`#0369a1`), meeting WCAG AA (5.93:1 against white text).
+- **Ideal For**: Users who prefer the familiar original ONX blue aesthetic.
+
+---
+
+## 3. How to Add a Skin from One File
+
+To add a new built-in skin (e.g., `emerald` or `amber`):
+
+### Step 1: Define CSS Token Values in `src/index.css`
+Append the new skin block at the bottom of `frontend/src/index.css`:
+```css
+/* Emerald Dark */
+[data-skin="emerald"] {
+  --surface-canvas: #09120e;
+  --surface-panel: #0f1c16;
+  --surface-card: #15271e;
+  --surface-elevated: #1e352a;
+  --surface-hover: rgba(255, 255, 255, 0.05);
+  --surface-active: rgba(255, 255, 255, 0.08);
+
+  --text-primary: #ecfdf5;
+  --text-secondary: #a7f3d0;
+  --text-muted: #6ee7b7;
+  --text-inverse: #09120e;
+
+  --border-subtle: rgba(16, 185, 129, 0.15);
+  --border-default: rgba(16, 185, 129, 0.30);
+  --border-strong: rgba(16, 185, 129, 0.50);
+  --border-focus: #10b981;
+
+  --accent-primary: #059669;
+  --accent-hover: #047857;
+  --accent-active: #065f46;
+  --accent-contrast-text: #ffffff;
+  --accent-subtle: rgba(16, 185, 129, 0.15);
+}
+
+/* Emerald Light */
+[data-skin="emerald"][data-mode="light"] {
+  --surface-canvas: #f0fdf4;
+  --surface-panel: #ffffff;
+  --surface-card: #ffffff;
+  --surface-elevated: #dcfce7;
+  --text-primary: #064e3b;
+  --text-secondary: #065f46;
+  --text-muted: #047857;
+  --text-inverse: #ffffff;
+  --border-subtle: #d1fae5;
+  --border-default: #a7f3d0;
+  --border-strong: #6ee7b7;
+  --border-focus: #059669;
+  --accent-primary: #059669;
+  --accent-contrast-text: #ffffff;
+}
+```
+
+### Step 2: Register the Skin in `src/stores/uiStore.ts`
+Add the skin identifier to `SkinId`:
+```typescript
+export type SkinId = "graphite" | "azure" | "emerald";
+```
+
+### Step 3: Run the Contrast Verifier
+Run the automated contrast suite to verify all tokens meet WCAG AA requirements:
+```bash
+npm run test -- contrast.test.ts
+```
+
+That's it! The skin immediately appears in the TopBar skin switcher and applies smoothly across the entire application.
+
+---
+
+## 4. Custom Skin JSON Contract & Validator
+
+The frontend provides a strict, zero-dependency JSON validator contract (`src/tokens/skinValidator.ts`) designed to validate user-provided or community-shared custom skins safely before applying them to the DOM.
+
+### 4.1 Schema Definition
+A custom skin JSON payload must conform to the following schema:
+```json
+{
+  "id": "obsidian",
+  "name": "Obsidian Dark",
+  "version": 1,
+  "mode": "dark",
+  "tokens": {
+    "surface-canvas": "#0d0d0d",
+    "surface-panel": "#141414",
+    "surface-card": "#1a1a1a",
+    "surface-elevated": "#222222",
+    "surface-hover": "rgba(255, 255, 255, 0.05)",
+    "surface-active": "rgba(255, 255, 255, 0.08)",
+    "text-primary": "#f5f5f5",
+    "text-secondary": "#cccccc",
+    "text-muted": "#888888",
+    "text-inverse": "#000000",
+    "border-subtle": "rgba(255, 255, 255, 0.10)",
+    "border-default": "rgba(255, 255, 255, 0.20)",
+    "border-strong": "rgba(255, 255, 255, 0.35)",
+    "border-focus": "#7c3aed",
+    "accent-primary": "#7c3aed",
+    "accent-hover": "#6d28d9",
+    "accent-active": "#5b21b6",
+    "accent-contrast-text": "#ffffff",
+    "accent-subtle": "rgba(124, 58, 237, 0.15)"
+  }
+}
+```
+
+### 4.2 Security & Grammar Rules
+The validator (`validateSkinJson`) strictly rejects:
+1. **Size Limit**: Payloads exceeding 16KB are rejected.
+2. **Forbidden Syntax**: Any occurrence of `url(`, `;`, `{`, `}`, `<`, `>`, `javascript:`, or `expression(` causes immediate validation failure to prevent CSS injection.
+3. **Key Allowlist**: Only explicitly recognized token keys matching `--color-*` or semantic token names are allowed. Extra or unknown keys are rejected.
+4. **Color Value Grammar**: Values must match valid `#RGB`, `#RRGGBB`, `#RRGGBBAA`, `rgb(...)`, `rgba(...)`, `hsl(...)`, or `hsla(...)` syntax with valid numeric ranges.
+
+### 4.3 Validation API
+```typescript
+import { validateSkinJson } from "@/tokens/skinValidator";
+
+const result = validateSkinJson(rawJsonString);
+if (result.valid) {
+  console.log("Skin is safe:", result.skin);
+} else {
+  console.error("Invalid skin:", result.errors);
+}
+```
+All validation rules are tested in `src/tokens/skinValidator.test.ts`.
