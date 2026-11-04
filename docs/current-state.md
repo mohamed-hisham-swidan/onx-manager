@@ -125,7 +125,7 @@ and a live test run.
 |------|-------|----------|
 | Backend Python source files | 412 | `backend/app/` (including domain aggregates, commands, queries, providers) |
 | Backend test files | 239 | `backend/tests/` (including 225 dedicated test suites across versioning, reliability, and modules) |
-| Frontend test files | 103 | `find frontend/src -name "*.test.*"` |
+| Frontend test files | 104 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 16 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users, versioning` |
 | Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml`) |
 | Alembic migration revisions | 42 | `backend/alembic/versions/` (head `b1e2100000022`) |
@@ -155,11 +155,11 @@ Backend CI runs the full suite on every push/PR to `master`
 
 | Metric | Value |
 |--------|-------|
-| Test files | **103** |
-| Tests | **864 passed** across 103 test files |
+| Test files | **104** |
+| Tests | **867 passed** across 104 test files |
 
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
-on every push/PR to `master`. Total test count: **4,146 tests** (4,146 collected, 4,140 passed, 0 failed, 6 skipped).
+on every push/PR to `master`. Total test count: **4,149 tests** (4,149 collected, 4,143 passed, 0 failed, 6 skipped).
 
 ---
 

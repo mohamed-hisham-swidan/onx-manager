@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { useServerDetail, useStartServer, useStopServer, useRestartServer, useDeleteServer, useServerRuntime, useRetryProvisioningServer } from "@/server_manager/hooks/useServers";
+import { useParams, Link } from "react-router-dom";
+import { useServerDetail, useServerRuntime } from "@/server_manager/hooks/useServers";
 import { useServerExposure } from "@/server_manager/hooks/useServerExposure";
 import { subscribeChannels, unsubscribeChannels } from "@/hooks/useWebSocket";
 import { Skeleton } from "@/components/Skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { LoaderBadge } from "@/components/ui/LoaderBadge";
 import { Icon } from "@/components/ui/Icon";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { stripMinecraftFormatting } from "@/server_manager/utils/motd";
 import { resolveAccessAddress } from "@/server_manager/utils/accessAddress";
 import { ServerConsole } from "@/server_manager/components/ServerConsole";
@@ -16,13 +14,7 @@ import { Sparkline } from "@/server_manager/components/Sparkline";
 import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
 import { useServerMetrics } from "@/server_manager/hooks/useServerMetrics";
 import { useClipboard } from "@/hooks/useClipboard";
-import { toast } from "@/stores/toastStore";
 import { ApiError } from "@/services/api";
-import type { ServerDetailResponse } from "@/server_manager/types";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Action failed";
-}
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -63,37 +55,13 @@ function renderMotd(motd: string | undefined): string {
 
 export function ServerDetailPage() {
   const { serverId } = useParams<{ serverId: string }>();
-  const navigate = useNavigate();
   const { data: server, isLoading, error, refetch: refetchServer } = useServerDetail(serverId ?? "");
   const { data: runtime } = useServerRuntime(serverId ?? "");
   const { data: metrics } = useServerMetrics(serverId ?? "");
   const { exposure } = useServerExposure(serverId ?? "");
-  const startServer = useStartServer();
-  const stopServer = useStopServer();
-  const restartServer = useRestartServer();
-  const deleteServer = useDeleteServer();
-  const retryProvisioning = useRetryProvisioningServer();
   const { copy } = useClipboard();
 
-  const [showDelete, setShowDelete] = useState(false);
-  const [showStop, setShowStop] = useState(false);
   const [infoExpanded, setInfoExpanded] = useState(false);
-  const [startCooldownUntil, setStartCooldownUntil] = useState<number>(0);
-  const [now, setNow] = useState<number>(() => Date.now());
-
-  useEffect(() => {
-    if (startCooldownUntil <= Date.now()) return;
-    const timer = setInterval(() => {
-      const current = Date.now();
-      setNow(current);
-      if (current >= startCooldownUntil) {
-        clearInterval(timer);
-      }
-    }, 200);
-    return () => clearInterval(timer);
-  }, [startCooldownUntil]);
-
-  const isStartCooldownActive = now < startCooldownUntil;
 
   useEffect(() => {
     if (!serverId) return;
@@ -146,78 +114,6 @@ export function ServerDetailPage() {
     );
   }
 
-  const actions = (s: ServerDetailResponse) => (
-    <>
-      {["stopped", "created", "crashed", "provisioning"].includes(s.status) && (
-        <button
-          onClick={() => {
-            setStartCooldownUntil(Date.now() + 3000);
-            setNow(Date.now());
-            startServer.mutate(serverId, {
-              onSuccess: () => toast("success", "Server started", `"${s.name}" is starting.`),
-              onError: (err) => toast("error", "Start failed", errorMessage(err)),
-            });
-          }}
-          disabled={startServer.isPending || isStartCooldownActive || s.status === "starting" || s.status === "provisioning"}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
-        >
-          <Icon name="play" size={14} />
-          {startServer.isPending || isStartCooldownActive ? "Starting..." : "Start"}
-        </button>
-      )}
-      {s.status === "provisioning_failed" && s.provisioning_retryable === false && (
-        <button
-          onClick={() =>
-            retryProvisioning.mutate(serverId, {
-              onSuccess: () => toast("success", "Retry started", `Provisioning retry started for "${s.name}".`),
-              onError: (err) => toast("error", "Retry failed", errorMessage(err)),
-            })
-          }
-          disabled={retryProvisioning.isPending}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
-        >
-          <Icon name="restart" size={14} />
-          {retryProvisioning.isPending ? "Retrying..." : "Retry Provisioning"}
-        </button>
-      )}
-      {["running", "starting"].includes(s.status) && (
-        <>
-          <button
-            onClick={() => setShowStop(true)}
-            disabled={stopServer.isPending}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
-          >
-            <Icon name="stop" size={14} />
-            {stopServer.isPending ? "Stopping..." : "Stop"}
-          </button>
-          {s.status === "running" && (
-            <button
-              onClick={() =>
-                restartServer.mutate(serverId, {
-                  onSuccess: () => toast("success", "Server restarting", `"${s.name}" is restarting.`),
-                  onError: (err) => toast("error", "Restart failed", errorMessage(err)),
-                })
-              }
-              disabled={restartServer.isPending}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-yellow-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-yellow-700 disabled:opacity-50"
-            >
-              <Icon name="restart" size={14} />
-              {restartServer.isPending ? "Restarting..." : "Restart"}
-            </button>
-          )}
-        </>
-      )}
-      <button
-        onClick={() => setShowDelete(true)}
-        disabled={deleteServer.isPending}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20"
-      >
-        <Icon name="trash" size={14} />
-        Delete
-      </button>
-    </>
-  );
-
   const isRunning = server.status === "running";
 
   const currentMetric =
@@ -243,55 +139,6 @@ export function ServerDetailPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Top Bar */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-            <Icon name="server" size={20} />
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-lg font-semibold text-gray-900 dark:text-gray-100">
-                {server.name}
-              </h2>
-              <StatusBadge status={server.status} />
-              <LoaderBadge loader={server.server_type} />
-              <span
-                data-testid="server-provider-badge"
-                className={
-                  "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium " +
-                  (server.provider === "docker"
-                    ? "bg-cyan-50 text-cyan-700 border border-cyan-200 " +
-                      "dark:bg-cyan-900/30 dark:text-cyan-300 dark:border-cyan-800/50"
-                    : "bg-purple-50 text-purple-700 border border-purple-200 " +
-                      "dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800/50")
-                }
-                title={
-                  server.provider === "docker"
-                    ? "Running in a Docker Container"
-                    : "Running directly on Host Filesystem / Process"
-                }
-              >
-                <Icon name={server.provider === "docker" ? "server" : "folder"} size={12} />
-                {server.provider === "docker" ? "Container" : "File / Host"}
-              </span>
-            </div>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
-              <span>{server.server_type} · {server.minecraft_version}</span>
-              {isRunning && currentMetric && (
-                <span className="flex items-center gap-2 border-l border-gray-300 dark:border-gray-600 pl-2">
-                  {currentMetric.tps != null && (
-                    <span title="TPS"><Icon name="activity" size={12} className="inline mr-1" />{currentMetric.tps.toFixed(1)}</span>
-                  )}
-                  <span title="Players"><Icon name="users" size={12} className="inline mr-1" />{currentMetric.players}</span>
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">{actions(server)}</div>
-      </div>
-
       {server.status === "starting" && (
         <StartingMonitorBanner
           targetName={server.name}
@@ -585,42 +432,6 @@ export function ServerDetailPage() {
           </div>
         </div>
       </div>
-
-      <ConfirmDialog
-        open={showDelete}
-        title="Delete server?"
-        description={`This permanently deletes "${server?.name}" and its data. This action cannot be undone.`}
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
-        onConfirm={() =>
-          deleteServer.mutate(serverId, {
-            onSuccess: () => navigate("/servers"),
-            onError: (err) => toast("error", "Delete failed", errorMessage(err)),
-            onSettled: () => setShowDelete(false),
-          })
-        }
-        onCancel={() => setShowDelete(false)}
-      />
-
-      <ConfirmDialog
-        open={showStop}
-        title="Stop server?"
-        description={
-          `Are you sure you want to stop "${server?.name}"? ` +
-          "Active players will be disconnected."
-        }
-        confirmLabel="Stop Server"
-        cancelLabel="Cancel"
-        onConfirm={() =>
-          stopServer.mutate(serverId, {
-            onSuccess: () =>
-              toast("success", "Server stopped", `"${server?.name}" is stopping.`),
-            onError: (err) => toast("error", "Stop failed", errorMessage(err)),
-            onSettled: () => setShowStop(false),
-          })
-        }
-        onCancel={() => setShowStop(false)}
-      />
     </div>
   );
 }

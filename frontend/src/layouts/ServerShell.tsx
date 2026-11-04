@@ -183,6 +183,25 @@ export function ServerShell() {
                     </h1>
                     <StatusBadge status={server.status} />
                     <LoaderBadge loader={server.server_type} />
+                    {server.provider && (
+                      <span
+                        data-testid="server-provider-badge"
+                        className={
+                          "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium " +
+                          (server.provider === "docker"
+                            ? "bg-status-info/10 text-status-info border border-status-info/20"
+                            : "bg-surface-elevated text-text-secondary border border-border-default")
+                        }
+                        title={
+                          server.provider === "docker"
+                            ? "Running in a Docker Container"
+                            : "Running directly on Host Filesystem / Process"
+                        }
+                      >
+                        <Icon name={server.provider === "docker" ? "server" : "folder"} size={12} />
+                        {server.provider === "docker" ? "Container" : "File / Host"}
+                      </span>
+                    )}
                   </div>
 
                   <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-text-muted">

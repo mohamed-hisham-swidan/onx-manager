@@ -243,4 +243,65 @@ describe("ServerShell", () => {
     const modsLink = screen.getByRole("link", { name: "mods" });
     expect(modsLink).toHaveAttribute("href", "/servers/srv-123/files?path=mods");
   });
+
+  it("renders Server Identity Strip with name heading, status, and provider badge", () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, provider: "docker" },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useServerDetail>);
+
+    renderServerShell("/servers/srv-123/console");
+
+    expect(screen.getByRole("heading", { name: "Test Server" })).toBeInTheDocument();
+    expect(screen.getByText("Online")).toBeInTheDocument();
+    const badge = screen.getByTestId("server-provider-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("Container");
+  });
+
+  it("renders File / Host provider badge when provider is local_process", () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, provider: "local_process" },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useServerDetail>);
+
+    renderServerShell("/servers/srv-123/console");
+
+    const badge = screen.getByTestId("server-provider-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("File / Host");
+  });
+
+  it("shows Start button when server is stopped", () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, status: "stopped" },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useServerDetail>);
+
+    renderServerShell("/servers/srv-123/console");
+
+    expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument();
+  });
+
+  it("shows Stop and Restart buttons when server is running and opens Stop confirmation dialog", async () => {
+    const user = userEvent.setup();
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, status: "running" },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useServerDetail>);
+
+    renderServerShell("/servers/srv-123/console");
+
+    expect(screen.getByRole("button", { name: "Restart" })).toBeInTheDocument();
+    const stopBtn = screen.getByRole("button", { name: "Stop" });
+    expect(stopBtn).toBeInTheDocument();
+
+    await user.click(stopBtn);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Stop Test Server?")).toBeInTheDocument();
+  });
 });

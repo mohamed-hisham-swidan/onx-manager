@@ -12,10 +12,9 @@ function NavigateButton({ to, label }: { to: string; label: string }) {
   return <button onClick={() => navigate(to)}>{label}</button>;
 }
 
-const { subscribeChannelsMock, unsubscribeChannelsMock, mockStopMutate } = vi.hoisted(() => ({
+const { subscribeChannelsMock, unsubscribeChannelsMock } = vi.hoisted(() => ({
   subscribeChannelsMock: vi.fn(),
   unsubscribeChannelsMock: vi.fn(),
-  mockStopMutate: vi.fn(),
 }));
 
 vi.mock("@/hooks/useWebSocket", () => ({
@@ -87,7 +86,7 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
     data: mockRuntimeData,
   })),
   useStartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-  useStopServer: vi.fn(() => ({ mutate: mockStopMutate, isPending: false })),
+  useStopServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useRestartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useDeleteServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useRetryProvisioningServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
@@ -147,12 +146,6 @@ describe("ServerDetailPage", () => {
     expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
-  it("shows server name and status in header", () => {
-    renderPage();
-    expect(screen.getByRole("heading", { name: "Test Server" })).toBeInTheDocument();
-    expect(screen.getByText("Online")).toBeInTheDocument();
-  });
-
   it("shows error message on transient error", () => {
     mockError = new Error("Failed to load");
     renderPage();
@@ -199,46 +192,6 @@ describe("ServerDetailPage", () => {
     await user.click(screen.getByText("Server Info & Configuration"));
     const motdRow = screen.getByText("MOTD").parentElement!;
     expect(motdRow.querySelector("dd")!.textContent).toBe("—");
-  });
-
-  it("shows Start button when stopped", () => {
-    mockData = { ...mockServer, status: "stopped" };
-    renderPage();
-    expect(screen.getByText("Start")).toBeInTheDocument();
-  });
-
-  it("shows Stop and Restart buttons when running", () => {
-    mockData = { ...mockServer, status: "running" };
-    renderPage();
-    expect(screen.getByText("Stop")).toBeInTheDocument();
-    expect(screen.getByText("Restart")).toBeInTheDocument();
-  });
-
-  it("shows Stop button when starting", () => {
-    mockData = { ...mockServer, status: "starting" };
-    renderPage();
-    expect(screen.getByText("Stop")).toBeInTheDocument();
-    expect(screen.queryByText("Restart")).not.toBeInTheDocument();
-    expect(screen.queryByText("Start")).not.toBeInTheDocument();
-  });
-
-  it("opens delete confirmation dialog", async () => {
-    const user = userEvent.setup();
-    renderPage();
-    await user.click(screen.getByText("Delete"));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("Delete server?")).toBeInTheDocument();
-  });
-
-  it("opens stop confirmation dialog and triggers stop on confirm", async () => {
-    const user = userEvent.setup();
-    mockData = { ...mockServer, status: "running" };
-    renderPage();
-    await user.click(screen.getByText("Stop"));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("Stop server?")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Stop Server" }));
-    expect(mockStopMutate).toHaveBeenCalled();
   });
 
   it("renders TPS Usage card with live metric value when running", () => {
@@ -385,22 +338,6 @@ describe("ServerDetailPage", () => {
     await user.click(screen.getByText("go srv-2"));
     expect(unsubscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-1"]);
     expect(subscribeChannelsMock).toHaveBeenCalledWith(["metrics:srv-2"]);
-  });
-
-  it("renders Container provider badge in header when provider is docker", () => {
-    mockData = { ...mockServer, provider: "docker" };
-    renderPage();
-    const badge = screen.getByTestId("server-provider-badge");
-    expect(badge).toBeInTheDocument();
-    expect(badge).toHaveTextContent("Container");
-  });
-
-  it("renders File / Host provider badge in header when provider is not docker", () => {
-    mockData = { ...mockServer, provider: "local_process" };
-    renderPage();
-    const badge = screen.getByTestId("server-provider-badge");
-    expect(badge).toBeInTheDocument();
-    expect(badge).toHaveTextContent("File / Host");
   });
 
   it("renders Container IP in deployment details and address for docker server", async () => {
