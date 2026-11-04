@@ -82,9 +82,12 @@ export function ServerShell() {
   };
 
   const isRunning = server?.status === "running";
+  const isStarting = server?.status === "starting";
+  const canStop = isRunning || isStarting;
+  const isStopping = server?.status === "stopping";
   const isTransitioning =
-    server?.status === "starting" ||
-    server?.status === "stopping" ||
+    isStarting ||
+    isStopping ||
     server?.status === "provisioning" ||
     startMutation.isPending ||
     stopMutation.isPending ||
@@ -229,22 +232,24 @@ export function ServerShell() {
 
               {/* Server Power Controls */}
               <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t border-border-subtle sm:border-t-0">
-                {isRunning ? (
+                {canStop ? (
                   <>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      icon="restart"
-                      disabled={isTransitioning}
-                      onClick={() => restartMutation.mutate(serverId!)}
-                    >
-                      Restart
-                    </Button>
+                    {isRunning && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon="restart"
+                        disabled={isTransitioning}
+                        onClick={() => restartMutation.mutate(serverId!)}
+                      >
+                        Restart
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="danger"
                       icon="stop"
-                      disabled={isTransitioning}
+                      disabled={isStopping || stopMutation.isPending}
                       onClick={() => setShowStopDialog(true)}
                     >
                       Stop

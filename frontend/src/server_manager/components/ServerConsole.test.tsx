@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -69,6 +69,14 @@ function renderConsole(
 }
 
 describe("ServerConsole Component", () => {
+  afterEach(() => {
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     useWSStore.setState({
@@ -341,5 +349,43 @@ describe("ServerConsole Component", () => {
     // Re-tail refetch should be triggered and transient live lines cleared
     expect(await screen.findByText(/Refetched re-tail line 1/)).toBeInTheDocument();
     expect(screen.queryByText("[INFO] Transient live message")).not.toBeInTheDocument();
+  });
+
+  it("refetches history and displays missed lines when visibility changes from hidden to visible, and cleans up listener", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      value: "hidden",
+      writable: true,
+      configurable: true,
+    });
+
+    const removeEventListenerSpy = vi.spyOn(document, "removeEventListener");
+
+    const { unmount } = renderConsole({ serverId: "srv-live" });
+    await screen.findByText(/Done \(2\.4s\)!/);
+    expect(mockGetServerConsole).toHaveBeenCalledTimes(1);
+
+    mockGetServerConsole.mockResolvedValueOnce({
+      lines: [
+        "[Server thread/INFO]: Done (2.4s)! For help, type 'help'",
+        "[Server thread/INFO]: Player joined while tab was in background",
+      ],
+    });
+
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(await screen.findByText(/Player joined while tab was in background/)).toBeInTheDocument();
+    expect(mockGetServerConsole).toHaveBeenCalledTimes(2);
+
+    unmount();
+    expect(removeEventListenerSpy).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+    removeEventListenerSpy.mockRestore();
   });
 });

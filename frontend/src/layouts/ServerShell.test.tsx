@@ -45,6 +45,8 @@ const mockServer = {
   updated_at: "2024-01-01T00:00:00Z",
 };
 
+const mockStopMutate = vi.fn();
+
 vi.mock("@/server_manager/hooks/useServers", () => ({
   useServerDetail: vi.fn(() => ({
     data: mockServer,
@@ -52,7 +54,7 @@ vi.mock("@/server_manager/hooks/useServers", () => ({
     error: null,
   })),
   useStartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-  useStopServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useStopServer: vi.fn(() => ({ mutate: mockStopMutate, isPending: false })),
   useRestartServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useDeleteServer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
@@ -94,6 +96,7 @@ function renderServerShell(initialPath = "/servers/srv-123/console") {
 
 describe("ServerShell", () => {
   beforeEach(() => {
+    mockStopMutate.mockClear();
     vi.mocked(useServerDetail).mockReturnValue({
       data: { ...mockServer, server_type: "fabric" },
       isLoading: false,
@@ -286,7 +289,7 @@ describe("ServerShell", () => {
     expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument();
   });
 
-  it("shows Stop and Restart buttons when server is running and opens Stop confirmation dialog", async () => {
+  it("shows Stop and Restart buttons when server is running and calls stop mutation on confirm", async () => {
     const user = userEvent.setup();
     vi.mocked(useServerDetail).mockReturnValue({
       data: { ...mockServer, status: "running" },
@@ -303,5 +306,23 @@ describe("ServerShell", () => {
     await user.click(stopBtn);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Stop Test Server?")).toBeInTheDocument();
+
+    const confirmBtn = screen.getByRole("button", { name: "Stop Server" });
+    await user.click(confirmBtn);
+    expect(mockStopMutate).toHaveBeenCalledWith("srv-123");
+  });
+
+  it("shows Stop button while status is STARTING", () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: { ...mockServer, status: "starting" },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useServerDetail>);
+
+    renderServerShell("/servers/srv-123/console");
+
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restart" })).not.toBeInTheDocument();
   });
 });
