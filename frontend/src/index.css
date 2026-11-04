@@ -199,7 +199,7 @@
 
   --text-primary: #111827;
   --text-secondary: #374151;
-  --text-muted: #6b7280;
+  --text-muted: #595f6b;
   --text-inverse: #ffffff;
   --text-accent: #2563eb;
 
@@ -217,7 +217,7 @@
   --status-warning: #b45309;
   --status-danger: #b91c1c;
   --status-info: #1d4ed8;
-  --status-neutral: #6b7280;
+  --status-neutral: #595f6b;
 }
 
 /* Azure Skin (Blue-Tinted Modern Dark & Clean Ocean Light) */
@@ -234,7 +234,7 @@
 
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
+  --text-muted: #a0b4cc;
   --text-inverse: #0b1222;
   --text-accent: #38bdf8;
 
@@ -252,7 +252,7 @@
   --status-warning: #eab308;
   --status-danger: #ef4444;
   --status-info: #38bdf8;
-  --status-neutral: #94a3b8;
+  --status-neutral: #a0b4cc;
 }
 
 [data-skin="azure"][data-mode="light"] {
@@ -266,7 +266,7 @@
 
   --text-primary: #0f172a;
   --text-secondary: #334155;
-  --text-muted: #64748b;
+  --text-muted: #516278;
   --text-inverse: #ffffff;
   --text-accent: #0284c7;
 
@@ -284,7 +284,7 @@
   --status-warning: #b45309;
   --status-danger: #b91c1c;
   --status-info: #0284c7;
-  --status-neutral: #64748b;
+  --status-neutral: #516278;
 }
 
 /* Density Controls */

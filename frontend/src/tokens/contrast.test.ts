@@ -316,13 +316,37 @@ describe("WCAG 2.1 AA Contrast Computation (Real CSS Parser - Task 2)", () => {
     }
   });
 
-  it("enforces textPrimary and textSecondary >= 4.5:1 on ALL 6 surfaces across all palettes", () => {
+  it("enforces textPrimary, textSecondary, and textMuted >= 4.5:1 on ALL 6 surfaces across all palettes (Task 3 fix)", () => {
     for (const [key, palette] of Object.entries(palettes)) {
-      const surfaces = [palette.page, palette.card, palette.elevated, palette.hover, palette.active, palette.muted];
+      const surfaces = [
+        { name: "page", hex: palette.page },
+        { name: "card", hex: palette.card },
+        { name: "elevated", hex: palette.elevated },
+        { name: "hover", hex: palette.hover },
+        { name: "active", hex: palette.active },
+        { name: "muted", hex: palette.muted },
+      ];
       for (const surface of surfaces) {
-        expect(calculateContrastRatio(palette.textPrimary, surface), `${key} textPrimary`).toBeGreaterThanOrEqual(4.5);
-        expect(calculateContrastRatio(palette.textSecondary, surface), `${key} textSecondary`).toBeGreaterThanOrEqual(4.5);
+        expect(
+          calculateContrastRatio(palette.textPrimary, surface.hex),
+          `${key} textPrimary on ${surface.name}`,
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          calculateContrastRatio(palette.textSecondary, surface.hex),
+          `${key} textSecondary on ${surface.name}`,
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          calculateContrastRatio(palette.textMuted, surface.hex),
+          `${key} textMuted on ${surface.name}`,
+        ).toBeGreaterThanOrEqual(4.5);
       }
+    }
+  });
+
+  it("enforces zero contrast violations across all palettes using checkPaletteViolations", () => {
+    for (const [key, palette] of Object.entries(palettes)) {
+      const violations = checkPaletteViolations(key, palette);
+      expect(violations, `${key} had contrast violations:\n${violations.join("\n")}`).toEqual([]);
     }
   });
 
