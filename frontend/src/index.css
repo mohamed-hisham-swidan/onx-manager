@@ -153,27 +153,27 @@
   --status-info-border: rgba(59, 130, 246, 0.3);
 }
 
-/* Graphite Skin (Neutral Deep Black / Graphite Dark - 0% Blue Chroma) */
+/* Graphite Skin (Neutral Deep Black / Graphite Dark - 0% Blue Chroma, Pure R=G=B) */
 [data-skin="graphite"],
 [data-skin="graphite"][data-mode="dark"],
 [data-skin="graphite"].dark {
-  --surface-page: #141518;
-  --surface-card: #1a1b1f;
-  --surface-hover: #22242a;
-  --surface-active: #2b2e35;
-  --surface-elevated: #22242a;
+  --surface-page: #141414;
+  --surface-card: #1a1a1a;
+  --surface-hover: #222222;
+  --surface-active: #2b2b2b;
+  --surface-elevated: #262626;
   --surface-overlay: rgba(0, 0, 0, 0.8);
-  --surface-muted: #1e2025;
+  --surface-muted: #1e1e1e;
 
-  --text-primary: #f0f2f5;
-  --text-secondary: #b8bcc6;
-  --text-muted: #989ea9;
-  --text-inverse: #141518;
+  --text-primary: #f0f0f0;
+  --text-secondary: #b8b8b8;
+  --text-muted: #9e9e9e;
+  --text-inverse: #141414;
   --text-accent: #60a5fa;
 
-  --border-subtle: #2d3036;
-  --border-default: #626773;
-  --border-strong: #7b8290;
+  --border-subtle: #2c2c2c;
+  --border-default: #686868;
+  --border-strong: #828282;
   --border-focus: #60a5fa;
 
   --accent-primary: #2563eb;
@@ -185,27 +185,30 @@
   --status-warning: #eab308;
   --status-danger: #ef4444;
   --status-info: #3b82f6;
-  --status-neutral: #989ea9;
+  --status-neutral: #9e9e9e;
+
+  --terminal-bg: #101010;
+  --terminal-text: #f0f0f0;
 }
 
 [data-skin="graphite"][data-mode="light"] {
-  --surface-page: #f3f4f6;
+  --surface-page: #f5f5f5;
   --surface-card: #ffffff;
-  --surface-hover: #f9fafb;
-  --surface-active: #e5e7eb;
+  --surface-hover: #f9f9f9;
+  --surface-active: #eaeaea;
   --surface-elevated: #ffffff;
-  --surface-overlay: rgba(17, 24, 39, 0.5);
-  --surface-muted: #f3f4f6;
+  --surface-overlay: rgba(0, 0, 0, 0.5);
+  --surface-muted: #f5f5f5;
 
-  --text-primary: #111827;
-  --text-secondary: #374151;
-  --text-muted: #595f6b;
+  --text-primary: #171717;
+  --text-secondary: #404040;
+  --text-muted: #5f5f5f;
   --text-inverse: #ffffff;
   --text-accent: #2563eb;
 
-  --border-subtle: #e5e7eb;
-  --border-default: #737a85;
-  --border-strong: #4b5563;
+  --border-subtle: #e5e5e5;
+  --border-default: #767676;
+  --border-strong: #525252;
   --border-focus: #2563eb;
 
   --accent-primary: #2563eb;
@@ -217,7 +220,10 @@
   --status-warning: #b45309;
   --status-danger: #b91c1c;
   --status-info: #1d4ed8;
-  --status-neutral: #595f6b;
+  --status-neutral: #5f5f5f;
+
+  --terminal-bg: #101010;
+  --terminal-text: #f0f0f0;
 }
 
 /* Azure Skin (Blue-Tinted Modern Dark & Clean Ocean Light) */
