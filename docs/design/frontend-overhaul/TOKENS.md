@@ -7,7 +7,7 @@ This document describes the design token architecture implemented in `frontend/s
 ## 1. Token Taxonomy
 
 Tokens are organized into functional tiers:
-1. **Surfaces**: Canvas, panels, cards, overlays, and hover states.
+1. **Surfaces**: Page base, cards, elevated modals/flyouts, muted wells, overlays, and hover/active states.
 2. **Text**: Primary, secondary, muted, inverse, and accent links.
 3. **Borders**: Subtle dividers, default component borders, strong boundaries, and active focus rings.
 4. **Accents**: Brand primary, hover, active, contrast text, and subtle tinted backgrounds.
@@ -23,12 +23,13 @@ Surfaces establish visual depth and hierarchy. The elevation ladder guarantees t
 
 | Surface Token | Purpose | Graphite Dark | Azure Dark |
 |---|---|---|---|
-| `--surface-canvas` | Main viewport background / base backdrop | `#0c0d0e` | `#0b1120` |
-| `--surface-panel` | Navbars, sidebars, toolbars | `#141618` | `#0f172a` |
-| `--surface-card` | Content cards, table bodies, forms | `#1b1e22` | `#1e293b` |
-| `--surface-elevated` | Modals, dropdown popovers, slide-overs | `#23272d` | `#334155` |
-| `--surface-hover` | Interactive row or button hover overlay | `rgba(255, 255, 255, 0.05)` | `rgba(255, 255, 255, 0.06)` |
-| `--surface-active` | Selected list items or pressed state | `rgba(255, 255, 255, 0.08)` | `rgba(255, 255, 255, 0.10)` |
+| `--surface-page` | Main viewport background / base backdrop | `#141414` | `#0b1222` |
+| `--surface-card` | Content cards, table bodies, navigation shells | `#1a1a1a` | `#0f172a` |
+| `--surface-muted` | Muted containers, code blocks, secondary wells | `#1e1e1e` | `#131c31` |
+| `--surface-hover` | Interactive row or button hover overlay | `#222222` | `#1e293b` |
+| `--surface-elevated` | Modals, dropdown popovers, slide-overs | `#262626` | `#1e293b` |
+| `--surface-active` | Selected list items or pressed state | `#2b2b2b` | `#334155` |
+| `--surface-overlay` | Modal backdrop scrim | `rgba(0, 0, 0, 0.8)` | `rgba(0, 0, 0, 0.75)` |
 
 ---
 
@@ -38,10 +39,11 @@ Text tokens are calibrated to satisfy WCAG AA contrast (minimum 4.5:1 against th
 
 | Text Token | Purpose | Graphite Dark | Azure Dark |
 |---|---|---|---|
-| `--text-primary` | Main titles, table headers, high-emphasis content | `#f4f5f7` (14.2:1) | `#f8fafc` (15.1:1) |
-| `--text-secondary` | Body text, descriptions, regular navigation items | `#c5c8d0` (9.1:1) | `#cbd5e1` (9.8:1) |
-| `--text-muted` | Metadata, timestamps, helper hints, placeholders | `#8c92a0` (4.8:1) | `#94a3b8` (5.2:1) |
-| `--text-inverse` | Text on solid accent or high-contrast surfaces | `#0c0d0e` | `#0f172a` |
+| `--text-primary` | Main titles, table headers, high-emphasis content | `#f0f0f0` | `#f8fafc` |
+| `--text-secondary` | Body text, descriptions, regular navigation items | `#b8b8b8` | `#cbd5e1` |
+| `--text-muted` | Metadata, timestamps, helper hints, placeholders | `#9e9e9e` | `#a0b4cc` |
+| `--text-inverse` | Text on solid accent or high-contrast surfaces | `#141414` | `#0b1222` |
+| `--text-accent` | Inline text links, highlighted terms | `#60a5fa` | `#38bdf8` |
 
 ---
 
@@ -139,17 +141,19 @@ When `@media (prefers-reduced-motion: reduce)` is active, all durations are coll
 All CSS variables are registered in `@theme` at the top of `src/index.css`:
 ```css
 @theme {
-  --color-surface-canvas: var(--surface-canvas);
-  --color-surface-panel: var(--surface-panel);
+  --color-surface-page: var(--surface-page);
   --color-surface-card: var(--surface-card);
-  --color-surface-elevated: var(--surface-elevated);
   --color-surface-hover: var(--surface-hover);
   --color-surface-active: var(--surface-active);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-muted: var(--surface-muted);
 
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
   --color-text-inverse: var(--text-inverse);
+  --color-text-accent: var(--text-accent);
 
   --color-border-subtle: var(--border-subtle);
   --color-border-default: var(--border-default);
@@ -160,20 +164,29 @@ All CSS variables are registered in `@theme` at the top of `src/index.css`:
   --color-accent-hover: var(--accent-hover);
   --color-accent-active: var(--accent-active);
   --color-accent-contrast-text: var(--accent-contrast-text);
-  --color-accent-subtle: var(--accent-subtle);
 
   --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-danger: var(--status-danger);
+  --color-status-info: var(--status-info);
+  --color-status-neutral: var(--status-neutral);
+
   --color-status-success-bg: var(--status-success-bg);
   --color-status-success-border: var(--status-success-border);
-  --color-status-warning: var(--status-warning);
   --color-status-warning-bg: var(--status-warning-bg);
   --color-status-warning-border: var(--status-warning-border);
-  --color-status-danger: var(--status-danger);
   --color-status-danger-bg: var(--status-danger-bg);
   --color-status-danger-border: var(--status-danger-border);
-  --color-status-info: var(--status-info);
   --color-status-info-bg: var(--status-info-bg);
   --color-status-info-border: var(--status-info-border);
+
+  --color-terminal-bg: var(--terminal-bg);
+  --color-terminal-text: var(--terminal-text);
+  --color-terminal-cursor: var(--terminal-cursor);
+
+  --spacing-density-card: var(--density-padding-card);
+  --spacing-density-row: var(--density-padding-row);
+  --spacing-density-input: var(--density-height-input);
 }
 ```
-This enables full Tailwind utility classes throughout the app: `bg-surface-panel`, `text-text-primary`, `border-border-default`, `ring-border-focus`.
+This enables full Tailwind utility classes throughout the app: `bg-surface-card`, `bg-surface-page`, `text-text-primary`, `border-border-default`, `ring-border-focus`.

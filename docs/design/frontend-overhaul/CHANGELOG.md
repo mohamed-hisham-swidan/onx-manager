@@ -88,10 +88,10 @@ This document records the full chronological history of changes implemented duri
 - Implemented `paletteRatchet.test.ts` scanning `frontend/src/` to ensure zero unallowlisted hardcoded hex or raw color classes.
 
 ### Batch 6: Multi-Skin Engine & Contrast Verification (`6ca0503`)
-- Implemented pure neutral black **Graphite** skin (0% blue chroma) and classic **Azure** slate-blue skin.
-- Added pre-paint DOM attribute initialization in `main.tsx` to eliminate theme flash.
-- Created programmatic WCAG AA contrast ratio test (`contrast.test.ts`) computing Euclidean RGB/sRGB luminance ratios across all skin/mode pairs.
-- Implemented zero-dependency JSON custom skin validator contract (`skinValidator.ts` & `skinValidator.test.ts`).
+- Implemented pure neutral black **Graphite** skin (0% blue chroma on all neutral tokens) and classic **Azure** slate-blue skin.
+- Added synchronous pre-paint DOM attribute initialization in `main.tsx` using shared storage keys to eliminate theme flash safely without inline scripts.
+- Created programmatic WCAG AA contrast ratio test (`contrast.test.ts`) that parses real token definitions directly from `frontend/src/index.css` and computes WCAG 2.x relative luminance ratios (not Euclidean distances) across all skin/mode pairs, with an explicit documented exclusion for `--border-subtle` decorative separators.
+- Implemented zero-dependency JSON custom skin validator contract (`skinValidator.ts` & `skinValidator.test.ts`) with prototype-pollution guards, root-key allowlists, and size capping.
 
 ### Batch 7: Brand Identity & Domain Icons (`27afa46`)
 - Created original vector brand lockup (`BrandLogo.tsx`) featuring an abstract geometric vortex swirl.

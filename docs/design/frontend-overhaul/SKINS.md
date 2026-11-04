@@ -38,14 +38,14 @@ To eliminate white/dark flash on page reload, `frontend/src/main.tsx` reads stor
 ## 2. Shipped First-Class Skins
 
 ### 1. Graphite (Default)
-- **Aesthetic**: Deep, clean neutral black/slate with 0% blue chroma in the dark canvas.
-- **Surface Elevation**: `#0c0d0e` (canvas) < `#141618` (panel) < `#1b1e22` (card) < `#23272d` (elevated).
+- **Aesthetic**: Pure neutral dark theme with 0% blue chroma (`R=G=B`, `max(R,G,B)-min(R,G,B) == 0`) across all neutral tokens (surfaces, text, borders, hover, active, muted, terminal). Accent (`#2563eb`) and status tokens retain their respective emerald/status hues.
+- **Surface Elevation**: `#141414` (page) < `#1a1a1a` (card) < `#1e1e1e` (muted) < `#222222` (hover) < `#262626` (elevated) < `#2b2b2b` (active).
 - **Accents**: Modern electric cobalt (`#2563eb`), tuned to satisfy WCAG AA (5.17:1 against white text).
 - **Ideal For**: Server operators, dark room administration, high-density monitoring.
 
 ### 2. Azure (Legacy Preserved)
 - **Aesthetic**: Classic deep ocean slate-blue theme.
-- **Surface Elevation**: `#0b1120` (canvas) < `#0f172a` (panel) < `#1e293b` (card) < `#334155` (elevated).
+- **Surface Elevation**: `#0b1222` (page) < `#0f172a` (card) < `#131c31` (muted) < `#1e293b` (hover/elevated) < `#334155` (active).
 - **Accents**: Sky cyan/blue (`#0369a1`), meeting WCAG AA (5.93:1 against white text).
 - **Ideal For**: Users who prefer the familiar original ONX blue aesthetic.
 
@@ -60,45 +60,55 @@ Append the new skin block at the bottom of `frontend/src/index.css`:
 ```css
 /* Emerald Dark */
 [data-skin="emerald"] {
-  --surface-canvas: #09120e;
-  --surface-panel: #0f1c16;
-  --surface-card: #15271e;
+  --surface-page: #09120e;
+  --surface-card: #0f1c16;
   --surface-elevated: #1e352a;
-  --surface-hover: rgba(255, 255, 255, 0.05);
-  --surface-active: rgba(255, 255, 255, 0.08);
+  --surface-muted: #15271e;
+  --surface-hover: #172b20;
+  --surface-active: #223c30;
+  --surface-overlay: rgba(0, 0, 0, 0.8);
 
   --text-primary: #ecfdf5;
   --text-secondary: #a7f3d0;
   --text-muted: #6ee7b7;
   --text-inverse: #09120e;
+  --text-accent: #34d399;
 
-  --border-subtle: rgba(16, 185, 129, 0.15);
-  --border-default: rgba(16, 185, 129, 0.30);
-  --border-strong: rgba(16, 185, 129, 0.50);
+  --border-subtle: #172b20;
+  --border-default: #2d5a42;
+  --border-strong: #3e7b5a;
   --border-focus: #10b981;
 
   --accent-primary: #059669;
   --accent-hover: #047857;
   --accent-active: #065f46;
   --accent-contrast-text: #ffffff;
-  --accent-subtle: rgba(16, 185, 129, 0.15);
 }
 
 /* Emerald Light */
 [data-skin="emerald"][data-mode="light"] {
-  --surface-canvas: #f0fdf4;
-  --surface-panel: #ffffff;
+  --surface-page: #f0fdf4;
   --surface-card: #ffffff;
   --surface-elevated: #dcfce7;
+  --surface-muted: #f0fdf4;
+  --surface-hover: #f7fee7;
+  --surface-active: #e2fcd8;
+  --surface-overlay: rgba(0, 0, 0, 0.5);
+
   --text-primary: #064e3b;
   --text-secondary: #065f46;
   --text-muted: #047857;
   --text-inverse: #ffffff;
+  --text-accent: #059669;
+
   --border-subtle: #d1fae5;
   --border-default: #a7f3d0;
   --border-strong: #6ee7b7;
   --border-focus: #059669;
+
   --accent-primary: #059669;
+  --accent-hover: #047857;
+  --accent-active: #065f46;
   --accent-contrast-text: #ffffff;
 }
 ```
@@ -129,38 +139,38 @@ A custom skin JSON payload must conform to the following schema:
 {
   "id": "obsidian",
   "name": "Obsidian Dark",
-  "version": 1,
-  "mode": "dark",
+  "description": "Deep obsidian theme for night administration",
   "tokens": {
-    "surface-canvas": "#0d0d0d",
-    "surface-panel": "#141414",
-    "surface-card": "#1a1a1a",
+    "surface-page": "#0d0d0d",
+    "surface-card": "#141414",
     "surface-elevated": "#222222",
-    "surface-hover": "rgba(255, 255, 255, 0.05)",
-    "surface-active": "rgba(255, 255, 255, 0.08)",
+    "surface-muted": "#181818",
+    "surface-hover": "#1a1a1a",
+    "surface-active": "#2b2b2b",
     "text-primary": "#f5f5f5",
     "text-secondary": "#cccccc",
     "text-muted": "#888888",
     "text-inverse": "#000000",
-    "border-subtle": "rgba(255, 255, 255, 0.10)",
-    "border-default": "rgba(255, 255, 255, 0.20)",
-    "border-strong": "rgba(255, 255, 255, 0.35)",
+    "border-subtle": "#222222",
+    "border-default": "#444444",
+    "border-strong": "#666666",
     "border-focus": "#7c3aed",
     "accent-primary": "#7c3aed",
     "accent-hover": "#6d28d9",
     "accent-active": "#5b21b6",
-    "accent-contrast-text": "#ffffff",
-    "accent-subtle": "rgba(124, 58, 237, 0.15)"
+    "accent-contrast-text": "#ffffff"
   }
 }
 ```
 
 ### 4.2 Security & Grammar Rules
 The validator (`validateSkinJson`) strictly rejects:
-1. **Size Limit**: Payloads exceeding 16KB are rejected.
-2. **Forbidden Syntax**: Any occurrence of `url(`, `;`, `{`, `}`, `<`, `>`, `javascript:`, or `expression(` causes immediate validation failure to prevent CSS injection.
-3. **Key Allowlist**: Only explicitly recognized token keys matching `--color-*` or semantic token names are allowed. Extra or unknown keys are rejected.
-4. **Color Value Grammar**: Values must match valid `#RGB`, `#RRGGBB`, `#RRGGBBAA`, `rgb(...)`, `rgba(...)`, `hsl(...)`, or `hsla(...)` syntax with valid numeric ranges.
+1. **Size Limit**: Payloads exceeding 32 KB (enforced for both string and object input via serialization) are rejected.
+2. **Prototype Pollution Protection**: Rejects `__proto__`, `constructor`, and `prototype` keys at root and token levels via strict own-property checks.
+3. **Root Key Allowlist**: Rejects unknown root keys; allows only `id`, `name`, `description`, and `tokens`.
+4. **Forbidden Syntax**: Any occurrence of `url(`, `;`, `{`, `}`, `<`, `>`, `javascript:`, or `expression(` causes immediate validation failure to prevent CSS injection.
+5. **Token Allowlist**: Only explicitly recognized token keys matching `--color-*` or semantic token names (`surface-page`, `text-primary`, etc.) are allowed.
+6. **Color Value Grammar**: Values must match valid `#RGB`, `#RRGGBB`, `#RRGGBBAA`, `rgb(...)`, `rgba(...)`, `hsl(...)`, or `hsla(...)` syntax with valid numeric ranges.
 
 ### 4.3 Validation API
 ```typescript

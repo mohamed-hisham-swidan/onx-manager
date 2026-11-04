@@ -38,7 +38,7 @@ All decorative banners (e.g., `VoxelBanner.tsx` on the Dashboard and Auth pages)
   - Top face: Diamond polygon with direct highlight lighting.
   - Left face: 30-degree sheared polygon with ambient fill.
   - Right face: 30-degree sheared polygon with shadowed fill.
-- Uses semantic CSS variables or theme-derived color ramps (`accent-primary`, `surface-panel`, `border-subtle`).
+- Uses semantic CSS variables or theme-derived color ramps (`accent-primary`, `surface-card`, `border-subtle`).
 - Zero raster PNG/JPEG images.
 
 ### 3.2 Themed Domain Icons

@@ -8,7 +8,7 @@ Welcome to the comprehensive documentation for the **ONX Manager Frontend Overha
 
 The overhaul addresses fundamental UI/UX and architectural challenges identified during the Stage 2 UX/IA audit:
 1. **Unification & Consistency**: Replaced scattered inline patterns with 18 reusable, accessible UI primitives and standardized page templates.
-2. **Design Tokens & Skin Architecture**: Introduced a comprehensive semantic CSS variable layer with dark/light mode support and two complete first-class skins: **Graphite** (deep neutral black, 0% blue chroma) and **Azure** (modern slate blue).
+2. **Design Tokens & Skin Architecture**: Introduced a comprehensive semantic CSS variable layer with dark/light mode support and two complete first-class skins: **Graphite** (deep neutral black, 0% blue chroma across all neutral tokens) and **Azure** (modern slate blue).
 3. **Monolith Decomposition**: Decomposed massive single-file components (such as `ServerVersioningPage.tsx` from 1,280 LOC and `CreateServerPage.tsx` from 811 LOC) into focused, single-responsibility components with strict LOC budgets.
 4. **Information Architecture Overhaul**: Replaced the cluttered 10-card rainbow grid on the dashboard with a clean, density-aware Fleet Status Bar. Added client-side search and directory pagination to the File Browser.
 5. **Brand & Visual Identity**: Established an original brand identity featuring a geometric vortex logo, abstract isometric voxel banners, and custom domain icons—strictly adhering to non-Mojang IP guardrails.
@@ -60,7 +60,7 @@ docs/design/frontend-overhaul/
 ## 3. Core Design Principles
 
 ### Principle 1: Semantic Token First
-Raw Tailwind colors (`bg-gray-800`, `text-blue-500`, `#1a202c`) are forbidden in application code. All styling uses semantic tokens (`bg-surface-panel`, `text-text-primary`, `border-border-default`, `text-accent-primary`). This enables dynamic runtime skinning, automated contrast verification, and zero regression during theme updates.
+Raw Tailwind colors (`bg-gray-800`, `text-blue-500`, `#1a202c`) are forbidden in application code. All styling uses semantic tokens (`bg-surface-card`, `bg-surface-page`, `text-text-primary`, `border-border-default`, `text-accent-primary`). This enables dynamic runtime skinning, automated contrast verification, and zero regression during theme updates.
 
 ### Principle 2: Respect Developer & Operator Focus
 ONX Manager is an administrative tool for server operators. The interface prioritizes density, clarity, and rapid status assessment over flashy animations. High-throughput views (Fleet, Files, Activity) default to **compact density**, while forms and wizards use **comfortable density**.
