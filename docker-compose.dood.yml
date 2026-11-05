@@ -37,7 +37,7 @@
 #   daemon, which resolves bind mounts against the HOST filesystem, NOT from
 #   within the ONX backend container.
 #   Therefore, the servers directory is bind-mounted from the host filesystem:
-#     ${ONX_HOST_DATA_DIR:-./data/servers}:/app/data/servers
+#     ${ONX_HOST_DATA_DIR:-./backend/data/servers}:/app/data/servers
 #   Set ONX_HOST_DATA_DIR to the absolute path of your servers directory on the
 #   host (e.g. export ONX_HOST_DATA_DIR=/opt/onx/data/servers).
 #
@@ -55,7 +55,7 @@ services:
       # Host Docker daemon socket (grants root-equivalent access to host daemon)
       - /var/run/docker.sock:/var/run/docker.sock
       # Host servers data directory for sibling container bind mounts
-      - ${ONX_HOST_DATA_DIR:-./data/servers}:/app/data/servers
+      - ${ONX_HOST_DATA_DIR:-./backend/data/servers}:/app/data/servers
     environment:
       # Informs DockerProvider of the host-side directory path for sibling mounts
-      - ONX_HOST_DATA_DIR=${ONX_HOST_DATA_DIR:-./data/servers}
+      - ONX_HOST_DATA_DIR=${ONX_HOST_DATA_DIR:-./backend/data/servers}

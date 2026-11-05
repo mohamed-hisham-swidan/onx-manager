@@ -125,7 +125,7 @@ and a live test run.
 |------|-------|----------|
 | Backend Python source files | 412 | `backend/app/` (including domain aggregates, commands, queries, providers) |
 | Backend test files | 239 | `backend/tests/` (including 225 dedicated test suites across versioning, reliability, and modules) |
-| Frontend test files | 107 | `find frontend/src -name "*.test.*"` |
+| Frontend test files | 110 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 16 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users, versioning` |
 | Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml`) |
 | Alembic migration revisions | 42 | `backend/alembic/versions/` (head `b1e2100000022`) |
@@ -157,17 +157,17 @@ Backend CI runs the full suite on every push/PR to `master`
 
 | Metric | Value |
 |--------|-------|
-| Test files | **107** |
-| Collected | **860** |
-| Passed | **860** across 107 test files |
+| Test files | **110** |
+| Collected | **884** |
+| Passed | **884** across 110 test files |
 | Skipped | **0** |
 | Failed | **0** |
 
 ### Suite Totals
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
 on every push/PR to `master`. Total test metrics:
-- **Total collected**: **4,148** (3,288 backend + 860 frontend)
-- **Total passed**: **4,142** (3,282 backend + 860 frontend)
+- **Total collected**: **4,172** (3,288 backend + 884 frontend)
+- **Total passed**: **4,166** (3,282 backend + 884 frontend)
 - **Total skipped**: **6** (backend)
 - **Total failed**: **0**
 
