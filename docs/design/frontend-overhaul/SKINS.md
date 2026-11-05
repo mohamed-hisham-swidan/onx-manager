@@ -49,6 +49,21 @@ To eliminate white/dark flash on page reload, `frontend/src/main.tsx` reads stor
 - **Accents**: Sky cyan/blue (`#0369a1`), meeting WCAG AA (5.93:1 against white text).
 - **Ideal For**: Users who prefer the familiar original ONX blue aesthetic.
 
+### 3. Border Contrast Policy
+All structural borders (`--border-default`, `--border-strong`, `--border-focus`) must maintain a minimum contrast ratio of **3.0:1** (WCAG AA non-text contrast) against all standard structural surfaces across both dark and light modes for all shipped skins:
+- `--surface-page`
+- `--surface-card`
+- `--surface-elevated`
+- `--surface-muted`
+
+In dark mode:
+- **Graphite**: `--border-default` is `#707070`, achieving 3.06:1 against `--surface-elevated` while strictly adhering to neutral chroma ($R=G=B=112$).
+- **Azure**: `--border-default` is `#687385`, achieving 3.05:1 against `--surface-elevated`.
+
+**Explicit Exclusions:**
+- `--border-subtle`: Decorative low-contrast divider (table rows, card headers) where 3.0:1 contrast would create excessive visual noise.
+- `--surface-hover` and `--surface-active`: Transient interactive states where hover brightness shift or active depress styling provides feedback rather than boundary contrast.
+
 ---
 
 ## 3. How to Add a Skin from One File
@@ -171,6 +186,7 @@ The validator (`validateSkinJson`) strictly rejects:
 4. **Forbidden Syntax**: Any occurrence of `url(`, `;`, `{`, `}`, `<`, `>`, `javascript:`, or `expression(` causes immediate validation failure to prevent CSS injection.
 5. **Token Allowlist**: Only explicitly recognized token keys matching `--color-*` or semantic token names (`surface-page`, `text-primary`, etc.) are allowed.
 6. **Color Value Grammar**: Values must match valid `#RGB`, `#RRGGBB`, `#RRGGBBAA`, `rgb(...)`, `rgba(...)`, `hsl(...)`, or `hsla(...)` syntax with valid numeric ranges.
+7. **Duplicate Keys**: Per ECMAScript specification for `JSON.parse()`, duplicate property keys within a JSON payload resolve with last-wins semantics. The validator operates on the resulting parsed JavaScript object.
 
 ### 4.3 Validation API
 ```typescript

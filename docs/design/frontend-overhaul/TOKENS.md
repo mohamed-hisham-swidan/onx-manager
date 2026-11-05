@@ -49,14 +49,18 @@ Text tokens are calibrated to satisfy WCAG AA contrast (minimum 4.5:1 against th
 
 ## 4. Border & Focus System
 
-Borders provide structural boundaries that meet or exceed WCAG AA non-text contrast (minimum 3:1 against adjacent backgrounds):
+Borders provide structural boundaries and hierarchy across interface elements. Under the project's border contrast policy, structural borders (`--border-default`, `--border-strong`, `--border-focus`) are guaranteed to meet or exceed WCAG AA non-text contrast (**minimum 3.0:1**) against all primary structural surfaces (`--surface-page`, `--surface-card`, `--surface-elevated`, `--surface-muted`) across all skins and modes:
 
 | Border Token | Purpose | Token Value / Visual Role |
 |---|---|---|
 | `--border-subtle` | Fine divider lines between table rows or card headers | 1px low-contrast separator |
-| `--border-default` | Input fields, standard card outlines, buttons | 1px balanced component border |
-| `--border-strong` | Active state outlines, modal boundaries | 1px high-visibility boundary |
-| `--border-focus` | Keyboard `:focus-visible` ring | 2px solid primary accent with outline offset |
+| `--border-default` | Input fields, standard card outlines, buttons | 1px balanced component border (>= 3.0:1 against structural surfaces) |
+| `--border-strong` | Active state outlines, modal boundaries | 1px high-visibility boundary (>= 3.0:1 against structural surfaces) |
+| `--border-focus` | Keyboard `:focus-visible` ring | 2px solid primary accent with outline offset (>= 3.0:1 against structural surfaces) |
+
+### Contrast Policy Exclusions
+- `--border-subtle` is intentionally excluded from the 3.0:1 threshold because it serves as an unobtrusive, decorative divider; enforcing high contrast would introduce visual clutter.
+- `--surface-hover` and `--surface-active` are excluded as transient interactive states; feedback in these states is delivered via surface luminosity shifts and active depress styling rather than perimeter boundary contrast.
 
 ---
 

@@ -31,3 +31,25 @@ This document records non-blocking decisions, conservative choices made during a
 ## 4. System Font Stacks vs External Fonts
 - **Status**: CONSERVATIVE CHOICE TAKEN
 - **Decision**: Use robust modern system font stacks behind tokens (`font-sans`: `system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`, `font-mono`: `'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace`). Avoid external runtime downloads to ensure zero external network calls and 100% offline self-hosted operation.
+
+---
+
+## 5. Border Contrast Policy & Token Calibrations
+- **Status**: CONSERVATIVE CHOICE TAKEN / LOGGED FOR OWNER DECISION
+- **Context**: Non-text contrast compliance (WCAG AA 2.1 SC 1.4.11) requires a minimum 3.0:1 contrast ratio between functional boundaries and adjacent background surfaces.
+- **Decision Taken**: Enforced a strict minimum 3.0:1 contrast ratio for all structural border tokens (`--border-default`, `--border-strong`, `--border-focus`) against all structural background surfaces (`--surface-page`, `--surface-card`, `--surface-elevated`, `--surface-muted`) across all skin (`graphite`, `azure`) and mode (`dark`, `light`) combinations. Calibrated `--border-default` in dark mode:
+  - Graphite dark `--border-default`: adjusted from `#686868` (2.72:1 vs elevated) to `#707070` (3.06:1 vs elevated, preserving pure neutral $R=G=B=112$).
+  - Azure dark `--border-default`: adjusted from `#606b7d` (2.71:1 vs elevated) to `#687385` (3.05:1 vs elevated).
+  - Explicitly excluded decorative `--border-subtle` (low-contrast dividers to prevent visual noise) and transient `--surface-hover` / `--surface-active` surfaces (where interactive luminosity shifts provide feedback).
+- **Alternative for Owner**: The owner may opt to leave borders as is (restoring `#686868` / `#606b7d`) if softer visual outlines are preferred, or adjust the dark surface elevation ladder instead of the border tokens.
+
+---
+
+## 6. Palette Ratchet Allowlist Cap Adjustments (F2-2)
+- **Status**: CONSERVATIVE CHOICE TAKEN / LOGGED FOR OWNER DECISION
+- **Context**: In review fix F2-2, `paletteRatchet.test.ts` was expanded to inspect all CSS property prefixes (`bg|text|border|ring|fill|stroke|outline|divide|from|via|to|shadow|accent|caret|decoration`) across all 22 Tailwind color families (gray, slate, zinc, neutral, stone, red, orange, amber, yellow, lime, green, emerald, teal, cyan, sky, blue, indigo, violet, purple, fuchsia, pink, rose).
+- **Decision Taken**: The expanded regex captured pre-existing raw color classes that previous scans did not detect (e.g. gradient stops `to-gray-900`, `from-stone-900`, SVG fill `fill-gray-400`). To keep the ratchet passing without altering UI visuals or raising caps silently, caps were adjusted in `ALLOWLIST`:
+  - `LoaderBadge.tsx`: 45 -> 60 (SVG animation spinner and multi-stop gradient classes).
+  - `StartingMonitorBanner.tsx`: 35 -> 55 (multi-stage progress bar gradient stops and markers).
+  - `ServerModsPage.tsx`: 15 -> 25 (mod-type badge color accents and category tag indicators).
+- **Alternative for Owner**: The owner may choose to lower these caps by refactoring the inline SVG gradients, complex spinner animations, and mod badges to use tokenized CSS variables or SVGs referencing CSS custom properties.

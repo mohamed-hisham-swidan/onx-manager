@@ -16,7 +16,7 @@
 - **Enterprise Branch Runtime — Stage G (Protected Branches): CLOSED (2026-09-18)** — `BranchProtectionPolicy` frozen dataclass (require_test_pass, allow_direct_commit, allow_force_bypass, prevent_deletion), `ServerBranch` lifecycle methods (`protect`, `unprotect`, `can_commit_directly`, `can_archive`), `BranchProtectedError` (HTTP 409), `CreateCommitCommand` protection enforcement with administrative emergency bypass permission and audit logging, strict `AutoCommitLiveChangesCommand` and `ArchiveBranchCommand` rejection, and 3 new REST endpoints; Alembic migration `b1e2100000019` advancing route contract to 150/150 routes; 2,906 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `ba8b539`.
 - **Enterprise Branch Runtime — Frontend UI Batch: CLOSED (2026-09-18)** — Complete user interfaces for Stages B, C, F, G: `BranchProtectionModal.tsx`, `TestDefinitionsModal.tsx`, `TestEvidenceModal.tsx`, `MaterializationBrowserModal.tsx`, `ImportReviewModal.tsx`, `ManageBranchesModal.tsx`, `CreateTagModal.tsx`, `CommitDiffModal.tsx`, and full page integration in `ServerVersioningPage.tsx`; all 22 versioning routes wired in `api.ts`; 0 TypeScript errors; 730 frontend tests passing across 83 test files (100% green); 6/6 CI quality gates PASS. Commit `8b219ba`.
 - **Phase 5.5 — Pre-Beta Reliability (Stages A & B): CLOSED (2026-09-29)** — Stage A Reliability Foundation (`Operation` aggregate, idempotency, WS projection) and Stage B Test Run Engine (`TestDefinition` execution without lossy division, standard `ValueError` terminal guards, `operation_id` column/index via migration `b1e2100000022`, unified assertion engine with `BaseVerifier`, canonical `TestCleanupPlan` with separator-safe `resolve_test_dir`). 3,145 backend collected / 3,139 passed / 6 skipped / 0 failed, 752 frontend passed across 89 files, 6/6 CI quality gates PASS.
-- **Frontend UX/IA Overhaul & Design Token System (2026-11-04; Lane B, D1; ADR-0021): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Full autonomous overhaul across Phases 1 through 9: semantic token engine, multi-skin system (Graphite & Azure), 18 reusable primitives, unified AppShell/ServerShell, 7 standardized page templates (Fleet status bar, client-side files filter/paging, decomposed versioning & create server wizards), palette ratchet test, original brand identity (vortex mark, voxel banners, domain icons, legal disclaimer), motion/density controls, route-level code splitting (-68.5% bundle reduction: 1,251 kB -> 394 kB), comprehensive docs in `docs/design/frontend-overhaul/`. 855 frontend tests passing across 106 test files (100% green), typecheck & lint clean, production build green, 6/6 CI quality gates PASS.
+- **Frontend UX/IA Overhaul & Design Token System (2026-11-04; Lane B, D1; ADR-0021): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Full autonomous overhaul across Phases 1 through 9: semantic token engine, multi-skin system (Graphite & Azure), 18 reusable primitives, unified AppShell/ServerShell, 7 standardized page templates (Fleet status bar, client-side files filter/paging, decomposed versioning & create server wizards), palette ratchet test, original brand identity (vortex mark, voxel banners, domain icons, legal disclaimer), motion/density controls, route-level code splitting (-68.5% bundle reduction: 1,251 kB -> 394 kB), comprehensive docs in `docs/design/frontend-overhaul/`. 860 frontend tests passing across 107 test files (100% green), typecheck & lint clean, production build green (39 JS chunks), 6/6 CI quality gates PASS.
 - **Next: Phase 6 (Final Installs / Wrap-up) — READY**: Installer polish, distribution packaging, first-run experience, documentation review.
 
 
@@ -30,8 +30,8 @@
   - Palette ratchet test (`paletteRatchet.test.ts`) enforcing zero unallowlisted raw Tailwind color classes.
   - Original brand identity: vector vortex logo mark (`BrandLogo.tsx`), isometric voxel banners (`VoxelBanner.tsx`), themed domain icons (`Icon.tsx`), and legal disclaimers.
   - Motion tokens (`--motion-duration-*`, `--motion-ease-standard`) with global `prefers-reduced-motion` override and density hierarchy tokens.
-  - Production route code-splitting with `React.lazy` and `Suspense`, dropping initial JS payload from 1,251 kB to 394 kB (-68.5% across 41 chunks).
-  - Verified 2026-11-04: 855 frontend tests passing across 106 test files (0 failures); typecheck and lint clean; production build green; 6/6 CI quality gates PASS.
+  - Production route code-splitting with `React.lazy` and `Suspense`, dropping initial JS payload from 1,251 kB to 394 kB (-68.5% across 39 JS chunks).
+  - Verified 2026-11-05: 860 frontend tests passing across 107 test files (0 failures); typecheck and lint clean; production build green (39 JS chunks); 6/6 CI quality gates PASS.
 - Test Signal Safety Guard (2026-10-04; Test Safety, Lane A, D1):
   - Hermetic autouse test fixture in `backend/tests/conftest.py` wrapping `os.kill` and `os.killpg` (and signal helpers) to raise `AssertionError` if target PID is not a verified descendant of the current pytest process.
   - Documented guard behavior: raises `AssertionError` (not `OSError`), noted `LocalLinuxProvider._is_pid_alive` exception fallback to `kill -0`, and documented Win32 residual (`ctypes.windll.kernel32.TerminateProcess` in `process_utils.py` not intercepted).
@@ -125,7 +125,7 @@ and a live test run.
 |------|-------|----------|
 | Backend Python source files | 412 | `backend/app/` (including domain aggregates, commands, queries, providers) |
 | Backend test files | 239 | `backend/tests/` (including 225 dedicated test suites across versioning, reliability, and modules) |
-| Frontend test files | 104 | `find frontend/src -name "*.test.*"` |
+| Frontend test files | 107 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 16 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users, versioning` |
 | Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml`) |
 | Alembic migration revisions | 42 | `backend/alembic/versions/` (head `b1e2100000022`) |
@@ -157,17 +157,17 @@ Backend CI runs the full suite on every push/PR to `master`
 
 | Metric | Value |
 |--------|-------|
-| Test files | **106** |
-| Collected | **855** |
-| Passed | **855** across 106 test files |
+| Test files | **107** |
+| Collected | **860** |
+| Passed | **860** across 107 test files |
 | Skipped | **0** |
 | Failed | **0** |
 
 ### Suite Totals
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
 on every push/PR to `master`. Total test metrics:
-- **Total collected**: **4,143** (3,288 backend + 855 frontend)
-- **Total passed**: **4,137** (3,282 backend + 855 frontend)
+- **Total collected**: **4,148** (3,288 backend + 860 frontend)
+- **Total passed**: **4,142** (3,282 backend + 860 frontend)
 - **Total skipped**: **6** (backend)
 - **Total failed**: **0**
 
