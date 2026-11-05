@@ -1,7 +1,7 @@
 import React from "react";
-import { NavLink, Link, useLocation } from "react-router-dom";
+import { NavLink, Link } from "react-router-dom";
 import { useUIStore } from "@/stores/uiStore";
-import { useMarketplaceSourceStore, type MarketplaceSource } from "@/stores/marketplaceSourceStore";
+import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { Icon, type IconName } from "@/components/ui/Icon";
 
 export interface ServerContext {
@@ -25,23 +25,21 @@ const GLOBAL_NAV_ITEMS: { to: string; label: string; icon: IconName; end?: boole
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
-  const location = useLocation();
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
-  const source = useMarketplaceSourceStore((s) => s.source);
   const setSource = useMarketplaceSourceStore((s) => s.setSource);
 
   const handleNavigate = () => {
     if (mobileSidebarOpen) setMobileSidebarOpen(false);
   };
 
-  const handleSelectSource = (newSource: MarketplaceSource) => {
-    setSource(newSource);
+  const handleGlobalNavigate = (isMarketplace: boolean) => {
+    if (isMarketplace) {
+      setSource("modrinth");
+    }
     handleNavigate();
   };
-
-  const isMarketplaceActive = location.pathname.startsWith("/marketplace");
 
   return (
     <>
@@ -168,61 +166,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
             {GLOBAL_NAV_ITEMS.map(({ to, label, icon, end }) => {
               const isMarketplace = to === "/marketplace";
               return (
-                <div key={to} className="flex flex-col gap-1">
-                  <NavLink
-                    to={to}
-                    end={end}
-                    onClick={handleNavigate}
-                    className={({ isActive }) =>
-                      `group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                        isActive
-                          ? "bg-accent-primary/10 text-accent-primary font-semibold"
-                          : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-                      }`
-                    }
-                  >
-                    {({ isActive }) => (
-                      <>
-                        {isActive && (
-                          <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent-primary" />
-                        )}
-                        <Icon name={icon} size={20} className="shrink-0" />
-                        <span className="truncate">{label}</span>
-                      </>
-                    )}
-                  </NavLink>
-
-                  {isMarketplace && (
-                    <div className="ml-4 flex flex-col gap-0.5 border-l border-border-subtle pl-3">
-                      <NavLink
-                        to="/marketplace"
-                        onClick={() => handleSelectSource("modrinth")}
-                        className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
-                          isMarketplaceActive && source === "modrinth"
-                            ? "bg-accent-primary/10 text-accent-primary font-semibold"
-                            : "text-text-muted hover:bg-surface-hover hover:text-text-primary"
-                        }`}
-                      >
-                        <Icon name="modrinth" size={14} className="shrink-0" />
-                        <span className="truncate">Modrinth</span>
-                      </NavLink>
-                      <NavLink
-                        to="/marketplace"
-                        onClick={() => handleSelectSource("curseforge")}
-                        className={`flex items-center justify-between rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
-                          isMarketplaceActive && source === "curseforge"
-                            ? "bg-accent-primary/10 text-accent-primary font-semibold"
-                            : "text-text-muted hover:bg-surface-hover hover:text-text-primary"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Icon name="curseforge" size={14} className="shrink-0" />
-                          <span className="truncate">CurseForge</span>
-                        </div>
-                      </NavLink>
-                    </div>
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={end}
+                  onClick={() => handleGlobalNavigate(isMarketplace)}
+                  className={({ isActive }) =>
+                    `group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                      isActive
+                        ? "bg-accent-primary/10 text-accent-primary font-semibold"
+                        : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+                    }`
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && (
+                        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent-primary" />
+                      )}
+                      <Icon name={icon} size={20} className="shrink-0" />
+                      <span className="truncate">{label}</span>
+                    </>
                   )}
-                </div>
+                </NavLink>
               );
             })}
           </nav>

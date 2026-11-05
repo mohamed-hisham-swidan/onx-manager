@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "@/stores/uiStore";
+import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 
 function renderSidebar() {
   return render(
@@ -15,6 +16,7 @@ function renderSidebar() {
 describe("Sidebar", () => {
   beforeEach(() => {
     useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false, theme: "light" });
+    useMarketplaceSourceStore.setState({ source: "modrinth" });
   });
 
   it("renders all navigation items", () => {
@@ -24,6 +26,21 @@ describe("Sidebar", () => {
     expect(screen.getByText("Backups")).toBeInTheDocument();
     expect(screen.getByText("Marketplace")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
+  });
+
+  it("does not render nested Modrinth or CurseForge sublinks under Marketplace", () => {
+    renderSidebar();
+    expect(screen.queryByText("Modrinth")).not.toBeInTheDocument();
+    expect(screen.queryByText("CurseForge")).not.toBeInTheDocument();
+  });
+
+  it("sets marketplace source to modrinth when clicking Marketplace", () => {
+    useMarketplaceSourceStore.setState({ source: "curseforge" });
+    expect(useMarketplaceSourceStore.getState().source).toBe("curseforge");
+
+    renderSidebar();
+    fireEvent.click(screen.getByText("Marketplace"));
+    expect(useMarketplaceSourceStore.getState().source).toBe("modrinth");
   });
 
   it("renders nav links with correct paths", () => {
