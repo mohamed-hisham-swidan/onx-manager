@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TestEvidenceModal } from "./TestEvidenceModal";
 import type { ServerTestRun, EvidenceBundle } from "@/server_manager/types";
@@ -65,6 +65,7 @@ const sampleEvidence: EvidenceBundle = {
 describe("TestEvidenceModal Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetTestEvidence.mockResolvedValue(sampleEvidence);
   });
 
   it("does not render when isOpen is false", () => {
@@ -153,6 +154,93 @@ describe("TestEvidenceModal Component", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Network timeout loading evidence")).toBeInTheDocument();
+    });
+  });
+
+  it("renders role='dialog' with accessible name, locks body scroll, and releases on unmount", () => {
+    document.body.style.overflow = "";
+
+    const { unmount } = render(
+      <TestEvidenceModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        testRun={mockTestRun}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Test Diagnostic Evidence" });
+    expect(dialog).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    unmount();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("closes on Escape key press", () => {
+    const onClose = vi.fn();
+
+    render(
+      <TestEvidenceModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        testRun={mockTestRun}
+      />
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose when clicking backdrop", () => {
+    const onClose = vi.fn();
+
+    render(
+      <TestEvidenceModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        testRun={mockTestRun}
+      />
+    );
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when clicking inside dialog content", () => {
+    const onClose = vi.fn();
+
+    render(
+      <TestEvidenceModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        testRun={mockTestRun}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Test Diagnostic Evidence" });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("moves focus into the dialog on open", async () => {
+    render(
+      <TestEvidenceModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        testRun={mockTestRun}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Test Diagnostic Evidence" });
+    await waitFor(() => {
+      expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
 });

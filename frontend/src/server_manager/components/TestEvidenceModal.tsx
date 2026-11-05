@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import { useClipboard } from "@/hooks/useClipboard";
 import type { ServerTestRun, EvidenceBundle } from "@/server_manager/types";
@@ -38,18 +39,6 @@ export function TestEvidenceModal({
     }
   }
 
-  // Handle ESC key
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
   useEffect(() => {
     if (!isOpen || !effectiveTestId) return;
 
@@ -78,8 +67,6 @@ export function TestEvidenceModal({
     };
   }, [isOpen, serverId, effectiveTestId, api]);
 
-  if (!isOpen || !effectiveTestId) return null;
-
   const culpritMods: string[] = Array.isArray(evidence?.crash_analysis?.suspected_culprit_mods)
     ? (evidence?.crash_analysis?.suspected_culprit_mods as string[])
     : [];
@@ -90,47 +77,25 @@ export function TestEvidenceModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="test-evidence-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      open={isOpen && Boolean(effectiveTestId)}
+      onClose={onClose}
+      title="Test Diagnostic Evidence"
+      description={
+        effectiveTestId ? (
+          <span>
+            Run ID: <span className="font-mono text-gray-300">{effectiveTestId.slice(0, 8)}</span>
+            {testRun?.commit_id ? (
+              <> • Target Commit: <span className="font-mono text-gray-300">{testRun.commit_id.slice(0, 8)}</span></>
+            ) : null}
+          </span>
+        ) : undefined
+      }
+      size="xl"
+      closeOnBackdrop={true}
+      closeOnEscape={true}
     >
-      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-xl border border-gray-700 bg-gray-900 shadow-2xl p-6 space-y-4 text-gray-100 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30">
-              <Icon name="alert" size={20} />
-            </div>
-            <div>
-              <h2
-                id="test-evidence-modal-title"
-                className="text-lg font-semibold text-white"
-              >
-                Test Diagnostic Evidence
-              </h2>
-              <p className="text-xs text-gray-400">
-                Run ID: <span className="font-mono text-gray-300">{effectiveTestId.slice(0, 8)}</span>
-                {testRun?.commit_id ? (
-                  <> • Target Commit: <span className="font-mono text-gray-300">{testRun.commit_id.slice(0, 8)}</span></>
-                ) : null}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1 text-gray-400 hover:bg-gray-800 hover:text-gray-200"
-            aria-label="Close modal"
-          >
-            <Icon name="x" size={20} />
-          </button>
-        </div>
-
+      <div className="flex flex-col space-y-4 text-gray-100 max-h-[75vh]">
         {error && (
           <div className="rounded-lg bg-rose-950/40 border border-rose-900 p-3 text-xs text-rose-300">
             {error}
@@ -279,6 +244,6 @@ export function TestEvidenceModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

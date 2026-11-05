@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
 import type { TestDefinition, CreateTestDefinitionRequest } from "@/server_manager/types";
@@ -42,17 +43,10 @@ export function TestDefinitionsModal({
     }
   }
 
-  // Handle ESC key
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isSubmitting) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isSubmitting, onClose]);
+  const handleClose = () => {
+    if (isSubmitting) return;
+    onClose();
+  };
 
   const loadDefinitions = useCallback(() => {
     setIsLoading(true);
@@ -82,8 +76,6 @@ export function TestDefinitionsModal({
       alive = false;
     };
   }, [isOpen, loadDefinitions]);
-
-  if (!isOpen) return null;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,44 +123,16 @@ export function TestDefinitionsModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="test-definitions-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isSubmitting) onClose();
-      }}
+    <Modal
+      open={isOpen}
+      onClose={handleClose}
+      title="Reusable Test Profiles"
+      description="Manage reusable test configurations and assertion parameters."
+      size="xl"
+      closeOnBackdrop={!isSubmitting}
+      closeOnEscape={!isSubmitting}
     >
-      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 p-6 space-y-4 text-gray-900 dark:text-gray-100 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              <Icon name="settings" size={20} />
-            </div>
-            <div>
-              <h2
-                id="test-definitions-modal-title"
-                className="text-lg font-semibold text-gray-900 dark:text-white"
-              >
-                Reusable Test Profiles
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Manage reusable test configurations and assertion parameters.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            aria-label="Close modal"
-          >
-            <Icon name="x" size={20} />
-          </button>
-        </div>
-
+      <div className="flex flex-col space-y-4 text-gray-900 dark:text-gray-100 max-h-[75vh]">
         {error && (
           <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300">
             {error}
@@ -185,7 +149,8 @@ export function TestDefinitionsModal({
                 <button
                   type="button"
                   onClick={() => setIsCreating(false)}
-                  className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  disabled={isSubmitting}
+                  className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -281,7 +246,8 @@ export function TestDefinitionsModal({
                 <button
                   type="button"
                   onClick={() => setIsCreating(false)}
-                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                  disabled={isSubmitting}
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -357,6 +323,6 @@ export function TestDefinitionsModal({
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

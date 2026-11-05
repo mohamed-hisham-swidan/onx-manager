@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import type { PreflightStatus, TestDefinition } from "@/server_manager/types";
 
@@ -30,18 +31,6 @@ export function TestRunModal({
   const [isLoadingPreflight, setIsLoadingPreflight] = useState<boolean>(true);
   const [isLaunching, setIsLaunching] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Handle ESC key
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isLaunching) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isLaunching, onClose]);
 
   // Fetch test definitions when modal opens
   useEffect(() => {
@@ -84,7 +73,10 @@ export function TestRunModal({
     };
   }, [isOpen, serverId, botCount, api]);
 
-  if (!isOpen) return null;
+  const handleClose = () => {
+    if (isLaunching) return;
+    onClose();
+  };
 
   const handleLaunch = async () => {
     setIsLaunching(true);
@@ -112,43 +104,20 @@ export function TestRunModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="test-run-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isLaunching) onClose();
-      }}
+    <Modal
+      open={isOpen}
+      onClose={handleClose}
+      title="Launch Isolated Bot Test"
+      description={
+        <span>
+          Target Commit: <span className="font-mono">{commitId.slice(0, 8)}</span>
+        </span>
+      }
+      size="xl"
+      closeOnBackdrop={!isLaunching}
+      closeOnEscape={!isLaunching}
     >
-      <div className="relative w-full max-w-xl rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 p-6 space-y-6">
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              <Icon name="activity" size={22} />
-            </div>
-            <div>
-              <h2
-                id="test-run-modal-title"
-                className="text-lg font-semibold text-gray-900 dark:text-white"
-              >
-                Launch Isolated Bot Test
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Target Commit: <span className="font-mono">{commitId.slice(0, 8)}</span>
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            disabled={isLaunching}
-            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            aria-label="Close modal"
-          >
-            <Icon name="x" size={20} />
-          </button>
-        </div>
-
+      <div className="space-y-6">
         {error && (
           <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300">
             {error}
@@ -323,9 +292,9 @@ export function TestRunModal({
         <div className="flex items-center justify-end gap-3 border-t border-gray-100 dark:border-gray-800 pt-4">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isLaunching}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors"
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
@@ -349,6 +318,6 @@ export function TestRunModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

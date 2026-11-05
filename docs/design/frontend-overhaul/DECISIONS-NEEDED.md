@@ -73,9 +73,9 @@ This document records non-blocking decisions, conservative choices made during a
 ---
 
 ## 9. Overlay Migration to Modal Primitive (Batch F5)
-- **Status**: IN PROGRESS (10 overlays migrated across F5a and F5b; remaining 16 overlays logged for owner decision)
+- **Status**: IN PROGRESS (13 overlays migrated across F5a, F5b, and F5c-A; remaining 13 overlays logged for owner decision)
 - **Context**: An initial audit revealed 28 `fixed inset-0` overlay implementations across 21 files that bypassed the shared `Modal.tsx` primitive, managing their own backdrops and key listeners independently.
-- **Progress in Batch F5a & F5b (10 Overlays Migrated)**:
+- **Progress in Batch F5a, F5b & F5c-A (13 Overlays Migrated)**:
   - **Batch F5a (6 overlays in `VersioningModals.tsx`)**: `CreateBranchModal`, `CreateCommitModal`, `PromoteModal`, `InspectCommitModal`, `ViewLogsModal`, `BotSettingsModal` (commit `8d1f127`). Added `closeOnBackdrop` prop.
   - **Batch F5b-1 (Close Guard on Form Modals)**: Added `closeOnEscape` prop to `Modal.tsx`. Guarded `CreateBranchModal`, `CreateCommitModal`, `PromoteModal`, and `BotSettingsModal` with `closeOnEscape={!isPending}` and disabled dismissal actions while in-flight (commit `c09e288`).
   - **Batch F5b-2 (4 overlays migrated)**:
@@ -83,11 +83,16 @@ This document records non-blocking decisions, conservative choices made during a
     2. `frontend/src/server_manager/components/BranchProtectionModal.tsx` (commit `3774648`)
     3. `frontend/src/server_manager/components/ManageBranchesModal.tsx` (commit `3774648`)
     4. `frontend/src/server_manager/components/CommitDiffModal.tsx` (commit `3774648`)
+  - **Batch F5b-4 (Backdrop Dismissal Tests)**: Added backdrop dismissal tests for the 4 F5b-2 modals with mutation proof (commit `652fa2d`).
+  - **Batch F5c-A (3 Versioning overlays migrated)**:
+    1. `frontend/src/server_manager/components/TestRunModal.tsx`
+    2. `frontend/src/server_manager/components/TestEvidenceModal.tsx`
+    3. `frontend/src/server_manager/components/TestDefinitionsModal.tsx`
 - **Owner Decision (Escape Close Behavior on Form Modals)**:
   - **Applied Behavior**: "Escape now closes form modals; typed text is discarded (no dirty-form prompt); guard only while pending".
   - **Rationale**: Keeps modal UX predictable and accessible per WCAG dialog patterns without intrusive multi-step discard prompts, while protecting data integrity by blocking Escape dismissal while mutations are actively in-flight.
-- **Remaining Bypassing Overlays (16 files, 16 occurrences)**:
-  *(Computed by `git grep -n "fixed inset-0" frontend/src/`, excluding primitives `Modal.tsx` and `ConfirmDialog.tsx`, `SplashScreen.tsx`, and `Sidebar.tsx` mobile backdrop)*:
+- **Remaining Bypassing Overlays (13 files, 13 occurrences)**:
+  *(Computed by `grep -rl "fixed inset-0" frontend/src --include='*.tsx' | grep -v '\.test\.'`, excluding primitives `Modal.tsx` and `ConfirmDialog.tsx`, `SplashScreen.tsx`, and `Sidebar.tsx` mobile backdrop)*:
   1. `frontend/src/server_manager/components/AccessModeCard.tsx`
   2. `frontend/src/server_manager/components/AddCompanionTargetModal.tsx`
   3. `frontend/src/server_manager/components/CrashReportViewerModal.tsx`
@@ -100,11 +105,8 @@ This document records non-blocking decisions, conservative choices made during a
   10. `frontend/src/server_manager/components/PanelExposureSection.tsx`
   11. `frontend/src/server_manager/components/ServerExposureMethodSelector.tsx`
   12. `frontend/src/server_manager/components/TargetCard.tsx`
-  13. `frontend/src/server_manager/components/TestDefinitionsModal.tsx`
-  14. `frontend/src/server_manager/components/TestEvidenceModal.tsx`
-  15. `frontend/src/server_manager/components/TestRunModal.tsx`
-  16. `frontend/src/server_manager/pages/ServerExposurePage.tsx`
-- **Alternative for Owner**: The owner may choose to migrate the remaining 16 overlays to `Modal.tsx` or retain specialized exposure, wizard, and test overlays as standalone components.
+  13. `frontend/src/server_manager/pages/ServerExposurePage.tsx`
+- **Alternative for Owner**: The owner may choose to migrate the remaining 13 overlays to `Modal.tsx` (batch F5c-B covers `ImportReviewModal`, `CrashReportViewerModal`, `MaterializationBrowserModal`) or retain specialized exposure, wizard, and card overlays as standalone components.
 
 ---
 
