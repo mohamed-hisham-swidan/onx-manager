@@ -24,12 +24,17 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     previousFocusRef.current = document.activeElement as HTMLElement | null;
-    confirmButtonRef.current?.focus();
+    if (variant === "danger") {
+      cancelButtonRef.current?.focus();
+    } else {
+      confirmButtonRef.current?.focus();
+    }
 
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -72,7 +77,7 @@ export function ConfirmDialog({
       window.removeEventListener("keydown", onKey);
       previousFocusRef.current?.focus();
     };
-  }, [open, onCancel]);
+  }, [open, onCancel, variant]);
 
   if (!open) return null;
 
@@ -109,6 +114,7 @@ export function ConfirmDialog({
         )}
         <div className="flex justify-end gap-2">
           <button
+            ref={cancelButtonRef}
             type="button"
             onClick={onCancel}
             className="rounded-lg border border-border-default px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"

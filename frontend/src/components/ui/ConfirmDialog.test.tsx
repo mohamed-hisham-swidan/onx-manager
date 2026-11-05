@@ -39,14 +39,20 @@ describe("ConfirmDialog", () => {
     expect(onCancel).toHaveBeenCalled();
   });
 
-  it("sets initial focus to the confirm button on open", () => {
-    render(<ConfirmDialog open title="Delete?" onConfirm={() => {}} onCancel={() => {}} />);
+  it("sets initial focus to the confirm button on open for non-danger variants", () => {
+    render(<ConfirmDialog open variant="info" title="Continue?" onConfirm={() => {}} onCancel={() => {}} />);
     const confirmBtn = screen.getByText("Confirm");
     expect(document.activeElement).toBe(confirmBtn);
   });
 
+  it("sets initial focus to the cancel button on open for danger variant", () => {
+    render(<ConfirmDialog open variant="danger" title="Delete permanently?" onConfirm={() => {}} onCancel={() => {}} />);
+    const cancelBtn = screen.getByText("Cancel");
+    expect(document.activeElement).toBe(cancelBtn);
+  });
+
   it("traps focus with Tab and Shift+Tab", () => {
-    render(<ConfirmDialog open title="Delete?" onConfirm={() => {}} onCancel={() => {}} />);
+    render(<ConfirmDialog open variant="info" title="Proceed?" onConfirm={() => {}} onCancel={() => {}} />);
     const confirmBtn = screen.getByText("Confirm");
     const cancelBtn = screen.getByText("Cancel");
 
@@ -70,7 +76,7 @@ describe("ConfirmDialog", () => {
     expect(document.activeElement).toBe(trigger);
 
     const { unmount } = render(
-      <ConfirmDialog open title="Delete?" onConfirm={() => {}} onCancel={() => {}} />
+      <ConfirmDialog open variant="info" title="Delete?" onConfirm={() => {}} onCancel={() => {}} />
     );
     expect(document.activeElement).toBe(screen.getByText("Confirm"));
 
