@@ -119,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
               </div>
             </div>
 
-            <nav className="flex-1 overflow-y-auto p-2 space-y-4">
+            <nav aria-label="Server sections" className="flex-1 overflow-y-auto p-2 space-y-4">
               {/* Group 1: Core Workspace */}
               <div>
                 <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
@@ -204,7 +204,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
           </div>
         ) : (
           /* Global Navigation */
-          <nav className="flex flex-col gap-1 p-2">
+          <nav aria-label="Main" className="flex flex-col gap-1 p-2">
             {GLOBAL_NAV_ITEMS.map(({ to, label, icon, end }) => {
               const isMarketplace = to === "/marketplace";
               return (

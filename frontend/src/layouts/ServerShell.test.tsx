@@ -325,4 +325,23 @@ describe("ServerShell", () => {
     expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Restart" })).not.toBeInTheDocument();
   });
+
+  it("provides skip-to-content link as first focusable element targeting main in ServerShell", () => {
+    renderServerShell("/servers/srv-123/console");
+    const skipLink = screen.getByRole("link", { name: "Skip to content" });
+    expect(skipLink).toBeInTheDocument();
+    expect(skipLink).toHaveAttribute("href", "#main-content");
+
+    const focusable = document.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    expect(focusable[0]).toBe(skipLink);
+
+    const main = document.getElementById("main-content");
+    expect(main).toBeInTheDocument();
+    expect(main).toHaveAttribute("tabindex", "-1");
+
+    skipLink.click();
+    expect(document.activeElement).toBe(main);
+  });
 });

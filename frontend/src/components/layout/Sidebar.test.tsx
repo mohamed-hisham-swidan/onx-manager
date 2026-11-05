@@ -149,4 +149,47 @@ describe("Sidebar", () => {
       expect(document.body.style.overflow).toBe("");
     });
   });
+
+  describe("landmarks and active aria-current contracts", () => {
+    it("exposes distinct aria-label on global nav landmark and sets aria-current='page' on active link", () => {
+      render(
+        <MemoryRouter initialEntries={["/servers"]}>
+          <Sidebar />
+        </MemoryRouter>,
+      );
+
+      const nav = screen.getByRole("navigation", { name: "Main" });
+      expect(nav).toBeInTheDocument();
+
+      const serversLink = screen.getByRole("link", { name: /servers/i });
+      expect(serversLink).toHaveAttribute("aria-current", "page");
+
+      const dashboardLink = screen.getByRole("link", { name: /dashboard/i });
+      expect(dashboardLink).not.toHaveAttribute("aria-current");
+    });
+
+    it("exposes distinct aria-label on server contextual nav landmark and sets aria-current='page' on active sublink", () => {
+      render(
+        <MemoryRouter initialEntries={["/servers/srv-1/console"]}>
+          <Sidebar
+            serverContext={{
+              serverId: "srv-1",
+              serverName: "Survival World",
+              serverType: "paper",
+              supportsPlugins: true,
+            }}
+          />
+        </MemoryRouter>,
+      );
+
+      const serverNav = screen.getByRole("navigation", { name: "Server sections" });
+      expect(serverNav).toBeInTheDocument();
+
+      const consoleLink = screen.getByRole("link", { name: /console/i });
+      expect(consoleLink).toHaveAttribute("aria-current", "page");
+
+      const filesLink = screen.getByRole("link", { name: /files/i });
+      expect(filesLink).not.toHaveAttribute("aria-current");
+    });
+  });
 });

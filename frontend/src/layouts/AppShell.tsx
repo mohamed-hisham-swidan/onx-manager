@@ -23,11 +23,23 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-surface-page text-text-primary transition-colors">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:inset-block-start-3 focus:inset-inline-start-3 focus:z-50 focus:rounded-lg focus:bg-surface-elevated focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-primary focus:shadow-lg focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
+        onClick={() => {
+          const main = document.getElementById("main-content");
+          if (main) main.focus();
+        }}
+      >
+        Skip to content
+      </a>
       <LoadingBar />
       <TopBar />
       <Sidebar />
       <main
-        className={`pt-14 transition-all duration-200 ${
+        id="main-content"
+        tabIndex={-1}
+        className={`pt-14 transition-all duration-200 outline-hidden ${
           sidebarOpen ? "lg:pl-56" : "lg:pl-0"
         }`}
       >
