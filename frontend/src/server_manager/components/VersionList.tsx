@@ -44,8 +44,17 @@ export function VersionList({
           return (
             <div
               key={v.version_id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Select version ${v.version_number}`}
               onClick={() => onSelectVersion(v)}
-              className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl border p-4 transition-colors ${
+              onKeyDown={(e) => {
+                if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault();
+                  onSelectVersion(v);
+                }
+              }}
+              className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl border p-4 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus ${
                 isRecommended
                   ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20"
                   : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/50"

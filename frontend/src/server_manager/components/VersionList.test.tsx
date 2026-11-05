@@ -72,4 +72,16 @@ describe("VersionList", () => {
 
     expect(handleSelect).toHaveBeenCalledWith(mockVersions[1]);
   });
+
+  it("calls onSelectVersion when a version row is activated with keyboard Enter or Space", () => {
+    const handleSelect = vi.fn();
+    render(<VersionList versions={mockVersions} onSelectVersion={handleSelect} />);
+
+    const row = screen.getByRole("button", { name: `Select version ${mockVersions[0].version_number}` });
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(handleSelect).toHaveBeenCalledWith(mockVersions[0]);
+
+    fireEvent.keyDown(row, { key: " " });
+    expect(handleSelect).toHaveBeenCalledTimes(2);
+  });
 });

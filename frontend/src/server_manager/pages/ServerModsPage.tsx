@@ -168,11 +168,20 @@ function ModUploadZone({
 
   return (
     <div
+      role="button"
+      tabIndex={isUploading ? -1 : 0}
+      aria-label="Upload custom mod jar file"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onClick={() => !isUploading && fileInputRef.current?.click()}
-      className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors cursor-pointer ${
+      onKeyDown={(e) => {
+        if (!isUploading && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          fileInputRef.current?.click();
+        }
+      }}
+      className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus ${
         isDragging
           ? "border-accent-primary bg-accent-primary/15"
           : "border-border-default hover:border-accent-primary bg-surface-card hover:bg-surface-hover/50"

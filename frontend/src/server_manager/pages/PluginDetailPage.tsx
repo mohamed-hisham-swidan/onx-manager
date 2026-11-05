@@ -20,9 +20,10 @@ type DetailTab = "description" | "changelog" | "versions";
 // Stable component overrides for ReactMarkdown. Defined at module scope so the
 // object identity does not change on every render.
 const markdownComponents: Components = {
-  img: ({ node: _node, ...props }) => (
+  img: ({ node: _node, alt, ...props }) => (
     <img
       {...props}
+      alt={alt ?? ""}
       loading="lazy"
       className="my-4 max-w-full rounded-lg border border-gray-200 dark:border-gray-700"
     />

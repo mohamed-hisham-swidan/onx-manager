@@ -559,8 +559,9 @@ export function ServerFilesPage() {
                     className="hover:bg-surface-hover/50 transition-colors group"
                   >
                     <td className="px-4 py-2">
-                      <div
-                        className="flex items-center gap-2.5 cursor-pointer"
+                      <button
+                        type="button"
+                        className="flex items-center gap-2.5 cursor-pointer text-left focus:outline-hidden focus-visible:ring-1 focus-visible:ring-border-focus rounded"
                         onClick={() => {
                           if (file.is_dir) {
                             navigateTo(file.name);
@@ -579,7 +580,7 @@ export function ServerFilesPage() {
                         <span className="font-medium text-text-primary truncate max-w-[200px] sm:max-w-xs md:max-w-sm hover:text-accent-primary transition-colors">
                           {file.name}
                         </span>
-                      </div>
+                      </button>
                     </td>
                     <td className="px-4 py-2 whitespace-nowrap text-xs font-mono text-text-muted">
                       {file.is_dir ? "-" : formatBytes(file.size)}
