@@ -61,4 +61,55 @@ describe("Modal Primitive", () => {
     expect(firstBtn).toBeInTheDocument();
     expect(secondBtn).toBeInTheDocument();
   });
+
+  describe("body scroll lock", () => {
+    it("locks body scroll on open and restores previous overflow on close", () => {
+      document.body.style.overflow = "auto";
+      const { rerender, unmount } = render(
+        <Modal open={true} onClose={() => {}}>
+          <div>Content</div>
+        </Modal>
+      );
+      expect(document.body.style.overflow).toBe("hidden");
+
+      rerender(
+        <Modal open={false} onClose={() => {}}>
+          <div>Content</div>
+        </Modal>
+      );
+      expect(document.body.style.overflow).toBe("auto");
+
+      // Reset
+      document.body.style.overflow = "";
+      unmount();
+    });
+
+    it("two stacked modals restore body scroll only after the second closes", () => {
+      document.body.style.overflow = "";
+
+      const { unmount: unmountFirst } = render(
+        <Modal open={true} onClose={() => {}}>
+          <div>First Modal</div>
+        </Modal>
+      );
+      expect(document.body.style.overflow).toBe("hidden");
+
+      const { unmount: unmountSecond } = render(
+        <Modal open={true} onClose={() => {}}>
+          <div>Second Modal</div>
+        </Modal>
+      );
+      expect(document.body.style.overflow).toBe("hidden");
+
+      // Close second modal
+      unmountSecond();
+      // First modal is still open, body scroll must remain locked
+      expect(document.body.style.overflow).toBe("hidden");
+
+      // Close first modal
+      unmountFirst();
+      // Both modals are closed, body scroll must be restored
+      expect(document.body.style.overflow).toBe("");
+    });
+  });
 });
