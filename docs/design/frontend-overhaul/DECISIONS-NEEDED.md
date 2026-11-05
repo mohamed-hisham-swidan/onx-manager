@@ -127,3 +127,16 @@ This document records non-blocking decisions, conservative choices made during a
   - **Option B (Hide Until Backend Ready - Applied by default)**: Remove the segmented toggle button on `PluginMarketplacePage` entirely until the backend CurseForge catalog provider is implemented, presenting `/marketplace` exclusively as Modrinth.
   - **Option C (Backend Adapter Implementation)**: Spec and implement `CurseForgeProvider` with API key configuration in backend and connect `PluginMarketplacePage` search to the CurseForge endpoint.
 
+---
+
+## 11. Native Browser Dialog (`window.confirm`) Elimination (Batch N-06)
+- **Status**: RESOLVED (Implemented, pending independent review)
+- **Context**: Prior to Batch N-06, two native `confirm(...)` calls remained in user-facing flows:
+  1. `frontend/src/server_manager/components/MaterializationBrowserModal.tsx:225` (`Delete worktree snapshot '${activeMat.id}'?`)
+  2. `frontend/src/server_manager/components/TestDefinitionsModal.tsx:113` (`Delete test profile '${name}'?`)
+- **Resolution**: Both components were migrated to use the accessible design system primitive `<ConfirmDialog>` with asynchronous pending guards (`isDeleting`), role="dialog", focus trapping, and keyboard cancellation.
+- **Verification**:
+  - `git grep -n -E "window\.(confirm|alert|prompt)|\b(confirm|alert|prompt)\(" frontend/src | grep -v "\.test\."` returns 0 matches across the entire codebase.
+  - Test suites updated with explicit `ConfirmDialog` interaction tests in `MaterializationBrowserModal.test.tsx` and `TestDefinitionsModal.test.tsx`.
+
+

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
 import type { TestDefinition, CreateTestDefinitionRequest } from "@/server_manager/types";
@@ -33,6 +34,8 @@ export function TestDefinitionsModal({
   const [placementMode, setPlacementMode] = useState<string>("sidecar");
   const [botTech, setBotTech] = useState<string>("auto");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
   if (isOpen !== prevIsOpen) {
@@ -40,11 +43,14 @@ export function TestDefinitionsModal({
     if (isOpen) {
       setIsCreating(false);
       setError(null);
+      setDeleteTarget(null);
     }
   }
 
+  const isBusy = isSubmitting || isDeleting;
+
   const handleClose = () => {
-    if (isSubmitting) return;
+    if (isBusy) return;
     onClose();
   };
 
@@ -109,29 +115,36 @@ export function TestDefinitionsModal({
     }
   };
 
-  const handleDelete = async (definitionId: string, name: string) => {
-    if (!confirm(`Delete test profile '${name}'?`)) return;
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    const { id, name } = deleteTarget;
+    setIsDeleting(true);
     try {
-      await api.deleteTestDefinition(serverId, definitionId);
+      await api.deleteTestDefinition(serverId, id);
       toast("success", "Profile Deleted", `Test profile '${name}' deleted`);
+      setDeleteTarget(null);
       loadDefinitions();
       onDefinitionsChanged?.();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to delete test profile.";
       toast("error", "Delete Failed", msg);
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   return (
-    <Modal
-      open={isOpen}
-      onClose={handleClose}
-      title="Reusable Test Profiles"
-      description="Manage reusable test configurations and assertion parameters."
-      size="xl"
-      closeOnBackdrop={!isSubmitting}
-      closeOnEscape={!isSubmitting}
-    >
+    <>
+      <Modal
+        open={isOpen}
+        onClose={handleClose}
+        title="Reusable Test Profiles"
+        description="Manage reusable test configurations and assertion parameters."
+        size="xl"
+        closeOnBackdrop={!isBusy}
+        closeOnEscape={!isBusy}
+      >
       <div className="flex flex-col space-y-4 text-gray-900 dark:text-gray-100 max-h-[75vh]">
         {error && (
           <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300">
@@ -311,7 +324,7 @@ export function TestDefinitionsModal({
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleDelete(def.id, def.name)}
+                    onClick={() => setDeleteTarget({ id: def.id, name: def.name })}
                     className="p-1 text-gray-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition-colors"
                     title="Delete profile"
                   >
@@ -324,5 +337,20 @@ export function TestDefinitionsModal({
         </div>
       </div>
     </Modal>
+
+    <ConfirmDialog
+      open={Boolean(deleteTarget)}
+      title="Delete Test Profile"
+      description={
+        deleteTarget
+          ? `Delete test profile '${deleteTarget.name}'? This action cannot be undone.`
+          : undefined
+      }
+      confirmLabel={isDeleting ? "Deleting..." : "Delete Profile"}
+      variant="danger"
+      onConfirm={handleConfirmDelete}
+      onCancel={() => setDeleteTarget(null)}
+    />
+  </>
   );
 }

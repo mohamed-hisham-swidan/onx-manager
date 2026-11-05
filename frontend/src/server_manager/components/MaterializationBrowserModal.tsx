@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CodeEditor } from "@/components/CodeEditor";
 import { toast } from "@/stores/toastStore";
 import type {
@@ -47,6 +48,7 @@ export function MaterializationBrowserModal({
   const [isCreating, setIsCreating] = useState(false);
   const [isTogglingMode, setIsTogglingMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Creation form state
@@ -70,6 +72,7 @@ export function MaterializationBrowserModal({
     setPrevIsOpen(isOpen);
     if (isOpen) {
       setError(null);
+      setIsConfirmDeleteOpen(false);
       setSelectedFilePath(null);
       setFileContent("");
       setFileDirty(false);
@@ -222,16 +225,17 @@ export function MaterializationBrowserModal({
 
   const handleDeleteMaterialization = async () => {
     if (!activeMat) return;
-    if (!confirm(`Delete worktree snapshot '${activeMat.id}'?`)) return;
     setIsDeleting(true);
     setError(null);
     try {
       await api.deleteMaterialization(serverId, activeMat.id);
       toast("success", "Worktree Deleted", `Worktree '${activeMat.id}' removed.`);
+      setIsConfirmDeleteOpen(false);
       loadMaterializations();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to delete worktree.";
       setError(msg);
+      setIsConfirmDeleteOpen(false);
     } finally {
       setIsDeleting(false);
     }
@@ -259,7 +263,7 @@ export function MaterializationBrowserModal({
     }
   };
 
-  const isBusy = isSavingFile || isCreating;
+  const isBusy = isSavingFile || isCreating || isDeleting;
 
   const handleClose = () => {
     if (isBusy) return;
@@ -318,10 +322,11 @@ export function MaterializationBrowserModal({
   }, [currentDir]);
 
   return (
-    <Modal
-      open={isOpen}
-      onClose={handleClose}
-      title="Worktree Materialization Explorer"
+    <>
+      <Modal
+        open={isOpen}
+        onClose={handleClose}
+        title="Worktree Materialization Explorer"
       ariaLabel="Worktree Materialization Explorer"
       description="Explore materialized commit worktree snapshots in isolated workspaces"
       size="full"
@@ -450,7 +455,7 @@ export function MaterializationBrowserModal({
 
                 <button
                   type="button"
-                  onClick={handleDeleteMaterialization}
+                  onClick={() => setIsConfirmDeleteOpen(true)}
                   disabled={isDeleting}
                   className="px-2 py-1 rounded bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 hover:bg-red-100 text-red-600 dark:text-red-400 transition-colors"
                   title="Delete worktree"
@@ -653,5 +658,20 @@ export function MaterializationBrowserModal({
         </div>
       </div>
     </Modal>
+
+    <ConfirmDialog
+      open={isConfirmDeleteOpen}
+      title="Delete Worktree Snapshot"
+      description={
+        activeMat
+          ? `Delete worktree snapshot '${activeMat.id}'? This action cannot be undone.`
+          : undefined
+      }
+      confirmLabel={isDeleting ? "Deleting..." : "Delete Snapshot"}
+      variant="danger"
+      onConfirm={handleDeleteMaterialization}
+      onCancel={() => setIsConfirmDeleteOpen(false)}
+    />
+  </>
   );
 }

@@ -6,12 +6,14 @@ import { MaterializationBrowserModal } from "./MaterializationBrowserModal";
 const mockGetMaterializations = vi.fn();
 const mockGetMaterializationTree = vi.fn();
 const mockCreateMaterialization = vi.fn();
+const mockDeleteMaterialization = vi.fn();
 
 vi.mock("@/services/api", () => ({
   createAuthenticatedApi: () => ({
     getMaterializations: mockGetMaterializations,
     getMaterializationTree: mockGetMaterializationTree,
     createMaterialization: mockCreateMaterialization,
+    deleteMaterialization: mockDeleteMaterialization,
   }),
 }));
 
@@ -214,5 +216,61 @@ describe("MaterializationBrowserModal", () => {
     await waitFor(() => {
       expect(dialog.contains(document.activeElement)).toBe(true);
     });
+  });
+
+  it("opens ConfirmDialog on delete click and calls deleteMaterialization on confirm", async () => {
+    mockDeleteMaterialization.mockResolvedValue({ success: true });
+
+    render(
+      <MaterializationBrowserModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete worktree" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete worktree" }));
+
+    // Confirm dialog should open
+    expect(screen.getByRole("dialog", { name: "Delete Worktree Snapshot" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/Delete worktree snapshot 'mat-1'\? This action cannot be undone\./i)
+    ).toBeInTheDocument();
+
+    // Confirm deletion
+    const confirmButton = screen.getByRole("button", { name: "Delete Snapshot" });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(mockDeleteMaterialization).toHaveBeenCalledWith("srv-1", "mat-1");
+    });
+  });
+
+  it("closes ConfirmDialog without deleting when Cancel is clicked", async () => {
+    render(
+      <MaterializationBrowserModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete worktree" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete worktree" }));
+
+    expect(screen.getByRole("dialog", { name: "Delete Worktree Snapshot" })).toBeInTheDocument();
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    fireEvent.click(cancelButton);
+
+    expect(screen.queryByRole("dialog", { name: "Delete Worktree Snapshot" })).not.toBeInTheDocument();
+    expect(mockDeleteMaterialization).not.toHaveBeenCalled();
   });
 });

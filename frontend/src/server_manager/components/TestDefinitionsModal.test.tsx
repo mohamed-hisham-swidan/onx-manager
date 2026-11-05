@@ -323,4 +323,62 @@ describe("TestDefinitionsModal Component", () => {
       expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
+
+  it("opens ConfirmDialog on delete click and calls deleteTestDefinition on confirm", async () => {
+    mockDeleteTestDefinition.mockResolvedValue({ success: true });
+
+    render(
+      <TestDefinitionsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        onDefinitionsChanged={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete profile" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete profile" }));
+
+    // Confirm dialog should open
+    expect(screen.getByRole("dialog", { name: "Delete Test Profile" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/Delete test profile 'Standard 10-Bot Stress Test'\? This action cannot be undone\./i)
+    ).toBeInTheDocument();
+
+    // Confirm deletion
+    const confirmButton = screen.getByRole("button", { name: "Delete Profile" });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(mockDeleteTestDefinition).toHaveBeenCalledWith("srv-1", "def-1");
+    });
+  });
+
+  it("closes ConfirmDialog without deleting when Cancel is clicked", async () => {
+    render(
+      <TestDefinitionsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        onDefinitionsChanged={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete profile" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete profile" }));
+
+    expect(screen.getByRole("dialog", { name: "Delete Test Profile" })).toBeInTheDocument();
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    fireEvent.click(cancelButton);
+
+    expect(screen.queryByRole("dialog", { name: "Delete Test Profile" })).not.toBeInTheDocument();
+    expect(mockDeleteTestDefinition).not.toHaveBeenCalled();
+  });
 });
