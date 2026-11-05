@@ -72,7 +72,7 @@ describe("CreateTagModal Component", () => {
     );
 
     const input = screen.getByLabelText("Tag Name");
-    await user.type(input, "v1.0.0");
+    fireEvent.change(input, { target: { value: "v1.0.0" } });
 
     const submitBtn = screen.getByRole("button", { name: "Create Tag" });
     await user.click(submitBtn);
@@ -103,7 +103,7 @@ describe("CreateTagModal Component", () => {
     );
 
     const input = screen.getByLabelText("Tag Name");
-    await user.type(input, "duplicate-tag");
+    fireEvent.change(input, { target: { value: "duplicate-tag" } });
 
     const submitBtn = screen.getByRole("button", { name: "Create Tag" });
     await user.click(submitBtn);
@@ -151,7 +151,7 @@ describe("CreateTagModal Component", () => {
     );
 
     const input = screen.getByLabelText("Tag Name");
-    await user.type(input, "v2.0.0");
+    fireEvent.change(input, { target: { value: "v2.0.0" } });
 
     const submitBtn = screen.getByRole("button", { name: "Create Tag" });
     await user.click(submitBtn);
