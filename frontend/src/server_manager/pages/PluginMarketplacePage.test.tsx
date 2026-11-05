@@ -187,17 +187,10 @@ describe("PluginMarketplacePage & InstallModal", () => {
     expect(screen.getByText("Server-side")).toBeInTheDocument();
   });
 
-  it("switches to CurseForge source and renders coming soon state with disabled fetches", () => {
+  it("renders Modrinth marketplace and hides CurseForge source switch", () => {
     renderPage();
-    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true, projectType: "plugin", offset: 0 });
-
-    fireEvent.click(screen.getByRole("button", { name: /CurseForge/i }));
-    expect(useMarketplaceSourceStore.getState().source).toBe("curseforge");
-    expect(screen.getByText("CurseForge Integration Coming Soon")).toBeInTheDocument();
-    expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: false, projectType: "plugin", offset: 0 });
-
-    fireEvent.click(screen.getByRole("button", { name: /Switch to Modrinth/i }));
-    expect(useMarketplaceSourceStore.getState().source).toBe("modrinth");
+    expect(screen.queryByRole("button", { name: /CurseForge/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Modrinth/i })).not.toBeInTheDocument();
     expect(useMarketplaceSearchGlobal).toHaveBeenLastCalledWith("", { enabled: true, projectType: "plugin", offset: 0 });
   });
 

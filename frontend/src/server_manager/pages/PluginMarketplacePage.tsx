@@ -10,9 +10,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
-import { ComingSoonState } from "@/components/ComingSoonState";
 import { Skeleton } from "@/components/Skeleton";
-import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { InstallModal } from "@/server_manager/components/InstallModal";
 import { ProjectCard } from "@/server_manager/components/ProjectCard";
 import { getLoaderDisplay } from "@/server_manager/utils/compatibility";
@@ -45,24 +43,19 @@ export function PluginMarketplacePage() {
     setSelectedProject(stateProject);
   }
 
-  const source = useMarketplaceSourceStore((s) => s.source);
-  const setSource = useMarketplaceSourceStore((s) => s.setSource);
-
   const serverId = urlServerId;
-  const isModrinth = source === "modrinth";
-
   const globalQuery = serverId ? "" : submitted;
   const urlPage = Math.max(1, Number(searchParams.get("page")) || 1);
   const offset = (urlPage - 1) * MARKETPLACE_PAGE_SIZE;
   const loader = urlLoader || undefined;
   const searchGlobal = useMarketplaceSearchGlobal(globalQuery, {
-    enabled: isModrinth && !serverId,
+    enabled: !serverId,
     projectType,
     offset,
     loader,
   });
   const searchScoped = useMarketplaceSearch(serverId, submitted, {
-    enabled: isModrinth,
+    enabled: !!serverId,
     projectType,
     offset,
     loader,
@@ -121,76 +114,22 @@ export function PluginMarketplacePage() {
     <div>
       <PageHeader
         title="Plugin Marketplace"
-        description={
-          source === "curseforge"
-            ? "Browse projects from CurseForge"
-            : "Browse and install plugins from Modrinth"
-        }
+        description="Browse and install plugins from Modrinth"
         icon="plugin"
         actions={
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-700 dark:bg-gray-800/80">
-              <button
-                type="button"
-                onClick={() => setSource("modrinth")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  source === "modrinth"
-                    ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100"
-                    : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
-                }`}
-              >
-                <Icon name="modrinth" size={14} />
-                Modrinth
-              </button>
-              <button
-                type="button"
-                onClick={() => setSource("curseforge")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  source === "curseforge"
-                    ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100"
-                    : "text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
-                }`}
-              >
-                <Icon name="curseforge" size={14} />
-                CurseForge
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                  Soon
-                </span>
-              </button>
-            </div>
-            {serverId && (
-              <button
-                onClick={() => navigate("/plugins")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-              >
-                <Icon name="chevron-left" size={16} />
-                Back to Plugins
-              </button>
-            )}
-          </div>
+          serverId ? (
+            <button
+              onClick={() => navigate("/plugins")}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary cursor-pointer"
+            >
+              <Icon name="chevron-left" size={16} />
+              Back to Plugins
+            </button>
+          ) : undefined
         }
       />
 
-      {source === "curseforge" ? (
-        <ComingSoonState
-          icon="curseforge"
-          title="CurseForge Integration Coming Soon"
-          description="Backend support for discovering and installing projects from CurseForge is planned for a future update. Select Modrinth to browse available plugins."
-          badge="Coming Soon"
-          action={
-            <button
-              type="button"
-              onClick={() => setSource("modrinth")}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-            >
-              <Icon name="modrinth" size={16} />
-              Switch to Modrinth
-            </button>
-          }
-        />
-      ) : (
-        <>
-          <div className="mb-6 flex flex-wrap items-center gap-3">
+      <div className="mb-6 flex flex-wrap items-center gap-3">
             <div className="relative inline-flex items-center">
               <label htmlFor="discover-select" className="sr-only">
                 Discover
@@ -321,8 +260,6 @@ export function PluginMarketplacePage() {
               onClose={handleCloseVersions}
             />
           )}
-        </>
-      )}
-    </div>
-  );
-}
+        </div>
+      );
+    }
