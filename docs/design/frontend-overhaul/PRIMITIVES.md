@@ -74,6 +74,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 />
 ```
 - **Accessibility**: Rendered with `role="dialog"`, `aria-modal="true"`. Traps keyboard focus inside the dialog while open. Closes automatically on `Escape`. Restores focus to the triggering element upon close.
+  - **Modal Scroll Lock**: Automatically locks body scroll (`document.body.style.overflow = "hidden"`) while open. Uses a module-level counter so nested or stacked modals only restore the previous body overflow after the last modal closes.
+  - **ConfirmDialog Focus Safety**: For `variant="danger"`, initial focus is placed on the Cancel button to protect against accidental confirmation via Enter/Space. Non-danger variants (`warning`, `info`) keep initial focus on the Confirm button.
 
 ---
 
@@ -115,7 +117,11 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 </Table>
 ```
 - **Density**: Supports `density="compact"` (32px row height) and `density="comfortable"` (48px row height).
-- **Semantics**: Uses standard HTML table tags for screen reader navigation and table header association.
+- **Semantics & Accessibility**:
+  - Uses standard HTML table tags (`<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`).
+  - All header cells include `scope="col"`.
+  - Sortable headers expose `aria-sort="ascending" | "descending"` when active, and `aria-sort="none"` when inactive.
+  - Sortable headers are fully keyboard operable (`tabIndex={0}`, toggling sort on `Enter` and `Space`) with `:focus-visible` ring indicators. Non-sortable headers omit `tabIndex` and `aria-sort`.
 
 ---
 
@@ -135,7 +141,29 @@ import { Pagination } from "@/components/ui/Pagination";
 
 ---
 
-### 6. `States` (`EmptyState`, `ErrorState`, `Skeleton`, `ForbiddenState`)
+### 6. `Tabs`
+```tsx
+import { Tabs } from "@/components/ui/Tabs";
+
+<Tabs
+  value={activeTab}
+  onChange={setActiveTab}
+  items={[
+    { id: "overview", label: "Overview", icon: "dashboard" },
+    { id: "files", label: "Files", icon: "folder", count: 12 },
+    { id: "settings", label: "Settings", icon: "settings" },
+  ]}
+/>
+```
+- **Accessibility & Keyboard Navigation**:
+  - Encapsulated in container with `role="tablist"` and configurable `ariaLabel`.
+  - Individual tabs render `role="tab"` with `aria-selected` and roving `tabIndex` (`0` for selected tab, `-1` for unselected tabs).
+  - Fully keyboard operable: `ArrowRight` and `ArrowLeft` cycle between enabled tabs; `Home` and `End` jump directly to the first and last enabled tab.
+  - Omit dangling `aria-controls` references when consumer views manage their own panel transitions without coordinated ID tokens.
+
+---
+
+### 7. `States` (`EmptyState`, `ErrorState`, `Skeleton`, `ForbiddenState`)
 ```tsx
 import { EmptyState, ErrorState, Skeleton, ForbiddenState } from "@/components/ui/States";
 

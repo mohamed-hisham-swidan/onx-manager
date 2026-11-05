@@ -53,3 +53,49 @@ This document records non-blocking decisions, conservative choices made during a
   - `StartingMonitorBanner.tsx`: 35 -> 55 (multi-stage progress bar gradient stops and markers).
   - `ServerModsPage.tsx`: 15 -> 25 (mod-type badge color accents and category tag indicators).
 - **Alternative for Owner**: The owner may choose to lower these caps by refactoring the inline SVG gradients, complex spinner animations, and mod badges to use tokenized CSS variables or SVGs referencing CSS custom properties.
+
+---
+
+## 7. Modal Portal Deferred
+- **Status**: CONSERVATIVE CHOICE TAKEN / LOGGED FOR OWNER DECISION
+- **Context**: Portaling dialogs into `document.body` via `createPortal` decouples modal rendering from ancestor CSS transforms and local stacking contexts.
+- **Decision Taken**: Deferred introducing `createPortal` in `Modal.tsx`. `Modal.tsx` currently renders in-place using `fixed inset-0 z-50` with high z-index and module-level body scroll locking (`lockBodyScroll`). Introducing React portals across the application shifts DOM event delegation and changes container queries across existing Vitest/JSDOM test suites.
+- **Alternative for Owner**: The owner can choose to adopt `createPortal` in a dedicated batch if stacking context bugs emerge in complex layouts.
+
+---
+
+## 8. ConfirmDialog Initial Focus on Cancel for Danger Variant
+- **Status**: CONSERVATIVE CHOICE TAKEN / LOGGED FOR OWNER DECISION
+- **Context**: Destructive operations (such as server deletion or resetting configuration) carry high penalty if executed unintentionally via an accidental Enter/Space keypress.
+- **Decision Taken**: In `ConfirmDialog.tsx`, when `variant="danger"`, initial focus automatically shifts to the Cancel button (`cancelButtonRef.current?.focus()`). Non-danger variants (`warning`, `info`) continue to focus the Confirm button by default.
+- **Alternative for Owner**: The owner may configure explicit autofocus props per dialog instance if specific destructive dialogs require confirm-first keyboard workflows.
+
+---
+
+## 9. Overlay Migration to Modal Primitive (Planned Batch F5)
+- **Status**: PLANNED FOR BATCH F5 / LOGGED FOR OWNER DECISION
+- **Context**: An audit revealed 28 `fixed inset-0` overlay implementations across 21 files that currently bypass the shared `Modal.tsx` primitive, managing their own backdrops and key listeners independently.
+- **Decision Taken**: Left these 28 overlays unmigrated in batch F4a (which focused strictly on primitive fixes and targeted accessible button fixes) to keep changes isolated and testable without risking modal regressions across major workflows. Logged for systematic consolidation in planned Batch F5.
+- **Files with Bypassing Overlays (21 files, 28 occurrences)**:
+  1. `frontend/src/server_manager/components/AccessModeCard.tsx`
+  2. `frontend/src/server_manager/components/AddCompanionTargetModal.tsx`
+  3. `frontend/src/server_manager/components/BranchProtectionModal.tsx`
+  4. `frontend/src/server_manager/components/CommitDiffModal.tsx`
+  5. `frontend/src/server_manager/components/CrashReportViewerModal.tsx`
+  6. `frontend/src/server_manager/components/CreateTagModal.tsx`
+  7. `frontend/src/server_manager/components/EditPublicAddressModal.tsx`
+  8. `frontend/src/server_manager/components/GlobalExposureActionsCard.tsx`
+  9. `frontend/src/server_manager/components/ImportReviewModal.tsx`
+  10. `frontend/src/server_manager/components/InstallModal.tsx`
+  11. `frontend/src/server_manager/components/InvitationsSection.tsx`
+  12. `frontend/src/server_manager/components/ManageBranchesModal.tsx`
+  13. `frontend/src/server_manager/components/MaterializationBrowserModal.tsx`
+  14. `frontend/src/server_manager/components/PanelExposureSection.tsx`
+  15. `frontend/src/server_manager/components/ServerExposureMethodSelector.tsx`
+  16. `frontend/src/server_manager/components/TargetCard.tsx`
+  17. `frontend/src/server_manager/components/TestDefinitionsModal.tsx`
+  18. `frontend/src/server_manager/components/TestEvidenceModal.tsx`
+  19. `frontend/src/server_manager/components/TestRunModal.tsx`
+  20. `frontend/src/server_manager/components/versioning/VersioningModals.tsx` (6 overlays)
+  21. `frontend/src/server_manager/pages/ServerExposurePage.tsx`
+- **Alternative for Owner**: The owner may choose to migrate all 28 overlays to `Modal.tsx` in batch F5 or retain specialized full-screen diff and console inspection overlays as standalone components.
