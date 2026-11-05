@@ -380,6 +380,7 @@ export function MaterializationBrowserModal({
             <button
               type="button"
               onClick={() => setError(null)}
+              aria-label="Dismiss error"
               className="text-red-500 hover:text-red-700"
             >
               <Icon name="x" size={14} />
@@ -484,6 +485,7 @@ export function MaterializationBrowserModal({
                 disabled={isDeleting}
                 className="px-2 py-1 rounded bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 hover:bg-red-100 text-red-600 dark:text-red-400 transition-colors"
                 title="Delete worktree"
+                aria-label="Delete worktree"
               >
                 <Icon name="trash" size={14} />
               </button>

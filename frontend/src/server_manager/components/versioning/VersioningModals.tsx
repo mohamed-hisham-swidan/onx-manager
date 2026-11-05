@@ -363,6 +363,7 @@ export function InspectCommitModal({ commit, onClose }: InspectCommitModalProps)
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close"
             className="rounded p-1 text-text-muted hover:bg-surface-hover cursor-pointer"
           >
             <Icon name="x" size={18} />
@@ -436,6 +437,7 @@ export function ViewLogsModal({ testRun, onClose }: ViewLogsModalProps) {
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close"
             className="rounded p-1 text-text-muted hover:bg-surface-hover cursor-pointer"
           >
             <Icon name="x" size={18} />
