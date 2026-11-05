@@ -329,7 +329,8 @@ describe("ServerVersioningPage", () => {
     expect(screen.getByText(/Test Run Console Output/i)).toBeInTheDocument();
     expect(screen.getByText(/10\/10 bots joined/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const closeButtons = screen.getAllByRole("button", { name: "Close" });
+    fireEvent.click(closeButtons[0]);
     expect(screen.queryByText(/Test Run Console Output/i)).not.toBeInTheDocument();
   });
 
