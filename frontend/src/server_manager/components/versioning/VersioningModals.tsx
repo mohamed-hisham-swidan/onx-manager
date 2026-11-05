@@ -1,3 +1,4 @@
+import { Modal } from "@/components/ui/Modal";
 import { Icon } from "@/components/ui/Icon";
 import type { ServerBranch, ServerCommit, ServerTestRun } from "@/server_manager/types";
 
@@ -19,16 +20,22 @@ export function CreateBranchModal({
   onSubmit,
   onClose,
 }: CreateBranchModalProps) {
-  if (!isOpen) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Create New Branch"
+      size="md"
+      showCloseButton={false}
+      closeOnBackdrop={false}
     >
-      <div className="w-full max-w-md rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default">
-        <h3 className="text-base font-semibold text-text-primary">Create New Branch</h3>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+        className="space-y-4"
+      >
         <div>
           <label htmlFor="branch-name-input" className="block text-xs font-medium text-text-secondary mb-1">
             Branch Name
@@ -51,15 +58,14 @@ export function CreateBranchModal({
             Cancel
           </button>
           <button
-            type="button"
-            onClick={onSubmit}
+            type="submit"
             className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover cursor-pointer shadow-xs"
           >
             Create Branch
           </button>
         </div>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -97,20 +103,17 @@ export function CreateCommitModal({
   onSubmit,
   onClose,
 }: CreateCommitModalProps) {
-  if (!isOpen) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Create Snapshot Commit"
+      description={`Captures all configs, mod jars, and creates an instant COW world snapshot on branch ‘${selectedBranch}’.`}
+      size="md"
+      showCloseButton={false}
+      closeOnBackdrop={false}
     >
-      <div className="w-full max-w-md rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default">
-        <h3 className="text-base font-semibold text-text-primary">Create Snapshot Commit</h3>
-        <p className="text-xs text-text-muted">
-          Captures all configs, mod jars, and creates an instant COW world snapshot on branch &lsquo;{selectedBranch}&rsquo;.
-        </p>
-
+      <div className="space-y-4">
         {currentBranchObj?.status === "archived" && (
           <div className="rounded-lg bg-surface-hover p-3 text-xs text-text-secondary">
             ⚠️ Branch &lsquo;{selectedBranch}&rsquo; is archived and read-only. Committing is disabled.
@@ -199,7 +202,7 @@ export function CreateCommitModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -229,15 +232,16 @@ export function PromoteModal({
   onSubmit,
   onClose,
 }: PromoteModalProps) {
-  if (!isOpen) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      size="md"
+      showCloseButton={false}
+      closeOnBackdrop={false}
+      ariaLabel={isForcePromote ? "Force Promotion Override" : "Promote Verified Commit"}
     >
-      <div className="w-full max-w-md rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default">
+      <div className="space-y-4">
         {isForcePromote ? (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-status-warning">
@@ -277,7 +281,7 @@ export function PromoteModal({
             </div>
           </div>
         ) : (
-          <>
+          <div className="space-y-2">
             <div className="flex items-center gap-3 text-status-success">
               <Icon name="check" size={24} />
               <h3 className="text-base font-semibold text-text-primary">
@@ -288,7 +292,7 @@ export function PromoteModal({
               This will atomically swap verified config and addon files into your production
               server. If the server is running, it will be safely restarted.
             </p>
-          </>
+          </div>
         )}
 
         <div className="rounded-lg bg-surface-page p-3 border border-border-subtle">
@@ -329,7 +333,7 @@ export function PromoteModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -342,73 +346,60 @@ interface InspectCommitModalProps {
 }
 
 export function InspectCommitModal({ commit, onClose }: InspectCommitModalProps) {
-  if (!commit) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
+    <Modal
+      open={!!commit}
+      onClose={onClose}
+      title="Manifest Snapshot Inspector"
+      description={commit ? `Commit ${commit.id.slice(0, 8)} • ${commit.message}` : undefined}
+      size="xl"
+      showCloseButton={true}
+      closeButtonAriaLabel="Close"
+      closeOnBackdrop={false}
+      className="max-h-[85vh] flex flex-col"
     >
-      <div className="w-full max-w-2xl rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between border-b border-border-subtle pb-3">
-          <div>
-            <h3 className="text-base font-semibold text-text-primary">
-              Manifest Snapshot Inspector
-            </h3>
-            <span className="font-mono text-xs text-text-muted">
-              Commit {commit.id.slice(0, 8)} • {commit.message}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-text-muted hover:bg-surface-hover cursor-pointer"
-          >
-            <Icon name="x" size={18} />
-          </button>
-        </div>
+      {commit && (
+        <div className="flex flex-col flex-1 min-h-0 space-y-4">
+          <div className="overflow-y-auto space-y-4 pr-1 flex-1">
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-text-muted block mb-1">
+                Captured Configurations ({Object.keys(commit.manifest?.configs || {}).length} files)
+              </span>
+              <div className="rounded-lg bg-surface-page p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
+                {Object.keys(commit.manifest?.configs || {}).map((f) => (
+                  <div key={f} className="text-text-primary py-0.5">
+                    📄 {f}
+                  </div>
+                ))}
+              </div>
+            </div>
 
-        <div className="overflow-y-auto space-y-4 pr-1">
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-text-muted block mb-1">
-              Captured Configurations ({Object.keys(commit.manifest?.configs || {}).length} files)
-            </span>
-            <div className="rounded-lg bg-surface-page p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
-              {Object.keys(commit.manifest?.configs || {}).map((f) => (
-                <div key={f} className="text-text-primary py-0.5">
-                  📄 {f}
-                </div>
-              ))}
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-text-muted block mb-1">
+                Captured Mods / Plugins ({(commit.manifest?.mods || []).length} items)
+              </span>
+              <div className="rounded-lg bg-surface-page p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
+                {(commit.manifest?.mods || []).map((m) => (
+                  <div key={m.filename} className="text-text-primary py-0.5">
+                    📦 {m.filename} <span className="text-text-muted">({m.sha256.slice(0, 10)}...)</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-text-muted block mb-1">
-              Captured Mods / Plugins ({(commit.manifest?.mods || []).length} items)
-            </span>
-            <div className="rounded-lg bg-surface-page p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
-              {(commit.manifest?.mods || []).map((m) => (
-                <div key={m.filename} className="text-text-primary py-0.5">
-                  📦 {m.filename} <span className="text-text-muted">({m.sha256.slice(0, 10)}...)</span>
-                </div>
-              ))}
-            </div>
+          <div className="flex justify-end pt-3 border-t border-border-subtle">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg bg-surface-page border border-border-default px-4 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            >
+              Close
+            </button>
           </div>
         </div>
-
-        <div className="flex justify-end pt-3 border-t border-border-subtle">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg bg-surface-page border border-border-default px-4 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+    </Modal>
   );
 }
 
@@ -421,42 +412,34 @@ interface ViewLogsModalProps {
 }
 
 export function ViewLogsModal({ testRun, onClose }: ViewLogsModalProps) {
-  if (!testRun) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
+    <Modal
+      open={!!testRun}
+      onClose={onClose}
+      title={testRun ? `Test Run Console Output (${testRun.id.slice(0, 8)})` : "Test Run Console Output"}
+      size="2xl"
+      showCloseButton={true}
+      closeButtonAriaLabel="Close"
+      closeOnBackdrop={false}
+      className="max-h-[85vh] flex flex-col"
     >
-      <div className="w-full max-w-3xl rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between border-b border-border-subtle pb-3">
-          <h3 className="text-base font-semibold text-text-primary">
-            Test Run Console Output ({testRun.id.slice(0, 8)})
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-text-muted hover:bg-surface-hover cursor-pointer"
-          >
-            <Icon name="x" size={18} />
-          </button>
+      {testRun && (
+        <div className="flex flex-col flex-1 min-h-0 space-y-4">
+          <pre className="overflow-y-auto rounded-lg bg-surface-page border border-border-subtle p-3 text-xs font-mono text-status-success flex-1 whitespace-pre-wrap max-h-[60vh]">
+            {testRun.log_output || "No log output recorded."}
+          </pre>
+          <div className="flex justify-end pt-2 border-t border-border-subtle">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg bg-surface-page border border-border-default px-4 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
-        <pre className="overflow-y-auto rounded-lg bg-surface-page border border-border-subtle p-3 text-xs font-mono text-status-success flex-1 whitespace-pre-wrap">
-          {testRun.log_output || "No log output recorded."}
-        </pre>
-        <div className="flex justify-end pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg bg-surface-page border border-border-default px-4 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+    </Modal>
   );
 }
 
@@ -490,22 +473,23 @@ export function BotSettingsModal({
   onSubmit,
   onClose,
 }: BotSettingsModalProps) {
-  if (!isOpen) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Bot Verification Server Defaults"
+      description="Configure baseline parameters applied when launching dry-runs on this server."
+      size="md"
+      showCloseButton={false}
+      closeOnBackdrop={false}
     >
-      <div className="w-full max-w-md rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default">
-        <h3 className="text-base font-semibold text-text-primary">
-          Bot Verification Server Defaults
-        </h3>
-        <p className="text-xs text-text-muted">
-          Configure baseline parameters applied when launching dry-runs on this server.
-        </p>
-
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+        className="space-y-4"
+      >
         <div className="space-y-3 text-xs">
           <div>
             <label htmlFor="settings-bot-count-input" className="block font-medium text-text-secondary mb-1">
@@ -576,14 +560,13 @@ export function BotSettingsModal({
             Cancel
           </button>
           <button
-            type="button"
-            onClick={onSubmit}
+            type="submit"
             className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover cursor-pointer shadow-xs"
           >
             Save Defaults
           </button>
         </div>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }

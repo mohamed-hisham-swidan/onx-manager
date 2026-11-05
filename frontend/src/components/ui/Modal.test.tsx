@@ -45,6 +45,42 @@ describe("Modal Primitive", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("calls onClose when backdrop is clicked by default", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal open onClose={onClose} title="Test Title">
+        <div>Content</div>
+      </Modal>
+    );
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when backdrop is clicked if closeOnBackdrop is false", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal open onClose={onClose} closeOnBackdrop={false} title="Test Title">
+        <div>Content</div>
+      </Modal>
+    );
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("renders size='2xl' with max-w-3xl class", () => {
+    render(
+      <Modal open onClose={() => {}} size="2xl" title="2XL Modal">
+        <div>Content</div>
+      </Modal>
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("max-w-3xl");
+  });
+
   it("traps focus between focusable elements", () => {
     render(
       <Modal open onClose={() => {}} title="Test Title">

@@ -1,64 +1,245 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { InspectCommitModal, ViewLogsModal } from "./VersioningModals";
+import {
+  CreateBranchModal,
+  CreateCommitModal,
+  PromoteModal,
+  InspectCommitModal,
+  ViewLogsModal,
+  BotSettingsModal,
+} from "./VersioningModals";
 import type { ServerCommit, ServerTestRun } from "@/server_manager/types";
 
-describe("VersioningModals accessibility", () => {
-  it("renders InspectCommitModal close button with accessible name", () => {
-    const onClose = vi.fn();
-    const commit: ServerCommit = {
-      id: "abcdef1234567890",
-      server_id: "srv-1",
-      branch_id: "main",
-      parent_commit_id: null,
-      author_id: null,
-      message: "Test commit",
-      created_at: new Date().toISOString(),
-      world_snapshot_id: null,
-      manifest: {
-        server_type: "paper",
-        minecraft_version: "1.21",
-        configs: { "server.properties": "motd=Test" },
-        mods: [],
-        env_vars: {},
-        java_args: "",
-      },
-    };
+const mockCommit: ServerCommit = {
+  id: "abcdef1234567890",
+  server_id: "srv-1",
+  branch_id: "main",
+  parent_commit_id: null,
+  author_id: null,
+  message: "Test commit",
+  created_at: new Date().toISOString(),
+  world_snapshot_id: null,
+  manifest: {
+    server_type: "paper",
+    minecraft_version: "1.21",
+    configs: { "server.properties": "motd=Test" },
+    mods: [],
+    env_vars: {},
+    java_args: "",
+  },
+};
 
-    render(<InspectCommitModal commit={commit} onClose={onClose} />);
-    const closeButtons = screen.getAllByRole("button", { name: "Close" });
-    expect(closeButtons.length).toBeGreaterThanOrEqual(1);
+const mockTestRun: ServerTestRun = {
+  id: "run-12345678",
+  server_id: "srv-1",
+  commit_id: "abcdef1234567890",
+  node_id: "node-1",
+  status: "PASSED",
+  ephemeral_port: null,
+  log_output: "Server started on port 25565",
+  failure_reason: null,
+  created_at: new Date().toISOString(),
+  expires_at: null,
+  bot_count: 0,
+  duration_minutes: 2,
+  placement_mode: "auto",
+  bot_tech: "internal",
+};
 
-    // Click the top icon close button
-    fireEvent.click(closeButtons[0]);
-    expect(onClose).toHaveBeenCalled();
+describe("VersioningModals accessibility and migration contracts", () => {
+  beforeEach(() => {
+    document.body.style.overflow = "";
   });
 
-  it("renders ViewLogsModal close button with accessible name", () => {
-    const onClose = vi.fn();
-    const testRun: ServerTestRun = {
-      id: "run-12345678",
-      server_id: "srv-1",
-      commit_id: "abcdef1234567890",
-      node_id: "node-1",
-      status: "PASSED",
-      ephemeral_port: null,
-      log_output: "Server started on port 25565",
-      failure_reason: null,
-      created_at: new Date().toISOString(),
-      expires_at: null,
-      bot_count: 0,
-      duration_minutes: 2,
-      placement_mode: "auto",
-      bot_tech: "internal",
-    };
+  describe("CreateBranchModal", () => {
+    it("renders role='dialog' with accessible name, locks scroll, and responds to Escape", () => {
+      const onClose = vi.fn();
+      const { unmount } = render(
+        <CreateBranchModal
+          isOpen={true}
+          branchName=""
+          onBranchNameChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onClose={onClose}
+        />
+      );
 
-    render(<ViewLogsModal testRun={testRun} onClose={onClose} />);
-    const closeButtons = screen.getAllByRole("button", { name: "Close" });
-    expect(closeButtons.length).toBeGreaterThanOrEqual(1);
+      const dialog = screen.getByRole("dialog", { name: "Create New Branch" });
+      expect(dialog).toBeInTheDocument();
+      expect(document.body.style.overflow).toBe("hidden");
 
-    // Click top icon close button
-    fireEvent.click(closeButtons[0]);
-    expect(onClose).toHaveBeenCalled();
+      // Escape key closes modal (new accessible behavior)
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalled();
+
+      // Backdrop click should not close (preserving closeOnBackdrop=false)
+      const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+      expect(backdrop).toBeInTheDocument();
+      fireEvent.click(backdrop!);
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      unmount();
+      expect(document.body.style.overflow).toBe("");
+    });
+  });
+
+  describe("CreateCommitModal", () => {
+    it("renders role='dialog' with accessible name, locks scroll, and responds to Escape", () => {
+      const onClose = vi.fn();
+      const { unmount } = render(
+        <CreateCommitModal
+          isOpen={true}
+          message=""
+          onMessageChange={vi.fn()}
+          forceBypass={false}
+          onForceBypassChange={vi.fn()}
+          forceReason=""
+          onForceReasonChange={vi.fn()}
+          selectedBranch="main"
+          currentBranchObj={null}
+          isDirectCommitBlocked={false}
+          allowForceBypass={false}
+          onSubmit={vi.fn()}
+          onClose={onClose}
+        />
+      );
+
+      const dialog = screen.getByRole("dialog", { name: "Create Snapshot Commit" });
+      expect(dialog).toBeInTheDocument();
+      expect(document.body.style.overflow).toBe("hidden");
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalled();
+
+      unmount();
+      expect(document.body.style.overflow).toBe("");
+    });
+  });
+
+  describe("PromoteModal", () => {
+    it("renders standard role='dialog', locks scroll, and responds to Escape", () => {
+      const onClose = vi.fn();
+      const { unmount } = render(
+        <PromoteModal
+          isOpen={true}
+          isForcePromote={false}
+          promoteTestRun={mockTestRun}
+          forceReason=""
+          onForceReasonChange={vi.fn()}
+          keepWorldChanges={false}
+          onKeepWorldChangesChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onClose={onClose}
+        />
+      );
+
+      const dialog = screen.getByRole("dialog", { name: "Promote Verified Commit" });
+      expect(dialog).toBeInTheDocument();
+      expect(document.body.style.overflow).toBe("hidden");
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalled();
+
+      unmount();
+      expect(document.body.style.overflow).toBe("");
+    });
+
+    it("renders force promotion role='dialog' with force override accessible name", () => {
+      const onClose = vi.fn();
+      render(
+        <PromoteModal
+          isOpen={true}
+          isForcePromote={true}
+          promoteTestRun={{ ...mockTestRun, status: "FAILED" }}
+          forceReason=""
+          onForceReasonChange={vi.fn()}
+          keepWorldChanges={false}
+          onKeepWorldChangesChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onClose={onClose}
+        />
+      );
+
+      expect(screen.getByRole("dialog", { name: "Force Promotion Override" })).toBeInTheDocument();
+    });
+  });
+
+  describe("InspectCommitModal", () => {
+    it("renders role='dialog' with accessible name, locks scroll, and responds to Escape and close button", () => {
+      const onClose = vi.fn();
+      const { unmount } = render(<InspectCommitModal commit={mockCommit} onClose={onClose} />);
+
+      const dialog = screen.getByRole("dialog", { name: "Manifest Snapshot Inspector" });
+      expect(dialog).toBeInTheDocument();
+      expect(document.body.style.overflow).toBe("hidden");
+
+      const closeButtons = screen.getAllByRole("button", { name: "Close" });
+      expect(closeButtons.length).toBeGreaterThanOrEqual(1);
+
+      // Top icon close button
+      fireEvent.click(closeButtons[0]);
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      // Escape key closes modal
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(2);
+
+      unmount();
+      expect(document.body.style.overflow).toBe("");
+    });
+  });
+
+  describe("ViewLogsModal", () => {
+    it("renders role='dialog' with accessible name, locks scroll, and responds to Escape and close button", () => {
+      const onClose = vi.fn();
+      const { unmount } = render(<ViewLogsModal testRun={mockTestRun} onClose={onClose} />);
+
+      const dialog = screen.getByRole("dialog", { name: /Test Run Console Output/i });
+      expect(dialog).toBeInTheDocument();
+      expect(document.body.style.overflow).toBe("hidden");
+
+      const closeButtons = screen.getAllByRole("button", { name: "Close" });
+      expect(closeButtons.length).toBeGreaterThanOrEqual(1);
+
+      fireEvent.click(closeButtons[0]);
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(2);
+
+      unmount();
+      expect(document.body.style.overflow).toBe("");
+    });
+  });
+
+  describe("BotSettingsModal", () => {
+    it("renders role='dialog' with accessible name, locks scroll, and responds to Escape", () => {
+      const onClose = vi.fn();
+      const { unmount } = render(
+        <BotSettingsModal
+          isOpen={true}
+          botCount={5}
+          onBotCountChange={vi.fn()}
+          duration={2}
+          onDurationChange={vi.fn()}
+          tech="auto"
+          onTechChange={vi.fn()}
+          placement="sidecar"
+          onPlacementChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onClose={onClose}
+        />
+      );
+
+      const dialog = screen.getByRole("dialog", { name: "Bot Verification Server Defaults" });
+      expect(dialog).toBeInTheDocument();
+      expect(document.body.style.overflow).toBe("hidden");
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalled();
+
+      unmount();
+      expect(document.body.style.overflow).toBe("");
+    });
   });
 });

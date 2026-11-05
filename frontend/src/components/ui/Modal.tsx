@@ -8,8 +8,10 @@ export interface ModalProps {
   title?: React.ReactNode;
   description?: React.ReactNode;
   children: React.ReactNode;
-  size?: "sm" | "md" | "lg" | "xl" | "full";
+  size?: "sm" | "md" | "lg" | "xl" | "2xl" | "full";
   showCloseButton?: boolean;
+  closeOnBackdrop?: boolean;
+  closeButtonAriaLabel?: string;
   ariaLabel?: string;
   className?: string;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
@@ -20,6 +22,7 @@ const sizeClasses: Record<NonNullable<ModalProps["size"]>, string> = {
   md: "max-w-md",
   lg: "max-w-lg",
   xl: "max-w-2xl",
+  "2xl": "max-w-3xl",
   full: "max-w-4xl",
 };
 
@@ -31,6 +34,8 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   size = "md",
   showCloseButton = true,
+  closeOnBackdrop = true,
+  closeButtonAriaLabel,
   ariaLabel,
   className = "",
   initialFocusRef,
@@ -117,7 +122,7 @@ export const Modal: React.FC<ModalProps> = ({
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
-        onClick={onClose}
+        onClick={closeOnBackdrop ? onClose : undefined}
         aria-hidden="true"
       />
 
@@ -149,7 +154,7 @@ export const Modal: React.FC<ModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                aria-label="Close dialog"
+                aria-label={closeButtonAriaLabel || "Close dialog"}
                 className="rounded-lg p-1 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-border-focus"
               >
                 <Icon name="x" size={18} />
