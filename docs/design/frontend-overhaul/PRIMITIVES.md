@@ -73,6 +73,18 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
   onCancel={() => setIsConfirmOpen(false)}
 />
 ```
+- **Modal Props**:
+  | Prop | Type | Default | Description |
+  |---|---|---|---|
+  | `open` | `boolean` | **Required** | Controls dialog visibility and mounts/unmounts the modal container. |
+  | `onClose` | `() => void` | **Required** | Callback triggered on Escape, close button click, or backdrop click. |
+  | `title` | `ReactNode` | `undefined` | Header title string or element linked via `aria-labelledby`. |
+  | `description` | `ReactNode` | `undefined` | Subtitle description linked via `aria-describedby`. |
+  | `children` | `ReactNode` | **Required** | Dialog content and body controls. |
+  | `footer` | `ReactNode` | `undefined` | Dialog footer containing primary/secondary actions. |
+  | `size` | `"sm" \| "md" \| "lg" \| "xl" \| "2xl"` | `"md"` | Max width constraint (`sm` max-w-sm, `md` max-w-md, `lg` max-w-lg, `xl` max-w-2xl, `2xl` max-w-3xl). |
+  | `closeOnBackdrop` | `boolean` | `true` | When `true`, clicking the backdrop invokes `onClose`. Set to `false` for multi-field forms or destructive flows where an accidental backdrop click would discard uncommitted user inputs. |
+  | `closeButtonAriaLabel`| `string` | `"Close dialog"` | Accessible name for the header close icon button (`aria-label`). |
 - **Accessibility**: Rendered with `role="dialog"`, `aria-modal="true"`. Traps keyboard focus inside the dialog while open. Closes automatically on `Escape`. Restores focus to the triggering element upon close.
   - **Shared Body Scroll Lock (`useBodyScrollLock`)**: Automatically locks body scroll (`document.body.style.overflow = "hidden"`) while active via the shared hook `useBodyScrollLock(active)` in `frontend/src/hooks/useBodyScrollLock.ts`. Uses a module-level reference counter so nested or stacked dialogs and mobile off-canvas drawers only restore the previous body overflow after the last active consumer releases.
   - **ConfirmDialog Focus Safety**: For `variant="danger"`, initial focus is placed on the Cancel button to protect against accidental confirmation via Enter/Space. Non-danger variants (`warning`, `info`) keep initial focus on the Confirm button.

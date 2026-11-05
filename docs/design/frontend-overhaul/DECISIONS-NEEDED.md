@@ -73,10 +73,13 @@ This document records non-blocking decisions, conservative choices made during a
 ---
 
 ## 9. Overlay Migration to Modal Primitive (Planned Batch F5)
-- **Status**: PLANNED FOR BATCH F5 / LOGGED FOR OWNER DECISION
-- **Context**: An audit revealed 28 `fixed inset-0` overlay implementations across 21 files that currently bypass the shared `Modal.tsx` primitive, managing their own backdrops and key listeners independently.
-- **Decision Taken**: Left these 28 overlays unmigrated in batch F4a (which focused strictly on primitive fixes and targeted accessible button fixes) to keep changes isolated and testable without risking modal regressions across major workflows. Logged for systematic consolidation in planned Batch F5.
-- **Files with Bypassing Overlays (21 files, 28 occurrences)**:
+- **Status**: IN PROGRESS (Batch F5a migrated VersioningModals; remaining 20 overlays logged for owner decision)
+- **Context**: An initial audit revealed 28 `fixed inset-0` overlay implementations across 21 files that bypassed the shared `Modal.tsx` primitive, managing their own backdrops and key listeners independently.
+- **Progress in Batch F5a**:
+  - Migrated all 6 overlays in `frontend/src/server_manager/components/versioning/VersioningModals.tsx` (`CreateBranchModal`, `CreateCommitModal`, `PromoteModal`, `InspectCommitModal`, `ViewLogsModal`, `BotSettingsModal`) to the `<Modal>` primitive in commit `8d1f127`.
+  - Added `closeOnBackdrop` prop to `<Modal>` (set to `false` for these modals) preventing accidental backdrop dismissal of uncommitted form input.
+  - Standardized accessible Escape key dismissals, title labeling (`aria-labelledby`), focus restoration, and scroll locking across all 6 versioning dialogs.
+- **Remaining Bypassing Overlays (20 files, 20 occurrences)**:
   1. `frontend/src/server_manager/components/AccessModeCard.tsx`
   2. `frontend/src/server_manager/components/AddCompanionTargetModal.tsx`
   3. `frontend/src/server_manager/components/BranchProtectionModal.tsx`
@@ -96,9 +99,8 @@ This document records non-blocking decisions, conservative choices made during a
   17. `frontend/src/server_manager/components/TestDefinitionsModal.tsx`
   18. `frontend/src/server_manager/components/TestEvidenceModal.tsx`
   19. `frontend/src/server_manager/components/TestRunModal.tsx`
-  20. `frontend/src/server_manager/components/versioning/VersioningModals.tsx` (6 overlays)
-  21. `frontend/src/server_manager/pages/ServerExposurePage.tsx`
-- **Alternative for Owner**: The owner may choose to migrate all 28 overlays to `Modal.tsx` in batch F5 or retain specialized full-screen diff and console inspection overlays as standalone components.
+  20. `frontend/src/server_manager/pages/ServerExposurePage.tsx`
+- **Alternative for Owner**: The owner may choose to migrate the remaining 20 overlays to `Modal.tsx` or retain specialized full-screen diff and console inspection overlays as standalone components.
 
 ---
 
