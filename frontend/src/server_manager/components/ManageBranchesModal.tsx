@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
+import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { toast } from "@/stores/toastStore";
@@ -39,17 +40,11 @@ export function ManageBranchesModal({
     }
   }
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen && !archivingBranch) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, archivingBranch, onClose]);
-
-  if (!isOpen) return null;
+  const handleClose = () => {
+    if (!archivingBranch) {
+      onClose();
+    }
+  };
 
   const handleArchive = async (branchName: string) => {
     setArchivingBranch(branchName);
@@ -97,45 +92,17 @@ export function ManageBranchesModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="manage-branches-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !archivingBranch) onClose();
-      }}
+    <Modal
+      open={isOpen}
+      onClose={handleClose}
+      title="Branch Lifecycle Management"
+      description="Manage branch status, protection rules, and archive inactive branches"
+      size="xl"
+      closeOnBackdrop={!archivingBranch}
+      closeOnEscape={!archivingBranch}
+      closeButtonAriaLabel="Close modal"
     >
-      <div className="relative w-full max-w-xl max-h-[85vh] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 p-6 space-y-4 text-gray-900 dark:text-gray-100 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              <Icon name="backup" size={20} />
-            </div>
-            <div>
-              <h2
-                id="manage-branches-modal-title"
-                className="text-lg font-semibold text-gray-900 dark:text-white"
-              >
-                Branch Lifecycle Management
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Manage branch status, protection rules, and archive inactive branches
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={!!archivingBranch}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors"
-            aria-label="Close modal"
-          >
-            <Icon name="x" size={18} />
-          </button>
-        </div>
-
+      <div className="space-y-4 flex flex-col">
         {/* Error alert */}
         {error && (
           <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
@@ -173,7 +140,7 @@ export function ManageBranchesModal({
                 type="button"
                 onClick={() => handleArchive(confirmArchiveName)}
                 disabled={archivingBranch === confirmArchiveName}
-                className="px-3 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors disabled:opacity-50"
               >
                 {archivingBranch === confirmArchiveName ? "Archiving..." : "Yes, Archive Branch"}
               </button>
@@ -182,7 +149,7 @@ export function ManageBranchesModal({
         )}
 
         {/* Branch List */}
-        <div className="flex-1 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+        <div className="overflow-y-auto max-h-[55vh] divide-y divide-gray-100 dark:divide-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
           {branches.length === 0 ? (
             <div className="p-8 text-center text-xs text-gray-400 italic">
               No branches found for this server.
@@ -261,13 +228,14 @@ export function ManageBranchesModal({
         <div className="flex items-center justify-end border-t border-gray-100 dark:border-gray-800 pt-3">
           <button
             type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            onClick={handleClose}
+            disabled={!!archivingBranch}
+            className="px-4 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
           >
             Close
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

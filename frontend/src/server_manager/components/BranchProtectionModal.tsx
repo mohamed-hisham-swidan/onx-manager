@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
 import type {
@@ -47,18 +47,6 @@ export function BranchProtectionModal({
     }
   }
 
-  // Handle ESC key
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isSaving) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isSaving, onClose]);
-
   // Load branch protection state
   useEffect(() => {
     if (!isOpen || !branch) return;
@@ -95,6 +83,12 @@ export function BranchProtectionModal({
 
   if (!isOpen || !branch) return null;
 
+  const handleClose = () => {
+    if (!isSaving) {
+      onClose();
+    }
+  };
+
   const handleSavePolicy = async () => {
     setIsSaving(true);
     setError(null);
@@ -117,46 +111,24 @@ export function BranchProtectionModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="branch-protection-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isSaving) onClose();
-      }}
+    <Modal
+      open={isOpen}
+      onClose={handleClose}
+      title="Branch Protection Policy"
+      description={
+        <span>
+          Target Branch:{" "}
+          <span className="font-mono font-semibold text-indigo-600 dark:text-indigo-400">
+            {branch.name}
+          </span>
+        </span>
+      }
+      size="lg"
+      closeOnBackdrop={!isSaving}
+      closeOnEscape={!isSaving}
+      closeButtonAriaLabel="Close modal"
     >
-      <div className="relative w-full max-w-lg rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            </div>
-            <div>
-              <h2
-                id="branch-protection-modal-title"
-                className="text-lg font-semibold text-gray-900 dark:text-white"
-              >
-                Branch Protection Policy
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Target Branch: <span className="font-mono font-semibold text-indigo-600 dark:text-indigo-400">{branch.name}</span>
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            disabled={isSaving}
-            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            aria-label="Close modal"
-          >
-            <Icon name="x" size={20} />
-          </button>
-        </div>
-
+      <div className="space-y-6">
         {error && (
           <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300">
             {error}
@@ -185,6 +157,7 @@ export function BranchProtectionModal({
                   aria-label="Enable branch protection"
                   checked={isProtected}
                   onChange={(e) => setIsProtected(e.target.checked)}
+                  disabled={isSaving}
                   className="sr-only peer"
                 />
                 <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
@@ -215,7 +188,8 @@ export function BranchProtectionModal({
                     onChange={(e) =>
                       setPolicy((p) => ({ ...p, require_test_pass: e.target.checked }))
                     }
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    disabled={isSaving}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
                   />
                 </div>
 
@@ -236,7 +210,8 @@ export function BranchProtectionModal({
                     onChange={(e) =>
                       setPolicy((p) => ({ ...p, allow_direct_commit: e.target.checked }))
                     }
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    disabled={isSaving}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
                   />
                 </div>
 
@@ -257,7 +232,8 @@ export function BranchProtectionModal({
                     onChange={(e) =>
                       setPolicy((p) => ({ ...p, allow_force_bypass: e.target.checked }))
                     }
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    disabled={isSaving}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
                   />
                 </div>
 
@@ -278,7 +254,8 @@ export function BranchProtectionModal({
                     onChange={(e) =>
                       setPolicy((p) => ({ ...p, prevent_deletion: e.target.checked }))
                     }
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    disabled={isSaving}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
                   />
                 </div>
               </div>
@@ -290,9 +267,9 @@ export function BranchProtectionModal({
         <div className="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isSaving}
-            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            className="rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -306,6 +283,6 @@ export function BranchProtectionModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

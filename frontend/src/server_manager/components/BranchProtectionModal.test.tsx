@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BranchProtectionModal } from "./BranchProtectionModal";
 import type { ServerBranch } from "@/server_manager/types";
@@ -201,6 +201,126 @@ describe("BranchProtectionModal Component", () => {
       expect(mockRemoveBranchProtection).toHaveBeenCalledWith("srv-1", "main");
       expect(onUpdated).toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it("renders role='dialog' with accessible name, locks body scroll, and releases on unmount", async () => {
+    mockGetBranchProtection.mockResolvedValueOnce({
+      branch_name: "main",
+      is_protected: true,
+      policy: null,
+    });
+    document.body.style.overflow = "";
+
+    const { unmount } = render(
+      <BranchProtectionModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        branch={mockBranch}
+        onProtectionUpdated={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Branch Protection Policy" });
+    expect(dialog).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    unmount();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("closes on Escape key when idle", async () => {
+    mockGetBranchProtection.mockResolvedValueOnce({
+      branch_name: "main",
+      is_protected: true,
+      policy: null,
+    });
+    const onClose = vi.fn();
+
+    render(
+      <BranchProtectionModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        branch={mockBranch}
+        onProtectionUpdated={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Branch Protection Policy" })).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores Escape and disables cancel button while saving policy", async () => {
+    const user = userEvent.setup();
+    mockGetBranchProtection.mockResolvedValueOnce({
+      branch_name: "main",
+      is_protected: true,
+      policy: null,
+    });
+    let resolveSet: (value: unknown) => void = () => {};
+    mockSetBranchProtection.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveSet = res;
+      })
+    );
+    const onClose = vi.fn();
+
+    render(
+      <BranchProtectionModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        branch={mockBranch}
+        onProtectionUpdated={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Apply Protection/i })).toBeInTheDocument();
+    });
+
+    // Click Apply Protection to trigger isSaving
+    await user.click(screen.getByRole("button", { name: /Apply Protection/i }));
+
+    // Cancel button should be disabled
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+
+    // Escape should be ignored while saving
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Cleanup promise
+    await act(async () => {
+      resolveSet({ success: true });
+    });
+  });
+
+  it("moves focus into the dialog on open", async () => {
+    mockGetBranchProtection.mockResolvedValueOnce({
+      branch_name: "main",
+      is_protected: true,
+      policy: null,
+    });
+
+    render(
+      <BranchProtectionModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        branch={mockBranch}
+        onProtectionUpdated={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Branch Protection Policy" });
+    await waitFor(() => {
+      expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
 });

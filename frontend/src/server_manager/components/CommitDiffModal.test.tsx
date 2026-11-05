@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CommitDiffModal } from "./CommitDiffModal";
 import type { DiffResponse } from "@/server_manager/types";
@@ -118,6 +118,61 @@ describe("CommitDiffModal Component", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Unable to diff commits: missing parent")).toBeInTheDocument();
+    });
+  });
+
+  it("renders role='dialog' with accessible name, locks body scroll, and releases on unmount", () => {
+    document.body.style.overflow = "";
+
+    const { unmount } = render(
+      <CommitDiffModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        fromCommitId="1111111111111111"
+        toCommitId="2222222222222222"
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Commit Diff Inspector" });
+    expect(dialog).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    unmount();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("closes on Escape key press", () => {
+    const onClose = vi.fn();
+
+    render(
+      <CommitDiffModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        fromCommitId="1111111111111111"
+        toCommitId="2222222222222222"
+      />
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves focus into the dialog on open", async () => {
+    render(
+      <CommitDiffModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        fromCommitId="1111111111111111"
+        toCommitId="2222222222222222"
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Commit Diff Inspector" });
+    await waitFor(() => {
+      expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
 });

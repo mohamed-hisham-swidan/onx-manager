@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
+import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { toast } from "@/stores/toastStore";
@@ -33,17 +34,11 @@ export function CreateTagModal({
     }
   }
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen && !isSubmitting) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isSubmitting, onClose]);
-
-  if (!isOpen) return null;
+  const handleClose = () => {
+    if (!isSubmitting) {
+      onClose();
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,45 +67,21 @@ export function CreateTagModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="create-tag-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isSubmitting) onClose();
-      }}
+    <Modal
+      open={isOpen}
+      onClose={handleClose}
+      title="Create Immutable Tag"
+      description={
+        <span>
+          Commit: <span className="font-mono font-semibold">{commitId.slice(0, 7)}</span>
+        </span>
+      }
+      size="md"
+      closeOnBackdrop={!isSubmitting}
+      closeOnEscape={!isSubmitting}
+      closeButtonAriaLabel="Close modal"
     >
-      <div className="relative w-full max-w-md rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 p-6 space-y-4 text-gray-900 dark:text-gray-100 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              <Icon name="backup" size={20} />
-            </div>
-            <div>
-              <h2
-                id="create-tag-modal-title"
-                className="text-lg font-semibold text-gray-900 dark:text-white"
-              >
-                Create Immutable Tag
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Commit: <span className="font-mono font-semibold">{commitId.slice(0, 7)}</span>
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors"
-            aria-label="Close modal"
-          >
-            <Icon name="x" size={18} />
-          </button>
-        </div>
-
+      <div className="space-y-4">
         {/* Error Alert */}
         {error && (
           <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
@@ -122,15 +93,17 @@ export function CreateTagModal({
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="create-tag-input" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
               Tag Name
             </label>
             <input
+              id="create-tag-input"
               type="text"
               value={tagName}
               onChange={(e) => setTagName(e.target.value)}
+              disabled={isSubmitting}
               placeholder="e.g. v1.0.0 or release-purpur"
-              className="w-full text-xs font-mono bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              className="w-full text-xs font-mono bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:opacity-50"
               autoFocus
               required
             />
@@ -142,9 +115,9 @@ export function CreateTagModal({
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               disabled={isSubmitting}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
@@ -158,6 +131,6 @@ export function CreateTagModal({
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }

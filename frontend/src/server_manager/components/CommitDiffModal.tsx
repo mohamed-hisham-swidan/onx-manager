@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import type { DiffResponse } from "@/server_manager/types";
@@ -57,16 +58,6 @@ export function CommitDiffModal({
     };
   }, [isOpen, fromCommitId, toCommitId, loadDiff]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
   if (!isOpen) return null;
 
   // Counts for tabs
@@ -86,45 +77,23 @@ export function CommitDiffModal({
   const totalEnvChanges = envAdded.length + envModified.length + envDeleted.length;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="diff-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Commit Diff Inspector"
+      description={
+        <span className="font-mono">
+          <span className="text-indigo-600 dark:text-indigo-400 font-bold">{fromCommitId.slice(0, 7)}</span>
+          {" → "}
+          <span className="text-emerald-600 dark:text-emerald-400 font-bold">{toCommitId.slice(0, 7)}</span>
+        </span>
+      }
+      size="2xl"
+      closeOnBackdrop={true}
+      closeOnEscape={true}
+      closeButtonAriaLabel="Close modal"
     >
-      <div className="relative w-full max-w-3xl max-h-[85vh] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 p-6 space-y-4 text-gray-900 dark:text-gray-100 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              <Icon name="activity" size={20} />
-            </div>
-            <div>
-              <h2
-                id="diff-modal-title"
-                className="text-lg font-semibold text-gray-900 dark:text-white"
-              >
-                Commit Diff Inspector
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-                <span className="text-indigo-600 dark:text-indigo-400 font-bold">{fromCommitId.slice(0, 7)}</span>
-                {" → "}
-                <span className="text-emerald-600 dark:text-emerald-400 font-bold">{toCommitId.slice(0, 7)}</span>
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors"
-            aria-label="Close modal"
-          >
-            <Icon name="x" size={18} />
-          </button>
-        </div>
+      <div className="space-y-4 flex flex-col">
 
         {/* Error Alert */}
         {error && (
@@ -466,6 +435,6 @@ export function CommitDiffModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
