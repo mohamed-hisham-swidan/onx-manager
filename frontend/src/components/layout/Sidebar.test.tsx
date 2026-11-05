@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "@/stores/uiStore";
@@ -66,5 +66,87 @@ describe("Sidebar", () => {
     renderSidebar();
     const aside = document.querySelector("aside");
     expect(aside).toHaveClass("lg:-translate-x-full");
+  });
+
+  describe("mobile off-canvas a11y & interaction", () => {
+    it("closes mobile sidebar on Escape key press", () => {
+      useUIStore.setState({ mobileSidebarOpen: true });
+      renderSidebar();
+
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it("locks body scroll when mobile drawer is open and restores on close", () => {
+      document.body.style.overflow = "";
+      useUIStore.setState({ mobileSidebarOpen: true });
+      const { rerender } = renderSidebar();
+
+      expect(document.body.style.overflow).toBe("hidden");
+
+      act(() => {
+        useUIStore.setState({ mobileSidebarOpen: false });
+      });
+      rerender(
+        <MemoryRouter>
+          <Sidebar />
+        </MemoryRouter>,
+      );
+      expect(document.body.style.overflow).toBe("");
+    });
+
+    it("moves focus to first focusable item on open and returns focus to opener on close", async () => {
+      const TestShell = () => {
+        const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
+        const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
+
+        return (
+          <MemoryRouter>
+            <button
+              data-testid="toggle-btn"
+              onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+            >
+              Toggle
+            </button>
+            <Sidebar />
+          </MemoryRouter>
+        );
+      };
+
+      const { unmount } = render(<TestShell />);
+      const toggleBtn = screen.getByTestId("toggle-btn");
+      toggleBtn.focus();
+      expect(document.activeElement).toBe(toggleBtn);
+
+      // Open drawer
+      fireEvent.click(toggleBtn);
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
+
+      // Wait for focus timer to move focus inside drawer
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const firstLink = screen.getByText("Dashboard").closest("a");
+      expect(document.activeElement).toBe(firstLink);
+
+      // Close drawer with Escape
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+
+      // Focus should return to opener button
+      expect(document.activeElement).toBe(toggleBtn);
+      unmount();
+    });
+
+    it("desktop visible state does not lock scroll or react to Escape", () => {
+      document.body.style.overflow = "";
+      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
+      renderSidebar();
+
+      expect(document.body.style.overflow).toBe("");
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(useUIStore.getState().sidebarOpen).toBe(true);
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+      expect(document.body.style.overflow).toBe("");
+    });
   });
 });

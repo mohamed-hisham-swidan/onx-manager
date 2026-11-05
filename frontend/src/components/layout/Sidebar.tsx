@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useRef, useEffect } from "react";
 import { NavLink, Link } from "react-router-dom";
 import { useUIStore } from "@/stores/uiStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
+import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { Icon, type IconName } from "@/components/ui/Icon";
 
 export interface ServerContext {
@@ -30,6 +31,45 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
   const setSource = useMarketplaceSourceStore((s) => s.setSource);
 
+  const asideRef = useRef<HTMLElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  useBodyScrollLock(mobileSidebarOpen);
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+
+    openerRef.current = (document.activeElement as HTMLElement) ?? null;
+
+    const timer = setTimeout(() => {
+      if (asideRef.current) {
+        const focusable = asideRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length > 0) {
+          focusable[0].focus();
+        } else {
+          asideRef.current.focus();
+        }
+      }
+    }, 0);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setMobileSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("keydown", onKeyDown);
+      openerRef.current?.focus();
+    };
+  }, [mobileSidebarOpen, setMobileSidebarOpen]);
+
   const handleNavigate = () => {
     if (mobileSidebarOpen) setMobileSidebarOpen(false);
   };
@@ -53,7 +93,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
       )}
 
       <aside
-        className={`fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] flex-col border-r border-border-subtle bg-surface-card transition-all duration-200 ${
+        ref={asideRef}
+        tabIndex={-1}
+        className={`fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] flex-col border-r border-border-subtle bg-surface-card transition-all duration-200 outline-hidden ${
           mobileSidebarOpen ? "w-64 translate-x-0" : "w-64 -translate-x-full"
         } lg:w-56 ${sidebarOpen ? "lg:translate-x-0" : "lg:-translate-x-full"}`}
       >
