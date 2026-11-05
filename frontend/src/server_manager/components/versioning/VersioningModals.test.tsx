@@ -10,12 +10,18 @@ describe("VersioningModals accessibility", () => {
       id: "abcdef1234567890",
       server_id: "srv-1",
       branch_id: "main",
+      parent_commit_id: null,
+      author_id: null,
       message: "Test commit",
       created_at: new Date().toISOString(),
-      parent_ids: [],
+      world_snapshot_id: null,
       manifest: {
+        server_type: "paper",
+        minecraft_version: "1.21",
         configs: { "server.properties": "motd=Test" },
         mods: [],
+        env_vars: {},
+        java_args: "",
       },
     };
 
@@ -33,17 +39,18 @@ describe("VersioningModals accessibility", () => {
     const testRun: ServerTestRun = {
       id: "run-12345678",
       server_id: "srv-1",
-      test_definition_id: "test-def-1",
-      runtime_id: "rt-1",
-      status: "completed",
-      started_at: new Date().toISOString(),
-      finished_at: new Date().toISOString(),
+      commit_id: "abcdef1234567890",
+      node_id: "node-1",
+      status: "PASSED",
+      ephemeral_port: null,
       log_output: "Server started on port 25565",
-      operation_id: null,
-      passed: true,
-      duration_seconds: 12,
-      evidence_bundle: null,
-      artifacts_purged: false,
+      failure_reason: null,
+      created_at: new Date().toISOString(),
+      expires_at: null,
+      bot_count: 0,
+      duration_minutes: 2,
+      placement_mode: "auto",
+      bot_tech: "internal",
     };
 
     render(<ViewLogsModal testRun={testRun} onClose={onClose} />);
