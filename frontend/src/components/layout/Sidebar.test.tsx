@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "@/stores/uiStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
@@ -49,6 +49,26 @@ describe("Sidebar", () => {
     expect(screen.getByText("Servers").closest("a")).toHaveAttribute("href", "/servers");
     expect(screen.getByText("Backups").closest("a")).toHaveAttribute("href", "/backups");
     expect(screen.getByText("Marketplace").closest("a")).toHaveAttribute("href", "/marketplace");
+  });
+
+  it("navigates to /marketplace when clicking Marketplace nav item", () => {
+    let currentLocation = "";
+    function LocationWatcher() {
+      const location = useLocation();
+      currentLocation = location.pathname;
+      return null;
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Sidebar />
+        <LocationWatcher />
+      </MemoryRouter>,
+    );
+
+    expect(currentLocation).toBe("/");
+    fireEvent.click(screen.getByRole("link", { name: /marketplace/i }));
+    expect(currentLocation).toBe("/marketplace");
   });
 
   it("shows backdrop and closes drawer on navigation when mobile is open", () => {
