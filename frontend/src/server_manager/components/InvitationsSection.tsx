@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { toast } from "@/stores/toastStore";
 import { parseServerDate } from "@/server_manager/utils/format";
 import type { InvitationItem, CreateInviteRequest } from "@/types";
@@ -261,142 +262,139 @@ export function InvitationsSection() {
       </div>
 
       {/* Modal for creating invitation */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-3">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Generate Invitation
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-              >
-                ✕
-              </button>
+      <Modal
+        open={isModalOpen}
+        onClose={() => {
+          if (createMutation.isPending) return;
+          setIsModalOpen(false);
+        }}
+        title="Generate Invitation"
+        size="md"
+        closeOnBackdrop={!createMutation.isPending}
+        closeOnEscape={!createMutation.isPending}
+        closeButtonAriaLabel="Close dialog"
+      >
+        <div className="space-y-4 max-h-[80vh] overflow-y-auto">
+          {formError && (
+            <div role="alert" className="p-3 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg">
+              {formError}
+            </div>
+          )}
+
+          <form onSubmit={handleCreateSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Bound Email (Optional)
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Restrict to specific email address"
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
             </div>
 
-            {formError && (
-              <div role="alert" className="p-3 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg">
-                {formError}
-              </div>
-            )}
+            <div>
+              <label htmlFor="globalRole" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Global Access Role
+              </label>
+              <select
+                id="globalRole"
+                value={globalRole}
+                onChange={(e) => setGlobalRole(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              >
+                {grantableGlobalRoles.map((role) => (
+                  <option key={role.value} value={role.value}>
+                    {role.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <form onSubmit={handleCreateSubmit} className="space-y-4">
+            {/* Server Access (Optional) */}
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Server Access (Optional)
+              </label>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Bound Email (Optional)
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Restrict to specific email address"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="globalRole" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Global Access Role
-                </label>
                 <select
-                  id="globalRole"
-                  value={globalRole}
-                  onChange={(e) => setGlobalRole(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  id="serverId"
+                  aria-label="Server Access"
+                  value={serverId}
+                  onChange={(e) => setServerId(e.target.value)}
+                  disabled={isLoadingServers}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
                 >
-                  {grantableGlobalRoles.map((role) => (
-                    <option key={role.value} value={role.value}>
-                      {role.label}
+                  <option value="">[ No server access ]</option>
+                  {servers.map((s: ServerResponse) => (
+                    <option key={s.server_id} value={s.server_id}>
+                      {s.name} ({s.server_id})
                     </option>
                   ))}
                 </select>
-              </div>
-
-              {/* Server Access (Optional) */}
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-3">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Server Access (Optional)
-                </label>
-                <div>
-                  <select
-                    id="serverId"
-                    aria-label="Server Access"
-                    value={serverId}
-                    onChange={(e) => setServerId(e.target.value)}
-                    disabled={isLoadingServers}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
-                  >
-                    <option value="">[ No server access ]</option>
-                    {servers.map((s: ServerResponse) => (
-                      <option key={s.server_id} value={s.server_id}>
-                        {s.name} ({s.server_id})
-                      </option>
-                    ))}
-                  </select>
-                  {serversError && (
-                    <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-                      Server list temporarily unavailable. You can still issue global invitations.
-                    </p>
-                  )}
-                </div>
-
-                {serverId && (
-                  <div>
-                    <label htmlFor="serverRole" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                      Server Role
-                    </label>
-                    <select
-                      id="serverRole"
-                      aria-label="Server Role"
-                      value={serverRole}
-                      onChange={(e) => setServerRole(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    >
-                      <option value="viewer">Server Viewer</option>
-                      <option value="dev">Developer</option>
-                      <option value="admin">Server Administrator</option>
-                    </select>
-                  </div>
+                {serversError && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                    Server list temporarily unavailable. You can still issue global invitations.
+                  </p>
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Expiration (Hours)
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={720}
-                  value={expiresInHours}
-                  onChange={(e) => setExpiresInHours(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
+              {serverId && (
+                <div>
+                  <label htmlFor="serverRole" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Server Role
+                  </label>
+                  <select
+                    id="serverRole"
+                    aria-label="Server Role"
+                    value={serverRole}
+                    onChange={(e) => setServerRole(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  >
+                    <option value="viewer">Server Viewer</option>
+                    <option value="dev">Developer</option>
+                    <option value="admin">Server Administrator</option>
+                  </select>
+                </div>
+              )}
+            </div>
 
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  {createMutation.isPending ? "Generating..." : "Generate Invitation"}
-                </button>
-              </div>
-            </form>
-          </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Expiration (Hours)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={720}
+                value={expiresInHours}
+                onChange={(e) => setExpiresInHours(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                disabled={createMutation.isPending}
+                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={createMutation.isPending}
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {createMutation.isPending ? "Generating..." : "Generate Invitation"}
+              </button>
+            </div>
+          </form>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

@@ -104,7 +104,7 @@ describe("InstallModal Component", () => {
         server_type: "paper",
         minecraft_version: "1.21.1",
       },
-    ];
+    ] as unknown as ServerResponse[];
   });
 
   it("does not render when isOpen is false", () => {

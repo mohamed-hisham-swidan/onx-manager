@@ -3,6 +3,7 @@ import { usePanelExposure } from "@/server_manager/hooks/usePanelExposure";
 import { PlayitClaimCard } from "@/server_manager/components/PlayitClaimCard";
 import { useClipboard } from "@/hooks/useClipboard";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/Skeleton";
 import { createAuthenticatedApi } from "@/services/api";
@@ -635,49 +636,48 @@ export function PanelExposureSection() {
       </div>
 
       {/* Disable Confirmation Modal */}
-      {isConfirmDisableOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="disable-modal-title"
-        >
-          <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 space-y-4">
-            <div className="border-b border-gray-200 dark:border-gray-700 pb-3">
-              <h3 id="disable-modal-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Disable Panel Exposure?
-              </h3>
-            </div>
+      <Modal
+        open={isConfirmDisableOpen}
+        onClose={() => {
+          if (isUpdating) return;
+          setIsConfirmDisableOpen(false);
+          disableButtonRef.current?.focus();
+        }}
+        title="Disable Panel Exposure?"
+        size="md"
+        closeOnBackdrop={!isUpdating}
+        closeOnEscape={!isUpdating}
+        closeButtonAriaLabel="Close dialog"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+            Disabling panel exposure will tear down the active tunnel and close public network access to this panel. You will still be able to connect locally.
+          </p>
 
-            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-              Disabling panel exposure will tear down the active tunnel and close public network access to this panel. You will still be able to connect locally.
-            </p>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                ref={modalCancelButtonRef}
-                type="button"
-                onClick={() => {
-                  setIsConfirmDisableOpen(false);
-                  disableButtonRef.current?.focus();
-                }}
-                disabled={isUpdating}
-                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDisable}
-                disabled={isUpdating}
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
-              >
-                {isUpdating ? "Disabling..." : "Confirm Disable"}
-              </button>
-            </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              ref={modalCancelButtonRef}
+              type="button"
+              onClick={() => {
+                setIsConfirmDisableOpen(false);
+                disableButtonRef.current?.focus();
+              }}
+              disabled={isUpdating}
+              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDisable}
+              disabled={isUpdating}
+              className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+            >
+              {isUpdating ? "Disabling..." : "Confirm Disable"}
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

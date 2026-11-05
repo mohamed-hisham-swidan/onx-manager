@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { PlayitClaimCard } from "@/server_manager/components/PlayitClaimCard";
 import type {
   ExposureMethodType,
@@ -62,7 +63,6 @@ export function ServerExposureMethodSelector({
   const [switchConfirmInput, setSwitchConfirmInput] = useState("");
 
   const firstInputRef = useRef<HTMLInputElement>(null);
-  const switchModalRef = useRef<HTMLDivElement>(null);
   const switchInputRef = useRef<HTMLInputElement>(null);
 
   // Sync draft state from server exposure during rendering (React 19 pattern)
@@ -103,45 +103,7 @@ export function ServerExposureMethodSelector({
     setTimeout(() => firstInputRef.current?.focus(), 50);
   };
 
-  // Focus trap for MethodSwitchConfirmModal
-  useEffect(() => {
-    if (!pendingMethod) return;
 
-    const prevElement = document.activeElement as HTMLElement | null;
-    switchInputRef.current?.focus();
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setPendingMethod(null);
-        setSwitchConfirmInput("");
-        return;
-      }
-
-      if (e.key === "Tab" && switchModalRef.current) {
-        const focusables = switchModalRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        if (focusables.length === 0) return;
-
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      prevElement?.focus();
-    };
-  }, [pendingMethod]);
 
   const handleSave = () => {
     if (isReadOnly || isUpdating) return;
@@ -517,69 +479,66 @@ export function ServerExposureMethodSelector({
       )}
 
       {/* Method Switch Typed Confirmation Modal (F-75-17) */}
-      {pendingMethod && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="switch-modal-title"
-        >
-          <div
-            ref={switchModalRef}
-            className="w-full max-w-md rounded-xl border border-amber-200 bg-white p-6 shadow-xl dark:border-amber-900/60 dark:bg-gray-800 space-y-4"
-          >
-            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-              <Icon name="alert" size={20} />
-              <h3 id="switch-modal-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
-                Switch Exposure Method?
-              </h3>
-            </div>
+      <Modal
+        open={Boolean(pendingMethod)}
+        onClose={() => {
+          setPendingMethod(null);
+          setSwitchConfirmInput("");
+        }}
+        title={
+          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+            <Icon name="alert" size={20} />
+            <span>Switch Exposure Method?</span>
+          </div>
+        }
+        description="Changing exposure method will disconnect active tunnels and re-provision targets under the new method. Active player connections will be dropped."
+        size="md"
+        closeOnBackdrop={true}
+        closeOnEscape={true}
+        closeButtonAriaLabel="Close dialog"
+        initialFocusRef={switchInputRef}
+      >
+        <div className="space-y-4">
+          <div className="space-y-2 rounded-lg bg-amber-50 p-3.5 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40">
+            <label
+              htmlFor="switch-typed-input"
+              className="block text-xs font-semibold text-amber-900 dark:text-amber-300"
+            >
+              Type <span className="font-mono underline">SWITCH</span> to confirm:
+            </label>
+            <input
+              ref={switchInputRef}
+              id="switch-typed-input"
+              type="text"
+              value={switchConfirmInput}
+              onChange={(e) => setSwitchConfirmInput(e.target.value)}
+              placeholder='Type "SWITCH"'
+              className="w-full px-3 py-2 rounded-lg border border-amber-300 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all"
+            />
+          </div>
 
-            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-              Changing exposure method will disconnect active tunnels and re-provision targets under the new method. Active player connections will be dropped.
-            </p>
-
-            <div className="space-y-2 rounded-lg bg-amber-50 p-3.5 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40">
-              <label
-                htmlFor="switch-typed-input"
-                className="block text-xs font-semibold text-amber-900 dark:text-amber-300"
-              >
-                Type <span className="font-mono underline">SWITCH</span> to confirm:
-              </label>
-              <input
-                ref={switchInputRef}
-                id="switch-typed-input"
-                type="text"
-                value={switchConfirmInput}
-                onChange={(e) => setSwitchConfirmInput(e.target.value)}
-                placeholder='Type "SWITCH"'
-                className="w-full px-3 py-2 rounded-lg border border-amber-300 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all"
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setPendingMethod(null);
-                  setSwitchConfirmInput("");
-                }}
-                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmSwitch}
-                disabled={switchConfirmInput.trim() !== "SWITCH"}
-                className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium transition-colors disabled:opacity-40 shadow-sm"
-              >
-                Switch Method
-              </button>
-            </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setPendingMethod(null);
+                setSwitchConfirmInput("");
+              }}
+              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmSwitch}
+              disabled={switchConfirmInput.trim() !== "SWITCH"}
+              className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium transition-colors disabled:opacity-40 shadow-sm"
+            >
+              Switch Method
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

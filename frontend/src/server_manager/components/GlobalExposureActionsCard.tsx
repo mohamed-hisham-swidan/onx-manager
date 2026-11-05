@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -64,48 +65,7 @@ export function GlobalExposureActionsCard() {
   const [confirmationInput, setConfirmationInput] = useState("");
   const [isInFlight, setIsInFlight] = useState(false);
 
-  const modalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Focus trapping & restoration
-  useEffect(() => {
-    if (!activeModal) return;
-
-    const prevElement = document.activeElement as HTMLElement | null;
-    inputRef.current?.focus();
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setActiveModal(null);
-        setConfirmationInput("");
-        return;
-      }
-
-      if (e.key === "Tab" && modalRef.current) {
-        const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        if (focusableElements.length === 0) return;
-
-        const first = focusableElements[0];
-        const last = focusableElements[focusableElements.length - 1];
-
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      prevElement?.focus();
-    };
-  }, [activeModal]);
 
   // Gated strictly on Owner role (Spec §7, F-75-09, F-75-18)
   if (!isOwner) return null;
@@ -146,6 +106,7 @@ export function GlobalExposureActionsCard() {
           "All stored encrypted tokens deleted and tunnel supervisors stopped."
         );
       }
+
       setActiveModal(null);
       setConfirmationInput("");
     } catch (err: unknown) {
@@ -157,64 +118,59 @@ export function GlobalExposureActionsCard() {
   };
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800 space-y-4">
-      <div className="flex items-center justify-between border-b border-gray-200 pb-3 dark:border-gray-700">
-        <div className="flex items-center gap-2">
-          <Icon name="alert" size={18} className="text-amber-600 dark:text-amber-400" />
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            Instance Exposure Controls (Owner-Only)
-          </h3>
-        </div>
-        <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-          Instance Owner
-        </span>
+    <div className="rounded-xl border border-red-200 bg-white p-5 shadow-sm dark:border-red-900/40 dark:bg-gray-800 space-y-4">
+      <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+        <Icon name="alert" size={18} />
+        <h3 className="text-sm font-semibold uppercase tracking-wider">
+          Instance Exposure Controls (Owner-Only)
+        </h3>
       </div>
 
-      <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-        High-impact administrative emergency actions for managing network tunnels and credentials across all servers.
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Instance-wide administrative controls for stopping all public endpoints, revoking tokens, or resetting external tunnel agents. These actions affect all servers immediately.
       </p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-        {/* Stop All Exposures */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+        {/* Stop All */}
         <button
           type="button"
           onClick={() => {
-            setConfirmationInput("");
             setActiveModal("STOP_ALL");
+            setConfirmationInput("");
           }}
-          className="p-3 rounded-lg border border-amber-300 bg-amber-50/50 hover:bg-amber-100/60 dark:border-amber-800 dark:bg-amber-900/10 dark:hover:bg-amber-900/20 text-left transition-colors flex flex-col justify-between gap-2"
+          className="flex flex-col justify-between p-3.5 rounded-lg border border-red-200 bg-red-50/50 hover:bg-red-100/60 dark:border-red-900/40 dark:bg-red-950/20 dark:hover:bg-red-950/40 text-left transition-colors group"
         >
           <div>
-            <h4 className="text-xs font-semibold text-amber-900 dark:text-amber-300">
+            <h4 className="text-xs font-semibold text-red-900 dark:text-red-300">
               Stop All Exposures
             </h4>
-            <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">
-              Emergency shutdown of all server and panel tunnels without deleting credentials.
+            <p className="text-[11px] text-red-700 dark:text-red-400 mt-1">
+              Disable all active game tunnels and panel exposure across the instance.
             </p>
           </div>
-          <span className="text-[11px] font-medium text-amber-800 dark:text-amber-300">
-            Stop All →
+          <span className="text-[11px] font-medium text-red-700 dark:text-red-400 mt-3 group-hover:underline">
+            Emergency Stop →
           </span>
         </button>
 
-        {/* Reset playit Agent */}
+        {/* Reset Agent */}
         <button
           type="button"
           onClick={() => {
-            setConfirmationInput("");
             setActiveModal("RESET_AGENT");
+            setConfirmationInput("");
           }}
-          className="p-3 rounded-lg border border-red-200 bg-red-50/40 hover:bg-red-100/60 dark:border-red-800 dark:bg-red-900/10 dark:hover:bg-red-900/20 text-left transition-colors flex flex-col justify-between gap-2"
+          className="flex flex-col justify-between p-3.5 rounded-lg border border-red-200 bg-red-50/50 hover:bg-red-100/60 dark:border-red-900/40 dark:bg-red-950/20 dark:hover:bg-red-950/40 text-left transition-colors group"
         >
           <div>
             <h4 className="text-xs font-semibold text-red-900 dark:text-red-300">
               Reset playit Agent
             </h4>
             <p className="text-[11px] text-red-700 dark:text-red-400 mt-1">
-              Clear host credentials and unclaim agent. Requires re-authorization.
+              Clear host credentials and unclaim agent. Required when re-claiming account.
             </p>
           </div>
-          <span className="text-[11px] font-medium text-red-700 dark:text-red-400">
+          <span className="text-[11px] font-medium text-red-700 dark:text-red-400 mt-3 group-hover:underline">
             Reset Agent →
           </span>
         </button>
@@ -223,10 +179,10 @@ export function GlobalExposureActionsCard() {
         <button
           type="button"
           onClick={() => {
-            setConfirmationInput("");
             setActiveModal("REMOVE_CREDENTIALS");
+            setConfirmationInput("");
           }}
-          className="p-3 rounded-lg border border-red-200 bg-red-50/40 hover:bg-red-100/60 dark:border-red-800 dark:bg-red-900/10 dark:hover:bg-red-900/20 text-left transition-colors flex flex-col justify-between gap-2"
+          className="flex flex-col justify-between p-3.5 rounded-lg border border-red-200 bg-red-50/50 hover:bg-red-100/60 dark:border-red-900/40 dark:bg-red-950/20 dark:hover:bg-red-950/40 text-left transition-colors group"
         >
           <div>
             <h4 className="text-xs font-semibold text-red-900 dark:text-red-300">
@@ -236,38 +192,35 @@ export function GlobalExposureActionsCard() {
               Permanently delete all stored encrypted tokens and stop all tunnels.
             </p>
           </div>
-          <span className="text-[11px] font-medium text-red-700 dark:text-red-400">
+          <span className="text-[11px] font-medium text-red-700 dark:text-red-400 mt-3 group-hover:underline">
             Remove Credentials →
           </span>
         </button>
       </div>
 
       {/* Typed Confirmation Modal (F-75-18) */}
-      {activeModal && currentConfig && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="global-action-modal-title"
-        >
-          <div
-            ref={modalRef}
-            className="w-full max-w-md rounded-xl border border-red-200 bg-white p-6 shadow-xl dark:border-red-900/60 dark:bg-gray-800 space-y-4"
-          >
-            <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-              <Icon name="alert" size={20} />
-              <h3
-                id="global-action-modal-title"
-                className="text-base font-semibold text-gray-900 dark:text-gray-100"
-              >
-                {currentConfig.title}
-              </h3>
-            </div>
-
-            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-              {currentConfig.description}
-            </p>
-
+      <Modal
+        open={Boolean(activeModal && currentConfig)}
+        onClose={() => {
+          if (isInFlight) return;
+          setActiveModal(null);
+          setConfirmationInput("");
+        }}
+        title={
+          <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+            <Icon name="alert" size={20} />
+            <span>{currentConfig?.title}</span>
+          </div>
+        }
+        description={currentConfig?.description}
+        size="md"
+        closeOnBackdrop={!isInFlight}
+        closeOnEscape={!isInFlight}
+        closeButtonAriaLabel="Close dialog"
+        initialFocusRef={inputRef}
+      >
+        {currentConfig && (
+          <div className="space-y-4">
             <div className="space-y-2 rounded-lg bg-red-50 p-3.5 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40">
               <label
                 htmlFor="typed-confirm-input"
@@ -279,10 +232,11 @@ export function GlobalExposureActionsCard() {
                 ref={inputRef}
                 id="typed-confirm-input"
                 type="text"
+                disabled={isInFlight}
                 value={confirmationInput}
                 onChange={(e) => setConfirmationInput(e.target.value)}
                 placeholder={`Type "${currentConfig.requiredText}"`}
-                className="w-full px-3 py-2 rounded-lg border border-red-300 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all"
+                className="w-full px-3 py-2 rounded-lg border border-red-300 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all disabled:opacity-50"
               />
             </div>
 
@@ -308,8 +262,8 @@ export function GlobalExposureActionsCard() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }

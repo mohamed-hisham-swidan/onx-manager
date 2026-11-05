@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi } from "@/services/api";
 import { toast } from "@/stores/toastStore";
 import { Skeleton } from "@/components/Skeleton";
+import { Modal } from "@/components/ui/Modal";
 
 export function AccessModeCard() {
   const queryClient = useQueryClient();
@@ -156,52 +157,59 @@ export function AccessModeCard() {
       </div>
 
       {/* Confirmation Modal */}
-      {pendingMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 space-y-4">
-            <div className="border-b border-gray-200 dark:border-gray-700 pb-3">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                {pendingMode === "GLOBAL"
-                  ? "Switch to GLOBAL Access Mode?"
-                  : "Switch to LOCAL Access Mode?"}
-              </h3>
-            </div>
+      <Modal
+        open={Boolean(pendingMode)}
+        onClose={() => {
+          if (updateMutation.isPending) return;
+          setPendingMode(null);
+        }}
+        title={
+          pendingMode === "GLOBAL"
+            ? "Switch to GLOBAL Access Mode?"
+            : "Switch to LOCAL Access Mode?"
+        }
+        size="md"
+        closeOnBackdrop={!updateMutation.isPending}
+        closeOnEscape={!updateMutation.isPending}
+        closeButtonAriaLabel="Close dialog"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+            {pendingMode === "GLOBAL"
+              ? "Changing the instance Access Mode to GLOBAL will immediately disable open self-registration. All future registrations will require a valid invitation link created by an Owner or Admin. Existing user accounts will remain unaffected."
+              : "Changing the instance Access Mode to LOCAL will immediately enable open self-registration. Anyone with access to this panel will be able to create a new account (assigned Viewer role by default). Existing user accounts will remain unaffected."}
+          </p>
 
-            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-              {pendingMode === "GLOBAL"
-                ? "Changing the instance Access Mode to GLOBAL will immediately disable open self-registration. All future registrations will require a valid invitation link created by an Owner or Admin. Existing user accounts will remain unaffected."
-                : "Changing the instance Access Mode to LOCAL will immediately enable open self-registration. Anyone with access to this panel will be able to create a new account (assigned Viewer role by default). Existing user accounts will remain unaffected."}
-            </p>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setPendingMode(null)}
-                disabled={updateMutation.isPending}
-                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => updateMutation.mutate(pendingMode)}
-                disabled={updateMutation.isPending}
-                className={`px-4 py-2 rounded-lg text-xs font-medium text-white transition-colors disabled:opacity-50 ${
-                  pendingMode === "GLOBAL"
-                    ? "bg-purple-600 hover:bg-purple-700"
-                    : "bg-blue-600 hover:bg-blue-700"
-                }`}
-              >
-                {updateMutation.isPending
-                  ? "Updating Mode..."
-                  : pendingMode === "GLOBAL"
-                  ? "Confirm Switch to GLOBAL"
-                  : "Confirm Switch to LOCAL"}
-              </button>
-            </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setPendingMode(null)}
+              disabled={updateMutation.isPending}
+              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (pendingMode) updateMutation.mutate(pendingMode);
+              }}
+              disabled={updateMutation.isPending}
+              className={`px-4 py-2 rounded-lg text-xs font-medium text-white transition-colors disabled:opacity-50 ${
+                pendingMode === "GLOBAL"
+                  ? "bg-purple-600 hover:bg-purple-700"
+                  : "bg-blue-600 hover:bg-blue-700"
+              }`}
+            >
+              {updateMutation.isPending
+                ? "Updating Mode..."
+                : pendingMode === "GLOBAL"
+                ? "Confirm Switch to GLOBAL"
+                : "Confirm Switch to LOCAL"}
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

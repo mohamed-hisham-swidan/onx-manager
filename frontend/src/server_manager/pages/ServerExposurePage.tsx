@@ -6,6 +6,7 @@ import { ServerExposureMethodSelector } from "@/server_manager/components/Server
 import { TargetListSection } from "@/server_manager/components/TargetListSection";
 import { GlobalExposureActionsCard } from "@/server_manager/components/GlobalExposureActionsCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/Skeleton";
 import { Icon } from "@/components/ui/Icon";
 import { useQuery } from "@tanstack/react-query";
@@ -249,48 +250,47 @@ export function ServerExposurePage() {
       <GlobalExposureActionsCard />
 
       {/* Disable Exposure Confirmation Modal */}
-      {isConfirmDisableOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="server-disable-modal-title"
-        >
-          <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-800 space-y-4">
-            <h3
-              id="server-disable-modal-title"
-              className="text-base font-semibold text-gray-900 dark:text-gray-100"
+      <Modal
+        open={isConfirmDisableOpen}
+        onClose={() => {
+          if (isSettingExposureState) return;
+          setIsConfirmDisableOpen(false);
+          disableButtonRef.current?.focus();
+        }}
+        title="Disable Server Exposure?"
+        size="md"
+        closeOnBackdrop={!isSettingExposureState}
+        closeOnEscape={!isSettingExposureState}
+        closeButtonAriaLabel="Close dialog"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+            Disabling network exposure will disconnect all public tunnels and port mappings for this Minecraft server. Players on the internet will no longer be able to connect.
+          </p>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              ref={modalCancelButtonRef}
+              type="button"
+              onClick={() => {
+                setIsConfirmDisableOpen(false);
+                disableButtonRef.current?.focus();
+              }}
+              disabled={isSettingExposureState}
+              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
-              Disable Server Exposure?
-            </h3>
-            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
-              Disabling network exposure will disconnect all public tunnels and port mappings for this Minecraft server. Players on the internet will no longer be able to connect.
-            </p>
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                ref={modalCancelButtonRef}
-                type="button"
-                onClick={() => {
-                  setIsConfirmDisableOpen(false);
-                  disableButtonRef.current?.focus();
-                }}
-                disabled={isSettingExposureState}
-                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDisable}
-                disabled={isSettingExposureState}
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
-              >
-                {isSettingExposureState ? "Disabling..." : "Confirm Disable"}
-              </button>
-            </div>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDisable}
+              disabled={isSettingExposureState}
+              className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+            >
+              {isSettingExposureState ? "Disabling..." : "Confirm Disable"}
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

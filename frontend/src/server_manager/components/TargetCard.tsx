@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useClipboard } from "@/hooks/useClipboard";
 import { SERVICE_METADATA, type TargetResponse } from "@/types";
@@ -207,45 +208,40 @@ export function TargetCard({
       )}
 
       {/* Confirm Target Delete Dialog */}
-      {isConfirmDeleteOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-target-modal-title"
-        >
-          <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-800 space-y-4">
-            <h3
-              id="delete-target-modal-title"
-              className="text-base font-semibold text-gray-900 dark:text-gray-100"
+      <Modal
+        open={isConfirmDeleteOpen}
+        onClose={() => setIsConfirmDeleteOpen(false)}
+        title="Remove Companion Target?"
+        size="sm"
+        closeOnBackdrop={true}
+        closeOnEscape={true}
+        closeButtonAriaLabel="Close dialog"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-gray-600 dark:text-gray-300">
+            Are you sure you want to remove the <span className="font-semibold">{meta.label}</span> target ({target.protocol.toUpperCase()} {target.local_port})? External access to this companion service will be closed.
+          </p>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsConfirmDeleteOpen(false)}
+              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
-              Remove Companion Target?
-            </h3>
-            <p className="text-xs text-gray-600 dark:text-gray-300">
-              Are you sure you want to remove the <span className="font-semibold">{meta.label}</span> target ({target.protocol.toUpperCase()} {target.local_port})? External access to this companion service will be closed.
-            </p>
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsConfirmDeleteOpen(false)}
-                className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onRemoveTarget(target.id);
-                  setIsConfirmDeleteOpen(false);
-                }}
-                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium shadow-sm"
-              >
-                Remove Target
-              </button>
-            </div>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onRemoveTarget(target.id);
+                setIsConfirmDeleteOpen(false);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium shadow-sm"
+            >
+              Remove Target
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

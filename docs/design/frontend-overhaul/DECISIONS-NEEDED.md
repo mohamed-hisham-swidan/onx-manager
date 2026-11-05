@@ -96,19 +96,20 @@ This document records non-blocking decisions, conservative choices made during a
     1. `frontend/src/server_manager/components/InstallModal.tsx`
     2. `frontend/src/server_manager/components/AddCompanionTargetModal.tsx`
     3. `frontend/src/server_manager/components/EditPublicAddressModal.tsx`
+  - **Batch N-04 / F5d-2 (7 inline overlays migrated)**:
+    1. `frontend/src/server_manager/components/AccessModeCard.tsx` (Access mode switch confirm dialog)
+    2. `frontend/src/server_manager/components/GlobalExposureActionsCard.tsx` (Emergency stop/reset typed confirmation dialog)
+    3. `frontend/src/server_manager/components/InvitationsSection.tsx` (Generate invitation form dialog)
+    4. `frontend/src/server_manager/components/PanelExposureSection.tsx` (Disable panel exposure confirm dialog)
+    5. `frontend/src/server_manager/components/ServerExposureMethodSelector.tsx` (Exposure method switch typed confirmation dialog)
+    6. `frontend/src/server_manager/components/TargetCard.tsx` (Remove companion target confirm dialog)
+    7. `frontend/src/server_manager/pages/ServerExposurePage.tsx` (Disable server exposure confirm dialog)
 - **Owner Decision (Escape Close Behavior on Form Modals)**:
   - **Applied Behavior**: "Escape now closes form modals; typed text is discarded (no dirty-form prompt); guard only while pending".
   - **Rationale**: Keeps modal UX predictable and accessible per WCAG dialog patterns without intrusive multi-step discard prompts, while protecting data integrity by blocking Escape dismissal while mutations are actively in-flight.
-- **Remaining Bypassing Overlays (7 files, 7 occurrences)**:
+- **Remaining Bypassing Overlays (0 files, 0 occurrences)**:
   *(Computed by `grep -rl "fixed inset-0" frontend/src --include='*.tsx' | grep -v '\.test\.'`, excluding primitives `Modal.tsx` and `ConfirmDialog.tsx`, `SplashScreen.tsx`, and `Sidebar.tsx` mobile backdrop)*:
-  1. `frontend/src/server_manager/components/AccessModeCard.tsx`
-  2. `frontend/src/server_manager/components/GlobalExposureActionsCard.tsx`
-  3. `frontend/src/server_manager/components/InvitationsSection.tsx`
-  4. `frontend/src/server_manager/components/PanelExposureSection.tsx`
-  5. `frontend/src/server_manager/components/ServerExposureMethodSelector.tsx`
-  6. `frontend/src/server_manager/components/TargetCard.tsx`
-  7. `frontend/src/server_manager/pages/ServerExposurePage.tsx`
-- **Triage for Owner**: The remaining 7 overlays are scheduled for triage in N-04 (identifying true dialogs vs legitimate inline/section scrims).
+  - **Result: 0 bypassing overlays remain.** Every modal dialog in the application now utilizes the canonical `Modal` and `ConfirmDialog` primitives with scroll locking, accessible roles, and focus traps. Ratchet locked via `overlayRatchet.test.ts` (N-05).
 
 ---
 
