@@ -420,7 +420,7 @@ export function ImportServerPage() {
 
       {step === "done" && (
         <div className="text-center py-12">
-          <Icon name="check" size={36} className="mx-auto mb-4 text-status-online" />
+          <Icon name="check" size={36} className="mx-auto mb-4 text-status-success" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Server Imported</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
             {scanResult?.name} has been imported. The original files were not modified.

@@ -11,7 +11,7 @@ interface StatCardProps {
 
 export function StatCard({ icon, label, value, sublabel, color = "bg-accent-primary/10 text-accent-primary" }: StatCardProps) {
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-border-default bg-surface-panel p-4 shadow-xs">
+    <div className="flex items-center gap-4 rounded-xl border border-border-default bg-surface-card p-4 shadow-xs">
       <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${color}`}>
         <Icon name={icon} size={20} />
       </div>

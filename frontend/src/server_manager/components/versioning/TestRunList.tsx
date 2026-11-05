@@ -23,7 +23,7 @@ export function TestRunList({
   onCheckNow,
 }: TestRunListProps) {
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 bg-surface-panel shadow-sm overflow-hidden">
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 bg-surface-card shadow-sm overflow-hidden">
       <div className="border-b border-border-subtle px-6 py-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider">
           Isolated Test Runs
@@ -32,7 +32,7 @@ export function TestRunList({
           <button
             type="button"
             onClick={onTestProfiles}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-canvas px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-page px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
           >
             <Icon name="settings" size={12} />
             Test Profiles
@@ -116,7 +116,7 @@ export function TestRunList({
                 <button
                   type="button"
                   onClick={() => onEvidence(run.id)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-canvas px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-page px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
                   title="View diagnostic evidence and root-cause analysis"
                 >
                   <Icon name="activity" size={12} />
@@ -126,7 +126,7 @@ export function TestRunList({
                   <button
                     type="button"
                     onClick={() => onLogs(run)}
-                    className="rounded-lg border border-border-default bg-surface-canvas px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+                    className="rounded-lg border border-border-default bg-surface-page px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
                   >
                     Logs
                   </button>
@@ -157,7 +157,7 @@ export function TestRunList({
                   <button
                     type="button"
                     onClick={() => onDiscard(run.id)}
-                    className="rounded-lg border border-border-default bg-surface-canvas px-2.5 py-1 text-xs font-medium text-status-danger hover:bg-status-danger-bg transition-colors cursor-pointer"
+                    className="rounded-lg border border-border-default bg-surface-page px-2.5 py-1 text-xs font-medium text-status-danger hover:bg-status-danger-bg transition-colors cursor-pointer"
                   >
                     Discard
                   </button>

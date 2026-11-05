@@ -25,14 +25,14 @@ export function BranchToolbar({
   onExploreWorktree,
 }: BranchToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-panel p-3 rounded-xl border border-border-default">
+    <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-card p-3 rounded-xl border border-border-default">
       <div className="flex flex-wrap items-center gap-2">
         <Icon name="folder" size={16} className="text-text-muted" />
         <span className="text-xs font-medium text-text-secondary">Branch:</span>
         <select
           value={selectedBranch}
           onChange={(e) => onSelectBranch(e.target.value)}
-          className="rounded-lg border border-border-default bg-surface-canvas px-2.5 py-1 text-xs font-semibold text-text-primary focus:outline-none focus:border-accent-primary"
+          className="rounded-lg border border-border-default bg-surface-page px-2.5 py-1 text-xs font-semibold text-text-primary focus:outline-none focus:border-accent-primary"
         >
           {branches.map((b) => (
             <option key={b.id} value={b.name}>

@@ -2,7 +2,7 @@ import { useToastStore, type ToastType } from "@/stores/toastStore";
 import { Icon } from "./Icon";
 
 const STYLES: Record<ToastType, { ring: string; icon: "check" | "alert" | "info"; iconColor: string }> = {
-  success: { ring: "border-status-online/40", icon: "check", iconColor: "text-status-online" },
+  success: { ring: "border-status-success/40", icon: "check", iconColor: "text-status-success" },
   error: { ring: "border-status-danger/40", icon: "alert", iconColor: "text-status-danger" },
   info: { ring: "border-accent-primary/40", icon: "info", iconColor: "text-accent-primary" },
 };
@@ -19,7 +19,7 @@ export function Toaster() {
           <div
             key={t.id}
             role="status"
-            className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-surface-panel p-4 shadow-lg text-text-primary ${style.ring}`}
+            className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-surface-card p-4 shadow-lg text-text-primary ${style.ring}`}
           >
             <Icon name={style.icon} size={18} className={`mt-0.5 shrink-0 ${style.iconColor}`} />
             <div className="min-w-0 flex-1">

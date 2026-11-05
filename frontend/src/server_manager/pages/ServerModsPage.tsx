@@ -58,7 +58,7 @@ function LoaderBadge({ loader }: { loader?: string | null }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-canvas px-2 py-0.5 text-xs font-medium text-text-secondary">
+    <span className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-page px-2 py-0.5 text-xs font-medium text-text-secondary">
       <Icon name="plugin" size={12} />
       {loader || "Universal"}
     </span>
@@ -174,8 +174,8 @@ function ModUploadZone({
       onClick={() => !isUploading && fileInputRef.current?.click()}
       className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors cursor-pointer ${
         isDragging
-          ? "border-accent-primary bg-accent-muted/15"
-          : "border-border-default hover:border-accent-muted bg-surface-panel hover:bg-surface-hover/50"
+          ? "border-accent-primary bg-accent-primary/15"
+          : "border-border-default hover:border-accent-primary bg-surface-card hover:bg-surface-hover/50"
       } ${isUploading ? "pointer-events-none opacity-60" : ""}`}
     >
       <input
@@ -186,7 +186,7 @@ function ModUploadZone({
         className="hidden"
         data-testid="mod-file-input"
       />
-      <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accent-muted/20 text-accent-primary">
+      <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accent-primary/20 text-accent-primary">
         <Icon name="upload" size={20} />
       </div>
       <p className="text-sm font-medium text-text-primary">
@@ -339,7 +339,7 @@ export function ServerModsPage() {
             id="mods-server-select"
             value={effectiveServerId}
             onChange={handleServerChange}
-            className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+            className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
           >
             <option value="">Select a server...</option>
             {servers?.map((s) => (
@@ -376,7 +376,7 @@ export function ServerModsPage() {
                   setCurrentPage(1);
                 }}
                 placeholder="Search mods by name, ID, or file..."
-                className="w-full rounded-lg border border-border-default bg-surface-canvas py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+                className="w-full rounded-lg border border-border-default bg-surface-page py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
               />
             </div>
 
@@ -391,7 +391,7 @@ export function ServerModsPage() {
                   setLoaderFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="rounded-lg border border-border-default bg-surface-canvas px-3 py-1.5 text-xs text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+                className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
               >
                 <option value="all">All Loaders</option>
                 <option value="fabric">Fabric</option>
@@ -408,10 +408,10 @@ export function ServerModsPage() {
           ) : error ? (
             <ErrorState message={error instanceof Error ? error.message : "Failed to load mods"} />
           ) : filteredMods.length > 0 ? (
-            <div className="overflow-hidden rounded-xl border border-border-default bg-surface-panel shadow-xs">
+            <div className="overflow-hidden rounded-xl border border-border-default bg-surface-card shadow-xs">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border-subtle bg-surface-canvas/50">
+                  <tr className="border-b border-border-subtle bg-surface-page/50">
                     <th className="px-4 py-3 text-left font-medium text-text-muted">
                       Mod
                     </th>
@@ -441,10 +441,10 @@ export function ServerModsPage() {
                             <img
                               src={m.icon_url}
                               alt={`${m.name} icon`}
-                              className="h-10 w-10 shrink-0 rounded-lg bg-surface-canvas object-cover border border-border-subtle"
+                              className="h-10 w-10 shrink-0 rounded-lg bg-surface-page object-cover border border-border-subtle"
                             />
                           ) : (
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-canvas text-text-muted border border-border-subtle">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-page text-text-muted border border-border-subtle">
                               <Icon name="plugin" size={24} />
                             </div>
                           )}
@@ -452,7 +452,7 @@ export function ServerModsPage() {
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="font-medium text-text-primary">{m.name}</p>
                               {m.mod_id && (
-                                <span className="rounded bg-surface-canvas px-1.5 py-0.5 font-mono text-[11px] text-text-muted border border-border-subtle">
+                                <span className="rounded bg-surface-page px-1.5 py-0.5 font-mono text-[11px] text-text-muted border border-border-subtle">
                                   {m.mod_id}
                                 </span>
                               )}
@@ -535,7 +535,7 @@ export function ServerModsPage() {
                       setSearchQuery("");
                       setLoaderFilter("all");
                     }}
-                    className="inline-flex items-center gap-1 rounded-lg bg-surface-canvas border border-border-default px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+                    className="inline-flex items-center gap-1 rounded-lg bg-surface-page border border-border-default px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
                   >
                     Clear Filters
                   </button>

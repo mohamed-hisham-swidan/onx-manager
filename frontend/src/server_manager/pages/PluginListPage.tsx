@@ -26,7 +26,7 @@ function errorMessage(error: unknown): string {
 function SourceBadge({ plugin }: { plugin: PluginResponse }) {
   if (plugin.source === "modrinth") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-accent-muted/20 px-2 py-0.5 text-xs font-medium text-accent-primary border border-accent-muted/30">
+      <span className="inline-flex items-center gap-1 rounded-full bg-accent-primary/20 px-2 py-0.5 text-xs font-medium text-accent-primary border border-accent-primary/30">
         <Icon name="external" size={12} />
         Marketplace
       </span>
@@ -34,7 +34,7 @@ function SourceBadge({ plugin }: { plugin: PluginResponse }) {
   }
   if (plugin.source === "detected") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-surface-canvas px-2 py-0.5 text-xs font-medium text-text-secondary border border-border-default">
+      <span className="inline-flex items-center gap-1 rounded-full bg-surface-page px-2 py-0.5 text-xs font-medium text-text-secondary border border-border-default">
         Detected on disk
       </span>
     );
@@ -128,7 +128,7 @@ export function PluginListPage() {
             id="plugin-server-select"
             value={effectiveServerId}
             onChange={handleServerChange}
-            className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+            className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
           >
             <option value="">Select a server...</option>
             {servers?.map((s) => (
@@ -151,10 +151,10 @@ export function PluginListPage() {
       ) : error ? (
         <ErrorState message={error instanceof Error ? error.message : "Failed to load plugins"} />
       ) : plugins && plugins.length > 0 ? (
-        <div className="overflow-hidden rounded-xl border border-border-default bg-surface-panel shadow-xs">
+        <div className="overflow-hidden rounded-xl border border-border-default bg-surface-card shadow-xs">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border-subtle bg-surface-canvas/50">
+              <tr className="border-b border-border-subtle bg-surface-page/50">
                 <th className="px-4 py-3 text-left font-medium text-text-muted">Name</th>
                 <th className="hidden px-4 py-3 text-left font-medium text-text-muted sm:table-cell">Version</th>
                 <th className="hidden px-4 py-3 text-left font-medium text-text-muted md:table-cell">Author</th>
@@ -174,10 +174,10 @@ export function PluginListPage() {
                         <img
                           src={p.icon_url}
                           alt={`${p.name} icon`}
-                          className="h-10 w-10 shrink-0 rounded-lg bg-surface-canvas object-cover border border-border-subtle"
+                          className="h-10 w-10 shrink-0 rounded-lg bg-surface-page object-cover border border-border-subtle"
                         />
                       ) : (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-canvas text-text-muted border border-border-subtle">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-page text-text-muted border border-border-subtle">
                           <Icon name="plugin" size={24} />
                         </div>
                       )}
@@ -212,7 +212,7 @@ export function PluginListPage() {
                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border ${
                         p.status === "enabled"
                           ? "bg-status-success-bg text-status-success border-status-success/30"
-                          : "bg-surface-canvas text-text-muted border-border-default"
+                          : "bg-surface-page text-text-muted border-border-default"
                       }`}
                     >
                       <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-current opacity-70" aria-hidden="true" />

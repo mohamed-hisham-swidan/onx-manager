@@ -59,7 +59,7 @@ export function VersionStep({
       <h3 className="text-lg font-semibold text-text-primary mb-4">Choose Minecraft Version</h3>
       {isForge && (
         <div className="mb-4">
-          <div className="inline-flex rounded-lg border border-border-default bg-surface-canvas p-1">
+          <div className="inline-flex rounded-lg border border-border-default bg-surface-page p-1">
             {(["modern", "legacy"] as const).map((ed) => {
               const meta = FORGE_EDITION_LABELS[ed];
               const isEdActive = edition === ed;
@@ -100,8 +100,8 @@ export function VersionStep({
                 onClick={() => onSelect(v)}
                 className={`px-3 py-2 rounded-lg text-sm font-medium border transition-all cursor-pointer ${
                   isSelected
-                    ? "border-accent-primary bg-accent-muted/15 text-accent-primary shadow-xs"
-                    : "border-border-default text-text-primary hover:border-accent-muted bg-surface-panel"
+                    ? "border-accent-primary bg-accent-primary/15 text-accent-primary shadow-xs"
+                    : "border-border-default text-text-primary hover:border-accent-primary bg-surface-card"
                 }`}
               >
                 {v}

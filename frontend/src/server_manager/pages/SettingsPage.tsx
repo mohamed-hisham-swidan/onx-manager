@@ -33,7 +33,7 @@ export function SettingsPage() {
         <Skeleton className="h-10 w-48" />
         <div className="space-y-6">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-border-default bg-surface-panel p-6 space-y-4">
+            <div key={i} className="rounded-xl border border-border-default bg-surface-card p-6 space-y-4">
               <Skeleton className="h-6 w-36" />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Skeleton className="h-10 w-full" />
@@ -235,14 +235,14 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               type="button"
               onClick={handleReset}
               disabled={!isDirty || updateSettings.isPending}
-              className="px-4 py-2 rounded-lg border border-border-default bg-surface-panel text-sm font-medium text-text-secondary transition-colors hover:bg-surface-elevated disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-lg border border-border-default bg-surface-card text-sm font-medium text-text-secondary transition-colors hover:bg-surface-elevated disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Discard Changes
             </button>
             <button
               type="submit"
               disabled={updateSettings.isPending}
-              className="inline-flex items-center gap-2 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {updateSettings.isPending ? (
                 <>
@@ -291,7 +291,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       )}
 
       {/* Section 1: General */}
-      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
+      <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
         <div className="mb-4">
           <h3 className="text-base font-semibold text-text-primary">General</h3>
           <p className="text-xs text-text-muted">
@@ -320,7 +320,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.app_name}
               onChange={handleChange}
               aria-describedby="app_name-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="app_name-help" className="mt-1 text-xs text-text-muted">
               Display name for this onx-manager instance.
@@ -341,7 +341,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.log_level}
               onChange={handleChange}
               aria-describedby="log_level-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             >
               <option value="DEBUG">DEBUG</option>
               <option value="INFO">INFO</option>
@@ -367,7 +367,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.debug ? "true" : "false"}
               onChange={handleChange}
               aria-describedby="debug-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             >
               <option value="true">Enabled</option>
               <option value="false">Disabled</option>
@@ -380,7 +380,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 2: Rate Limiting & Security */}
-      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
+      <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
         <div className="mb-4">
           <h3 className="text-base font-semibold text-text-primary">Rate Limiting & Security</h3>
           <p className="text-xs text-text-muted">
@@ -402,7 +402,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.rate_limit_per_minute}
               onChange={handleChange}
               aria-describedby="rate_limit_per_minute-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="rate_limit_per_minute-help" className="mt-1 text-xs text-text-muted">
               Max API requests per minute per IP address.
@@ -423,7 +423,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.idempotency_ttl_hours}
               onChange={handleChange}
               aria-describedby="idempotency_ttl_hours-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="idempotency_ttl_hours-help" className="mt-1 text-xs text-text-muted">
               Retention period in hours for request idempotency execution keys.
@@ -433,7 +433,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 3: Circuit Breaker */}
-      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
+      <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
         <div className="mb-4">
           <h3 className="text-base font-semibold text-text-primary">Circuit Breaker</h3>
           <p className="text-xs text-text-muted">
@@ -455,7 +455,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.circuit_breaker_max_failures}
               onChange={handleChange}
               aria-describedby="circuit_breaker_max_failures-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="circuit_breaker_max_failures-help" className="mt-1 text-xs text-text-muted">
               Consecutive errors before opening the circuit breaker.
@@ -476,7 +476,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.circuit_breaker_timeout_seconds}
               onChange={handleChange}
               aria-describedby="circuit_breaker_timeout_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="circuit_breaker_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
               Cooldown duration in seconds before attempting half-open recovery.
@@ -486,7 +486,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 4: Event Bus & Sagas */}
-      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
+      <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
         <div className="mb-4">
           <h3 className="text-base font-semibold text-text-primary">Event Bus & Sagas</h3>
           <p className="text-xs text-text-muted">
@@ -508,7 +508,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.event_bus_retry_attempts}
               onChange={handleChange}
               aria-describedby="event_bus_retry_attempts-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="event_bus_retry_attempts-help" className="mt-1 text-xs text-text-muted">
               Max delivery retries for failing async domain event handlers.
@@ -529,7 +529,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.saga_timeout_seconds}
               onChange={handleChange}
               aria-describedby="saga_timeout_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="saga_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
               Maximum execution duration before rolling back a distributed saga.
@@ -539,7 +539,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 5: Monitoring & Performance */}
-      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
+      <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
         <div className="mb-4">
           <h3 className="text-base font-semibold text-text-primary">Monitoring & Performance</h3>
           <p className="text-xs text-text-muted">
@@ -562,7 +562,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.metrics_interval_seconds}
               onChange={handleChange}
               aria-describedby="metrics_interval_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="metrics_interval_seconds-help" className="mt-1 text-xs text-text-muted">
               Frequency in seconds for sampling CPU, RAM, and streaming real-time metrics (e.g. 0.2s for live real-time, 1.0s or 5.0s for reduced CPU overhead).
@@ -572,7 +572,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       </div>
 
       {/* Section 6: Startup & Boot Timeouts */}
-      <div className="rounded-xl border border-border-default bg-surface-panel p-6 shadow-xs">
+      <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
         <div className="mb-4">
           <h3 className="text-base font-semibold text-text-primary">Startup & Boot Timeouts</h3>
           <p className="text-xs text-text-muted">
@@ -593,7 +593,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.server_startup_timeout_seconds}
               onChange={handleChange}
               aria-describedby="server_startup_timeout_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="server_startup_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
               Global timeout before starting monitor warns on slow server boot. Can be overridden per-server.
@@ -613,7 +613,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               value={formData.test_boot_timeout_seconds}
               onChange={handleChange}
               aria-describedby="test_boot_timeout_seconds-help"
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             />
             <p id="test_boot_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
               Global timeout before isolated test containers fail boot verification.

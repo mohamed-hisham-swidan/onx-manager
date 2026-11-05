@@ -33,17 +33,17 @@ export function RamStepperField({
           {label}
         </label>
         {gbDisplay && (
-          <span className="text-[11px] font-bold text-accent-primary bg-accent-muted/20 px-2 py-0.5 rounded-full border border-accent-muted/40">
+          <span className="text-[11px] font-bold text-accent-primary bg-accent-primary/20 px-2 py-0.5 rounded-full border border-accent-primary/40">
             {gbDisplay}
           </span>
         )}
       </div>
-      <div className="relative flex items-stretch rounded-lg border border-border-default bg-surface-canvas focus-within:ring-2 focus-within:ring-accent-primary focus-within:border-accent-primary shadow-xs overflow-hidden">
+      <div className="relative flex items-stretch rounded-lg border border-border-default bg-surface-page focus-within:ring-2 focus-within:ring-accent-primary focus-within:border-accent-primary shadow-xs overflow-hidden">
         <button
           type="button"
           onClick={() => stepBy(-512)}
           aria-label={`Decrease ${label} by 512 MB`}
-          className="flex items-center justify-center px-3 text-xs font-bold text-text-secondary bg-surface-panel hover:bg-surface-hover active:opacity-75 border-r border-border-default transition-colors select-none cursor-pointer"
+          className="flex items-center justify-center px-3 text-xs font-bold text-text-secondary bg-surface-card hover:bg-surface-hover active:opacity-75 border-r border-border-default transition-colors select-none cursor-pointer"
         >
           <span className="text-text-muted mr-0.5">▼</span> -512
         </button>
@@ -64,7 +64,7 @@ export function RamStepperField({
           type="button"
           onClick={() => stepBy(512)}
           aria-label={`Increase ${label} by 512 MB`}
-          className="flex items-center justify-center px-3 text-xs font-bold text-text-secondary bg-surface-panel hover:bg-surface-hover active:opacity-75 border-l border-border-default transition-colors select-none cursor-pointer"
+          className="flex items-center justify-center px-3 text-xs font-bold text-text-secondary bg-surface-card hover:bg-surface-hover active:opacity-75 border-l border-border-default transition-colors select-none cursor-pointer"
         >
           +512 <span className="text-text-muted ml-0.5">▲</span>
         </button>
@@ -99,7 +99,7 @@ export function ConfigStep({
             onChange={(e) => onChange({ name: e.target.value })}
             placeholder="My Awesome Server"
             required
-            className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
+            className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
           />
         </div>
 
@@ -113,8 +113,8 @@ export function ConfigStep({
               onClick={() => onChange({ provider: "" })}
               className={`text-left p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
                 !data.provider
-                  ? "border-accent-primary bg-accent-muted/15 shadow-xs"
-                  : "border-border-default hover:border-accent-muted bg-surface-panel"
+                  ? "border-accent-primary bg-accent-primary/15 shadow-xs"
+                  : "border-border-default hover:border-accent-primary bg-surface-card"
               }`}
               title="Runs natively on the host via tmux/Win32"
             >
@@ -137,10 +137,10 @@ export function ConfigStep({
               onClick={() => onChange({ provider: "docker" })}
               className={`text-left p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
                 dockerAvailable === false
-                  ? "opacity-50 cursor-not-allowed border-border-subtle bg-surface-canvas/50"
+                  ? "opacity-50 cursor-not-allowed border-border-subtle bg-surface-page/50"
                   : data.provider === "docker"
-                    ? "border-accent-primary bg-accent-muted/15 shadow-xs"
-                    : "border-border-default hover:border-accent-muted bg-surface-panel"
+                    ? "border-accent-primary bg-accent-primary/15 shadow-xs"
+                    : "border-border-default hover:border-accent-primary bg-surface-card"
               }`}
               title="Runs isolated in a Docker container"
             >
@@ -174,7 +174,7 @@ export function ConfigStep({
               value={data.port}
               placeholder="25565"
               onChange={(e) => onChange({ port: e.target.value === "" ? "" : Number(e.target.value) })}
-              className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
             />
           </div>
           <div>
@@ -184,12 +184,12 @@ export function ConfigStep({
               value={data.maxPlayers}
               placeholder="20"
               onChange={(e) => onChange({ maxPlayers: e.target.value === "" ? "" : Number(e.target.value) })}
-              className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
             />
           </div>
         </div>
 
-        <div className="rounded-xl border border-border-default bg-surface-panel p-4 space-y-3.5">
+        <div className="rounded-xl border border-border-default bg-surface-card p-4 space-y-3.5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <RamStepperField
               label="Min RAM"
@@ -219,7 +219,7 @@ export function ConfigStep({
                     className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all text-center cursor-pointer ${
                       isActive
                         ? "bg-accent-primary text-white border-accent-primary shadow-xs ring-2 ring-accent-primary/30"
-                        : "bg-surface-canvas border-border-default text-text-primary hover:border-accent-primary hover:bg-surface-hover"
+                        : "bg-surface-page border-border-default text-text-primary hover:border-accent-primary hover:bg-surface-hover"
                     }`}
                   >
                     {preset.label}
@@ -235,7 +235,7 @@ export function ConfigStep({
           <input
             value={data.motd}
             onChange={(e) => onChange({ motd: e.target.value })}
-            className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
+            className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
           />
         </div>
       </div>

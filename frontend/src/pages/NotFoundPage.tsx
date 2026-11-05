@@ -10,7 +10,7 @@ export function NotFoundPage() {
       action={
         <Link
           to="/"
-          className="rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover"
+          className="rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover"
         >
           Back to Dashboard
         </Link>

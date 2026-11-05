@@ -106,7 +106,7 @@ export function VoxelBanner({ variant = "dashboard", className = "" }: VoxelBann
 
   // Dashboard Wide Panoramic Voxel Horizon
   return (
-    <div className={`relative overflow-hidden rounded-xl border border-border-subtle bg-gradient-to-r from-surface-panel via-surface-elevated to-surface-panel ${className}`}>
+    <div className={`relative overflow-hidden rounded-xl border border-border-subtle bg-gradient-to-r from-surface-card via-surface-elevated to-surface-card ${className}`}>
       <svg
         viewBox="0 0 960 140"
         fill="none"

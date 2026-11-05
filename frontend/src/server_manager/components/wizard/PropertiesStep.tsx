@@ -23,7 +23,7 @@ export function PropertiesStep({ data, onChange, onNext, onBack }: PropertiesSte
             <select
               value={data.gamemode}
               onChange={(e) => onChange({ gamemode: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             >
               <option value="survival">Survival</option>
               <option value="creative">Creative</option>
@@ -36,7 +36,7 @@ export function PropertiesStep({ data, onChange, onNext, onBack }: PropertiesSte
             <select
               value={data.difficulty}
               onChange={(e) => onChange({ difficulty: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
             >
               <option value="peaceful">Peaceful</option>
               <option value="easy">Easy</option>
@@ -47,7 +47,7 @@ export function PropertiesStep({ data, onChange, onNext, onBack }: PropertiesSte
         </div>
 
         {/* Collapsible Advanced Properties (collapsed by default per D8 / PART_2) */}
-        <div className="rounded-xl border border-border-default bg-surface-panel overflow-hidden">
+        <div className="rounded-xl border border-border-default bg-surface-card overflow-hidden">
           <button
             type="button"
             onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
@@ -76,7 +76,7 @@ export function PropertiesStep({ data, onChange, onNext, onBack }: PropertiesSte
                     onChange={(e) =>
                       onChange({ viewDistance: e.target.value === "" ? "" : Number(e.target.value) })
                     }
-                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
                   />
                 </div>
                 <div>
@@ -92,7 +92,7 @@ export function PropertiesStep({ data, onChange, onNext, onBack }: PropertiesSte
                         simulationDistance: e.target.value === "" ? "" : Number(e.target.value),
                       })
                     }
-                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
                   />
                 </div>
               </div>
@@ -111,7 +111,7 @@ export function PropertiesStep({ data, onChange, onNext, onBack }: PropertiesSte
                         spawnProtection: e.target.value === "" ? "" : Number(e.target.value),
                       })
                     }
-                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-canvas text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
                   />
                 </div>
               </div>

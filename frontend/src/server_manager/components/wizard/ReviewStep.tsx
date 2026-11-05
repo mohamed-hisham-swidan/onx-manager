@@ -12,7 +12,7 @@ export function ReviewStep({ data, creating, onCreate, onBack }: ReviewStepProps
   return (
     <div>
       <h3 className="text-lg font-semibold text-text-primary mb-4">Review &amp; Create</h3>
-      <div className="bg-surface-panel rounded-xl border border-border-default p-4 space-y-2 text-sm shadow-xs">
+      <div className="bg-surface-card rounded-xl border border-border-default p-4 space-y-2 text-sm shadow-xs">
         {[
           ["Name", data.name],
           ["Runtime Provider", data.provider === "docker" ? "Docker Container" : "Host Process"],

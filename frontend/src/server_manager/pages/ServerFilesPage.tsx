@@ -269,8 +269,8 @@ export function ServerFilesPage() {
 
   if (editingFile) {
     return (
-      <div className="flex flex-col h-full bg-surface-panel rounded-xl shadow-sm border border-border-default overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b border-border-subtle bg-surface-panel">
+      <div className="flex flex-col h-full bg-surface-card rounded-xl shadow-sm border border-border-default overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-border-subtle bg-surface-card">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -321,7 +321,7 @@ export function ServerFilesPage() {
             <button
               type="button"
               onClick={handleCloseEditor}
-              className="px-3 py-1.5 text-sm font-medium text-text-secondary bg-surface-canvas border border-border-default rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
+              className="px-3 py-1.5 text-sm font-medium text-text-secondary bg-surface-page border border-border-default rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -342,7 +342,7 @@ export function ServerFilesPage() {
           {isContentLoading ? (
             <div className="h-64 flex items-center justify-center text-text-muted">Loading content...</div>
           ) : fileContentError ? (
-            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-canvas border border-border-default rounded-xl">
+            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-page border border-border-default rounded-xl">
               <Icon name="alert" size={48} className="text-status-danger mb-3" />
               <h3 className="text-base font-semibold text-text-primary mb-1">
                 Failed to load file
@@ -353,13 +353,13 @@ export function ServerFilesPage() {
               <button
                 type="button"
                 onClick={handleCloseEditor}
-                className="px-4 py-2 text-sm font-medium text-text-secondary bg-surface-panel border border-border-default rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
+                className="px-4 py-2 text-sm font-medium text-text-secondary bg-surface-card border border-border-default rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
               >
                 Back to Files
               </button>
             </div>
           ) : isBinary ? (
-            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-canvas border border-border-default rounded-xl">
+            <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-page border border-border-default rounded-xl">
               <Icon name="file" size={48} className="text-text-muted mb-3" />
               <h3 className="text-base font-semibold text-text-primary mb-1">Binary File</h3>
               <p className="text-sm text-text-muted mb-4 max-w-sm">
@@ -395,7 +395,7 @@ export function ServerFilesPage() {
       {isLoading && <LoadingBar />}
 
       {/* Toolbar & Breadcrumbs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface-panel rounded-xl shadow-sm border border-border-default">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface-card rounded-xl shadow-sm border border-border-default">
         <div className="flex items-center overflow-x-auto whitespace-nowrap text-sm font-medium text-text-secondary">
           {breadcrumbs.map((crumb, idx) => (
             <React.Fragment key={crumb.path}>
@@ -432,7 +432,7 @@ export function ServerFilesPage() {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-lg border border-border-default bg-surface-canvas py-1.5 ps-9 pe-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+              className="w-full rounded-lg border border-border-default bg-surface-page py-1.5 ps-9 pe-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
             />
           </div>
 
@@ -466,14 +466,14 @@ export function ServerFilesPage() {
       </div>
 
       {showNewFolder && (
-        <div className="flex items-center gap-2 p-4 bg-surface-panel rounded-xl shadow-sm border border-border-default">
+        <div className="flex items-center gap-2 p-4 bg-surface-card rounded-xl shadow-sm border border-border-default">
           <Icon name="folder" className="text-text-muted" />
           <input
             type="text"
             placeholder="Folder name"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
-            className="flex-1 px-3 py-1.5 text-sm border border-border-default rounded-lg focus:outline-none focus:ring-1 focus:ring-accent-primary bg-surface-canvas text-text-primary placeholder:text-text-muted"
+            className="flex-1 px-3 py-1.5 text-sm border border-border-default rounded-lg focus:outline-none focus:ring-1 focus:ring-accent-primary bg-surface-page text-text-primary placeholder:text-text-muted"
             autoFocus
             onKeyDown={(e) => {
               if (e.key === "Enter" && newFolderName) mkdirMutation.mutate(newFolderName);
@@ -504,7 +504,7 @@ export function ServerFilesPage() {
       )}
 
       {/* File Browser Table */}
-      <div className="bg-surface-panel rounded-xl shadow-sm border border-border-default overflow-hidden">
+      <div className="bg-surface-card rounded-xl shadow-sm border border-border-default overflow-hidden">
         {files?.length === 0 && !currentPath ? (
           <EmptyState
             title="Empty Directory"
@@ -532,7 +532,7 @@ export function ServerFilesPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs uppercase bg-surface-canvas/50 text-text-muted border-b border-border-subtle tracking-wider font-semibold">
+              <thead className="text-xs uppercase bg-surface-page/50 text-text-muted border-b border-border-subtle tracking-wider font-semibold">
                 <tr>
                   <th scope="col" className="px-4 py-2.5">Name</th>
                   <th scope="col" className="px-4 py-2.5 w-32">Size</th>

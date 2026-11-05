@@ -24,8 +24,8 @@ export function SoftwareStep({ softwareList, selected, onSelect }: SoftwareStepP
               onClick={() => onSelect(sw.type)}
               className={`text-left p-4 rounded-xl border-2 transition-all cursor-pointer ${
                 isSelected
-                  ? "border-accent-primary bg-accent-muted/15 shadow-xs"
-                  : "border-border-default hover:border-accent-muted bg-surface-panel"
+                  ? "border-accent-primary bg-accent-primary/15 shadow-xs"
+                  : "border-border-default hover:border-accent-primary bg-surface-card"
               }`}
             >
               <div className="flex items-start gap-3">

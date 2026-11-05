@@ -181,7 +181,7 @@ export function CreateServerPage() {
                     isActive
                       ? "bg-accent-primary text-white shadow-xs"
                       : isDone
-                        ? "bg-accent-muted/20 text-accent-primary"
+                        ? "bg-accent-primary/20 text-accent-primary"
                         : "bg-surface-hover text-text-muted"
                   }`}
                 >
@@ -254,8 +254,8 @@ export function CreateServerPage() {
       )}
 
       {step === "done" && (
-        <div className="text-center py-12 bg-surface-panel rounded-xl border border-border-default p-8 shadow-xs">
-          <Icon name="check" size={36} className="mx-auto mb-4 text-status-online" />
+        <div className="text-center py-12 bg-surface-card rounded-xl border border-border-default p-8 shadow-xs">
+          <Icon name="check" size={36} className="mx-auto mb-4 text-status-success" />
           <h3 className="text-lg font-semibold text-text-primary mb-2">Server Created</h3>
           <p className="text-sm text-text-muted mb-6">
             {data.name} is being set up. Server JAR has been downloaded and configured.

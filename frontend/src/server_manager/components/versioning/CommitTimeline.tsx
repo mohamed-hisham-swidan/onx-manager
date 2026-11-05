@@ -24,7 +24,7 @@ export function CommitTimeline({
   onRunTest,
 }: CommitTimelineProps) {
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 bg-surface-panel shadow-sm overflow-hidden">
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 bg-surface-card shadow-sm overflow-hidden">
       <div className="border-b border-border-subtle px-6 py-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider">
           Commit History Timeline
@@ -56,18 +56,18 @@ export function CommitTimeline({
               >
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-semibold bg-surface-canvas text-text-primary px-2 py-0.5 rounded border border-border-subtle">
+                    <span className="font-mono text-xs font-semibold bg-surface-page text-text-primary px-2 py-0.5 rounded border border-border-subtle">
                       {commit.id.slice(0, 8)}
                     </span>
                     {isMerge && (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-muted/20 text-accent-primary">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-primary/20 text-accent-primary">
                         MERGE ({commit.parent_commit_ids!.length} parents)
                       </span>
                     )}
                     {commitTags.map((tag) => (
                       <span
                         key={tag.name}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-accent-muted/20 text-accent-primary border border-accent-muted/40"
+                        className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-accent-primary/20 text-accent-primary border border-accent-primary/40"
                       >
                         🏷️ {tag.name}
                       </span>
@@ -95,7 +95,7 @@ export function CommitTimeline({
                   <button
                     type="button"
                     onClick={() => onTagCommit(commit.id)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-canvas px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-page px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
                     title="Create immutable tag"
                   >
                     <Icon name="backup" size={12} />
@@ -105,7 +105,7 @@ export function CommitTimeline({
                     <button
                       type="button"
                       onClick={() => onDiff(parentId, commit.id)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-canvas px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+                      className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-page px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
                       title="View changes against parent commit"
                     >
                       <Icon name="activity" size={12} />
@@ -115,7 +115,7 @@ export function CommitTimeline({
                   <button
                     type="button"
                     onClick={() => onInspect(commit)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-canvas px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
                   >
                     <Icon name="file" size={14} />
                     Inspect Manifest
@@ -123,7 +123,7 @@ export function CommitTimeline({
                   <button
                     type="button"
                     onClick={() => onRunTest(commit.id)}
-                    className="inline-flex items-center gap-1 rounded-lg bg-accent-muted/20 border border-accent-muted/40 px-3 py-1.5 text-xs font-semibold text-accent-primary hover:bg-accent-muted/30 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 rounded-lg bg-accent-primary/20 border border-accent-primary/40 px-3 py-1.5 text-xs font-semibold text-accent-primary hover:bg-accent-primary/30 transition-colors cursor-pointer"
                   >
                     <Icon name="play" size={14} />
                     Run Isolated Test

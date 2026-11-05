@@ -9,7 +9,7 @@ export function StorageHealthBanner({ preflight }: StorageHealthBannerProps) {
   const isReflink = preflight?.reflink_supported;
 
   return (
-    <div className="rounded-xl border border-border-default bg-surface-panel p-4 shadow-sm">
+    <div className="rounded-xl border border-border-default bg-surface-card p-4 shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div

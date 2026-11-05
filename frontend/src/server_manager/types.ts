@@ -168,8 +168,8 @@ export interface ExposureStatusBadgeConfig {
 export const EXPOSURE_STATUS_MAP: Record<import("@/types").ExposureStatusType, ExposureStatusBadgeConfig> = {
   ACTIVE: {
     label: "Active",
-    color: "bg-status-online/15 text-status-online border border-status-online/30",
-    dotColor: "bg-status-online",
+    color: "bg-status-success/15 text-status-success border border-status-success/30",
+    dotColor: "bg-status-success",
     iconName: "check",
   },
   STARTING: {
@@ -179,8 +179,8 @@ export const EXPOSURE_STATUS_MAP: Record<import("@/types").ExposureStatusType, E
   },
   STOPPING: {
     label: "Stopping...",
-    color: "bg-status-warn/15 text-status-warn border border-status-warn/30",
-    dotColor: "bg-status-warn animate-pulse",
+    color: "bg-status-warning/15 text-status-warning border border-status-warning/30",
+    dotColor: "bg-status-warning animate-pulse",
   },
   STOPPED: {
     label: "Stopped",
@@ -194,8 +194,8 @@ export const EXPOSURE_STATUS_MAP: Record<import("@/types").ExposureStatusType, E
   },
   DEGRADED: {
     label: "Degraded",
-    color: "bg-status-warn/15 text-status-warn border border-status-warn/30",
-    dotColor: "bg-status-warn",
+    color: "bg-status-warning/15 text-status-warning border border-status-warning/30",
+    dotColor: "bg-status-warning",
     iconName: "alert",
   },
   ERROR: {
@@ -212,20 +212,20 @@ export const EXPOSURE_STATUS_MAP: Record<import("@/types").ExposureStatusType, E
   },
   CLAIM_REQUIRED: {
     label: "Claim Required",
-    color: "bg-status-warn/15 text-status-warn border border-status-warn/30",
-    dotColor: "bg-status-warn animate-pulse",
+    color: "bg-status-warning/15 text-status-warning border border-status-warning/30",
+    dotColor: "bg-status-warning animate-pulse",
     iconName: "info",
   },
 };
 
 export const STATUS_MAP: Record<string, StatusBadge> = {
-  running: { label: "Online", color: "bg-status-online/15 text-status-online" },
+  running: { label: "Online", color: "bg-status-success/15 text-status-success" },
   stopped: { label: "Offline", color: "bg-surface-elevated text-text-muted" },
   created: { label: "Not Started", color: "bg-surface-elevated text-text-muted" },
   provisioning: { label: "Installing", color: "bg-accent-primary/15 text-accent-primary" },
   provisioning_failed: { label: "Install Failed", color: "bg-status-danger/15 text-status-danger" },
-  starting: { label: "Starting", color: "bg-status-warn/15 text-status-warn" },
-  stopping: { label: "Stopping", color: "bg-status-warn/15 text-status-warn" },
+  starting: { label: "Starting", color: "bg-status-warning/15 text-status-warning" },
+  stopping: { label: "Stopping", color: "bg-status-warning/15 text-status-warning" },
   crashed: { label: "Crashed", color: "bg-status-danger/15 text-status-danger" },
   broken: { label: "Broken", color: "bg-status-danger/15 text-status-danger" },
   restoring: { label: "Restoring", color: "bg-accent-primary/15 text-accent-primary" },

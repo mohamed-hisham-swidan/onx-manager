@@ -27,7 +27,7 @@ export function CreateBranchModal({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
     >
-      <div className="w-full max-w-md rounded-xl bg-surface-panel p-6 space-y-4 shadow-2xl border border-border-default">
+      <div className="w-full max-w-md rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default">
         <h3 className="text-base font-semibold text-text-primary">Create New Branch</h3>
         <div>
           <label htmlFor="branch-name-input" className="block text-xs font-medium text-text-secondary mb-1">
@@ -39,14 +39,14 @@ export function CreateBranchModal({
             value={branchName}
             onChange={(e) => onBranchNameChange(e.target.value)}
             placeholder="e.g. feat-mod-upgrade"
-            className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+            className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
           />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-surface-canvas px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
           >
             Cancel
           </button>
@@ -105,7 +105,7 @@ export function CreateCommitModal({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
     >
-      <div className="w-full max-w-md rounded-xl bg-surface-panel p-6 space-y-4 shadow-2xl border border-border-default">
+      <div className="w-full max-w-md rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default">
         <h3 className="text-base font-semibold text-text-primary">Create Snapshot Commit</h3>
         <p className="text-xs text-text-muted">
           Captures all configs, mod jars, and creates an instant COW world snapshot on branch &lsquo;{selectedBranch}&rsquo;.
@@ -149,7 +149,7 @@ export function CreateCommitModal({
                       value={forceReason}
                       onChange={(e) => onForceReasonChange(e.target.value)}
                       placeholder="e.g. Hotfix for critical crash"
-                      className="w-full rounded border border-border-default bg-surface-canvas px-2.5 py-1 text-xs text-text-primary"
+                      className="w-full rounded border border-border-default bg-surface-page px-2.5 py-1 text-xs text-text-primary"
                       required
                     />
                   </div>
@@ -174,14 +174,14 @@ export function CreateCommitModal({
             onChange={(e) => onMessageChange(e.target.value)}
             placeholder="e.g. Pre-WorldEdit update snapshot"
             disabled={currentBranchObj?.status === "archived"}
-            className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
+            className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
           />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-surface-canvas px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
           >
             Cancel
           </button>
@@ -237,7 +237,7 @@ export function PromoteModal({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
     >
-      <div className="w-full max-w-md rounded-xl bg-surface-panel p-6 space-y-4 shadow-2xl border border-border-default">
+      <div className="w-full max-w-md rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default">
         {isForcePromote ? (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-status-warning">
@@ -250,7 +250,7 @@ export function PromoteModal({
               <p className="text-text-primary">
                 This test run did not pass (status: <strong>{promoteTestRun?.status}</strong>).
                 Promoting this commit bypasses automated verification gating and requires the{" "}
-                <code className="font-mono bg-surface-canvas px-1 py-0.5 rounded text-accent-primary">
+                <code className="font-mono bg-surface-page px-1 py-0.5 rounded text-accent-primary">
                   server:version:promote:force
                 </code>{" "}
                 permission.
@@ -272,7 +272,7 @@ export function PromoteModal({
                 value={forceReason}
                 onChange={(e) => onForceReasonChange(e.target.value)}
                 placeholder="e.g. Verified manually in offline client"
-                className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+                className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
               />
             </div>
           </div>
@@ -291,7 +291,7 @@ export function PromoteModal({
           </>
         )}
 
-        <div className="rounded-lg bg-surface-canvas p-3 border border-border-subtle">
+        <div className="rounded-lg bg-surface-page p-3 border border-border-subtle">
           <label className="flex items-start gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -311,7 +311,7 @@ export function PromoteModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-surface-canvas px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
           >
             Cancel
           </button>
@@ -350,7 +350,7 @@ export function InspectCommitModal({ commit, onClose }: InspectCommitModalProps)
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
     >
-      <div className="w-full max-w-2xl rounded-xl bg-surface-panel p-6 space-y-4 shadow-2xl border border-border-default max-h-[85vh] flex flex-col">
+      <div className="w-full max-w-2xl rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between border-b border-border-subtle pb-3">
           <div>
             <h3 className="text-base font-semibold text-text-primary">
@@ -374,7 +374,7 @@ export function InspectCommitModal({ commit, onClose }: InspectCommitModalProps)
             <span className="text-xs font-semibold uppercase tracking-wider text-text-muted block mb-1">
               Captured Configurations ({Object.keys(commit.manifest?.configs || {}).length} files)
             </span>
-            <div className="rounded-lg bg-surface-canvas p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
+            <div className="rounded-lg bg-surface-page p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
               {Object.keys(commit.manifest?.configs || {}).map((f) => (
                 <div key={f} className="text-text-primary py-0.5">
                   📄 {f}
@@ -387,7 +387,7 @@ export function InspectCommitModal({ commit, onClose }: InspectCommitModalProps)
             <span className="text-xs font-semibold uppercase tracking-wider text-text-muted block mb-1">
               Captured Mods / Plugins ({(commit.manifest?.mods || []).length} items)
             </span>
-            <div className="rounded-lg bg-surface-canvas p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
+            <div className="rounded-lg bg-surface-page p-2.5 border border-border-subtle text-xs font-mono max-h-40 overflow-y-auto">
               {(commit.manifest?.mods || []).map((m) => (
                 <div key={m.filename} className="text-text-primary py-0.5">
                   📦 {m.filename} <span className="text-text-muted">({m.sha256.slice(0, 10)}...)</span>
@@ -401,7 +401,7 @@ export function InspectCommitModal({ commit, onClose }: InspectCommitModalProps)
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-surface-canvas border border-border-default px-4 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            className="rounded-lg bg-surface-page border border-border-default px-4 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
           >
             Close
           </button>
@@ -428,7 +428,7 @@ export function ViewLogsModal({ testRun, onClose }: ViewLogsModalProps) {
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
     >
-      <div className="w-full max-w-3xl rounded-xl bg-surface-panel p-6 space-y-4 shadow-2xl border border-border-default max-h-[85vh] flex flex-col">
+      <div className="w-full max-w-3xl rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between border-b border-border-subtle pb-3">
           <h3 className="text-base font-semibold text-text-primary">
             Test Run Console Output ({testRun.id.slice(0, 8)})
@@ -441,14 +441,14 @@ export function ViewLogsModal({ testRun, onClose }: ViewLogsModalProps) {
             <Icon name="x" size={18} />
           </button>
         </div>
-        <pre className="overflow-y-auto rounded-lg bg-surface-canvas border border-border-subtle p-3 text-xs font-mono text-status-success flex-1 whitespace-pre-wrap">
+        <pre className="overflow-y-auto rounded-lg bg-surface-page border border-border-subtle p-3 text-xs font-mono text-status-success flex-1 whitespace-pre-wrap">
           {testRun.log_output || "No log output recorded."}
         </pre>
         <div className="flex justify-end pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-surface-canvas border border-border-default px-4 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            className="rounded-lg bg-surface-page border border-border-default px-4 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
           >
             Close
           </button>
@@ -496,7 +496,7 @@ export function BotSettingsModal({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
     >
-      <div className="w-full max-w-md rounded-xl bg-surface-panel p-6 space-y-4 shadow-2xl border border-border-default">
+      <div className="w-full max-w-md rounded-xl bg-surface-card p-6 space-y-4 shadow-2xl border border-border-default">
         <h3 className="text-base font-semibold text-text-primary">
           Bot Verification Server Defaults
         </h3>
@@ -515,7 +515,7 @@ export function BotSettingsModal({
               min={1}
               value={botCount}
               onChange={(e) => onBotCountChange(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
             />
           </div>
 
@@ -529,7 +529,7 @@ export function BotSettingsModal({
               min={1}
               value={duration}
               onChange={(e) => onDurationChange(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
             />
           </div>
 
@@ -541,7 +541,7 @@ export function BotSettingsModal({
               id="settings-tech-select"
               value={tech}
               onChange={(e) => onTechChange(e.target.value)}
-              className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
             >
               <option value="auto">Auto (Server-type aware)</option>
               <option value="mineflayer">Mineflayer (External Protocol)</option>
@@ -557,7 +557,7 @@ export function BotSettingsModal({
               id="settings-placement-select"
               value={placement}
               onChange={(e) => onPlacementChange(e.target.value)}
-              className="w-full rounded-lg border border-border-default bg-surface-canvas px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
             >
               <option value="sidecar">Sidecar (Container Isolation)</option>
               <option value="in_container">In Container</option>
@@ -569,7 +569,7 @@ export function BotSettingsModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-surface-canvas px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
           >
             Cancel
           </button>

@@ -311,7 +311,7 @@ export function ServerVersioningPage() {
           <button
             type="button"
             onClick={() => setIsSettingsModalOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-panel px-3 py-2 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
           >
             <Icon name="settings" size={14} />
             Verification Defaults
