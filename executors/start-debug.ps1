@@ -3,12 +3,12 @@
 .SYNOPSIS
     onx-manager Windows Launcher — Diagnostic Tracing Wrapper
 .DESCRIPTION
-    Wraps start.ps1 with full PowerShell transcript recording (Start-Transcript)
+    Wraps scripts/start.ps1 with full PowerShell transcript recording (Start-Transcript)
     and line-by-line execution tracing (Set-PSDebug -Trace 1).
 
-    Zero-drift design: Directly dot-sources start.ps1's authoritative
+    Zero-drift design: Directly dot-sources scripts/start.ps1's authoritative
     Start-OnxBootstrap function, ensuring debug tracing automatically stays
-    in sync with start.ps1 without copy-paste code maintenance.
+    in sync with scripts/start.ps1 without copy-paste code maintenance.
 
     Usage:
         powershell -NoProfile -ExecutionPolicy Bypass -File .\executors\start-debug.ps1 [args...]
@@ -21,10 +21,10 @@ $ErrorActionPreference = 'Stop'
 
 $executorsDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Definition) { Split-Path -Parent $MyInvocation.MyCommand.Definition } else { (Get-Location).Path }
 $repoRoot     = Split-Path -Parent $executorsDir
-$startScript  = Join-Path $repoRoot 'start.ps1'
+$startScript  = Join-Path $repoRoot 'scripts\start.ps1'
 
 if (-not (Test-Path $startScript)) {
-    throw "start.ps1 not found in repository root: $repoRoot"
+    throw "scripts/start.ps1 not found in repository root: $repoRoot"
 }
 
 # Ensure logs directory exists
@@ -44,7 +44,7 @@ Write-Host "  Log File  : $logFile"
 Write-Host "  Tracing   : Set-PSDebug -Trace 1 enabled"
 Write-Host "========================================" -ForegroundColor Yellow
 
-# Dot-source start.ps1 (defines Start-OnxBootstrap, Invoke-OnxProcessProbe, Invoke-OnxProcessSupervised without running)
+# Dot-source scripts/start.ps1 (defines Start-OnxBootstrap, Invoke-OnxProcessProbe, Invoke-OnxProcessSupervised without running)
 . $startScript
 
 $transcriptStarted = $false

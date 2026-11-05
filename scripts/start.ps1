@@ -3,7 +3,9 @@
 .SYNOPSIS
     onx-manager Windows Launcher — PowerShell bootstrap
 .DESCRIPTION
-    Invoked by start.bat (or wrapped by executors/start-debug.ps1). Handles:
+    Invoked by start.bat (or wrapped by executors/start-debug.ps1).
+    Lives in scripts/start.ps1; derives $repoRoot from $PSScriptRoot parent.
+    Handles:
       1. Python 3.12 detection across common candidates
       2. Auto-install via winget or official python.org installer
          (per-user InstallAllUsers=0 first, with system-wide fallback InstallAllUsers=1)
@@ -85,6 +87,7 @@ if ($IsWindows -or $env:OS -eq 'Windows_NT') {
 }
 
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Definition) { Split-Path -Parent $MyInvocation.MyCommand.Definition } else { (Get-Location).Path }
+$repoRoot  = Split-Path -Parent $scriptDir
 
 # ------------------------------------------------------------------------------
 # Format-OnxProcessArgument
@@ -124,7 +127,7 @@ function New-OnxProcessStartInfo {
     param(
         [Parameter(Mandatory=$true)][string]$Command,
         [Parameter(Mandatory=$true)][string[]]$Arguments,
-        [string]$WorkingDirectory = $scriptDir,
+        [string]$WorkingDirectory = $repoRoot,
         [switch]$CreateNoWindow
     )
 
@@ -158,7 +161,7 @@ function Invoke-OnxProcessProbe {
         [Parameter(Mandatory=$true)][string]$Command,
         [Parameter(Mandatory=$true)][string[]]$Arguments,
         [int]$TimeoutMs = 3000,
-        [string]$WorkingDirectory = $scriptDir,
+        [string]$WorkingDirectory = $repoRoot,
         [switch]$StreamOutput
     )
 
@@ -288,7 +291,7 @@ function Invoke-OnxProcessSupervised {
     param(
         [Parameter(Mandatory=$true)][string]$Command,
         [Parameter(Mandatory=$true)][string[]]$Arguments,
-        [string]$WorkingDirectory = $scriptDir
+        [string]$WorkingDirectory = $repoRoot
     )
 
     [System.Diagnostics.ProcessStartInfo]$psi = New-OnxProcessStartInfo `
@@ -393,13 +396,13 @@ function Start-OnxBootstrap {
         Write-Host "========================================" -ForegroundColor Cyan
         Write-Host "  onx-manager -- Windows Launcher" -ForegroundColor Cyan
         Write-Host "========================================" -ForegroundColor Cyan
-        Write-Host "  Directory: $scriptDir"
+        Write-Host "  Directory: $repoRoot"
     }
 
     # ----------------------------------------------------------------------
     # 1. Resolve Python interpreter
     # ----------------------------------------------------------------------
-    $venvPy    = Join-Path $scriptDir 'backend\.venv\Scripts\python.exe'
+    $venvPy    = Join-Path $repoRoot 'backend\.venv\Scripts\python.exe'
     $venvValid = $false
 
     if (Test-Path $venvPy) {
@@ -557,7 +560,7 @@ function Start-OnxBootstrap {
         # ----------------------------------------------------------------------
         # 2b. Probe for Node.js 18+ and npm
         # ----------------------------------------------------------------------
-        $localNode = Join-Path $scriptDir '.onx\node'
+        $localNode = Join-Path $repoRoot '.onx\node'
         if (Test-Path (Join-Path $localNode 'node.exe')) {
             $env:Path = "$localNode;$($env:Path)"
         }
@@ -574,15 +577,15 @@ function Start-OnxBootstrap {
     # ----------------------------------------------------------------------
     # 3. Validate launcher.py exists
     # ----------------------------------------------------------------------
-    $launcher = Join-Path $scriptDir 'launcher.py'
+    $launcher = Join-Path $repoRoot 'launcher.py'
     if (-not (Test-Path $launcher)) {
-        throw "launcher.py not found in $scriptDir"
+        throw "launcher.py not found in $repoRoot"
     }
 
     # ----------------------------------------------------------------------
     # 4. Run preflight (best-effort -- failures are warnings, not fatal)
     # ----------------------------------------------------------------------
-    $preflight = Join-Path $scriptDir 'scripts\preflight.py'
+    $preflight = Join-Path $repoRoot 'scripts\preflight.py'
     if (Test-Path $preflight) {
         $preflightArgs = @($pySubArg) + @($preflight) + @($args) | Where-Object { $_ -ne $null -and $_ -ne '' }
         $streamPreflight = ($env:ONX_DEBUG -eq '1')
@@ -605,7 +608,7 @@ function Start-OnxBootstrap {
     # 5. Launch
     # ----------------------------------------------------------------------
     $launcherArgs = @($pySubArg) + @($launcher) + @($args) | Where-Object { $_ -ne $null -and $_ -ne '' }
-    $exitCode = Invoke-OnxProcessSupervised -Command $pyBin -Arguments $launcherArgs -WorkingDirectory $scriptDir
+    $exitCode = Invoke-OnxProcessSupervised -Command $pyBin -Arguments $launcherArgs -WorkingDirectory $repoRoot
     return $exitCode
 }
 

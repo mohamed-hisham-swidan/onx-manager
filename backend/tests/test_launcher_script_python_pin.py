@@ -9,7 +9,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from launcher import PYTHON_INSTALLER_VERSION  # noqa: E402
 
-START_PS1 = REPO_ROOT / "start.ps1"
+START_PS1 = REPO_ROOT / "scripts" / "start.ps1"
 
 
 def _read_start_ps1_text() -> str:

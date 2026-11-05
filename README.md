@@ -140,11 +140,10 @@ On first run you'll be taken to the **setup wizard** to create your admin accoun
 backend/        FastAPI app — domain modules, CQRS, API, WebSocket
 frontend/       React 19 SPA — Blade Hosting dashboard
 docs/           Architecture, API reference, database schema, guides
-scripts/        Preflight cleanup, CI baseline gates, and dev utilities
+scripts/        Preflight cleanup, CI baseline gates, PowerShell bootstrap, and dev utilities
 executors/      Tracing and diagnostic launchers (Windows & Unix)
 launcher.py     Unified launcher, prerequisite gate, and process manager
-start.bat       Windows launcher entry point (UTF-8, VT processing)
-start.ps1       PowerShell bootstrap engine with candidate probes
+start.bat       Windows launcher entry point (delegates to scripts/start.ps1)
 start.sh        Linux/macOS launcher entry point (auto Node.js installer)
 ```
 
