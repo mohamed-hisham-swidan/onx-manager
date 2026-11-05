@@ -99,3 +99,20 @@ This document records non-blocking decisions, conservative choices made during a
   20. `frontend/src/server_manager/components/versioning/VersioningModals.tsx` (6 overlays)
   21. `frontend/src/server_manager/pages/ServerExposurePage.tsx`
 - **Alternative for Owner**: The owner may choose to migrate all 28 overlays to `Modal.tsx` in batch F5 or retain specialized full-screen diff and console inspection overlays as standalone components.
+
+---
+
+## 10. CurseForge Marketplace Integration & Navigation Flow
+- **Status**: LOGGED FOR OWNER DECISION
+- **Context**: Commit `c9b4f26` simplified the primary Sidebar by removing nested "Modrinth" and "CurseForge" sub-links under "Marketplace", directing the root item directly to `/marketplace` with default source `modrinth`.
+- **Finding (Task 5 Investigation)**:
+  1. The backend catalog infrastructure (`backend/app/infrastructure/plugin_catalog/`) currently implements only `ModrinthProvider`. `backend/tests/infrastructure/test_plugin_catalog_providers.py:54` explicitly asserts that `build_plugin_catalog_provider(name="curseforge")` raises `ValueError("Unknown plugin catalog provider")`.
+  2. In the frontend, `PluginMarketplacePage.tsx:132-160` provides a segmented control in the `PageHeader` actions allowing users to switch between "Modrinth" and "CurseForge (Soon)".
+  3. When "CurseForge" is selected, the page renders `ComingSoonState` (`PluginMarketplacePage.tsx:174-190`) with title `"CurseForge Integration Coming Soon"`, badge `"Coming Soon"`, and a `"Switch to Modrinth"` button.
+  4. In `Sidebar.tsx:37-42`, clicking the primary "Marketplace" nav link resets the store to `setSource("modrinth")`, ensuring entering the marketplace always shows active browseable Modrinth content.
+  5. Note on overlays: The 28 non-primitive modal overlays identified in Section 9 remain planned for batch F5 and still lack scroll lock.
+- **Alternatives for Owner**:
+  - **Option A (Keep Current State)**: Retain the segmented "CurseForge (Soon)" toggle on `PluginMarketplacePage` with the `ComingSoonState` placeholder until backend CurseForge API adapter (or CurseForge API key integration) is built.
+  - **Option B (Hide Until Backend Ready)**: Remove the segmented toggle button on `PluginMarketplacePage` entirely until the backend CurseForge catalog provider is implemented, presenting `/marketplace` exclusively as Modrinth.
+  - **Option C (Backend Adapter Implementation)**: Spec and implement `CurseForgeProvider` with API key configuration in backend and connect `PluginMarketplacePage` search to the CurseForge endpoint.
+

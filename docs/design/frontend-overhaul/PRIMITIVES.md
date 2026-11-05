@@ -74,7 +74,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 />
 ```
 - **Accessibility**: Rendered with `role="dialog"`, `aria-modal="true"`. Traps keyboard focus inside the dialog while open. Closes automatically on `Escape`. Restores focus to the triggering element upon close.
-  - **Modal Scroll Lock**: Automatically locks body scroll (`document.body.style.overflow = "hidden"`) while open. Uses a module-level counter so nested or stacked modals only restore the previous body overflow after the last modal closes.
+  - **Shared Body Scroll Lock (`useBodyScrollLock`)**: Automatically locks body scroll (`document.body.style.overflow = "hidden"`) while active via the shared hook `useBodyScrollLock(active)` in `frontend/src/hooks/useBodyScrollLock.ts`. Uses a module-level reference counter so nested or stacked dialogs and mobile off-canvas drawers only restore the previous body overflow after the last active consumer releases.
   - **ConfirmDialog Focus Safety**: For `variant="danger"`, initial focus is placed on the Cancel button to protect against accidental confirmation via Enter/Space. Non-danger variants (`warning`, `info`) keep initial focus on the Confirm button.
 
 ---

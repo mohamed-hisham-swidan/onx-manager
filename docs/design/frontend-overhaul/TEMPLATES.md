@@ -131,3 +131,34 @@ User login, initial instance registration, and invite token redemption.
 2. **Brand Lockup**: Prominent vortex logo mark and "ONX Manager" wordmark.
 3. **Auth Card**: Elevated surface card with clean input fields, password reveal toggle, and primary submit button.
 4. **Legal Footer**: Official disclaimer notice: *"Unofficial. Not affiliated with or endorsed by Mojang or Microsoft."*
+
+---
+
+## 8. Application Shells & Landmark Accessibility Architecture
+
+### Purpose
+Provide a unified, accessible structural scaffolding for all views across `AppShell` (global application routes) and `ServerShell` (contextual server instance routes).
+
+### Structure & Accessibility Contracts
+1. **Skip-to-Content Link**:
+   - Both `AppShell` and `ServerShell` render `<a href="#main-content">` as the **first focusable element** in the DOM.
+   - Visually hidden via Tailwind `sr-only` until keyboard focused (`focus:not-sr-only focus:fixed focus:inset-block-start-3 focus:inset-inline-start-3 focus:z-50`).
+   - Uses token styling (`bg-surface-elevated text-accent-primary focus-visible:ring-2 focus-visible:ring-border-focus`).
+   - Targets `<main id="main-content" tabIndex={-1}>` and programmatically transfers focus on activation.
+2. **Distinct Navigation Landmarks**:
+   - Every `<nav>` in the application exposes a distinct `aria-label`:
+     - Global navigation in Sidebar: `aria-label="Main"`.
+     - Contextual server navigation in Sidebar: `aria-label="Server sections"`.
+     - Breadcrumbs in ServerShell: `aria-label="Breadcrumb"`.
+     - Breadcrumbs in PageHeader: `aria-label="Breadcrumbs"`.
+     - Pagination controls: `aria-label="Pagination"`.
+     - Editor breadcrumbs in ServerFilesPage: `aria-label="Editor breadcrumb"`.
+   - Active links in Sidebar render `aria-current="page"`.
+3. **Sidebar Off-Canvas (Mobile Drawer)**:
+   - On mobile viewports (`< 1024px`), opening the drawer activates `useBodyScrollLock(mobileSidebarOpen)` via `frontend/src/hooks/useBodyScrollLock.ts`.
+   - On open: captures `document.activeElement` (the opener toggle button) and moves focus to the first focusable navigation item inside the drawer.
+   - On close: dismisses on `Escape` key press or backdrop click, restores body scroll, and returns focus to the opener element.
+   - On desktop (`lg:w-56`, `>= 1024px`): drawer is persistently docked; does not trigger body scroll locks or register `Escape` key dismissal.
+4. **Overlay Note**:
+   - The 28 non-primitive modal overlays across 21 files (cataloged in `DECISIONS-NEEDED.md` Entry 9) remain planned for consolidation in batch F5 and still lack body scroll lock.
+
