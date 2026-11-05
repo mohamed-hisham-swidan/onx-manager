@@ -92,22 +92,23 @@ This document records non-blocking decisions, conservative choices made during a
     1. `frontend/src/server_manager/components/ImportReviewModal.tsx`
     2. `frontend/src/server_manager/components/CrashReportViewerModal.tsx`
     3. `frontend/src/server_manager/components/MaterializationBrowserModal.tsx`
+  - **Batch N-03 / F5d-1 (3 overlays migrated)**:
+    1. `frontend/src/server_manager/components/InstallModal.tsx`
+    2. `frontend/src/server_manager/components/AddCompanionTargetModal.tsx`
+    3. `frontend/src/server_manager/components/EditPublicAddressModal.tsx`
 - **Owner Decision (Escape Close Behavior on Form Modals)**:
   - **Applied Behavior**: "Escape now closes form modals; typed text is discarded (no dirty-form prompt); guard only while pending".
   - **Rationale**: Keeps modal UX predictable and accessible per WCAG dialog patterns without intrusive multi-step discard prompts, while protecting data integrity by blocking Escape dismissal while mutations are actively in-flight.
-- **Remaining Bypassing Overlays (10 files, 10 occurrences)**:
+- **Remaining Bypassing Overlays (7 files, 7 occurrences)**:
   *(Computed by `grep -rl "fixed inset-0" frontend/src --include='*.tsx' | grep -v '\.test\.'`, excluding primitives `Modal.tsx` and `ConfirmDialog.tsx`, `SplashScreen.tsx`, and `Sidebar.tsx` mobile backdrop)*:
   1. `frontend/src/server_manager/components/AccessModeCard.tsx`
-  2. `frontend/src/server_manager/components/AddCompanionTargetModal.tsx`
-  3. `frontend/src/server_manager/components/EditPublicAddressModal.tsx`
-  4. `frontend/src/server_manager/components/GlobalExposureActionsCard.tsx`
-  5. `frontend/src/server_manager/components/InstallModal.tsx`
-  6. `frontend/src/server_manager/components/InvitationsSection.tsx`
-  7. `frontend/src/server_manager/components/PanelExposureSection.tsx`
-  8. `frontend/src/server_manager/components/ServerExposureMethodSelector.tsx`
-  9. `frontend/src/server_manager/components/TargetCard.tsx`
-  10. `frontend/src/server_manager/pages/ServerExposurePage.tsx`
-- **Alternative for Owner**: The owner may choose to migrate the remaining true modals (`InstallModal`, `AddCompanionTargetModal`, `EditPublicAddressModal` in N-03) and retain legitimate positional or section overlays (`AccessModeCard`, `PanelExposureSection`, etc.) as documented in N-04.
+  2. `frontend/src/server_manager/components/GlobalExposureActionsCard.tsx`
+  3. `frontend/src/server_manager/components/InvitationsSection.tsx`
+  4. `frontend/src/server_manager/components/PanelExposureSection.tsx`
+  5. `frontend/src/server_manager/components/ServerExposureMethodSelector.tsx`
+  6. `frontend/src/server_manager/components/TargetCard.tsx`
+  7. `frontend/src/server_manager/pages/ServerExposurePage.tsx`
+- **Triage for Owner**: The remaining 7 overlays are scheduled for triage in N-04 (identifying true dialogs vs legitimate inline/section scrims).
 
 ---
 

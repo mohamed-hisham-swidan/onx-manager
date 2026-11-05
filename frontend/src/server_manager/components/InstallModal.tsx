@@ -1,5 +1,6 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { VersionList } from "@/server_manager/components/VersionList";
 import { useServersList } from "@/server_manager/hooks/useServers";
 import {
@@ -34,9 +35,10 @@ export interface InstallModalProps {
   project: PluginSearchResultResponse;
   projectType?: "plugin" | "mod";
   onClose: () => void;
+  isOpen?: boolean;
 }
 
-export function InstallModal({ project, projectType, onClose }: InstallModalProps) {
+export function InstallModal({ project, projectType, onClose, isOpen = true }: InstallModalProps) {
   const { data: servers } = useServersList();
   const lastUsedServerId = useLastUsedServerStore((s) => s.lastUsedServerId);
   const setLastUsedServer = useLastUsedServerStore((s) => s.setLastUsedServer);
@@ -86,13 +88,10 @@ export function InstallModal({ project, projectType, onClose }: InstallModalProp
 
   const install = useInstallFromMarketplace(selectedServerId);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const handleClose = () => {
+    if (install.isPending) return;
+    onClose();
+  };
 
   function handleSelectServer(serverId: string) {
     setManuallyChosenServerId(serverId);
@@ -129,53 +128,40 @@ export function InstallModal({ project, projectType, onClose }: InstallModalProp
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="install-modal">
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Install ${project.title}`}
-        className="relative w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            {project.icon_url ? (
-              <img
-                src={project.icon_url}
-                alt=""
-                className="h-12 w-12 shrink-0 rounded-xl object-cover border border-gray-200 dark:border-gray-700"
-              />
-            ) : (
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500 border border-gray-200 dark:border-gray-600">
-                <Icon name="plugin" size={24} />
-              </div>
-            )}
-            <div className="min-w-0">
-              <h2 className="truncate text-lg font-bold text-gray-900 dark:text-gray-100">
-                {project.title}
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                By <span className="font-medium text-gray-700 dark:text-gray-300">{project.author}</span>
-              </p>
+    <Modal
+      open={isOpen}
+      onClose={handleClose}
+      ariaLabel={`Install ${project.title}`}
+      size="lg"
+      closeOnBackdrop={!install.isPending}
+      closeOnEscape={!install.isPending}
+      closeButtonAriaLabel="Close modal"
+      title={
+        <div className="flex items-center gap-3 min-w-0">
+          {project.icon_url ? (
+            <img
+              src={project.icon_url}
+              alt=""
+              className="h-12 w-12 shrink-0 rounded-xl object-cover border border-gray-200 dark:border-gray-700"
+            />
+          ) : (
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500 border border-gray-200 dark:border-gray-600">
+              <Icon name="plugin" size={24} />
             </div>
+          )}
+          <div className="min-w-0">
+            <span className="block truncate text-lg font-bold text-gray-900 dark:text-gray-100">
+              {project.title}
+            </span>
+            <p className="text-xs text-gray-500 dark:text-gray-400 font-normal">
+              By <span className="font-medium text-gray-700 dark:text-gray-300">{project.author}</span>
+            </p>
           </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close modal"
-            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-          >
-            <Icon name="x" size={20} />
-          </button>
         </div>
-
-        <div className="mt-5">
+      }
+    >
+      <div data-testid="install-modal">
+        <div>
           <button
             type="button"
             onClick={handleInstall}
@@ -212,7 +198,8 @@ export function InstallModal({ project, projectType, onClose }: InstallModalProp
                   <button
                     type="button"
                     onClick={() => setIsChangingServer(!isChangingServer)}
-                    className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                    disabled={install.isPending}
+                    className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400 disabled:opacity-50"
                   >
                     {isChangingServer ? "Cancel" : "Change Server"}
                   </button>
@@ -277,7 +264,8 @@ export function InstallModal({ project, projectType, onClose }: InstallModalProp
                   <button
                     type="button"
                     onClick={() => setIsVersionDropdownOpen(!isVersionDropdownOpen)}
-                    className="w-full flex items-center justify-between rounded-xl border border-gray-300 bg-white p-3 text-xs font-medium text-gray-900 shadow-sm transition-colors hover:bg-gray-50 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+                    disabled={install.isPending}
+                    className="w-full flex items-center justify-between rounded-xl border border-gray-300 bg-white p-3 text-xs font-medium text-gray-900 shadow-sm transition-colors hover:bg-gray-50 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                   >
                     <div className="flex items-center gap-2 truncate">
                       {activeVersion ? (
@@ -322,6 +310,6 @@ export function InstallModal({ project, projectType, onClose }: InstallModalProp
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
