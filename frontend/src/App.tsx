@@ -1,7 +1,6 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { queryClient } from "@/services/queryClient";
 import { AuthGuard } from "@/components/guards/AuthGuard";
 import { SystemStatusGuard } from "@/components/guards/SystemStatusGuard";
@@ -35,11 +34,36 @@ const PluginDetailPage = lazy(() => import("@/server_manager/pages/PluginDetailP
 const SettingsPage = lazy(() => import("@/server_manager/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const ApiKeysPage = lazy(() => import("@/server_manager/pages/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage })));
 
+declare global {
+  interface ImportMetaEnv {
+    readonly DEV: boolean;
+    readonly VITE_QUERY_DEVTOOLS?: string;
+  }
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
+}
+
+const showDevtools =
+  Boolean(import.meta.env.DEV) && import.meta.env.VITE_QUERY_DEVTOOLS === "true";
+
+const ReactQueryDevtools = showDevtools
+  ? lazy(() =>
+      import("@tanstack/react-query-devtools").then((m) => ({
+        default: m.ReactQueryDevtools,
+      }))
+    )
+  : null;
+
 export default function App() {
   return (
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
-        <ReactQueryDevtools initialIsOpen={false} />
+        {showDevtools && ReactQueryDevtools && (
+          <Suspense fallback={null}>
+            <ReactQueryDevtools initialIsOpen={false} />
+          </Suspense>
+        )}
         <WebSocketManager />
         <Suspense fallback={<SplashScreen />}>
           <Routes>
