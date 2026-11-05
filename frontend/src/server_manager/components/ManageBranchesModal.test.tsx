@@ -217,4 +217,81 @@ describe("ManageBranchesModal Component", () => {
       expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
+
+  it("calls onClose when clicking backdrop while idle", () => {
+    const onClose = vi.fn();
+    render(
+      <ManageBranchesModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        branches={mockBranches}
+        currentBranchName="main"
+        onBranchesChanged={vi.fn()}
+        onOpenProtectionModal={vi.fn()}
+      />
+    );
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when clicking backdrop while archiving is pending", async () => {
+    const user = userEvent.setup();
+    let resolveArchive: (value: unknown) => void = () => {};
+    mockArchiveBranch.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveArchive = res;
+      })
+    );
+    const onClose = vi.fn();
+
+    render(
+      <ManageBranchesModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        branches={mockBranches}
+        currentBranchName="main"
+        onBranchesChanged={vi.fn()}
+        onOpenProtectionModal={vi.fn()}
+      />
+    );
+
+    const archiveBtns = screen.getAllByRole("button", { name: "Archive" });
+    await user.click(archiveBtns[1]);
+
+    const confirmBtn = screen.getByRole("button", { name: "Yes, Archive Branch" });
+    await user.click(confirmBtn);
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveArchive({ success: true });
+    });
+  });
+
+  it("does not call onClose when clicking inside dialog content", () => {
+    const onClose = vi.fn();
+    render(
+      <ManageBranchesModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        branches={mockBranches}
+        currentBranchName="main"
+        onBranchesChanged={vi.fn()}
+        onOpenProtectionModal={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Branch Lifecycle Management" });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

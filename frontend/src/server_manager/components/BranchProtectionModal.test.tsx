@@ -323,4 +323,100 @@ describe("BranchProtectionModal Component", () => {
       expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
+
+  it("calls onClose when clicking backdrop while idle", async () => {
+    mockGetBranchProtection.mockResolvedValueOnce({
+      branch_name: "main",
+      is_protected: true,
+      policy: null,
+    });
+    const onClose = vi.fn();
+
+    render(
+      <BranchProtectionModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        branch={mockBranch}
+        onProtectionUpdated={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Branch Protection Policy" })).toBeInTheDocument();
+    });
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when clicking backdrop while saving policy", async () => {
+    const user = userEvent.setup();
+    mockGetBranchProtection.mockResolvedValueOnce({
+      branch_name: "main",
+      is_protected: true,
+      policy: null,
+    });
+    let resolveSet: (value: unknown) => void = () => {};
+    mockSetBranchProtection.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveSet = res;
+      })
+    );
+    const onClose = vi.fn();
+
+    render(
+      <BranchProtectionModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        branch={mockBranch}
+        onProtectionUpdated={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Apply Protection/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Apply Protection/i }));
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSet({ success: true });
+    });
+  });
+
+  it("does not call onClose when clicking inside dialog content", async () => {
+    mockGetBranchProtection.mockResolvedValueOnce({
+      branch_name: "main",
+      is_protected: true,
+      policy: null,
+    });
+    const onClose = vi.fn();
+
+    render(
+      <BranchProtectionModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        branch={mockBranch}
+        onProtectionUpdated={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Branch Protection Policy" })).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole("dialog", { name: "Branch Protection Policy" });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

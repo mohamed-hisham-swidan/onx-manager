@@ -175,4 +175,41 @@ describe("CommitDiffModal Component", () => {
       expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
+
+  it("calls onClose when clicking backdrop", () => {
+    const onClose = vi.fn();
+
+    render(
+      <CommitDiffModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        fromCommitId="1111111111111111"
+        toCommitId="2222222222222222"
+      />
+    );
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when clicking inside dialog content", () => {
+    const onClose = vi.fn();
+
+    render(
+      <CommitDiffModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        fromCommitId="1111111111111111"
+        toCommitId="2222222222222222"
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Commit Diff Inspector" });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

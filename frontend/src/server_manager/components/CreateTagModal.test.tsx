@@ -185,4 +185,75 @@ describe("CreateTagModal Component", () => {
       expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
+
+  it("calls onClose when clicking backdrop while idle", () => {
+    const onClose = vi.fn();
+    render(
+      <CreateTagModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        commitId="abcdef1234567890"
+        onTagCreated={vi.fn()}
+      />
+    );
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when clicking backdrop while submitting", async () => {
+    const user = userEvent.setup();
+    let resolveCreate: (value: unknown) => void = () => {};
+    mockCreateTag.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveCreate = res;
+      })
+    );
+    const onClose = vi.fn();
+
+    render(
+      <CreateTagModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        commitId="abcdef1234567890"
+        onTagCreated={vi.fn()}
+      />
+    );
+
+    const input = screen.getByLabelText("Tag Name");
+    fireEvent.change(input, { target: { value: "v2.0.0" } });
+
+    const submitBtn = screen.getByRole("button", { name: "Create Tag" });
+    await user.click(submitBtn);
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveCreate({ success: true });
+    });
+  });
+
+  it("does not call onClose when clicking inside dialog content", () => {
+    const onClose = vi.fn();
+    render(
+      <CreateTagModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        commitId="abcdef1234567890"
+        onTagCreated={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Create Immutable Tag" });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
