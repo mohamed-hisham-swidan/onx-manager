@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 
 export interface ModalProps {
   open: boolean;
@@ -22,25 +23,6 @@ const sizeClasses: Record<NonNullable<ModalProps["size"]>, string> = {
   full: "max-w-4xl",
 };
 
-let openModalCount = 0;
-let previousBodyOverflow = "";
-
-function lockBodyScroll() {
-  if (openModalCount === 0) {
-    previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-  }
-  openModalCount += 1;
-}
-
-function unlockBodyScroll() {
-  openModalCount = Math.max(0, openModalCount - 1);
-  if (openModalCount === 0) {
-    document.body.style.overflow = previousBodyOverflow;
-    previousBodyOverflow = "";
-  }
-}
-
 export const Modal: React.FC<ModalProps> = ({
   open,
   onClose,
@@ -56,13 +38,7 @@ export const Modal: React.FC<ModalProps> = ({
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    lockBodyScroll();
-    return () => {
-      unlockBodyScroll();
-    };
-  }, [open]);
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (!open) return;
