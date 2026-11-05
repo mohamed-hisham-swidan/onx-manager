@@ -90,6 +90,12 @@ export function ServerVersioningPage() {
   const [tagModalCommitId, setTagModalCommitId] = useState<string | null>(null);
   const [diffParams, setDiffParams] = useState<{ from: string; to: string } | null>(null);
 
+  // Mutation pending guards for modals
+  const [isBranchPending, setIsBranchPending] = useState(false);
+  const [isCommitPending, setIsCommitPending] = useState(false);
+  const [isPromotePending, setIsPromotePending] = useState(false);
+  const [isSettingsPending, setIsSettingsPending] = useState(false);
+
   const currentBranchObj = useMemo(
     () => branches.find((b) => b.name === selectedBranch) || null,
     [branches, selectedBranch]
@@ -188,6 +194,7 @@ export function ServerVersioningPage() {
 
   const handleCreateBranch = async () => {
     if (!serverId || !newBranchName.trim()) return;
+    setIsBranchPending(true);
     try {
       await api.createServerBranch(serverId, { name: newBranchName.trim() });
       setSelectedBranch(newBranchName.trim());
@@ -197,11 +204,14 @@ export function ServerVersioningPage() {
       refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to create branch.");
+    } finally {
+      setIsBranchPending(false);
     }
   };
 
   const handleCreateCommit = async () => {
     if (!serverId || !newCommitMessage.trim()) return;
+    setIsCommitPending(true);
     try {
       await api.createServerCommit(serverId, {
         message: newCommitMessage.trim(),
@@ -218,11 +228,14 @@ export function ServerVersioningPage() {
       refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to create commit.");
+    } finally {
+      setIsCommitPending(false);
     }
   };
 
   const handlePromote = async () => {
     if (!serverId || !promoteTestId) return;
+    setIsPromotePending(true);
     try {
       await api.promoteTestCommit(serverId, promoteTestId, {
         keep_world_changes: keepWorldChanges,
@@ -241,6 +254,8 @@ export function ServerVersioningPage() {
       refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to promote commit.");
+    } finally {
+      setIsPromotePending(false);
     }
   };
 
@@ -260,6 +275,7 @@ export function ServerVersioningPage() {
 
   const handleSaveSettings = async () => {
     if (!serverId) return;
+    setIsSettingsPending(true);
     try {
       await api.updateBotSettings(serverId, {
         bot_count: settingsBotCount,
@@ -272,6 +288,8 @@ export function ServerVersioningPage() {
       refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to update settings.");
+    } finally {
+      setIsSettingsPending(false);
     }
   };
 
@@ -451,6 +469,7 @@ export function ServerVersioningPage() {
         onBranchNameChange={setNewBranchName}
         onSubmit={handleCreateBranch}
         onClose={() => setIsNewBranchOpen(false)}
+        isPending={isBranchPending}
       />
 
       {/* Create Commit Modal */}
@@ -468,6 +487,7 @@ export function ServerVersioningPage() {
         allowForceBypass={allowForceBypass}
         onSubmit={handleCreateCommit}
         onClose={() => setIsNewCommitOpen(false)}
+        isPending={isCommitPending}
       />
 
       {/* Promote Confirmation Modal */}
@@ -484,6 +504,7 @@ export function ServerVersioningPage() {
           setIsPromoteModalOpen(false);
           setForceReason("");
         }}
+        isPending={isPromotePending}
       />
 
       {/* Manifest Inspect Modal */}
@@ -511,6 +532,7 @@ export function ServerVersioningPage() {
         onPlacementChange={setSettingsPlacement}
         onSubmit={handleSaveSettings}
         onClose={() => setIsSettingsModalOpen(false)}
+        isPending={isSettingsPending}
       />
 
       {/* Branch Protection Modal */}

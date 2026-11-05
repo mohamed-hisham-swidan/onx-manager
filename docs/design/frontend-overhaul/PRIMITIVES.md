@@ -84,6 +84,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
   | `footer` | `ReactNode` | `undefined` | Dialog footer containing primary/secondary actions. |
   | `size` | `"sm" \| "md" \| "lg" \| "xl" \| "2xl"` | `"md"` | Max width constraint (`sm` max-w-sm, `md` max-w-md, `lg` max-w-lg, `xl` max-w-2xl, `2xl` max-w-3xl). |
   | `closeOnBackdrop` | `boolean` | `true` | When `true`, clicking the backdrop invokes `onClose`. Set to `false` for multi-field forms or destructive flows where an accidental backdrop click would discard uncommitted user inputs. |
+  | `closeOnEscape` | `boolean` | `true` | When `true`, pressing Escape key triggers `onClose`. Set to `false` (e.g. `closeOnEscape={!isPending}`) during active async mutations to guard against dismissal while an operation is in flight. |
   | `closeButtonAriaLabel`| `string` | `"Close dialog"` | Accessible name for the header close icon button (`aria-label`). |
 - **Accessibility**: Rendered with `role="dialog"`, `aria-modal="true"`. Traps keyboard focus inside the dialog while open. Closes automatically on `Escape`. Restores focus to the triggering element upon close.
   - **Shared Body Scroll Lock (`useBodyScrollLock`)**: Automatically locks body scroll (`document.body.style.overflow = "hidden"`) while active via the shared hook `useBodyScrollLock(active)` in `frontend/src/hooks/useBodyScrollLock.ts`. Uses a module-level reference counter so nested or stacked dialogs and mobile off-canvas drawers only restore the previous body overflow after the last active consumer releases.

@@ -81,6 +81,26 @@ describe("VersioningModals accessibility and migration contracts", () => {
       unmount();
       expect(document.body.style.overflow).toBe("");
     });
+
+    it("ignores Escape and disables cancel button while pending", () => {
+      const onClose = vi.fn();
+      render(
+        <CreateBranchModal
+          isOpen={true}
+          branchName="test"
+          onBranchNameChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onClose={onClose}
+          isPending={true}
+        />
+      );
+
+      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+      expect(cancelBtn).toBeDisabled();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
+    });
   });
 
   describe("CreateCommitModal", () => {
@@ -113,6 +133,34 @@ describe("VersioningModals accessibility and migration contracts", () => {
 
       unmount();
       expect(document.body.style.overflow).toBe("");
+    });
+
+    it("ignores Escape and disables cancel button while pending", () => {
+      const onClose = vi.fn();
+      render(
+        <CreateCommitModal
+          isOpen={true}
+          message="test message"
+          onMessageChange={vi.fn()}
+          forceBypass={false}
+          onForceBypassChange={vi.fn()}
+          forceReason=""
+          onForceReasonChange={vi.fn()}
+          selectedBranch="main"
+          currentBranchObj={null}
+          isDirectCommitBlocked={false}
+          allowForceBypass={false}
+          onSubmit={vi.fn()}
+          onClose={onClose}
+          isPending={true}
+        />
+      );
+
+      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+      expect(cancelBtn).toBeDisabled();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
     });
   });
 
@@ -161,6 +209,30 @@ describe("VersioningModals accessibility and migration contracts", () => {
       );
 
       expect(screen.getByRole("dialog", { name: "Force Promotion Override" })).toBeInTheDocument();
+    });
+
+    it("ignores Escape and disables cancel button while pending", () => {
+      const onClose = vi.fn();
+      render(
+        <PromoteModal
+          isOpen={true}
+          isForcePromote={false}
+          promoteTestRun={mockTestRun}
+          forceReason=""
+          onForceReasonChange={vi.fn()}
+          keepWorldChanges={false}
+          onKeepWorldChangesChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onClose={onClose}
+          isPending={true}
+        />
+      );
+
+      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+      expect(cancelBtn).toBeDisabled();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
     });
   });
 
@@ -240,6 +312,32 @@ describe("VersioningModals accessibility and migration contracts", () => {
 
       unmount();
       expect(document.body.style.overflow).toBe("");
+    });
+
+    it("ignores Escape and disables cancel button while pending", () => {
+      const onClose = vi.fn();
+      render(
+        <BotSettingsModal
+          isOpen={true}
+          botCount={5}
+          onBotCountChange={vi.fn()}
+          duration={2}
+          onDurationChange={vi.fn()}
+          tech="auto"
+          onTechChange={vi.fn()}
+          placement="sidecar"
+          onPlacementChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onClose={onClose}
+          isPending={true}
+        />
+      );
+
+      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+      expect(cancelBtn).toBeDisabled();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
     });
   });
 });

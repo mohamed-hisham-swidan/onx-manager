@@ -11,6 +11,7 @@ export interface ModalProps {
   size?: "sm" | "md" | "lg" | "xl" | "2xl" | "full";
   showCloseButton?: boolean;
   closeOnBackdrop?: boolean;
+  closeOnEscape?: boolean;
   closeButtonAriaLabel?: string;
   ariaLabel?: string;
   className?: string;
@@ -35,6 +36,7 @@ export const Modal: React.FC<ModalProps> = ({
   size = "md",
   showCloseButton = true,
   closeOnBackdrop = true,
+  closeOnEscape = true,
   closeButtonAriaLabel,
   ariaLabel,
   className = "",
@@ -68,6 +70,7 @@ export const Modal: React.FC<ModalProps> = ({
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        if (!closeOnEscape) return;
         e.stopPropagation();
         onClose();
         return;
@@ -111,7 +114,7 @@ export const Modal: React.FC<ModalProps> = ({
       window.removeEventListener("keydown", onKeyDown);
       previousFocusRef.current?.focus();
     };
-  }, [open, onClose, initialFocusRef]);
+  }, [open, onClose, initialFocusRef, closeOnEscape]);
 
   if (!open) return null;
 

@@ -11,6 +11,7 @@ interface CreateBranchModalProps {
   onBranchNameChange: (val: string) => void;
   onSubmit: () => void;
   onClose: () => void;
+  isPending?: boolean;
 }
 
 export function CreateBranchModal({
@@ -19,6 +20,7 @@ export function CreateBranchModal({
   onBranchNameChange,
   onSubmit,
   onClose,
+  isPending = false,
 }: CreateBranchModalProps) {
   return (
     <Modal
@@ -28,11 +30,12 @@ export function CreateBranchModal({
       size="md"
       showCloseButton={false}
       closeOnBackdrop={false}
+      closeOnEscape={!isPending}
     >
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit();
+          if (!isPending) onSubmit();
         }}
         className="space-y-4"
       >
@@ -45,23 +48,26 @@ export function CreateBranchModal({
             type="text"
             value={branchName}
             onChange={(e) => onBranchNameChange(e.target.value)}
+            disabled={isPending}
             placeholder="e.g. feat-mod-upgrade"
-            className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+            className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
           />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            disabled={isPending}
+            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover cursor-pointer shadow-xs"
+            disabled={isPending || !branchName.trim()}
+            className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Create Branch
+            {isPending ? "Creating..." : "Create Branch"}
           </button>
         </div>
       </form>
@@ -86,6 +92,7 @@ interface CreateCommitModalProps {
   allowForceBypass: boolean;
   onSubmit: () => void;
   onClose: () => void;
+  isPending?: boolean;
 }
 
 export function CreateCommitModal({
@@ -102,6 +109,7 @@ export function CreateCommitModal({
   allowForceBypass,
   onSubmit,
   onClose,
+  isPending = false,
 }: CreateCommitModalProps) {
   return (
     <Modal
@@ -112,6 +120,7 @@ export function CreateCommitModal({
       size="md"
       showCloseButton={false}
       closeOnBackdrop={false}
+      closeOnEscape={!isPending}
     >
       <div className="space-y-4">
         {currentBranchObj?.status === "archived" && (
@@ -136,7 +145,8 @@ export function CreateCommitModal({
                     type="checkbox"
                     checked={forceBypass}
                     onChange={(e) => onForceBypassChange(e.target.checked)}
-                    className="rounded border-border-default text-accent-primary focus:ring-accent-primary"
+                    disabled={isPending}
+                    className="rounded border-border-default text-accent-primary focus:ring-accent-primary disabled:opacity-50"
                   />
                   <span className="font-semibold text-text-primary">
                     Emergency Force Bypass
@@ -151,8 +161,9 @@ export function CreateCommitModal({
                       type="text"
                       value={forceReason}
                       onChange={(e) => onForceReasonChange(e.target.value)}
+                      disabled={isPending}
                       placeholder="e.g. Hotfix for critical crash"
-                      className="w-full rounded border border-border-default bg-surface-page px-2.5 py-1 text-xs text-text-primary"
+                      className="w-full rounded border border-border-default bg-surface-page px-2.5 py-1 text-xs text-text-primary disabled:opacity-50"
                       required
                     />
                   </div>
@@ -176,7 +187,7 @@ export function CreateCommitModal({
             value={message}
             onChange={(e) => onMessageChange(e.target.value)}
             placeholder="e.g. Pre-WorldEdit update snapshot"
-            disabled={currentBranchObj?.status === "archived"}
+            disabled={isPending || currentBranchObj?.status === "archived"}
             className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
           />
         </div>
@@ -184,7 +195,8 @@ export function CreateCommitModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            disabled={isPending}
+            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
@@ -192,13 +204,14 @@ export function CreateCommitModal({
             type="button"
             onClick={onSubmit}
             disabled={
+              isPending ||
               !message.trim() ||
               currentBranchObj?.status === "archived" ||
               (isDirectCommitBlocked && (!allowForceBypass || !forceBypass || !forceReason.trim()))
             }
             className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
           >
-            {forceBypass ? "Force Commit Snapshot" : "Commit Snapshot"}
+            {isPending ? "Committing..." : forceBypass ? "Force Commit Snapshot" : "Commit Snapshot"}
           </button>
         </div>
       </div>
@@ -219,6 +232,7 @@ interface PromoteModalProps {
   onKeepWorldChangesChange: (val: boolean) => void;
   onSubmit: () => void;
   onClose: () => void;
+  isPending?: boolean;
 }
 
 export function PromoteModal({
@@ -231,6 +245,7 @@ export function PromoteModal({
   onKeepWorldChangesChange,
   onSubmit,
   onClose,
+  isPending = false,
 }: PromoteModalProps) {
   return (
     <Modal
@@ -239,6 +254,7 @@ export function PromoteModal({
       size="md"
       showCloseButton={false}
       closeOnBackdrop={false}
+      closeOnEscape={!isPending}
       ariaLabel={isForcePromote ? "Force Promotion Override" : "Promote Verified Commit"}
     >
       <div className="space-y-4">
@@ -315,21 +331,22 @@ export function PromoteModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            disabled={isPending}
+            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={onSubmit}
-            disabled={isForcePromote && !forceReason.trim()}
+            disabled={isPending || (isForcePromote && !forceReason.trim())}
             className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition-colors cursor-pointer ${
               isForcePromote
                 ? "bg-status-warning hover:bg-status-warning/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                : "bg-status-success hover:bg-status-success/90"
+                : "bg-status-success hover:bg-status-success/90 disabled:opacity-50 disabled:cursor-not-allowed"
             }`}
           >
-            {isForcePromote ? "Confirm Force Promotion" : "Confirm Promotion"}
+            {isPending ? "Promoting..." : isForcePromote ? "Confirm Force Promotion" : "Confirm Promotion"}
           </button>
         </div>
       </div>
@@ -458,6 +475,7 @@ interface BotSettingsModalProps {
   onPlacementChange: (val: string) => void;
   onSubmit: () => void;
   onClose: () => void;
+  isPending?: boolean;
 }
 
 export function BotSettingsModal({
@@ -472,6 +490,7 @@ export function BotSettingsModal({
   onPlacementChange,
   onSubmit,
   onClose,
+  isPending = false,
 }: BotSettingsModalProps) {
   return (
     <Modal
@@ -482,11 +501,12 @@ export function BotSettingsModal({
       size="md"
       showCloseButton={false}
       closeOnBackdrop={false}
+      closeOnEscape={!isPending}
     >
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit();
+          if (!isPending) onSubmit();
         }}
         className="space-y-4"
       >
@@ -501,7 +521,8 @@ export function BotSettingsModal({
               min={1}
               value={botCount}
               onChange={(e) => onBotCountChange(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+              disabled={isPending}
+              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
             />
           </div>
 
@@ -515,7 +536,8 @@ export function BotSettingsModal({
               min={1}
               value={duration}
               onChange={(e) => onDurationChange(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+              disabled={isPending}
+              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
             />
           </div>
 
@@ -527,7 +549,8 @@ export function BotSettingsModal({
               id="settings-tech-select"
               value={tech}
               onChange={(e) => onTechChange(e.target.value)}
-              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+              disabled={isPending}
+              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
             >
               <option value="auto">Auto (Server-type aware)</option>
               <option value="mineflayer">Mineflayer (External Protocol)</option>
@@ -543,7 +566,8 @@ export function BotSettingsModal({
               id="settings-placement-select"
               value={placement}
               onChange={(e) => onPlacementChange(e.target.value)}
-              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary"
+              disabled={isPending}
+              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
             >
               <option value="sidecar">Sidecar (Container Isolation)</option>
               <option value="in_container">In Container</option>
@@ -555,15 +579,17 @@ export function BotSettingsModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer"
+            disabled={isPending}
+            className="rounded-lg border border-border-default bg-surface-page px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover cursor-pointer shadow-xs"
+            disabled={isPending}
+            className="rounded-lg bg-accent-primary px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save Defaults
+            {isPending ? "Saving..." : "Save Defaults"}
           </button>
         </div>
       </form>

@@ -71,6 +71,28 @@ describe("Modal Primitive", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("does not call onClose on Escape when closeOnEscape is false", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal open onClose={onClose} closeOnEscape={false} title="Test Title">
+        <div>Content</div>
+      </Modal>
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("calls onClose on Escape when closeOnEscape is true", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal open onClose={onClose} closeOnEscape={true} title="Test Title">
+        <div>Content</div>
+      </Modal>
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("renders size='2xl' with max-w-3xl class", () => {
     render(
       <Modal open onClose={() => {}} size="2xl" title="2XL Modal">
