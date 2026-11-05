@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { toast } from "@/stores/toastStore";
 import { parseServerDate } from "@/server_manager/utils/format";
 import type { ScanLiveChangesResponse, LiveChangeEntry } from "@/server_manager/types";
@@ -37,18 +38,10 @@ export function ImportReviewModal({
     }
   }
 
-  // Escape key handler
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen && !isProcessing) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isProcessing, onClose]);
-
-  if (!isOpen || !liveData) return null;
+  const handleClose = () => {
+    if (isProcessing) return;
+    onClose();
+  };
 
   const getChangeType = (c: LiveChangeEntry): "added" | "modified" | "deleted" => {
     const raw = (c.change_type || c.change || "modified").toLowerCase();
@@ -56,6 +49,8 @@ export function ImportReviewModal({
     if (raw.includes("del") || raw.includes("rem")) return "deleted";
     return "modified";
   };
+
+  if (!liveData) return null;
 
   const changes = liveData.changes || [];
   const added = changes.filter((c) => getChangeType(c) === "added");
@@ -164,48 +159,25 @@ export function ImportReviewModal({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="import-review-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isProcessing) onClose();
-      }}
+    <Modal
+      open={isOpen && Boolean(liveData)}
+      onClose={handleClose}
+      title="Uncommitted Live Changes Detected"
+      ariaLabel="Uncommitted Live Changes Detected"
+      description={
+        <span>
+          Live filesystem has diverged from base commit{" "}
+          <span className="font-mono font-semibold text-gray-700 dark:text-gray-300">
+            {liveData?.base_commit_id?.slice(0, 7) || "HEAD"}
+          </span>
+        </span>
+      }
+      size="xl"
+      closeOnBackdrop={!isProcessing}
+      closeOnEscape={!isProcessing}
+      closeButtonAriaLabel="Close modal"
     >
-      <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 p-6 space-y-4 text-gray-900 dark:text-gray-100 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
-              <Icon name="alert" size={20} />
-            </div>
-            <div>
-              <h2
-                id="import-review-modal-title"
-                className="text-lg font-semibold text-gray-900 dark:text-white"
-              >
-                Uncommitted Live Changes Detected
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Live filesystem has diverged from base commit{" "}
-                <span className="font-mono font-semibold text-gray-700 dark:text-gray-300">
-                  {liveData.base_commit_id?.slice(0, 7) || "HEAD"}
-                </span>
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isProcessing}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors"
-            aria-label="Close modal"
-          >
-            <Icon name="x" size={18} />
-          </button>
-        </div>
-
+      <div className="space-y-4 text-gray-900 dark:text-gray-100">
         {/* Error alert */}
         {error && (
           <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
@@ -360,9 +332,9 @@ export function ImportReviewModal({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               disabled={isProcessing}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
             >
               Close
             </button>
@@ -378,6 +350,6 @@ export function ImportReviewModal({
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

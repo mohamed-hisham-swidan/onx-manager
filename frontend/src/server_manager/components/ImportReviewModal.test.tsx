@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ImportReviewModal } from "./ImportReviewModal";
 import type { ScanLiveChangesResponse } from "@/server_manager/types";
@@ -175,6 +175,166 @@ describe("ImportReviewModal Component", () => {
       expect(mockRevertImportReview).toHaveBeenCalledWith("srv-1", "rev-12345");
       expect(onResolved).toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it("renders role='dialog' with accessible name, locks body scroll, and releases on unmount", () => {
+    document.body.style.overflow = "";
+
+    const { unmount } = render(
+      <ImportReviewModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        liveData={sampleLiveDataWithReview}
+        onReviewResolved={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Uncommitted Live Changes Detected" });
+    expect(dialog).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    unmount();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("closes on Escape key press when idle", () => {
+    const onClose = vi.fn();
+
+    render(
+      <ImportReviewModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        liveData={sampleLiveDataWithReview}
+        onReviewResolved={vi.fn()}
+      />
+    );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores Escape and disables Close button while processing", async () => {
+    const user = userEvent.setup();
+    let resolveConfirm: (value: unknown) => void = () => {};
+    mockConfirmImportReview.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveConfirm = res;
+      })
+    );
+    const onClose = vi.fn();
+
+    render(
+      <ImportReviewModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        liveData={sampleLiveDataWithReview}
+        onReviewResolved={vi.fn()}
+      />
+    );
+
+    const confirmBtn = screen.getByRole("button", { name: /Confirm & Commit/i });
+    await user.click(confirmBtn);
+
+    // Close button should be disabled
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+
+    // Escape should be ignored while processing
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveConfirm({ commit_id: "done-commit" });
+    });
+  });
+
+  it("calls onClose when clicking backdrop while idle", () => {
+    const onClose = vi.fn();
+
+    render(
+      <ImportReviewModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        liveData={sampleLiveDataWithReview}
+        onReviewResolved={vi.fn()}
+      />
+    );
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when clicking backdrop while processing", async () => {
+    const user = userEvent.setup();
+    let resolveConfirm: (value: unknown) => void = () => {};
+    mockConfirmImportReview.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveConfirm = res;
+      })
+    );
+    const onClose = vi.fn();
+
+    render(
+      <ImportReviewModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        liveData={sampleLiveDataWithReview}
+        onReviewResolved={vi.fn()}
+      />
+    );
+
+    const confirmBtn = screen.getByRole("button", { name: /Confirm & Commit/i });
+    await user.click(confirmBtn);
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveConfirm({ commit_id: "done-commit" });
+    });
+  });
+
+  it("does not call onClose when clicking inside dialog content", () => {
+    const onClose = vi.fn();
+
+    render(
+      <ImportReviewModal
+        isOpen={true}
+        onClose={onClose}
+        serverId="srv-1"
+        liveData={sampleLiveDataWithReview}
+        onReviewResolved={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Uncommitted Live Changes Detected" });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("moves focus into the dialog on open", async () => {
+    render(
+      <ImportReviewModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        liveData={sampleLiveDataWithReview}
+        onReviewResolved={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Uncommitted Live Changes Detected" });
+    await waitFor(() => {
+      expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
 });

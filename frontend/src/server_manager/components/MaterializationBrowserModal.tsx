@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { CodeEditor } from "@/components/CodeEditor";
 import { toast } from "@/stores/toastStore";
 import type {
@@ -258,16 +259,12 @@ export function MaterializationBrowserModal({
     }
   };
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen && !isCreating && !isSavingFile) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isCreating, isSavingFile, onClose]);
+  const isBusy = isSavingFile || isCreating;
+
+  const handleClose = () => {
+    if (isBusy) return;
+    onClose();
+  };
 
   // Compute directory contents based on currentDir
   const currentEntries = useMemo(() => {
@@ -320,58 +317,20 @@ export function MaterializationBrowserModal({
     }));
   }, [currentDir]);
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="materialization-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isSavingFile && !isCreating) onClose();
-      }}
+    <Modal
+      open={isOpen}
+      onClose={handleClose}
+      title="Worktree Materialization Explorer"
+      ariaLabel="Worktree Materialization Explorer"
+      description="Explore materialized commit worktree snapshots in isolated workspaces"
+      size="full"
+      className="max-w-6xl h-[90vh] flex flex-col"
+      closeOnBackdrop={!isBusy}
+      closeOnEscape={!isBusy}
+      closeButtonAriaLabel="Close modal"
     >
-      <div className="relative w-full max-w-6xl h-[90vh] flex flex-col rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800 p-6 space-y-4 text-gray-900 dark:text-gray-100 overflow-hidden">
-        {/* Top Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
-              <Icon name="folder" size={20} />
-            </div>
-            <div>
-              <h2
-                id="materialization-modal-title"
-                className="text-lg font-semibold text-gray-900 dark:text-white"
-              >
-                Worktree Materialization Explorer
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Explore materialized commit worktree snapshots in isolated workspaces
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowCreateForm(!showCreateForm)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors"
-            >
-              <Icon name="plus" size={14} />
-              {showCreateForm ? "Cancel New" : "Materialize Revision"}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSavingFile || isCreating}
-              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300 transition-colors"
-              aria-label="Close modal"
-            >
-              <Icon name="x" size={18} />
-            </button>
-          </div>
-        </div>
-
+      <div className="flex-1 flex flex-col min-h-0 space-y-4">
         {/* Error Alert */}
         {error && (
           <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
@@ -454,43 +413,54 @@ export function MaterializationBrowserModal({
             )}
           </div>
 
-          {activeMat && (
-            <div className="flex items-center gap-2">
-              <span
-                className={`px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider ${
-                  activeMat.mode === "editable"
-                    ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
-                    : "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800"
-                }`}
-              >
-                {activeMat.mode}
-              </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCreateForm(!showCreateForm)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors"
+            >
+              <Icon name="plus" size={14} />
+              {showCreateForm ? "Cancel New" : "Materialize Revision"}
+            </button>
 
-              <button
-                type="button"
-                onClick={handleToggleMode}
-                disabled={isTogglingMode}
-                className="px-2.5 py-1 rounded bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium text-gray-700 dark:text-gray-300 transition-colors"
-              >
-                {isTogglingMode
-                  ? "Updating..."
-                  : activeMat.mode === "readonly"
-                  ? "Enable Edit Mode"
-                  : "Make Read-Only"}
-              </button>
+            {activeMat && (
+              <>
+                <span
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider ${
+                    activeMat.mode === "editable"
+                      ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
+                      : "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800"
+                  }`}
+                >
+                  {activeMat.mode}
+                </span>
 
-              <button
-                type="button"
-                onClick={handleDeleteMaterialization}
-                disabled={isDeleting}
-                className="px-2 py-1 rounded bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 hover:bg-red-100 text-red-600 dark:text-red-400 transition-colors"
-                title="Delete worktree"
-                aria-label="Delete worktree"
-              >
-                <Icon name="trash" size={14} />
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={handleToggleMode}
+                  disabled={isTogglingMode}
+                  className="px-2.5 py-1 rounded bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium text-gray-700 dark:text-gray-300 transition-colors"
+                >
+                  {isTogglingMode
+                    ? "Updating..."
+                    : activeMat.mode === "readonly"
+                    ? "Enable Edit Mode"
+                    : "Make Read-Only"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDeleteMaterialization}
+                  disabled={isDeleting}
+                  className="px-2 py-1 rounded bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 hover:bg-red-100 text-red-600 dark:text-red-400 transition-colors"
+                  title="Delete worktree"
+                  aria-label="Delete worktree"
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Content Pane: Left File Tree, Right Editor */}
@@ -669,7 +639,19 @@ export function MaterializationBrowserModal({
             </div>
           </div>
         )}
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={isBusy}
+            className="px-4 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+          >
+            Close
+          </button>
+        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { Modal } from "@/components/ui/Modal";
 import { useClipboard } from "@/hooks/useClipboard";
 import { formatDateTime } from "@/server_manager/utils/format";
 import type { CrashReportSummary } from "@/server_manager/types";
@@ -33,61 +34,26 @@ export function CrashReportViewerModal({
     }
   }
 
-  // Handle ESC key
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
   const currentReport: CrashReportSummary | undefined =
     reports.length > 0 ? reports[Math.min(selectedIndex, reports.length - 1)] : undefined;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="crash-report-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      title="Crash Report Inspector"
+      ariaLabel="Crash Report Inspector"
+      description={
+        serverName ? `Server: ${serverName}` : "Diagnostic Details & Mod Blame"
+      }
+      size="2xl"
+      closeOnBackdrop={true}
+      closeOnEscape={true}
+      closeButtonAriaLabel="Close crash report viewer"
     >
-      <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden text-gray-100">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-800 bg-gray-950/80">
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30">
-              <Icon name="alert" size={18} />
-            </div>
-            <div>
-              <h2 id="crash-report-modal-title" className="text-sm font-semibold text-gray-100">
-                Crash Report Inspector
-              </h2>
-              <p className="text-xs text-gray-400">
-                {serverName ? `Server: ${serverName}` : "Diagnostic Details & Mod Blame"}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close crash report viewer"
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-100 hover:bg-gray-800 transition-colors"
-          >
-            <Icon name="x" size={16} />
-          </button>
-        </div>
-
+      <div className="flex flex-col space-y-4 text-gray-100 max-h-[75vh]">
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-1 space-y-4">
           {isLoading ? (
             <div className="py-12 text-center text-gray-400 space-y-2">
               <div className="inline-block w-6 h-6 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
@@ -266,7 +232,7 @@ export function CrashReportViewerModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-800 bg-gray-950/80">
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-800">
           <button
             type="button"
             onClick={onClose}
@@ -276,6 +242,6 @@ export function CrashReportViewerModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

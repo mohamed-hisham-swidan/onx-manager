@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CrashReportViewerModal } from "./CrashReportViewerModal";
 import type { CrashReportSummary } from "@/server_manager/types";
@@ -189,5 +189,70 @@ describe("CrashReportViewerModal Component", () => {
 
     await user.keyboard("{Escape}");
     expect(handleClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders role='dialog' with accessible name, locks body scroll, and releases on unmount", () => {
+    document.body.style.overflow = "";
+
+    const { unmount } = render(
+      <CrashReportViewerModal
+        isOpen={true}
+        onClose={vi.fn()}
+        reports={sampleReports}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Crash Report Inspector" });
+    expect(dialog).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    unmount();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("calls onClose when clicking backdrop while idle", () => {
+    const handleClose = vi.fn();
+    render(
+      <CrashReportViewerModal
+        isOpen={true}
+        onClose={handleClose}
+        reports={sampleReports}
+      />
+    );
+
+    const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
+    expect(handleClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when clicking inside dialog content", () => {
+    const handleClose = vi.fn();
+    render(
+      <CrashReportViewerModal
+        isOpen={true}
+        onClose={handleClose}
+        reports={sampleReports}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Crash Report Inspector" });
+    fireEvent.click(dialog);
+    expect(handleClose).not.toHaveBeenCalled();
+  });
+
+  it("moves focus into the dialog on open", async () => {
+    render(
+      <CrashReportViewerModal
+        isOpen={true}
+        onClose={vi.fn()}
+        reports={sampleReports}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Crash Report Inspector" });
+    await waitFor(() => {
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    });
   });
 });
