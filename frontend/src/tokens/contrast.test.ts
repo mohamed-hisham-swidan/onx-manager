@@ -94,6 +94,20 @@ export const DECORATIVE_EXCLUSIONS = [
   },
 ] as const;
 
+/**
+ * Explicit exclusion list for transient surfaces in border contrast evaluation.
+ */
+export const TRANSIENT_SURFACE_BORDER_EXCLUSIONS = [
+  {
+    surface: "hover",
+    reason: "Transient interactive pointer-hover surface overlay; persistent boundary affordance is defined by base surface state.",
+  },
+  {
+    surface: "active",
+    reason: "Transient interactive pressed/active surface state; persistent boundary affordance is defined by base surface state.",
+  },
+] as const;
+
 export function parseCssBlock(cssText: string, selectorPattern: string): Record<string, string> {
   const regex = new RegExp(selectorPattern + "\\s*\\{([^}]+)\\}", "m");
   const match = cssText.match(regex);
@@ -207,7 +221,8 @@ export function checkPaletteViolations(
     }
   }
 
-  // 2. Borders (>= 3.0:1) on page and card
+  // 2. Borders (>= 3.0:1) on page, card, elevated, and muted
+  // Note: hover and active are transient interactive states and explicitly excluded (see TRANSIENT_SURFACE_BORDER_EXCLUSIONS).
   const borders = [
     { name: "borderDefault", hex: palette.borderDefault },
     { name: "borderStrong", hex: palette.borderStrong },
@@ -216,6 +231,8 @@ export function checkPaletteViolations(
   const boundarySurfaces = [
     { name: "page", hex: palette.page },
     { name: "card", hex: palette.card },
+    { name: "elevated", hex: palette.elevated },
+    { name: "muted", hex: palette.muted },
   ];
 
   for (const border of borders) {
@@ -279,18 +296,24 @@ describe("WCAG 2.1 AA Contrast Computation (Real CSS Parser - Task 2)", () => {
     expect(DECORATIVE_EXCLUSIONS[0].reason).toContain("decorative");
   });
 
-  it("enforces UI boundary and focus borders >= 3.0:1 on page and card across all palettes", () => {
+  it("enforces UI boundary and focus borders >= 3.0:1 on page, card, elevated, and muted across all palettes", () => {
     for (const [key, palette] of Object.entries(palettes)) {
       const borders = [
         { name: "borderDefault", hex: palette.borderDefault },
         { name: "borderStrong", hex: palette.borderStrong },
         { name: "borderFocus", hex: palette.borderFocus },
       ];
+      const boundarySurfaces = [
+        { name: "page", hex: palette.page },
+        { name: "card", hex: palette.card },
+        { name: "elevated", hex: palette.elevated },
+        { name: "muted", hex: palette.muted },
+      ];
       for (const border of borders) {
-        const ratioPage = calculateContrastRatio(border.hex, palette.page);
-        const ratioCard = calculateContrastRatio(border.hex, palette.card);
-        expect(ratioPage, `${key} ${border.name} on page`).toBeGreaterThanOrEqual(3.0);
-        expect(ratioCard, `${key} ${border.name} on card`).toBeGreaterThanOrEqual(3.0);
+        for (const surface of boundarySurfaces) {
+          const ratio = calculateContrastRatio(border.hex, surface.hex);
+          expect(ratio, `${key} ${border.name} on ${surface.name}`).toBeGreaterThanOrEqual(3.0);
+        }
       }
     }
   });
@@ -358,5 +381,15 @@ describe("WCAG 2.1 AA Contrast Computation (Real CSS Parser - Task 2)", () => {
     const violations = checkPaletteViolations("azure:dark", testPalette);
     expect(violations.length).toBeGreaterThan(0);
     expect(violations.some((v) => v.includes("textPrimary"))).toBe(true);
+  });
+
+  it("mutation self-check: reports violation when border-default on elevated is mutated to failing contrast", () => {
+    const testPalette = { ...palettes["graphite:dark"] };
+    // Mutate borderDefault to a low-contrast value close to elevated (#262626)
+    testPalette.borderDefault = "#2c2c2c";
+
+    const violations = checkPaletteViolations("graphite:dark", testPalette);
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.some((v) => v.includes("borderDefault") && v.includes("elevated"))).toBe(true);
   });
 });
