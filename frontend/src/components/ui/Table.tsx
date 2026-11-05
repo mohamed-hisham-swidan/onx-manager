@@ -60,15 +60,33 @@ export function Table<T>({
                   : col.align === "center"
                   ? "text-center"
                   : "text-left";
+              const ariaSort = col.sortable
+                ? isSorted
+                  ? sortDirection === "asc"
+                    ? "ascending"
+                    : "descending"
+                  : "none"
+                : undefined;
 
               return (
                 <th
                   key={col.key}
+                  scope="col"
+                  aria-sort={ariaSort}
+                  tabIndex={col.sortable ? 0 : undefined}
                   style={col.width ? { width: col.width } : undefined}
                   className={`px-4 py-2.5 ${alignClass} ${
-                    col.sortable ? "cursor-pointer select-none hover:text-text-primary" : ""
+                    col.sortable
+                      ? "cursor-pointer select-none hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
+                      : ""
                   }`}
                   onClick={() => col.sortable && onSort?.(col.key)}
+                  onKeyDown={(e) => {
+                    if (col.sortable && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      onSort?.(col.key);
+                    }
+                  }}
                 >
                   <div
                     className={`inline-flex items-center gap-1.5 ${

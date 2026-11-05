@@ -35,6 +35,44 @@ describe("Table Primitive", () => {
     expect(onSort).toHaveBeenCalledWith("name");
   });
 
+  it("adds scope='col' on all headers and correct aria-sort attributes", () => {
+    const { rerender } = render(
+      <Table data={data} columns={columns} keyField="id" sortColumn="name" sortDirection="asc" />,
+    );
+
+    const nameTh = screen.getByRole("columnheader", { name: /name/i });
+    const countTh = screen.getByRole("columnheader", { name: /count/i });
+
+    expect(nameTh).toHaveAttribute("scope", "col");
+    expect(countTh).toHaveAttribute("scope", "col");
+    expect(nameTh).toHaveAttribute("aria-sort", "ascending");
+    expect(countTh).not.toHaveAttribute("aria-sort");
+    expect(nameTh).toHaveAttribute("tabindex", "0");
+    expect(countTh).not.toHaveAttribute("tabindex");
+
+    rerender(<Table data={data} columns={columns} keyField="id" sortColumn="name" sortDirection="desc" />);
+    expect(nameTh).toHaveAttribute("aria-sort", "descending");
+
+    rerender(<Table data={data} columns={columns} keyField="id" sortColumn="other" sortDirection="asc" />);
+    expect(nameTh).toHaveAttribute("aria-sort", "none");
+  });
+
+  it("triggers onSort on sortable th with Enter and Space keys", () => {
+    const onSort = vi.fn();
+    render(<Table data={data} columns={columns} keyField="id" onSort={onSort} sortColumn="name" sortDirection="asc" />);
+    const nameTh = screen.getByRole("columnheader", { name: /name/i });
+
+    fireEvent.keyDown(nameTh, { key: "Enter" });
+    expect(onSort).toHaveBeenCalledWith("name");
+
+    fireEvent.keyDown(nameTh, { key: " " });
+    expect(onSort).toHaveBeenCalledTimes(2);
+
+    // Other keys do not trigger onSort
+    fireEvent.keyDown(nameTh, { key: "Escape" });
+    expect(onSort).toHaveBeenCalledTimes(2);
+  });
+
   it("renders empty state when data is empty", () => {
     render(<Table data={[]} columns={columns} keyField="id" emptyMessage="Custom Empty" />);
     expect(screen.getByText("Custom Empty")).toBeInTheDocument();
