@@ -74,7 +74,6 @@ export const Tabs: React.FC<TabsProps> = ({
             role="tab"
             type="button"
             id={`tab-${tab.id}`}
-            aria-controls={`tabpanel-${tab.id}`}
             aria-selected={isSelected}
             tabIndex={isSelected ? 0 : -1}
             disabled={tab.disabled}
