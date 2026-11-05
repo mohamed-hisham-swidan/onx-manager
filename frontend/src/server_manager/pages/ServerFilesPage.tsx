@@ -541,13 +541,17 @@ export function ServerFilesPage() {
               </thead>
               <tbody className="divide-y divide-border-subtle">
                 {currentPath && (
-                  <tr
-                    className="hover:bg-surface-hover/50 transition-colors cursor-pointer"
-                    onClick={navigateUp}
-                  >
-                    <td className="px-4 py-2 flex items-center gap-2.5 font-medium text-text-primary">
-                      <Icon name="folder" className="text-accent-primary" size={16} />
-                      <span>..</span>
+                  <tr className="hover:bg-surface-hover/50 transition-colors">
+                    <td className="px-4 py-2">
+                      <button
+                        type="button"
+                        onClick={navigateUp}
+                        className="flex items-center gap-2.5 cursor-pointer text-left focus:outline-hidden focus-visible:ring-1 focus-visible:ring-border-focus rounded font-medium text-text-primary"
+                        aria-label="Navigate to parent directory"
+                      >
+                        <Icon name="folder" className="text-accent-primary" size={16} />
+                        <span>..</span>
+                      </button>
                     </td>
                     <td className="px-4 py-2 text-text-muted">-</td>
                     <td className="px-4 py-2 text-right"></td>

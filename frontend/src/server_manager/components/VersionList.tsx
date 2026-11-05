@@ -44,17 +44,7 @@ export function VersionList({
           return (
             <div
               key={v.version_id}
-              role="button"
-              tabIndex={0}
-              aria-label={`Select version ${v.version_number}`}
-              onClick={() => onSelectVersion(v)}
-              onKeyDown={(e) => {
-                if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
-                  e.preventDefault();
-                  onSelectVersion(v);
-                }
-              }}
-              className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl border p-4 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus ${
+              className={`flex items-center justify-between gap-4 rounded-xl border p-4 transition-colors ${
                 isRecommended
                   ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20"
                   : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/50"
@@ -90,11 +80,9 @@ export function VersionList({
 
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelectVersion(v);
-                }}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+                aria-label={`Install version ${v.version_number}`}
+                onClick={() => onSelectVersion(v)}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
               >
                 <Icon name="plus" size={14} />
                 Install

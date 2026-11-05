@@ -167,26 +167,7 @@ function ModUploadZone({
   };
 
   return (
-    <div
-      role="button"
-      tabIndex={isUploading ? -1 : 0}
-      aria-label="Upload custom mod jar file"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      onClick={() => !isUploading && fileInputRef.current?.click()}
-      onKeyDown={(e) => {
-        if (!isUploading && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          fileInputRef.current?.click();
-        }
-      }}
-      className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus ${
-        isDragging
-          ? "border-accent-primary bg-accent-primary/15"
-          : "border-border-default hover:border-accent-primary bg-surface-card hover:bg-surface-hover/50"
-      } ${isUploading ? "pointer-events-none opacity-60" : ""}`}
-    >
+    <>
       <input
         ref={fileInputRef}
         type="file"
@@ -195,7 +176,27 @@ function ModUploadZone({
         className="hidden"
         data-testid="mod-file-input"
       />
-      <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accent-primary/20 text-accent-primary">
+      <div
+        role="button"
+        tabIndex={isUploading ? -1 : 0}
+        aria-label="Upload custom mod jar file"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => !isUploading && fileInputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (!isUploading && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            fileInputRef.current?.click();
+          }
+        }}
+        className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus ${
+          isDragging
+            ? "border-accent-primary bg-accent-primary/15"
+            : "border-border-default hover:border-accent-primary bg-surface-card hover:bg-surface-hover/50"
+        } ${isUploading ? "pointer-events-none opacity-60" : ""}`}
+      >
+        <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-accent-primary/20 text-accent-primary">
         <Icon name="upload" size={20} />
       </div>
       <p className="text-sm font-medium text-text-primary">
@@ -205,6 +206,7 @@ function ModUploadZone({
         Supports Forge, NeoForge, Fabric, and Quilt mods (.jar)
       </p>
     </div>
+    </>
   );
 }
 
