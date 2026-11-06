@@ -411,4 +411,43 @@ describe("TestDefinitionsModal Component", () => {
     expect(mockDeleteTestDefinition).toHaveBeenCalledTimes(1);
     resolveDelete({ success: true });
   });
+
+  it("allows retrying delete if an initial delete attempt fails with an error", async () => {
+    mockDeleteTestDefinition.mockRejectedValueOnce(new Error("Server error"));
+
+    render(
+      <TestDefinitionsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        onDefinitionsChanged={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete profile" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete profile" }));
+    const confirmButton = screen.getByRole("button", { name: "Delete Profile" });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(mockDeleteTestDefinition).toHaveBeenCalledTimes(1);
+    });
+
+    // Second attempt after failure succeeds
+    mockDeleteTestDefinition.mockResolvedValueOnce({ success: true });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete profile" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete profile" }));
+    const retryConfirmBtn = screen.getByRole("button", { name: "Delete Profile" });
+    fireEvent.click(retryConfirmBtn);
+
+    await waitFor(() => {
+      expect(mockDeleteTestDefinition).toHaveBeenCalledTimes(2);
+    });
+  });
 });

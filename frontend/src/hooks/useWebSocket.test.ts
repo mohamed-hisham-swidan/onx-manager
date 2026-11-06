@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useWebSocket } from "./useWebSocket";
+import { useWebSocket, useConsoleStream, notifyConsoleListeners } from "./useWebSocket";
 import { useAuthStore } from "@/stores/authStore";
 import { useWSStore } from "@/stores/wsStore";
 import { ConnectionState, ChannelStatus } from "@/websocket/types";
@@ -135,5 +135,85 @@ describe("useWebSocket store wiring", () => {
     const clientConfig = WSClientMock.mock.calls[0][0];
     expect(typeof clientConfig.token).toBe("function");
     expect(clientConfig.token()).toBe("refreshed_access_token");
+  });
+});
+
+describe("useConsoleStream hook", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ isAuthenticated: true, accessToken: "tok", refreshToken: "rtok" });
+    useWSStore.setState({
+      connectionState: ConnectionState.DISCONNECTED,
+      connected: false,
+      channelStates: {},
+      unattributedRejection: false,
+    });
+
+    WSClientMock.mockImplementation(() => ({
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      send: vi.fn(),
+      setHandlers: vi.fn(),
+      setUnattributedRejectionHandler: vi.fn(),
+      setChannelStateChangeHandler: vi.fn(),
+    }));
+
+    WSHandlerMock.mockImplementation(() => ({
+      attach: vi.fn(),
+      clearReconnectBuffer: vi.fn(),
+      get reconnectBuffer() {
+        return [];
+      },
+    }));
+  });
+
+  it("subscribes on mount and unsubscribes with exact channel on unmount", () => {
+    const wsHook = renderHook(() => useWebSocket({ url: "ws://test", autoConnect: true }));
+    const client = WSClientMock.mock.results[0].value;
+
+    const onLines = vi.fn();
+    const { unmount } = renderHook(() => useConsoleStream("srv-42", onLines));
+
+    expect(client.subscribe).toHaveBeenCalledWith(["server:srv-42:console"]);
+
+    // Dispatches lines
+    act(() => {
+      notifyConsoleListeners("srv-42", ["line 1", "line 2"]);
+    });
+    expect(onLines).toHaveBeenCalledWith(["line 1", "line 2"]);
+
+    // Dispatches lines for different server -> ignored
+    act(() => {
+      notifyConsoleListeners("other-srv", ["other line"]);
+    });
+    expect(onLines).toHaveBeenCalledTimes(1);
+
+    // Unmount hook -> must call client.unsubscribe with exact channel
+    unmount();
+    expect(client.unsubscribe).toHaveBeenCalledWith(["server:srv-42:console"]);
+
+    // After unmount, listeners receive no further calls
+    act(() => {
+      notifyConsoleListeners("srv-42", ["line 3"]);
+    });
+    expect(onLines).toHaveBeenCalledTimes(1);
+
+    wsHook.unmount();
+  });
+
+  it("does not subscribe when serverId is null or undefined", () => {
+    const wsHook = renderHook(() => useWebSocket({ url: "ws://test", autoConnect: true }));
+    const client = WSClientMock.mock.results[0].value;
+
+    const onLines = vi.fn();
+    const { unmount } = renderHook(() => useConsoleStream(null, onLines));
+
+    expect(client.subscribe).not.toHaveBeenCalled();
+    unmount();
+    expect(client.unsubscribe).not.toHaveBeenCalled();
+
+    wsHook.unmount();
   });
 });

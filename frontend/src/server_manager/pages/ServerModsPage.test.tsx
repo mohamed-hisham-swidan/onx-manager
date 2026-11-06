@@ -269,5 +269,12 @@ describe("ServerModsPage", () => {
     renderServerModsPage("/mods");
     expect(screen.getByLabelText("Choose a server")).toBeInTheDocument();
   });
+
+  it("provides an accessible name on the hidden file input element", () => {
+    renderServerModsPage();
+    const fileInput = screen.getByLabelText("Choose custom mod jar file");
+    expect(fileInput).toBeInTheDocument();
+    expect(fileInput).toHaveAttribute("type", "file");
+  });
 });
 

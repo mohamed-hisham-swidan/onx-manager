@@ -144,6 +144,26 @@ describe("Modal Primitive", () => {
       unmount();
     });
 
+    it("locks body scroll on open even when closeOnEscape is false", () => {
+      document.body.style.overflow = "auto";
+      const { rerender, unmount } = render(
+        <Modal open={true} closeOnEscape={false} onClose={() => {}}>
+          <div>Content</div>
+        </Modal>
+      );
+      expect(document.body.style.overflow).toBe("hidden");
+
+      rerender(
+        <Modal open={false} closeOnEscape={false} onClose={() => {}}>
+          <div>Content</div>
+        </Modal>
+      );
+      expect(document.body.style.overflow).toBe("auto");
+
+      document.body.style.overflow = "";
+      unmount();
+    });
+
     it("two stacked modals restore body scroll only after the second closes", () => {
       document.body.style.overflow = "";
 

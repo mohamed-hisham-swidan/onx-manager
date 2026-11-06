@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,6 +21,7 @@ let listServerFilesMock: ReturnType<typeof vi.fn>;
 let readServerFileContentMock: ReturnType<typeof vi.fn>;
 let writeServerFileContentMock: ReturnType<typeof vi.fn>;
 let mkdirServerDirectoryMock: ReturnType<typeof vi.fn>;
+let deleteServerFileMock: ReturnType<typeof vi.fn>;
 
 vi.mock("@/services/api", () => ({
   createAuthenticatedApi: () => ({
@@ -28,7 +29,7 @@ vi.mock("@/services/api", () => ({
     readServerFileContent: readServerFileContentMock,
     writeServerFileContent: writeServerFileContentMock,
     mkdirServerDirectory: mkdirServerDirectoryMock,
-    deleteServerFile: vi.fn().mockResolvedValue(undefined),
+    deleteServerFile: (...args: unknown[]) => deleteServerFileMock(...args),
     uploadServerFile: vi.fn().mockResolvedValue({}),
     downloadServerFile: vi.fn().mockResolvedValue(new Blob(["data"])),
   }),
@@ -69,6 +70,7 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
     listServerFilesMock = vi.fn().mockImplementation(() => Promise.resolve([...currentFileList]));
     readServerFileContentMock = vi.fn().mockResolvedValue(mockFileContent);
     writeServerFileContentMock = vi.fn().mockResolvedValue({ path: "server.properties", content: "updated" });
+    deleteServerFileMock = vi.fn().mockResolvedValue(undefined);
     mkdirServerDirectoryMock = vi.fn().mockImplementation((_serverId, path) => {
       const name = path.split("/").pop();
       const newFolder: FileItem = { name, is_dir: true, size: 0, path };
@@ -291,5 +293,49 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
       expect(screen.queryByText("Editing: server.properties")).not.toBeInTheDocument();
     });
     expect(screen.getByText("server.properties")).toBeInTheDocument();
+  });
+
+  it("guards against double-deletion and disables Confirm and Cancel buttons while deleteMutation is pending", async () => {
+    let resolveDelete: () => void = () => {};
+    deleteServerFileMock.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveDelete = () => resolve();
+    }));
+
+    renderPage();
+    expect(await screen.findByText("server.properties")).toBeInTheDocument();
+
+    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButtons[0]);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText("Delete File")).toBeInTheDocument();
+
+    const confirmBtn = within(dialog).getByRole("button", { name: "Delete" });
+    const cancelBtn = within(dialog).getByRole("button", { name: "Cancel" });
+
+    // Click confirm to start mutation
+    fireEvent.click(confirmBtn);
+
+    // Dialog enters isPending state
+    await waitFor(() => {
+      expect(dialog).toHaveAttribute("aria-busy", "true");
+    });
+    expect(confirmBtn).toBeDisabled();
+    expect(cancelBtn).toBeDisabled();
+    expect(confirmBtn).toHaveTextContent("Deleting...");
+
+    // Escape is ignored while pending
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    // Resolve deletion
+    await act(async () => {
+      resolveDelete();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 });

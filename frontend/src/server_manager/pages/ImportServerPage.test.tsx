@@ -232,4 +232,11 @@ describe("ImportServerPage", () => {
     expect(await screen.findByText("Port 25565 already in use")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Server Imported" })).not.toBeInTheDocument();
   });
+
+  it("provides an accessible name on the hidden file input element", () => {
+    renderPage();
+    const fileInput = screen.getByLabelText("Choose server zip archive file");
+    expect(fileInput).toBeInTheDocument();
+    expect(fileInput).toHaveAttribute("type", "file");
+  });
 });

@@ -194,6 +194,7 @@ export function ImportServerPage() {
 
               <input
                 type="file"
+                aria-label="Choose server zip archive file"
                 ref={fileInputRef}
                 accept=".zip"
                 onChange={handleFileSelect}

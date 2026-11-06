@@ -41,6 +41,9 @@ This document records non-blocking decisions, conservative choices made during a
   - Graphite dark `--border-default`: adjusted from `#686868` (2.72:1 vs elevated) to `#707070` (3.06:1 vs elevated, preserving pure neutral $R=G=B=112$).
   - Azure dark `--border-default`: adjusted from `#606b7d` (2.71:1 vs elevated) to `#687385` (3.05:1 vs elevated).
   - Explicitly excluded decorative `--border-subtle` (low-contrast dividers to prevent visual noise) and transient `--surface-hover` / `--surface-active` surfaces (where interactive luminosity shifts provide feedback).
+- **Legacy Fallback Blocks Baseline**:
+  - `:root` default light fallback: `--border-default: #cbd5e1;` (1.48:1 vs card), `--border-strong: #94a3b8;` (2.54:1 vs card), `--border-focus: #3b82f6;` (3.36:1 vs card). All text tokens pass >= 4.5:1. Production runtime skin `[data-skin="azure"][data-mode="light"]` enforces 3.71:1 for `--border-default`.
+  - `.dark` fallback: `--border-default: #475569;` (1.93:1 vs card), `--border-strong: #64748b;` (3.07:1 vs card), `--border-focus: #60a5fa;` (5.75:1 vs card). All text tokens pass >= 4.5:1. Production runtime skin `[data-skin="azure"][data-mode="dark"]` enforces 3.05:1 for `--border-default`.
 - **Alternative for Owner**: The owner may opt to leave borders as is (restoring `#686868` / `#606b7d`) if softer visual outlines are preferred, or adjust the dark surface elevation ladder instead of the border tokens.
 
 ---
@@ -52,6 +55,15 @@ This document records non-blocking decisions, conservative choices made during a
   - `LoaderBadge.tsx`: 45 -> 60 (SVG animation spinner and multi-stop gradient classes).
   - `StartingMonitorBanner.tsx`: 35 -> 55 (multi-stage progress bar gradient stops and markers).
   - `ServerModsPage.tsx`: 15 -> 25 (mod-type badge color accents and category tag indicators).
+- **Subsequent Ratchet Down Passes**:
+  - **Batch N-09 (commit `6913c6c`)**: Ratcheted down 5 allowlisted files by a total of -125:
+    - `CommitDiffModal.tsx`: 190 -> 165 (-25)
+    - `ManageBranchesModal.tsx`: 120 -> 95 (-25)
+    - `TestDefinitionsModal.tsx`: 130 -> 105 (-25)
+    - `PluginMarketplacePage.tsx`: 70 -> 45 (-25)
+    - `ServerDetailPage.tsx`: 175 -> 145 (-30)
+  - **Batch N-15 (commit `4de3431`)**: Ratcheted down `Skeleton.tsx` from 25 -> 15 (-10) following `CardSkeleton` dead-code elimination.
+  - **Total Cap Reductions**: -140 across 6 files.
 - **Alternative for Owner**: The owner may choose to lower these caps by refactoring the inline SVG gradients, complex spinner animations, and mod badges to use tokenized CSS variables or SVGs referencing CSS custom properties.
 
 ---
@@ -153,6 +165,8 @@ The following decisions are consolidated and prioritized for repo owner review. 
 | **P4** | **Destructive Dialog Initial Focus** | Danger variants focus "Cancel" button by default to prevent accidental confirmation. Non-danger variants focus "Confirm". | Owner may configure instance-level autofocus if specific workflows require confirm-first keyboard flow. | `src/components/ui/ConfirmDialog.tsx:33-37` |
 | **P5** | **Multi-Skin Palette Scope** | Shipped with "Graphite" (100% neutral gray, 0 channel spread) and "Azure" (modern slate blue), plus `skinValidator` contract. | Owner may introduce additional built-in skins (e.g. high-contrast, emerald). | `src/index.css`, `src/tokens/skinValidator.ts` |
 | **P6** | **Brand Visual Assets** | Vortex vector swirl mark (`BrandLogo.tsx`), abstract voxel banners (`VoxelBanner.tsx`), favicon.svg. | Owner may replace SVG artwork with custom product logos. | `src/components/brand/` |
+| **P7** | **Server-Side File Search & Paging** | Client-side directory filtering & 50-item page slicing applied in UI; server pagination and recursive search deferred to backend capability. | Owner may prioritize backend streaming/search if server directories regularly exceed 1,000 files. | `src/server_manager/pages/ServerFilesPage.tsx`, `BACKEND-DEPENDENT.md` |
+| **P8** | **Custom Skins JSON Persistence** | Browser `localStorage` persistence in `uiStore.ts`. | Owner may implement backend user preferences API endpoint for cross-device skin synchronization. | `src/stores/uiStore.ts`, `src/tokens/storageKeys.ts` |
 
 ---
 
@@ -170,6 +184,23 @@ The following decisions are consolidated and prioritized for repo owner review. 
   - In batch N-04, all 5 components gained Escape dismissal by default via `<Modal closeOnEscape={...}>` (standard WCAG dialog keyboard pattern).
   - For all 5 components, Escape dismissal is strictly blocked while mutations are in-flight (`isPending` / `isUpdating` / `isSettingExposureState`).
   - Backdrop dismissal remains strictly disabled (`closeOnBackdrop={false}`) across all 7 components to preserve their pre-migration behavior and prevent accidental dismissal.
+
+---
+
+## 14. Server-Side File Search & Pagination Architecture
+- **Status**: ARCHITECTURAL BOUNDARY LOGGED / BACKEND DEPENDENCY
+- **Context**: The `ServerFilesPage` currently lists directory items via `api.listServerFiles(serverId, path)`. The directory listing is filtered on the client using `searchQuery` and sliced into pages of 50 items (`filteredFiles.slice(...)`).
+- **Decision Taken**: Keep client-side directory filtering and 50-item page slicing in the frontend to keep DOM nodes bounded without virtualized streaming complexity.
+- **Owner Alternative**: Introduce server-side recursive file search and paginated directory streaming in the backend if individual directories scale beyond 1,000 items.
+
+---
+
+## 15. Custom Skins JSON Persistence
+- **Status**: ARCHITECTURAL BOUNDARY LOGGED / BACKEND DEPENDENCY
+- **Context**: The design token engine supports dynamic multi-skin switching between "Graphite" and "Azure", as well as custom JSON skin schema validation via `skinValidator.ts`. Active skin preference is currently persisted in browser `localStorage` (`onx_skin`).
+- **Decision Taken**: Retain client-side `localStorage` persistence as the standard zero-dependency approach for theme and skin preferences.
+- **Owner Alternative**: Implement user account preferences storage in backend SQLite and synchronize active theme/skin on login.
+
 
 
 

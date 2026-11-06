@@ -136,10 +136,10 @@ and a live test run.
 
 ---
 
-## 2. Test suite (measured 2026-11-04)
+## 2. Test suite (measured 2026-11-06)
 
 ### Backend — `backend/` `python -m pytest tests/`
-*(State plainly: NOT re-measured on this branch, carried from the earlier backend run)*
+*(State plainly: NOT re-measured on this branch, carried from the 2026-10-20 owner local sequential full suite run)*
 
 | Metric | Value |
 |--------|-------|
@@ -157,17 +157,17 @@ Backend CI runs the full suite on every push/PR to `master`
 
 | Metric | Value |
 |--------|-------|
-| Test files | **118** |
-| Collected | **1018** |
-| Passed | **1018** across 118 test files |
+| Test files | **122** |
+| Collected | **1064** |
+| Passed | **1064** across 122 test files |
 | Skipped | **0** |
 | Failed | **0** |
 
 ### Suite Totals
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
 on every push/PR to `master`. Total test metrics:
-- **Total collected**: **4,306** (3,288 backend + 1,018 frontend)
-- **Total passed**: **4,300** (3,282 backend + 1,018 frontend)
+- **Total collected**: **4,352** (3,288 backend + 1,064 frontend)
+- **Total passed**: **4,346** (3,282 backend + 1,064 frontend)
 - **Total skipped**: **6** (backend)
 - **Total failed**: **0**
 

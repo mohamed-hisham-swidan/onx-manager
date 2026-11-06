@@ -136,6 +136,11 @@ const SELECTOR_PATTERNS = {
   "azure:light": '\\[data-skin=["\']azure["\']\\]\\[data-mode=["\']light["\']\\]',
 } as const;
 
+export const FALLBACK_SELECTOR_PATTERNS = {
+  ":root": ":root",
+  ".dark": '\\.dark,\\s*\\[data-mode=["\']dark["\']\\]',
+} as const;
+
 export function loadPalettesFromCss(cssText: string): Record<keyof typeof SELECTOR_PATTERNS, SkinPalette> {
   const palettes: Partial<Record<keyof typeof SELECTOR_PATTERNS, SkinPalette>> = {};
 
@@ -185,6 +190,33 @@ export function loadPalettesFromCss(cssText: string): Record<keyof typeof SELECT
   }
 
   return palettes as Record<keyof typeof SELECTOR_PATTERNS, SkinPalette>;
+}
+
+export function loadFallbackPalettesFromCss(cssText: string): Record<keyof typeof FALLBACK_SELECTOR_PATTERNS, SkinPalette> {
+  const palettes: Partial<Record<keyof typeof FALLBACK_SELECTOR_PATTERNS, SkinPalette>> = {};
+
+  for (const [key, pattern] of Object.entries(FALLBACK_SELECTOR_PATTERNS)) {
+    const rawTokens = parseCssBlock(cssText, pattern);
+    palettes[key as keyof typeof FALLBACK_SELECTOR_PATTERNS] = {
+      page: rawTokens["--surface-page"],
+      card: rawTokens["--surface-card"],
+      elevated: rawTokens["--surface-elevated"],
+      hover: rawTokens["--surface-hover"],
+      active: rawTokens["--surface-active"],
+      muted: rawTokens["--surface-muted"],
+      textPrimary: rawTokens["--text-primary"],
+      textSecondary: rawTokens["--text-secondary"],
+      textMuted: rawTokens["--text-muted"],
+      borderSubtle: rawTokens["--border-subtle"],
+      borderDefault: rawTokens["--border-default"],
+      borderStrong: rawTokens["--border-strong"],
+      borderFocus: rawTokens["--border-focus"],
+      accentPrimary: rawTokens["--accent-primary"],
+      accentContrastText: rawTokens["--accent-contrast-text"],
+    };
+  }
+
+  return palettes as Record<keyof typeof FALLBACK_SELECTOR_PATTERNS, SkinPalette>;
 }
 
 export function checkPaletteViolations(
@@ -391,5 +423,78 @@ describe("WCAG 2.1 AA Contrast Computation (Real CSS Parser - Task 2)", () => {
     const violations = checkPaletteViolations("graphite:dark", testPalette);
     expect(violations.length).toBeGreaterThan(0);
     expect(violations.some((v) => v.includes("borderDefault") && v.includes("elevated"))).toBe(true);
+  });
+
+  describe("Fallback Blocks (:root and .dark)", () => {
+    const fallbackPalettes = loadFallbackPalettesFromCss(cssContent);
+
+    it("parses legacy .dark and :root fallback blocks with all required tokens", () => {
+      expect(Object.keys(fallbackPalettes)).toEqual([":root", ".dark"]);
+      expect(fallbackPalettes[":root"].textPrimary).toBe("#0f172a");
+      expect(fallbackPalettes[".dark"].textPrimary).toBe("#f8fafc");
+    });
+
+    it("enforces textPrimary and textSecondary >= 4.5:1 across surfaces in legacy fallback blocks", () => {
+      for (const [key, pal] of Object.entries(fallbackPalettes)) {
+        const baseSurfaces = [
+          { name: "page", hex: pal.page },
+          { name: "card", hex: pal.card },
+          { name: "elevated", hex: pal.elevated },
+          { name: "muted", hex: pal.muted },
+        ];
+        for (const surface of baseSurfaces) {
+          expect(
+            calculateContrastRatio(pal.textPrimary, surface.hex),
+            `${key} textPrimary on ${surface.name}`,
+          ).toBeGreaterThanOrEqual(4.5);
+          expect(
+            calculateContrastRatio(pal.textSecondary, surface.hex),
+            `${key} textSecondary on ${surface.name}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+
+    it("enforces textMuted >= 4.5:1 on base surfaces in legacy fallback blocks", () => {
+      for (const [key, pal] of Object.entries(fallbackPalettes)) {
+        const baseSurfaces = [
+          { name: "page", hex: pal.page },
+          { name: "card", hex: pal.card },
+          { name: "elevated", hex: pal.elevated },
+        ];
+        for (const surface of baseSurfaces) {
+          expect(
+            calculateContrastRatio(pal.textMuted, surface.hex),
+            `${key} textMuted on ${surface.name}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+
+    it("enforces borderFocus >= 3.0:1 across base surfaces in legacy fallback blocks", () => {
+      for (const [key, pal] of Object.entries(fallbackPalettes)) {
+        const baseSurfaces = [
+          { name: "page", hex: pal.page },
+          { name: "card", hex: pal.card },
+          { name: "elevated", hex: pal.elevated },
+        ];
+        for (const surface of baseSurfaces) {
+          expect(
+            calculateContrastRatio(pal.borderFocus, surface.hex),
+            `${key} borderFocus on ${surface.name}`,
+          ).toBeGreaterThanOrEqual(3.0);
+        }
+      }
+    });
+
+    it("mutation self-check: fails if textPrimary in :root is degraded", () => {
+      const degraded = { ...fallbackPalettes[":root"], textPrimary: "#e2e8f0" };
+      expect(calculateContrastRatio(degraded.textPrimary, degraded.card)).toBeLessThan(4.5);
+    });
+
+    it("mutation self-check: fails if textMuted in .dark is degraded below 4.5:1 on card", () => {
+      const degraded = { ...fallbackPalettes[".dark"], textMuted: "#1e293b" };
+      expect(calculateContrastRatio(degraded.textMuted, degraded.card)).toBeLessThan(4.5);
+    });
   });
 });

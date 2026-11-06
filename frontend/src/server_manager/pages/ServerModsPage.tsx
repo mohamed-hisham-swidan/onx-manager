@@ -171,6 +171,7 @@ function ModUploadZone({
       <input
         ref={fileInputRef}
         type="file"
+        aria-label="Choose custom mod jar file"
         accept=".jar"
         onChange={handleFileChange}
         className="hidden"

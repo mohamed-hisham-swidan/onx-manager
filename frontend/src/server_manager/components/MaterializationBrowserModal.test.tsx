@@ -302,4 +302,42 @@ describe("MaterializationBrowserModal", () => {
     expect(mockDeleteMaterialization).toHaveBeenCalledTimes(1);
     resolveDelete({ success: true });
   });
+
+  it("allows retrying delete if an initial delete attempt fails with an error", async () => {
+    mockDeleteMaterialization.mockRejectedValueOnce(new Error("Network failure"));
+
+    render(
+      <MaterializationBrowserModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete worktree" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete worktree" }));
+    const confirmButton = screen.getByRole("button", { name: "Delete Snapshot" });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(mockDeleteMaterialization).toHaveBeenCalledTimes(1);
+    });
+
+    // Second attempt after failure succeeds
+    mockDeleteMaterialization.mockResolvedValueOnce({ success: true });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete worktree" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete worktree" }));
+    const retryConfirmBtn = screen.getByRole("button", { name: "Delete Snapshot" });
+    fireEvent.click(retryConfirmBtn);
+
+    await waitFor(() => {
+      expect(mockDeleteMaterialization).toHaveBeenCalledTimes(2);
+    });
+  });
 });
