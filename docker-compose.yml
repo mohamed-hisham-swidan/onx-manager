@@ -9,7 +9,8 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       # Bind to all interfaces inside the container so nginx can reach it
       MCS_PANEL_BIND_HOST: "0.0.0.0"
@@ -19,6 +20,10 @@ services:
     volumes:
       - onx-db-data:/app/data
       - onx-server-data:/app/data/servers
+      # JWT signing key, backup encryption key and settings.yaml live here;
+      # without a volume they are regenerated on container recreate (which
+      # makes existing backups undecryptable).
+      - onx-config:/app/config
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\" || exit 1"]
       interval: 30s
@@ -41,3 +46,4 @@ services:
 volumes:
   onx-db-data:
   onx-server-data:
+  onx-config:
