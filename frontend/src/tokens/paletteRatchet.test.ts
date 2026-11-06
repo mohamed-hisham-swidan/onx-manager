@@ -71,8 +71,8 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "components/Skeleton.tsx": {
     maxHex: 0,
-    maxPalette: 25,
-    reason: "Superseded legacy skeleton loaders preserved for backwards compatibility",
+    maxPalette: 15,
+    reason: "Superseded legacy skeleton loaders (CardSkeleton removed, ratcheted down from 25)",
   },
   "components/guards/SystemStatusGuard.tsx": {
     maxHex: 0,

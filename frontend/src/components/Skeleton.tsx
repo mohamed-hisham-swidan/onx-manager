@@ -50,12 +50,3 @@ export function PageSkeleton({ rows = 5, cols = 4 }: { rows?: number; cols?: num
     </div>
   );
 }
-
-export function CardSkeleton({ lines = 3 }: { lines?: number }) {
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-      <Skeleton className="h-6 w-40 mb-4" />
-      <Skeleton lines={lines} />
-    </div>
-  );
-}
