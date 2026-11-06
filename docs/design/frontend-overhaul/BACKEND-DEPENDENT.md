@@ -25,9 +25,9 @@ This document tracks UI features that require backend API enhancements before th
   - `search` / `filter` query
   - `recursive` directory size computation
 - **Frontend Mitigation**:
-  - The frontend performs client-side directory filtering/search over the current directory listing.
-  - Client-side pagination/virtualization is applied to ensure smooth rendering of directories containing hundreds of files.
-  - Full server-side recursive search and paginated streaming remain deferred to a dedicated backend task.
+  - The frontend performs client-side directory filtering over the current directory listing via `filteredFiles` and `searchQuery`.
+  - Client-side pagination (slicing into pages of 50 items) is applied to keep DOM nodes bounded; no server-side pagination or virtualized streaming is implemented in the browser.
+  - Full server-side recursive search, server pagination, and streaming remain deferred to a future backend capability.
 
 ---
 

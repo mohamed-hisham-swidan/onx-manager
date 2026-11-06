@@ -426,7 +426,8 @@ export function ServerFilesPage() {
             </span>
             <input
               type="text"
-              placeholder="Filter files..."
+              aria-label="Filter current directory"
+              placeholder="Filter files in folder..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
