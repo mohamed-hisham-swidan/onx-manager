@@ -91,6 +91,8 @@ async def test_f051_cors_middleware_outermost():
         assert response.status_code == 401
         assert "access-control-allow-origin" in response.headers
         assert response.headers["access-control-allow-origin"] in ("*", "http://localhost:5173")
+        # Wildcard origin must never include credentials header
+        assert response.headers.get("access-control-allow-credentials") is None
 
 
 # --- F052: Preflight OPTIONS bypasses auth ---

@@ -421,10 +421,15 @@ def create_app() -> FastAPI:
     app.add_middleware(AuthMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RequestIDMiddleware)
+    # Origins come from settings (cors_origins). Authentication is Bearer-token
+    # based (no cookies), so credentialed CORS is only enabled for an explicit
+    # origin allowlist; a wildcard origin must never be combined with
+    # allow_credentials=True (Starlette would reflect any Origin with credentials).
+    cors_origins = ConfigFactory.global_settings().cors_origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_credentials="*" not in cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
