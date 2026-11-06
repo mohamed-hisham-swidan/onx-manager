@@ -128,5 +128,6 @@ This document records the full chronological history of changes implemented duri
 | **N-15** | `4de3431` | Remove unused `CardSkeleton` and ratchet down `Skeleton.tsx` cap from 25 to 15. | 4/4 Skeleton tests pass |
 | **N-16** | `bcdeb61` | Safely resolve all ESLint warnings with strict typing and clean dependencies. | 0 ESLint errors, 0 warnings |
 | **N-17** | Verified | Measure production bundle: 39 JS chunks, largest chunk 396.68 kB. | Build clean in 5.28s |
-| **N-18** | (current) | Comprehensive docs truth pass across design docs, primitives specification, and consolidated decision summary. | All identifiers and numbers verified |
+| **N-18** | Verified | Comprehensive docs truth pass across design docs, primitives specification, and consolidated decision summary. | All identifiers and numbers verified |
+| **N-19** | (working tree) | 6-Skin & 7-Accent Theme Studio (`Graphite`, `Azure`, `Emerald`, `Amethyst`, `Amber`, `Crimson` × Dark/Light = 12 WCAG AA verified palettes; custom `[data-accent]` overrides; TopBar quick Theme Studio popover; `AppearanceSettingsSection.tsx`; reorganized Global `SettingsPage.tsx` into 5 tabs with category pills & search; reorganized `ServerSettingsSection.tsx` with category tabs, live search & RAM allocation bar; eliminated ~3,200+ hardcoded Tailwind color classes across 49 files; ratcheted `paletteRatchet.test.ts` allowlist from 60 files down to 11). | 125 test files / 1090 tests PASS, 0 ESLint errors/warnings, 6/6 CI gates PASS |
 

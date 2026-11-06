@@ -7,9 +7,10 @@ ONX Manager features an extensible, multi-skin theme engine powered entirely by 
 ## 1. How Skins Work
 
 Theme state is tracked in `frontend/src/stores/uiStore.ts` and synchronized to the root `<html>` element as DOM attributes:
-- `data-skin="graphite | azure | <custom-id>"`
+- `data-skin="graphite | azure | emerald | amethyst | amber | crimson"`
 - `data-mode="dark | light"`
 - `data-density="compact | comfortable"`
+- `data-accent="theme | blue | emerald | violet | amber | rose | cyan"`
 
 CSS selectors in `src/index.css` target these attributes to redefine semantic tokens:
 ```css

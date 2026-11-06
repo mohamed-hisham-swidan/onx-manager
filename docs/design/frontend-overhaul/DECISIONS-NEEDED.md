@@ -56,14 +56,14 @@ This document records non-blocking decisions, conservative choices made during a
   - `StartingMonitorBanner.tsx`: 35 -> 55 (multi-stage progress bar gradient stops and markers).
   - `ServerModsPage.tsx`: 15 -> 25 (mod-type badge color accents and category tag indicators).
 - **Subsequent Ratchet Down Passes**:
-  - **Batch N-09 (commit `6913c6c`)**: Ratcheted down 5 allowlisted files by a total of -125:
+  - **Batch N-09 (commit `6913c6c`)**: Ratcheted down 5 allowlisted files by a total of -130:
     - `CommitDiffModal.tsx`: 190 -> 165 (-25)
     - `ManageBranchesModal.tsx`: 120 -> 95 (-25)
     - `TestDefinitionsModal.tsx`: 130 -> 105 (-25)
     - `PluginMarketplacePage.tsx`: 70 -> 45 (-25)
     - `ServerDetailPage.tsx`: 175 -> 145 (-30)
   - **Batch N-15 (commit `4de3431`)**: Ratcheted down `Skeleton.tsx` from 25 -> 15 (-10) following `CardSkeleton` dead-code elimination.
-  - **Total Cap Reductions**: -140 across 6 files.
+  - **Total Cap Reductions**: -140 across 6 files (-130 from N-09 + -10 from N-15 = -140).
 - **Alternative for Owner**: The owner may choose to lower these caps by refactoring the inline SVG gradients, complex spinner animations, and mod badges to use tokenized CSS variables or SVGs referencing CSS custom properties.
 
 ---

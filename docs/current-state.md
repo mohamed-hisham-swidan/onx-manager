@@ -158,16 +158,16 @@ Backend CI runs the full suite on every push/PR to `master`
 | Metric | Value |
 |--------|-------|
 | Test files | **122** |
-| Collected | **1064** |
-| Passed | **1064** across 122 test files |
+| Collected | **1069** |
+| Passed | **1069** across 122 test files |
 | Skipped | **0** |
 | Failed | **0** |
 
 ### Suite Totals
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
 on every push/PR to `master`. Total test metrics:
-- **Total collected**: **4,352** (3,288 backend + 1,064 frontend)
-- **Total passed**: **4,346** (3,282 backend + 1,064 frontend)
+- **Total collected**: **4,357** (3,288 backend + 1,069 frontend)
+- **Total passed**: **4,351** (3,282 backend + 1,069 frontend)
 - **Total skipped**: **6** (backend)
 - **Total failed**: **0**
 

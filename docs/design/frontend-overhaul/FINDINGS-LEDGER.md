@@ -23,9 +23,9 @@ This document tracks all review, audit, and design findings across the frontend 
 | **C5** | PART_C_CORRECTIONS | CodeEditor Strategy (retain in-house lightweight editor) | **CLOSED** | `f99f902` | `src/components/CodeEditor.tsx` |
 | **C6** | PART_C_CORRECTIONS | WebSocket client typing & concurrency | **CLOSED** | `483ec43` | `src/websocket/client.ts` |
 | **C7** | PART_C_CORRECTIONS | Governance Alignment (ADR-0021 under Lane B, D1) | **CLOSED** | `483ec43` | `docs/decisions/0021-frontend-ux-ia-overhaul-token-system.md` |
-| **C8-a** | PART_C_CORRECTIONS | OperationDrawer unmounted in layout | **CLOSED** | `92af315` | Mounted in `AppShell.tsx:50` and `ServerShell.tsx:68` |
+| **C8-a** | PART_C_CORRECTIONS | OperationDrawer unmounted in layout | **CLOSED** | `92af315` | Mounted in `AppShell.tsx:54` and `ServerShell.tsx:307` |
 | **C8-b** | PART_C_CORRECTIONS | ServerResponse lacks live metrics / WS fleet metrics | **BACKEND-DEPENDENT** | Documented | `docs/design/frontend-overhaul/BACKEND-DEPENDENT.md` |
-| **C8-c** | PART_C_CORRECTIONS | Files API lacks server pagination/search | **CLOSED** (honest client UI) | `f99f902` | `src/server_manager/pages/ServerFilesPage.tsx:429` |
+| **C8-c** | PART_C_CORRECTIONS | Files API lacks server pagination/search | **CLOSED** (honest client UI) | `f99f902` | `src/server_manager/pages/ServerFilesPage.tsx:430` |
 | **C8-d** | PART_C_CORRECTIONS | Fleet status cards query params | **CLOSED** | `d845eb8` | `src/server_manager/components/StatusOverviewCards.tsx` |
 
 ---
@@ -59,7 +59,7 @@ This document tracks all review, audit, and design findings across the frontend 
 
 | ID | Source | Topic | Status | Commit / Evidence | Runnable Evidence Command |
 |:---|:---|:---|:---:|:---|:---|
-| **F1** | Overnight Review | Files page client-side search honestly labeled | **CLOSED** | `f99f902` (`placeholder="Filter files..."`) | `git grep -n "Filter files" frontend/src` |
+| **F1** | Overnight Review | Files page client-side search honestly labeled | **CLOSED** | `f99f902` (`placeholder="Filter files in folder..."`) | `git grep -n "Filter files in folder..." frontend/src` |
 | **F2** | Review B4b | Directory client-side pagination | **CLOSED** | `f99f902` (`filteredFiles.slice(...)`) | `npx vitest run src/server_manager/pages/ServerFilesPage.test.tsx` |
 | **F3** | Review B4b | Binary file preview safe fallback | **CLOSED** | `f99f902` (renders warning, prevents crash) | `npx vitest run src/server_manager/pages/ServerFilesPage.test.tsx` (ISS-050 test) |
 
