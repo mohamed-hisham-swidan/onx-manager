@@ -209,6 +209,7 @@ describe("Modal Primitive", () => {
       const closeBtn = screen.getByLabelText("Close dialog");
       const firstBtn = screen.getByText("First Item");
       const lastBtn = screen.getByText("Last Item");
+      expect(firstBtn).toBeInTheDocument();
 
       // Focus last item, press Tab -> wraps to first focusable element (closeBtn)
       lastBtn.focus();

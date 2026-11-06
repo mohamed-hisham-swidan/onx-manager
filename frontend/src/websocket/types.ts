@@ -85,11 +85,19 @@ export interface WSPingMessage {
   type: "ping";
 }
 
+export interface WSExecInputMessage {
+  type: "exec_input";
+  target_id: string;
+  target_type: "server" | "test";
+  input: string;
+}
+
 export type ClientMessage =
   | WSSubscribeMessage
   | WSUnsubscribeMessage
   | WSRefreshTokenMessage
-  | WSPingMessage;
+  | WSPingMessage
+  | WSExecInputMessage;
 
 // ---------------------------------------------------------------------------
 // Connection State

@@ -177,7 +177,7 @@ export class WSClient {
       target_id: targetId,
       target_type: targetType,
       input,
-    } as any);
+    });
   }
 
   refreshToken(token: string, sub: string): void {

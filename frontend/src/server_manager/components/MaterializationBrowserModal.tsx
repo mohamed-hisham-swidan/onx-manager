@@ -102,7 +102,7 @@ export function MaterializationBrowserModal({
     } finally {
       setIsLoadingList(false);
     }
-  }, [serverId, activeMatId]);
+  }, [api, serverId, activeMatId]);
 
   useEffect(() => {
     let alive = true;
@@ -136,7 +136,7 @@ export function MaterializationBrowserModal({
     } finally {
       setIsLoadingTree(false);
     }
-  }, [serverId]);
+  }, [api, serverId]);
 
   useEffect(() => {
     let alive = true;

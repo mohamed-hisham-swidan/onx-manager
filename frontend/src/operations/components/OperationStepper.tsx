@@ -92,7 +92,7 @@ export const OperationStepper: React.FC<OperationStepperProps> = ({ steps, curre
 
   return (
     <div className="space-y-4">
-      {steps.map((step, idx) => {
+      {steps.map((step) => {
         const isCurrent = step.step_id === currentStepId;
         const elapsedSec = (step.elapsed_ms / 1000).toFixed(1);
 
