@@ -25,15 +25,15 @@ interface ServerConsoleProps {
 
 const containerBadgeClass =
   "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
-  "uppercase tracking-wider bg-cyan-950/90 text-cyan-300 border border-cyan-700/60 font-sans";
+  "uppercase tracking-wider bg-status-info-bg text-status-info border border-status-info-border font-sans";
 
 const hostBadgeClass =
   "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
-  "uppercase tracking-wider bg-purple-950/90 text-purple-300 border border-purple-700/60 font-sans";
+  "uppercase tracking-wider bg-accent-primary/10 text-accent-primary border border-accent-primary/30 font-sans";
 
 function getLineStyle(line: string): { className: string; level: string } {
   if (line.startsWith("> ")) {
-    return { className: "text-emerald-400 font-semibold", level: "command" };
+    return { className: "text-status-success font-semibold", level: "command" };
   }
   const upper = line.toUpperCase();
   if (
@@ -187,11 +187,11 @@ export function ServerConsole({
   const tpsColorClass =
     liveTps != null
       ? liveTps >= 19.5
-        ? "text-emerald-400"
+        ? "text-status-success"
         : liveTps >= 16.0
-          ? "text-amber-400"
-          : "text-red-400"
-      : "text-gray-500";
+          ? "text-status-warning"
+          : "text-status-danger"
+      : "text-text-muted";
 
   const hasCrashReports = Boolean(crashReports && crashReports.length > 0);
   const latestCrash = hasCrashReports ? crashReports![0] : null;
@@ -202,28 +202,28 @@ export function ServerConsole({
       {hasCrashReports && latestCrash && (
         <div
           data-testid="crash-alert-banner"
-          className="mb-3 p-3 rounded-xl bg-rose-950/80 border border-rose-600/70 text-rose-200 flex items-center justify-between gap-3 shadow-lg animate-fade-in"
+          className="mb-3 p-3 rounded-xl bg-status-danger-bg border border-status-danger-border text-status-danger flex items-center justify-between gap-3 shadow-lg animate-fade-in"
         >
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="p-1.5 rounded-lg bg-rose-600/30 text-rose-300 border border-rose-500/40 shrink-0">
+            <div className="p-1.5 rounded-lg bg-status-danger-bg text-status-danger border border-status-danger-border shrink-0">
               <Icon name="alert" size={16} />
             </div>
             <div className="min-w-0 text-xs">
-              <div className="font-semibold text-rose-100 flex items-center gap-2 flex-wrap">
+              <div className="font-semibold text-text-primary flex items-center gap-2 flex-wrap">
                 <span>Crash Detected:</span>
-                <span className="font-mono text-[11px] bg-rose-900/60 px-1.5 py-0.5 rounded border border-rose-700/60">
+                <span className="font-mono text-[11px] bg-status-danger-bg px-1.5 py-0.5 rounded border border-status-danger-border">
                   {latestCrash.failure_code}
                 </span>
                 {latestCrash.blamed_mod && (
                   <span
                     data-testid="crash-banner-blamed-mod"
-                    className="font-mono text-[11px] bg-amber-950/80 text-amber-300 px-1.5 py-0.5 rounded border border-amber-700/60 font-bold"
+                    className="font-mono text-[11px] bg-status-warning-bg text-status-warning px-1.5 py-0.5 rounded border border-status-warning-border font-bold"
                   >
                     Blamed: {latestCrash.blamed_mod}
                   </span>
                 )}
               </div>
-              <p className="text-rose-300/80 text-[11px] truncate mt-0.5">
+              <p className="text-text-muted text-[11px] truncate mt-0.5">
                 {latestCrash.filename} • {latestCrash.suggested_remediation}
               </p>
             </div>
@@ -232,20 +232,20 @@ export function ServerConsole({
             type="button"
             data-testid="crash-banner-view-btn"
             onClick={() => setIsCrashModalOpen(true)}
-            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shrink-0 transition-colors shadow"
+            className="px-3 py-1.5 rounded-lg bg-status-danger hover:opacity-90 text-accent-contrast-text text-xs font-semibold shrink-0 transition-colors shadow"
           >
             View Crash Report
           </button>
         </div>
       )}
 
-      <div className="bg-gray-950 text-green-400 font-mono text-xs rounded-xl border border-gray-700 overflow-hidden mb-3">
+      <div className="bg-terminal-bg text-terminal-text font-mono text-xs rounded-xl border border-border-default overflow-hidden mb-3">
         {/* Console Header Bar */}
-        <div className="flex items-center justify-between px-3.5 py-2 bg-gray-900/90 border-b border-gray-800 text-xs select-none flex-wrap gap-2">
-          <div className="flex items-center gap-2 text-gray-300 font-sans font-medium text-xs">
+        <div className="flex items-center justify-between px-3.5 py-2 bg-surface-card/90 border-b border-border-subtle text-xs select-none flex-wrap gap-2">
+          <div className="flex items-center gap-2 text-text-secondary font-sans font-medium text-xs">
             <span
               className={`flex h-2 w-2 rounded-full ${
-                isRunning ? "bg-emerald-500 animate-pulse" : "bg-gray-500"
+                isRunning ? "bg-status-success animate-pulse" : "bg-text-muted"
               }`}
             />
             <span>Server Console</span>
@@ -255,7 +255,7 @@ export function ServerConsole({
                 className={containerBadgeClass}
                 title="Runtime: Docker Container"
               >
-                <Icon name="server" size={11} className="text-cyan-400" />
+                <Icon name="server" size={11} className="text-status-info" />
                 <span>Container</span>
               </span>
             ) : (
@@ -264,7 +264,7 @@ export function ServerConsole({
                 className={hostBadgeClass}
                 title="Runtime: Host Filesystem / Process"
               >
-                <Icon name="folder" size={11} className="text-purple-400" />
+                <Icon name="folder" size={11} className="text-accent-primary" />
                 <span>File / Host</span>
               </span>
             )}
@@ -273,7 +273,7 @@ export function ServerConsole({
                 data-testid="console-ip-badge"
                 className={
                   "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono " +
-                  "font-medium bg-gray-800/80 text-gray-300 border border-gray-700/60 font-sans"
+                  "font-medium bg-surface-muted text-text-secondary border border-border-default font-sans"
                 }
                 title={
                   isContainer
@@ -281,7 +281,7 @@ export function ServerConsole({
                     : `Host IP: ${displayAddress}`
                 }
               >
-                <Icon name="globe" size={10} className="text-gray-400" />
+                <Icon name="globe" size={10} className="text-text-muted" />
                 <span className="font-mono">{displayAddress}</span>
               </span>
             )}
@@ -294,10 +294,10 @@ export function ServerConsole({
                 type="button"
                 data-testid="view-crash-reports-btn"
                 onClick={() => setIsCrashModalOpen(true)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-950 text-rose-300 border border-rose-800/70 hover:bg-rose-900 text-[11px] font-sans font-medium transition-colors"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-status-danger-bg text-status-danger border border-status-danger-border hover:opacity-90 text-[11px] font-sans font-medium transition-colors"
                 title="View Crash Reports"
               >
-                <Icon name="alert" size={11} className="text-rose-400" />
+                <Icon name="alert" size={11} className="text-status-danger" />
                 <span>Crash ({crashReports!.length})</span>
               </button>
             )}
@@ -305,21 +305,21 @@ export function ServerConsole({
             {/* TPS Usage Badge */}
             <div
               data-testid="console-tps-badge"
-              className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-gray-950 border border-gray-800 font-mono text-[11px]"
+              className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-terminal-bg border border-border-subtle font-mono text-[11px]"
               title={
                 liveTps != null
                   ? `Server Tick Rate: ${liveTps.toFixed(1)} / 20.0 TPS`
                   : "TPS unknown"
               }
             >
-              <span className="text-gray-400 font-sans font-semibold text-[10px] uppercase tracking-wider">
+              <span className="text-text-muted font-sans font-semibold text-[10px] uppercase tracking-wider">
                 TPS
               </span>
               <span className={`font-bold ${tpsColorClass}`}>
                 {liveTps != null ? liveTps.toFixed(1) : "—"}
               </span>
               {liveTps != null && (
-                <span className="text-[10px] text-gray-500">
+                <span className="text-[10px] text-text-muted">
                   ({Math.min(100, Math.round((liveTps / 20) * 100))}%)
                 </span>
               )}
@@ -329,10 +329,10 @@ export function ServerConsole({
             {livePlayers != null && (
               <div
                 data-testid="console-players-badge"
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-950 border border-gray-800 text-[11px] text-gray-300 font-mono"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-terminal-bg border border-border-subtle text-[11px] text-terminal-text font-mono"
                 title={`${livePlayers} player(s) online`}
               >
-                <Icon name="users" size={12} className="text-gray-400" />
+                <Icon name="users" size={12} className="text-text-muted" />
                 <span>{livePlayers}</span>
               </div>
             )}
@@ -342,7 +342,7 @@ export function ServerConsole({
               <button
                 type="button"
                 onClick={handleClear}
-                className="text-gray-400 hover:text-gray-200 transition-colors text-[11px] font-sans px-1.5 py-0.5 rounded hover:bg-gray-800"
+                className="text-text-muted hover:text-text-primary transition-colors text-[11px] font-sans px-1.5 py-0.5 rounded hover:bg-surface-hover"
                 title="Clear local command history"
               >
                 Clear
@@ -352,10 +352,10 @@ export function ServerConsole({
         </div>
 
         {/* Console Search & Control Subheader Toolbar */}
-        <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900/60 border-b border-gray-800 text-xs gap-3">
+        <div className="flex items-center justify-between px-3 py-1.5 bg-surface-muted/60 border-b border-border-subtle text-xs gap-3">
           <div className="flex items-center gap-2 flex-1 max-w-md">
             <div className="relative flex-1">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-gray-500">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-2 pointer-events-none text-text-muted">
                 <Icon name="search" size={12} />
               </span>
               <input
@@ -364,13 +364,13 @@ export function ServerConsole({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search logs (case-insensitive)..."
-                className="w-full pl-7 pr-7 py-1 text-xs font-mono bg-gray-950 border border-gray-800 rounded-md text-gray-200 placeholder-gray-500 focus:outline-none focus:border-gray-600"
+                className="w-full pl-7 pr-7 py-1 text-xs font-mono bg-terminal-bg border border-border-subtle rounded-md text-terminal-text placeholder:text-text-muted focus:outline-none focus:border-border-focus"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery("")}
-                  className="absolute inset-y-0 right-0 pr-2 flex items-center text-gray-400 hover:text-gray-200"
+                  className="absolute inset-y-0 right-0 pr-2 flex items-center text-text-muted hover:text-text-primary"
                   aria-label="Clear search"
                 >
                   <Icon name="x" size={11} />
@@ -380,7 +380,7 @@ export function ServerConsole({
             {searchQuery && (
               <span
                 data-testid="console-search-matches"
-                className="text-gray-400 text-[11px] font-sans whitespace-nowrap"
+                className="text-text-muted text-[11px] font-sans whitespace-nowrap"
               >
                 {filteredLines.length} {filteredLines.length === 1 ? "match" : "matches"}
               </span>
@@ -395,14 +395,14 @@ export function ServerConsole({
               onClick={() => setFollowLog((prev) => !prev)}
               className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-sans font-medium transition-colors ${
                 followLog
-                  ? "bg-emerald-950/80 text-emerald-300 border border-emerald-700/60"
-                  : "bg-gray-800/80 text-gray-400 border border-gray-700/40 hover:text-gray-300"
+                  ? "bg-status-success-bg text-status-success border border-status-success-border"
+                  : "bg-surface-muted text-text-muted border border-border-subtle hover:text-text-primary"
               }`}
               title={followLog ? "Auto-scrolling enabled" : "Auto-scrolling paused"}
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  followLog ? "bg-emerald-400" : "bg-gray-500"
+                  followLog ? "bg-status-success" : "bg-text-muted"
                 }`}
               />
               <span>Follow Log</span>
@@ -413,7 +413,7 @@ export function ServerConsole({
         {/* Output container */}
         <div ref={containerRef} className="h-[420px] overflow-y-auto p-3 space-y-0.5 select-text">
           {filteredLines.length === 0 ? (
-            <p className="text-gray-500 font-sans">
+            <p className="text-text-muted font-sans">
               {searchQuery ? "No logs matching your search filter." : "No console output yet."}
             </p>
           ) : (
@@ -434,12 +434,12 @@ export function ServerConsole({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Enter a command..."
-          className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm text-text-primary font-mono focus:outline-none focus:ring-2 focus:ring-border-focus"
         />
         <button
           type="submit"
           disabled={sendCommand.isPending || !input.trim()}
-          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+          className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium transition-colors disabled:opacity-50"
         >
           {sendCommand.isPending ? "Sending..." : "Send"}
         </button>

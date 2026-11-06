@@ -70,10 +70,10 @@ export function InvitePage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-surface-page px-4">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">Verifying invitation link...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent-primary border-t-transparent" />
+          <p className="text-sm text-text-muted">Verifying invitation link...</p>
         </div>
       </div>
     );
@@ -81,21 +81,21 @@ export function InvitePage() {
 
   if (isError || !inviteStatus || !inviteStatus.valid) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 py-8">
-        <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 text-center space-y-4">
-          <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto text-xl font-bold">
+      <div className="min-h-screen flex items-center justify-center bg-surface-page px-4 py-8">
+        <div className="w-full max-w-md bg-surface-card rounded-xl shadow-xs border border-border-default p-6 text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-status-danger-bg text-status-danger flex items-center justify-center mx-auto text-xl font-bold">
             ✕
           </div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <h2 className="text-lg font-semibold text-text-primary">
             Invalid or Expired Invitation
           </h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-text-muted">
             {error instanceof Error ? error.message : "This invitation link is invalid, expired, revoked, or has already reached its maximum usage count."}
           </p>
           <div className="pt-2 flex justify-center gap-3">
             <Link
               to="/login"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors"
+              className="px-4 py-2 bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium rounded-lg transition-colors"
             >
               Go to Sign In
             </Link>
@@ -106,37 +106,37 @@ export function InvitePage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 py-8">
+    <div className="min-h-screen flex items-center justify-center bg-surface-page px-4 py-8">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+          <h1 className="text-2xl font-bold text-text-primary">
             onx-manager
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-text-muted mt-1">
             Redeem Invitation
           </p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4"
+          className="bg-surface-card rounded-xl shadow-xs border border-border-default p-6 space-y-4"
         >
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-3">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          <div className="border-b border-border-subtle pb-3">
+            <h2 className="text-lg font-semibold text-text-primary">
               Create Your Account
             </h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            <p className="text-xs text-text-muted mt-0.5">
               Complete your profile to accept the invitation and join this instance.
             </p>
           </div>
 
           {submitError && (
-            <div role="alert" className="px-3 py-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg">
+            <div role="alert" className="px-3 py-2 text-sm text-status-danger bg-status-danger-bg border border-status-danger-border rounded-lg">
               {submitError}
             </div>
           )}
 
-          <div className="px-3 py-2 text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800 space-y-0.5">
+          <div className="px-3 py-2 text-xs text-status-success bg-status-success-bg rounded-lg border border-status-success-border space-y-0.5">
             <p className="font-semibold">Invitation Verified!</p>
             {inviteStatus.email && (
               <p>Restricted to: <strong>{inviteStatus.email}</strong></p>
@@ -147,7 +147,7 @@ export function InvitePage() {
           </div>
 
           <div>
-            <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="displayName" className="block text-sm font-medium text-text-secondary mb-1">
               Display Name
             </label>
             <input
@@ -155,7 +155,7 @@ export function InvitePage() {
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
               placeholder="Your Name"
               autoComplete="name"
               required
@@ -163,7 +163,7 @@ export function InvitePage() {
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="email" className="block text-sm font-medium text-text-secondary mb-1">
               Email Address
             </label>
             <input
@@ -172,7 +172,7 @@ export function InvitePage() {
               value={effectiveEmail}
               onChange={(e) => !isBoundEmail && setEmail(e.target.value)}
               disabled={isBoundEmail}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-75 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-75 disabled:bg-surface-muted"
               placeholder="you@example.com"
               autoComplete="email"
               required
@@ -180,7 +180,7 @@ export function InvitePage() {
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-text-secondary mb-1">
               Password
             </label>
             <div className="relative">
@@ -189,7 +189,7 @@ export function InvitePage() {
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 pr-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 pr-10 rounded-lg border border-border-default bg-surface-card text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
                 placeholder="At least 8 characters"
                 autoComplete="new-password"
                 required
@@ -197,7 +197,7 @@ export function InvitePage() {
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted hover:text-text-secondary"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? (
@@ -215,7 +215,7 @@ export function InvitePage() {
           </div>
 
           <div>
-            <label htmlFor="passwordConfirm" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="passwordConfirm" className="block text-sm font-medium text-text-secondary mb-1">
               Confirm Password
             </label>
             <div className="relative">
@@ -224,7 +224,7 @@ export function InvitePage() {
                 type={showPasswordConfirm ? "text" : "password"}
                 value={passwordConfirm}
                 onChange={(e) => setPasswordConfirm(e.target.value)}
-                className="w-full px-3 py-2 pr-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 pr-10 rounded-lg border border-border-default bg-surface-card text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
                 placeholder="Repeat password"
                 autoComplete="new-password"
                 required
@@ -232,7 +232,7 @@ export function InvitePage() {
               <button
                 type="button"
                 onClick={() => setShowPasswordConfirm((v) => !v)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted hover:text-text-secondary"
                 aria-label={showPasswordConfirm ? "Hide password" : "Show password"}
               >
                 {showPasswordConfirm ? (
@@ -252,14 +252,14 @@ export function InvitePage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+            className="w-full py-2.5 px-4 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-2"
           >
             {submitting ? "Accepting Invitation..." : "Accept Invitation & Create Account"}
           </button>
 
-          <p className="text-sm text-center text-gray-500 dark:text-gray-400 pt-1">
+          <p className="text-sm text-center text-text-muted pt-1">
             Already have an account?{" "}
-            <Link to="/login" className="text-blue-600 dark:text-blue-400 hover:underline">
+            <Link to="/login" className="text-accent-primary hover:underline">
               Sign in
             </Link>
           </p>

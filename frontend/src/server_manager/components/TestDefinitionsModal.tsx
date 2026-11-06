@@ -148,108 +148,114 @@ export function TestDefinitionsModal({
         closeOnBackdrop={!isBusy}
         closeOnEscape={!isBusy}
       >
-      <div className="flex flex-col space-y-4 text-gray-900 dark:text-gray-100 max-h-[75vh]">
+      <div className="flex flex-col space-y-4 text-text-primary max-h-[75vh]">
         {error && (
-          <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300">
+          <div role="alert" className="rounded-lg bg-status-danger-bg border border-status-danger-border p-3 text-xs text-status-danger">
             {error}
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto space-y-4 pr-1">
           {isCreating ? (
-            <form onSubmit={handleCreate} className="space-y-4 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 p-4">
+            <form onSubmit={handleCreate} className="space-y-4 rounded-lg border border-border-default bg-surface-card p-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-indigo-800 dark:text-indigo-300">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-text-primary">
                   New Test Profile
                 </h3>
                 <button
                   type="button"
                   onClick={() => setIsCreating(false)}
                   disabled={isSubmitting}
-                  className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
+                  className="text-xs text-text-muted hover:text-text-primary disabled:opacity-50"
                 >
                   Cancel
                 </button>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="def-profile-name" className="block text-xs font-medium text-text-secondary mb-1">
                   Profile Name *
                 </label>
                 <input
+                  id="def-profile-name"
                   type="text"
                   required
                   value={profileName}
                   onChange={(e) => setProfileName(e.target.value)}
                   placeholder="e.g. Standard 10-Bot Stress Test"
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-border-focus"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="def-profile-desc" className="block text-xs font-medium text-text-secondary mb-1">
                   Description
                 </label>
                 <input
+                  id="def-profile-desc"
                   type="text"
                   value={profileDescription}
                   onChange={(e) => setProfileDescription(e.target.value)}
                   placeholder="e.g. Purpur stress run before promoting modpack updates"
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-border-focus"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="def-bot-count" className="block text-xs font-medium text-text-secondary mb-1">
                     Bot Count
                   </label>
                   <input
+                    id="def-bot-count"
                     type="number"
                     min={1}
                     max={50}
                     value={botCount}
                     onChange={(e) => setBotCount(Number(e.target.value))}
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-border-focus"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="def-duration" className="block text-xs font-medium text-text-secondary mb-1">
                     Duration (Minutes)
                   </label>
                   <input
+                    id="def-duration"
                     type="number"
                     min={1}
                     max={60}
                     value={durationMinutes}
                     onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-border-focus"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="def-placement" className="block text-xs font-medium text-text-secondary mb-1">
                     Placement Mode
                   </label>
                   <select
+                    id="def-placement"
                     value={placementMode}
                     onChange={(e) => setPlacementMode(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-border-focus"
                   >
                     <option value="sidecar">Sidecar (Docker Bridge)</option>
                     <option value="host">Host Loopback</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="def-bot-tech" className="block text-xs font-medium text-text-secondary mb-1">
                     Bot Technology
                   </label>
                   <select
+                    id="def-bot-tech"
                     value={botTech}
                     onChange={(e) => setBotTech(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                    className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-border-focus"
                   >
                     <option value="auto">Auto-Detect</option>
                     <option value="fakeplayer">FakePlayer-Next</option>
@@ -263,14 +269,14 @@ export function TestDefinitionsModal({
                   type="button"
                   onClick={() => setIsCreating(false)}
                   disabled={isSubmitting}
-                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 disabled:opacity-50"
+                  className="rounded-lg border border-border-default bg-surface-muted px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover disabled:opacity-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+                  className="rounded-lg bg-accent-primary hover:bg-accent-hover px-3.5 py-1.5 text-xs font-semibold text-accent-contrast-text disabled:opacity-50 transition-colors"
                 >
                   {isSubmitting ? "Creating..." : "Save Profile"}
                 </button>
@@ -278,13 +284,13 @@ export function TestDefinitionsModal({
             </form>
           ) : (
             <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-500 dark:text-gray-400">
+              <span className="text-xs text-text-muted">
                 {definitions.length} saved profile(s)
               </span>
               <button
                 type="button"
                 onClick={() => setIsCreating(true)}
-                className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:border-indigo-800 dark:text-indigo-300"
+                className="inline-flex items-center gap-1 rounded-lg bg-accent-primary hover:bg-accent-hover border border-border-subtle px-2.5 py-1 text-xs font-semibold text-accent-contrast-text transition-colors"
               >
                 <Icon name="plus" size={12} />
                 New Profile
@@ -293,11 +299,11 @@ export function TestDefinitionsModal({
           )}
 
           {isLoading ? (
-            <div className="py-8 text-center text-xs text-gray-400">
+            <div className="py-8 text-center text-xs text-text-muted">
               Loading test profiles...
             </div>
           ) : definitions.length === 0 && !isCreating ? (
-            <div className="py-8 text-center text-xs text-gray-400 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg">
+            <div className="py-8 text-center text-xs text-text-muted border border-dashed border-border-default rounded-lg">
               No saved test profiles yet. Create a reusable profile to standardize testing parameters across commits.
             </div>
           ) : (
@@ -305,22 +311,22 @@ export function TestDefinitionsModal({
               {definitions.map((def) => (
                 <div
                   key={def.id}
-                  className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/60 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                  className="flex items-center justify-between p-3 rounded-lg border border-border-default bg-surface-card hover:border-border-strong transition-colors"
                 >
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-gray-900 dark:text-white">
+                      <span className="text-xs font-semibold text-text-primary">
                         {def.name}
                       </span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-muted text-text-secondary">
                         {def.bot_count} bots • {Math.round(def.duration_seconds / 60)}m
                       </span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-info-bg text-status-info border border-status-info-border">
                         {def.placement_mode}
                       </span>
                     </div>
                     {def.description && (
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      <p className="text-[11px] text-text-muted mt-0.5">
                         {def.description}
                       </p>
                     )}
@@ -328,7 +334,7 @@ export function TestDefinitionsModal({
                   <button
                     type="button"
                     onClick={() => setDeleteTarget({ id: def.id, name: def.name })}
-                    className="p-1 text-gray-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition-colors"
+                    className="p-1 text-text-muted hover:text-status-danger rounded transition-colors"
                     title="Delete profile"
                   >
                     <Icon name="trash" size={14} />

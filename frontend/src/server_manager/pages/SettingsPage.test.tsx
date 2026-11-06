@@ -52,6 +52,27 @@ vi.mock("@/stores/toastStore", () => ({
   useToastStore: vi.fn(() => ({ toasts: [], dismiss: vi.fn() })),
 }));
 
+vi.mock("@/server_manager/hooks/useApiKeys", () => ({
+  useApiKeys: vi.fn(() => ({
+    data: [
+      {
+        api_key_id: "key-1",
+        name: "Test API Key",
+        prefix: "mcs_test",
+        key: null,
+        permissions: ["read"],
+        expires_at: null,
+        is_revoked: false,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ],
+    isLoading: false,
+    error: null,
+  })),
+  useCreateApiKey: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useRevokeApiKey: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+}));
+
 function renderPage() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -269,5 +290,52 @@ describe("SettingsPage", () => {
     renderPage();
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.queryByText(/onx-manager \d+\.\d+\.\d+/)).not.toBeInTheDocument();
+  });
+
+  it("switches to Appearance & Themes tab and renders studio controls", async () => {
+    renderPage();
+    expect(screen.getByText("General")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Appearance & Themes/i }));
+
+    expect(await screen.findByText("Appearance & Theme Studio")).toBeInTheDocument();
+    expect(screen.getByText("Theme Skin Gallery")).toBeInTheDocument();
+    expect(screen.getByText("Interface Density")).toBeInTheDocument();
+    expect(screen.queryByText("General")).not.toBeInTheDocument();
+  });
+
+  it("switches to API Keys tab and renders inline API key management", async () => {
+    renderPage();
+    expect(screen.getByText("General")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /API Keys/i }));
+
+    expect(await screen.findByText("Test API Key")).toBeInTheDocument();
+    expect(screen.queryByText("General")).not.toBeInTheDocument();
+  });
+
+  it("filters system setting sections using category pills and search input", () => {
+    renderPage();
+    expect(screen.getByText("General")).toBeInTheDocument();
+    expect(screen.getByText("Rate Limiting & Security")).toBeInTheDocument();
+    expect(screen.getByText("Circuit Breaker")).toBeInTheDocument();
+
+    // Click "Security & Throttling" category pill
+    fireEvent.click(screen.getByRole("button", { name: "Security & Throttling" }));
+    expect(screen.getByText("Rate Limiting & Security")).toBeInTheDocument();
+    expect(screen.queryByText("General")).not.toBeInTheDocument();
+    expect(screen.queryByText("Circuit Breaker")).not.toBeInTheDocument();
+
+    // Click "All Sections (6)" to restore all
+    fireEvent.click(screen.getByRole("button", { name: "All Sections (6)" }));
+    expect(screen.getByText("General")).toBeInTheDocument();
+    expect(screen.getByText("Circuit Breaker")).toBeInTheDocument();
+
+    // Use search input
+    const searchInput = screen.getByPlaceholderText("Filter system settings...");
+    fireEvent.change(searchInput, { target: { value: "circuit" } });
+    expect(screen.getByText("Circuit Breaker")).toBeInTheDocument();
+    expect(screen.queryByText("General")).not.toBeInTheDocument();
+    expect(screen.queryByText("Rate Limiting & Security")).not.toBeInTheDocument();
   });
 });

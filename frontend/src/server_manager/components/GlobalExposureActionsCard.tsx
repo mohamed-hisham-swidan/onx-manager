@@ -118,15 +118,15 @@ export function GlobalExposureActionsCard() {
   };
 
   return (
-    <div className="rounded-xl border border-red-200 bg-white p-5 shadow-sm dark:border-red-900/40 dark:bg-gray-800 space-y-4">
-      <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+    <div className="rounded-xl border border-status-danger-border bg-surface-card p-5 shadow-xs space-y-4">
+      <div className="flex items-center gap-2 text-status-danger">
         <Icon name="alert" size={18} />
         <h3 className="text-sm font-semibold uppercase tracking-wider">
           Instance Exposure Controls (Owner-Only)
         </h3>
       </div>
 
-      <p className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-xs text-text-muted">
         Instance-wide administrative controls for stopping all public endpoints, revoking tokens, or resetting external tunnel agents. These actions affect all servers immediately.
       </p>
 
@@ -138,17 +138,17 @@ export function GlobalExposureActionsCard() {
             setActiveModal("STOP_ALL");
             setConfirmationInput("");
           }}
-          className="flex flex-col justify-between p-3.5 rounded-lg border border-red-200 bg-red-50/50 hover:bg-red-100/60 dark:border-red-900/40 dark:bg-red-950/20 dark:hover:bg-red-950/40 text-left transition-colors group"
+          className="flex flex-col justify-between p-3.5 rounded-lg border border-status-danger-border bg-status-danger-bg hover:bg-status-danger/20 text-left transition-colors group"
         >
           <div>
-            <h4 className="text-xs font-semibold text-red-900 dark:text-red-300">
+            <h4 className="text-xs font-semibold text-text-primary">
               Stop All Exposures
             </h4>
-            <p className="text-[11px] text-red-700 dark:text-red-400 mt-1">
+            <p className="text-[11px] text-text-secondary mt-1">
               Disable all active game tunnels and panel exposure across the instance.
             </p>
           </div>
-          <span className="text-[11px] font-medium text-red-700 dark:text-red-400 mt-3 group-hover:underline">
+          <span className="text-[11px] font-medium text-status-danger mt-3 group-hover:underline">
             Emergency Stop →
           </span>
         </button>
@@ -160,17 +160,17 @@ export function GlobalExposureActionsCard() {
             setActiveModal("RESET_AGENT");
             setConfirmationInput("");
           }}
-          className="flex flex-col justify-between p-3.5 rounded-lg border border-red-200 bg-red-50/50 hover:bg-red-100/60 dark:border-red-900/40 dark:bg-red-950/20 dark:hover:bg-red-950/40 text-left transition-colors group"
+          className="flex flex-col justify-between p-3.5 rounded-lg border border-status-danger-border bg-status-danger-bg hover:bg-status-danger/20 text-left transition-colors group"
         >
           <div>
-            <h4 className="text-xs font-semibold text-red-900 dark:text-red-300">
+            <h4 className="text-xs font-semibold text-text-primary">
               Reset playit Agent
             </h4>
-            <p className="text-[11px] text-red-700 dark:text-red-400 mt-1">
+            <p className="text-[11px] text-text-secondary mt-1">
               Clear host credentials and unclaim agent. Required when re-claiming account.
             </p>
           </div>
-          <span className="text-[11px] font-medium text-red-700 dark:text-red-400 mt-3 group-hover:underline">
+          <span className="text-[11px] font-medium text-status-danger mt-3 group-hover:underline">
             Reset Agent →
           </span>
         </button>
@@ -182,17 +182,17 @@ export function GlobalExposureActionsCard() {
             setActiveModal("REMOVE_CREDENTIALS");
             setConfirmationInput("");
           }}
-          className="flex flex-col justify-between p-3.5 rounded-lg border border-red-200 bg-red-50/50 hover:bg-red-100/60 dark:border-red-900/40 dark:bg-red-950/20 dark:hover:bg-red-950/40 text-left transition-colors group"
+          className="flex flex-col justify-between p-3.5 rounded-lg border border-status-danger-border bg-status-danger-bg hover:bg-status-danger/20 text-left transition-colors group"
         >
           <div>
-            <h4 className="text-xs font-semibold text-red-900 dark:text-red-300">
+            <h4 className="text-xs font-semibold text-text-primary">
               Remove Credentials
             </h4>
-            <p className="text-[11px] text-red-700 dark:text-red-400 mt-1">
+            <p className="text-[11px] text-text-secondary mt-1">
               Permanently delete all stored encrypted tokens and stop all tunnels.
             </p>
           </div>
-          <span className="text-[11px] font-medium text-red-700 dark:text-red-400 mt-3 group-hover:underline">
+          <span className="text-[11px] font-medium text-status-danger mt-3 group-hover:underline">
             Remove Credentials →
           </span>
         </button>
@@ -207,7 +207,7 @@ export function GlobalExposureActionsCard() {
           setConfirmationInput("");
         }}
         title={
-          <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+          <div className="flex items-center gap-2 text-status-danger">
             <Icon name="alert" size={20} />
             <span>{currentConfig?.title}</span>
           </div>
@@ -221,10 +221,10 @@ export function GlobalExposureActionsCard() {
       >
         {currentConfig && (
           <div className="space-y-4">
-            <div className="space-y-2 rounded-lg bg-red-50 p-3.5 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40">
+            <div className="space-y-2 rounded-lg bg-status-danger-bg p-3.5 border border-status-danger-border">
               <label
                 htmlFor="typed-confirm-input"
-                className="block text-xs font-semibold text-red-900 dark:text-red-300"
+                className="block text-xs font-semibold text-text-primary"
               >
                 Type <span className="font-mono underline">{currentConfig.requiredText}</span> to confirm:
               </label>
@@ -236,7 +236,7 @@ export function GlobalExposureActionsCard() {
                 value={confirmationInput}
                 onChange={(e) => setConfirmationInput(e.target.value)}
                 placeholder={`Type "${currentConfig.requiredText}"`}
-                className="w-full px-3 py-2 rounded-lg border border-red-300 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all disabled:opacity-50"
+                className="w-full px-3 py-2 rounded-lg border border-status-danger-border bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-status-danger focus:border-transparent outline-none transition-all disabled:opacity-50"
               />
             </div>
 
@@ -248,7 +248,7 @@ export function GlobalExposureActionsCard() {
                   setConfirmationInput("");
                 }}
                 disabled={isInFlight}
-                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                className="px-4 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -256,7 +256,7 @@ export function GlobalExposureActionsCard() {
                 type="button"
                 onClick={handleExecuteAction}
                 disabled={!isMatch || isInFlight}
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-40 shadow-sm"
+                className="px-4 py-2 rounded-lg bg-status-danger hover:opacity-90 text-white text-xs font-medium transition-colors disabled:opacity-40 shadow-xs"
               >
                 {isInFlight ? currentConfig.inFlightLabel : currentConfig.buttonLabel}
               </button>

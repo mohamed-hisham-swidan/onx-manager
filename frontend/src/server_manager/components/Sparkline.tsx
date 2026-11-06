@@ -6,7 +6,7 @@ interface SparklineProps {
   fillColor?: string;
 }
 
-export function Sparkline({ data, width = 120, height = 32, color = "#3b82f6", fillColor = "rgba(59, 130, 246, 0.1)" }: SparklineProps) {
+export function Sparkline({ data, width = 120, height = 32, color = "var(--accent-primary)", fillColor = "var(--status-info-bg)" }: SparklineProps) {
   if (data.length < 2) return <div style={{ width, height }} />;
 
   const min = Math.min(...data);

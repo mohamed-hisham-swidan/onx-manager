@@ -2,54 +2,55 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { createAuthenticatedApi } from "@/services/api";
+import { HashBadge } from "@/components/ui/HashBadge";
 import type { ServerActivityLog } from "@/server_manager/types";
 
 function getCategoryBadge(eventType: string): { label: string; color: string; icon: IconName } {
   if (eventType.startsWith("server.crashed")) {
     return {
       label: "Crash",
-      color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
+      color: "bg-status-danger-bg text-status-danger border-status-danger-border",
       icon: "alert",
     };
   }
   if (eventType.startsWith("server.")) {
     return {
       label: "Lifecycle",
-      color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800",
+      color: "bg-accent-primary/15 text-accent-primary border-accent-primary/30",
       icon: "server",
     };
   }
   if (eventType.startsWith("plugin.")) {
     return {
       label: "Plugin/Mod",
-      color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800",
+      color: "bg-status-info-bg text-status-info border-status-info-border",
       icon: "plugin",
     };
   }
   if (eventType.startsWith("backup.")) {
     return {
       label: "Backup",
-      color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+      color: "bg-status-success-bg text-status-success border-status-success-border",
       icon: "backup",
     };
   }
   if (eventType.startsWith("versioning.")) {
     return {
       label: "Versioning",
-      color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+      color: "bg-status-warning-bg text-status-warning border-status-warning-border",
       icon: "clock",
     };
   }
   if (eventType.startsWith("exposure.")) {
     return {
       label: "Exposure",
-      color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800",
+      color: "bg-status-info-bg text-status-info border-status-info-border",
       icon: "activity",
     };
   }
   return {
     label: "Event",
-    color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-700",
+    color: "bg-surface-elevated text-text-secondary border-border-default",
     icon: "activity",
   };
 }
@@ -78,12 +79,11 @@ export function ServerActivityPage() {
 
   const [logs, setLogs] = useState<ServerActivityLog[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
-  const [limit, setLimit] = useState<number>(25);
+  const limit = 25;
   const [offset, setOffset] = useState<number>(0);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,24 +98,25 @@ export function ServerActivityPage() {
     if (!serverId) return;
     let isCancelled = false;
 
-    const eventTypeParam = categoryFilter === "all" ? undefined : categoryFilter;
-
     const fetchLogs = async () => {
       try {
-        const res = await api.getServerActivity(serverId, {
+        setError(null);
+        const params: Record<string, string | number> = {
           limit,
           offset,
-          event_type: eventTypeParam,
-        });
+        };
+        if (categoryFilter !== "all") {
+          params.event_type = categoryFilter;
+        }
+
+        const data = await api.getServerActivity(serverId, params);
         if (!isCancelled) {
-          setLogs(res.items);
-          setTotalCount(res.total);
-          setError(null);
+          setLogs(data.items || []);
+          setTotalCount(data.total || 0);
         }
       } catch (err: unknown) {
         if (!isCancelled) {
-          const msg = err instanceof Error ? err.message : "Failed to load activity logs";
-          setError(msg);
+          setError(err instanceof Error ? err.message : "Failed to load activity logs.");
         }
       } finally {
         if (!isCancelled) {
@@ -129,24 +130,18 @@ export function ServerActivityPage() {
     return () => {
       isCancelled = true;
     };
-  }, [api, serverId, limit, offset, categoryFilter, refreshKey]);
+  }, [serverId, limit, offset, categoryFilter, api, refreshKey]);
 
-  const toggleExpand = (id: string) => {
+  const toggleExpand = (logId: string) => {
     setExpandedLogIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+      if (next.has(logId)) {
+        next.delete(logId);
       } else {
-        next.add(id);
+        next.add(logId);
       }
       return next;
     });
-  };
-
-  const handleCopyDetails = (id: string, details: Record<string, unknown>) => {
-    navigator.clipboard.writeText(JSON.stringify(details, null, 2));
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const filteredLogs = useMemo(() => {
@@ -177,20 +172,21 @@ export function ServerActivityPage() {
   return (
     <div className="space-y-6" data-testid="server-activity-page">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 dark:border-gray-700 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2.5">
-            <Icon name="clock" size={24} className="text-indigo-600 dark:text-indigo-400" />
+          <h1 className="text-xl font-bold text-text-primary flex items-center gap-2.5">
+            <Icon name="clock" size={22} className="text-accent-primary" />
             Change History & Activity Log
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-xs text-text-muted mt-1">
             Durable operational audit trail for lifecycle transitions, configuration changes, mod/plugin management, and versioning snapshots.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={refresh}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border-default bg-surface-card text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer shadow-2xs"
             title="Refresh activity logs"
           >
             <Icon name="restart" size={14} className={isLoading ? "animate-spin" : ""} />
@@ -200,7 +196,7 @@ export function ServerActivityPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+      <div className="bg-surface-card rounded-xl border border-border-subtle p-4 space-y-3 shadow-2xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Category Chips */}
           <div className="flex flex-wrap items-center gap-1.5" data-testid="category-filters">
@@ -208,15 +204,16 @@ export function ServerActivityPage() {
               const active = categoryFilter === cat.id;
               return (
                 <button
+                  type="button"
                   key={cat.id}
                   onClick={() => {
                     setCategoryFilter(cat.id);
                     setOffset(0);
                   }}
-                  className={`px-3 py-1 text-xs font-medium rounded-full transition ${
+                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors cursor-pointer ${
                     active
-                      ? "bg-indigo-600 text-white shadow-sm"
-                      : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+                      ? "bg-accent-primary text-accent-contrast-text shadow-2xs"
+                      : "bg-surface-elevated text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-border-subtle"
                   }`}
                 >
                   {cat.label}
@@ -230,14 +227,14 @@ export function ServerActivityPage() {
             <Icon
               name="search"
               size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
             />
             <input
               type="text"
               placeholder="Search activity summaries..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border-default bg-surface-page text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-hidden focus:ring-1 focus:ring-border-focus"
             />
           </div>
         </div>
@@ -245,14 +242,15 @@ export function ServerActivityPage() {
 
       {/* Error alert */}
       {error && (
-        <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 flex items-center justify-between">
+        <div className="p-4 rounded-xl bg-status-danger-bg border border-status-danger-border text-status-danger flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm">
             <Icon name="alert" size={16} />
             <span>{error}</span>
           </div>
           <button
+            type="button"
             onClick={refresh}
-            className="text-xs font-semibold underline hover:no-underline"
+            className="text-xs font-semibold underline hover:no-underline cursor-pointer"
           >
             Retry
           </button>
@@ -265,12 +263,12 @@ export function ServerActivityPage() {
           {Array.from({ length: 5 }).map((_, i) => (
             <div
               key={i}
-              className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-start gap-4 animate-pulse"
+              className="p-4 rounded-xl border border-border-subtle bg-surface-card flex items-start gap-4 animate-pulse"
             >
-              <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 shrink-0" />
+              <div className="w-10 h-10 rounded-full bg-surface-muted shrink-0" />
               <div className="space-y-2 flex-1">
-                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
-                <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded w-1/2" />
+                <div className="h-4 bg-surface-muted rounded w-1/3" />
+                <div className="h-3 bg-surface-muted rounded w-1/2" />
               </div>
             </div>
           ))}
@@ -281,15 +279,15 @@ export function ServerActivityPage() {
       {!isLoading && !error && filteredLogs.length === 0 && (
         <div
           data-testid="activity-empty-state"
-          className="text-center py-16 px-4 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+          className="text-center py-16 px-4 rounded-xl border border-dashed border-border-default bg-surface-card"
         >
-          <div className="w-12 h-12 mx-auto rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-3">
+          <div className="w-12 h-12 mx-auto rounded-full bg-accent-primary/10 flex items-center justify-center text-accent-primary mb-3">
             <Icon name="clock" size={24} />
           </div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-base font-semibold text-text-primary">
             No activity logs found
           </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto mt-1">
+          <p className="text-sm text-text-muted max-w-sm mx-auto mt-1">
             {searchQuery || categoryFilter !== "all"
               ? "No events match the current filter criteria. Try selecting 'All Events' or clearing the search box."
               : "Events will appear here as configuration changes, server starts/stops, or version snapshots occur."}
@@ -299,7 +297,7 @@ export function ServerActivityPage() {
 
       {/* Timeline List */}
       {!isLoading && !error && filteredLogs.length > 0 && (
-        <div className="relative pl-6 sm:pl-8 space-y-4 before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200 dark:before:bg-gray-700">
+        <div className="relative pl-6 sm:pl-8 space-y-4 before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-border-subtle">
           {filteredLogs.map((log) => {
             const cat = getCategoryBadge(log.event_type);
             const isExpanded = expandedLogIds.has(log.id);
@@ -308,17 +306,17 @@ export function ServerActivityPage() {
             return (
               <div
                 key={log.id}
-                className="relative bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 transition hover:border-gray-300 dark:hover:border-gray-600 shadow-sm"
+                className="relative bg-surface-card rounded-xl border border-border-subtle p-4 transition-all hover:border-border-default shadow-2xs"
                 data-testid={`activity-log-item-${log.id}`}
               >
                 {/* Dot marker on timeline */}
                 <span
-                  className="absolute -left-6 sm:-left-8 top-5 w-3 h-3 rounded-full border-2 border-white dark:border-gray-900 bg-indigo-500 ring-4 ring-indigo-50 dark:ring-indigo-950/40"
+                  className="absolute -left-6 sm:-left-8 top-5 w-3 h-3 rounded-full border-2 border-surface-card bg-accent-primary ring-4 ring-accent-primary/15"
                   aria-hidden="true"
                 />
 
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                  <div className="space-y-1.5 flex-1">
+                  <div className="space-y-1.5 flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       {/* Event category badge */}
                       <span
@@ -329,26 +327,28 @@ export function ServerActivityPage() {
                       </span>
 
                       {/* Actor Badge */}
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-elevated text-text-secondary border border-border-subtle">
                         <Icon name={log.actor_type === "user" ? "users" : "settings"} size={11} />
                         {log.actor_type === "user" ? log.actor_id || "User" : "System"}
                       </span>
 
                       {/* Relative time */}
                       <span
-                        className="text-xs text-gray-400 dark:text-gray-500 font-mono"
+                        className="text-xs text-text-muted font-mono"
                         title={formatDateTime(log.timestamp)}
                       >
                         {formatRelativeTime(log.timestamp)}
                       </span>
+
+                      <HashBadge hash={log.id} className="ml-auto sm:ml-0" />
                     </div>
 
                     {/* Summary */}
-                    <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    <div className="text-sm font-bold text-text-primary">
                       {log.summary}
                     </div>
 
-                    <div className="text-xs text-gray-400 dark:text-gray-500 font-mono">
+                    <div className="text-xs text-text-muted font-mono">
                       Event: {log.event_type} • {formatDateTime(log.timestamp)}
                     </div>
                   </div>
@@ -356,8 +356,9 @@ export function ServerActivityPage() {
                   {/* Actions / Details toggle */}
                   {hasDetails && (
                     <button
+                      type="button"
                       onClick={() => toggleExpand(log.id)}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition shrink-0 mt-2 sm:mt-0"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-accent-primary hover:underline transition-colors shrink-0 mt-2 sm:mt-0 cursor-pointer"
                     >
                       <Icon name={isExpanded ? "chevron-up" : "chevron-down"} size={14} />
                       {isExpanded ? "Hide Details" : "View Details"}
@@ -367,21 +368,11 @@ export function ServerActivityPage() {
 
                 {/* Expandable JSON Details */}
                 {isExpanded && hasDetails && (
-                  <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/60 space-y-2">
-                    <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                      <span className="font-semibold uppercase tracking-wider text-[10px]">
-                        Event Payload Details
-                      </span>
-                      <button
-                        onClick={() => handleCopyDetails(log.id, log.details)}
-                        className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                        title="Copy details as JSON"
-                      >
-                        <Icon name={copiedId === log.id ? "check" : "copy"} size={12} />
-                        {copiedId === log.id ? "Copied" : "Copy JSON"}
-                      </button>
+                  <div className="mt-3 pt-3 border-t border-border-subtle/60 space-y-2">
+                    <div className="text-xs font-bold uppercase tracking-wider text-text-secondary">
+                      Event Payload Details
                     </div>
-                    <pre className="p-3 bg-gray-50 dark:bg-gray-900/60 rounded-lg text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto border border-gray-200 dark:border-gray-800">
+                    <pre className="p-3 rounded-lg bg-surface-elevated border border-border-subtle text-xs font-mono text-text-primary overflow-x-auto leading-relaxed">
                       {JSON.stringify(log.details, null, 2)}
                     </pre>
                   </div>
@@ -393,44 +384,28 @@ export function ServerActivityPage() {
       )}
 
       {/* Pagination Footer */}
-      {!isLoading && !error && totalCount > 0 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
-          <div>
-            Showing <span className="font-semibold">{filteredLogs.length}</span> of{" "}
-            <span className="font-semibold">{totalCount}</span> events
-          </div>
+      {!isLoading && !error && totalCount > limit && (
+        <div className="flex items-center justify-between border-t border-border-subtle pt-4 text-xs text-text-muted">
+          <span>
+            Showing {offset + 1}–{Math.min(offset + limit, totalCount)} of {totalCount} events
+          </span>
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1">
-              <span>Per page:</span>
-              <select
-                value={limit}
-                onChange={(e) => {
-                  setLimit(Number(e.target.value));
-                  setOffset(0);
-                }}
-                className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs"
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </label>
-
             <button
-              disabled={offset <= 0}
-              onClick={() => setOffset((o) => Math.max(0, o - limit))}
-              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 font-medium text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+              type="button"
+              disabled={offset === 0}
+              onClick={() => setOffset((prev) => Math.max(0, prev - limit))}
+              className="px-3 py-1.5 rounded-lg border border-border-default bg-surface-card text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 transition-colors cursor-pointer"
             >
               Previous
             </button>
-            <span className="px-2 font-medium">
+            <span className="font-mono tabular-nums">
               Page {currentPage} of {totalPages}
             </span>
             <button
+              type="button"
               disabled={offset + limit >= totalCount}
-              onClick={() => setOffset((o) => o + limit)}
-              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 font-medium text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+              onClick={() => setOffset((prev) => prev + limit)}
+              className="px-3 py-1.5 rounded-lg border border-border-default bg-surface-card text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 transition-colors cursor-pointer"
             >
               Next
             </button>

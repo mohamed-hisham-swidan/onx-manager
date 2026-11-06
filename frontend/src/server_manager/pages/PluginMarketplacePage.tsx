@@ -138,12 +138,12 @@ export function PluginMarketplacePage() {
                   aria-label="Discover type"
                   value={projectType}
                   onChange={(e) => handleProjectTypeChange(e.target.value as "plugin" | "mod")}
-                  className="appearance-none rounded-lg border border-gray-300 bg-white py-2 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                  className="appearance-none rounded-lg border border-border-default bg-surface-card py-2 pl-3 pr-8 text-sm font-medium text-text-primary focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus"
                 >
                   <option value="plugin">Plugins</option>
                   <option value="mod">Mods</option>
                 </select>
-                <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
+                <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted">
                   <Icon name="chevron-down" size={14} />
                 </div>
               </div>
@@ -161,11 +161,11 @@ export function PluginMarketplacePage() {
                       : `Search ${projectType === "mod" ? "mods" : "plugins"} in the global marketplace...`
                   }
                   aria-label="Search plugins"
-                  className="w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                  className="w-full max-w-md rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus"
                 />
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40"
                 >
                   <Icon name="search" size={16} />
                   Search
@@ -174,7 +174,7 @@ export function PluginMarketplacePage() {
             </form>
           </div>
           {!serverId && (
-            <p className="-mt-4 mb-6 text-sm text-gray-500 dark:text-gray-400">
+            <p className="-mt-4 mb-6 text-sm text-text-muted">
               Browse the global marketplace without a server — you'll pick a destination when installing.
             </p>
           )}
@@ -184,15 +184,15 @@ export function PluginMarketplacePage() {
               className="-mt-3 mb-6 flex flex-wrap items-center gap-2"
               data-testid="loader-filter-tag"
             >
-              <span className="text-sm text-gray-500 dark:text-gray-400">Platform:</span>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+              <span className="text-sm text-text-muted">Platform:</span>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-status-info-border bg-status-info-bg px-2.5 py-1 text-xs font-medium text-status-info">
                 <Icon name={getLoaderDisplay(urlLoader).icon} size={12} className="shrink-0" />
                 {getLoaderDisplay(urlLoader).label}
                 <button
                   type="button"
                   onClick={handleClearLoader}
                   aria-label={`Remove ${getLoaderDisplay(urlLoader).label} platform filter`}
-                  className="text-blue-500 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-200"
+                  className="text-status-info transition-colors hover:text-accent-hover"
                 >
                   <Icon name="x" size={12} />
                 </button>
@@ -209,7 +209,7 @@ export function PluginMarketplacePage() {
               {Array.from({ length: 4 }).map((_, i) => (
                 <div
                   key={i}
-                  className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+                  className="space-y-3 rounded-xl border border-border-subtle bg-surface-card p-4"
                 >
                   <div className="flex items-start gap-3">
                     <Skeleton className="h-11 w-11 rounded-lg" />

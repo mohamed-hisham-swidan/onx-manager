@@ -9,39 +9,39 @@ interface RecentActivityProps {
 
 function eventPresentation(event_type: string): { icon: IconName; color: string; verb: string } {
   if (event_type.includes("Crashed")) {
-    return { icon: "alert", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", verb: "crashed" };
+    return { icon: "alert", color: "bg-status-danger-bg text-status-danger", verb: "crashed" };
   }
   if (event_type.includes("Deleted")) {
-    return { icon: "trash", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", verb: "deleted" };
+    return { icon: "trash", color: "bg-status-danger-bg text-status-danger", verb: "deleted" };
   }
   if (event_type.includes("Created")) {
-    return { icon: "plus", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", verb: "created" };
+    return { icon: "plus", color: "bg-status-info-bg text-status-info", verb: "created" };
   }
   if (event_type.includes("Started")) {
-    return { icon: "play", color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", verb: "started" };
+    return { icon: "play", color: "bg-status-success-bg text-status-success", verb: "started" };
   }
   if (event_type.includes("Starting")) {
-    return { icon: "restart", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400", verb: "is starting" };
+    return { icon: "restart", color: "bg-status-warning-bg text-status-warning", verb: "is starting" };
   }
   if (event_type.includes("Stopping")) {
-    return { icon: "stop", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400", verb: "is stopping" };
+    return { icon: "stop", color: "bg-status-warning-bg text-status-warning", verb: "is stopping" };
   }
   if (event_type.includes("Stopped")) {
-    return { icon: "stop", color: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400", verb: "stopped" };
+    return { icon: "stop", color: "bg-surface-muted text-text-muted", verb: "stopped" };
   }
   if (event_type.includes("Restarted")) {
-    return { icon: "restart", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400", verb: "restarted" };
+    return { icon: "restart", color: "bg-status-warning-bg text-status-warning", verb: "restarted" };
   }
   if (event_type.includes("Config")) {
-    return { icon: "settings", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", verb: "updated config for" };
+    return { icon: "settings", color: "bg-status-info-bg text-status-info", verb: "updated config for" };
   }
   if (event_type.includes("Discovered")) {
-    return { icon: "search", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", verb: "discovered" };
+    return { icon: "search", color: "bg-status-info-bg text-status-info", verb: "discovered" };
   }
   if (event_type.includes("Vanished")) {
-    return { icon: "x", color: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400", verb: "lost sight of" };
+    return { icon: "x", color: "bg-surface-muted text-text-muted", verb: "lost sight of" };
   }
-  return { icon: "activity", color: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400", verb: "event" };
+  return { icon: "activity", color: "bg-surface-muted text-text-muted", verb: "event" };
 }
 
 function formatTime(timestamp: number): string {
@@ -66,12 +66,12 @@ function EventRow({ event, serverNames }: { event: ActivityEvent; serverNames?: 
         <Icon name={pres.icon} size={15} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-gray-800 dark:text-gray-200">
+        <p className="truncate text-sm text-text-primary">
           <span className="font-medium">{serverName}</span>{" "}
-          <span className="text-gray-500 dark:text-gray-400">{pres.verb}</span>
+          <span className="text-text-muted">{pres.verb}</span>
         </p>
       </div>
-      <span className="shrink-0 text-xs tabular-nums text-gray-400 dark:text-gray-500">
+      <span className="shrink-0 text-xs tabular-nums text-text-muted">
         {formatTime(event.timestamp)}
       </span>
     </li>
@@ -85,13 +85,13 @@ export function RecentActivity({ serverNames }: RecentActivityProps) {
 
   const liveNote =
     connectionState === "reconnecting"
-      ? { text: "Live updates paused — reconnecting…", color: "text-amber-700 dark:text-amber-400" }
+      ? { text: "Live updates paused — reconnecting…", color: "text-status-warning" }
       : connectionState === "connecting"
-        ? { text: "Connecting to live updates…", color: "text-gray-500 dark:text-gray-400" }
+        ? { text: "Connecting to live updates…", color: "text-text-muted" }
         : connectionState === "disconnected"
-          ? { text: "Live updates unavailable", color: "text-red-600 dark:text-red-400" }
+          ? { text: "Live updates unavailable", color: "text-status-danger" }
           : serverChannelDegraded
-            ? { text: "Live updates unavailable — subscription rejected", color: "text-amber-700 dark:text-amber-400" }
+            ? { text: "Live updates unavailable — subscription rejected", color: "text-status-warning" }
             : null;
 
   return (
@@ -101,7 +101,7 @@ export function RecentActivity({ serverNames }: RecentActivityProps) {
           {liveNote.text}
         </p>
       )}
-      <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
+      <ul className="divide-y divide-border-subtle">
         {events.slice(0, 8).map((event) => (
           <EventRow key={event.id} event={event} serverNames={serverNames} />
         ))}

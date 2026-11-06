@@ -137,20 +137,20 @@ export function InvitationsSection() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
+      <div className="rounded-xl border border-border-default bg-surface-card p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h3 className="text-base font-semibold text-text-primary">
               Invitations Management
             </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            <p className="text-xs text-text-muted mt-0.5">
               Create and manage invitation links to invite new users to this instance.
             </p>
           </div>
           <button
             type="button"
             onClick={openModal}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 shrink-0"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover shrink-0 cursor-pointer"
           >
             <Icon name="plus" size={16} />
             Create Invitation
@@ -159,12 +159,12 @@ export function InvitationsSection() {
 
         {/* Display created invitation secret once */}
         {createdInvite && (
-          <div className="mb-6 p-4 rounded-xl border border-green-200 bg-green-50 dark:border-green-900/40 dark:bg-green-900/20 text-green-900 dark:text-green-100 space-y-3">
+          <div className="mb-6 p-4 rounded-xl border border-status-success-border bg-status-success-bg text-status-success space-y-3">
             <div className="flex items-center gap-2">
-              <Icon name="check" size={18} className="text-green-600 dark:text-green-400" />
+              <Icon name="check" size={18} className="text-status-success" />
               <span className="font-semibold text-sm">Invitation Link Generated!</span>
             </div>
-            <p className="text-xs text-green-800 dark:text-green-300">
+            <p className="text-xs text-status-success opacity-90">
               This secret raw token is displayed <strong>only once</strong>. Copy the link below to share it.
             </p>
             <div className="flex items-center gap-2">
@@ -172,12 +172,12 @@ export function InvitationsSection() {
                 type="text"
                 readOnly
                 value={createdInvite.link}
-                className="w-full px-3 py-1.5 rounded-lg border border-green-300 dark:border-green-700 bg-white dark:bg-gray-800 text-xs font-mono text-gray-900 dark:text-gray-100"
+                className="w-full px-3 py-1.5 rounded-lg border border-status-success-border bg-surface-page text-xs font-mono text-text-primary"
               />
               <button
                 type="button"
                 onClick={() => copyToClipboard(createdInvite.link)}
-                className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-medium shrink-0 flex items-center gap-1"
+                className="px-3 py-1.5 rounded-lg bg-status-success text-accent-contrast-text text-xs font-medium shrink-0 flex items-center gap-1 cursor-pointer"
               >
                 <Icon name="copy" size={14} />
                 {copied ? "Copied!" : "Copy Link"}
@@ -187,19 +187,19 @@ export function InvitationsSection() {
         )}
 
         {isLoading ? (
-          <div className="py-8 text-center text-sm text-gray-500">Loading invitations...</div>
+          <div className="py-8 text-center text-sm text-text-muted">Loading invitations...</div>
         ) : isError ? (
-          <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 text-xs text-red-600 dark:text-red-400">
+          <div className="p-4 rounded-lg bg-status-danger-bg text-xs text-status-danger border border-status-danger-border">
             {error instanceof Error ? error.message : "Failed to load invitations"}
           </div>
         ) : invites.length === 0 ? (
-          <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
+          <div className="py-8 text-center text-sm text-text-muted border border-dashed border-border-default rounded-lg">
             No invitations created yet. Click "Create Invitation" to generate one.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400 uppercase">
+              <thead className="border-b border-border-default bg-surface-page text-text-muted uppercase">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Token Prefix</th>
                   <th className="px-4 py-3 font-semibold">Bound Email</th>
@@ -210,35 +210,35 @@ export function InvitationsSection() {
                   <th className="px-4 py-3 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody className="divide-y divide-border-subtle">
                 {invites.map((invite: InvitationItem) => (
-                  <tr key={invite.invite_id} className="hover:bg-gray-50/50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 font-mono font-medium text-gray-900 dark:text-gray-100">
+                  <tr key={invite.invite_id} className="hover:bg-surface-hover transition-colors">
+                    <td className="px-4 py-3 font-mono font-medium text-text-primary">
                       {invite.token_prefix}...
                     </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                      {invite.email || <span className="text-gray-400 italic">Any email</span>}
+                    <td className="px-4 py-3 text-text-secondary">
+                      {invite.email || <span className="text-text-muted italic">Any email</span>}
                     </td>
-                    <td className="px-4 py-3 capitalize font-medium text-gray-800 dark:text-gray-200">
+                    <td className="px-4 py-3 capitalize font-medium text-text-primary">
                       {invite.global_role}
                     </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
+                    <td className="px-4 py-3 text-text-secondary">
                       {invite.server_id ? `${invite.server_id} (${invite.server_role || "member"})` : "-"}
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase border ${
                           invite.status === "ACTIVE"
-                            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
+                            ? "bg-status-success-bg text-status-success border-status-success-border"
                             : invite.status === "USED"
-                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-                            : "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
+                            ? "bg-status-info-bg text-status-info border-status-info-border"
+                            : "bg-surface-elevated text-text-muted border-border-default"
                         }`}
                       >
                         {invite.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                    <td className="px-4 py-3 text-text-muted">
                       {invite.expires_at ? (parseServerDate(invite.expires_at)?.toLocaleString() ?? "Never") : "Never"}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -247,7 +247,7 @@ export function InvitationsSection() {
                           type="button"
                           onClick={() => revokeMutation.mutate(invite.invite_id)}
                           disabled={revokeMutation.isPending}
-                          className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 font-medium hover:underline disabled:opacity-50"
+                          className="text-status-danger hover:underline font-medium disabled:opacity-50 cursor-pointer"
                         >
                           Revoke
                         </button>
@@ -276,14 +276,14 @@ export function InvitationsSection() {
       >
         <div className="space-y-4 max-h-[80vh] overflow-y-auto">
           {formError && (
-            <div role="alert" className="p-3 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg">
+            <div role="alert" className="p-3 text-xs text-status-danger bg-status-danger-bg border border-status-danger-border rounded-lg">
               {formError}
             </div>
           )}
 
           <form onSubmit={handleCreateSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-text-secondary mb-1">
                 Bound Email (Optional)
               </label>
               <input
@@ -291,19 +291,19 @@ export function InvitationsSection() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Restrict to specific email address"
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none"
               />
             </div>
 
             <div>
-              <label htmlFor="globalRole" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="globalRole" className="block text-sm font-medium text-text-secondary mb-1">
                 Global Access Role
               </label>
               <select
                 id="globalRole"
                 value={globalRole}
                 onChange={(e) => setGlobalRole(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none"
               >
                 {grantableGlobalRoles.map((role) => (
                   <option key={role.value} value={role.value}>
@@ -314,8 +314,8 @@ export function InvitationsSection() {
             </div>
 
             {/* Server Access (Optional) */}
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-3">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <div className="border-t border-border-default pt-4 space-y-3">
+              <label className="block text-sm font-medium text-text-secondary">
                 Server Access (Optional)
               </label>
               <div>
@@ -325,7 +325,7 @@ export function InvitationsSection() {
                   value={serverId}
                   onChange={(e) => setServerId(e.target.value)}
                   disabled={isLoadingServers}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
+                  className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none disabled:opacity-50"
                 >
                   <option value="">[ No server access ]</option>
                   {servers.map((s: ServerResponse) => (
@@ -335,7 +335,7 @@ export function InvitationsSection() {
                   ))}
                 </select>
                 {serversError && (
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                  <p className="text-[11px] text-status-warning mt-1">
                     Server list temporarily unavailable. You can still issue global invitations.
                   </p>
                 )}
@@ -343,7 +343,7 @@ export function InvitationsSection() {
 
               {serverId && (
                 <div>
-                  <label htmlFor="serverRole" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  <label htmlFor="serverRole" className="block text-xs font-medium text-text-muted mb-1">
                     Server Role
                   </label>
                   <select
@@ -351,7 +351,7 @@ export function InvitationsSection() {
                     aria-label="Server Role"
                     value={serverRole}
                     onChange={(e) => setServerRole(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none"
                   >
                     <option value="viewer">Server Viewer</option>
                     <option value="dev">Developer</option>
@@ -362,7 +362,7 @@ export function InvitationsSection() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-text-secondary mb-1">
                 Expiration (Hours)
               </label>
               <input
@@ -371,7 +371,7 @@ export function InvitationsSection() {
                 max={720}
                 value={expiresInHours}
                 onChange={(e) => setExpiresInHours(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none"
               />
             </div>
 
@@ -380,14 +380,14 @@ export function InvitationsSection() {
                 type="button"
                 onClick={() => setIsModalOpen(false)}
                 disabled={createMutation.isPending}
-                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg border border-border-default text-sm font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={createMutation.isPending}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-medium text-white disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-sm font-medium text-accent-contrast-text disabled:opacity-50 cursor-pointer"
               >
                 {createMutation.isPending ? "Generating..." : "Generate Invitation"}
               </button>

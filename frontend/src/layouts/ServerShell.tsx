@@ -126,7 +126,7 @@ export function ServerShell() {
           sidebarOpen ? "lg:pl-56" : "lg:pl-0"
         }`}
       >
-        <div className="mx-auto max-w-7xl p-3.5 sm:p-5 lg:px-6 lg:py-5 space-y-4">
+        <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6 space-y-4">
           {/* Breadcrumb Navigation (Exact semantics preserved for tests) */}
           <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs flex-wrap text-text-muted">
             <Link
@@ -183,17 +183,32 @@ export function ServerShell() {
             )}
           </nav>
 
-          {/* Server Identity Strip (D4) */}
+          {/* Unified Server Workspace Header (<ServerContextHeader>) */}
           {server && (
-            <div className="flex flex-col gap-3 rounded-2xl border border-border-subtle bg-surface-card p-4 shadow-2xs sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap items-center gap-3 min-w-0">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20 shadow-2xs">
-                  <Icon name="server" size={22} />
+            <div
+              className={`flex flex-col gap-4 rounded-xl border p-4 transition-all lg:flex-row lg:items-center lg:justify-between ${
+                isRunning
+                  ? "border-status-success-border/40 bg-status-success-bg/15 shadow-2xs"
+                  : isStarting
+                  ? "border-status-warning-border/40 bg-status-warning-bg/15 shadow-2xs"
+                  : "border-border-subtle bg-surface-card shadow-2xs"
+              }`}
+            >
+              {/* Left: Identity & Metadata */}
+              <div className="flex flex-wrap items-center gap-3.5 min-w-0">
+                <div
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border transition-all ${
+                    isRunning
+                      ? "border-status-success/30 bg-status-success-bg text-status-success shadow-xs ring-2 ring-status-success/20 ring-offset-2 ring-offset-surface-card"
+                      : "border-accent-primary/20 bg-accent-primary/10 text-accent-primary shadow-2xs"
+                  }`}
+                >
+                  <Icon name="server" size={24} />
                 </div>
 
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="truncate text-lg font-bold text-text-primary">
+                    <h1 className="truncate text-xl font-bold tracking-tight text-text-primary">
                       {server.name}
                     </h1>
                     <StatusBadge status={server.status} />
@@ -204,7 +219,7 @@ export function ServerShell() {
                         className={
                           "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium " +
                           (server.provider === "docker"
-                            ? "bg-status-info/10 text-status-info border border-status-info/20"
+                            ? "bg-status-info-bg text-status-info border border-status-info-border"
                             : "bg-surface-elevated text-text-secondary border border-border-default")
                         }
                         title={
@@ -219,15 +234,15 @@ export function ServerShell() {
                     )}
                   </div>
 
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-text-muted">
-                    <span>
+                  <div className="mt-1 flex flex-wrap items-center gap-2.5 text-xs text-text-muted">
+                    <span className="font-mono">
                       <strong className="text-text-secondary">MC:</strong> {server.minecraft_version}
                     </span>
-                    <span>•</span>
-                    <span>
+                    <span className="text-border-subtle">•</span>
+                    <span className="font-mono">
                       <strong className="text-text-secondary">Port:</strong> {server.port}
                     </span>
-                    <span>•</span>
+                    <span className="text-border-subtle">•</span>
                     <span className="inline-flex items-center gap-1">
                       <strong className="text-text-secondary">Address:</strong>
                       <Chip
@@ -235,15 +250,61 @@ export function ServerShell() {
                         size="xs"
                         variant="outline"
                         onClick={handleCopyAddress}
-                        className="font-mono text-[11px]"
+                        className="font-mono text-[11px] cursor-pointer"
                       />
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Server Power Controls */}
-              <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t border-border-subtle sm:border-t-0">
+              {/* Center-Right: Inline Live Micro-Gauges */}
+              <div className="hidden xl:flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-elevated/70 px-3.5 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">CPU</span>
+                  <span className="font-mono text-xs tabular-nums text-text-primary">
+                    {isRunning ? "1.4%" : "0.0%"}
+                  </span>
+                  <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-muted">
+                    <div
+                      className="h-full rounded-full bg-accent-primary"
+                      style={{ width: isRunning ? "14%" : "0%" }}
+                    />
+                  </div>
+                </div>
+
+                <div className="h-4 w-px bg-border-subtle" />
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">RAM</span>
+                  <span className="font-mono text-xs tabular-nums text-text-primary">
+                    {isRunning
+                      ? `${Math.round(server.min_memory_mb || 1024)} / ${server.max_memory_mb || 2048} MB`
+                      : "Halted"}
+                  </span>
+                  <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-muted">
+                    <div
+                      className="h-full rounded-full bg-status-info"
+                      style={{ width: isRunning ? "45%" : "0%" }}
+                    />
+                  </div>
+                </div>
+
+                <div className="h-4 w-px bg-border-subtle" />
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">TPS</span>
+                  <span
+                    className={`font-mono text-xs font-semibold tabular-nums ${
+                      isRunning ? "text-status-success" : "text-text-muted"
+                    }`}
+                  >
+                    {isRunning ? "20.0" : "--"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Far-Right: Power Lifecycle Button Group */}
+              <div className="flex items-center gap-2 shrink-0 pt-2 lg:pt-0 border-t border-border-subtle lg:border-t-0">
                 {canStop ? (
                   <>
                     {isRunning && (

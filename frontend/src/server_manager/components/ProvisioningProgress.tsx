@@ -10,8 +10,8 @@ export function ProvisioningProgress({ serverId, className = "" }: ProvisioningP
 
   if (!progress) {
     return (
-      <span className={`inline-flex h-7 w-7 items-center justify-center text-cyan-500 dark:text-cyan-400 ${className}`} title="Installing">
-        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-cyan-300 border-t-cyan-600 dark:border-cyan-600 dark:border-t-cyan-300" />
+      <span className={`inline-flex h-7 w-7 items-center justify-center text-accent-primary ${className}`} title="Installing">
+        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-border-default border-t-accent-primary" />
       </span>
     );
   }
@@ -46,29 +46,29 @@ export function ProvisioningProgress({ serverId, className = "" }: ProvisioningP
         <span
           className={`h-5 w-5 flex-shrink-0 animate-spin rounded-full border-2 ${
             progress.stage === "failed" || progress.stage === "timeout"
-              ? "border-red-300 border-t-red-600 dark:border-red-600 dark:border-t-red-300"
+              ? "border-status-danger-border border-t-status-danger"
               : progress.stage === "success"
-              ? "border-green-300 border-t-green-600 dark:border-green-600 dark:border-t-green-300"
-              : "border-cyan-300 border-t-cyan-600 dark:border-cyan-600 dark:border-t-cyan-300"
+              ? "border-status-success-border border-t-status-success"
+              : "border-border-default border-t-accent-primary"
           }`}
         />
-        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+        <span className="text-xs font-medium text-text-secondary">
           {stageLabel}
         </span>
       </div>
-      <div className="h-1.5 w-full bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+      <div className="h-1.5 w-full bg-surface-muted rounded-full overflow-hidden">
         <div
           className={`h-full transition-all duration-300 ease-out ${
             progress.stage === "failed" || progress.stage === "timeout"
-              ? "bg-red-500"
+              ? "bg-status-danger"
               : progress.stage === "success"
-              ? "bg-green-500"
-              : "bg-cyan-500"
+              ? "bg-status-success"
+              : "bg-accent-primary"
           }`}
           style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
         />
       </div>
-      <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
+      <p className="text-[10px] text-text-muted truncate">
         {progress.message}
       </p>
     </div>

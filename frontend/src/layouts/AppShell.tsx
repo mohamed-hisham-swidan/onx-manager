@@ -43,7 +43,7 @@ export function AppShell() {
           sidebarOpen ? "lg:pl-56" : "lg:pl-0"
         }`}
       >
-        <div className="mx-auto max-w-7xl p-3.5 sm:p-5 lg:px-6 lg:py-5">
+        <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6">
           <ErrorBoundary>
             <Suspense fallback={<RouteFallback />}>
               <Outlet />

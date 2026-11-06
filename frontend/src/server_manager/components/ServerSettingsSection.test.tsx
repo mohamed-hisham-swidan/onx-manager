@@ -164,4 +164,101 @@ describe("ServerSettingsSection", () => {
     const saveButton = screen.getByRole("button", { name: /save changes/i });
     expect(saveButton).toBeDisabled();
   });
+
+  it("filters sections by category tabs", () => {
+    renderSettings();
+
+    // Verify all 4 are present initially
+    expect(screen.getByText("General & Identity")).toBeInTheDocument();
+    expect(screen.getByText("Resource Allocation (RAM & CPU)")).toBeInTheDocument();
+    expect(screen.getByText("Gameplay & World Properties")).toBeInTheDocument();
+    expect(screen.getByText("Advanced Configuration")).toBeInTheDocument();
+
+    // Click Resources & JVM
+    fireEvent.click(screen.getByRole("tab", { name: /resources & jvm/i }));
+    expect(screen.getByText("Resource Allocation (RAM & CPU)")).toBeInTheDocument();
+    expect(screen.queryByText("General & Identity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Gameplay & World Properties")).not.toBeInTheDocument();
+    expect(screen.queryByText("Advanced Configuration")).not.toBeInTheDocument();
+
+    // Click All Settings
+    fireEvent.click(screen.getByRole("tab", { name: /all settings/i }));
+    expect(screen.getByText("General & Identity")).toBeInTheDocument();
+    expect(screen.getByText("Resource Allocation (RAM & CPU)")).toBeInTheDocument();
+    expect(screen.getByText("Gameplay & World Properties")).toBeInTheDocument();
+    expect(screen.getByText("Advanced Configuration")).toBeInTheDocument();
+
+    // Click Rules & Security (shows switches)
+    fireEvent.click(screen.getByRole("tab", { name: /rules & security/i }));
+    expect(screen.getByRole("switch", { name: "PvP" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Online Mode" })).toBeInTheDocument();
+    expect(screen.queryByText("General & Identity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Resource Allocation (RAM & CPU)")).not.toBeInTheDocument();
+  });
+
+  it("filters settings using quick search bar", () => {
+    renderSettings();
+
+    const searchInput = screen.getByPlaceholderText(/search server settings/i);
+
+    // Search for "whitelist"
+    fireEvent.change(searchInput, { target: { value: "whitelist" } });
+    expect(screen.getByRole("switch", { name: "Whitelist" })).toBeInTheDocument();
+    expect(screen.queryByText("General & Identity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Resource Allocation (RAM & CPU)")).not.toBeInTheDocument();
+
+    // Search for non-existent keyword
+    fireEvent.change(searchInput, { target: { value: "nonexistentkeywordxyz" } });
+    expect(screen.getByText("No settings found")).toBeInTheDocument();
+
+    // Clear search
+    fireEvent.click(screen.getByRole("button", { name: "Clear Search" }));
+    expect(screen.getByText("General & Identity")).toBeInTheDocument();
+    expect(screen.getByText("Resource Allocation (RAM & CPU)")).toBeInTheDocument();
+  });
+
+  it("tracks unsaved changes and reverts them via Reset to Saved button", () => {
+    renderSettings();
+
+    const resetButton = screen.getByRole("button", { name: /reset to saved/i });
+    expect(resetButton).toBeDisabled();
+    expect(screen.queryByText("Unsaved Changes")).not.toBeInTheDocument();
+
+    const nameInput = screen.getByLabelText("Server Name") as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "Modified World Name" } });
+
+    expect(nameInput.value).toBe("Modified World Name");
+    expect(screen.getByText("Unsaved Changes")).toBeInTheDocument();
+    expect(resetButton).not.toBeDisabled();
+
+    // Click reset
+    fireEvent.click(resetButton);
+
+    expect(nameInput.value).toBe("My Survival World");
+    expect(screen.queryByText("Unsaved Changes")).not.toBeInTheDocument();
+    expect(resetButton).toBeDisabled();
+  });
+
+  it("updates RAM allocation and visual ratio bar when presets are clicked", () => {
+    renderSettings();
+
+    const minRamInput = screen.getByLabelText("Minimum Memory (MB)") as HTMLInputElement;
+    const maxRamInput = screen.getByLabelText("Maximum Memory (MB)") as HTMLInputElement;
+
+    // Initially 1024 / 2048
+    expect(minRamInput.value).toBe("1024");
+    expect(maxRamInput.value).toBe("2048");
+    expect(screen.getByText("50% Heap Ratio")).toBeInTheDocument();
+
+    // Click 4 GB preset (2048 / 4096)
+    fireEvent.click(screen.getByRole("button", { name: "4 GB" }));
+    expect(minRamInput.value).toBe("2048");
+    expect(maxRamInput.value).toBe("4096");
+    expect(screen.getByText("50% Heap Ratio")).toBeInTheDocument();
+
+    // Click 1 GB preset (512 / 1024)
+    fireEvent.click(screen.getByRole("button", { name: "1 GB" }));
+    expect(minRamInput.value).toBe("512");
+    expect(maxRamInput.value).toBe("1024");
+  });
 });

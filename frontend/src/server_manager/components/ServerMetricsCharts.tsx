@@ -36,20 +36,20 @@ export function ServerMetricsCharts({ serverId }: ServerMetricsChartsProps) {
   const metricsChannelDegraded = useIsChannelDegraded(`metrics:${serverId}`);
   const staleNote =
     connectionState === "reconnecting"
-      ? { text: "Metrics not live — reconnecting...", color: "text-amber-700 dark:text-amber-400" }
+      ? { text: "Metrics not live — reconnecting...", color: "text-status-warning" }
       : connectionState === "connecting"
-        ? { text: "Connecting to live metrics…", color: "text-gray-500 dark:text-gray-400" }
+        ? { text: "Connecting to live metrics…", color: "text-text-muted" }
         : connectionState === "disconnected"
-          ? { text: "Metrics not live — showing last known", color: "text-red-600 dark:text-red-400" }
+          ? { text: "Metrics not live — showing last known", color: "text-status-danger" }
           : metricsChannelDegraded
-            ? { text: "Metrics not live — subscription rejected", color: "text-amber-700 dark:text-amber-400" }
+            ? { text: "Metrics not live — subscription rejected", color: "text-status-warning" }
             : null;
 
   const metricCards = [
-    { label: "TPS", value: current?.tps != null ? current.tps.toFixed(1) : "—", data: tpsData, color: "#22c55e", fillColor: "rgba(34, 197, 94, 0.1)" },
-    { label: "Players", value: current?.players ?? "—", data: playersData, color: "#3b82f6", fillColor: "rgba(59, 130, 246, 0.1)" },
-    { label: "RAM", value: current ? `${(current.ram_used_mb / 1024).toFixed(1)} GB` : "—", data: ramData, color: "#eab308", fillColor: "rgba(234, 179, 8, 0.1)" },
-    { label: "CPU", value: current ? `${current.cpu_percent.toFixed(1)}%` : "—", data: cpuData, color: "#ef4444", fillColor: "rgba(239, 68, 68, 0.1)" },
+    { label: "TPS", value: current?.tps != null ? current.tps.toFixed(1) : "—", data: tpsData, color: "var(--status-success)", fillColor: "var(--status-success-bg)" },
+    { label: "Players", value: current?.players ?? "—", data: playersData, color: "var(--accent-primary)", fillColor: "var(--status-info-bg)" },
+    { label: "RAM", value: current ? `${(current.ram_used_mb / 1024).toFixed(1)} GB` : "—", data: ramData, color: "var(--status-warning)", fillColor: "var(--status-warning-bg)" },
+    { label: "CPU", value: current ? `${current.cpu_percent.toFixed(1)}%` : "—", data: cpuData, color: "var(--status-danger)", fillColor: "var(--status-danger-bg)" },
   ];
 
   return (
@@ -61,9 +61,9 @@ export function ServerMetricsCharts({ serverId }: ServerMetricsChartsProps) {
       )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {metricCards.map((card) => (
-          <div key={card.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{card.label}</p>
-            <p className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">{card.value}</p>
+          <div key={card.label} className="bg-surface-card rounded-xl border border-border-default p-3">
+            <p className="text-xs text-text-muted mb-1">{card.label}</p>
+            <p className="text-lg font-bold text-text-primary mb-2">{card.value}</p>
             <Sparkline data={card.data} color={card.color} fillColor={card.fillColor} />
           </div>
         ))}

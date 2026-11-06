@@ -30,11 +30,11 @@ export function AccessSection() {
 
   if (userError || !currentUser || !isOwner) {
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-900/20 p-6 text-center space-y-2">
-        <h3 className="text-base font-semibold text-red-600 dark:text-red-400">
+      <div className="rounded-xl border border-status-danger-border bg-status-danger-bg p-6 text-center space-y-2">
+        <h3 className="text-base font-semibold text-status-danger">
           Access Denied
         </h3>
-        <p className="text-xs text-red-700 dark:text-red-300">
+        <p className="text-xs text-status-danger opacity-90">
           Only the instance Owner can view or modify Access Mode settings.
         </p>
       </div>

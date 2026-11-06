@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const THEME_KEY = "onx_theme";
 const SKIN_KEY = "onx_skin";
 const DENSITY_KEY = "onx_density";
+const ACCENT_KEY = "onx_accent";
 
 describe("uiStore", () => {
   beforeEach(() => {
@@ -11,6 +12,7 @@ describe("uiStore", () => {
     document.documentElement.removeAttribute("data-mode");
     document.documentElement.removeAttribute("data-skin");
     document.documentElement.removeAttribute("data-density");
+    document.documentElement.removeAttribute("data-accent");
     vi.resetModules();
   });
 
@@ -70,12 +72,15 @@ describe("uiStore", () => {
     expect(document.documentElement.getAttribute("data-skin")).toBe("graphite");
   });
 
-  it("setSkin updates skin and sets data-skin attribute", async () => {
+  it("setSkin updates skin and sets data-skin attribute for all supported skins", async () => {
     const { useUIStore } = await import("./uiStore");
-    useUIStore.getState().setSkin("azure");
-    expect(useUIStore.getState().skin).toBe("azure");
-    expect(localStorage.getItem(SKIN_KEY)).toBe("azure");
-    expect(document.documentElement.getAttribute("data-skin")).toBe("azure");
+    const skins = ["azure", "emerald", "amethyst", "amber", "crimson", "graphite"] as const;
+    for (const s of skins) {
+      useUIStore.getState().setSkin(s);
+      expect(useUIStore.getState().skin).toBe(s);
+      expect(localStorage.getItem(SKIN_KEY)).toBe(s);
+      expect(document.documentElement.getAttribute("data-skin")).toBe(s);
+    }
   });
 
   it("defaults to comfortable density and sets data-density attribute", async () => {
@@ -95,6 +100,23 @@ describe("uiStore", () => {
     expect(useUIStore.getState().density).toBe("comfortable");
     expect(localStorage.getItem(DENSITY_KEY)).toBe("comfortable");
     expect(document.documentElement.getAttribute("data-density")).toBe("comfortable");
+  });
+
+  it("defaults to theme accent and sets data-accent attribute", async () => {
+    const { useUIStore } = await import("./uiStore");
+    expect(useUIStore.getState().accent).toBe("theme");
+    expect(document.documentElement.getAttribute("data-accent")).toBe("theme");
+  });
+
+  it("setAccent updates accent, sets data-accent attribute, and persists", async () => {
+    const { useUIStore } = await import("./uiStore");
+    const accents = ["blue", "emerald", "violet", "amber", "rose", "cyan", "theme"] as const;
+    for (const a of accents) {
+      useUIStore.getState().setAccent(a);
+      expect(useUIStore.getState().accent).toBe(a);
+      expect(localStorage.getItem(ACCENT_KEY)).toBe(a);
+      expect(document.documentElement.getAttribute("data-accent")).toBe(a);
+    }
   });
 
   it("sidebar defaults to open", async () => {
@@ -133,6 +155,7 @@ describe("uiStore", () => {
 
     expect(() => useUIStore.getState().setSkin("azure")).not.toThrow();
     expect(() => useUIStore.getState().setDensity("compact")).not.toThrow();
+    expect(() => useUIStore.getState().setAccent("emerald")).not.toThrow();
 
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();

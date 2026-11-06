@@ -56,7 +56,7 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 space-y-2"
+            className="rounded-xl border border-border-default bg-surface-card p-4 space-y-2"
           >
             <div className="flex items-center justify-between">
               <Skeleton className="h-5 w-32" />
@@ -83,10 +83,10 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
   if (totalVersions === 0) {
     return (
       <div
-        className="rounded-xl border border-gray-200 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-800"
+        className="rounded-xl border border-border-default bg-surface-card p-8 text-center"
         data-testid="no-versions-state"
       >
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-text-muted">
           No versions available for this project.
         </p>
       </div>
@@ -106,25 +106,25 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
               data-testid={`version-card-${v.version_id}`}
               className={`rounded-xl border p-4 transition-colors ${
                 isRecommended
-                  ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20"
-                  : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
+                  ? "border-accent-primary bg-accent-primary/10"
+                  : "border-border-default bg-surface-card"
               }`}
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-base font-bold text-gray-900 dark:text-gray-100">
+                    <span className="text-base font-bold text-text-primary">
                       {v.version_number}
                     </span>
                     {v.name && v.name !== v.version_number && (
-                      <span className="truncate text-xs text-gray-500 dark:text-gray-400">
+                      <span className="truncate text-xs text-text-muted">
                         ({v.name})
                       </span>
                     )}
                     {isRecommended && (
                       <span
                         data-testid="recommended-badge"
-                        className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                        className="inline-flex items-center gap-1 rounded-full bg-accent-primary/10 px-2.5 py-0.5 text-xs font-semibold text-accent-primary"
                       >
                         <Icon name="check" size={12} />
                         Recommended
@@ -139,7 +139,7 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
                       return (
                         <span
                           key={loader}
-                          className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                          className="inline-flex items-center gap-1 rounded-md bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary"
                         >
                           <Icon name={display.icon} size={11} className="shrink-0" />
                           {display.label}
@@ -151,14 +151,14 @@ export function ProjectVersionsList({ projectId }: ProjectVersionsListProps) {
                     {v.game_versions.map((gv) => (
                       <span
                         key={gv}
-                        className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700/60 dark:text-gray-300"
+                        className="rounded-md bg-surface-muted px-2 py-0.5 text-xs font-medium text-text-secondary"
                       >
                         {gv}
                       </span>
                     ))}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
                     {primary && (
                       <span className="inline-flex items-center gap-1">
                         <Icon name="file" size={12} />

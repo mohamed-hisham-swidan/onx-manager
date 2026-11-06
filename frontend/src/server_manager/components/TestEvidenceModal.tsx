@@ -84,9 +84,9 @@ export function TestEvidenceModal({
       description={
         effectiveTestId ? (
           <span>
-            Run ID: <span className="font-mono text-gray-300">{effectiveTestId.slice(0, 8)}</span>
+            Run ID: <span className="font-mono text-text-secondary">{effectiveTestId.slice(0, 8)}</span>
             {testRun?.commit_id ? (
-              <> • Target Commit: <span className="font-mono text-gray-300">{testRun.commit_id.slice(0, 8)}</span></>
+              <> • Target Commit: <span className="font-mono text-text-secondary">{testRun.commit_id.slice(0, 8)}</span></>
             ) : null}
           </span>
         ) : undefined
@@ -95,51 +95,51 @@ export function TestEvidenceModal({
       closeOnBackdrop={true}
       closeOnEscape={true}
     >
-      <div className="flex flex-col space-y-4 text-gray-100 max-h-[75vh]">
+      <div className="flex flex-col space-y-4 text-text-primary max-h-[75vh]">
         {error && (
-          <div className="rounded-lg bg-rose-950/40 border border-rose-900 p-3 text-xs text-rose-300">
+          <div role="alert" className="rounded-lg bg-status-danger-bg border border-status-danger-border p-3 text-xs text-status-danger">
             {error}
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto space-y-4 pr-1">
           {isLoading ? (
-            <div className="py-12 text-center text-xs text-gray-400">
+            <div className="py-12 text-center text-xs text-text-muted">
               Fetching diagnostic evidence bundle...
             </div>
           ) : !evidence ? (
-            <div className="py-12 text-center text-xs text-gray-400">
+            <div className="py-12 text-center text-xs text-text-muted">
               No diagnostic evidence bundle recorded for this run.
             </div>
           ) : (
             <div className="space-y-4">
               {/* Summary Cards */}
               <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
-                  <span className="text-[10px] uppercase font-semibold text-gray-400 block">
+                <div className="rounded-lg border border-border-default bg-surface-card p-3">
+                  <span className="text-[10px] uppercase font-semibold text-text-muted block">
                     Outcome
                   </span>
-                  <span className="text-sm font-bold text-rose-400 font-mono">
+                  <span className="text-sm font-bold text-status-danger font-mono">
                     {testRun?.status || (evidence.assertions?.boot_passed ? "PASSED" : "FAILED")}
                   </span>
                 </div>
-                <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
-                  <span className="text-[10px] uppercase font-semibold text-gray-400 block">
+                <div className="rounded-lg border border-border-default bg-surface-card p-3">
+                  <span className="text-[10px] uppercase font-semibold text-text-muted block">
                     Container Exit Code
                   </span>
-                  <span className="text-sm font-bold text-gray-200 font-mono">
+                  <span className="text-sm font-bold text-text-primary font-mono">
                     {evidence.runtime?.exit_code !== undefined
                       ? String(evidence.runtime.exit_code)
                       : "N/A"}
                   </span>
                 </div>
-                <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
-                  <span className="text-[10px] uppercase font-semibold text-gray-400 block">
+                <div className="rounded-lg border border-border-default bg-surface-card p-3">
+                  <span className="text-[10px] uppercase font-semibold text-text-muted block">
                     Boot Passed
                   </span>
                   <span
                     className={`text-sm font-bold ${
-                      evidence.assertions?.boot_passed ? "text-emerald-400" : "text-rose-400"
+                      evidence.assertions?.boot_passed ? "text-status-success" : "text-status-danger"
                     }`}
                   >
                     {evidence.assertions?.boot_passed ? "YES" : "NO"}
@@ -148,13 +148,13 @@ export function TestEvidenceModal({
               </div>
 
               {/* Artifact Retention Notice */}
-              <div className="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-800 bg-gray-950/40 text-xs">
-                <span className="text-gray-400">
+              <div className="flex items-center justify-between px-3 py-2 rounded-lg border border-border-default bg-surface-card text-xs">
+                <span className="text-text-muted">
                   Artifact Retention Window (24h debug):
                 </span>
                 <span
                   className={`font-semibold ${
-                    testRun?.artifacts_purged ? "text-amber-400" : "text-emerald-400"
+                    testRun?.artifacts_purged ? "text-status-warning" : "text-status-success"
                   }`}
                 >
                   {testRun?.artifacts_purged ? "Pruned (Lazy Reaped)" : "Retained on Disk"}
@@ -163,15 +163,15 @@ export function TestEvidenceModal({
 
               {/* Culprit Mod Blaming */}
               {culpritMods.length > 0 && (
-                <div className="rounded-lg border border-rose-900/60 bg-rose-950/30 p-3 space-y-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-rose-300 block">
+                <div role="alert" className="rounded-lg border border-status-danger-border bg-status-danger-bg p-3 space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-status-danger block">
                     Suspected Culprit Mods
                   </span>
                   <div className="flex flex-wrap gap-2">
                     {culpritMods.map((modName) => (
                       <span
                         key={modName}
-                        className="inline-flex items-center gap-1 rounded-md bg-rose-900/80 border border-rose-700 px-2 py-1 text-xs font-mono font-bold text-rose-200"
+                        className="inline-flex items-center gap-1 rounded-md bg-surface-card border border-status-danger-border px-2 py-1 text-xs font-mono font-bold text-status-danger"
                       >
                         <Icon name="alert" size={12} />
                         {modName}
@@ -183,11 +183,11 @@ export function TestEvidenceModal({
 
               {/* Failure Reason */}
               {Boolean(testRun?.failure_reason || evidence.crash_analysis?.root_cause || evidence.crash_analysis?.failure_reason) && (
-                <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3 space-y-1">
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
+                <div className="rounded-lg border border-border-default bg-surface-card p-3 space-y-1">
+                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
                     Failure Reason
                   </span>
-                  <p className="text-xs text-rose-300 font-mono">
+                  <p className="text-xs text-status-danger font-mono">
                     {String(testRun?.failure_reason || evidence.crash_analysis?.root_cause || evidence.crash_analysis?.failure_reason)}
                   </p>
                 </div>
@@ -195,11 +195,14 @@ export function TestEvidenceModal({
 
               {/* Stack Trace / Crash Analysis */}
               {evidence.crash_analysis && typeof evidence.crash_analysis === "object" && (
-                <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3 space-y-2">
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
+                <div className="rounded-lg border border-border-default bg-surface-card p-3 space-y-2">
+                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
                     Crash Analysis Details
                   </span>
-                  <pre className="text-[11px] font-mono text-gray-300 bg-black/60 p-2.5 rounded border border-gray-850 overflow-x-auto max-h-48 whitespace-pre-wrap">
+                  <pre
+                    tabIndex={0}
+                    className="text-[11px] font-mono text-terminal-text bg-terminal-bg p-2.5 rounded border border-border-default overflow-x-auto max-h-48 whitespace-pre-wrap focus:outline-none focus:ring-1 focus:ring-border-focus"
+                  >
                     {typeof evidence.crash_analysis.stack_trace === "string"
                       ? evidence.crash_analysis.stack_trace
                       : typeof evidence.crash_analysis.root_cause === "string"
@@ -211,11 +214,14 @@ export function TestEvidenceModal({
 
               {/* Log Tail Snippet */}
               {evidence.log_tail && evidence.log_tail.length > 0 && (
-                <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3 space-y-2">
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
+                <div className="rounded-lg border border-border-default bg-surface-card p-3 space-y-2">
+                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
                     Log Tail at Failure
                   </span>
-                  <pre className="text-[11px] font-mono text-gray-300 bg-black/60 p-2.5 rounded border border-gray-850 overflow-x-auto max-h-40">
+                  <pre
+                    tabIndex={0}
+                    className="text-[11px] font-mono text-terminal-text bg-terminal-bg p-2.5 rounded border border-border-default overflow-x-auto max-h-40 focus:outline-none focus:ring-1 focus:ring-border-focus"
+                  >
                     {evidence.log_tail.join("\n")}
                   </pre>
                 </div>
@@ -225,12 +231,12 @@ export function TestEvidenceModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex justify-between items-center pt-2 border-t border-gray-800">
+        <div className="flex justify-between items-center pt-2 border-t border-border-default">
           <button
             type="button"
             onClick={handleCopyEvidence}
             disabled={!evidence}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-gray-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-muted px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
           >
             <Icon name="copy" size={14} />
             Copy Diagnostic JSON
@@ -238,7 +244,7 @@ export function TestEvidenceModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
+            className="rounded-lg bg-accent-primary hover:bg-accent-hover px-4 py-1.5 text-xs font-semibold text-accent-contrast-text transition-colors"
           >
             Close
           </button>

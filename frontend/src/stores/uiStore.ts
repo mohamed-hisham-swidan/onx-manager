@@ -3,13 +3,19 @@ import {
   THEME_KEY,
   SKIN_KEY,
   DENSITY_KEY,
+  ACCENT_KEY,
+  DEFAULT_THEME,
+  DEFAULT_SKIN,
+  DEFAULT_DENSITY,
+  DEFAULT_ACCENT,
   type Theme,
   type Skin,
   type Density,
+  type AccentColor,
 } from "@/tokens/storageKeys";
 
-export { THEME_KEY, SKIN_KEY, DENSITY_KEY };
-export type { Theme, Skin, Density };
+export { THEME_KEY, SKIN_KEY, DENSITY_KEY, ACCENT_KEY, DEFAULT_THEME, DEFAULT_SKIN, DEFAULT_DENSITY, DEFAULT_ACCENT };
+export type { Theme, Skin, Density, AccentColor };
 
 function loadTheme(): Theme {
   try {
@@ -23,7 +29,16 @@ function loadTheme(): Theme {
 function loadSkin(): Skin {
   try {
     const raw = localStorage.getItem(SKIN_KEY);
-    if (raw === "graphite" || raw === "azure") return raw;
+    if (
+      raw === "graphite" ||
+      raw === "azure" ||
+      raw === "emerald" ||
+      raw === "amethyst" ||
+      raw === "amber" ||
+      raw === "crimson"
+    ) {
+      return raw;
+    }
   } catch { /* ignore */ }
   return "graphite";
 }
@@ -34,6 +49,24 @@ function loadDensity(): Density {
     if (raw === "comfortable" || raw === "compact") return raw;
   } catch { /* ignore */ }
   return "comfortable";
+}
+
+function loadAccent(): AccentColor {
+  try {
+    const raw = localStorage.getItem(ACCENT_KEY);
+    if (
+      raw === "theme" ||
+      raw === "blue" ||
+      raw === "emerald" ||
+      raw === "violet" ||
+      raw === "amber" ||
+      raw === "rose" ||
+      raw === "cyan"
+    ) {
+      return raw;
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_ACCENT;
 }
 
 export function applyTheme(theme: Theme) {
@@ -55,6 +88,12 @@ export function applyDensity(density: Density) {
   }
 }
 
+export function applyAccent(accent: AccentColor) {
+  if (typeof document !== "undefined") {
+    document.documentElement.setAttribute("data-accent", accent);
+  }
+}
+
 function saveStorage(key: string, val: string) {
   try {
     localStorage.setItem(key, val);
@@ -67,6 +106,7 @@ export interface UIState {
   theme: Theme;
   skin: Skin;
   density: Density;
+  accent: AccentColor;
   sidebarOpen: boolean;
   mobileSidebarOpen: boolean;
   setTheme: (theme: Theme) => void;
@@ -74,6 +114,7 @@ export interface UIState {
   setSkin: (skin: Skin) => void;
   setDensity: (density: Density) => void;
   toggleDensity: () => void;
+  setAccent: (accent: AccentColor) => void;
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
@@ -84,15 +125,18 @@ export const useUIStore = create<UIState>((set) => {
   const initialTheme = loadTheme();
   const initialSkin = loadSkin();
   const initialDensity = loadDensity();
+  const initialAccent = loadAccent();
 
   applyTheme(initialTheme);
   applySkin(initialSkin);
   applyDensity(initialDensity);
+  applyAccent(initialAccent);
 
   return {
     theme: initialTheme,
     skin: initialSkin,
     density: initialDensity,
+    accent: initialAccent,
     sidebarOpen: true,
     mobileSidebarOpen: false,
 
@@ -129,6 +173,12 @@ export const useUIStore = create<UIState>((set) => {
         applyDensity(next);
         return { density: next };
       }),
+
+    setAccent: (accent) => {
+      saveStorage(ACCENT_KEY, accent);
+      applyAccent(accent);
+      set({ accent });
+    },
 
     setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
 

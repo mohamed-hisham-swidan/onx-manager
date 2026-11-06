@@ -24,11 +24,11 @@ const markdownComponents: Components = {
       {...props}
       alt={alt ?? ""}
       loading="lazy"
-      className="my-4 max-w-full rounded-lg border border-gray-200 dark:border-gray-700"
+      className="my-4 max-w-full rounded-lg border border-border-default"
     />
   ),
   table: ({ node: _node, children, ...props }) => (
-    <div className="my-4 w-full overflow-x-auto rounded-lg border border-gray-300 dark:border-gray-600">
+    <div className="my-4 w-full overflow-x-auto rounded-lg border border-border-default">
       <table
         {...props}
         className="w-full border-collapse text-sm"
@@ -40,22 +40,22 @@ const markdownComponents: Components = {
   thead: ({ node: _node, ...props }) => (
     <thead
       {...props}
-      className="bg-slate-100 text-left dark:bg-slate-800"
+      className="bg-surface-muted text-left"
     />
   ),
   th: ({ node: _node, ...props }) => (
     <th
       {...props}
-      className="border-b-2 border-gray-300 px-3.5 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 dark:border-gray-600 dark:text-slate-300"
+      className="border-b-2 border-border-default px-3.5 py-3 text-xs font-bold uppercase tracking-wide text-text-secondary"
     />
   ),
   tr: ({ node: _node, ...props }) => (
-    <tr {...props} className="border-b border-gray-200 last:border-b-0 dark:border-gray-700" />
+    <tr {...props} className="border-b border-border-subtle last:border-b-0" />
   ),
   td: ({ node: _node, ...props }) => (
     <td
       {...props}
-      className="px-3.5 py-2.5 align-top text-gray-800 dark:text-gray-200"
+      className="px-3.5 py-2.5 align-top text-text-primary"
     />
   ),
 };
@@ -69,8 +69,8 @@ function fmtDownloads(n: number): string {
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2.5">
-      <dt className="shrink-0 text-sm text-gray-500 dark:text-gray-400">{label}</dt>
-      <dd className="text-right text-sm font-medium text-gray-900 dark:text-gray-100">{children}</dd>
+      <dt className="shrink-0 text-sm text-text-muted">{label}</dt>
+      <dd className="text-right text-sm font-medium text-text-primary">{children}</dd>
     </div>
   );
 }
@@ -78,10 +78,10 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="p-5 sm:p-6">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-muted">
         {title}
       </h3>
-      <dl className="divide-y divide-gray-100 dark:divide-gray-700/50">{children}</dl>
+      <dl className="divide-y divide-border-subtle">{children}</dl>
     </section>
   );
 }
@@ -93,14 +93,14 @@ interface DetailTabsProps {
 
 function DetailTabs({ activeTab, onTabChange }: DetailTabsProps) {
   return (
-    <div className="flex border-b border-gray-200 dark:border-gray-700" data-testid="detail-tabs">
+    <div className="flex border-b border-border-subtle" data-testid="detail-tabs">
       <button
         type="button"
         onClick={() => onTabChange("description")}
         className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
           activeTab === "description"
-            ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-            : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            ? "border-accent-primary text-accent-primary"
+            : "border-transparent text-text-muted hover:text-text-primary"
         }`}
       >
         Description
@@ -110,10 +110,10 @@ function DetailTabs({ activeTab, onTabChange }: DetailTabsProps) {
         disabled
         aria-disabled="true"
         title="Coming soon"
-        className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px border-transparent text-gray-300 dark:text-gray-600 cursor-not-allowed inline-flex items-center gap-1.5"
+        className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px border-transparent text-text-muted/50 cursor-not-allowed inline-flex items-center gap-1.5"
       >
         Changelog
-        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-400 dark:bg-gray-800 dark:text-gray-500">
+        <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
           Soon
         </span>
       </button>
@@ -126,8 +126,8 @@ function DetailTabs({ activeTab, onTabChange }: DetailTabsProps) {
         onClick={() => onTabChange("versions")}
         className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
           activeTab === "versions"
-            ? "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-            : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            ? "border-accent-primary text-accent-primary"
+            : "border-transparent text-text-muted hover:text-text-primary"
         }`}
       >
         Versions
@@ -195,7 +195,7 @@ export function PluginDetailPage() {
       <div>
         <Link
           to={backUrl}
-          className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 transition-colors hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+          className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-text-muted transition-colors hover:text-text-primary"
         >
           <Icon name="chevron-left" size={16} />
           Back to Marketplace
@@ -209,7 +209,7 @@ export function PluginDetailPage() {
             <button
               type="button"
               onClick={() => setSource("modrinth")}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover"
             >
               <Icon name="modrinth" size={16} />
               Switch to Modrinth
@@ -222,7 +222,7 @@ export function PluginDetailPage() {
 
   if (!projectId) {
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-400">
+      <div className="rounded-xl border border-status-danger-border bg-status-danger-bg p-6 text-sm text-status-danger">
         No project ID specified.
       </div>
     );
@@ -235,14 +235,14 @@ export function PluginDetailPage() {
         <Skeleton className="h-4 w-96" />
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-4">
-            <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800 space-y-3">
+            <div className="rounded-xl border border-border-subtle bg-surface-card p-6 space-y-3">
               <Skeleton className="h-6 w-3/4" />
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-1/2" />
             </div>
           </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800 space-y-3">
+          <div className="rounded-xl border border-border-subtle bg-surface-card p-6 space-y-3">
             <Skeleton className="h-4 w-24 mb-2" />
             <Skeleton className="h-6 w-32" />
             <Skeleton className="h-6 w-32" />
@@ -257,7 +257,7 @@ export function PluginDetailPage() {
       <div>
         <Link
           to={backUrl}
-          className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 transition-colors hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+          className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-text-muted transition-colors hover:text-text-primary"
         >
           <Icon name="chevron-left" size={16} />
           Back to Marketplace
@@ -269,14 +269,14 @@ export function PluginDetailPage() {
 
   if (!project) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6 text-center dark:border-gray-700 dark:bg-gray-800">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Project not found</h2>
-        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+      <div className="rounded-xl border border-border-subtle bg-surface-card p-6 text-center">
+        <h2 className="text-lg font-semibold text-text-primary">Project not found</h2>
+        <p className="mt-2 text-sm text-text-muted">
           This project does not exist or could not be loaded from Modrinth.
         </p>
         <Link
           to={backUrl}
-          className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+          className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover"
         >
           <Icon name="chevron-left" size={16} />
           Back to Marketplace
@@ -292,7 +292,7 @@ export function PluginDetailPage() {
     <div>
       <Link
         to={backUrl}
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 transition-colors hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-text-muted transition-colors hover:text-text-primary"
       >
         <Icon name="chevron-left" size={16} />
         Back to Marketplace
@@ -304,29 +304,29 @@ export function PluginDetailPage() {
             <img
               src={project.icon_url}
               alt=""
-              className="h-14 w-14 shrink-0 rounded-xl object-cover border border-gray-200 dark:border-gray-700"
+              className="h-14 w-14 shrink-0 rounded-xl object-cover border border-border-subtle"
             />
           ) : (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-status-info-bg text-status-info">
               <Icon name="plugin" size={28} />
             </div>
           )}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-2xl font-bold text-gray-900 dark:text-gray-100">
+              <h2 className="truncate text-2xl font-bold text-text-primary">
                 {project.title}
               </h2>
               {project.project_types.map((type) => (
                 <span
                   key={type}
-                  className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold capitalize text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  className="rounded-full border border-status-info-border bg-status-info-bg px-2.5 py-0.5 text-xs font-semibold capitalize text-status-info"
                 >
                   {type}
                 </span>
               ))}
             </div>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              By <span className="font-medium text-gray-700 dark:text-gray-300">{project.author}</span>
+            <p className="mt-1 text-sm text-text-muted">
+              By <span className="font-medium text-text-primary">{project.author}</span>
             </p>
           </div>
         </div>
@@ -337,7 +337,7 @@ export function PluginDetailPage() {
               href={project.wiki_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
             >
               Wiki
             </a>
@@ -347,7 +347,7 @@ export function PluginDetailPage() {
               href={project.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
             >
               Source Code
             </a>
@@ -356,7 +356,7 @@ export function PluginDetailPage() {
             href={modrinthUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover"
           >
             <Icon name="modrinth" size={14} />
             Modrinth
@@ -364,7 +364,7 @@ export function PluginDetailPage() {
           <button
             type="button"
             onClick={handleInstall}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover"
           >
             <Icon name="plus" size={16} />
             Install
@@ -377,15 +377,15 @@ export function PluginDetailPage() {
           <DetailTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
           {activeTab === "description" && (
-            <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800" data-testid="about-section">
-              <h3 className="mb-3 text-lg font-semibold text-gray-900 dark:text-gray-100">About</h3>
+            <div className="rounded-xl border border-border-subtle bg-surface-card p-6" data-testid="about-section">
+              <h3 className="mb-3 text-lg font-semibold text-text-primary">About</h3>
               {project.description && (
-                <p className="mb-4 text-sm font-medium text-gray-700 dark:text-gray-300">
+                <p className="mb-4 text-sm font-medium text-text-secondary">
                   {project.description}
                 </p>
               )}
               {project.body ? (
-                <div className="border-t border-gray-100 pt-4 dark:border-gray-700/50">
+                <div className="border-t border-border-subtle pt-4">
                   {/* react-markdown v10 no longer accepts a className prop; the
                       prose styles live on the wrapping div. */}
                   <div className="prose prose-sm max-w-none dark:prose-invert">
@@ -406,7 +406,7 @@ export function PluginDetailPage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                <p className="text-sm text-text-muted italic">
                   No additional description provided.
                 </p>
               )}
@@ -427,7 +427,7 @@ export function PluginDetailPage() {
             buildPlatformHref={buildPlatformHref}
           />
 
-          <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+          <div className="rounded-xl border border-border-subtle bg-surface-card">
             <DetailSection title="Information">
               <DetailRow label="Author">{project.author}</DetailRow>
               <DetailRow label="Downloads">{fmtDownloads(project.downloads)}</DetailRow>
@@ -443,7 +443,7 @@ export function PluginDetailPage() {
                       return (
                         <span
                           key={loader}
-                          className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                          className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-secondary"
                         >
                           <Icon name={info.icon} size={11} />
                           {info.label}

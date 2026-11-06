@@ -27,7 +27,7 @@ function LoaderBadge({ loader }: { loader?: string | null }) {
   const norm = loader?.toLowerCase() || "";
   if (norm.includes("fabric")) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/50 px-2 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-300">
+      <span className="inline-flex items-center gap-1 rounded-md border border-status-info-border bg-status-info-bg px-2 py-0.5 text-xs font-medium text-status-info">
         <Icon name="fabric" size={12} />
         Fabric
       </span>
@@ -35,7 +35,7 @@ function LoaderBadge({ loader }: { loader?: string | null }) {
   }
   if (norm.includes("neoforge")) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/50 px-2 py-0.5 text-xs font-medium text-orange-700 dark:text-orange-300">
+      <span className="inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-xs font-medium text-status-warning">
         <Icon name="neoforge" size={12} />
         NeoForge
       </span>
@@ -43,7 +43,7 @@ function LoaderBadge({ loader }: { loader?: string | null }) {
   }
   if (norm.includes("forge")) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+      <span className="inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-xs font-medium text-status-warning">
         <Icon name="forge" size={12} />
         Forge
       </span>
@@ -51,7 +51,7 @@ function LoaderBadge({ loader }: { loader?: string | null }) {
   }
   if (norm.includes("quilt")) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/50 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300">
+      <span className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-muted px-2 py-0.5 text-xs font-medium text-text-secondary">
         <Icon name="quilt" size={12} />
         Quilt
       </span>
@@ -105,7 +105,7 @@ function ModStatusToggle({
         <span className="sr-only">{isEnabled ? "Enabled" : "Disabled"}</span>
         <span
           aria-hidden="true"
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-accent-contrast-text shadow-xs ring-0 transition duration-200 ease-in-out ${
             isEnabled ? "translate-x-5" : "translate-x-0"
           }`}
         />
@@ -333,7 +333,7 @@ export function ServerModsPage() {
             <button
               type="button"
               onClick={handleBrowseMarketplace}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
             >
               <Icon name="plus" size={16} />
               Browse Marketplace
@@ -555,7 +555,7 @@ export function ServerModsPage() {
                   <button
                     type="button"
                     onClick={handleBrowseMarketplace}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover cursor-pointer shadow-xs"
                   >
                     <Icon name="plus" size={16} />
                     Browse Marketplace

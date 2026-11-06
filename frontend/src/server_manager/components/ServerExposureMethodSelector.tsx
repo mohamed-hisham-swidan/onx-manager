@@ -151,11 +151,11 @@ export function ServerExposureMethodSelector({
       {/* 4 Method Cards Grid */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
             Network Exposure Method
           </span>
           {isReadOnly && (
-            <span className="text-[11px] text-gray-400 dark:text-gray-500 italic">
+            <span className="text-[11px] text-text-muted italic">
               View-only mode
             </span>
           )}
@@ -169,17 +169,17 @@ export function ServerExposureMethodSelector({
             onClick={() => handleCardClick("none")}
             className={`p-4 rounded-xl border text-left transition-all ${
               draftMethod === "none"
-                ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20 shadow-sm"
-                : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800"
+                ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                : "border-border-default hover:border-border-strong bg-surface-card"
             } ${isReadOnly ? "cursor-default opacity-90" : ""}`}
           >
             <div className="flex items-center justify-between mb-1.5">
-              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Not Exposed</h4>
+              <h4 className="text-sm font-semibold text-text-primary">Not Exposed</h4>
               {draftMethod === "none" && (
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Selected</span>
+                <span className="text-xs font-medium text-accent-primary">Selected</span>
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p className="text-xs text-text-muted leading-relaxed">
               Disabled. Reachable only via local LAN or private VPN.
             </p>
           </button>
@@ -191,22 +191,22 @@ export function ServerExposureMethodSelector({
             onClick={() => handleCardClick("playit")}
             className={`p-4 rounded-xl border text-left transition-all ${
               draftMethod === "playit"
-                ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20 shadow-sm"
-                : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800"
+                ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                : "border-border-default hover:border-border-strong bg-surface-card"
             } ${isReadOnly ? "cursor-default opacity-90" : ""}`}
           >
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
-                <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">playit.gg</h4>
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">
+                <h4 className="text-sm font-semibold text-text-primary">playit.gg</h4>
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-accent-primary/10 text-accent-primary">
                   Recommended
                 </span>
               </div>
               {draftMethod === "playit" && (
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Selected</span>
+                <span className="text-xs font-medium text-accent-primary">Selected</span>
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p className="text-xs text-text-muted leading-relaxed">
               Public edge tunnel via shared agent. Supports Java (TCP) & Bedrock/Voice (UDP). Works behind CGNAT.
             </p>
           </button>
@@ -218,17 +218,17 @@ export function ServerExposureMethodSelector({
             onClick={() => handleCardClick("port_forward")}
             className={`p-4 rounded-xl border text-left transition-all ${
               draftMethod === "port_forward"
-                ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20 shadow-sm"
-                : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800"
+                ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                : "border-border-default hover:border-border-strong bg-surface-card"
             } ${isReadOnly ? "cursor-default opacity-90" : ""}`}
           >
             <div className="flex items-center justify-between mb-1.5">
-              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Port Forward</h4>
+              <h4 className="text-sm font-semibold text-text-primary">Port Forward</h4>
               {draftMethod === "port_forward" && (
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Selected</span>
+                <span className="text-xs font-medium text-accent-primary">Selected</span>
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p className="text-xs text-text-muted leading-relaxed">
               Router port forwarding via UPnP IGD. Direct public IP access.
             </p>
           </button>
@@ -240,22 +240,22 @@ export function ServerExposureMethodSelector({
             onClick={() => handleCardClick("cloudflare_tcp")}
             className={`p-4 rounded-xl border text-left transition-all ${
               draftMethod === "cloudflare_tcp"
-                ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20 shadow-sm"
-                : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800"
+                ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                : "border-border-default hover:border-border-strong bg-surface-card"
             } ${isReadOnly ? "cursor-default opacity-90" : ""}`}
           >
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
-                <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Cloudflare TCP</h4>
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                <h4 className="text-sm font-semibold text-text-primary">Cloudflare TCP</h4>
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-status-warning-bg text-status-warning">
                   Advanced
                 </span>
               </div>
               {draftMethod === "cloudflare_tcp" && (
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Selected</span>
+                <span className="text-xs font-medium text-accent-primary">Selected</span>
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p className="text-xs text-text-muted leading-relaxed">
               Encrypted TCP tunnel via custom domain. Requires client-side Modflared.
             </p>
           </button>
@@ -264,11 +264,11 @@ export function ServerExposureMethodSelector({
 
       {/* Configuration Panel for Selected Draft Method */}
       {!isReadOnly && (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/60 p-5 space-y-4">
+        <div className="rounded-xl border border-border-default bg-surface-muted p-5 space-y-4">
           {/* None Form */}
           {draftMethod === "none" && (
             <div className="space-y-4">
-              <p className="text-xs text-gray-600 dark:text-gray-300">
+              <p className="text-xs text-text-secondary">
                 Network exposure is disabled. This Minecraft server is accessible only on the local network or through a configured VPN.
               </p>
               {isCurrentEnabled && (
@@ -276,7 +276,7 @@ export function ServerExposureMethodSelector({
                   type="button"
                   onClick={handleSave}
                   disabled={isUpdating}
-                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+                  className="px-4 py-2 rounded-lg bg-status-danger hover:opacity-90 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
                 >
                   {isUpdating ? "Disabling..." : "Save & Disable Exposure"}
                 </button>
@@ -308,12 +308,12 @@ export function ServerExposureMethodSelector({
 
               {agent?.claimed && (
                 <div className="space-y-3">
-                  <div className="rounded-lg border border-green-200 bg-green-50/50 dark:border-green-800/40 dark:bg-green-900/10 p-4">
-                    <div className="flex items-center gap-2 text-green-800 dark:text-green-300 font-semibold text-xs">
+                  <div className="rounded-lg border border-status-success-border bg-status-success-bg p-4">
+                    <div className="flex items-center gap-2 text-status-success font-semibold text-xs">
                       <Icon name="check" size={16} />
                       <span>Host playit.gg agent is claimed and active.</span>
                     </div>
-                    <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                    <p className="text-xs text-text-secondary mt-1">
                       Applying playit exposure will establish tunnels for your configured server targets.
                     </p>
                   </div>
@@ -322,7 +322,7 @@ export function ServerExposureMethodSelector({
                     type="button"
                     onClick={handleSave}
                     disabled={isUpdating}
-                    className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+                    className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
                   >
                     {isUpdating ? "Applying..." : "Save & Apply playit.gg Exposure"}
                   </button>
@@ -334,14 +334,14 @@ export function ServerExposureMethodSelector({
           {/* Port Forward Form */}
           {draftMethod === "port_forward" && (
             <div className="space-y-4">
-              <p className="text-xs text-gray-600 dark:text-gray-300">
+              <p className="text-xs text-text-secondary">
                 Port Forwarding requests automatic port mapping on your local router via UPnP IGD. Your router must have UPnP enabled and be assigned a public IP (no carrier-grade NAT).
               </p>
               <button
                 type="button"
                 onClick={handleSave}
                 disabled={isUpdating}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+                className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
               >
                 {isUpdating ? "Applying..." : "Save & Enable Port Forwarding"}
               </button>
@@ -354,13 +354,13 @@ export function ServerExposureMethodSelector({
               {/* Amber Player Warning Banner */}
               <div
                 role="alert"
-                className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 space-y-2"
+                className="p-4 rounded-xl bg-status-warning-bg border border-status-warning-border space-y-2"
               >
-                <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-semibold text-xs uppercase tracking-wider">
+                <div className="flex items-center gap-2 text-status-warning font-semibold text-xs uppercase tracking-wider">
                   <Icon name="alert" size={16} />
                   <span>Mandatory Player Software Requirement</span>
                 </div>
-                <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                <p className="text-xs text-status-warning leading-relaxed">
                   Unlike websites, Minecraft game traffic cannot be proxied natively over standard DNS through Cloudflare. To connect to a Cloudflare TCP tunnel, all connecting players must install the <strong>Modflared</strong> client mod or run <code>cloudflared access tcp</code> on their computers.
                 </p>
               </div>
@@ -370,9 +370,9 @@ export function ServerExposureMethodSelector({
                 <div className="space-y-1.5">
                   <label
                     htmlFor="cloudflare-tcp-hostname"
-                    className="block text-xs font-semibold text-gray-700 dark:text-gray-300"
+                    className="block text-xs font-semibold text-text-secondary"
                   >
-                    Custom Domain / FQDN <span className="text-red-500">*</span>
+                    Custom Domain / FQDN <span className="text-status-danger">*</span>
                   </label>
                   <input
                     ref={firstInputRef}
@@ -381,14 +381,14 @@ export function ServerExposureMethodSelector({
                     value={hostname}
                     onChange={(e) => setHostname(e.target.value)}
                     placeholder="play.example.com"
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                    className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
                   />
                   {hostname && !isValidFQDN(hostname) ? (
-                    <p className="text-[11px] text-red-600 dark:text-red-400">
+                    <p className="text-[11px] text-status-danger">
                       Please enter a valid fully-qualified domain name (e.g. play.example.com).
                     </p>
                   ) : (
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    <p className="text-[11px] text-text-muted">
                       Must be an active zone in your Cloudflare account.
                     </p>
                   )}
@@ -398,9 +398,9 @@ export function ServerExposureMethodSelector({
                 <div className="space-y-1.5">
                   <label
                     htmlFor="cloudflare-tcp-token"
-                    className="block text-xs font-semibold text-gray-700 dark:text-gray-300"
+                    className="block text-xs font-semibold text-text-secondary"
                   >
-                    Cloudflare API Token {exposure?.has_cloudflare_credentials && !isRotatingToken && !isReclaimRequired ? "(Stored)" : <span className="text-red-500">*</span>}
+                    Cloudflare API Token {exposure?.has_cloudflare_credentials && !isRotatingToken && !isReclaimRequired ? "(Stored)" : <span className="text-status-danger">*</span>}
                   </label>
                   <div className="relative">
                     <input
@@ -413,18 +413,18 @@ export function ServerExposureMethodSelector({
                           ? "••••••••••••••••••••••••••••••••"
                           : "Enter Cloudflare API token..."
                       }
-                      className="w-full px-3 py-2 pr-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      className="w-full px-3 py-2 pr-10 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
                     />
                     <button
                       type="button"
                       onClick={() => setShowToken(!showToken)}
                       aria-label={showToken ? "Hide token" : "Show token"}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
                     >
                       <Icon name={showToken ? "moon" : "sun"} size={14} />
                     </button>
                   </div>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  <p className="text-[11px] text-text-muted">
                     Requires <code>Zone.DNS:Edit</code> and <code>Account.Cloudflare Tunnel:Edit</code> scopes.
                   </p>
                 </div>
@@ -437,9 +437,9 @@ export function ServerExposureMethodSelector({
                     type="checkbox"
                     checked={acknowledgedWarning}
                     onChange={(e) => setAcknowledgedWarning(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                    className="mt-0.5 h-4 w-4 rounded border-border-default text-accent-primary focus:ring-accent-primary"
                   />
-                  <span className="text-xs text-gray-700 dark:text-gray-300 font-medium">
+                  <span className="text-xs text-text-secondary font-medium">
                     I understand that players must use Modflared or cloudflared client to connect.
                   </span>
                 </label>
@@ -455,7 +455,7 @@ export function ServerExposureMethodSelector({
                     !acknowledgedWarning ||
                     (!cloudflareToken && (!exposure?.has_cloudflare_credentials || isRotatingToken || isReclaimRequired))
                   }
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+                  className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
                 >
                   {isUpdating ? "Configuring..." : "Enable Cloudflare Tunnel"}
                 </button>
@@ -467,7 +467,7 @@ export function ServerExposureMethodSelector({
                       setIsRotatingToken(true);
                       setCloudflareToken("");
                     }}
-                    className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    className="px-3 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors"
                   >
                     Rotate Token
                   </button>
@@ -486,7 +486,7 @@ export function ServerExposureMethodSelector({
           setSwitchConfirmInput("");
         }}
         title={
-          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+          <div className="flex items-center gap-2 text-status-warning">
             <Icon name="alert" size={20} />
             <span>Switch Exposure Method?</span>
           </div>
@@ -499,10 +499,10 @@ export function ServerExposureMethodSelector({
         initialFocusRef={switchInputRef}
       >
         <div className="space-y-4">
-          <div className="space-y-2 rounded-lg bg-amber-50 p-3.5 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40">
+          <div className="space-y-2 rounded-lg bg-status-warning-bg p-3.5 border border-status-warning-border">
             <label
               htmlFor="switch-typed-input"
-              className="block text-xs font-semibold text-amber-900 dark:text-amber-300"
+              className="block text-xs font-semibold text-text-primary"
             >
               Type <span className="font-mono underline">SWITCH</span> to confirm:
             </label>
@@ -513,7 +513,7 @@ export function ServerExposureMethodSelector({
               value={switchConfirmInput}
               onChange={(e) => setSwitchConfirmInput(e.target.value)}
               placeholder='Type "SWITCH"'
-              className="w-full px-3 py-2 rounded-lg border border-amber-300 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all"
+              className="w-full px-3 py-2 rounded-lg border border-status-warning-border bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-status-warning focus:border-transparent outline-none transition-all"
             />
           </div>
 
@@ -524,7 +524,7 @@ export function ServerExposureMethodSelector({
                 setPendingMethod(null);
                 setSwitchConfirmInput("");
               }}
-              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              className="px-4 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors"
             >
               Cancel
             </button>
@@ -532,7 +532,7 @@ export function ServerExposureMethodSelector({
               type="button"
               onClick={handleConfirmSwitch}
               disabled={switchConfirmInput.trim() !== "SWITCH"}
-              className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium transition-colors disabled:opacity-40 shadow-sm"
+              className="px-4 py-2 rounded-lg bg-status-warning hover:opacity-90 text-white text-xs font-medium transition-colors disabled:opacity-40 shadow-xs"
             >
               Switch Method
             </button>

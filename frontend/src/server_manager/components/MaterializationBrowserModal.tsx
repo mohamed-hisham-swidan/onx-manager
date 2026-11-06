@@ -341,14 +341,14 @@ export function MaterializationBrowserModal({
       <div className="flex-1 flex flex-col min-h-0 space-y-4">
         {/* Error Alert */}
         {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+          <div role="alert" className="flex items-center gap-2 rounded-lg border border-status-danger-border bg-status-danger-bg p-3 text-xs text-status-danger">
             <Icon name="alert" size={16} className="shrink-0" />
             <span className="flex-1">{error}</span>
             <button
               type="button"
               onClick={() => setError(null)}
               aria-label="Dismiss error"
-              className="text-red-500 hover:text-red-700"
+              className="text-status-danger hover:opacity-80 transition-opacity"
             >
               <Icon name="x" size={14} />
             </button>
@@ -359,16 +359,17 @@ export function MaterializationBrowserModal({
         {showCreateForm && (
           <form
             onSubmit={handleCreateMaterialization}
-            className="flex flex-wrap items-end gap-3 p-4 bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 rounded-lg animate-fade-in"
+            className="flex flex-wrap items-end gap-3 p-4 bg-surface-card border border-border-default rounded-lg animate-fade-in"
           >
             <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="mat-revision-type" className="block text-xs font-medium text-text-secondary mb-1">
                 Revision Type
               </label>
               <select
+                id="mat-revision-type"
                 value={newRevisionType}
                 onChange={(e) => setNewRevisionType(e.target.value as RevisionType)}
-                className="text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500"
+                className="text-xs bg-surface-card border border-border-default text-text-primary rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-accent-primary focus:outline-none"
               >
                 <option value="branch">Branch</option>
                 <option value="commit">Commit</option>
@@ -376,22 +377,23 @@ export function MaterializationBrowserModal({
               </select>
             </div>
             <div className="flex-1 min-w-[200px]">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor="mat-revision-ref" className="block text-xs font-medium text-text-secondary mb-1">
                 Revision Ref (Branch / Commit ID / Tag)
               </label>
               <input
+                id="mat-revision-ref"
                 type="text"
                 value={newRevisionRef}
                 onChange={(e) => setNewRevisionRef(e.target.value)}
                 placeholder="e.g. main or 3a9f1b2 or v1.0.0"
-                className="w-full text-xs font-mono bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500"
+                className="w-full text-xs font-mono bg-surface-card border border-border-default text-text-primary rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-accent-primary focus:outline-none"
                 required
               />
             </div>
             <button
               type="submit"
               disabled={isCreating || !newRevisionRef.trim()}
-              className="px-4 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg transition-colors"
+              className="px-4 py-1.5 text-xs font-medium text-accent-contrast-text bg-accent-primary hover:bg-accent-hover disabled:opacity-50 rounded-lg transition-colors"
             >
               {isCreating ? "Materializing..." : "Create Worktree"}
             </button>
@@ -399,18 +401,19 @@ export function MaterializationBrowserModal({
         )}
 
         {/* Active Worktree Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 bg-surface-card border border-border-default rounded-lg text-xs">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-gray-600 dark:text-gray-400">Worktree:</span>
+            <span className="font-semibold text-text-secondary">Worktree:</span>
             {isLoadingList ? (
-              <span className="text-gray-400 italic">Loading worktrees...</span>
+              <span className="text-text-muted italic">Loading worktrees...</span>
             ) : materializations.length === 0 ? (
-              <span className="text-gray-400 italic">No active worktrees found.</span>
+              <span className="text-text-muted italic">No active worktrees found.</span>
             ) : (
               <select
+                aria-label="Active worktree"
                 value={activeMatId || ""}
                 onChange={(e) => setActiveMatId(e.target.value)}
-                className="font-mono text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
+                className="font-mono text-xs bg-surface-card border border-border-default text-text-primary rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-accent-primary"
               >
                 {materializations.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -425,7 +428,7 @@ export function MaterializationBrowserModal({
             <button
               type="button"
               onClick={() => setShowCreateForm(!showCreateForm)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-accent-contrast-text bg-accent-primary hover:bg-accent-hover border border-border-subtle rounded-lg transition-colors"
             >
               <Icon name="plus" size={14} />
               {showCreateForm ? "Cancel New" : "Materialize Revision"}
@@ -436,8 +439,8 @@ export function MaterializationBrowserModal({
                 <span
                   className={`px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider ${
                     activeMat.mode === "editable"
-                      ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
-                      : "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800"
+                      ? "bg-status-warning-bg text-status-warning border border-status-warning-border"
+                      : "bg-status-info-bg text-status-info border border-status-info-border"
                   }`}
                 >
                   {activeMat.mode}
@@ -447,7 +450,7 @@ export function MaterializationBrowserModal({
                   type="button"
                   onClick={handleToggleMode}
                   disabled={isTogglingMode}
-                  className="px-2.5 py-1 rounded bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium text-gray-700 dark:text-gray-300 transition-colors"
+                  className="px-2.5 py-1 rounded bg-surface-card border border-border-default hover:bg-surface-hover font-medium text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
                 >
                   {isTogglingMode
                     ? "Updating..."
@@ -460,7 +463,7 @@ export function MaterializationBrowserModal({
                   type="button"
                   onClick={() => setIsConfirmDeleteOpen(true)}
                   disabled={isDeleting}
-                  className="px-2 py-1 rounded bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 hover:bg-red-100 text-red-600 dark:text-red-400 transition-colors"
+                  className="px-2 py-1 rounded bg-status-danger-bg border border-status-danger-border hover:bg-surface-hover text-status-danger transition-colors disabled:opacity-50"
                   title="Delete worktree"
                   aria-label="Delete worktree"
                 >
@@ -473,38 +476,38 @@ export function MaterializationBrowserModal({
 
         {/* Content Pane: Left File Tree, Right Editor */}
         {!activeMat ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-400 dark:text-gray-500">
-            <Icon name="folder" size={48} className="mb-3 opacity-40" />
-            <p className="text-sm font-medium">No Worktree Selected</p>
-            <p className="text-xs max-w-sm mt-1">
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-text-muted">
+            <Icon name="folder" size={48} className="mb-3 opacity-40 text-text-muted" />
+            <p className="text-sm font-medium text-text-primary">No Worktree Selected</p>
+            <p className="text-xs max-w-sm mt-1 text-text-muted">
               Select or materialize a new worktree to browse filesystem contents at a specific revision.
             </p>
           </div>
         ) : (
           <div className="flex-1 flex gap-4 min-h-0">
             {/* Left: Tree Directory Explorer */}
-            <div className="w-1/3 flex flex-col border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-gray-50/50 dark:bg-gray-900/30">
+            <div className="w-1/3 flex flex-col border border-border-default rounded-lg overflow-hidden bg-surface-card">
               {/* Breadcrumb Header */}
-              <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs overflow-x-auto">
+              <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border-default bg-surface-card text-xs overflow-x-auto">
                 <button
                   type="button"
                   onClick={() => setCurrentDir("")}
-                  className={`font-semibold hover:text-emerald-600 transition-colors ${
-                    currentDir === "" ? "text-emerald-600 dark:text-emerald-400" : "text-gray-500"
+                  className={`font-semibold hover:text-accent-primary transition-colors ${
+                    currentDir === "" ? "text-accent-primary" : "text-text-muted"
                   }`}
                 >
                   root
                 </button>
                 {breadcrumbs.map((bc, idx) => (
                   <React.Fragment key={bc.path}>
-                    <span className="text-gray-400">/</span>
+                    <span className="text-text-muted">/</span>
                     <button
                       type="button"
                       onClick={() => setCurrentDir(bc.path)}
-                      className={`hover:text-emerald-600 transition-colors truncate max-w-[100px] ${
+                      className={`hover:text-accent-primary transition-colors truncate max-w-[100px] ${
                         idx === breadcrumbs.length - 1
-                          ? "font-semibold text-emerald-600 dark:text-emerald-400"
-                          : "text-gray-500"
+                          ? "font-semibold text-accent-primary"
+                          : "text-text-muted"
                       }`}
                     >
                       {bc.name}
@@ -516,11 +519,11 @@ export function MaterializationBrowserModal({
               {/* Items List */}
               <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
                 {isLoadingTree ? (
-                  <div className="p-4 text-center text-xs text-gray-400 italic">
+                  <div className="p-4 text-center text-xs text-text-muted italic">
                     Loading directory...
                   </div>
                 ) : currentEntries.length === 0 ? (
-                  <div className="p-4 text-center text-xs text-gray-400 italic">
+                  <div className="p-4 text-center text-xs text-text-muted italic">
                     Directory is empty
                   </div>
                 ) : (
@@ -533,9 +536,9 @@ export function MaterializationBrowserModal({
                           parts.pop();
                           setCurrentDir(parts.join("/"));
                         }}
-                        className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-xs text-left text-gray-500 hover:bg-gray-200/60 dark:hover:bg-gray-800 transition-colors"
+                        className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-xs text-left text-text-secondary hover:bg-surface-hover transition-colors"
                       >
-                        <Icon name="folder" size={14} className="text-amber-500" />
+                        <Icon name="folder" size={14} className="text-text-muted" />
                         <span>.. (parent)</span>
                       </button>
                     )}
@@ -552,20 +555,20 @@ export function MaterializationBrowserModal({
                         }}
                         className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded text-xs text-left transition-colors ${
                           selectedFilePath === item.path
-                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-medium"
-                            : "hover:bg-gray-200/60 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+                            ? "bg-accent-primary/10 text-accent-primary font-medium"
+                            : "hover:bg-surface-hover text-text-primary"
                         }`}
                       >
                         <div className="flex items-center gap-2 truncate">
                           <Icon
                             name={item.is_dir ? "folder" : "file"}
                             size={14}
-                            className={item.is_dir ? "text-amber-500" : "text-gray-400"}
+                            className={item.is_dir ? "text-accent-primary" : "text-text-muted"}
                           />
                           <span className="truncate">{item.name}</span>
                         </div>
                         {!item.is_dir && (
-                          <span className="text-[10px] text-gray-400 font-mono shrink-0">
+                          <span className="text-[10px] text-text-muted font-mono shrink-0">
                             {formatBytes(item.size_bytes)}
                           </span>
                         )}
@@ -577,17 +580,17 @@ export function MaterializationBrowserModal({
             </div>
 
             {/* Right: File Viewer / Code Editor */}
-            <div className="flex-1 flex flex-col border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-800">
+            <div className="flex-1 flex flex-col border border-border-default rounded-lg overflow-hidden bg-surface-card">
               {selectedFilePath ? (
                 <>
-                  <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 text-xs">
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-border-default bg-surface-card text-xs">
                     <div className="flex items-center gap-2 truncate">
-                      <Icon name="file" size={14} className="text-gray-400" />
-                      <span className="font-mono font-medium text-gray-900 dark:text-white truncate">
+                      <Icon name="file" size={14} className="text-text-muted" />
+                      <span className="font-mono font-medium text-text-primary truncate">
                         {selectedFilePath}
                       </span>
                       {fileDirty && (
-                        <span className="text-amber-500 font-bold text-xs" title="Unsaved changes">
+                        <span className="text-status-warning font-bold text-xs" title="Unsaved changes">
                           ●
                         </span>
                       )}
@@ -599,7 +602,7 @@ export function MaterializationBrowserModal({
                           type="button"
                           onClick={handleSaveFile}
                           disabled={isSavingFile || !fileDirty}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-accent-contrast-text bg-accent-primary hover:bg-accent-hover disabled:opacity-50 rounded transition-colors"
                         >
                           <Icon name="save" size={12} />
                           {isSavingFile ? "Saving..." : "Save"}
@@ -610,14 +613,14 @@ export function MaterializationBrowserModal({
 
                   <div className="flex-1 min-h-0 p-2 overflow-hidden flex flex-col">
                     {isLoadingFile ? (
-                      <div className="flex-1 flex items-center justify-center text-xs text-gray-400 italic">
+                      <div className="flex-1 flex items-center justify-center text-xs text-text-muted italic">
                         Loading file content...
                       </div>
                     ) : isBinaryFile(selectedFilePath) ? (
-                      <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-400">
-                        <Icon name="file" size={36} className="mb-2 opacity-40" />
-                        <p className="text-xs font-semibold">Binary File Detected</p>
-                        <p className="text-[11px] text-gray-500 mt-1 max-w-xs">
+                      <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-text-muted">
+                        <Icon name="file" size={36} className="mb-2 opacity-40 text-text-muted" />
+                        <p className="text-xs font-semibold text-text-primary">Binary File Detected</p>
+                        <p className="text-[11px] text-text-muted mt-1 max-w-xs">
                           This binary file format cannot be rendered in the code editor.
                         </p>
                       </div>
@@ -630,16 +633,16 @@ export function MaterializationBrowserModal({
                         }}
                         filename={selectedFilePath}
                         readOnly={activeMat.mode !== "editable"}
-                        className="flex-1 h-full border border-gray-200 dark:border-gray-700 rounded"
+                        className="flex-1 h-full border border-border-default rounded"
                       />
                     )}
                   </div>
                 </>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-400">
-                  <Icon name="file" size={36} className="mb-2 opacity-30" />
-                  <p className="text-xs font-medium">No File Selected</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">
+                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-text-muted">
+                  <Icon name="file" size={36} className="mb-2 opacity-30 text-text-muted" />
+                  <p className="text-xs font-medium text-text-primary">No File Selected</p>
+                  <p className="text-[11px] text-text-muted mt-0.5">
                     Click any file from the explorer on the left to view or edit its content.
                   </p>
                 </div>
@@ -649,12 +652,12 @@ export function MaterializationBrowserModal({
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-border-default">
           <button
             type="button"
             onClick={handleClose}
             disabled={isBusy}
-            className="px-4 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors disabled:opacity-50"
           >
             Close
           </button>

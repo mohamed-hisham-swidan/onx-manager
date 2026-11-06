@@ -144,7 +144,7 @@ export function RegisterPage() {
 
           {isInviteOnlyLocked && (
             <div className="space-y-3">
-              <div className="p-3 text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 rounded-lg border border-amber-500/20">
+              <div className="p-3 text-xs text-status-warning bg-status-warning-bg rounded-lg border border-status-warning-border">
                 This instance uses invitation-only registration. Please enter your invitation token below.
               </div>
 

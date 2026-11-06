@@ -55,17 +55,17 @@ export function TargetListSection({
   return (
     <div className="space-y-4">
       {/* Section Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-gray-700">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border-default pb-3">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h3 className="text-base font-semibold text-text-primary">
               Service Targets & Port Mappings
             </h3>
-            <span className="font-mono text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 font-medium">
+            <span className="font-mono text-xs px-2 py-0.5 rounded-full bg-surface-muted text-text-secondary font-medium">
               {targets.length} {targets.length === 1 ? "Target" : "Targets"}
             </span>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-xs text-text-muted mt-0.5">
             Configured protocol ports and live public addresses for this server.
           </p>
         </div>
@@ -74,7 +74,7 @@ export function TargetListSection({
           <button
             type="button"
             onClick={() => setIsAddModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors shadow-xs"
           >
             <Icon name="plus" size={14} />
             <span>Add Companion Target</span>
@@ -96,12 +96,12 @@ export function TargetListSection({
           ))}
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center dark:border-gray-700">
-          <Icon name="activity" size={28} className="mx-auto text-gray-400 dark:text-gray-500 mb-2" />
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        <div className="rounded-xl border border-dashed border-border-default p-8 text-center">
+          <Icon name="activity" size={28} className="mx-auto text-text-muted mb-2" />
+          <p className="text-sm font-medium text-text-secondary">
             No active targets configured
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-sm mx-auto">
+          <p className="text-xs text-text-muted mt-1 max-w-sm mx-auto">
             {isEnabled
               ? "Select an exposure method and apply changes to provision primary Java and companion service targets."
               : "Enable an exposure method above to publish this server to the internet."}

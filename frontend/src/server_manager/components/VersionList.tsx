@@ -27,8 +27,8 @@ export function VersionList({
         <div
           className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${
             noticeKind === "warning"
-              ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700/50 dark:bg-amber-900/20 dark:text-amber-300"
-              : "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-700/50 dark:bg-blue-900/20 dark:text-blue-300"
+              ? "border-status-warning-border bg-status-warning-bg text-status-warning"
+              : "border-status-info-border bg-status-info-bg text-status-info"
           }`}
         >
           <Icon name="alert" size={16} className="mt-0.5 shrink-0" />
@@ -46,28 +46,28 @@ export function VersionList({
               key={v.version_id}
               className={`flex items-center justify-between gap-4 rounded-xl border p-4 transition-colors ${
                 isRecommended
-                  ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20"
-                  : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/50"
+                  ? "border-accent-primary bg-accent-primary/10"
+                  : "border-border-default bg-surface-card hover:bg-surface-hover"
               }`}
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  <span className="font-semibold text-text-primary">
                     {v.version_number}
                   </span>
                   {v.name && v.name !== v.version_number && (
-                    <span className="truncate text-xs text-gray-500 dark:text-gray-400">
+                    <span className="truncate text-xs text-text-muted">
                       ({v.name})
                     </span>
                   )}
                   {isRecommended && (
-                    <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                    <span className="inline-flex rounded-full bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary">
                       Recommended
                     </span>
                   )}
                 </div>
 
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
                   {v.game_versions.length > 0 && (
                     <span>MC {v.game_versions.slice(0, 3).join(", ")}{v.game_versions.length > 3 ? ` +${v.game_versions.length - 3}` : ""}</span>
                   )}
@@ -82,7 +82,7 @@ export function VersionList({
                 type="button"
                 aria-label={`Install version ${v.version_number}`}
                 onClick={() => onSelectVersion(v)}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
               >
                 <Icon name="plus" size={14} />
                 Install

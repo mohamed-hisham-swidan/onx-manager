@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import {
   environmentLabels,
@@ -16,6 +16,7 @@ export interface ProjectCardProps {
 const MAX_VISIBLE_PILLS = 4;
 
 export function ProjectCard({ project, searchParams, onInstall }: ProjectCardProps) {
+  const navigate = useNavigate();
   const detailQuery = searchParams.toString();
   const loaders = project.loaders ?? [];
   const categories = project.categories ?? [];
@@ -29,7 +30,7 @@ export function ProjectCard({ project, searchParams, onInstall }: ProjectCardPro
       return (
         <span
           key={loader}
-          className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+          className="inline-flex items-center gap-1 rounded-md border border-accent-primary/20 bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary"
         >
           <Icon name={display.icon} size={11} className="shrink-0" />
           {display.label}
@@ -39,7 +40,7 @@ export function ProjectCard({ project, searchParams, onInstall }: ProjectCardPro
     ...categories.map((category) => (
       <span
         key={category}
-        className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700/60 dark:text-gray-300"
+        className="rounded-md border border-border-subtle bg-surface-elevated px-2 py-0.5 text-xs font-medium text-text-secondary"
       >
         {category}
       </span>
@@ -47,7 +48,7 @@ export function ProjectCard({ project, searchParams, onInstall }: ProjectCardPro
     ...envs.map((env) => (
       <span
         key={env}
-        className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+        className="inline-flex items-center gap-1 rounded-md border border-status-success-border bg-status-success-bg px-2 py-0.5 text-xs font-medium text-status-success"
       >
         <Icon name="globe" size={11} className="shrink-0" />
         {env}
@@ -60,33 +61,35 @@ export function ProjectCard({ project, searchParams, onInstall }: ProjectCardPro
   return (
     <li
       data-testid={`project-card-${project.project_id}`}
-      className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-gray-600"
+      onClick={() => navigate(detailPath)}
+      className="group relative flex flex-col justify-between gap-3 rounded-xl border border-border-subtle bg-surface-card p-4.5 shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-3.5">
         <Link
           to={detailPath}
-          className="group flex min-w-0 flex-1 items-start gap-3"
+          onClick={(e) => e.stopPropagation()}
+          className="group/link flex min-w-0 flex-1 items-start gap-3"
         >
           {project.icon_url ? (
             <img
               src={project.icon_url}
               alt=""
-              className="h-11 w-11 shrink-0 rounded-lg object-cover"
+              className="h-12 w-12 shrink-0 rounded-xl object-cover border border-border-subtle shadow-2xs"
             />
           ) : (
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500">
-              <Icon name="plugin" size={22} />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-surface-elevated text-accent-primary shadow-2xs">
+              <Icon name="plugin" size={24} />
             </div>
           )}
           <div className="min-w-0">
-            <h3 className="truncate font-semibold text-gray-900 group-hover:text-blue-600 group-hover:underline dark:text-gray-100 dark:group-hover:text-blue-400">
+            <h3 className="truncate font-bold text-base text-text-primary group-hover/link:text-accent-primary">
               {project.title}
             </h3>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mt-0.5 text-xs text-text-muted">
               by {project.author}
             </p>
             {project.description && (
-              <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
+              <p className="mt-1 line-clamp-2 text-xs text-text-secondary leading-relaxed">
                 {project.description}
               </p>
             )}
@@ -94,38 +97,44 @@ export function ProjectCard({ project, searchParams, onInstall }: ProjectCardPro
         </Link>
         <button
           type="button"
-          onClick={() => onInstall(project)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+          onClick={(e) => {
+            e.stopPropagation();
+            onInstall(project);
+          }}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-bold text-accent-contrast-text transition-colors hover:bg-accent-hover shadow-2xs cursor-pointer"
         >
           <Icon name="plus" size={14} />
           Install
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/* Tags & Loaders */}
+      <div className="flex flex-wrap items-center gap-1.5 pt-1">
         {visiblePills}
         {hiddenPillCount > 0 && (
           <Link
             to={detailPath}
+            onClick={(e) => e.stopPropagation()}
             aria-label={`${hiddenPillCount} more tags`}
-            className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:bg-gray-700/60 dark:text-gray-400 dark:hover:bg-blue-900/30 dark:hover:text-blue-400"
+            className="rounded-md border border-border-subtle bg-surface-elevated px-2 py-0.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
           >
             +{hiddenPillCount}
           </Link>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 pt-3 text-xs text-gray-500 dark:border-gray-700/50 dark:text-gray-400">
+      {/* Metrics Footer */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border-subtle/60 pt-3 text-xs text-text-muted font-mono tabular-nums">
         <span className="inline-flex items-center gap-1">
-          <Icon name="download" size={12} />
+          <Icon name="download" size={12} className="text-text-muted" />
           {formatDownloads(project.downloads)}
         </span>
         <span className="inline-flex items-center gap-1">
-          <Icon name="heart" size={12} />
+          <Icon name="heart" size={12} className="text-status-danger" />
           {formatDownloads(project.follows)}
         </span>
         {updatedLabel && (
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-1 ml-auto font-sans text-[11px]">
             <Icon name="clock" size={12} />
             Updated {updatedLabel}
           </span>

@@ -100,7 +100,7 @@ describe("TestEvidenceModal Component", () => {
     });
 
     // Check summary badges
-    expect(screen.getByText("FAILED")).toBeInTheDocument();
+    expect(await screen.findByText("FAILED")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.getByText("NO")).toBeInTheDocument();
     expect(screen.getByText("Retained on Disk")).toBeInTheDocument();

@@ -473,6 +473,7 @@ export function ServerFilesPage() {
           <input
             type="text"
             placeholder="Folder name"
+            aria-label="Folder name"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             className="flex-1 px-3 py-1.5 text-sm border border-border-default rounded-lg focus:outline-none focus:ring-1 focus:ring-accent-primary bg-surface-page text-text-primary placeholder:text-text-muted"
@@ -597,6 +598,7 @@ export function ServerFilesPage() {
                           <IconButton
                             icon="download"
                             aria-label="Download"
+                            title={`Download ${file.name}`}
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDownload(file)}
@@ -606,6 +608,7 @@ export function ServerFilesPage() {
                           <IconButton
                             icon="edit"
                             aria-label="Edit"
+                            title={`Edit ${file.name}`}
                             size="sm"
                             variant="ghost"
                             onClick={() => openFileEditor(file)}
@@ -614,6 +617,7 @@ export function ServerFilesPage() {
                         <IconButton
                           icon="trash"
                           aria-label="Delete"
+                          title={`Delete ${file.name}`}
                           size="sm"
                           variant="ghost"
                           onClick={() => setFileToDelete(file)}

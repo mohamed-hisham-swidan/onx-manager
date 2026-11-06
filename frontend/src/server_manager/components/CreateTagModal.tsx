@@ -84,7 +84,7 @@ export function CreateTagModal({
       <div className="space-y-4">
         {/* Error Alert */}
         {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+          <div role="alert" className="flex items-center gap-2 rounded-lg border border-status-danger-border bg-status-danger-bg p-3 text-xs text-status-danger">
             <Icon name="alert" size={16} className="shrink-0" />
             <span className="flex-1">{error}</span>
           </div>
@@ -93,7 +93,7 @@ export function CreateTagModal({
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="create-tag-input" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="create-tag-input" className="block text-xs font-medium text-text-secondary mb-1">
               Tag Name
             </label>
             <input
@@ -103,28 +103,28 @@ export function CreateTagModal({
               onChange={(e) => setTagName(e.target.value)}
               disabled={isSubmitting}
               placeholder="e.g. v1.0.0 or release-purpur"
-              className="w-full text-xs font-mono bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:outline-none disabled:opacity-50"
+              className="w-full text-xs font-mono bg-surface-card border border-border-default rounded-lg px-3 py-2 text-text-primary focus:ring-2 focus:ring-accent-primary focus:outline-none disabled:opacity-50"
               autoFocus
               required
             />
-            <p className="text-[11px] text-gray-400 mt-1">
+            <p className="text-[11px] text-text-muted mt-1">
               Tags are permanent immutable checkpoints in the repository DAG.
             </p>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-default">
             <button
               type="button"
               onClick={handleClose}
               disabled={isSubmitting}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !tagName.trim()}
-              className="px-4 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg transition-colors shadow-sm"
+              className="px-4 py-1.5 text-xs font-medium text-accent-contrast-text bg-accent-primary hover:bg-accent-hover disabled:opacity-50 rounded-lg transition-colors shadow-sm"
             >
               {isSubmitting ? "Creating..." : "Create Tag"}
             </button>

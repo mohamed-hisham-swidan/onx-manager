@@ -50,46 +50,46 @@ export function ServerConfigEditor({ serverId, server }: ServerConfigEditorProps
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min Memory (MB)</label>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Min Memory (MB)</label>
           <input
             name="min_memory_mb"
             type="number"
             defaultValue={server.min_memory_mb}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm focus:outline-none focus:ring-2 focus:ring-border-focus text-text-primary"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Memory (MB)</label>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Max Memory (MB)</label>
           <input
             name="max_memory_mb"
             type="number"
             defaultValue={server.max_memory_mb}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm focus:outline-none focus:ring-2 focus:ring-border-focus text-text-primary"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">MOTD</label>
+          <label className="block text-sm font-medium text-text-secondary mb-1">MOTD</label>
           <input
             name="motd"
             defaultValue={server.motd}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm focus:outline-none focus:ring-2 focus:ring-border-focus text-text-primary"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Players</label>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Max Players</label>
           <input
             name="max_players"
             type="number"
             defaultValue={server.max_players}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm focus:outline-none focus:ring-2 focus:ring-border-focus text-text-primary"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Gamemode</label>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Gamemode</label>
           <select
             name="gamemode"
             defaultValue={server.gamemode}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm focus:outline-none focus:ring-2 focus:ring-border-focus text-text-primary"
           >
             <option value="survival">Survival</option>
             <option value="creative">Creative</option>
@@ -98,11 +98,11 @@ export function ServerConfigEditor({ serverId, server }: ServerConfigEditorProps
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Difficulty</label>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Difficulty</label>
           <select
             name="difficulty"
             defaultValue={server.difficulty}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm focus:outline-none focus:ring-2 focus:ring-border-focus text-text-primary"
           >
             <option value="peaceful">Peaceful</option>
             <option value="easy">Easy</option>
@@ -111,22 +111,22 @@ export function ServerConfigEditor({ serverId, server }: ServerConfigEditorProps
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PVP</label>
+          <label className="block text-sm font-medium text-text-secondary mb-1">PVP</label>
           <select
             name="pvp"
             defaultValue={server.pvp ? "true" : "false"}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm focus:outline-none focus:ring-2 focus:ring-border-focus text-text-primary"
           >
             <option value="true">Enabled</option>
             <option value="false">Disabled</option>
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Whitelist</label>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Whitelist</label>
           <select
             name="whitelist"
             defaultValue={server.whitelist ? "true" : "false"}
-            className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100"
+            className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm focus:outline-none focus:ring-2 focus:ring-border-focus text-text-primary"
           >
             <option value="true">Enabled</option>
             <option value="false">Disabled</option>
@@ -135,7 +135,7 @@ export function ServerConfigEditor({ serverId, server }: ServerConfigEditorProps
       </div>
 
       {message && (
-        <p className={`text-sm ${message.type === "success" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+        <p className={`text-sm ${message.type === "success" ? "text-status-success" : "text-status-danger"}`}>
           {message.text}
         </p>
       )}
@@ -143,7 +143,7 @@ export function ServerConfigEditor({ serverId, server }: ServerConfigEditorProps
       <button
         type="submit"
         disabled={updateServer.isPending}
-        className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+        className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium transition-colors disabled:opacity-50"
       >
         {updateServer.isPending ? "Saving..." : "Save Configuration"}
       </button>

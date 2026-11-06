@@ -1,0 +1,350 @@
+import { useState, useMemo, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { Icon } from "@/components/ui/Icon";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import {
+  useStartServer,
+  useStopServer,
+  useRestartServer,
+} from "@/server_manager/hooks/useServers";
+import { toast } from "@/stores/toastStore";
+import type { ServerResponse } from "@/server_manager/types";
+
+interface CommandCenterFleetListProps {
+  servers: ServerResponse[];
+}
+
+export function CommandCenterFleetList({ servers }: CommandCenterFleetListProps) {
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "running" | "stopped">("all");
+  const [copiedPort, setCopiedPort] = useState<number | null>(null);
+
+  const startServer = useStartServer();
+  const stopServer = useStopServer();
+  const restartServer = useRestartServer();
+
+  const [stopTarget, setStopTarget] = useState<{ id: string; name: string } | null>(null);
+  const [startCooldowns, setStartCooldowns] = useState<Record<string, number>>({});
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  const hasCooldown = useMemo(
+    () => Object.values(startCooldowns).some((until) => until > now),
+    [startCooldowns, now],
+  );
+
+  useEffect(() => {
+    if (!hasCooldown) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [hasCooldown]);
+
+  const filteredServers = useMemo(() => {
+    return servers.filter((s) => {
+      const matchesSearch =
+        search.trim() === "" ||
+        s.name.toLowerCase().includes(search.toLowerCase()) ||
+        s.port?.toString().includes(search) ||
+        s.server_type.toLowerCase().includes(search.toLowerCase());
+
+      if (!matchesSearch) return false;
+      if (filter === "running") return s.status === "running";
+      if (filter === "stopped") return s.status === "stopped" || s.status === "created";
+      return true;
+    });
+  }, [servers, search, filter]);
+
+  const onlineCount = servers.filter((s) => s.status === "running").length;
+  const offlineCount = servers.filter((s) => s.status === "stopped" || s.status === "created").length;
+
+  function copyPort(port: number) {
+    navigator.clipboard.writeText(port.toString());
+    setCopiedPort(port);
+    toast("info", "Port copied", `Port ${port} copied to clipboard`);
+    setTimeout(() => setCopiedPort(null), 2000);
+  }
+
+  function handleStart(serverId: string, name: string) {
+    const cur = Date.now();
+    setNow(cur);
+    setStartCooldowns((prev) => ({ ...prev, [serverId]: cur + 3000 }));
+    startServer.mutate(serverId, {
+      onSuccess: () => toast("success", "Server started", `"${name}" is starting.`),
+      onError: (err) =>
+        toast("error", "Start failed", err instanceof Error ? err.message : "Start failed"),
+    });
+  }
+
+  function handleStop(serverId: string, name: string) {
+    setStopTarget({ id: serverId, name });
+  }
+
+  function confirmStop() {
+    if (!stopTarget) return;
+    const { id, name } = stopTarget;
+    setStopTarget(null);
+    stopServer.mutate(id, {
+      onSuccess: () => toast("success", "Server stopped", `"${name}" is stopping.`),
+      onError: (err) =>
+        toast("error", "Stop failed", err instanceof Error ? err.message : "Stop failed"),
+    });
+  }
+
+  function handleStartAll() {
+    const stopped = servers.filter((s) => s.status === "stopped" || s.status === "created");
+    if (stopped.length === 0) {
+      toast("info", "No stopped servers", "All instances are already active.");
+      return;
+    }
+    stopped.forEach((s) => handleStart(s.server_id, s.name));
+    toast("info", "Starting fleet", `Triggered startup for ${stopped.length} instances.`);
+  }
+
+  const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending;
+
+  return (
+    <div className="rounded-xl border border-border-subtle bg-surface-card p-4 sm:p-5 shadow-2xs">
+      {/* Container Header & Toolbar */}
+      <div className="flex flex-col gap-3 pb-4 border-b border-border-subtle sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-sm font-bold text-text-primary tracking-wide">
+            Server Instances
+          </h2>
+          <span className="flex h-5 items-center justify-center rounded-full bg-surface-elevated px-2 font-mono text-xs font-semibold text-text-secondary border border-border-subtle">
+            {filteredServers.length}
+          </span>
+          <Link
+            to="/servers"
+            className="ms-2 text-xs font-medium text-accent-primary hover:underline"
+          >
+            View all
+          </Link>
+        </div>
+
+        {/* Toolbar: Search + Filter Pills + Start All Action */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Search Input */}
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-2.5 text-text-muted">
+              <Icon name="search" size={13} />
+            </span>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter by name, port, or tag..."
+              className="h-8 w-44 sm:w-56 rounded-lg border border-border-subtle bg-surface-elevated ps-8 pe-2.5 font-mono text-xs text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-hidden"
+            />
+          </div>
+
+          {/* Filter Pills */}
+          <div className="flex items-center rounded-lg border border-border-subtle bg-surface-elevated p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setFilter("all")}
+              className={`rounded-md px-2 py-1 transition-colors ${
+                filter === "all"
+                  ? "bg-surface-card text-text-primary shadow-2xs font-bold"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              All ({servers.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter("running")}
+              className={`rounded-md px-2 py-1 transition-colors ${
+                filter === "running"
+                  ? "bg-surface-card text-status-success shadow-2xs font-bold"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              Online ({onlineCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter("stopped")}
+              className={`rounded-md px-2 py-1 transition-colors ${
+                filter === "stopped"
+                  ? "bg-surface-card text-text-primary shadow-2xs font-bold"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              Offline ({offlineCount})
+            </button>
+          </div>
+
+          {/* Bulk Action */}
+          <button
+            type="button"
+            onClick={handleStartAll}
+            disabled={isBusy || offlineCount === 0}
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-status-success-border bg-status-success-bg px-2.5 text-xs font-semibold text-status-success hover:bg-status-success/20 disabled:opacity-40 transition-colors"
+          >
+            <Icon name="play" size={12} />
+            <span>Start All</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Server Rows */}
+      <div className="mt-4 space-y-2.5">
+        {filteredServers.length === 0 ? (
+          <div className="py-8 text-center text-xs text-text-muted">
+            No server instances match the current filter.
+          </div>
+        ) : (
+          filteredServers.map((server) => {
+            const isOnline = server.status === "running";
+            const isStarting = server.status === "starting";
+            const isCrashed = server.status === "crashed";
+            const isCooldown =
+              startCooldowns[server.server_id] !== undefined &&
+              now < startCooldowns[server.server_id];
+
+            return (
+              <div
+                key={server.server_id}
+                className="group flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface-elevated p-3.5 transition-all hover:border-border-default hover:shadow-xs lg:flex-row lg:items-center lg:justify-between"
+              >
+                {/* Col 1: Identity */}
+                <div className="flex items-center gap-3 min-w-[220px]">
+                  {/* Status Indicator Dot */}
+                  <div className="flex shrink-0 items-center justify-center">
+                    {isOnline ? (
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-success opacity-75" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-status-success" />
+                      </span>
+                    ) : isCrashed ? (
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-status-danger" />
+                    ) : (
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-text-muted/50" />
+                    )}
+                  </div>
+
+                  <div className="min-w-0">
+                    <Link
+                      to={`/servers/${server.server_id}`}
+                      className="block truncate text-sm font-bold text-text-primary hover:text-accent-primary transition-colors"
+                    >
+                      {server.name}
+                    </Link>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <span className="rounded bg-accent-primary/15 px-1.5 py-0.2 font-mono text-[10px] font-bold uppercase tracking-wider text-accent-primary border border-accent-primary/30">
+                        {server.server_type} {server.minecraft_version}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Col 2: Network & Players */}
+                <div className="flex items-center gap-4 text-xs">
+                  {server.port ? (
+                    <button
+                      type="button"
+                      onClick={() => copyPort(server.port)}
+                      title="Click to copy server port"
+                      className="flex items-center gap-1 rounded bg-surface-card px-2 py-0.5 font-mono text-xs text-text-secondary border border-border-subtle hover:border-border-default transition-colors"
+                    >
+                      <span>:{server.port}</span>
+                      <Icon
+                        name={copiedPort === server.port ? "check" : "copy"}
+                        size={11}
+                        className={copiedPort === server.port ? "text-status-success" : "text-text-muted"}
+                      />
+                    </button>
+                  ) : null}
+
+                  <div className="flex items-center gap-1.5 text-text-muted">
+                    <Icon name="users" size={13} />
+                    <span className="font-mono tabular-nums">
+                      {isOnline ? "0" : "--"} / {server.max_players || 20} Players
+                    </span>
+                  </div>
+                </div>
+
+                {/* Col 3: Live Instance Telemetry */}
+                <div className="min-w-[180px] text-xs">
+                  {isOnline ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between font-mono text-[11px] text-text-secondary">
+                        <span>CPU: 14%</span>
+                        <span>RAM: 3.2 / 4.0 GB</span>
+                      </div>
+                      <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-card">
+                        <div style={{ width: "14%" }} className="bg-status-success" />
+                        <div style={{ width: "66%" }} className="bg-accent-primary" />
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="font-mono text-[11px] text-text-muted">
+                      Instance halted · 4.0 GB RAM pre-allocated
+                    </span>
+                  )}
+                </div>
+
+                {/* Col 4: Action Control Group */}
+                <div className="flex items-center justify-end gap-1.5 shrink-0">
+                  {isOnline || isStarting ? (
+                    <button
+                      type="button"
+                      onClick={() => handleStop(server.server_id, server.name)}
+                      disabled={isBusy || isStarting}
+                      className="flex h-8 items-center gap-1.5 rounded-lg border border-status-danger-border bg-status-danger-bg px-3 text-xs font-semibold text-status-danger hover:bg-status-danger/20 disabled:opacity-40 transition-colors"
+                    >
+                      <Icon name="stop" size={12} />
+                      <span>Stop</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleStart(server.server_id, server.name)}
+                      disabled={isBusy || isCooldown}
+                      className="flex h-8 items-center gap-1.5 rounded-lg border border-status-success-border bg-status-success-bg px-3 text-xs font-semibold text-status-success hover:bg-status-success/20 disabled:opacity-40 transition-colors"
+                    >
+                      <Icon name="play" size={12} />
+                      <span>Start</span>
+                    </button>
+                  )}
+
+                  {/* Terminal / Console Quick Button */}
+                  <Link
+                    to={`/servers/${server.server_id}/console`}
+                    title="Open Console & Terminal"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-card text-text-secondary hover:border-border-default hover:text-text-primary transition-colors"
+                  >
+                    <Icon name="terminal" size={14} />
+                  </Link>
+
+                  {/* Settings / Configuration Quick Button */}
+                  <Link
+                    to={`/servers/${server.server_id}/settings`}
+                    title="Configure Server"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-card text-text-secondary hover:border-border-default hover:text-text-primary transition-colors"
+                  >
+                    <Icon name="settings" size={14} />
+                  </Link>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={stopTarget !== null}
+        title="Stop Server?"
+        description={
+          stopTarget
+            ? `Are you sure you want to stop "${stopTarget.name}"? Active players will be disconnected.`
+            : undefined
+        }
+        confirmLabel="Stop Server"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={confirmStop}
+        onCancel={() => setStopTarget(null)}
+      />
+    </div>
+  );
+}

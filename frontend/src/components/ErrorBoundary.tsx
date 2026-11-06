@@ -28,14 +28,19 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
       return (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <p className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Something went wrong</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 max-w-md">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="flex flex-col items-center justify-center py-16 text-center"
+        >
+          <p className="text-xl font-semibold text-text-primary mb-2">Something went wrong</p>
+          <p className="text-sm text-text-muted mb-4 max-w-md">
             {this.state.error?.message ?? "An unexpected error occurred"}
           </p>
           <button
+            type="button"
             onClick={() => this.setState({ hasError: false, error: null })}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
+            className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium transition-colors"
           >
             Try again
           </button>

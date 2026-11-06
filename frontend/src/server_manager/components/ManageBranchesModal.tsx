@@ -66,25 +66,25 @@ export function ManageBranchesModal({
     switch (status) {
       case "active":
         return (
-          <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+          <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase bg-status-success-bg text-status-success border border-status-success-border">
             Active
           </span>
         );
       case "archived":
         return (
-          <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-400">
+          <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase bg-surface-muted text-text-muted border border-border-default">
             Archived
           </span>
         );
       case "created":
         return (
-          <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+          <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase bg-status-info-bg text-status-info border border-status-info-border">
             Created
           </span>
         );
       default:
         return (
-          <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+          <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase bg-surface-muted text-text-secondary border border-border-default">
             {status}
           </span>
         );
@@ -102,16 +102,16 @@ export function ManageBranchesModal({
       closeOnEscape={!archivingBranch}
       closeButtonAriaLabel="Close modal"
     >
-      <div className="space-y-4 flex flex-col">
+      <div className="space-y-4 flex flex-col text-text-primary">
         {/* Error alert */}
         {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+          <div role="alert" className="flex items-center gap-2 rounded-lg border border-status-danger-border bg-status-danger-bg p-3 text-xs text-status-danger">
             <Icon name="alert" size={16} className="shrink-0" />
             <span className="flex-1">{error}</span>
             <button
               type="button"
               onClick={() => setError(null)}
-              className="text-red-500 hover:text-red-700"
+              className="text-status-danger hover:opacity-80 transition-opacity"
             >
               <Icon name="x" size={14} />
             </button>
@@ -120,19 +120,19 @@ export function ManageBranchesModal({
 
         {/* Confirm Archive Prompt */}
         {confirmArchiveName && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50 p-4 space-y-2 animate-fade-in">
-            <div className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-200">
+          <div role="alert" className="rounded-lg border border-status-warning-border bg-status-warning-bg p-4 space-y-2 animate-fade-in">
+            <div className="flex items-center gap-2 text-sm font-semibold text-status-warning">
               <Icon name="alert" size={18} />
               <span>Archive Branch '{confirmArchiveName}'?</span>
             </div>
-            <p className="text-xs text-amber-700 dark:text-amber-300">
+            <p className="text-xs text-text-primary">
               Archived branches become read-only. No new commits can be created on an archived branch.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setConfirmArchiveName(null)}
-                className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50"
+                className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-card border border-border-default rounded-lg hover:bg-surface-hover transition-colors"
               >
                 Cancel
               </button>
@@ -140,7 +140,7 @@ export function ManageBranchesModal({
                 type="button"
                 onClick={() => handleArchive(confirmArchiveName)}
                 disabled={archivingBranch === confirmArchiveName}
-                className="px-3 py-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-xs font-medium text-accent-contrast-text bg-status-warning hover:opacity-90 rounded-lg transition-colors disabled:opacity-50"
               >
                 {archivingBranch === confirmArchiveName ? "Archiving..." : "Yes, Archive Branch"}
               </button>
@@ -149,9 +149,12 @@ export function ManageBranchesModal({
         )}
 
         {/* Branch List */}
-        <div className="overflow-y-auto max-h-[55vh] divide-y divide-gray-100 dark:divide-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+        <div
+          tabIndex={0}
+          className="overflow-y-auto max-h-[55vh] divide-y divide-border-subtle border border-border-default rounded-lg bg-surface-card focus:outline-none focus:ring-1 focus:ring-border-focus"
+        >
           {branches.length === 0 ? (
-            <div className="p-8 text-center text-xs text-gray-400 italic">
+            <div className="p-8 text-center text-xs text-text-muted italic">
               No branches found for this server.
             </div>
           ) : (
@@ -163,22 +166,22 @@ export function ManageBranchesModal({
                 <div
                   key={b.name}
                   className={`flex items-center justify-between p-3.5 text-xs transition-colors ${
-                    isCurrent ? "bg-indigo-50/50 dark:bg-indigo-950/20" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                    isCurrent ? "bg-accent-primary/10 border-accent-primary/20" : "hover:bg-surface-hover"
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold text-gray-900 dark:text-white">
+                        <span className="font-mono font-semibold text-text-primary">
                           {b.name}
                         </span>
                         {isCurrent && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-accent-primary text-accent-contrast-text">
                             CURRENT
                           </span>
                         )}
                         {b.is_protected && (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-success-bg text-status-success border border-status-success-border">
                             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                             </svg>
@@ -187,7 +190,7 @@ export function ManageBranchesModal({
                         )}
                         {getStatusBadge(b.status || "created")}
                       </div>
-                      <p className="text-[11px] text-gray-400 font-mono mt-0.5">
+                      <p className="text-[11px] text-text-muted font-mono mt-0.5">
                         Head: {b.head_commit_id ? b.head_commit_id.slice(0, 7) : "None"} • Created:{" "}
                         {parseServerDate(b.created_at)?.toLocaleDateString() ?? "—"}
                       </p>
@@ -201,7 +204,7 @@ export function ManageBranchesModal({
                         onClose();
                         onOpenProtectionModal(b);
                       }}
-                      className="px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                      className="px-2.5 py-1 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-card border border-border-default rounded-lg hover:bg-surface-hover transition-colors"
                     >
                       Protection Rules
                     </button>
@@ -212,7 +215,7 @@ export function ManageBranchesModal({
                         onClick={() => setConfirmArchiveName(b.name)}
                         disabled={b.is_protected || !!archivingBranch}
                         title={b.is_protected ? "Protected branches cannot be archived" : "Archive branch"}
-                        className="px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg hover:bg-amber-100 disabled:opacity-40 transition-colors"
+                        className="px-2.5 py-1 text-xs font-medium text-status-warning bg-status-warning-bg border border-status-warning-border rounded-lg hover:opacity-90 disabled:opacity-40 transition-colors"
                       >
                         Archive
                       </button>
@@ -225,12 +228,12 @@ export function ManageBranchesModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end border-t border-gray-100 dark:border-gray-800 pt-3">
+        <div className="flex items-center justify-end border-t border-border-default pt-3">
           <button
             type="button"
             onClick={handleClose}
             disabled={!!archivingBranch}
-            className="px-4 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+            className="px-4 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors disabled:opacity-50"
           >
             Close
           </button>

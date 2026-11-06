@@ -134,6 +134,14 @@ const SELECTOR_PATTERNS = {
   "graphite:light": '\\[data-skin=["\']graphite["\']\\]\\[data-mode=["\']light["\']\\]',
   "azure:dark": '\\[data-skin=["\']azure["\']\\]\\s*,\\s*\\[data-skin=["\']azure["\']\\]\\[data-mode=["\']dark["\']\\]\\s*,\\s*\\[data-skin=["\']azure["\']\\]\\.dark',
   "azure:light": '\\[data-skin=["\']azure["\']\\]\\[data-mode=["\']light["\']\\]',
+  "emerald:dark": '\\[data-skin=["\']emerald["\']\\]\\s*,\\s*\\[data-skin=["\']emerald["\']\\]\\[data-mode=["\']dark["\']\\]\\s*,\\s*\\[data-skin=["\']emerald["\']\\]\\.dark',
+  "emerald:light": '\\[data-skin=["\']emerald["\']\\]\\[data-mode=["\']light["\']\\]',
+  "amethyst:dark": '\\[data-skin=["\']amethyst["\']\\]\\s*,\\s*\\[data-skin=["\']amethyst["\']\\]\\[data-mode=["\']dark["\']\\]\\s*,\\s*\\[data-skin=["\']amethyst["\']\\]\\.dark',
+  "amethyst:light": '\\[data-skin=["\']amethyst["\']\\]\\[data-mode=["\']light["\']\\]',
+  "amber:dark": '\\[data-skin=["\']amber["\']\\]\\s*,\\s*\\[data-skin=["\']amber["\']\\]\\[data-mode=["\']dark["\']\\]\\s*,\\s*\\[data-skin=["\']amber["\']\\]\\.dark',
+  "amber:light": '\\[data-skin=["\']amber["\']\\]\\[data-mode=["\']light["\']\\]',
+  "crimson:dark": '\\[data-skin=["\']crimson["\']\\]\\s*,\\s*\\[data-skin=["\']crimson["\']\\]\\[data-mode=["\']dark["\']\\]\\s*,\\s*\\[data-skin=["\']crimson["\']\\]\\.dark',
+  "crimson:light": '\\[data-skin=["\']crimson["\']\\]\\[data-mode=["\']light["\']\\]',
 } as const;
 
 export const FALLBACK_SELECTOR_PATTERNS = {
@@ -313,12 +321,20 @@ describe("WCAG 2.1 AA Contrast Computation (Real CSS Parser - Task 2)", () => {
   const cssContent = fs.readFileSync(cssPath, "utf8");
   const palettes = loadPalettesFromCss(cssContent);
 
-  it("parses all 4 skin/mode combinations from index.css with 100% required tokens", () => {
+  it("parses all 12 skin/mode combinations from index.css with 100% required tokens", () => {
     expect(Object.keys(palettes)).toEqual([
       "graphite:dark",
       "graphite:light",
       "azure:dark",
       "azure:light",
+      "emerald:dark",
+      "emerald:light",
+      "amethyst:dark",
+      "amethyst:light",
+      "amber:dark",
+      "amber:light",
+      "crimson:dark",
+      "crimson:light",
     ]);
   });
 
@@ -358,7 +374,14 @@ describe("WCAG 2.1 AA Contrast Computation (Real CSS Parser - Task 2)", () => {
   });
 
   it("enforces strictly increasing surface ladder in dark mode (page < card < elevated)", () => {
-    for (const darkKey of ["graphite:dark", "azure:dark"] as const) {
+    for (const darkKey of [
+      "graphite:dark",
+      "azure:dark",
+      "emerald:dark",
+      "amethyst:dark",
+      "amber:dark",
+      "crimson:dark",
+    ] as const) {
       const pal = palettes[darkKey];
       const lumPage = calculateLuminance(pal.page);
       const lumCard = calculateLuminance(pal.card);

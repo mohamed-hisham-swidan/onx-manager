@@ -224,4 +224,17 @@ describe("ServersPage", () => {
     await user.click(screen.getByRole("button", { name: "Stop Server" }));
     expect(mockStopMutate).toHaveBeenCalledWith("srv-1", expect.any(Object));
   });
+
+  it("switches to grid view mode and renders server cards with banners", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const gridBtn = screen.getByRole("button", { name: "Grid card view" });
+    await user.click(gridBtn);
+
+    expect(gridBtn).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Alpha World")).toBeInTheDocument();
+    expect(screen.getByText("Beta Plot")).toBeInTheDocument();
+    expect(screen.getByText(":25565")).toBeInTheDocument();
+  });
 });

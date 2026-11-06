@@ -51,19 +51,19 @@ export function CrashReportViewerModal({
       closeOnEscape={true}
       closeButtonAriaLabel="Close crash report viewer"
     >
-      <div className="flex flex-col space-y-4 text-gray-100 max-h-[75vh]">
+      <div className="flex flex-col space-y-4 text-text-primary max-h-[75vh]">
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-1 space-y-4">
           {isLoading ? (
-            <div className="py-12 text-center text-gray-400 space-y-2">
-              <div className="inline-block w-6 h-6 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+            <div className="py-12 text-center text-text-muted space-y-2">
+              <div className="inline-block w-6 h-6 border-2 border-status-danger border-t-transparent rounded-full animate-spin" />
               <p className="text-xs">Loading crash reports...</p>
             </div>
           ) : reports.length === 0 ? (
             <div className="py-12 text-center space-y-2">
-              <Icon name="check" size={32} className="mx-auto text-emerald-400" />
-              <p className="text-sm font-medium text-gray-200">No crash reports found</p>
-              <p className="text-xs text-gray-400">
+              <Icon name="check" size={32} className="mx-auto text-status-success" />
+              <p className="text-sm font-medium text-text-primary">No crash reports found</p>
+              <p className="text-xs text-text-muted">
                 The server directory does not contain any recorded crash reports in crash-reports/.
               </p>
             </div>
@@ -71,8 +71,8 @@ export function CrashReportViewerModal({
             <>
               {/* Report selector if multiple exist */}
               {reports.length > 1 && (
-                <div className="flex items-center gap-2 pb-1 border-b border-gray-800 overflow-x-auto">
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider shrink-0">
+                <div className="flex items-center gap-2 pb-1 border-b border-border-default overflow-x-auto">
+                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wider shrink-0">
                     Reports:
                   </span>
                   {reports.map((r, idx) => (
@@ -82,8 +82,8 @@ export function CrashReportViewerModal({
                       onClick={() => setSelectedIndex(idx)}
                       className={`px-2.5 py-1 rounded text-xs font-mono transition-colors shrink-0 ${
                         idx === selectedIndex
-                          ? "bg-rose-900/60 text-rose-200 border border-rose-700/80 font-bold"
-                          : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
+                          ? "bg-status-danger-bg text-status-danger border border-status-danger-border font-bold"
+                          : "bg-surface-muted text-text-muted hover:bg-surface-hover hover:text-text-primary border border-border-subtle"
                       }`}
                     >
                       {r.filename}
@@ -94,26 +94,26 @@ export function CrashReportViewerModal({
 
               {/* Top metadata grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="p-3 bg-gray-950/70 border border-gray-800 rounded-lg">
-                  <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                <div className="p-3 bg-surface-card border border-border-default rounded-lg">
+                  <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
                     File & Timestamp
                   </div>
-                  <div className="text-xs font-mono text-gray-200 mt-1 break-all">
+                  <div className="text-xs font-mono text-text-primary mt-1 break-all">
                     {currentReport.filename}
                   </div>
-                  <div className="text-[11px] text-gray-400 mt-0.5">
+                  <div className="text-[11px] text-text-muted mt-0.5">
                     {formatDateTime(currentReport.timestamp)}
                   </div>
                 </div>
 
-                <div className="p-3 bg-gray-950/70 border border-gray-800 rounded-lg">
-                  <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                <div className="p-3 bg-surface-card border border-border-default rounded-lg">
+                  <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
                     Failure Classification
                   </div>
                   <div className="mt-1 flex items-center gap-2">
                     <span
                       data-testid="failure-code-badge"
-                      className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold font-mono uppercase bg-rose-950 text-rose-300 border border-rose-800/80"
+                      className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold font-mono uppercase bg-status-danger-bg text-status-danger border border-status-danger-border"
                     >
                       {currentReport.failure_code}
                     </span>
@@ -124,23 +124,24 @@ export function CrashReportViewerModal({
               {/* Blamed Mod Callout */}
               {currentReport.blamed_mod && (
                 <div
+                  role="alert"
                   data-testid="blamed-mod-callout"
-                  className="p-3.5 bg-rose-950/40 border border-rose-600/60 rounded-lg flex items-start gap-3 text-rose-200"
+                  className="p-3.5 bg-status-danger-bg border border-status-danger-border rounded-lg flex items-start gap-3 text-status-danger"
                 >
-                  <div className="p-1.5 rounded-md bg-rose-600/20 text-rose-300 border border-rose-500/40 shrink-0 mt-0.5">
+                  <div className="p-1.5 rounded-md bg-status-danger-bg text-status-danger border border-status-danger-border shrink-0 mt-0.5">
                     <Icon name="alert" size={16} />
                   </div>
                   <div className="space-y-1">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-rose-300">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-status-danger">
                       Blamed Mod Detected
                     </div>
-                    <div className="text-sm font-bold text-rose-100 flex items-center gap-2">
+                    <div className="text-sm font-bold text-text-primary flex items-center gap-2">
                       <span>Mod ID:</span>
-                      <span className="font-mono bg-rose-900/60 px-2 py-0.5 rounded border border-rose-700/80">
+                      <span className="font-mono bg-surface-card px-2 py-0.5 rounded border border-status-danger-border text-status-danger">
                         {currentReport.blamed_mod}
                       </span>
                     </div>
-                    <p className="text-xs text-rose-200/90 leading-relaxed">
+                    <p className="text-xs text-text-secondary leading-relaxed">
                       The mod loader reported an incompatible or crashing mod exception originating
                       from this mod. Consider updating, replacing, or disabling it in the Mods tab.
                     </p>
@@ -150,15 +151,15 @@ export function CrashReportViewerModal({
 
               {/* Suggested Remediation */}
               {currentReport.suggested_remediation && (
-                <div className="p-3.5 bg-sky-950/40 border border-sky-800/60 rounded-lg flex items-start gap-3 text-sky-200">
-                  <div className="p-1.5 rounded-md bg-sky-600/20 text-sky-300 border border-sky-500/40 shrink-0 mt-0.5">
+                <div className="p-3.5 bg-status-info-bg border border-status-info-border rounded-lg flex items-start gap-3 text-status-info">
+                  <div className="p-1.5 rounded-md bg-status-info-bg text-status-info border border-status-info-border shrink-0 mt-0.5">
                     <Icon name="info" size={16} />
                   </div>
                   <div className="space-y-0.5">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-sky-300">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-status-info">
                       Suggested Remediation
                     </div>
-                    <p className="text-xs text-sky-100 leading-relaxed">
+                    <p className="text-xs text-text-primary leading-relaxed">
                       {currentReport.suggested_remediation}
                     </p>
                   </div>
@@ -168,7 +169,7 @@ export function CrashReportViewerModal({
               {/* Stack Trace Snippet */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
                     Stack Trace Snippet
                   </span>
                   <button
@@ -176,32 +177,33 @@ export function CrashReportViewerModal({
                     onClick={() =>
                       copy(currentReport.stack_trace_snippet, "Stack trace snippet copied!")
                     }
-                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-100 bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded transition-colors"
+                    className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-subtle px-2 py-1 rounded transition-colors"
                   >
                     <Icon name="copy" size={12} />
                     <span>Copy Snippet</span>
                   </button>
                 </div>
                 <div
+                  tabIndex={0}
                   data-testid="stack-trace-snippet"
-                  className="bg-gray-950 text-rose-300 font-mono text-xs p-3 rounded-lg border border-gray-800 overflow-x-auto max-h-60 whitespace-pre leading-relaxed select-text"
+                  className="bg-terminal-bg text-terminal-text font-mono text-xs p-3 rounded-lg border border-border-default overflow-x-auto max-h-60 whitespace-pre leading-relaxed select-text focus:outline-none focus:ring-1 focus:ring-border-focus"
                 >
                   {currentReport.stack_trace_snippet || "No stack trace extracted."}
                 </div>
               </div>
 
               {/* Collapsible Full Crash Report */}
-              <div className="space-y-1.5 pt-2 border-t border-gray-800">
+              <div className="space-y-1.5 pt-2 border-t border-border-default">
                 <div className="flex items-center justify-between">
                   <button
                     type="button"
                     onClick={() => setShowFullReport((prev) => !prev)}
-                    className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-gray-100 font-medium transition-colors"
+                    className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary font-medium transition-colors"
                   >
                     <Icon
                       name={showFullReport ? "chevron-up" : "chevron-down"}
                       size={14}
-                      className="text-gray-400"
+                      className="text-text-muted"
                     />
                     <span>{showFullReport ? "Hide Full Crash Report" : "View Full Crash Report"}</span>
                   </button>
@@ -211,7 +213,7 @@ export function CrashReportViewerModal({
                       onClick={() =>
                         copy(currentReport.raw_content, "Full crash report copied!")
                       }
-                      className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-100 bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded transition-colors"
+                      className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-subtle px-2 py-1 rounded transition-colors"
                     >
                       <Icon name="copy" size={12} />
                       <span>Copy Full Report</span>
@@ -220,8 +222,9 @@ export function CrashReportViewerModal({
                 </div>
                 {showFullReport && (
                   <div
+                    tabIndex={0}
                     data-testid="full-crash-content"
-                    className="bg-gray-950 text-gray-300 font-mono text-[11px] p-3 rounded-lg border border-gray-800 overflow-x-auto max-h-80 whitespace-pre leading-relaxed select-text"
+                    className="bg-terminal-bg text-terminal-text font-mono text-[11px] p-3 rounded-lg border border-border-default overflow-x-auto max-h-80 whitespace-pre leading-relaxed select-text focus:outline-none focus:ring-1 focus:ring-border-focus"
                   >
                     {currentReport.raw_content}
                   </div>
@@ -232,11 +235,11 @@ export function CrashReportViewerModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-800">
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-border-default">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium transition-colors"
+            className="px-4 py-2 rounded-lg bg-surface-muted hover:bg-surface-hover text-text-primary border border-border-default text-xs font-medium transition-colors"
           >
             Close
           </button>

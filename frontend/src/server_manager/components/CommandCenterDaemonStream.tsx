@@ -1,0 +1,134 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { Icon } from "@/components/ui/Icon";
+import { useActivityStore } from "@/stores/activityStore";
+import type { DaemonLogEntry } from "@/server_manager/utils/telemetryAdapter";
+
+interface CommandCenterDaemonStreamProps {
+  initialLogs: DaemonLogEntry[];
+  serverNames?: Record<string, string>;
+}
+
+export function CommandCenterDaemonStream({
+  initialLogs,
+  serverNames = {},
+}: CommandCenterDaemonStreamProps) {
+  const [logs, setLogs] = useState<DaemonLogEntry[]>(initialLogs);
+  const liveEvents = useActivityStore((s) => s.events);
+
+  function clearLogs() {
+    setLogs([]);
+  }
+
+  // Combine initial system boot logs with any runtime activity events
+  const combinedEntries = [
+    ...logs,
+    ...liveEvents.map((evt, idx) => {
+      const date = new Date(evt.timestamp * 1000);
+      const timeStr = date.toTimeString().split(" ")[0];
+      const sName = (evt.server_id && serverNames[evt.server_id]) || evt.name || evt.server_id || "node";
+
+      let source: DaemonLogEntry["source"] = "SYS";
+      let msg = "";
+
+      if (evt.event_type.includes("Start")) {
+        source = "STATE";
+        msg = `Instance '${sName}' start event dispatched`;
+      } else if (evt.event_type.includes("Stop")) {
+        source = "STATE";
+        msg = `Instance '${sName}' stop completed gracefully`;
+      } else if (evt.event_type.includes("Crash")) {
+        source = "SYS";
+        msg = `CRASH ALERT: '${sName}' exited abnormally`;
+      } else {
+        source = "WATCHER";
+        msg = `Event ${evt.event_type} on '${sName}'`;
+      }
+
+      return {
+        id: `activity-${idx}-${evt.timestamp}`,
+        timeStr,
+        source,
+        message: msg,
+      };
+    }),
+  ];
+
+  return (
+    <div className="flex h-full flex-col rounded-xl border border-border-subtle bg-surface-card p-4 sm:p-5 shadow-2xs">
+      {/* Header */}
+      <div className="flex items-center justify-between pb-3.5 border-b border-border-subtle">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-success opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-status-success" />
+          </span>
+          <h2 className="text-xs font-bold uppercase tracking-wider text-text-muted">
+            Daemon Event Stream
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={clearLogs}
+          className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors"
+        >
+          Clear
+        </button>
+      </div>
+
+      {/* Terminal Well Body */}
+      <div
+        role="log"
+        aria-label="System event logs"
+        className="mt-3.5 h-[340px] flex-1 overflow-y-auto rounded-lg border border-border-subtle bg-surface-elevated p-3 font-mono text-[11px] leading-relaxed select-text"
+      >
+        {combinedEntries.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-text-muted">
+            Event buffer cleared. Awaiting new telemetry signals...
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {combinedEntries.map((log) => {
+              const badgeClass =
+                log.source === "DOCKER"
+                  ? "text-accent-primary"
+                  : log.source === "NET"
+                    ? "text-status-success"
+                    : log.source === "STATE"
+                      ? "text-status-warning"
+                      : "text-text-secondary";
+
+              return (
+                <div key={log.id} className="flex items-start gap-1.5">
+                  <span className="shrink-0 text-text-muted/70">
+                    [{log.timeStr}]
+                  </span>
+                  <span className={`shrink-0 font-bold ${badgeClass}`}>
+                    [{log.source}]
+                  </span>
+                  <span className="text-text-primary break-all">
+                    {log.message}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Footer Quick-Terminal Bar */}
+      <div className="mt-3.5 flex items-center justify-between rounded-lg border border-border-subtle bg-surface-elevated px-3 py-2 text-xs">
+        <div className="flex items-center gap-2 font-mono text-text-muted">
+          <span className="text-accent-primary font-bold">&gt;</span>
+          <span className="truncate">Select a server to attach console...</span>
+        </div>
+        <Link
+          to="/servers"
+          className="shrink-0 text-xs font-semibold text-accent-primary hover:underline"
+        >
+          <Icon name="terminal" size={13} />
+        </Link>
+      </div>
+    </div>
+  );
+}

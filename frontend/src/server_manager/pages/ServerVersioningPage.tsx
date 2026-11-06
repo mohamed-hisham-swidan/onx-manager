@@ -347,10 +347,11 @@ export function ServerVersioningPage() {
 
       {/* Alerts */}
       {error && (
-        <div className="rounded-xl bg-status-danger-bg border border-status-danger/30 p-4 text-sm text-status-danger flex items-center justify-between">
+        <div role="alert" className="rounded-xl bg-status-danger-bg border border-status-danger/30 p-4 text-sm text-status-danger flex items-center justify-between">
           <span>{error}</span>
           <button
             type="button"
+            aria-label="Dismiss error"
             onClick={() => setError(null)}
             className="text-status-danger hover:opacity-75 cursor-pointer"
           >
@@ -364,6 +365,7 @@ export function ServerVersioningPage() {
           <span>{actionSuccess}</span>
           <button
             type="button"
+            aria-label="Dismiss message"
             onClick={() => setActionSuccess(null)}
             className="text-status-success hover:opacity-75 cursor-pointer"
           >
@@ -417,39 +419,44 @@ export function ServerVersioningPage() {
         onExploreWorktree={() => setIsMaterializationOpen(true)}
       />
 
-      {/* Commit History Timeline */}
-      <CommitTimeline
-        commits={filteredCommits}
-        tags={tags}
-        selectedBranch={selectedBranch}
-        isLoading={isLoading}
-        onTagCommit={(commitId) => setTagModalCommitId(commitId)}
-        onDiff={(from, to) => setDiffParams({ from, to })}
-        onInspect={(commit) => setInspectCommit(commit)}
-        onRunTest={(commitId) => setTestModalCommitId(commitId)}
-      />
+      {/* 12-Column Split Workspace (Commit Graph + Isolated Bot Testing) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className="lg:col-span-7">
+          <CommitTimeline
+            commits={filteredCommits}
+            tags={tags}
+            selectedBranch={selectedBranch}
+            isLoading={isLoading}
+            onTagCommit={(commitId) => setTagModalCommitId(commitId)}
+            onDiff={(from, to) => setDiffParams({ from, to })}
+            onInspect={(commit) => setInspectCommit(commit)}
+            onRunTest={(commitId) => setTestModalCommitId(commitId)}
+          />
+        </div>
 
-      {/* Isolated Test Runs Section */}
-      <TestRunList
-        testRuns={testRuns}
-        serverId={serverId}
-        onTestProfiles={() => setIsTestDefinitionsOpen(true)}
-        onEvidence={(testId) => setEvidenceModalTestId(testId)}
-        onLogs={(run) => setViewLogTestRun(run)}
-        onPromote={(testId) => {
-          setPromoteTestId(testId);
-          setIsPromoteModalOpen(true);
-        }}
-        onDiscard={handleDiscard}
-        onCheckNow={async (run) => {
-          if (serverId) {
-            const updated = await api.getTestStatus?.(serverId, run.id);
-            if (updated) {
-              setTestRuns((prev) => [updated, ...prev.filter((item) => item.id !== updated.id)]);
-            }
-          }
-        }}
-      />
+        <div className="lg:col-span-5">
+          <TestRunList
+            testRuns={testRuns}
+            serverId={serverId}
+            onTestProfiles={() => setIsTestDefinitionsOpen(true)}
+            onEvidence={(testId) => setEvidenceModalTestId(testId)}
+            onLogs={(run) => setViewLogTestRun(run)}
+            onPromote={(testId) => {
+              setPromoteTestId(testId);
+              setIsPromoteModalOpen(true);
+            }}
+            onDiscard={handleDiscard}
+            onCheckNow={async (run) => {
+              if (serverId) {
+                const updated = await api.getTestStatus?.(serverId, run.id);
+                if (updated) {
+                  setTestRuns((prev) => [updated, ...prev.filter((item) => item.id !== updated.id)]);
+                }
+              }
+            }}
+          />
+        </div>
+      </div>
 
       {/* TestRunModal */}
       {testModalCommitId && (

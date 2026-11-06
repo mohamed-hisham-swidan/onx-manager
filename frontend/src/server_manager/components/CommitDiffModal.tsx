@@ -83,9 +83,9 @@ export function CommitDiffModal({
       title="Commit Diff Inspector"
       description={
         <span className="font-mono">
-          <span className="text-indigo-600 dark:text-indigo-400 font-bold">{fromCommitId.slice(0, 7)}</span>
+          <span className="text-accent-primary font-bold">{fromCommitId.slice(0, 7)}</span>
           {" → "}
-          <span className="text-emerald-600 dark:text-emerald-400 font-bold">{toCommitId.slice(0, 7)}</span>
+          <span className="text-status-success font-bold">{toCommitId.slice(0, 7)}</span>
         </span>
       }
       size="2xl"
@@ -97,54 +97,58 @@ export function CommitDiffModal({
 
         {/* Error Alert */}
         {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+          <div role="alert" className="flex items-center gap-2 rounded-lg border border-status-danger-border bg-status-danger-bg p-3 text-xs text-status-danger">
             <Icon name="alert" size={16} className="shrink-0" />
             <span className="flex-1">{error}</span>
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 pb-2 text-xs">
+        <div role="tablist" className="flex items-center gap-2 border-b border-border-default pb-2 text-xs">
           <button
             type="button"
+            aria-selected={activeTab === "summary"}
             onClick={() => setActiveTab("summary")}
             className={`px-3 py-1.5 rounded font-medium transition-colors ${
               activeTab === "summary"
-                ? "bg-indigo-600 text-white"
-                : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                ? "bg-accent-primary text-accent-contrast-text"
+                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             }`}
           >
             Summary
           </button>
           <button
             type="button"
+            aria-selected={activeTab === "configs"}
             onClick={() => setActiveTab("configs")}
             className={`px-3 py-1.5 rounded font-medium transition-colors ${
               activeTab === "configs"
-                ? "bg-indigo-600 text-white"
-                : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                ? "bg-accent-primary text-accent-contrast-text"
+                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             }`}
           >
             Config Files ({totalConfigChanges})
           </button>
           <button
             type="button"
+            aria-selected={activeTab === "mods"}
             onClick={() => setActiveTab("mods")}
             className={`px-3 py-1.5 rounded font-medium transition-colors ${
               activeTab === "mods"
-                ? "bg-indigo-600 text-white"
-                : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                ? "bg-accent-primary text-accent-contrast-text"
+                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             }`}
           >
             Mods ({totalModChanges})
           </button>
           <button
             type="button"
+            aria-selected={activeTab === "env"}
             onClick={() => setActiveTab("env")}
             className={`px-3 py-1.5 rounded font-medium transition-colors ${
               activeTab === "env"
-                ? "bg-indigo-600 text-white"
-                : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                ? "bg-accent-primary text-accent-contrast-text"
+                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
             }`}
           >
             Env Vars ({totalEnvChanges})
@@ -154,11 +158,11 @@ export function CommitDiffModal({
         {/* Diff Content */}
         <div className="flex-1 overflow-y-auto space-y-4 min-h-[280px]">
           {isLoading ? (
-            <div className="flex items-center justify-center p-12 text-xs text-gray-400 italic">
+            <div className="flex items-center justify-center p-12 text-xs text-text-muted italic">
               Calculating commit diff...
             </div>
           ) : !diff ? (
-            <div className="flex items-center justify-center p-12 text-xs text-gray-400 italic">
+            <div className="flex items-center justify-center p-12 text-xs text-text-muted italic">
               No diff data available.
             </div>
           ) : (
@@ -167,40 +171,40 @@ export function CommitDiffModal({
               {activeTab === "summary" && (
                 <div className="space-y-4 text-xs">
                   {/* Runtime Changes */}
-                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-gray-50/50 dark:bg-gray-900/30 space-y-3">
-                    <h3 className="font-semibold text-gray-800 dark:text-gray-200">
+                  <div className="rounded-lg border border-border-default p-4 bg-surface-card space-y-3">
+                    <h3 className="font-semibold text-text-primary">
                       Runtime Environment
                     </h3>
                     <div className="grid grid-cols-2 gap-3 font-mono">
-                      <div className="p-2.5 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                        <span className="text-gray-400 block text-[11px]">Server Type</span>
+                      <div className="p-2.5 rounded bg-surface-muted border border-border-default">
+                        <span className="text-text-muted block text-[11px]">Server Type</span>
                         {diff.server_type ? (
                           <div className="mt-0.5">
-                            <span className="text-red-500 line-through mr-2">
+                            <span className="text-status-danger line-through mr-2">
                               {diff.server_type.from || "none"}
                             </span>
-                            <span className="text-emerald-500 font-bold">
+                            <span className="text-status-success font-bold">
                               {diff.server_type.to || "none"}
                             </span>
                           </div>
                         ) : (
-                          <span className="text-gray-600 dark:text-gray-300">Unchanged</span>
+                          <span className="text-text-secondary">Unchanged</span>
                         )}
                       </div>
 
-                      <div className="p-2.5 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                        <span className="text-gray-400 block text-[11px]">Minecraft Version</span>
+                      <div className="p-2.5 rounded bg-surface-muted border border-border-default">
+                        <span className="text-text-muted block text-[11px]">Minecraft Version</span>
                         {diff.minecraft_version ? (
                           <div className="mt-0.5">
-                            <span className="text-red-500 line-through mr-2">
+                            <span className="text-status-danger line-through mr-2">
                               {diff.minecraft_version.from || "none"}
                             </span>
-                            <span className="text-emerald-500 font-bold">
+                            <span className="text-status-success font-bold">
                               {diff.minecraft_version.to || "none"}
                             </span>
                           </div>
                         ) : (
-                          <span className="text-gray-600 dark:text-gray-300">Unchanged</span>
+                          <span className="text-text-secondary">Unchanged</span>
                         )}
                       </div>
                     </div>
@@ -208,21 +212,21 @@ export function CommitDiffModal({
 
                   {/* Summary Metric Cards */}
                   <div className="grid grid-cols-3 gap-3">
-                    <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-center">
-                      <span className="text-[11px] text-gray-400 block">Config Changes</span>
-                      <span className="text-lg font-bold text-gray-900 dark:text-white">
+                    <div className="p-3 rounded-lg border border-border-default bg-surface-card text-center">
+                      <span className="text-[11px] text-text-muted block">Config Changes</span>
+                      <span className="text-lg font-bold text-text-primary">
                         {totalConfigChanges}
                       </span>
                     </div>
-                    <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-center">
-                      <span className="text-[11px] text-gray-400 block">Mod Changes</span>
-                      <span className="text-lg font-bold text-gray-900 dark:text-white">
+                    <div className="p-3 rounded-lg border border-border-default bg-surface-card text-center">
+                      <span className="text-[11px] text-text-muted block">Mod Changes</span>
+                      <span className="text-lg font-bold text-text-primary">
                         {totalModChanges}
                       </span>
                     </div>
-                    <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-center">
-                      <span className="text-[11px] text-gray-400 block">Env Var Changes</span>
-                      <span className="text-lg font-bold text-gray-900 dark:text-white">
+                    <div className="p-3 rounded-lg border border-border-default bg-surface-card text-center">
+                      <span className="text-[11px] text-text-muted block">Env Var Changes</span>
+                      <span className="text-lg font-bold text-text-primary">
                         {totalEnvChanges}
                       </span>
                     </div>
@@ -234,19 +238,19 @@ export function CommitDiffModal({
               {activeTab === "configs" && (
                 <div className="space-y-3 text-xs">
                   {totalConfigChanges === 0 ? (
-                    <div className="p-8 text-center text-gray-400 italic">
+                    <div className="p-8 text-center text-text-muted italic">
                       No configuration file modifications between these commits.
                     </div>
                   ) : (
                     <>
                       {configsAdded.length > 0 && (
                         <div>
-                          <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 block mb-1">
+                          <span className="text-[11px] font-semibold text-status-success block mb-1">
                             Added Files ({configsAdded.length})
                           </span>
                           <div className="space-y-1 font-mono">
                             {configsAdded.map((path) => (
-                              <div key={path} className="p-2 rounded bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+                              <div key={path} className="p-2 rounded bg-status-success-bg border border-status-success-border text-status-success">
                                 + {path}
                               </div>
                             ))}
@@ -256,12 +260,12 @@ export function CommitDiffModal({
 
                       {configsModified.length > 0 && (
                         <div>
-                          <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 block mb-1">
+                          <span className="text-[11px] font-semibold text-status-warning block mb-1">
                             Modified Files ({configsModified.length})
                           </span>
                           <div className="space-y-1 font-mono">
                             {configsModified.map((path) => (
-                              <div key={path} className="p-2 rounded bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-300">
+                              <div key={path} className="p-2 rounded bg-status-warning-bg border border-status-warning-border text-status-warning">
                                 ~ {path}
                               </div>
                             ))}
@@ -271,12 +275,12 @@ export function CommitDiffModal({
 
                       {configsDeleted.length > 0 && (
                         <div>
-                          <span className="text-[11px] font-semibold text-red-600 dark:text-red-400 block mb-1">
+                          <span className="text-[11px] font-semibold text-status-danger block mb-1">
                             Deleted Files ({configsDeleted.length})
                           </span>
                           <div className="space-y-1 font-mono">
                             {configsDeleted.map((path) => (
-                              <div key={path} className="p-2 rounded bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-300">
+                              <div key={path} className="p-2 rounded bg-status-danger-bg border border-status-danger-border text-status-danger">
                                 - {path}
                               </div>
                             ))}
@@ -292,21 +296,21 @@ export function CommitDiffModal({
               {activeTab === "mods" && (
                 <div className="space-y-3 text-xs">
                   {totalModChanges === 0 ? (
-                    <div className="p-8 text-center text-gray-400 italic">
+                    <div className="p-8 text-center text-text-muted italic">
                       No mod changes between these commits.
                     </div>
                   ) : (
                     <>
                       {modsAdded.length > 0 && (
                         <div>
-                          <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 block mb-1">
+                          <span className="text-[11px] font-semibold text-status-success block mb-1">
                             Added Mods ({modsAdded.length})
                           </span>
                           <div className="flex flex-wrap gap-1.5">
                             {modsAdded.map((mod, idx) => {
                               const name = getModName(mod);
                               return (
-                                <span key={`${name}-${idx}`} className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-mono text-[11px]">
+                                <span key={`${name}-${idx}`} className="px-2 py-1 rounded bg-status-success-bg text-status-success border border-status-success-border font-mono text-[11px]">
                                   + {name}
                                 </span>
                               );
@@ -317,14 +321,14 @@ export function CommitDiffModal({
 
                       {modsRemoved.length > 0 && (
                         <div>
-                          <span className="text-[11px] font-semibold text-red-600 dark:text-red-400 block mb-1">
+                          <span className="text-[11px] font-semibold text-status-danger block mb-1">
                             Removed Mods ({modsRemoved.length})
                           </span>
                           <div className="flex flex-wrap gap-1.5">
                             {modsRemoved.map((mod, idx) => {
                               const name = getModName(mod);
                               return (
-                                <span key={`${name}-${idx}`} className="px-2 py-1 rounded bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 font-mono text-[11px]">
+                                <span key={`${name}-${idx}`} className="px-2 py-1 rounded bg-status-danger-bg text-status-danger border border-status-danger-border font-mono text-[11px]">
                                   - {name}
                                 </span>
                               );
@@ -335,14 +339,14 @@ export function CommitDiffModal({
 
                       {modsModified.length > 0 && (
                         <div>
-                          <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 block mb-1">
+                          <span className="text-[11px] font-semibold text-status-warning block mb-1">
                             Updated Mods ({modsModified.length})
                           </span>
                           <div className="flex flex-wrap gap-1.5">
                             {modsModified.map((mod, idx) => {
                               const name = getModName(mod);
                               return (
-                                <span key={`${name}-${idx}`} className="px-2 py-1 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 font-mono text-[11px]">
+                                <span key={`${name}-${idx}`} className="px-2 py-1 rounded bg-status-warning-bg text-status-warning border border-status-warning-border font-mono text-[11px]">
                                   ~ {name}
                                 </span>
                               );
@@ -359,19 +363,19 @@ export function CommitDiffModal({
               {activeTab === "env" && (
                 <div className="space-y-3 text-xs">
                   {totalEnvChanges === 0 ? (
-                    <div className="p-8 text-center text-gray-400 italic">
+                    <div className="p-8 text-center text-text-muted italic">
                       No environment variable differences between these commits.
                     </div>
                   ) : (
                     <>
                       {envAdded.length > 0 && (
                         <div>
-                          <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 block mb-1">
+                          <span className="text-[11px] font-semibold text-status-success block mb-1">
                             Added Variables ({envAdded.length})
                           </span>
                           <div className="space-y-1 font-mono">
                             {envAdded.map((key) => (
-                              <div key={key} className="p-2 rounded bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300">
+                              <div key={key} className="p-2 rounded bg-status-success-bg border border-status-success-border text-status-success">
                                 + {key} = {diff.env_vars?.added?.[key]}
                               </div>
                             ))}
@@ -381,7 +385,7 @@ export function CommitDiffModal({
 
                       {envModified.length > 0 && (
                         <div>
-                          <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 block mb-1">
+                          <span className="text-[11px] font-semibold text-status-warning block mb-1">
                             Modified Variables ({envModified.length})
                           </span>
                           <div className="space-y-1 font-mono">
@@ -393,8 +397,8 @@ export function CommitDiffModal({
                               const fromVal = change && "from" in change ? change.from : "";
                               const toVal = change && "to" in change ? change.to : "";
                               return (
-                                <div key={key} className="p-2 rounded bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-300">
-                                  ~ {key}: <span className="line-through text-red-500 mr-1">{fromVal}</span> → <span className="font-bold text-emerald-500">{toVal}</span>
+                                <div key={key} className="p-2 rounded bg-status-warning-bg border border-status-warning-border text-status-warning">
+                                  ~ {key}: <span className="line-through text-status-danger mr-1">{fromVal}</span> → <span className="font-bold text-status-success">{toVal}</span>
                                 </div>
                               );
                             })}
@@ -404,12 +408,12 @@ export function CommitDiffModal({
 
                       {envDeleted.length > 0 && (
                         <div>
-                          <span className="text-[11px] font-semibold text-red-600 dark:text-red-400 block mb-1">
+                          <span className="text-[11px] font-semibold text-status-danger block mb-1">
                             Deleted Variables ({envDeleted.length})
                           </span>
                           <div className="space-y-1 font-mono">
                             {envDeleted.map((key) => (
-                              <div key={key} className="p-2 rounded bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-300">
+                              <div key={key} className="p-2 rounded bg-status-danger-bg border border-status-danger-border text-status-danger">
                                 - {key}
                               </div>
                             ))}
@@ -425,11 +429,11 @@ export function CommitDiffModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end border-t border-gray-100 dark:border-gray-800 pt-3">
+        <div className="flex items-center justify-end border-t border-border-default pt-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="px-4 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors"
           >
             Close
           </button>

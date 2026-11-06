@@ -117,9 +117,9 @@ export function TestRunModal({
       closeOnBackdrop={!isLaunching}
       closeOnEscape={!isLaunching}
     >
-      <div className="space-y-6">
+      <div className="space-y-6 text-text-primary">
         {error && (
-          <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300">
+          <div role="alert" className="rounded-lg bg-status-danger-bg border border-status-danger-border p-3 text-sm text-status-danger">
             {error}
           </div>
         )}
@@ -129,7 +129,7 @@ export function TestRunModal({
           <div>
             <label
               htmlFor="test-profile-select"
-              className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+              className="block text-xs font-medium text-text-secondary mb-1"
             >
               Test Profile (Optional)
             </label>
@@ -147,7 +147,7 @@ export function TestRunModal({
                   if (def.bot_technology) setBotTech(def.bot_technology);
                 }
               }}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:outline-none focus:border-indigo-500"
+              className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-border-focus"
             >
               <option value="">Custom Settings (Manual)</option>
               {definitions.map((d) => (
@@ -160,36 +160,36 @@ export function TestRunModal({
         )}
 
         {/* Preflight Status Card */}
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700/80 bg-gray-50/50 dark:bg-gray-800/40 p-4 space-y-3">
+        <div className="rounded-lg border border-border-default bg-surface-card p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
               Host Preflight Verification
             </span>
             {isLoadingPreflight ? (
-              <span className="text-xs text-gray-400 flex items-center gap-1">
+              <span className="text-xs text-text-muted flex items-center gap-1">
                 <Icon name="clock" size={12} /> Checking headroom...
               </span>
             ) : preflight?.passed ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+              <span className="inline-flex items-center gap-1 rounded-full bg-status-success-bg px-2 py-0.5 text-xs font-medium text-status-success border border-status-success-border">
                 <Icon name="check" size={12} /> Preflight Passed
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
+              <span className="inline-flex items-center gap-1 rounded-full bg-status-danger-bg px-2 py-0.5 text-xs font-medium text-status-danger border border-status-danger-border">
                 <Icon name="alert" size={12} /> Insufficient Resources
               </span>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="rounded bg-white dark:bg-gray-900 p-2 border border-gray-100 dark:border-gray-800">
-              <span className="text-gray-500 dark:text-gray-400 block mb-0.5">COW (Reflink)</span>
-              <span className="font-medium text-gray-800 dark:text-gray-200">
+            <div className="rounded bg-surface-muted p-2 border border-border-subtle">
+              <span className="text-text-muted block mb-0.5">COW (Reflink)</span>
+              <span className="font-medium text-text-primary">
                 {preflight ? (preflight.reflink_supported ? "Supported (Btrfs/ZFS)" : "Not Supported") : "..."}
               </span>
             </div>
-            <div className="rounded bg-white dark:bg-gray-900 p-2 border border-gray-100 dark:border-gray-800">
-              <span className="text-gray-500 dark:text-gray-400 block mb-0.5">Headroom (RAM / Cores)</span>
-              <span className="font-medium text-gray-800 dark:text-gray-200">
+            <div className="rounded bg-surface-muted p-2 border border-border-subtle">
+              <span className="text-text-muted block mb-0.5">Headroom (RAM / Cores)</span>
+              <span className="font-medium text-text-primary">
                 {preflight
                   ? `${preflight.available_ram_mb} MB (${preflight.min_required_ram_mb} MB req) / ${preflight.available_cores} cores`
                   : "..."}
@@ -198,7 +198,7 @@ export function TestRunModal({
           </div>
 
           {preflight && !preflight.passed && preflight.error && (
-            <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+            <p className="text-xs text-status-danger font-medium">
               {preflight.error}
             </p>
           )}
@@ -210,7 +210,7 @@ export function TestRunModal({
             <div>
               <label
                 htmlFor="bot-count-input"
-                className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="block text-xs font-medium text-text-secondary mb-1"
               >
                 Verification Bot Count
               </label>
@@ -220,9 +220,9 @@ export function TestRunModal({
                 min={1}
                 value={botCount}
                 onChange={(e) => setBotCount(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary focus:border-border-focus focus:outline-none"
               />
-              <span className="text-[10px] text-gray-500 dark:text-gray-400">
+              <span className="text-[10px] text-text-muted">
                 Unrestricted: dynamically validated against system headroom.
               </span>
             </div>
@@ -230,7 +230,7 @@ export function TestRunModal({
             <div>
               <label
                 htmlFor="duration-input"
-                className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="block text-xs font-medium text-text-secondary mb-1"
               >
                 Test Duration (Minutes)
               </label>
@@ -240,9 +240,9 @@ export function TestRunModal({
                 min={1}
                 value={durationMinutes}
                 onChange={(e) => setDurationMinutes(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary focus:border-border-focus focus:outline-none"
               />
-              <span className="text-[10px] text-gray-500 dark:text-gray-400">
+              <span className="text-[10px] text-text-muted">
                 Active connection & activity period.
               </span>
             </div>
@@ -252,7 +252,7 @@ export function TestRunModal({
             <div>
               <label
                 htmlFor="bot-tech-select"
-                className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="block text-xs font-medium text-text-secondary mb-1"
               >
                 Bot Technology
               </label>
@@ -260,7 +260,7 @@ export function TestRunModal({
                 id="bot-tech-select"
                 value={botTech}
                 onChange={(e) => setBotTech(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary focus:border-border-focus focus:outline-none"
               >
                 <option value="auto">Auto (Server-type aware)</option>
                 <option value="mineflayer">Mineflayer (External Protocol)</option>
@@ -271,7 +271,7 @@ export function TestRunModal({
             <div>
               <label
                 htmlFor="placement-mode-select"
-                className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="block text-xs font-medium text-text-secondary mb-1"
               >
                 Placement Mode
               </label>
@@ -279,7 +279,7 @@ export function TestRunModal({
                 id="placement-mode-select"
                 value={placementMode}
                 onChange={(e) => setPlacementMode(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary focus:border-border-focus focus:outline-none"
               >
                 <option value="sidecar">Sidecar (Container Isolation)</option>
                 <option value="in_container">In Container</option>
@@ -289,12 +289,12 @@ export function TestRunModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-3 border-t border-gray-100 dark:border-gray-800 pt-4">
+        <div className="flex items-center justify-end gap-3 border-t border-border-default pt-4">
           <button
             type="button"
             onClick={handleClose}
             disabled={isLaunching}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+            className="rounded-lg border border-border-default bg-surface-muted px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
@@ -302,7 +302,7 @@ export function TestRunModal({
             type="button"
             onClick={handleLaunch}
             disabled={isLaunching || (preflight !== null && !preflight.passed)}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent-primary hover:bg-accent-hover px-4 py-2 text-sm font-semibold text-accent-contrast-text disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-colors"
           >
             {isLaunching ? (
               <>

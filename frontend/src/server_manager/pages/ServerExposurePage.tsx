@@ -132,7 +132,7 @@ export function ServerExposurePage() {
           <Skeleton className="h-6 w-32" />
           <Skeleton className="h-6 w-24" />
         </div>
-        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 p-6 space-y-4">
+        <div className="rounded-xl border border-border-subtle bg-surface-card p-6 space-y-4">
           <Skeleton className="h-6 w-48" />
           <Skeleton className="h-28 w-full" />
         </div>
@@ -147,10 +147,10 @@ export function ServerExposurePage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 pb-4 dark:border-gray-700">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+            <h2 className="text-xl font-bold text-text-primary">
               Network & Public Exposure
             </h2>
             <StatusBadge status={aggregateStatus} />
@@ -161,7 +161,7 @@ export function ServerExposurePage() {
           <button
             type="button"
             onClick={() => refetch()}
-            className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="p-2 rounded-lg border border-border-default bg-surface-page text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
             title="Refresh status"
             aria-label="Refresh status"
           >
@@ -173,7 +173,7 @@ export function ServerExposurePage() {
               ref={disableButtonRef}
               type="button"
               onClick={() => setIsConfirmDisableOpen(true)}
-              className="px-3.5 py-2 rounded-lg border border-red-300 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors shadow-xs"
+              className="px-3.5 py-2 rounded-lg border border-status-danger/40 bg-status-danger-bg text-xs font-semibold text-status-danger hover:bg-status-danger-bg/80 transition-colors shadow-xs cursor-pointer"
             >
               Disable Exposure
             </button>
@@ -181,19 +181,113 @@ export function ServerExposurePage() {
         </div>
       </div>
 
+      {/* Visual Connection Topology Pipeline */}
+      <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4 sm:p-5 shadow-2xs">
+        <div className="mb-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Icon name="activity" size={14} className="text-accent-primary" />
+            <span className="text-xs font-bold uppercase tracking-wider text-text-secondary">
+              Connection Flow &amp; Routing Topology
+            </span>
+          </div>
+          <span className="font-mono text-xs text-text-muted">
+            Container Port: {server?.port || 25565}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-7">
+          {/* Node 1: Docker Container */}
+          <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-page p-3 md:col-span-2">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
+              <Icon name="server" size={18} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-text-primary">Docker Container</p>
+              <p className="font-mono text-[11px] text-text-muted">:{server?.port || 25565} / TCP</p>
+            </div>
+          </div>
+
+          {/* Connector 1 */}
+          <div className="hidden items-center justify-center md:flex">
+            <div className="flex items-center gap-1 text-text-muted">
+              <div className="h-0.5 w-6 bg-border-default" />
+              <Icon name="chevron-right" size={14} />
+            </div>
+          </div>
+
+          {/* Node 2: Exposure Engine */}
+          <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-page p-3 md:col-span-2">
+            <div
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                isEnabled
+                  ? "bg-status-success-bg text-status-success border border-status-success/30"
+                  : "bg-surface-elevated text-text-muted border border-border-subtle"
+              }`}
+            >
+              <Icon name="external" size={18} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-text-primary capitalize">
+                {exposure?.method === "none" ? "Local Host" : exposure?.method || "None"}
+              </p>
+              <p className="truncate text-[11px] text-text-muted">
+                {isEnabled ? "Tunnel active" : "No public route"}
+              </p>
+            </div>
+          </div>
+
+          {/* Connector 2 */}
+          <div className="hidden items-center justify-center md:flex">
+            <div className="flex items-center gap-1 text-text-muted">
+              <div className="h-0.5 w-6 bg-border-default" />
+              <Icon name="chevron-right" size={14} />
+            </div>
+          </div>
+
+          {/* Node 3: Public Internet Endpoint */}
+          <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-page p-3 md:col-span-2">
+            <div
+              className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                isEnabled && aggregateStatus === "ACTIVE"
+                  ? "bg-status-success-bg text-status-success border border-status-success/30"
+                  : "bg-surface-elevated text-text-muted border border-border-subtle"
+              }`}
+            >
+              <Icon name="globe" size={18} />
+              {isEnabled && aggregateStatus === "ACTIVE" && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-success opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-status-success" />
+                </span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-text-primary">Public Endpoint</p>
+              <p className="truncate font-mono text-[11px] text-text-muted">
+                {exposure?.targets?.[0]?.public_address
+                  ? `Active: ${exposure.targets[0].public_address}`
+                  : isEnabled
+                  ? "Resolving..."
+                  : "Offline"}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Aggregate Error Banner */}
       {aggregateStatus === "ERROR" && (
         <div
           role="alert"
-          className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 space-y-2"
+          className="p-4 rounded-xl bg-status-danger-bg border border-status-danger/30 space-y-2"
         >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-red-700 dark:text-red-300 font-semibold text-xs">
+            <div className="flex items-center gap-2 text-status-danger font-semibold text-xs">
               <Icon name="alert" size={16} />
               <span>{exposure?.error_message || "Exposure service encountered an error"}</span>
             </div>
             {exposure?.error_code && (
-              <span className="font-mono text-[10px] bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 px-2 py-0.5 rounded">
+              <span className="font-mono text-[10px] bg-surface-card text-status-danger border border-status-danger/30 px-2 py-0.5 rounded">
                 {exposure.error_code}
               </span>
             )}
@@ -205,13 +299,13 @@ export function ServerExposurePage() {
       {isReclaimRequired && (
         <div
           role="alert"
-          className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 space-y-1"
+          className="p-4 rounded-xl bg-status-warning-bg border border-status-warning/30 space-y-1"
         >
-          <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-semibold text-xs">
+          <div className="flex items-center gap-2 text-status-warning font-semibold text-xs">
             <Icon name="alert" size={16} />
             <span>Exposure Credentials Revoked or Invalidated</span>
           </div>
-          <p className="text-xs text-amber-700 dark:text-amber-300 pl-6">
+          <p className="text-xs text-text-secondary pl-6">
             The stored Cloudflare token or playit authorization is no longer valid. Please enter a fresh token or re-authorize to restore public access.
           </p>
         </div>
@@ -264,7 +358,7 @@ export function ServerExposurePage() {
         closeButtonAriaLabel="Close dialog"
       >
         <div className="space-y-4">
-          <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+          <p className="text-xs text-text-secondary leading-relaxed">
             Disabling network exposure will disconnect all public tunnels and port mappings for this Minecraft server. Players on the internet will no longer be able to connect.
           </p>
           <div className="flex justify-end gap-3 pt-2">
@@ -276,7 +370,7 @@ export function ServerExposurePage() {
                 disableButtonRef.current?.focus();
               }}
               disabled={isSettingExposureState}
-              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+              className="px-4 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
@@ -284,7 +378,7 @@ export function ServerExposurePage() {
               type="button"
               onClick={handleConfirmDisable}
               disabled={isSettingExposureState}
-              className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+              className="px-4 py-2 rounded-lg bg-status-danger bg-red-600 hover:bg-red-700 text-text-inverse text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
             >
               {isSettingExposureState ? "Disabling..." : "Confirm Disable"}
             </button>

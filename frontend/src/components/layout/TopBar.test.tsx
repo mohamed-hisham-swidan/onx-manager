@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { TopBar } from "./TopBar";
 import { useAuthStore } from "@/stores/authStore";
@@ -43,7 +43,14 @@ describe("TopBar", () => {
       refreshToken: null,
       getAccessToken: () => null,
     });
-    useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false, theme: "light" });
+    useUIStore.setState({
+      sidebarOpen: true,
+      mobileSidebarOpen: false,
+      theme: "light",
+      skin: "graphite",
+      density: "comfortable",
+      accent: "theme",
+    });
     useWSStore.setState({
       connectionState: ConnectionState.DISCONNECTED,
       connected: false,
@@ -115,5 +122,61 @@ describe("TopBar", () => {
     renderTopBar();
     expect(screen.getByRole("status", { name: "Socket degraded" })).toBeInTheDocument();
     expect(screen.getByText("Degraded")).toBeInTheDocument();
+  });
+
+  it("renders appearance options button and toggles Theme Studio popover", () => {
+    setAuth();
+    renderTopBar();
+    const btn = screen.getByLabelText("Appearance options");
+    expect(btn).toBeInTheDocument();
+
+    expect(screen.queryByRole("dialog", { name: "Theme Studio" })).not.toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(screen.getByRole("dialog", { name: "Theme Studio" })).toBeInTheDocument();
+
+    // Check all 6 skins are present
+    expect(screen.getByText("Graphite")).toBeInTheDocument();
+    expect(screen.getByText("Azure")).toBeInTheDocument();
+    expect(screen.getByText("Emerald")).toBeInTheDocument();
+    expect(screen.getByText("Amethyst")).toBeInTheDocument();
+    expect(screen.getByText("Amber")).toBeInTheDocument();
+    expect(screen.getByText("Crimson")).toBeInTheDocument();
+
+    // Selecting a skin updates uiStore
+    fireEvent.click(screen.getByText("Emerald"));
+    expect(useUIStore.getState().skin).toBe("emerald");
+
+    // Check accent swatches are present and selectable
+    const emeraldAccent = screen.getByLabelText("Accent Emerald");
+    expect(emeraldAccent).toBeInTheDocument();
+    fireEvent.click(emeraldAccent);
+    expect(useUIStore.getState().accent).toBe("emerald");
+
+    // Check settings link is present
+    expect(screen.getByText("Appearance settings")).toBeInTheDocument();
+
+    // Close popover
+    fireEvent.click(screen.getByLabelText("Close appearance popover"));
+    expect(screen.queryByRole("dialog", { name: "Theme Studio" })).not.toBeInTheDocument();
+  });
+
+  it("cycles skins via toggle skin button and preserves density & theme buttons", () => {
+    setAuth();
+    renderTopBar();
+
+    const skinBtn = screen.getByLabelText("Toggle skin");
+    expect(skinBtn).toBeInTheDocument();
+    fireEvent.click(skinBtn);
+    expect(useUIStore.getState().skin).toBe("azure");
+
+    const densityBtn = screen.getByLabelText("Toggle density");
+    expect(densityBtn).toBeInTheDocument();
+    fireEvent.click(densityBtn);
+    expect(useUIStore.getState().density).toBe("compact");
+
+    const themeBtn = screen.getByLabelText("Toggle theme");
+    expect(themeBtn).toBeInTheDocument();
+    fireEvent.click(themeBtn);
+    expect(useUIStore.getState().theme).toBe("dark");
   });
 });

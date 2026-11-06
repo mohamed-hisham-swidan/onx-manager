@@ -139,19 +139,19 @@ export function ImportReviewModal({
     switch (type) {
       case "added":
         return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-success-bg text-status-success border border-status-success-border">
             ADDED
           </span>
         );
       case "modified":
         return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning border border-status-warning-border">
             MODIFIED
           </span>
         );
       case "deleted":
         return (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-danger-bg text-status-danger border border-status-danger-border">
             DELETED
           </span>
         );
@@ -167,7 +167,7 @@ export function ImportReviewModal({
       description={
         <span>
           Live filesystem has diverged from base commit{" "}
-          <span className="font-mono font-semibold text-gray-700 dark:text-gray-300">
+          <span className="font-mono font-semibold text-text-secondary">
             {liveData?.base_commit_id?.slice(0, 7) || "HEAD"}
           </span>
         </span>
@@ -177,16 +177,16 @@ export function ImportReviewModal({
       closeOnEscape={!isProcessing}
       closeButtonAriaLabel="Close modal"
     >
-      <div className="space-y-4 text-gray-900 dark:text-gray-100">
+      <div className="space-y-4 text-text-primary">
         {/* Error alert */}
         {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+          <div role="alert" className="flex items-center gap-2 rounded-lg border border-status-danger-border bg-status-danger-bg p-3 text-xs text-status-danger">
             <Icon name="alert" size={16} className="shrink-0" />
             <span className="flex-1">{error}</span>
             <button
               type="button"
               onClick={() => setError(null)}
-              className="text-red-500 hover:text-red-700"
+              className="text-status-danger hover:opacity-80 transition-opacity"
             >
               <Icon name="x" size={14} />
             </button>
@@ -195,12 +195,12 @@ export function ImportReviewModal({
 
         {/* Revert Confirmation Banner */}
         {showRevertConfirm && (
-          <div className="rounded-lg border border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/60 p-4 space-y-2 animate-fade-in">
-            <div className="flex items-center gap-2 text-sm font-semibold text-red-800 dark:text-red-200">
+          <div role="alert" className="rounded-lg border border-status-danger-border bg-status-danger-bg p-4 space-y-2 animate-fade-in">
+            <div className="flex items-center gap-2 text-sm font-semibold text-status-danger">
               <Icon name="alert" size={18} />
               <span>Confirm Destructive Filesystem Revert</span>
             </div>
-            <p className="text-xs text-red-700 dark:text-red-300">
+            <p className="text-xs text-text-primary">
               This will permanently discard all uncommitted changes on the server filesystem and restore files to branch HEAD. This action cannot be undone.
             </p>
             <div className="flex justify-end gap-2 pt-2">
@@ -208,7 +208,7 @@ export function ImportReviewModal({
                 type="button"
                 onClick={() => setShowRevertConfirm(false)}
                 disabled={isProcessing}
-                className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50"
+                className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors"
               >
                 Cancel
               </button>
@@ -216,7 +216,7 @@ export function ImportReviewModal({
                 type="button"
                 onClick={handleRevert}
                 disabled={isProcessing}
-                className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-xs font-medium text-accent-contrast-text bg-status-danger hover:opacity-90 rounded-lg transition-colors"
               >
                 {isProcessing ? "Reverting..." : "Yes, Revert Filesystem"}
               </button>
@@ -225,15 +225,15 @@ export function ImportReviewModal({
         )}
 
         {/* Change Stats and Filter Tabs */}
-        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-2 text-xs">
+        <div className="flex items-center justify-between border-b border-border-default pb-2 text-xs">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setActiveTab("all")}
               className={`px-2.5 py-1 rounded font-medium transition-colors ${
                 activeTab === "all"
-                  ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
-                  : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  ? "bg-accent-primary text-accent-contrast-text"
+                  : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
               }`}
             >
               All ({changes.length})
@@ -243,8 +243,8 @@ export function ImportReviewModal({
               onClick={() => setActiveTab("added")}
               className={`px-2.5 py-1 rounded font-medium transition-colors ${
                 activeTab === "added"
-                  ? "bg-emerald-600 text-white"
-                  : "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                  ? "bg-status-success text-accent-contrast-text"
+                  : "text-status-success hover:bg-status-success-bg"
               }`}
             >
               Added ({added.length})
@@ -254,8 +254,8 @@ export function ImportReviewModal({
               onClick={() => setActiveTab("modified")}
               className={`px-2.5 py-1 rounded font-medium transition-colors ${
                 activeTab === "modified"
-                  ? "bg-amber-600 text-white"
-                  : "text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                  ? "bg-status-warning text-accent-contrast-text"
+                  : "text-status-warning hover:bg-status-warning-bg"
               }`}
             >
               Modified ({modified.length})
@@ -265,8 +265,8 @@ export function ImportReviewModal({
               onClick={() => setActiveTab("deleted")}
               className={`px-2.5 py-1 rounded font-medium transition-colors ${
                 activeTab === "deleted"
-                  ? "bg-red-600 text-white"
-                  : "text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
+                  ? "bg-status-danger text-accent-contrast-text"
+                  : "text-status-danger hover:bg-status-danger-bg"
               }`}
             >
               Deleted ({deleted.length})
@@ -274,32 +274,35 @@ export function ImportReviewModal({
           </div>
 
           {liveData.detected_at && (
-            <span className="text-[11px] text-gray-400">
+            <span className="text-[11px] text-text-muted">
               Scanned: {parseServerDate(liveData.detected_at)?.toLocaleTimeString() ?? "—"}
             </span>
           )}
         </div>
 
         {/* Changes List */}
-        <div className="flex-1 overflow-y-auto max-h-[360px] border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800 bg-gray-50/50 dark:bg-gray-900/40">
+        <div
+          tabIndex={0}
+          className="flex-1 overflow-y-auto max-h-[360px] border border-border-default rounded-lg divide-y divide-border-subtle bg-surface-card focus:outline-none focus:ring-1 focus:ring-border-focus"
+        >
           {filteredChanges.length === 0 ? (
-            <div className="p-8 text-center text-xs text-gray-400 italic">
+            <div className="p-8 text-center text-xs text-text-muted italic">
               No changes in this category.
             </div>
           ) : (
             filteredChanges.map((change, idx) => (
               <div
                 key={`${change.path}-${idx}`}
-                className="flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-100/60 dark:hover:bg-gray-800/60 transition-colors"
+                className="flex items-center justify-between px-3 py-2 text-xs hover:bg-surface-hover transition-colors"
               >
                 <div className="flex items-center gap-2.5 truncate">
                   {getChangeBadge(getChangeType(change))}
-                  <span className="font-mono text-gray-800 dark:text-gray-200 truncate">
+                  <span className="font-mono text-text-primary truncate">
                     {change.path}
                   </span>
                 </div>
                 {change.size_bytes !== undefined && (
-                  <span className="text-[11px] font-mono text-gray-400 shrink-0">
+                  <span className="text-[11px] font-mono text-text-muted shrink-0">
                     {change.size_bytes} bytes
                   </span>
                 )}
@@ -309,13 +312,13 @@ export function ImportReviewModal({
         </div>
 
         {/* Modal Actions Footer */}
-        <div className="flex items-center justify-between border-t border-gray-100 dark:border-gray-800 pt-3">
+        <div className="flex items-center justify-between border-t border-border-default pt-3">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setShowRevertConfirm(true)}
               disabled={isProcessing || showRevertConfirm}
-              className="px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-status-danger hover:bg-status-danger-bg border border-status-danger-border rounded-lg transition-colors"
             >
               Revert Live Changes
             </button>
@@ -323,7 +326,7 @@ export function ImportReviewModal({
               type="button"
               onClick={handleDismiss}
               disabled={isProcessing}
-              className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover border border-border-default rounded-lg transition-colors"
             >
               Dismiss
             </button>
@@ -334,7 +337,7 @@ export function ImportReviewModal({
               type="button"
               onClick={handleClose}
               disabled={isProcessing}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default rounded-lg transition-colors disabled:opacity-50"
             >
               Close
             </button>
@@ -342,7 +345,7 @@ export function ImportReviewModal({
               type="button"
               onClick={handleConfirm}
               disabled={isProcessing || changes.length === 0}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg transition-colors shadow-sm"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-accent-contrast-text bg-accent-primary hover:bg-accent-hover disabled:opacity-50 rounded-lg transition-colors shadow-sm"
             >
               <Icon name="check" size={14} />
               {isProcessing ? "Processing..." : "Confirm & Commit"}

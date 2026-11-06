@@ -89,7 +89,7 @@ export function AddCompanionTargetModal({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Service Selector */}
         <div className="space-y-2">
-          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+          <label className="block text-xs font-semibold uppercase tracking-wider text-text-secondary">
             Select Companion Service
           </label>
           <div className="grid grid-cols-1 gap-2.5">
@@ -106,29 +106,29 @@ export function AddCompanionTargetModal({
                   onClick={() => handleSelectService(srv)}
                   className={`flex items-start justify-between p-3 rounded-lg border text-left transition-all ${
                     isSelected
-                      ? "border-blue-500 bg-blue-50/50 dark:border-blue-500 dark:bg-blue-900/20 shadow-sm"
-                      : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800"
+                      ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                      : "border-border-default hover:border-border-strong bg-surface-card"
                   } ${alreadyConfigured ? "opacity-75" : ""} disabled:opacity-50`}
                 >
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">
+                      <span className="text-xs font-semibold text-text-primary">
                         {meta.label}
                       </span>
-                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 uppercase">
+                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-surface-muted text-text-secondary uppercase">
                         {meta.defaultProtocol}
                       </span>
                       {alreadyConfigured && (
-                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-status-warning-bg text-status-warning">
                           Already Configured
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    <p className="text-[11px] text-text-muted">
                       {meta.description}
                     </p>
                   </div>
-                  <span className="font-mono text-xs font-semibold text-gray-600 dark:text-gray-300 shrink-0 ml-2">
+                  <span className="font-mono text-xs font-semibold text-text-secondary shrink-0 ml-2">
                     Port {meta.defaultPort}
                   </span>
                 </button>
@@ -137,7 +137,7 @@ export function AddCompanionTargetModal({
           </div>
 
           {/* Note on Primary Java Edition immutability (F-75-13) */}
-          <p className="text-[11px] text-gray-500 dark:text-gray-400 italic pt-1">
+          <p className="text-[11px] text-text-muted italic pt-1">
             Note: The primary Java Edition server target is managed automatically by the exposure method and cannot be added as a companion.
           </p>
         </div>
@@ -146,9 +146,9 @@ export function AddCompanionTargetModal({
         <div className="space-y-1.5">
           <label
             htmlFor="target-local-port"
-            className="block text-xs font-semibold text-gray-700 dark:text-gray-300"
+            className="block text-xs font-semibold text-text-secondary"
           >
-            Local Service Port <span className="text-red-500">*</span>
+            Local Service Port <span className="text-status-danger">*</span>
           </label>
           <input
             ref={firstInputRef}
@@ -160,22 +160,22 @@ export function AddCompanionTargetModal({
             value={customPortStr}
             onChange={(e) => handlePortChange(e.target.value)}
             placeholder="e.g. 19132"
-            className={`w-full px-3 py-2 rounded-lg border bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all disabled:opacity-50 ${
+            className={`w-full px-3 py-2 rounded-lg border bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all disabled:opacity-50 ${
               !validation.valid
-                ? "border-red-500 dark:border-red-500"
-                : "border-gray-300 dark:border-gray-600"
+                ? "border-status-danger"
+                : "border-border-default"
             }`}
           />
 
           {!validation.valid && (
-            <p className="text-[11px] text-red-600 dark:text-red-400 flex items-center gap-1">
+            <p className="text-[11px] text-status-danger flex items-center gap-1">
               <Icon name="alert" size={12} className="shrink-0" />
               <span>{validation.error}</span>
             </p>
           )}
 
           {isAlreadyAdded && (
-            <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <p className="text-[11px] text-status-warning flex items-center gap-1">
               <Icon name="alert" size={12} className="shrink-0" />
               <span>A target for {SERVICE_METADATA[selectedService].label} is already active on this server.</span>
             </p>
@@ -183,19 +183,19 @@ export function AddCompanionTargetModal({
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex justify-end gap-3 pt-3 border-t border-border-subtle">
           <button
             type="button"
             onClick={handleClose}
             disabled={isSubmitting}
-            className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+            className="px-4 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={!isValid || isSubmitting}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+            className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
           >
             {isSubmitting ? "Creating Target..." : "Add Target"}
           </button>

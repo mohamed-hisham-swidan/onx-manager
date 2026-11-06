@@ -194,7 +194,7 @@ export function CreateServerPage() {
       )}
 
       {error && (
-        <div className="mb-4 p-3 rounded-xl bg-status-danger-bg border border-status-danger/30 text-sm text-status-danger">
+        <div role="alert" className="mb-4 p-3 rounded-xl bg-status-danger-bg border border-status-danger/30 text-sm text-status-danger">
           {error}
         </div>
       )}

@@ -142,19 +142,19 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
             <img
               src={project.icon_url}
               alt=""
-              className="h-12 w-12 shrink-0 rounded-xl object-cover border border-gray-200 dark:border-gray-700"
+              className="h-12 w-12 shrink-0 rounded-xl object-cover border border-border-default"
             />
           ) : (
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500 border border-gray-200 dark:border-gray-600">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-surface-muted text-text-muted border border-border-default">
               <Icon name="plugin" size={24} />
             </div>
           )}
           <div className="min-w-0">
-            <span className="block truncate text-lg font-bold text-gray-900 dark:text-gray-100">
+            <span className="block truncate text-lg font-bold text-text-primary">
               {project.title}
             </span>
-            <p className="text-xs text-gray-500 dark:text-gray-400 font-normal">
-              By <span className="font-medium text-gray-700 dark:text-gray-300">{project.author}</span>
+            <p className="text-xs text-text-muted font-normal">
+              By <span className="font-medium text-text-secondary">{project.author}</span>
             </p>
           </div>
         </div>
@@ -166,17 +166,17 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
             type="button"
             onClick={handleInstall}
             disabled={!selectedServerId || !activeVersion || install.isPending || compatibleServers.length === 0}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-3 text-sm font-semibold text-accent-contrast-text shadow-xs transition-colors hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Icon name="plus" size={18} />
             {install.isPending ? "Installing..." : "Install Now"}
           </button>
         </div>
 
-        <hr className="my-5 border-gray-200 dark:border-gray-700" />
+        <hr className="my-5 border-border-subtle" />
 
         {compatibleServers.length === 0 ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
+          <div className="rounded-xl border border-status-warning-border bg-status-warning-bg p-4 text-xs text-status-warning">
             <div className="flex items-start gap-2">
               <Icon name="alert" size={16} className="mt-0.5 shrink-0" />
               <div>
@@ -191,7 +191,7 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">
                   Target Server
                 </label>
                 {compatibleServers.length > 1 && (
@@ -199,7 +199,7 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
                     type="button"
                     onClick={() => setIsChangingServer(!isChangingServer)}
                     disabled={install.isPending}
-                    className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400 disabled:opacity-50"
+                    className="text-xs font-medium text-accent-primary hover:underline disabled:opacity-50"
                   >
                     {isChangingServer ? "Cancel" : "Change Server"}
                   </button>
@@ -207,7 +207,7 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
               </div>
 
               {isChangingServer ? (
-                <div className="space-y-1.5 max-h-40 overflow-y-auto rounded-xl border border-gray-200 p-2 dark:border-gray-700">
+                <div className="space-y-1.5 max-h-40 overflow-y-auto rounded-xl border border-border-default p-2">
                   {compatibleServers.map((s) => (
                     <button
                       key={s.server_id}
@@ -215,31 +215,31 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
                       onClick={() => handleSelectServer(s.server_id)}
                       className={`w-full flex items-center justify-between rounded-lg p-2.5 text-left text-xs transition-colors ${
                         selectedServerId === s.server_id
-                          ? "bg-blue-50 text-blue-900 font-medium dark:bg-blue-900/30 dark:text-blue-200"
-                          : "hover:bg-gray-50 text-gray-700 dark:text-gray-300 dark:hover:bg-gray-700/50"
+                          ? "bg-accent-primary/10 text-accent-primary font-medium"
+                          : "hover:bg-surface-hover text-text-secondary"
                       }`}
                     >
                       <div>
                         <span className="font-medium">{s.name}</span>
-                        <span className="ml-2 text-gray-500 dark:text-gray-400">
+                        <span className="ml-2 text-text-muted">
                           ({s.server_type} / {s.minecraft_version})
                         </span>
                       </div>
                       {selectedServerId === s.server_id && (
-                        <Icon name="check" size={14} className="text-blue-600 dark:text-blue-400" />
+                        <Icon name="check" size={14} className="text-accent-primary" />
                       )}
                     </button>
                   ))}
                 </div>
               ) : (
-                <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-700/40">
+                <div className="flex items-center justify-between rounded-xl border border-border-default bg-surface-muted p-3 text-xs">
                   <div className="flex items-center gap-2 min-w-0">
-                    <Icon name="server" size={16} className="text-gray-500 shrink-0" />
-                    <span className="font-semibold text-gray-900 dark:text-gray-100 truncate">
+                    <Icon name="server" size={16} className="text-text-muted shrink-0" />
+                    <span className="font-semibold text-text-primary truncate">
                       {selectedServer?.name || "Select a server"}
                     </span>
                     {selectedServer && (
-                      <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-700 dark:bg-gray-600 dark:text-gray-300 shrink-0">
+                      <span className="rounded-full bg-surface-card px-2 py-0.5 text-[10px] font-medium text-text-secondary shrink-0">
                         {selectedServer.server_type} {selectedServer.minecraft_version}
                       </span>
                     )}
@@ -249,14 +249,14 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-text-muted mb-1.5">
                 Version
               </label>
 
               {versionsQuery.isLoading ? (
-                <div className="h-10 w-full animate-pulse rounded-xl bg-gray-100 dark:bg-gray-700" />
+                <div className="h-10 w-full animate-pulse rounded-xl bg-surface-muted" />
               ) : versionsQuery.isError ? (
-                <p className="text-xs text-red-600 dark:text-red-400">
+                <p className="text-xs text-status-danger">
                   {errorMessage(versionsQuery.error)}
                 </p>
               ) : (
@@ -265,25 +265,25 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
                     type="button"
                     onClick={() => setIsVersionDropdownOpen(!isVersionDropdownOpen)}
                     disabled={install.isPending}
-                    className="w-full flex items-center justify-between rounded-xl border border-gray-300 bg-white p-3 text-xs font-medium text-gray-900 shadow-sm transition-colors hover:bg-gray-50 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                    className="w-full flex items-center justify-between rounded-xl border border-border-default bg-surface-card p-3 text-xs font-medium text-text-primary shadow-xs transition-colors hover:bg-surface-hover focus:border-border-focus focus:outline-none disabled:opacity-50"
                   >
                     <div className="flex items-center gap-2 truncate">
                       {activeVersion ? (
                         <>
                           <span className="font-semibold">{activeVersion.version_number}</span>
                           {activeVersion.version_id === recommendedVersion?.version_id && (
-                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                            <span className="rounded-full bg-accent-primary/10 px-2 py-0.5 text-[10px] font-medium text-accent-primary">
                               Recommended
                             </span>
                           )}
                           {activeVersion.game_versions.length > 0 && (
-                            <span className="text-gray-500 dark:text-gray-400">
+                            <span className="text-text-muted">
                               (MC {activeVersion.game_versions.slice(0, 2).join(", ")})
                             </span>
                           )}
                         </>
                       ) : (
-                        <span className="text-gray-500">Select version...</span>
+                        <span className="text-text-muted">Select version...</span>
                       )}
                     </div>
                     <Icon
@@ -294,7 +294,7 @@ export function InstallModal({ project, projectType, onClose, isOpen = true }: I
                   </button>
 
                   {isVersionDropdownOpen && versionsResponse && (
-                    <div className="mt-2 max-h-60 overflow-y-auto rounded-xl border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                    <div className="mt-2 max-h-60 overflow-y-auto rounded-xl border border-border-default bg-surface-card p-2 shadow-lg">
                       <VersionList
                         versions={versionsResponse.versions}
                         selectedVersion={activeVersion}

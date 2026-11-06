@@ -35,18 +35,18 @@ export function TargetCard({
   const publicAddress = target.public_address;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800 space-y-4">
+    <div className="rounded-xl border border-border-default bg-surface-card p-5 shadow-xs space-y-4">
       {/* Target Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3 dark:border-gray-700/60">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border-subtle pb-3">
         <div className="flex items-center gap-2.5">
-          <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+          <span className="font-semibold text-sm text-text-primary">
             {meta.label}
           </span>
-          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 uppercase">
+          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-surface-muted text-text-secondary uppercase">
             {target.protocol.toUpperCase()} {target.local_port}
           </span>
           {isPrimary && (
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
               Primary Game Target
             </span>
           )}
@@ -61,7 +61,7 @@ export function TargetCard({
               type="button"
               onClick={() => setIsConfirmDeleteOpen(true)}
               aria-label={`Remove ${meta.label} target`}
-              className="p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              className="p-1 text-text-muted hover:text-status-danger rounded hover:bg-surface-hover transition-colors"
               title="Remove Target"
             >
               <Icon name="trash" size={15} />
@@ -72,13 +72,13 @@ export function TargetCard({
 
       {/* Target Address & Connection Display */}
       <div className="space-y-2">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-text-muted">
           Public Connection Address
         </span>
 
         {publicAddress ? (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-700">
-            <span className="font-mono text-sm font-semibold text-blue-600 dark:text-blue-400 break-all select-all">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-surface-muted border border-border-default">
+            <span className="font-mono text-sm font-semibold text-accent-primary break-all select-all">
               {publicAddress}
             </span>
 
@@ -87,7 +87,7 @@ export function TargetCard({
                 type="button"
                 onClick={() => copy(publicAddress, "Public address copied to clipboard")}
                 aria-label={`Copy ${meta.label} public address to clipboard`}
-                className="px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 flex items-center gap-1.5 transition-colors shadow-xs"
+                className="px-2.5 py-1 rounded-md border border-border-default bg-surface-card text-xs font-medium text-text-secondary hover:bg-surface-hover flex items-center gap-1.5 transition-colors shadow-xs"
               >
                 <Icon name="copy" size={13} />
                 <span>Copy</span>
@@ -98,7 +98,7 @@ export function TargetCard({
                   type="button"
                   onClick={() => onEditAddress(target)}
                   aria-label="Edit public address"
-                  className="px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 flex items-center gap-1.5 transition-colors shadow-xs"
+                  className="px-2.5 py-1 rounded-md border border-border-default bg-surface-card text-xs font-medium text-text-secondary hover:bg-surface-hover flex items-center gap-1.5 transition-colors shadow-xs"
                 >
                   <Icon name="edit" size={13} />
                   <span>Edit</span>
@@ -107,13 +107,13 @@ export function TargetCard({
             </div>
           </div>
         ) : (
-          <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 border border-dashed border-gray-300 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
+          <div className="p-3 rounded-lg bg-surface-muted border border-dashed border-border-default text-xs text-text-muted flex items-center justify-between">
             <span>No public address assigned yet.</span>
             {!isReadOnly && (
               <button
                 type="button"
                 onClick={() => onEditAddress(target)}
-                className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                className="text-xs text-accent-primary hover:underline font-medium"
               >
                 Set Address
               </button>
@@ -127,17 +127,17 @@ export function TargetCard({
         <div
           role="region"
           aria-label="Assisted Setup Guide"
-          className="rounded-lg border border-blue-200 bg-blue-50/50 dark:border-blue-900/40 dark:bg-blue-900/10 p-4 space-y-3"
+          className="rounded-lg border border-border-default bg-surface-muted p-4 space-y-3"
         >
-          <div className="flex items-center gap-2 text-blue-900 dark:text-blue-300 font-semibold text-xs uppercase tracking-wider">
+          <div className="flex items-center gap-2 text-text-primary font-semibold text-xs uppercase tracking-wider">
             <Icon name="info" size={16} />
             <span>playit.gg Assisted Setup Required</span>
           </div>
 
-          <div className="space-y-2.5 text-xs text-gray-700 dark:text-gray-300">
+          <div className="space-y-2.5 text-xs text-text-secondary">
             {/* Step 1 */}
             <div className="flex items-start gap-2.5">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-primary text-[10px] font-bold text-accent-contrast-text">
                 1
               </span>
               <div className="pt-0.5 flex flex-wrap items-center gap-2">
@@ -147,7 +147,7 @@ export function TargetCard({
                     href={target.dashboard_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
+                    className="inline-flex items-center gap-1 font-semibold text-accent-primary hover:underline"
                   >
                     <span>Open Dashboard</span>
                     <Icon name="external" size={12} />
@@ -158,12 +158,12 @@ export function TargetCard({
 
             {/* Step 2 */}
             <div className="flex items-start gap-2.5">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-primary text-[10px] font-bold text-accent-contrast-text">
                 2
               </span>
               <div className="pt-0.5">
                 <span>Create tunnel: </span>
-                <span className="font-mono text-gray-900 dark:text-gray-100 font-medium">
+                <span className="font-mono text-text-primary font-medium">
                   {target.setup_instructions || `Create a ${target.protocol.toUpperCase()} tunnel pointing to 127.0.0.1:${target.local_port}`}
                 </span>
               </div>
@@ -171,7 +171,7 @@ export function TargetCard({
 
             {/* Step 3 */}
             <div className="flex items-start gap-2.5">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-primary text-[10px] font-bold text-accent-contrast-text">
                 3
               </span>
               <div className="pt-0.5 flex flex-wrap items-center gap-2">
@@ -180,7 +180,7 @@ export function TargetCard({
                   <button
                     type="button"
                     onClick={() => onEditAddress(target)}
-                    className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
+                    className="inline-flex items-center gap-1 font-semibold text-accent-primary hover:underline"
                   >
                     <span>Paste / Enter Address</span>
                     <Icon name="edit" size={12} />
@@ -196,11 +196,11 @@ export function TargetCard({
       {target.error_message && (
         <div
           role="alert"
-          className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300 flex items-center justify-between"
+          className="p-3 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger flex items-center justify-between"
         >
           <span>{target.error_message}</span>
           {target.error_code && (
-            <span className="font-mono text-[10px] bg-red-100 dark:bg-red-900/40 px-1.5 py-0.5 rounded">
+            <span className="font-mono text-[10px] bg-status-danger/20 px-1.5 py-0.5 rounded">
               {target.error_code}
             </span>
           )}
@@ -218,14 +218,14 @@ export function TargetCard({
         closeButtonAriaLabel="Close dialog"
       >
         <div className="space-y-4">
-          <p className="text-xs text-gray-600 dark:text-gray-300">
+          <p className="text-xs text-text-secondary">
             Are you sure you want to remove the <span className="font-semibold">{meta.label}</span> target ({target.protocol.toUpperCase()} {target.local_port})? External access to this companion service will be closed.
           </p>
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
               onClick={() => setIsConfirmDeleteOpen(false)}
-              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              className="px-3 py-1.5 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover"
             >
               Cancel
             </button>
@@ -235,7 +235,7 @@ export function TargetCard({
                 onRemoveTarget(target.id);
                 setIsConfirmDeleteOpen(false);
               }}
-              className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium shadow-sm"
+              className="px-3 py-1.5 rounded-lg bg-status-danger hover:opacity-90 text-white text-xs font-medium shadow-xs"
             >
               Remove Target
             </button>

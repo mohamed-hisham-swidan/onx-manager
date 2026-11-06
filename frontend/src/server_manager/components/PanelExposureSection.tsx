@@ -182,7 +182,7 @@ export function PanelExposureSection() {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 p-6 space-y-4">
+      <div className="rounded-xl border border-border-default bg-surface-card p-6 space-y-4">
         <Skeleton className="h-6 w-48" />
         <Skeleton className="h-28 w-full" />
       </div>
@@ -201,14 +201,14 @@ export function PanelExposureSection() {
     : null;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 p-6 space-y-6">
+    <div className="rounded-xl border border-border-default bg-surface-card p-6 space-y-6">
       {/* Header */}
-      <div className="border-b border-gray-200 dark:border-gray-700 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="border-b border-border-subtle pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-base font-semibold text-text-primary">
             Panel Network Exposure
           </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-xs text-text-muted mt-1">
             Configure external network access to this onx-manager web interface.
           </p>
         </div>
@@ -221,14 +221,14 @@ export function PanelExposureSection() {
       {panel?.security_advisory && (
         <div
           role="alert"
-          className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 flex items-start gap-3"
+          className="p-4 rounded-xl bg-status-warning-bg border border-status-warning-border flex items-start gap-3"
         >
-          <Icon name="alert" size={20} className="text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+          <Icon name="alert" size={20} className="text-status-warning mt-0.5 shrink-0" />
           <div className="space-y-1">
-            <h4 className="text-xs font-semibold text-amber-800 dark:text-amber-300 uppercase tracking-wider">
+            <h4 className="text-xs font-semibold text-status-warning uppercase tracking-wider">
               Security Advisory
             </h4>
-            <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+            <p className="text-xs text-status-warning leading-relaxed">
               {panel.security_advisory}
             </p>
           </div>
@@ -239,13 +239,13 @@ export function PanelExposureSection() {
       {isBindMismatch && (
         <div
           role="alert"
-          className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 space-y-2"
+          className="p-4 rounded-xl bg-status-warning-bg border border-status-warning-border space-y-2"
         >
-          <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-semibold text-sm">
+          <div className="flex items-center gap-2 text-status-warning font-semibold text-sm">
             <Icon name="alert" size={18} />
             <span>Action Required: Restart Panel to Complete Port Forwarding</span>
           </div>
-          <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+          <p className="text-xs text-status-warning leading-relaxed">
             {panel.fix_hint ||
               "Panel bind address updated to 0.0.0.0 in config/settings.yaml. Restart the panel service for changes to take effect."}
           </p>
@@ -256,21 +256,21 @@ export function PanelExposureSection() {
       {panel?.status === "ERROR" && !isBindMismatch && (
         <div
           role="alert"
-          className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 space-y-2"
+          className="p-4 rounded-xl bg-status-danger-bg border border-status-danger-border space-y-2"
         >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-red-700 dark:text-red-300 font-semibold text-xs">
+            <div className="flex items-center gap-2 text-status-danger font-semibold text-xs">
               <Icon name="alert" size={16} />
               <span>{panel.error_message || "Exposure operation encountered an error"}</span>
             </div>
             {panel.error_code && (
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300">
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-status-danger/20 text-status-danger">
                 {panel.error_code}
               </span>
             )}
           </div>
           {panel.fix_hint && (
-            <p className="text-xs text-red-600 dark:text-red-300 pl-6">
+            <p className="text-xs text-status-danger pl-6">
               {panel.fix_hint}
             </p>
           )}
@@ -279,27 +279,27 @@ export function PanelExposureSection() {
 
       {/* Active Public Address Card */}
       {isCurrentlyActive && publicUrl && (
-        <div className="p-4 rounded-xl bg-green-50/50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 space-y-3">
+        <div className="p-4 rounded-xl bg-status-success-bg border border-status-success-border space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-green-800 dark:text-green-300 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-status-success uppercase tracking-wider">
               Live Public Panel Address
             </span>
             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
               panel.tls
-                ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-                : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300"
+                ? "bg-status-success/20 text-status-success"
+                : "bg-status-warning/20 text-status-warning"
             }`}>
               {panel.tls ? "HTTPS (Encrypted)" : "HTTP (Unencrypted)"}
             </span>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg bg-white dark:bg-gray-800 border border-green-200 dark:border-green-700/60 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg bg-surface-elevated border border-border-default shadow-xs">
             <a
               ref={activeAddressRef}
               href={publicUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-mono text-sm font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1.5 break-all"
+              className="font-mono text-sm font-semibold text-accent-primary hover:underline flex items-center gap-1.5 break-all"
             >
               <span>{publicUrl}</span>
               <Icon name="external" size={14} />
@@ -310,7 +310,7 @@ export function PanelExposureSection() {
                 type="button"
                 onClick={() => copy(publicUrl, "Public address copied to clipboard")}
                 aria-label="Copy public address"
-                className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-1.5 transition-colors"
+                className="px-3 py-1.5 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover flex items-center gap-1.5 transition-colors"
               >
                 <Icon name="copy" size={14} />
                 <span>Copy Link</span>
@@ -319,7 +319,7 @@ export function PanelExposureSection() {
                 ref={disableButtonRef}
                 type="button"
                 onClick={() => setIsConfirmDisableOpen(true)}
-                className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-800 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                className="px-3 py-1.5 rounded-lg border border-status-danger-border text-xs font-medium text-status-danger hover:bg-status-danger-bg transition-colors"
               >
                 Disable Exposure
               </button>
@@ -330,7 +330,7 @@ export function PanelExposureSection() {
 
       {/* Method Selector Cards (Grid) */}
       <div className="space-y-3">
-        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+        <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
           Select Exposure Method
         </span>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -340,17 +340,17 @@ export function PanelExposureSection() {
             onClick={() => handleSelectMethod("none")}
             className={`p-4 rounded-xl border text-left transition-all ${
               draftMethod === "none"
-                ? "border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-900/20 shadow-sm"
-                : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800"
+                ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                : "border-border-default hover:border-border-strong bg-surface-card"
             }`}
           >
             <div className="flex items-center justify-between mb-1.5">
-              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Local Only</h4>
+              <h4 className="text-sm font-semibold text-text-primary">Local Only</h4>
               {draftMethod === "none" && (
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Selected</span>
+                <span className="text-xs font-medium text-accent-primary">Selected</span>
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p className="text-xs text-text-muted leading-relaxed">
               Disabled. Panel is accessible only via local LAN or VPN.
             </p>
           </button>
@@ -361,22 +361,22 @@ export function PanelExposureSection() {
             onClick={() => handleSelectMethod("cloudflare_tunnel")}
             className={`p-4 rounded-xl border text-left transition-all ${
               draftMethod === "cloudflare_tunnel"
-                ? "border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-900/20 shadow-sm"
-                : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800"
+                ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                : "border-border-default hover:border-border-strong bg-surface-card"
             }`}
           >
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
-                <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Cloudflare</h4>
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">
+                <h4 className="text-sm font-semibold text-text-primary">Cloudflare</h4>
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-accent-primary/10 text-accent-primary">
                   Recommended
                 </span>
               </div>
               {draftMethod === "cloudflare_tunnel" && (
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Selected</span>
+                <span className="text-xs font-medium text-accent-primary">Selected</span>
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p className="text-xs text-text-muted leading-relaxed">
               Named tunnel via custom domain. Automatic HTTPS and DDoS protection.
             </p>
           </button>
@@ -387,17 +387,17 @@ export function PanelExposureSection() {
             onClick={() => handleSelectMethod("playit_http")}
             className={`p-4 rounded-xl border text-left transition-all ${
               draftMethod === "playit_http"
-                ? "border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-900/20 shadow-sm"
-                : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800"
+                ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                : "border-border-default hover:border-border-strong bg-surface-card"
             }`}
           >
             <div className="flex items-center justify-between mb-1.5">
-              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">playit.gg</h4>
+              <h4 className="text-sm font-semibold text-text-primary">playit.gg</h4>
               {draftMethod === "playit_http" && (
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Selected</span>
+                <span className="text-xs font-medium text-accent-primary">Selected</span>
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p className="text-xs text-text-muted leading-relaxed">
               HTTP edge tunnel via shared playit agent. Works behind CGNAT.
             </p>
           </button>
@@ -408,17 +408,17 @@ export function PanelExposureSection() {
             onClick={() => handleSelectMethod("port_forward")}
             className={`p-4 rounded-xl border text-left transition-all ${
               draftMethod === "port_forward"
-                ? "border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-900/20 shadow-sm"
-                : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800"
+                ? "border-accent-primary bg-accent-primary/10 shadow-xs"
+                : "border-border-default hover:border-border-strong bg-surface-card"
             }`}
           >
             <div className="flex items-center justify-between mb-1.5">
-              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Port Forward</h4>
+              <h4 className="text-sm font-semibold text-text-primary">Port Forward</h4>
               {draftMethod === "port_forward" && (
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Selected</span>
+                <span className="text-xs font-medium text-accent-primary">Selected</span>
               )}
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p className="text-xs text-text-muted leading-relaxed">
               UPnP IGD local router mapping. Direct unencrypted HTTP access.
             </p>
           </button>
@@ -426,11 +426,11 @@ export function PanelExposureSection() {
       </div>
 
       {/* Configuration Panel for Selected Method */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/60 p-5 space-y-4">
+      <div className="rounded-xl border border-border-default bg-surface-muted p-5 space-y-4">
         {/* None Form */}
         {draftMethod === "none" && (
           <div className="space-y-4">
-            <p className="text-xs text-gray-600 dark:text-gray-300">
+            <p className="text-xs text-text-secondary">
               External panel exposure is disabled. The panel is only reachable from this machine or devices on the same local network.
             </p>
             {isEnabled && (
@@ -439,7 +439,7 @@ export function PanelExposureSection() {
                   type="button"
                   onClick={handleSaveConfiguration}
                   disabled={isUpdating}
-                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg bg-status-danger hover:opacity-90 text-white text-xs font-medium transition-colors disabled:opacity-50"
                 >
                   {isUpdating ? "Disabling..." : "Save & Disable Exposure"}
                 </button>
@@ -452,7 +452,7 @@ export function PanelExposureSection() {
         {draftMethod === "cloudflare_tunnel" && (
           <div className="space-y-4">
             {isReclaimRequired && (
-              <div role="alert" className="p-3 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-300 dark:border-red-800 text-xs text-red-700 dark:text-red-300">
+              <div role="alert" className="p-3 rounded-lg bg-status-danger-bg border border-status-danger-border text-xs text-status-danger">
                 Cloudflare API Token was invalidated or revoked. Please enter a fresh token to restore the tunnel.
               </div>
             )}
@@ -460,8 +460,8 @@ export function PanelExposureSection() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Hostname Input */}
               <div className="space-y-1.5">
-                <label htmlFor="cloudflare-hostname" className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  Custom Domain / Hostname <span className="text-red-500">*</span>
+                <label htmlFor="cloudflare-hostname" className="block text-xs font-semibold text-text-secondary">
+                  Custom Domain / Hostname <span className="text-status-danger">*</span>
                 </label>
                 <input
                   ref={firstInputRef}
@@ -470,14 +470,14 @@ export function PanelExposureSection() {
                   value={hostname}
                   onChange={(e) => setHostname(e.target.value)}
                   placeholder="panel.example.com"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                  className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
                 />
                 {hostname && !isValidFQDN(hostname) ? (
-                  <p className="text-[11px] text-red-600 dark:text-red-400">
+                  <p className="text-[11px] text-status-danger">
                     Please enter a valid fully-qualified domain name (e.g. panel.example.com).
                   </p>
                 ) : (
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  <p className="text-[11px] text-text-muted">
                     Must be a domain managed in your Cloudflare account.
                   </p>
                 )}
@@ -485,8 +485,8 @@ export function PanelExposureSection() {
 
               {/* API Token Input */}
               <div className="space-y-1.5">
-                <label htmlFor="cloudflare-token" className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  Cloudflare API Token {panel?.cloudflare_tunnel_id && !isRotatingToken && !isReclaimRequired ? "(Stored)" : <span className="text-red-500">*</span>}
+                <label htmlFor="cloudflare-token" className="block text-xs font-semibold text-text-secondary">
+                  Cloudflare API Token {panel?.cloudflare_tunnel_id && !isRotatingToken && !isReclaimRequired ? "(Stored)" : <span className="text-status-danger">*</span>}
                 </label>
                 <div className="relative">
                   <input
@@ -499,22 +499,22 @@ export function PanelExposureSection() {
                         ? "••••••••••••••••••••••••••••••••"
                         : "Enter Cloudflare API token..."
                     }
-                    className={`w-full px-3 py-2 pr-10 rounded-lg border bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all ${
+                    className={`w-full px-3 py-2 pr-10 rounded-lg border bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all ${
                       isReclaimRequired && !cloudflareToken
-                        ? "border-red-500 dark:border-red-500"
-                        : "border-gray-300 dark:border-gray-600"
+                        ? "border-status-danger"
+                        : "border-border-default"
                     }`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowToken(!showToken)}
                     aria-label={showToken ? "Hide API token" : "Show API token"}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
                   >
                     <Icon name={showToken ? "moon" : "sun"} size={14} />
                   </button>
                 </div>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                <p className="text-[11px] text-text-muted">
                   Requires <code>Zone.DNS:Edit</code> and <code>Account.Cloudflare Tunnel:Edit</code> scopes.
                 </p>
               </div>
@@ -529,7 +529,7 @@ export function PanelExposureSection() {
                   !isValidFQDN(hostname) ||
                   (!cloudflareToken && (!panel?.cloudflare_tunnel_id || isRotatingToken || isReclaimRequired))
                 }
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+                className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
               >
                 {isUpdating
                   ? "Configuring Tunnel..."
@@ -545,7 +545,7 @@ export function PanelExposureSection() {
                     setIsRotatingToken(true);
                     setCloudflareToken("");
                   }}
-                  className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  className="px-3 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors"
                 >
                   Rotate API Token
                 </button>
@@ -577,7 +577,7 @@ export function PanelExposureSection() {
                   type="button"
                   onClick={handleSaveConfiguration}
                   disabled={isUpdating}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+                  className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
                 >
                   {isUpdating ? "Connecting Tunnel..." : "Enable playit.gg Tunnel"}
                 </button>
@@ -590,7 +590,7 @@ export function PanelExposureSection() {
         {draftMethod === "port_forward" && (
           <div className="space-y-4">
             <div className="max-w-xs space-y-1.5">
-              <label htmlFor="external-port" className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
+              <label htmlFor="external-port" className="block text-xs font-semibold text-text-secondary">
                 Requested External Port (Optional)
               </label>
               <input
@@ -605,17 +605,17 @@ export function PanelExposureSection() {
                   setExternalPort(val ? parseInt(val, 10) : null);
                 }}
                 placeholder="Auto (8000)"
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-card text-text-primary text-xs font-mono focus:ring-2 focus:ring-accent-primary focus:border-transparent outline-none transition-all"
               />
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              <p className="text-[11px] text-text-muted">
                 Leave blank to request the standard panel port (8000).
               </p>
             </div>
 
             {panel?.upnp_last_result && (
-              <div className="text-xs text-gray-600 dark:text-gray-300">
+              <div className="text-xs text-text-secondary">
                 <span className="font-medium">UPnP Status:</span>{" "}
-                <code className="font-mono px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-[11px]">
+                <code className="font-mono px-1.5 py-0.5 rounded bg-surface-elevated text-[11px]">
                   {panel.upnp_last_result}
                 </code>
               </div>
@@ -626,7 +626,7 @@ export function PanelExposureSection() {
                 type="button"
                 onClick={handleSaveConfiguration}
                 disabled={isUpdating}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+                className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
               >
                 {isUpdating ? "Configuring UPnP..." : "Enable Port Forwarding"}
               </button>
@@ -650,7 +650,7 @@ export function PanelExposureSection() {
         closeButtonAriaLabel="Close dialog"
       >
         <div className="space-y-4">
-          <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+          <p className="text-xs text-text-secondary leading-relaxed">
             Disabling panel exposure will tear down the active tunnel and close public network access to this panel. You will still be able to connect locally.
           </p>
 
@@ -663,7 +663,7 @@ export function PanelExposureSection() {
                 disableButtonRef.current?.focus();
               }}
               disabled={isUpdating}
-              className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+              className="px-4 py-2 rounded-lg border border-border-default text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
@@ -671,7 +671,7 @@ export function PanelExposureSection() {
               type="button"
               onClick={handleConfirmDisable}
               disabled={isUpdating}
-              className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-sm"
+              className="px-4 py-2 rounded-lg bg-red-600 hover:opacity-90 text-white text-xs font-medium transition-colors disabled:opacity-50 shadow-xs"
             >
               {isUpdating ? "Disabling..." : "Confirm Disable"}
             </button>

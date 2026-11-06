@@ -43,41 +43,11 @@ const SRC_ROOT = path.resolve(process.cwd().endsWith("frontend") ? "src" : "fron
 
 // Explicit allowlist mapping relative paths to allowed bounds and justifications.
 const ALLOWLIST: Record<string, AllowlistEntry> = {
-  // Legacy states and guards
+  // Syntax highlighting & loader badges
   "components/CodeEditor.tsx": {
     maxHex: 0,
-    maxPalette: 60,
+    maxPalette: 55,
     reason: "CodeEditor syntax highlighting token classes and gutter line numbers",
-  },
-  "components/ComingSoonState.tsx": {
-    maxHex: 0,
-    maxPalette: 20,
-    reason: "Superseded legacy state component preserved for route compatibility",
-  },
-  "components/EmptyState.tsx": {
-    maxHex: 0,
-    maxPalette: 15,
-    reason: "Superseded legacy empty state preserved for backwards compatibility",
-  },
-  "components/ErrorBoundary.tsx": {
-    maxHex: 0,
-    maxPalette: 10,
-    reason: "Top-level error boundary fallback UI",
-  },
-  "components/ErrorState.tsx": {
-    maxHex: 0,
-    maxPalette: 10,
-    reason: "Superseded legacy error state preserved for backwards compatibility",
-  },
-  "components/Skeleton.tsx": {
-    maxHex: 0,
-    maxPalette: 15,
-    reason: "Superseded legacy skeleton loaders (CardSkeleton removed, ratcheted down from 25)",
-  },
-  "components/guards/SystemStatusGuard.tsx": {
-    maxHex: 0,
-    maxPalette: 25,
-    reason: "System guard onboarding modal states",
   },
   "components/ui/LoaderBadge.tsx": {
     maxHex: 0,
@@ -97,290 +67,38 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
     reason: "Voxel artwork geometric gradient stops",
   },
 
-  // Operations
-  "operations/components/OperationDrawer.tsx": {
-    maxHex: 0,
-    maxPalette: 65,
-    reason: "Operation status pill indicators and log viewer accents",
-  },
-  "operations/components/OperationFailure.tsx": {
-    maxHex: 0,
-    maxPalette: 20,
-    reason: "Operation error card boundary",
-  },
-  "operations/components/OperationLogs.tsx": {
-    maxHex: 0,
-    maxPalette: 20,
-    reason: "ANSI terminal log line styling",
-  },
-  "operations/components/OperationStepper.tsx": {
-    maxHex: 0,
-    maxPalette: 45,
-    reason: "Multi-step saga progress stepper indicators",
-  },
-
-  // Auth & Onboarding
-  "pages/InvitePage.tsx": {
-    maxHex: 0,
-    maxPalette: 100,
-    reason: "Standalone invite acceptance flow",
-  },
-  "pages/RegisterPage.tsx": {
-    maxHex: 0,
-    maxPalette: 10,
-    reason: "Amber invite-token advisory badge",
-  },
-  "pages/SetupPage.tsx": {
-    maxHex: 0,
-    maxPalette: 95,
-    reason: "Initial deployment setup wizard",
-  },
-
-  // Server Manager Components & Modals
-  "server_manager/components/AccessModeCard.tsx": {
-    maxHex: 0,
-    maxPalette: 110,
-    reason: "Security access mode cards",
-  },
-  "server_manager/components/AccessSection.tsx": {
-    maxHex: 0,
-    maxPalette: 15,
-    reason: "Access control tab user list",
-  },
-  "server_manager/components/AddCompanionTargetModal.tsx": {
-    maxHex: 0,
-    maxPalette: 80,
-    reason: "Companion target modal",
-  },
-  "server_manager/components/BranchProtectionModal.tsx": {
-    maxHex: 0,
-    maxPalette: 100,
-    reason: "Branch rule modal",
-  },
-  "server_manager/components/CommitDiffModal.tsx": {
-    maxHex: 0,
-    maxPalette: 165,
-    reason: "Git commit diff viewer line coloring (ratcheted down from 190)",
-  },
-  "server_manager/components/CompatibilityCard.tsx": {
-    maxHex: 0,
-    maxPalette: 35,
-    reason: "Java compatibility warning badges",
-  },
-  "server_manager/components/CrashReportViewerModal.tsx": {
-    maxHex: 0,
-    maxPalette: 90,
-    reason: "Crash log stack trace viewer",
-  },
-  "server_manager/components/CreateBackupDialog.tsx": {
-    maxHex: 0,
-    maxPalette: 25,
-    reason: "Create backup dialog modal",
-  },
-  "server_manager/components/CreateTagModal.tsx": {
-    maxHex: 0,
-    maxPalette: 50,
-    reason: "Create version tag modal",
-  },
-  "server_manager/components/DashboardServerList.tsx": {
-    maxHex: 0,
-    maxPalette: 55,
-    reason: "Dashboard server card status indicators",
-  },
-  "server_manager/components/EditPublicAddressModal.tsx": {
-    maxHex: 0,
-    maxPalette: 45,
-    reason: "Address modal",
-  },
-  "server_manager/components/GlobalExposureActionsCard.tsx": {
-    maxHex: 0,
-    maxPalette: 90,
-    reason: "Global network exposure card",
-  },
-  "server_manager/components/ImportReviewModal.tsx": {
-    maxHex: 0,
-    maxPalette: 125,
-    reason: "Import archive review step",
-  },
-  "server_manager/components/InstallModal.tsx": {
-    maxHex: 0,
-    maxPalette: 100,
-    reason: "Plugin/mod installation dialog",
-  },
-  "server_manager/components/InvitationsSection.tsx": {
-    maxHex: 0,
-    maxPalette: 150,
-    reason: "User invitation management section",
-  },
-  "server_manager/components/ManageBranchesModal.tsx": {
-    maxHex: 0,
-    maxPalette: 95,
-    reason: "Branch management modal (ratcheted down from 120)",
-  },
-  "server_manager/components/MaterializationBrowserModal.tsx": {
-    maxHex: 0,
-    maxPalette: 160,
-    reason: "World materialization browser",
-  },
+  // Preserved strictly for unit test class assertions
   "server_manager/components/PanelExposureSection.tsx": {
     maxHex: 0,
-    maxPalette: 250,
-    reason: "Panel exposure tunnel controls",
-  },
-  "server_manager/components/PlayitClaimCard.tsx": {
-    maxHex: 0,
-    maxPalette: 85,
-    reason: "Playit tunnel claim card",
-  },
-  "server_manager/components/ProjectCard.tsx": {
-    maxHex: 0,
-    maxPalette: 50,
-    reason: "Marketplace project card",
-  },
-  "server_manager/components/ProjectVersionsList.tsx": {
-    maxHex: 0,
-    maxPalette: 40,
-    reason: "Marketplace project version list",
-  },
-  "server_manager/components/ProvisioningProgress.tsx": {
-    maxHex: 0,
-    maxPalette: 25,
-    reason: "Provisioning progress stepper",
-  },
-  "server_manager/components/RecentActivity.tsx": {
-    maxHex: 0,
-    maxPalette: 75,
-    reason: "Recent audit activity timeline",
-  },
-  "server_manager/components/ServerConfigEditor.tsx": {
-    maxHex: 0,
-    maxPalette: 75,
-    reason: "Server properties editor",
+    maxPalette: 1,
+    reason: "Preserved bg-red-600 for PanelExposureSection.test.tsx and ServerExposurePage.test.tsx button.bg-red-600 selector",
   },
   "server_manager/components/ServerConsole.tsx": {
     maxHex: 0,
-    maxPalette: 95,
-    reason: "Xterm console fallbacks and status tags",
-  },
-  "server_manager/components/ServerExposureMethodSelector.tsx": {
-    maxHex: 0,
-    maxPalette: 190,
-    reason: "Exposure tunnel selector tabs",
-  },
-  "server_manager/components/ServerMetricsCharts.tsx": {
-    maxHex: 5,
-    maxPalette: 20,
-    reason: "SVG metric stroke colors (CPU/RAM chart lines)",
-  },
-  "server_manager/components/ServerSettingsSection.tsx": {
-    maxHex: 0,
-    maxPalette: 275,
-    reason: "Server configuration cards and property forms",
-  },
-  "server_manager/components/Sparkline.tsx": {
-    maxHex: 2,
-    maxPalette: 0,
-    reason: "Sparkline SVG stroke color fallback",
-  },
-  "server_manager/components/StartingMonitorBanner.tsx": {
-    maxHex: 0,
-    maxPalette: 55,
-    reason: "Slow startup warning banner status indicators (amber/sky variants)",
-  },
-  "server_manager/components/TargetCard.tsx": {
-    maxHex: 0,
-    maxPalette: 110,
-    reason: "Deployment target card",
-  },
-  "server_manager/components/TargetListSection.tsx": {
-    maxHex: 0,
-    maxPalette: 25,
-    reason: "Deployment targets list",
-  },
-  "server_manager/components/TestDefinitionsModal.tsx": {
-    maxHex: 0,
-    maxPalette: 105,
-    reason: "Test definition configuration modal (ratcheted down from 130)",
-  },
-  "server_manager/components/TestEvidenceModal.tsx": {
-    maxHex: 0,
-    maxPalette: 75,
-    reason: "Test evidence report modal",
-  },
-  "server_manager/components/TestRunModal.tsx": {
-    maxHex: 0,
-    maxPalette: 120,
-    reason: "Test run progress modal",
-  },
-  "server_manager/components/VersionList.tsx": {
-    maxHex: 0,
-    maxPalette: 40,
-    reason: "Platform version selector list",
+    maxPalette: 4,
+    reason: "Preserved 4 log severity classes (text-rose-400, text-amber-400, text-sky-300, text-gray-300) asserted in ServerConsole.test.tsx",
   },
   "server_manager/components/versioning/CommitTimeline.tsx": {
     maxHex: 0,
-    maxPalette: 5,
+    maxPalette: 1,
     reason: "Preserved dark:bg-gray-800 for ServerVersioningPage.test.tsx assertions",
   },
   "server_manager/components/versioning/TestRunList.tsx": {
     maxHex: 0,
-    maxPalette: 5,
+    maxPalette: 1,
     reason: "Preserved dark:bg-gray-800 for ServerVersioningPage.test.tsx assertions",
   },
+  "server_manager/pages/ServerExposurePage.tsx": {
+    maxHex: 0,
+    maxPalette: 2,
+    reason: "Preserved bg-red-600 hover:bg-red-700 for ServerExposurePage.test.tsx button.bg-red-600 selector",
+  },
+
+  // Data constants & mock fallbacks
   "server_manager/data/platforms.ts": {
     maxHex: 20,
     maxPalette: 0,
     reason: "Server platform official branding colors (Paper, Purpur, Forge, Fabric, etc.)",
-  },
-  "server_manager/pages/ApiKeysPage.tsx": {
-    maxHex: 0,
-    maxPalette: 85,
-    reason: "API key management page",
-  },
-  "server_manager/pages/BackupListPage.tsx": {
-    maxHex: 0,
-    maxPalette: 95,
-    reason: "Server backups management page",
-  },
-  "server_manager/pages/ImportServerPage.tsx": {
-    maxHex: 0,
-    maxPalette: 190,
-    reason: "Zip / folder server import wizard",
-  },
-  "server_manager/pages/PluginDetailPage.tsx": {
-    maxHex: 0,
-    maxPalette: 155,
-    reason: "Plugin markdown details view",
-  },
-  "server_manager/pages/PluginMarketplacePage.tsx": {
-    maxHex: 0,
-    maxPalette: 45,
-    reason: "Marketplace search grid (ratcheted down from 70)",
-  },
-  "server_manager/pages/ServerActivityPage.tsx": {
-    maxHex: 0,
-    maxPalette: 175,
-    reason: "Server activity audit logs page",
-  },
-  "server_manager/pages/ServerDetailPage.tsx": {
-    maxHex: 6,
-    maxPalette: 145,
-    reason: "Server detail quick action cards and sparklines (ratcheted down from 175)",
-  },
-  "server_manager/pages/ServerExposurePage.tsx": {
-    maxHex: 0,
-    maxPalette: 60,
-    reason: "Server network exposure page",
-  },
-  "server_manager/pages/ServerModsPage.tsx": {
-    maxHex: 0,
-    maxPalette: 25,
-    reason: "Server mods page loader and status chips (orange/sky variants)",
-  },
-  "server_manager/pages/SettingsPage.tsx": {
-    maxHex: 0,
-    maxPalette: 30,
-    reason: "Settings page restart and status notice chips",
   },
   "services/api.ts": {
     maxHex: 5,

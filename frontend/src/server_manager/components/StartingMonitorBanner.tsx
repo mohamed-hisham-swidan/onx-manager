@@ -83,8 +83,8 @@ export function StartingMonitorBanner({
       data-status={isOverdue ? "warning" : "starting"}
       className={`rounded-xl border p-4 transition-all shadow-sm ${
         isOverdue
-          ? "border-amber-300 bg-amber-50/90 text-amber-900 dark:border-amber-700/80 dark:bg-amber-950/40 dark:text-amber-200"
-          : "border-sky-200 bg-sky-50/90 text-sky-950 dark:border-sky-800/80 dark:bg-sky-950/40 dark:text-sky-200"
+          ? "border-status-warning-border bg-status-warning-bg text-text-primary"
+          : "border-status-info-border bg-status-info-bg text-text-primary"
       } ${className}`}
       role="region"
       aria-label="Starting monitor"
@@ -95,8 +95,8 @@ export function StartingMonitorBanner({
           <div
             className={`p-2 rounded-lg shrink-0 ${
               isOverdue
-                ? "bg-amber-200/60 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300"
-                : "bg-sky-200/60 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 animate-pulse"
+                ? "bg-status-warning-bg text-status-warning"
+                : "bg-status-info-bg text-status-info animate-pulse"
             }`}
           >
             <Icon name={isOverdue ? "alert" : "activity"} size={18} />
@@ -112,15 +112,15 @@ export function StartingMonitorBanner({
                 data-testid="starting-monitor-timer"
                 className={`font-mono text-xs px-2 py-0.5 rounded-full font-medium ${
                   isOverdue
-                    ? "bg-amber-200/80 dark:bg-amber-900/80 text-amber-900 dark:text-amber-100"
-                    : "bg-sky-200/80 dark:bg-sky-900/80 text-sky-900 dark:text-sky-100"
+                    ? "bg-status-warning-bg border border-status-warning-border text-status-warning"
+                    : "bg-status-info-bg border border-status-info-border text-status-info"
                 }`}
               >
                 {formatDuration(elapsedSeconds)} / {formatDuration(timeoutSeconds)}
               </span>
             </div>
 
-            <p className="text-xs mt-0.5 text-gray-600 dark:text-gray-300">
+            <p className="text-xs mt-0.5 text-text-secondary">
               {isOverdue
                 ? "Startup is taking longer than configured timeout. World generation or mod downloads may still be progressing."
                 : isTestRun
@@ -139,8 +139,8 @@ export function StartingMonitorBanner({
               disabled={isChecking}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
                 isOverdue
-                  ? "border-amber-300 bg-amber-100/80 hover:bg-amber-200/80 text-amber-900 dark:border-amber-700 dark:bg-amber-900/40 dark:hover:bg-amber-900/70 dark:text-amber-200"
-                  : "border-sky-300 bg-sky-100/80 hover:bg-sky-200/80 text-sky-900 dark:border-sky-700 dark:bg-sky-900/40 dark:hover:bg-sky-900/70 dark:text-sky-200"
+                  ? "border-status-warning-border bg-surface-card hover:bg-surface-hover text-status-warning"
+                  : "border-status-info-border bg-surface-card hover:bg-surface-hover text-status-info"
               }`}
             >
               <span className={isChecking ? "animate-spin" : ""}>
@@ -154,7 +154,7 @@ export function StartingMonitorBanner({
             type="button"
             data-testid="starting-monitor-dismiss"
             onClick={handleDismiss}
-            className="p-1 rounded-md text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
             title="Dismiss starting monitor"
             aria-label="Dismiss banner"
           >
@@ -164,12 +164,12 @@ export function StartingMonitorBanner({
       </div>
 
       {/* Progress Track */}
-      <div className="mt-3 w-full bg-black/10 dark:bg-white/10 rounded-full h-1.5 overflow-hidden">
+      <div className="mt-3 w-full bg-surface-muted rounded-full h-1.5 overflow-hidden">
         <div
           className={`h-full transition-all duration-500 ${
             isOverdue
-              ? "bg-amber-500 dark:bg-amber-400"
-              : "bg-sky-500 dark:bg-sky-400"
+              ? "bg-status-warning"
+              : "bg-status-info"
           }`}
           style={{ width: `${progressPct}%` }}
         />

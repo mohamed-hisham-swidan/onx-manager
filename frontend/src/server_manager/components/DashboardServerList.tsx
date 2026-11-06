@@ -29,13 +29,13 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
 
   const staleNote =
     connectionState === "reconnecting"
-      ? { text: "Status not live — reconnecting...", color: "text-amber-700 dark:text-amber-400" }
+      ? { text: "Status not live — reconnecting...", color: "text-status-warning" }
       : connectionState === "connecting"
-        ? { text: "Connecting to live status…", color: "text-gray-500 dark:text-gray-400" }
+        ? { text: "Connecting to live status…", color: "text-text-muted" }
         : connectionState === "disconnected"
-          ? { text: "Status not live — showing last known", color: "text-red-600 dark:text-red-400" }
+          ? { text: "Status not live — showing last known", color: "text-status-danger" }
           : serverChannelDegraded
-            ? { text: "Status not live — subscription rejected", color: "text-amber-700 dark:text-amber-400" }
+            ? { text: "Status not live — subscription rejected", color: "text-status-warning" }
             : null;
 
   const isBusy = startServer.isPending || stopServer.isPending || restartServer.isPending || retryProvisioning.isPending;
@@ -102,11 +102,11 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
           {staleNote.text}
         </p>
       )}
-      <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
+      <ul className="divide-y divide-border-subtle">
         {servers.map((server) => {
         const status = server.status || "unknown";
         const actionColor =
-          STATUS_MAP[status]?.color ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400";
+          STATUS_MAP[status]?.color ?? "bg-surface-muted text-text-muted";
         const isServerStartingCooldown = startCooldowns[server.server_id] !== undefined && now < startCooldowns[server.server_id];
 
         return (
@@ -120,11 +120,11 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
             <div className="min-w-0 flex-1">
               <Link
                 to={`/servers/${server.server_id}/console`}
-                className="block truncate text-sm font-medium text-gray-900 hover:underline dark:text-gray-100"
+                className="block truncate text-sm font-medium text-text-primary hover:underline"
               >
                 {server.name}
               </Link>
-              <div className="flex items-center gap-1.5 truncate text-xs text-gray-500 dark:text-gray-400">
+              <div className="flex items-center gap-1.5 truncate text-xs text-text-muted">
                 <LoaderBadge loader={server.server_type} />
                 <span>{server.minecraft_version} · port {server.port}</span>
               </div>
@@ -139,7 +139,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
                   disabled={isBusy || isServerStartingCooldown || status === "starting" || status === "provisioning"}
                   aria-label={`Start ${server.name}`}
                   title="Start"
-                  className="rounded-lg p-1.5 text-green-600 transition-colors hover:bg-green-100 hover:text-green-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-green-400 dark:hover:bg-green-900/30 dark:hover:text-green-300"
+                  className="rounded-lg p-1.5 text-status-success transition-colors hover:bg-status-success-bg hover:text-status-success disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   <Icon name="play" size={16} />
                 </button>
@@ -150,7 +150,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
                   disabled={isBusy}
                   aria-label={`Retry Provisioning ${server.name}`}
                   title="Retry Provisioning"
-                  className="rounded-lg p-1.5 text-amber-600 transition-colors hover:bg-amber-100 hover:text-amber-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-amber-400 dark:hover:bg-amber-900/30 dark:hover:text-amber-300"
+                  className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg hover:text-status-warning disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   <Icon name="restart" size={16} />
                 </button>
@@ -162,7 +162,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
                     disabled={isBusy}
                     aria-label={`Stop ${server.name}`}
                     title="Stop"
-                    className="rounded-lg p-1.5 text-orange-600 transition-colors hover:bg-orange-100 hover:text-orange-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-orange-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-300"
+                    className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg hover:text-status-warning disabled:opacity-40 disabled:hover:bg-transparent"
                   >
                     <Icon name="stop" size={16} />
                   </button>
@@ -172,7 +172,7 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
                       disabled={isBusy}
                       aria-label={`Restart ${server.name}`}
                       title="Restart"
-                      className="rounded-lg p-1.5 text-yellow-600 transition-colors hover:bg-yellow-100 hover:text-yellow-700 disabled:opacity-40 disabled:hover:bg-transparent dark:text-yellow-400 dark:hover:bg-yellow-900/30 dark:hover:text-yellow-300"
+                      className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg hover:text-status-warning disabled:opacity-40 disabled:hover:bg-transparent"
                     >
                       <Icon name="restart" size={16} />
                     </button>
@@ -182,9 +182,9 @@ export function DashboardServerList({ servers }: DashboardServerListProps) {
               {status === "stopping" && (
                 <span
                   aria-label={`${server.name} is ${STATUS_MAP[status]?.label.toLowerCase()}`}
-                  className="inline-flex h-7 w-7 items-center justify-center text-gray-400 dark:text-gray-500"
+                  className="inline-flex h-7 w-7 items-center justify-center text-text-muted"
                 >
-                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600 dark:border-gray-600 dark:border-t-gray-300" />
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-border-default border-t-text-primary" />
                 </span>
               )}
               {status === "provisioning" && (

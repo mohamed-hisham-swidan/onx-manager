@@ -19,7 +19,7 @@ function getStepIcon(status: StepStatus) {
       return (
         <span
           data-testid="step-icon-completed"
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-status-success-bg text-status-success"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -30,7 +30,7 @@ function getStepIcon(status: StepStatus) {
       return (
         <span
           data-testid="step-icon-in-progress"
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-status-info-bg text-status-info"
         >
           <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -46,7 +46,7 @@ function getStepIcon(status: StepStatus) {
       return (
         <span
           data-testid="step-icon-failed"
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-status-danger-bg text-status-danger"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -57,7 +57,7 @@ function getStepIcon(status: StepStatus) {
       return (
         <span
           data-testid="step-icon-cancelled"
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-status-warning-bg text-status-warning"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
@@ -68,7 +68,7 @@ function getStepIcon(status: StepStatus) {
       return (
         <span
           data-testid="step-icon-skipped"
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-muted text-text-muted"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
@@ -79,7 +79,7 @@ function getStepIcon(status: StepStatus) {
       return (
         <span
           data-testid="step-icon-pending"
-          className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-gray-300 dark:border-gray-600"
+          className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-border-default"
         />
       );
   }
@@ -87,14 +87,14 @@ function getStepIcon(status: StepStatus) {
 
 export const OperationStepper: React.FC<OperationStepperProps> = ({ steps, currentStepId }) => {
   if (!steps || steps.length === 0) {
-    return <div className="text-sm text-gray-500 dark:text-gray-400">No steps defined.</div>;
+    return <div className="text-sm text-text-muted">No steps defined.</div>;
   }
 
   return (
     <div className="space-y-4">
       {steps.map((step) => {
         const isCurrent = step.step_id === currentStepId;
-        const elapsedSec = (step.elapsed_ms / 1000).toFixed(1);
+        const elapsedSec = ((step.elapsed_ms ?? 0) / 1000).toFixed(1);
 
         return (
           <div
@@ -102,17 +102,17 @@ export const OperationStepper: React.FC<OperationStepperProps> = ({ steps, curre
             data-testid={`operation-step-${step.step_id}`}
             className={`flex items-start gap-3 rounded-lg p-2.5 transition-colors ${
               isCurrent
-                ? "bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40"
+                ? "bg-status-info-bg border border-status-info-border"
                 : ""
             }`}
           >
             <div className="pt-0.5">{getStepIcon(step.status)}</div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-gray-900 dark:text-gray-100">
+                <span className="font-medium text-text-primary">
                   {formatStepName(step.step_id)}
                 </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">
+                <span className="text-xs text-text-muted">
                   {step.status === "COMPLETED" || step.status === "IN_PROGRESS"
                     ? `${elapsedSec}s`
                     : step.status}
@@ -120,10 +120,16 @@ export const OperationStepper: React.FC<OperationStepperProps> = ({ steps, curre
               </div>
 
               {step.status === "IN_PROGRESS" && step.progress !== null && (
-                <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 overflow-hidden">
+                <div
+                  role="progressbar"
+                  aria-valuenow={Math.round((step.progress ?? 0) * 100)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  className="mt-2 w-full bg-surface-muted rounded-full h-1.5 overflow-hidden"
+                >
                   <div
-                    className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.round(step.progress * 100)}%` }}
+                    className="bg-accent-primary h-1.5 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.round((step.progress ?? 0) * 100)}%` }}
                   />
                 </div>
               )}
