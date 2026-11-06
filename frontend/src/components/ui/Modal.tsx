@@ -47,6 +47,7 @@ export const Modal: React.FC<ModalProps> = ({
 
   useBodyScrollLock(open);
 
+  // Focus management effect: keyed ONLY on `open` and initialFocusRef
   useEffect(() => {
     if (!open) return;
 
@@ -67,6 +68,16 @@ export const Modal: React.FC<ModalProps> = ({
         }
       }
     }, 10);
+
+    return () => {
+      clearTimeout(timer);
+      previousFocusRef.current?.focus();
+    };
+  }, [open, initialFocusRef]);
+
+  // Keyboard navigation & Escape effect
+  useEffect(() => {
+    if (!open) return;
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -110,11 +121,9 @@ export const Modal: React.FC<ModalProps> = ({
 
     window.addEventListener("keydown", onKeyDown);
     return () => {
-      clearTimeout(timer);
       window.removeEventListener("keydown", onKeyDown);
-      previousFocusRef.current?.focus();
     };
-  }, [open, onClose, initialFocusRef, closeOnEscape]);
+  }, [open, closeOnEscape, onClose]);
 
   if (!open) return null;
 

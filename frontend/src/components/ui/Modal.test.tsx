@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Modal } from "./Modal";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -191,6 +191,82 @@ describe("Modal Primitive", () => {
       rerender(
         <Modal open={false} onClose={() => {}} title="Test Modal">
           <button>Inside Action</button>
+        </Modal>
+      );
+
+      expect(document.activeElement).toBe(opener);
+      document.body.removeChild(opener);
+    });
+
+    it("retains focus inside dialog when closeOnEscape is toggled while open", async () => {
+      const opener = document.createElement("button");
+      opener.textContent = "Opener";
+      document.body.appendChild(opener);
+      opener.focus();
+      expect(document.activeElement).toBe(opener);
+
+      const { rerender } = render(
+        <Modal open={true} closeOnEscape={true} onClose={() => {}} title="Dynamic Modal">
+          <button>Inside Action</button>
+        </Modal>
+      );
+
+      const insideBtn = screen.getByText("Inside Action");
+      await waitFor(() => {
+        expect(document.activeElement).not.toBe(opener);
+      });
+      insideBtn.focus();
+      expect(insideBtn).toHaveFocus();
+
+      // Toggle closeOnEscape to false while dialog remains open
+      rerender(
+        <Modal open={true} closeOnEscape={false} onClose={() => {}} title="Dynamic Modal">
+          <button>Inside Action</button>
+        </Modal>
+      );
+
+      expect(document.activeElement).not.toBe(opener);
+      expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+
+      // Toggle closeOnEscape back to true while dialog remains open
+      rerender(
+        <Modal open={true} closeOnEscape={true} onClose={() => {}} title="Dynamic Modal">
+          <button>Inside Action</button>
+        </Modal>
+      );
+
+      expect(document.activeElement).not.toBe(opener);
+      expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+
+      document.body.removeChild(opener);
+    });
+
+    it("waits for initial focus inside dialog before verifying focus returns to opener on close", async () => {
+      const opener = document.createElement("button");
+      opener.textContent = "Opener Button";
+      document.body.appendChild(opener);
+      opener.focus();
+      expect(document.activeElement).toBe(opener);
+
+      const { rerender } = render(
+        <Modal open={true} onClose={() => {}} title="Focus Return Modal">
+          <button>Action Button</button>
+        </Modal>
+      );
+
+      const actionBtn = screen.getByText("Action Button");
+      await waitFor(() => {
+        expect(document.activeElement).not.toBe(opener);
+      });
+
+      // Explicitly move focus inside dialog
+      actionBtn.focus();
+      expect(actionBtn).toHaveFocus();
+
+      // Close the modal
+      rerender(
+        <Modal open={false} onClose={() => {}} title="Focus Return Modal">
+          <button>Action Button</button>
         </Modal>
       );
 
