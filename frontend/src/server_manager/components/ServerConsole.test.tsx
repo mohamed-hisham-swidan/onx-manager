@@ -388,4 +388,25 @@ describe("ServerConsole Component", () => {
     expect(removeEventListenerSpy).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
     removeEventListenerSpy.mockRestore();
   });
+
+  it("does not mount duplicate terminal containers when navigating away and back (unmount and remount)", async () => {
+    const { unmount } = renderConsole({ serverId: "srv-live" });
+    await screen.findByText(/Done \(2\.4s\)!/);
+
+    expect(screen.getAllByPlaceholderText("Enter a command...")).toHaveLength(1);
+    expect(screen.getAllByTestId("console-search-input")).toHaveLength(1);
+
+    // Simulate navigating away
+    unmount();
+    expect(screen.queryByPlaceholderText("Enter a command...")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("console-search-input")).not.toBeInTheDocument();
+
+    // Simulate navigating back
+    renderConsole({ serverId: "srv-live" });
+    await screen.findByText(/Done \(2\.4s\)!/);
+
+    // Exactly one instance mounted, zero duplicate viewports or listeners
+    expect(screen.getAllByPlaceholderText("Enter a command...")).toHaveLength(1);
+    expect(screen.getAllByTestId("console-search-input")).toHaveLength(1);
+  });
 });
