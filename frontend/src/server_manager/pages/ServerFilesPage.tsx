@@ -439,6 +439,7 @@ export function ServerFilesPage() {
 
           <input
             type="file"
+            aria-label="Upload file"
             ref={fileInputRef}
             className="hidden"
             onChange={(e) => {

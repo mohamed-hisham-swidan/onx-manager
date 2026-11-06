@@ -18,7 +18,8 @@ export function Toaster() {
         return (
           <div
             key={t.id}
-            role="status"
+            role={t.type === "error" ? "alert" : "status"}
+            aria-live={t.type === "error" ? "assertive" : "polite"}
             className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-surface-card p-4 shadow-lg text-text-primary ${style.ring}`}
           >
             <Icon name={style.icon} size={18} className={`mt-0.5 shrink-0 ${style.iconColor}`} />
