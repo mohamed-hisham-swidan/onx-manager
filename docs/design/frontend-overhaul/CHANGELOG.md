@@ -104,3 +104,29 @@ This document records the full chronological history of changes implemented duri
 - Enforced density hierarchy tokens (`compact` vs `comfortable`).
 - Standardized global `:focus-visible` outline rings with `--border-focus`.
 - Added accessibility verification test suite (`accessibilityMotion.test.tsx`).
+
+---
+
+## Overnight Closure Run Batches (N-01 to N-18)
+
+| Batch ID | Commit | Description | Verification |
+|:---|:---|:---|:---|
+| **N-01** | `a1ee645` | Gate React Query Devtools floating button behind `VITE_QUERY_DEVTOOLS === 'true'`. | Clean dev bundle, devtools opt-in |
+| **N-02** | `0944f8f` | Migrate `ImportReviewModal`, `CrashReportViewerModal`, `MaterializationBrowserModal` to `Modal`. | 11/11 tests pass, pending guards wired |
+| **N-03** | `8d9ecbd` | Migrate `InstallModal`, `AddCompanionTargetModal`, `EditPublicAddressModal` to `Modal`. | 29/29 tests pass across 3 suites |
+| **N-04** | `f2ea87e` | Migrate all 7 remaining inline dialogs (`AccessModeCard`, `GlobalExposureActionsCard`, `InvitationsSection`, `PanelExposureSection`, `ServerExposureMethodSelector`, `TargetCard`, `ServerExposurePage`) to `Modal`. | 0 bypassing raw overlays remaining |
+| **N-05** | `d3adaa2` | Implement automated `overlayRatchet.test.ts` enforcing zero raw `fixed inset-0` dialogs repo-wide. | 3/3 overlay ratchet tests pass |
+| **N-06** | `bd42b68` | Eliminate native `window.confirm` calls; replace with `<ConfirmDialog>` in Versioning modals. | 0 native dialogs remaining |
+| **N-07** | `4af5441` | Document comprehensive `FINDINGS-LEDGER.md` reconciling all 33 audit and review items. | 26 CLOSED, 5 OWNER-DECISION, 2 BACKEND-DEPENDENT |
+| **N-08** | Verified | Audit WCAG AA contrast computation and prove mutant kill in `/tmp`; report 0 channel spread on Graphite surfaces. | Mutation proof verified, test fails on mutant |
+| **N-09** | `6913c6c` | Audit palette ratchet allowlist and ratchet down 5 caps by -115 total allowance. | 5/5 palette ratchet tests pass |
+| **N-10** | `acfd0a4` | Add unmount/remount navigation test proving zero duplicate console viewports. | 21/21 console tests pass |
+| **N-11** | `720ba9d` | Update files filter label to "Filter files in folder..." and clarify client pagination in docs. | 12/12 files tests pass |
+| **N-12** | `7991d28` | Standardize `ApiKeysPage`, `BackupListPage`, `PluginMarketplacePage`, `PluginDetailPage` on `States` primitives. | 51/51 tests pass, 6/6 CI gates PASS |
+| **N-13** | `d36a45c` | Add ARIA live regions to `Toaster` and accessible labels to file inputs. | 13/13 accessibility tests pass |
+| **N-14** | `e5b4b33` | Add modal focus restoration, Tab/Shift+Tab cycling, and stacked dialog unit tests. | 15/15 Modal tests pass |
+| **N-15** | `4de3431` | Remove unused `CardSkeleton` and ratchet down `Skeleton.tsx` cap from 25 to 15. | 4/4 Skeleton tests pass |
+| **N-16** | `bcdeb61` | Safely resolve all ESLint warnings with strict typing and clean dependencies. | 0 ESLint errors, 0 warnings |
+| **N-17** | Verified | Measure production bundle: 39 JS chunks, largest chunk 396.68 kB. | Build clean in 5.28s |
+| **N-18** | (current) | Comprehensive docs truth pass across design docs, primitives specification, and consolidated decision summary. | All identifiers and numbers verified |
+

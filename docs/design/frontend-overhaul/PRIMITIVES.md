@@ -90,6 +90,34 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
   - **Shared Body Scroll Lock (`useBodyScrollLock`)**: Automatically locks body scroll (`document.body.style.overflow = "hidden"`) while active via the shared hook `useBodyScrollLock(active)` in `frontend/src/hooks/useBodyScrollLock.ts`. Uses a module-level reference counter so nested or stacked dialogs and mobile off-canvas drawers only restore the previous body overflow after the last active consumer releases.
   - **ConfirmDialog Focus Safety**: For `variant="danger"`, initial focus is placed on the Cancel button to protect against accidental confirmation via Enter/Space. Non-danger variants (`warning`, `info`) keep initial focus on the Confirm button.
 
+#### Pending-Guard Protocol
+When a mutation or asynchronous action is in-flight within a modal:
+1. **Escape Guard**: Set `closeOnEscape={!isPending}` (or `!isSubmitting`). Pressing Escape while a mutation is running must be ignored.
+2. **Backdrop Guard**: Set `closeOnBackdrop={!isPending}`. Clicking the backdrop while a mutation is running must not dismiss the modal.
+3. **Action Button Guard**: Disable cancel, close, and submit buttons (`disabled={isPending}`).
+4. **Header Close Button**: The header close button is disabled when `closeOnEscape` or `closeOnBackdrop` is guarded.
+
+#### Overlay Migration Protocol
+To migrate an ad-hoc overlay onto the `Modal` primitive:
+1. Replace manual `fixed inset-0` backdrop markup with `<Modal open={isOpen} onClose={handleClose} ...>`.
+2. Remove manual `document.addEventListener("keydown")` Escape listeners and manual focus-trap loops (handled natively by `Modal`).
+3. Wire pending guards to async mutation state.
+4. Unit tests MUST verify:
+   - Dismissal via backdrop and Escape while idle.
+   - Rejection of backdrop and Escape while pending mutation is active.
+   - Keyboard Tab and Shift+Tab cycling within dialog boundaries.
+   - Focus restoration to triggering opener element on close.
+
+#### Overlay Ratchet Enforcement
+The repository enforces zero ad-hoc or bypassing overlays via `frontend/src/tokens/overlayRatchet.test.ts`.
+- Scans all `.tsx` files across `frontend/src` for raw `fixed inset-0` occurrences.
+- Enforces an exact allowlist of 4 canonical elements:
+  1. `components/ui/Modal.tsx` (primitive)
+  2. `components/ui/ConfirmDialog.tsx` (primitive)
+  3. `components/layout/Sidebar.tsx` (mobile sidebar drawer backdrop)
+  4. `components/brand/SplashScreen.tsx` (full-page boot splash)
+- Zero stale allowlist entries permitted. Any new modal markup outside the primitives causes CI failure.
+
 ---
 
 ### 3. `StatusBadge`

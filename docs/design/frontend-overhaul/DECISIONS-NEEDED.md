@@ -139,4 +139,20 @@ This document records non-blocking decisions, conservative choices made during a
   - `git grep -n -E "window\.(confirm|alert|prompt)|\b(confirm|alert|prompt)\(" frontend/src | grep -v "\.test\."` returns 0 matches across the entire codebase.
   - Test suites updated with explicit `ConfirmDialog` interaction tests in `MaterializationBrowserModal.test.tsx` and `TestDefinitionsModal.test.tsx`.
 
+---
+
+## 12. Consolidated & Prioritized Owner-Decision Summary
+
+The following decisions are consolidated and prioritized for repo owner review. Safe defaults have been applied in the implementation so the platform is fully functional and hardened, but the owner retains final authority on each item:
+
+| Priority | Decision Topic | Current Applied Default | Owner Alternative Options | Relevant File(s) |
+|:---|:---|:---|:---|:---|
+| **P1** | **Form Modal Escape Behavior** | Escape closes form modals; typed form data is discarded; Escape is strictly blocked during pending mutations. | Owner may choose to introduce a dirty-form prompt ("Discard unsaved changes?"). | `src/components/ui/Modal.tsx` |
+| **P2** | **ServerShell Provider Badge** | Retained in header strip (shows "Container" for Docker, "File" for Host process). | Owner may choose to hide provider badge or move it to ServerSettings. | `src/layouts/ServerShell.tsx:145` |
+| **P3** | **CurseForge Marketplace Source** | Option B: Segmented toggle hidden; `/marketplace` defaults exclusively to Modrinth until backend catalog provider is built. | Owner may choose Option A (re-enable toggle showing "Coming Soon" state) or Option C (implement backend provider). | `src/server_manager/pages/PluginMarketplacePage.tsx` |
+| **P4** | **Destructive Dialog Initial Focus** | Danger variants focus "Cancel" button by default to prevent accidental confirmation. Non-danger variants focus "Confirm". | Owner may configure instance-level autofocus if specific workflows require confirm-first keyboard flow. | `src/components/ui/ConfirmDialog.tsx:33-37` |
+| **P5** | **Multi-Skin Palette Scope** | Shipped with "Graphite" (100% neutral gray, 0 channel spread) and "Azure" (modern slate blue), plus `skinValidator` contract. | Owner may introduce additional built-in skins (e.g. high-contrast, emerald). | `src/index.css`, `src/tokens/skinValidator.ts` |
+| **P6** | **Brand Visual Assets** | Vortex vector swirl mark (`BrandLogo.tsx`), abstract voxel banners (`VoxelBanner.tsx`), favicon.svg. | Owner may replace SVG artwork with custom product logos. | `src/components/brand/` |
+
+
 
