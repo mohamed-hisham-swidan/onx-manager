@@ -8,9 +8,7 @@ import {
 import { Pagination } from "@/components/ui/Pagination";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
-import { EmptyState } from "@/components/EmptyState";
-import { ErrorState } from "@/components/ErrorState";
-import { Skeleton } from "@/components/Skeleton";
+import { EmptyState, ErrorState, Skeleton } from "@/components/ui/States";
 import { InstallModal } from "@/server_manager/components/InstallModal";
 import { ProjectCard } from "@/server_manager/components/ProjectCard";
 import { getLoaderDisplay } from "@/server_manager/utils/compatibility";

@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from "@/server_manager/hooks/useApiKeys";
 import { TableSkeleton } from "@/components/Skeleton";
-import { EmptyState } from "@/components/EmptyState";
-import { ErrorState } from "@/components/ErrorState";
+import { EmptyState, ErrorState } from "@/components/ui/States";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
