@@ -1,6 +1,8 @@
+import React, { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Modal } from "./Modal";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 describe("Modal Primitive", () => {
   it("renders nothing when closed", () => {
@@ -168,6 +170,92 @@ describe("Modal Primitive", () => {
       unmountFirst();
       // Both modals are closed, body scroll must be restored
       expect(document.body.style.overflow).toBe("");
+    });
+  });
+
+  describe("focus management and stacking hardening", () => {
+    it("returns focus to the opener element when closed", () => {
+      const opener = document.createElement("button");
+      opener.textContent = "Open Modal";
+      document.body.appendChild(opener);
+      opener.focus();
+      expect(document.activeElement).toBe(opener);
+
+      const { rerender } = render(
+        <Modal open={true} onClose={() => {}} title="Test Modal">
+          <button>Inside Action</button>
+        </Modal>
+      );
+
+      // Close the modal
+      rerender(
+        <Modal open={false} onClose={() => {}} title="Test Modal">
+          <button>Inside Action</button>
+        </Modal>
+      );
+
+      expect(document.activeElement).toBe(opener);
+      document.body.removeChild(opener);
+    });
+
+    it("cycles focus with Tab and Shift+Tab within the dialog", () => {
+      render(
+        <Modal open onClose={() => {}} title="Test Title">
+          <button>First Item</button>
+          <button>Last Item</button>
+        </Modal>
+      );
+
+      const closeBtn = screen.getByLabelText("Close dialog");
+      const firstBtn = screen.getByText("First Item");
+      const lastBtn = screen.getByText("Last Item");
+
+      // Focus last item, press Tab -> wraps to first focusable element (closeBtn)
+      lastBtn.focus();
+      expect(document.activeElement).toBe(lastBtn);
+
+      fireEvent.keyDown(window, { key: "Tab", shiftKey: false });
+      expect(document.activeElement).toBe(closeBtn);
+
+      // Focus close button, press Shift+Tab -> wraps to last focusable element (lastBtn)
+      closeBtn.focus();
+      expect(document.activeElement).toBe(closeBtn);
+
+      fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(lastBtn);
+    });
+
+    it("supports stacking a ConfirmDialog opened from within a Modal", () => {
+      function StackedComponent() {
+        const [confirmOpen, setConfirmOpen] = useState(false);
+        return (
+          <Modal open={true} onClose={() => {}} title="Parent Modal">
+            <button onClick={() => setConfirmOpen(true)}>Trigger Confirm</button>
+            <ConfirmDialog
+              open={confirmOpen}
+              title="Confirm Action"
+              onConfirm={() => setConfirmOpen(false)}
+              onCancel={() => setConfirmOpen(false)}
+            />
+          </Modal>
+        );
+      }
+
+      render(<StackedComponent />);
+      expect(screen.getByRole("dialog", { name: "Parent Modal" })).toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Confirm Action" })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Trigger Confirm"));
+
+      // Both dialogs exist in DOM; confirm is on top
+      const dialogs = screen.getAllByRole("dialog");
+      expect(dialogs).toHaveLength(2);
+      expect(screen.getByRole("dialog", { name: "Confirm Action" })).toBeInTheDocument();
+
+      // Confirm cancellation
+      fireEvent.click(screen.getByText("Cancel"));
+      expect(screen.queryByRole("dialog", { name: "Confirm Action" })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "Parent Modal" })).toBeInTheDocument();
     });
   });
 });
