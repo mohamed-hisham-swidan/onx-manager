@@ -64,7 +64,6 @@ class GenerateHealthReportHandler(QueryHandler[GenerateHealthReportQuery]):
 
             healthy_count = sum(1 for e in timeline if e.new_status == HealthStatusEnum.HEALTHY)
             healthy_weighted = healthy_count * 1.0
-            critical_weighted = crash_count * 0.3
             uptime_pct = 0.0
             if total_entries > 0:
                 uptime_pct = (healthy_weighted / max(total_entries, 1)) * 100

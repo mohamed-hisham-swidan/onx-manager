@@ -75,7 +75,8 @@ class FeatureFlagRegistry:
             if not user_id:
                 return False
             hash_input = f"{flag}:{user_id}"
-            hash_val = int(hashlib.md5(hash_input.encode()).hexdigest()[:8], 16)
+            digest = hashlib.md5(hash_input.encode(), usedforsecurity=False).hexdigest()
+            hash_val = int(digest[:8], 16)
             return (hash_val % 100) < definition.percentage
 
         return definition.enabled

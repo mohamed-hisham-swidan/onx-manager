@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -154,6 +154,7 @@ def _task(
     name: str,
     status: TaskStatus,
     started_at: datetime | None = None,
+    delay_until: datetime | None = None,
 ) -> TaskModel:
     return TaskModel(
         task_id=task_id,
@@ -162,6 +163,7 @@ def _task(
         status=status,
         started_at=started_at,
         created_at=datetime.now(UTC),
+        delay_until=delay_until,
     )
 
 
@@ -203,6 +205,41 @@ async def test_reclaim_pending_dispatches_registered_task() -> None:
     assert result["skipped_unregistered"] == 0
     assert result["errors"] == 0
     assert session._store["t-registered-2"].status == TaskStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_reclaim_pending_respects_delay_until() -> None:
+    session = ReclaimSession()
+    due_in_future = datetime.now(UTC) + timedelta(seconds=0.15)
+    session.seed(
+        _task("t-delayed", "registered_task", TaskStatus.PENDING, delay_until=due_in_future)
+    )
+    session.set_update_rowcount(1)
+
+    async def factory() -> ReclaimSession:
+        return session
+
+    queue = InProcessQueue(factory)
+    executed = False
+
+    async def _handler(_params: dict) -> dict:
+        nonlocal executed
+        executed = True
+        return {"ok": True}
+
+    queue.register("registered_task", _handler)
+
+    result = await queue.reclaim_pending()
+    assert result["reclaimed"] == 1
+
+    # Right after reclaim (before delay expires), handler should NOT have executed yet
+    await asyncio.sleep(0.02)
+    assert executed is False
+
+    # After delay expires, handler completes
+    await asyncio.sleep(0.18)
+    assert executed is True
+    assert session._store["t-delayed"].status == TaskStatus.SUCCESS
 
 
 @pytest.mark.asyncio

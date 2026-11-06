@@ -32,7 +32,9 @@ class UpdateUserHandler(CommandHandler[UpdateUserCommand]):
             if command.display_name is not None:
                 user.set_display_name(command.display_name)
             if command.is_active is not None:
-                if not command.is_active:
+                if command.is_active:
+                    user.activate()
+                else:
                     user.deactivate()
 
             await repo.save(user)

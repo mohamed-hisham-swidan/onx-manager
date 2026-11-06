@@ -328,6 +328,16 @@ class WSConnectionHandler:
                     )
                     return
 
+                if not server.runtime or not server.runtime.external_id:
+                    await self._send_json(
+                        ws,
+                        MessageSerializer.error_message(
+                            "EXEC_FAILED",
+                            f"Server {server_id} has no active runtime process",
+                        ).to_dict(),
+                    )
+                    return
+
                 provider_name = server.runtime.provider or default_provider_for_platform()
                 handle = ServerHandle(
                     provider=provider_name,

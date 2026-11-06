@@ -17,6 +17,7 @@ from app.tasks.base import TaskStatus
 from app.tasks.definitions.cleanup_task import run_cleanup_task
 from app.tasks.definitions.discovery_scan import periodic_discovery_scan
 from app.tasks.definitions.health_check_task import run_health_check_task
+from app.tasks.definitions.health_recalculation import periodic_health_recalculation
 from app.tasks.definitions.metrics_collector import init_collector, run_metrics_collection_task
 from app.tasks.queue import InProcessQueue
 
@@ -238,6 +239,13 @@ class TestBatch4BTaskFallbacks:
         res = await run_health_check_task({})
         assert "check_count" in res
         assert "results" in res
+
+    @pytest.mark.asyncio
+    async def test_health_recalculation_fallback(self) -> None:
+        res = await periodic_health_recalculation({})
+        assert res["success"] is True
+        assert "processed" in res
+        assert "total" in res
 
 
 class TestBatch4BMetricsPrometheusWiring:

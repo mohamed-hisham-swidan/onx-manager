@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import logging
 import re
+from urllib.parse import urlsplit
 
 from app.core.exceptions import CorruptedDownloadError, DownloadError, DownloadTimeoutError
 from app.core.http_client import get_http_client
@@ -183,6 +184,16 @@ class ModrinthProvider(PluginCatalogProvider):
         expected_sha1: str | None = None,
         expected_sha512: str | None = None,
     ) -> bytes:
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme.lower() != "https" or not (
+            host == "modrinth.com" or host.endswith(".modrinth.com")
+        ):
+            raise DownloadError(
+                url,
+                0,
+                f"Untrusted download URL: host '{host}' is not a valid Modrinth domain",
+            )
         client = get_http_client()
         last_exception: Exception | None = None
         for attempt in range(MODRINTH_MAX_RETRIES + 1):

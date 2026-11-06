@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator
@@ -60,6 +61,9 @@ class SQLActivityRepository(ActivityRepository):
                     await s.commit()
                 return
             except Exception as exc:
+                if self._session is not None:
+                    with contextlib.suppress(Exception):
+                        await self._session.rollback()
                 is_lock = "locked" in str(exc).lower() or "busy" in str(exc).lower()
                 if is_lock and attempt < max_retries - 1:
                     await asyncio.sleep(0.05 * (attempt + 1))

@@ -23,7 +23,10 @@ from app.modules.plugin.application.services.version_selector import (
 )
 from app.modules.plugin.domain.aggregate import Plugin
 from app.modules.plugin.domain.repository import PluginRepository
-from app.modules.plugin.infrastructure.addon_fs import get_addon_dir_name
+from app.modules.plugin.infrastructure.addon_fs import (
+    get_addon_dir_name,
+    sanitize_addon_filename,
+)
 from app.modules.plugin.infrastructure.jar_metadata_parser import parse_jar_metadata
 from app.modules.plugin.infrastructure.providers import build_plugin_catalog_provider
 from app.modules.plugin.infrastructure.providers.base import PluginFile, PluginVersionInfo
@@ -119,12 +122,21 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                     error_code="INVALID_FILENAME",
                 )
 
-            safe_filename = os.path.basename(raw_filename)
             addon_dir_name = get_addon_dir_name(server_type)
             plugin_dir = os.path.join(server.deployment.server_directory(), addon_dir_name)
+            try:
+                target_path = sanitize_addon_filename(raw_filename, plugin_dir)
+            except InvalidValueError as e:
+                return CommandResult(
+                    success=False,
+                    error=f"Invalid plugin filename '{raw_filename}': {e.message}",
+                    error_code="INVALID_FILENAME",
+                )
+
+            safe_filename = target_path.name
             if not self._fs.exists(plugin_dir):
                 self._fs.ensure_dir(plugin_dir)
-            dest = os.path.join(plugin_dir, safe_filename)
+            dest = str(target_path)
 
             resolved_plugin_dir = os.path.abspath(plugin_dir)
             resolved_dest = os.path.abspath(dest)
@@ -146,6 +158,11 @@ class InstallModrinthPluginHandler(CommandHandler[InstallModrinthPluginCommand])
                 )
 
             try:
+                if not plugin_file.sha1 and not plugin_file.sha512:
+                    raise CorruptedDownloadError(
+                        plugin_file.url,
+                        "catalog supplied neither sha1 nor sha512 checksum for verification",
+                    )
                 content = await provider.download(
                     plugin_file.url,
                     expected_sha1=plugin_file.sha1 or None,

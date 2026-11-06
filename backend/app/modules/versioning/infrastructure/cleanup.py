@@ -27,14 +27,18 @@ async def execute_cleanup_plan(plan: TestCleanupPlan) -> CleanupResult:
     # 1. Remove docker container if requested
     if plan.remove_container:
         try:
-            await asyncio.to_thread(
+            res = await asyncio.to_thread(
                 subprocess.run,
                 ["docker", "rm", "-f", plan.container_name],
                 capture_output=True,
                 text=True,
                 timeout=15,
             )
-            container_removed = True
+            if res.returncode == 0:
+                container_removed = True
+            else:
+                err = res.stderr.strip()
+                error_msg = err or f"docker rm failed with exit code {res.returncode}"
         except Exception as exc:
             logger.debug("Failed to remove test container %s: %s", plan.container_name, exc)
             error_msg = str(exc)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -332,6 +333,77 @@ class TestStageCMaterializationCommands:
         # Verify on disk
         target = seed_env / res.data["root_path"] / "server.properties"
         assert target.read_text() == "difficulty=peaceful\n"
+
+    async def test_get_and_write_materialization_file_symlink_escape_rejection(
+        self, init_test_db, seed_env: Path, tmp_path: Path
+    ) -> None:
+        _ = (init_test_db, seed_env)
+        if not hasattr(os, "symlink"):
+            pytest.skip("Symlinks not supported on this platform")
+
+        cb, qb, _ = init_test_db
+
+        res = await cb.send(
+            CreateMaterializationCommand(
+                server_id="srv-c-1",
+                revision_type="commit",
+                ref="c-initial",
+            )
+        )
+        mat_id = res.data["id"]
+        mat_root = Path(res.data["root_path"])
+
+        outside_file = tmp_path / "outside_secret.txt"
+        outside_file.write_text("top secret host content")
+
+        symlink_target = mat_root / "escaped_link.txt"
+        try:
+            symlink_target.symlink_to(outside_file)
+        except OSError:
+            pytest.skip("Creating symlink failed on platform")
+
+        from app.core.exceptions import ValidationError
+        from app.core.persistence.db import database
+        from app.modules.versioning.domain.value_objects import PathClassification
+        from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
+
+        async with database.session_factory() as session:
+            v_repo = SQLVersioningRepository(session)
+            mat = await v_repo.get_materialization(mat_id)
+            assert mat is not None
+            mat.path_classification["escaped_link.txt"] = PathClassification.TRACKED
+            await v_repo.save_materialization(mat)
+            await session.commit()
+
+        # 1. Query should reject symlink escape
+        with pytest.raises(ValidationError, match="Path escapes materialization root"):
+            await qb.ask(
+                GetMaterializationFileQuery(
+                    server_id="srv-c-1",
+                    materialization_id=mat_id,
+                    path="escaped_link.txt",
+                )
+            )
+
+        # 2. Write should reject symlink escape
+        await cb.send(
+            SetMaterializationEditModeCommand(
+                server_id="srv-c-1",
+                materialization_id=mat_id,
+                enabled=True,
+            )
+        )
+        write_res = await cb.send(
+            WriteMaterializedFileCommand(
+                server_id="srv-c-1",
+                materialization_id=mat_id,
+                path="escaped_link.txt",
+                content="overwrite attempt",
+            )
+        )
+        assert not write_res.success
+        assert "escapes materialization root" in write_res.error
+        assert outside_file.read_text() == "top secret host content"
 
     async def test_remove_materialization(self, init_test_db, seed_env: Path) -> None:
         cb, qb, _ = init_test_db

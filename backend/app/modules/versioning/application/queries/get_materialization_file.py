@@ -79,7 +79,11 @@ class GetMaterializationFileHandler(QueryHandler[GetMaterializationFileQuery]):
                 f"Path '{query.path}' is not materialized (classification: {classification})"
             )
 
-        file_path = Path(mat.root_path) / norm_path
+        file_path = (Path(mat.root_path) / norm_path).resolve()
+        resolved_root = Path(mat.root_path).resolve()
+        if not file_path.is_relative_to(resolved_root):
+            raise ValidationError(f"Path escapes materialization root: {query.path}")
+
         if not file_path.is_file():
             raise NotFoundError(f"File '{query.path}' not found in materialization")
 

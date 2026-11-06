@@ -129,3 +129,9 @@ class TestCircuitBreaker:
             for record in caplog.records
         )
 
+    async def test_events_bounded(self) -> None:
+        cb = CircuitBreaker("bounded_test", max_failures=1, timeout_seconds=0.01)
+        assert cb._events.maxlen == 1000
+        assert isinstance(cb.events, list)
+
+

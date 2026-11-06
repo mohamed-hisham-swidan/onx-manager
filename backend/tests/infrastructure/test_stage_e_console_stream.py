@@ -560,3 +560,44 @@ async def test_docker_logs_producer_active_container_streaming_unchanged():
     item = queue.get_nowait()
     assert item == "2026-09-29T12:00:00.000Z [INFO] Done (1.234s)! For help, type \"help\""
 
+
+@pytest.mark.asyncio
+async def test_tmux_poll_producer_invokes_create_subprocess_exec():
+    """Verify _tmux_poll_producer uses create_subprocess_exec without shell invocation."""
+    queue: asyncio.Queue[str] = asyncio.Queue()
+    manager = ConsoleStreamManager(broadcast_fn=AsyncMock())
+    manager._running = True
+
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 0
+    mock_proc.communicate.return_value = (b"log line 1\nlog line 2\n", b"")
+
+    with (
+        patch(
+            "asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc
+        ) as mock_exec
+    ):
+        task = asyncio.create_task(
+            manager._tmux_poll_producer("session-abc", queue)
+        )
+        await asyncio.sleep(0.05)
+        manager._running = False
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    mock_exec.assert_called_with(
+        "tmux",
+        "capture-pane",
+        "-t",
+        "session-abc",
+        "-p",
+        "-S",
+        "-50",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    assert not queue.empty()
+    assert queue.get_nowait() == "log line 1"
+    assert queue.get_nowait() == "log line 2"
+

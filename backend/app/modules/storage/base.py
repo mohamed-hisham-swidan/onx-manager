@@ -48,11 +48,12 @@ class StorageBackend(ABC):
 
     async def stream_read(self, path: str, chunk_size: int = 65536) -> AsyncIterator[bytes]:
         data = await self.read(path)
-        for i in range(0, len(data), chunk_size):
-            yield data[i : i + chunk_size]
+        view = memoryview(data)
+        for i in range(0, len(view), chunk_size):
+            yield bytes(view[i : i + chunk_size])
 
     async def stream_write(self, path: str, chunks: AsyncIterator[bytes]) -> StorageResult:
-        data = b""
+        parts: list[bytes] = []
         async for chunk in chunks:
-            data += chunk
-        return await self.write(path, data)
+            parts.append(chunk)
+        return await self.write(path, b"".join(parts))

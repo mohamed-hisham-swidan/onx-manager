@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from enum import Enum
@@ -37,7 +38,7 @@ class CircuitBreaker:
         self._failure_count = 0
         self._last_failure_time = 0.0
         self._half_open_start = 0.0
-        self._events: list[CircuitEvent] = []
+        self._events: deque[CircuitEvent] = deque(maxlen=1000)
 
     @property
     def name(self) -> str:

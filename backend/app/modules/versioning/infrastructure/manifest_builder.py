@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from app.modules.versioning.domain.value_objects import CommitManifest, ModReference
+
+logger = logging.getLogger(__name__)
 
 
 class ManifestBuilder:
@@ -114,8 +117,10 @@ class ManifestBuilder:
                                     "source": "custom",
                                 }
                             )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to hash mod/plugin file %s: %s", entry, exc
+                            )
 
         # Sort mods and configs deterministically for canonical hashing
         mods.sort(key=lambda m: m["filename"])

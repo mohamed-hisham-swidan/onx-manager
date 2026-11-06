@@ -408,3 +408,23 @@ async def test_scheduler_preserves_unrelated_cancellation() -> None:
         await job.func()
 
     await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_add_job_invalid_cron_raises_and_persists_nothing() -> None:
+    factory = FakeSessionFactory()
+    scheduler = Scheduler(factory)
+
+    with pytest.raises(ValueError, match="Invalid cron expression"):
+        await scheduler.add_job("bad_job", "invalid-expression", "some_task")
+
+    assert len(factory._store) == 0
+
+
+@pytest.mark.asyncio
+async def test_update_job_expression_invalid_cron_raises() -> None:
+    factory = FakeSessionFactory()
+    scheduler = Scheduler(factory)
+
+    with pytest.raises(ValueError, match="Invalid cron expression"):
+        await scheduler.update_job_expression("any_job", "bad cron expression")

@@ -6,6 +6,7 @@ import logging
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -54,7 +55,7 @@ class DeadLetterEntry:
 class EventBus:
     def __init__(self) -> None:
         self._subscribers: dict[str, list[Subscription]] = {}
-        self._dead_letter_queue: list[DeadLetterEntry] = []
+        self._dead_letter_queue: deque[DeadLetterEntry] = deque(maxlen=1000)
         self._retry_attempts: int | None = None
         self._subscriber_timeout: float = 10.0
 
@@ -78,6 +79,10 @@ class EventBus:
     @property
     def dead_letter_count(self) -> int:
         return len(self._dead_letter_queue)
+
+    @property
+    def dead_letter_queue(self) -> list[DeadLetterEntry]:
+        return list(self._dead_letter_queue)
 
     @property
     def retry_attempts(self) -> int:

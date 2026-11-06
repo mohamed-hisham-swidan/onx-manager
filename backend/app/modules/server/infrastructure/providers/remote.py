@@ -29,6 +29,7 @@ class SSHProvider(ServerProvider):
         client_keys: list[str] | None = None,
         passphrase: str | None = None,
         known_hosts: str | None = None,
+        keepalive_seconds: int = 30,
     ) -> None:
         self._host = host
         self._port = port
@@ -36,6 +37,7 @@ class SSHProvider(ServerProvider):
         self._client_keys = client_keys
         self._passphrase = passphrase
         self._known_hosts = known_hosts
+        self._keepalive_seconds = keepalive_seconds
         self._connection: Any = None
 
     @property
@@ -252,10 +254,13 @@ class SSHProvider(ServerProvider):
             "host": self._host,
             "port": self._port,
             "username": self._username,
-            "client_keys": [self._key_path],
-            "known_hosts": None,
+            "known_hosts": self._known_hosts,
             "keepalive_interval": self._keepalive_seconds,
         }
+        if self._client_keys is not None:
+            kwargs["client_keys"] = self._client_keys
+        if self._passphrase is not None:
+            kwargs["passphrase"] = self._passphrase
 
         try:
             import asyncssh
@@ -277,6 +282,7 @@ class SSHProvider(ServerProvider):
         local_path: str,
         remote_path: str,
     ) -> None:
+        _ = handle
         conn = await self._get_connection()
         try:
             import asyncssh
@@ -291,6 +297,7 @@ class SSHProvider(ServerProvider):
         remote_path: str,
         local_path: str,
     ) -> None:
+        _ = handle
         conn = await self._get_connection()
         try:
             import asyncssh

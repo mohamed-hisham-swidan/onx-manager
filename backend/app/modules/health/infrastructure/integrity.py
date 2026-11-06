@@ -276,10 +276,9 @@ def _check_world(srvd: Path, checks: list[IntegrityCheck]) -> None:
 
 def _check_disk_space(srvd: Path, checks: list[IntegrityCheck]) -> None:
     try:
-        stat = srvd.stat()
         import shutil
 
-        usage = shutil.disk_usage(srvd.anchor if srvd.anchor else srvd.root)
+        usage = shutil.disk_usage(str(srvd))
         free_gb = usage.free / (1024**3)
         if free_gb < 1:
             checks.append(

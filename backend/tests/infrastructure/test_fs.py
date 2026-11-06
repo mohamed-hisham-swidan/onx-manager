@@ -62,6 +62,24 @@ def test_local_filesystem_delete_file() -> None:
         assert not fs.exists(path)
 
 
+def test_local_filesystem_delete_file_permission_error_on_persistent_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fs = LocalFileSystem()
+    target_file = tmp_path / "locked.txt"
+    target_file.write_text("cannot delete")
+
+    def mock_unlink(_path_obj: Path) -> None:
+        raise PermissionError("Access denied")
+
+    monkeypatch.setattr(Path, "unlink", mock_unlink)
+
+    with pytest.raises(PermissionError, match="File could not be completely removed"):
+        fs.delete(str(target_file))
+
+    assert target_file.exists()
+
+
 def test_local_filesystem_delete_dir() -> None:
     fs = LocalFileSystem()
     with tempfile.TemporaryDirectory() as tmp:

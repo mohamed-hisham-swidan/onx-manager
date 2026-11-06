@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import os
 import shutil
+import tempfile
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,7 +24,22 @@ class LocalStorage(StorageBackend):
     async def write(self, path: str, data: bytes) -> StorageResult:
         full_path = self._resolve(path)
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_bytes(data)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=f".{full_path.name}.",
+            suffix=".tmp",
+            dir=full_path.parent,
+        )
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, full_path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_path)
+            raise
         checksum = hashlib.sha256(data).hexdigest()
         return StorageResult(
             path=str(full_path),
@@ -76,12 +95,60 @@ class LocalStorage(StorageBackend):
         dst_path = self._resolve(destination)
         dst_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_path, dst_path)
-        data = dst_path.read_bytes()
-        checksum = hashlib.sha256(data).hexdigest()
+        hasher = hashlib.sha256()
+        total_size = 0
+        with open(dst_path, "rb") as f:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+                total_size += len(chunk)
         return StorageResult(
             path=str(dst_path),
-            size_bytes=len(data),
-            checksum=checksum,
+            size_bytes=total_size,
+            checksum=hasher.hexdigest(),
+        )
+
+    async def stream_read(self, path: str, chunk_size: int = 65536) -> AsyncIterator[bytes]:
+        full_path = self._resolve(path)
+        if not full_path.exists():
+            raise FileNotFoundError(f"File not found: {full_path}")
+        with open(full_path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+
+    async def stream_write(self, path: str, chunks: AsyncIterator[bytes]) -> StorageResult:
+        full_path = self._resolve(path)
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=f".{full_path.name}.",
+            suffix=".tmp",
+            dir=full_path.parent,
+        )
+        hasher = hashlib.sha256()
+        total_size = 0
+        try:
+            with os.fdopen(fd, "wb") as f:
+                async for chunk in chunks:
+                    f.write(chunk)
+                    hasher.update(chunk)
+                    total_size += len(chunk)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, full_path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_path)
+            raise
+        return StorageResult(
+            path=str(full_path),
+            size_bytes=total_size,
+            checksum=hasher.hexdigest(),
         )
 
     async def _file_info(self, full_path: Path) -> StorageFileInfo | None:

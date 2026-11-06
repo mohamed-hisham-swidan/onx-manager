@@ -156,3 +156,32 @@ async def test_delete_older_than(async_db):
     remaining, total = await repo.list_by_server("srv-del")
     assert total == 1
     assert remaining[0].summary == "New item"
+
+
+@pytest.mark.asyncio
+async def test_save_with_shared_session_rolls_back_on_retry(async_db):
+    async with async_db() as session:
+        repo = SQLActivityRepository(session=session)
+        real_commit = session.commit
+        calls = 0
+
+        async def _failing_commit():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise Exception("database is locked")
+            return await real_commit()
+
+        session.commit = _failing_commit
+        log = ServerActivityLog(
+            server_id="srv-retry",
+            event_type="test",
+            summary="Retry test",
+            timestamp=100.0,
+        )
+        await repo.save(log, max_retries=2)
+        assert calls == 2
+
+        items, total = await repo.list_by_server("srv-retry")
+        assert total == 1
+        assert items[0].summary == "Retry test"

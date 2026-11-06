@@ -46,7 +46,20 @@ class BtrfsZfsSnapshotDriver:
                     shutil.rmtree(w_dst)
 
                 cmd = ["cp", "--reflink=always", "-r", str(w_src), str(w_dst)]
-                res = subprocess.run(cmd, capture_output=True, text=True)
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                except subprocess.TimeoutExpired as exc:
+                    logger.error(
+                        "Reflink world clone timed out from %s to %s after 300s",
+                        w_src,
+                        w_dst,
+                    )
+                    raise StorageCowUnavailableError(
+                        path=str(dst_dir),
+                        message=(
+                            f"Reflink world clone timed out from '{w_src}' to '{w_dst}' after 300s"
+                        ),
+                    ) from exc
                 if res.returncode != 0:
                     logger.error(
                         "Reflink world clone failed from %s to %s: %s",

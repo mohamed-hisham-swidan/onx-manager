@@ -13,9 +13,11 @@ read-only/env-var backed) so that the non-editable infrastructure fields
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import logging
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -254,9 +256,24 @@ def _persist(live: LiveSettings, path: Path | None = None) -> None:
     target_path = path or _SETTINGS_FILE
     target_path.parent.mkdir(parents=True, exist_ok=True)
     data: dict[str, Any] = {k: getattr(live, k) for k in _DEFAULTS}
+    mode = target_path.stat().st_mode & 0o777 if target_path.exists() else None
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{target_path.name}.",
+        suffix=".tmp",
+        dir=target_path.parent,
+    )
     try:
-        with open(target_path, "w") as f:
+        if mode is not None:
+            with contextlib.suppress(OSError):
+                os.chmod(tmp_path, mode)
+        with os.fdopen(fd, "w") as f:
             yaml.safe_dump(data, f, default_flow_style=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, target_path)
     except Exception:
+        if os.path.exists(tmp_path):
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
         logger.exception("Failed to persist settings to %s", target_path)
         raise

@@ -368,3 +368,24 @@ class TestModrinthProviderGetProjectVersions:
         assert page.items[0].version_id == "v10"
         assert page.items[-1].version_id == "v19"
         assert page.total == 25
+
+
+class TestModrinthProviderDownload:
+    @pytest.mark.asyncio
+    async def test_download_rejects_untrusted_host(self) -> None:
+        from app.core.exceptions import DownloadError
+
+        provider = ModrinthProvider()
+        with pytest.raises(DownloadError) as exc_info:
+            await provider.download("https://evil.com/malicious.jar")
+        assert "not a valid Modrinth domain" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_download_rejects_non_https(self) -> None:
+        from app.core.exceptions import DownloadError
+
+        provider = ModrinthProvider()
+        with pytest.raises(DownloadError) as exc_info:
+            await provider.download("http://cdn.modrinth.com/file.jar")
+        assert "not a valid Modrinth domain" in str(exc_info.value)
+

@@ -283,6 +283,7 @@ async def ensure_plugin_artifact(
 
                 hasher = hashlib.sha256()
                 total_read = 0
+                size_exceeded = False
 
                 with open(part_path, "wb") as f:
                     while True:
@@ -291,11 +292,15 @@ async def ensure_plugin_artifact(
                             break
                         total_read += len(chunk)
                         if total_read > MAX_PLUGIN_ARTIFACT_SIZE_BYTES:
-                            with contextlib.suppress(OSError):
-                                part_path.unlink()
-                            return ArtifactFailure(reason="asset exceeds size limit")
+                            size_exceeded = True
+                            break
                         hasher.update(chunk)
                         f.write(chunk)
+
+                if size_exceeded:
+                    with contextlib.suppress(OSError):
+                        part_path.unlink()
+                    return ArtifactFailure(reason="asset exceeds size limit")
 
                 # Successfully finished reading response body
                 break
@@ -334,6 +339,9 @@ async def ensure_plugin_artifact(
                 part_path.unlink()
         return ArtifactFailure(reason=f"download failed: {type(exc).__name__}")
     finally:
+        with contextlib.suppress(OSError):
+            if part_path.exists():
+                part_path.unlink()
         if owns_session:
             await client_session.close()
 

@@ -299,6 +299,32 @@ async def test_execute_cleanup_plan_physical_actions() -> None:
             assert not test_dir.exists()
 
 
+@pytest.mark.asyncio
+async def test_execute_cleanup_plan_docker_failure_sets_container_removed_false() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_dir = Path(tmpdir) / "t-fail"
+        test_dir.mkdir()
+
+        plan = TestCleanupPlan(
+            test_id="t-fail",
+            server_id="srv-1",
+            test_dir=test_dir,
+            container_name="c-fail",
+            remove_container=True,
+            purge_artifacts=False,
+            retention_hours=0.0,
+            reason="failed_test",
+        )
+
+        with patch("subprocess.run") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=1, stderr="no such container")
+
+            result = await execute_cleanup_plan(plan)
+            assert result.container_removed is False
+            assert result.error is not None
+            assert "no such container" in result.error
+
+
 # ==============================================================================
 # 5. Missing Server Row / NULL root_path Safe Skip Verification (Reap & Prune)
 # ==============================================================================

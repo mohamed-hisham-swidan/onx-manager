@@ -59,6 +59,7 @@ class SQLUserRepository:
         )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
+        user_role_ids = {str(r.role_id) for r in user.roles}
         if model is None:
             model = UserModel(
                 id=str(user.user_id),
@@ -77,6 +78,7 @@ class SQLUserRepository:
             model.display_name = user.display_name
             model.is_active = user.is_active
             model.last_login_at = user.last_login_at
+            model.roles = [r for r in model.roles if r.id in user_role_ids]
             existing_role_ids = {r.id for r in model.roles}
 
         for role in user.roles:

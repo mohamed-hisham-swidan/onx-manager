@@ -113,22 +113,30 @@ class BotRunnerPool:
                 raise TimeoutError(f"Timed out acquiring bot runner after {timeout}s")
 
             attempts += 1
-            async with self._lock:
-                # 1. Look for existing idle runner
-                while self._idle:
-                    candidate = self._idle.pop(0)
-                    if candidate.image == target_image and candidate.is_alive():
+            # 1. Look for existing idle runner
+            while True:
+                candidate = None
+                async with self._lock:
+                    if self._idle:
+                        candidate = self._idle.pop(0)
+                if candidate is None:
+                    break
+
+                is_alive = await asyncio.to_thread(candidate.is_alive)
+                if candidate.image == target_image and is_alive:
+                    async with self._lock:
                         candidate.is_busy = True
                         candidate.last_used_at = time.time()
                         self._active[candidate.runner_id] = candidate
-                        logger.info("Acquired warm runner from pool: %s", candidate.container_name)
-                        return candidate
-                    else:
-                        logger.info(
-                            "Evicting dead/mismatched idle runner: %s", candidate.container_name
-                        )
-                        candidate.destroy()
+                    logger.info("Acquired warm runner from pool: %s", candidate.container_name)
+                    return candidate
+                else:
+                    logger.info(
+                        "Evicting dead/mismatched idle runner: %s", candidate.container_name
+                    )
+                    await asyncio.to_thread(candidate.destroy)
 
+            async with self._lock:
                 # 2. If below max concurrent capacity, spin up a new container
                 if len(self._active) < pool_max:
                     runner_id = uuid.uuid4().hex[:8]
@@ -194,22 +202,27 @@ class BotRunnerPool:
             except Exception:
                 pool_idle = 2
 
-            should_keep = outcome == "clean" and len(self._idle) < pool_idle and runner.is_alive()
+            eligible = outcome == "clean" and len(self._idle) < pool_idle
 
-            if should_keep:
+        if eligible:
+            is_alive = await asyncio.to_thread(runner.is_alive)
+            if is_alive:
                 reset_ok = await asyncio.to_thread(runner.execute_reset)
                 if reset_ok:
-                    runner.is_busy = False
-                    self._idle.append(runner)
-                    logger.info(
-                        "Runner %s reset cleanly and returned to idle pool.", runner.container_name
-                    )
-                    return
+                    async with self._lock:
+                        if len(self._idle) < pool_idle:
+                            runner.is_busy = False
+                            self._idle.append(runner)
+                            logger.info(
+                                "Runner %s reset cleanly and returned to idle pool.",
+                                runner.container_name,
+                            )
+                            return
 
-            logger.info(
-                "Destroying released runner %s (outcome=%s)", runner.container_name, outcome
-            )
-            await asyncio.to_thread(runner.destroy)
+        logger.info(
+            "Destroying released runner %s (outcome=%s)", runner.container_name, outcome
+        )
+        await asyncio.to_thread(runner.destroy)
 
     async def destroy_all(self) -> None:
         """Destroys all active and idle containers in the pool."""

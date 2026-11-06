@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends
@@ -11,6 +12,8 @@ from app.core.settings_store import (
     update_settings as update_settings_store,
 )
 from app.core.version import get_app_version
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
@@ -63,8 +66,8 @@ async def update_settings(
                     "metrics_collect",
                     f"interval:{live.metrics_interval_seconds}s",
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to update metrics batcher or scheduler interval: %s", e)
 
     return {
         "success": True,

@@ -213,3 +213,59 @@ class TestInstallModrinthPluginHandler:
         assert result.success is False
         assert result.error_code == "INVALID_FILENAME"
         assert "path traversal" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_missing_checksums_rejected(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        await _create_server("srv-modrinth-nohash", str(tmp_path / "srv-modrinth-nohash"))
+        ver = PluginVersionInfo(
+            version_id="ver-nohash",
+            project_id="proj-1",
+            name="EssentialsX",
+            version_number="2.21.0",
+            game_versions=["1.21"],
+            loaders=["paper"],
+            files=[
+                PluginFile(
+                    url="https://cdn.modrinth.com/data/proj-1/ver-nohash/EssentialsX.jar",
+                    filename="EssentialsX.jar",
+                    size_bytes=1024,
+                    sha1="",
+                    sha512="",
+                    primary=True,
+                ),
+            ],
+            date_published="2025-01-01T00:00:00Z",
+        )
+        provider = _FakeProvider(ver)
+        handler = InstallModrinthPluginHandler(event_bus, provider=provider)
+
+        result = await handler.handle(
+            InstallModrinthPluginCommand(
+                server_id="srv-modrinth-nohash",
+                project_id="proj-1",
+            )
+        )
+        assert result.success is False
+        assert result.error_code == "DOWNLOAD_FAILED"
+        assert "checksum" in result.error.lower() or "sha" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_invalid_extension_rejected(
+        self, event_bus: EventBus, tmp_path
+    ) -> None:
+        await _create_server("srv-modrinth-badext", str(tmp_path / "srv-modrinth-badext"))
+        provider = _FakeProvider(_version(filename="malicious.sh"))
+        handler = InstallModrinthPluginHandler(event_bus, provider=provider)
+
+        result = await handler.handle(
+            InstallModrinthPluginCommand(
+                server_id="srv-modrinth-badext",
+                project_id="proj-1",
+            )
+        )
+        assert result.success is False
+        assert result.error_code == "INVALID_FILENAME"
+        assert ".jar" in result.error.lower()
+

@@ -1294,3 +1294,36 @@ class TestSSHProvider:
         )
 
         assert tmux_cmd == expected_tmux_cmd
+
+    @pytest.mark.asyncio
+    async def test_ssh_get_connection_builds_kwargs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        import types
+
+        mock_conn = MagicMock()
+        mock_connect = AsyncMock(return_value=mock_conn)
+        fake_asyncssh = types.ModuleType("asyncssh")
+        fake_asyncssh.connect = mock_connect
+        monkeypatch.setitem(sys.modules, "asyncssh", fake_asyncssh)
+
+        provider = SSHProvider(
+            host="192.168.1.50",
+            port=2222,
+            username="admin",
+            client_keys=["/id_rsa"],
+            passphrase="secret",
+            known_hosts="/known_hosts",
+            keepalive_seconds=45,
+        )
+
+        conn = await provider._get_connection()
+        assert conn is mock_conn
+        mock_connect.assert_awaited_once_with(
+            host="192.168.1.50",
+            port=2222,
+            username="admin",
+            known_hosts="/known_hosts",
+            keepalive_interval=45,
+            client_keys=["/id_rsa"],
+            passphrase="secret",
+        )

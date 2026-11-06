@@ -12,6 +12,16 @@ from app.modules.event_store.repository import SQLEventRepository
 logger = logging.getLogger(__name__)
 
 
+def _resolve_event_class(event_type: str) -> type[DomainEvent]:
+    queue = list(DomainEvent.__subclasses__())
+    while queue:
+        cls = queue.pop(0)
+        if cls.__name__ == event_type or getattr(cls, "event_type", None) == event_type:
+            return cls
+        queue.extend(cls.__subclasses__())
+    return DomainEvent
+
+
 class DeadLetterService:
     def __init__(self, session: AsyncSession, event_bus: EventBus) -> None:
         self._session = session
@@ -45,11 +55,19 @@ class DeadLetterService:
         from json import loads as json_loads
 
         payload = json_loads(entry.data_json)
-        domain_event = DomainEvent(**payload)
+        event_cls = _resolve_event_class(entry.event_type) if entry.event_type else DomainEvent
+        try:
+            domain_event = event_cls(**payload)
+        except Exception:
+            domain_event = DomainEvent(**payload)
+
+        if not getattr(domain_event, "event_type", None) and entry.event_type:
+            domain_event.event_type = entry.event_type
 
         try:
             await self._event_bus.publish(domain_event)
             await self._repo.increment_replay_count(event_id)
+            await self._repo.resolve_dead_letter(event_id)
             return True
         except Exception as e:
             logger.warning("Replay failed for dead letter %s: %s", event_id, e)

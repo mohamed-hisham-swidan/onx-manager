@@ -440,6 +440,13 @@ class PlayitAgentSupervisor:
                 await self._monitor_task
             self._monitor_task = None
 
+        if self._background_tasks:
+            for task in list(self._background_tasks):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
+            self._background_tasks.clear()
+
         await self._terminate_process()
         self._cleanup_secret_file()
         self._cleanup_pid_file()
@@ -706,7 +713,8 @@ class PlayitAgentSupervisor:
             import subprocess
 
             try:
-                subprocess.run(
+                await asyncio.to_thread(
+                    subprocess.run,
                     ["taskkill", "/F", "/PID", str(pid)],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

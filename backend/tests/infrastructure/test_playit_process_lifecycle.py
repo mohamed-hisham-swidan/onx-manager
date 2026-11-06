@@ -383,3 +383,28 @@ class TestPlayitProcessLifecycle:
         await asyncio.sleep(0.02)
         # Task done callback should have discarded it from the set
         assert len(supervisor._background_tasks) == 0
+
+    async def test_stop_internal_cancels_background_tasks(self, tmp_path: Path) -> None:
+        run_dir = tmp_path / "run" / "playit_cancel"
+        supervisor = PlayitAgentSupervisor(run_dir=run_dir)
+
+        async def _hang():
+            await asyncio.sleep(100.0)
+
+        task = supervisor._spawn_background_task(_hang())
+        assert task in supervisor._background_tasks
+
+        await supervisor._stop_internal()
+        assert task.cancelled()
+        assert len(supervisor._background_tasks) == 0
+
+    async def test_windows_taskkill_uses_asyncio_to_thread(self, tmp_path: Path) -> None:
+        run_dir = tmp_path / "run" / "playit_taskkill"
+        supervisor = PlayitAgentSupervisor(run_dir=run_dir)
+
+        with (
+            patch("app.modules.exposure.infrastructure.playit_agent.is_windows", return_value=True),
+            patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread,
+        ):
+            await supervisor._terminate_pid_direct(9999)
+            mock_to_thread.assert_awaited_once()

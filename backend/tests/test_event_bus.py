@@ -115,3 +115,8 @@ class TestEventBus:
 
         assert order[0] == "critical"
         assert order[-1] == "low"
+
+    async def test_dead_letter_queue_bounded(self, event_bus: EventBus) -> None:
+        assert event_bus._dead_letter_queue.maxlen == 1000
+        assert isinstance(event_bus.dead_letter_queue, list)
+

@@ -75,3 +75,44 @@ async def test_dead_letter_resolve_nonexistent() -> None:
     service = DeadLetterService(session, bus)
     ok = await service.resolve("nonexistent")
     assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_dead_letter_replay_reconstructs_concrete_type_and_resolves() -> None:
+    import json
+
+    from app.core.event_bus import DomainEvent
+    from app.modules.event_store.models import DeadLetterEventModel
+
+    class ConcreteDeadLetterTestEvent(DomainEvent):
+        event_type: str = "ConcreteDeadLetterTestEvent"
+        extra_data: str = ""
+
+    payload = {"extra_data": "payload_val", "event_type": "ConcreteDeadLetterTestEvent"}
+    model = DeadLetterEventModel(
+        id="dl-1",
+        event_id="evt-1",
+        event_type="ConcreteDeadLetterTestEvent",
+        data_json=json.dumps(payload),
+        error="failure",
+        resolved=0,
+        replay_count=0,
+    )
+
+    session = FakeSession()
+    session.add(model)
+
+    bus = AsyncMock()
+    service = DeadLetterService(session, bus)
+
+    ok = await service.replay("evt-1")
+    assert ok is True
+
+    # Concrete event type reconstructed
+    dispatched = bus.publish.call_args[0][0]
+    assert isinstance(dispatched, ConcreteDeadLetterTestEvent)
+    assert dispatched.extra_data == "payload_val"
+
+    # Marked resolved and replay count incremented
+    assert model.resolved == 1
+    assert model.replay_count == 1

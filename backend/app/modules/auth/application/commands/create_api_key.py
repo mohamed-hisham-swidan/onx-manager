@@ -1,6 +1,8 @@
 import contextlib
 import uuid
 
+from pydantic import Field
+
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
 from app.core.persistence.unit_of_work import UnitOfWork
@@ -13,7 +15,7 @@ from app.modules.shared.value_objects import ApiKeyId, Permission, UserId
 class CreateApiKeyCommand(Command):
     user_id: str
     name: str
-    permissions: list[str] = []
+    permissions: list[str] = Field(default_factory=list)
 
 
 class CreateApiKeyHandler(CommandHandler[CreateApiKeyCommand]):

@@ -249,7 +249,14 @@ class _FakeModProvider:
             version_number="1.0.0",
             game_versions=["1.20.4"],
             loaders=["fabric"],
-            files=[PluginFile(url="https://fake.url/mod.jar", filename="mod.jar", size_bytes=10)],
+            files=[
+                PluginFile(
+                    url="https://cdn.modrinth.com/data/test-mod/v1/mod.jar",
+                    filename="mod.jar",
+                    size_bytes=10,
+                    sha1="a" * 40,
+                )
+            ],
             dependencies=[],
         )
 

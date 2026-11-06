@@ -61,14 +61,11 @@ def write_tree_to_dir(
                     dest_mod.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src_file, dest_mod)
 
-        # 3. Atomically replace target directory
-        atomic_replace_dir(staging_dir, target_path)
-
-        # 4. Post-write verification pass
+        # 3. Verification pass against staging directory before atomic swap
         if verify:
             for rel_path, content in configs.items():
                 norm_rel = os.path.normpath(rel_path).replace("\\", "/")
-                verified_file = target_path / norm_rel
+                verified_file = staging_dir / norm_rel
                 if not verified_file.is_file():
                     raise RuntimeError(
                         f"Post-write verify failed: missing expected file {rel_path}"
@@ -79,9 +76,10 @@ def write_tree_to_dir(
                         f"Post-write verify failed: content mismatch for {rel_path}"
                     )
 
+        # 4. Atomically replace target directory
+        atomic_replace_dir(staging_dir, target_path)
+
     except Exception:
         if staging_dir.exists():
             shutil.rmtree(staging_dir, ignore_errors=True)
-        if target_path.exists():
-            shutil.rmtree(target_path, ignore_errors=True)
         raise

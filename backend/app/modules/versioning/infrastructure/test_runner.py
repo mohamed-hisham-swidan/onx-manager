@@ -717,10 +717,6 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             )
         except subprocess.TimeoutExpired:
             raise RuntimeError("Docker test container startup timed out after 30s") from None
-        except subprocess.CalledProcessError as cpe:
-            raise RuntimeError(
-                f"Docker test container startup failed with exit code {cpe.returncode}"
-            ) from None
         except Exception as exc:
             err_msg = str(exc)
             if rcon_password and rcon_password in err_msg:

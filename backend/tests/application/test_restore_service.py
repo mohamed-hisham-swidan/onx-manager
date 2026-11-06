@@ -576,3 +576,49 @@ class TestSafeTarExtract:
             pytest.raises(RestoreError, match="Symlink traversal detected in backup archive"),
         ):
             _safe_extract_tar(tar, str(target_dir))
+
+    def test_atomic_replace_file_uses_uuid(self, tmp_path, monkeypatch) -> None:
+        from app.modules.backup.application.restore_service import _atomic_replace_file
+
+        src = tmp_path / "src.txt"
+        src.write_text("hello")
+        dst = tmp_path / "dst.txt"
+
+        replaced_paths = []
+        real_replace = os.replace
+
+        def mock_replace(src_p, dst_p):
+            replaced_paths.append((src_p, dst_p))
+            return real_replace(src_p, dst_p)
+
+        monkeypatch.setattr(os, "replace", mock_replace)
+        _atomic_replace_file(str(src), str(dst))
+
+        assert len(replaced_paths) == 1
+        tmp_used = replaced_paths[0][0]
+        assert dst.read_text() == "hello"
+        assert len(os.path.basename(tmp_used)) > 32
+
+    def test_atomic_replace_dir_uses_uuid(self, tmp_path, monkeypatch) -> None:
+        from app.modules.backup.application.restore_service import _atomic_replace_dir
+
+        src = tmp_path / "src_dir"
+        src.mkdir()
+        (src / "data.txt").write_text("dir data")
+        dst = tmp_path / "dst_dir"
+
+        replaced_paths = []
+        real_replace = os.replace
+
+        def mock_replace(src_p, dst_p):
+            replaced_paths.append((src_p, dst_p))
+            return real_replace(src_p, dst_p)
+
+        monkeypatch.setattr(os, "replace", mock_replace)
+        _atomic_replace_dir(str(src), str(dst))
+
+        assert dst.exists()
+        assert (dst / "data.txt").read_text() == "dir data"
+        assert len(replaced_paths) >= 1
+        assert any(".stage" in src_p for src_p, _ in replaced_paths)
+

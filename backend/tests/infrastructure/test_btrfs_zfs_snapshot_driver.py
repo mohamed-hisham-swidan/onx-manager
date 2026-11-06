@@ -77,3 +77,21 @@ def test_btrfs_zfs_driver_snapshot_creation_and_restore_cycle() -> None:
             BtrfsZfsSnapshotDriver.restore_snapshot(snapshot, restored, world_names=["world"])
             assert (restored / "world").is_dir()
             assert mock_run.call_count == 2
+
+
+def test_btrfs_zfs_driver_clone_world_timeout_raises_storage_cow_error() -> None:
+    import subprocess
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src = Path(tmpdir) / "src"
+        dst = Path(tmpdir) / "dst"
+        world_dir = src / "world"
+        world_dir.mkdir(parents=True)
+
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="cp", timeout=300)):
+            with pytest.raises(StorageCowUnavailableError) as exc_info:
+                BtrfsZfsSnapshotDriver.clone_world(src, dst, world_names=["world"])
+
+            err = exc_info.value
+            assert err.code == "STORAGE_COW_UNAVAILABLE"
+            assert "timed out" in err.message.lower()

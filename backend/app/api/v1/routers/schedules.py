@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,7 +60,7 @@ async def list_schedules(
 
 @router.post("", response_model=dict[str, Any], status_code=201)
 async def create_schedule(
-    body: CreateScheduleRequest = CreateScheduleRequest(),
+    body: CreateScheduleRequest = Body(default_factory=CreateScheduleRequest),
     db: AsyncSession = Depends(get_db),
     _current_user: dict = Depends(require_permission("global.settings")),
 ) -> dict[str, Any]:

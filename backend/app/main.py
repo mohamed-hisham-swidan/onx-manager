@@ -405,7 +405,7 @@ async def lifespan(_app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Minecraft Server Manager",
+        title="ONX Manager",
         version=get_app_version(),
         description="REST API for managing Minecraft server instances",
         lifespan=lifespan,
@@ -413,7 +413,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         openapi_url="/openapi.json",
         license_info={
-            "name": "MIT",
+            "name": "Apache-2.0",
         },
     )
 

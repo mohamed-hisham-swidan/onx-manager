@@ -295,3 +295,39 @@ class TestAtomicFsInfrastructure:
         with pytest.raises(ValueError, match="Config path escapes target root"):
             write_tree_to_dir(bad_tree, dest_dir)
         assert not dest_dir.exists()
+
+    def test_write_tree_to_dir_verify_failure_leaves_target_intact(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dest_dir = tmp_path / "worktree_live"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        sentinel_file = dest_dir / "live_data.txt"
+        sentinel_file.write_text("critical live content")
+
+        tree = Tree.from_manifest(
+            CommitManifest(
+                server_type="paper",
+                minecraft_version="1.21.1",
+                configs={
+                    "server.properties": "difficulty=hard\n",
+                },
+                mods=[],
+                env_vars={},
+            )
+        )
+
+        orig_read_text = Path.read_text
+
+        def mock_read_text(path_obj: Path, *args, **kwargs) -> str:
+            if path_obj.name == "server.properties":
+                return "corrupted content"
+            return orig_read_text(path_obj, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", mock_read_text)
+
+        with pytest.raises(RuntimeError, match="Post-write verify failed: content mismatch"):
+            write_tree_to_dir(tree, dest_dir, verify=True)
+
+        assert dest_dir.exists()
+        assert sentinel_file.exists()
+        assert sentinel_file.read_text() == "critical live content"

@@ -228,10 +228,11 @@ class MetricsBatcher:
             await self._flush()
 
     async def _flush(self) -> None:
-        for server_id, samples in self._samples.items():
+        batch = dict(self._samples)
+        self._samples.clear()
+        for server_id, samples in batch.items():
             if not samples:
                 continue
             message = MessageSerializer.metrics_batch_message(server_id, samples)
             serialized = message.to_json()
             await self._registry.broadcast(f"metrics:{server_id}", serialized)
-        self._samples.clear()

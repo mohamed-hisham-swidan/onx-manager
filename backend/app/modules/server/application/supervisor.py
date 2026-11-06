@@ -514,6 +514,7 @@ class RuntimeSupervisor:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
+                timeout=5,
             )
             if res.returncode == 0:
                 logger.info(
@@ -527,7 +528,15 @@ class RuntimeSupervisor:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     check=False,
+                    timeout=5,
                 )
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                'tmux cleanup timed out server="%s" session=%s sid=%s',
+                self._server_name,
+                session_name,
+                self._server_id,
+            )
         except (FileNotFoundError, OSError):
             pass
         except Exception:

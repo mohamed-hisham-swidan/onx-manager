@@ -14,9 +14,14 @@ logger = logging.getLogger("onx.tasks.health_recalculation")
 
 
 async def periodic_health_recalculation(params: dict[str, Any]) -> dict[str, Any]:
-    event_bus = params.get("event_bus")
-    if not event_bus or not isinstance(event_bus, EventBus):
-        return {"success": False, "error": "event_bus required"}
+    event_bus: EventBus | None = params.get("event_bus")
+    if event_bus is None or not isinstance(event_bus, EventBus):
+        try:
+            from app.api.deps import get_event_bus
+
+            event_bus = await get_event_bus()
+        except (ImportError, RuntimeError):
+            event_bus = EventBus()
 
     handler = EvaluateHealthHandler(event_bus)
     processed = 0

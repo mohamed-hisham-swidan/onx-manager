@@ -198,10 +198,19 @@ class InProcessQueue(TaskQueue):
         reclaimed = 0
         skipped_unregistered = 0
         errors = 0
+        now = datetime.now(UTC)
         for model in pending:
             if model.name not in self._handlers:
                 skipped_unregistered += 1
                 continue
+            delay = 0.0
+            if model.delay_until is not None:
+                delay_until = model.delay_until
+                if delay_until.tzinfo is None:
+                    delay_until = delay_until.replace(tzinfo=UTC)
+                remaining = (delay_until - now).total_seconds()
+                if remaining > 0:
+                    delay = remaining
             params = json.loads(model.params_json) if model.params_json else {}
             # Guard against double-run: only claim the row if it is still PENDING.
             async with await self._session_factory() as session:
@@ -217,7 +226,10 @@ class InProcessQueue(TaskQueue):
                 await session.commit()
             if claimed.rowcount != 1:
                 continue
-            task_coro = self._execute(model.task_id, model.name, params)
+            if delay > 0:
+                task_coro = self._execute_with_delay(model.task_id, model.name, params, delay)
+            else:
+                task_coro = self._execute(model.task_id, model.name, params)
             self._track_task(task_coro, model.task_id, model.name)
             reclaimed += 1
 

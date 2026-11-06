@@ -113,17 +113,26 @@ class ConnectionRegistry:
             return set(self._connection_channels.get(connection_id, set()))
 
     async def broadcast(self, channel: str, data: bytes) -> int:
-        sent = 0
         async with self._lock:
             conn_ids = list(self._channel_connections.get(channel, set()))
-            for cid in conn_ids:
-                ws = self._connections.get(cid)
-                if ws is not None:
-                    try:
-                        await ws.send_bytes(data)
-                        sent += 1
-                    except Exception:
-                        pass
+            targets = [
+                (cid, self._connections[cid])
+                for cid in conn_ids
+                if cid in self._connections
+            ]
+
+        sent = 0
+        failed: list[str] = []
+        for cid, ws in targets:
+            try:
+                await ws.send_bytes(data)
+                sent += 1
+            except Exception:
+                failed.append(cid)
+
+        for cid in failed:
+            await self.deregister(cid)
+
         return sent
 
     async def bind_user_channel(self, user_id: str, channel: str) -> None:

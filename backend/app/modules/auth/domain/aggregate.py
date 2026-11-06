@@ -7,6 +7,7 @@ from app.core.exceptions import InvalidValueError
 from app.modules.auth.domain.events import (
     ApiKeyCreatedEvent,
     ApiKeyRevokedEvent,
+    UserActivatedEvent,
     UserCreatedEvent,
     UserDeactivatedEvent,
     UserLoggedInEvent,
@@ -220,6 +221,10 @@ class User(AggregateRoot):
 
     def record_logout(self) -> None:
         self._add_event(UserLoggedOutEvent(user_id=str(self._user_id)))
+
+    def activate(self) -> None:
+        self._is_active = True
+        self._add_event(UserActivatedEvent(user_id=str(self._user_id)))
 
     def deactivate(self) -> None:
         self._is_active = False

@@ -115,6 +115,8 @@ class LocalFileSystem(FileSystem):
                     p.unlink()
                 except Exception:
                     pass
+            if p.exists():
+                raise PermissionError(f"File could not be completely removed: {path}")
 
     def delete_dir(self, path: str) -> None:
         p = Path(path)

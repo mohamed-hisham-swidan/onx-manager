@@ -242,8 +242,6 @@ def parse_tps(response: str) -> float | None:
 
 
 def parse_player_count(response: str) -> int:
-    import re
-
     match = re.search(r"There are (\d+) of a max of", response)
     if match:
         return int(match.group(1))

@@ -35,6 +35,14 @@ class UserDeactivatedEvent(DomainEvent):
         super().__init__(user_id=user_id, **data)
 
 
+class UserActivatedEvent(DomainEvent):
+    user_id: str
+
+    def __init__(self, user_id: str, **data: Any) -> None:
+        super().__init__(user_id=user_id, **data)
+
+
+
 class ApiKeyCreatedEvent(DomainEvent):
     user_id: str
     key_name: str

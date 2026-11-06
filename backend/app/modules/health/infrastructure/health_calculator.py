@@ -97,7 +97,6 @@ class SignalHealthCalculator(HealthCalculatorService):
     ) -> HealthStatusEnum:
         criticals = severity_counts.get(SignalSeverity.CRITICAL.value, 0)
         warnings = severity_counts.get(SignalSeverity.WARNING.value, 0)
-        infos = severity_counts.get(SignalSeverity.INFO.value, 0)
 
         if criticals >= 3:
             return HealthStatusEnum.BROKEN

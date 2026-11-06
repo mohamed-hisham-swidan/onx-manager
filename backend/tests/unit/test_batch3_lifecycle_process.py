@@ -115,10 +115,34 @@ async def test_f049_supervisor_cleanup_os_resources_uses_subprocess():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
+            timeout=5,
         )
         mock_run.assert_any_call(
             ["tmux", "kill-session", "-t", "tmux-session-123"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
+            timeout=5,
         )
+
+
+@pytest.mark.asyncio
+async def test_supervisor_cleanup_os_resources_timeout_handled():
+    """_cleanup_os_resources catches TimeoutExpired gracefully."""
+    server = MagicMock()
+    server.id = "s1"
+    server.name = "TestServer"
+    handle = MagicMock()
+    handle.external_id = "tmux-session-123"
+
+    supervisor = RuntimeSupervisor(
+        server=server,
+        provider=MagicMock(),
+        handle=handle,
+        repo_get=AsyncMock(),
+        repo_save=AsyncMock(),
+    )
+
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="tmux", timeout=5)):
+        # Should catch TimeoutExpired and return without raising
+        await supervisor._cleanup_os_resources()

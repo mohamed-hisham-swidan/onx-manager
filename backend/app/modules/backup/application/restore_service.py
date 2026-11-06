@@ -5,6 +5,7 @@ import os
 import shutil
 import tarfile
 import tempfile
+import uuid
 from io import BytesIO
 from typing import TYPE_CHECKING
 
@@ -155,7 +156,10 @@ def _atomic_replace_file(src: str, dst: str) -> None:
     """
     parent = os.path.dirname(dst)
     os.makedirs(parent, exist_ok=True)
-    tmp_path = os.path.join(parent, f".{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}tmp")
+    unique_id = uuid.uuid4().hex
+    tmp_path = os.path.join(
+        parent, f".{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}{unique_id}.tmp"
+    )
     with open(src, "rb") as f:
         data = f.read()
     with open(tmp_path, "wb") as f:
@@ -172,8 +176,13 @@ def _atomic_replace_dir(src: str, dst: str) -> None:
     """
     parent = os.path.dirname(dst)
     os.makedirs(parent, exist_ok=True)
-    temp_stage = os.path.join(parent, f".{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}stage")
-    old_path = os.path.join(parent, f".{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}old")
+    unique_id = uuid.uuid4().hex
+    temp_stage = os.path.join(
+        parent, f".{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}{unique_id}.stage"
+    )
+    old_path = os.path.join(
+        parent, f".{os.path.basename(dst)}.{IDENTITY.temp_prefix_new}{unique_id}.old"
+    )
 
     if os.path.lexists(temp_stage):
         shutil.rmtree(temp_stage, ignore_errors=True)

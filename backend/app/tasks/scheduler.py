@@ -69,6 +69,13 @@ class Scheduler:
         if self._aps:
             self._aps.shutdown(wait=False)
 
+    def _validate_cron_expression(self, expression: str) -> None:
+        if expression.startswith("interval:"):
+            secs_str = expression.split(":")[1].rstrip("s")
+            float(secs_str)
+        else:
+            self._parse_cron(expression)
+
     async def add_job(
         self,
         name: str,
@@ -76,6 +83,7 @@ class Scheduler:
         task_name: str,
         params: dict[str, Any] | None = None,
     ) -> None:
+        self._validate_cron_expression(cron_expression)
         job_id = uuid.uuid4().hex
         now = datetime.now(UTC)
 
@@ -108,6 +116,7 @@ class Scheduler:
         return True
 
     async def update_job_expression(self, job_name: str, new_expression: str) -> bool:
+        self._validate_cron_expression(new_expression)
         async with await self._session_factory() as session:
             stmt = select(CronJobModel).where(CronJobModel.name == job_name)
             result = await session.execute(stmt)

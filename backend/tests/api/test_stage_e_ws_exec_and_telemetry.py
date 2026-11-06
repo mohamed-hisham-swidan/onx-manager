@@ -262,6 +262,47 @@ async def test_ws_exec_input_live_server_permission_denied(ws_handler) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ws_exec_input_server_without_runtime_sends_error_message(ws_handler) -> None:
+    ws_handler._authorizer.set_permissions("u_admin", {"server.s01.console"})
+    ws = _MockWS()
+
+    fake_server = MagicMock()
+    fake_server.runtime = None
+
+    mock_session = AsyncMock()
+    mock_session_factory = MagicMock()
+    mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_repo = MagicMock()
+    mock_repo.get = AsyncMock(return_value=fake_server)
+
+    with (
+        patch.object(database, "_session_factory", mock_session_factory),
+        patch(
+            "app.modules.server.infrastructure.repository.SQLServerRepository",
+            return_value=mock_repo,
+        ),
+    ):
+        await ws_handler._handle_message(
+            ws,
+            "c_no_runtime",
+            "u_admin",
+            {
+                "type": "exec_input",
+                "target_type": "server",
+                "target_id": "s01",
+                "input": "say Hello",
+            },
+        )
+
+    assert len(ws.sent_bytes) == 1
+    resp = json.loads(ws.sent_bytes[0].decode("utf-8"))
+    assert resp["type"] == "error"
+    assert resp["code"] == "EXEC_FAILED"
+    assert "no active runtime process" in resp["message"]
+
+
+@pytest.mark.asyncio
 async def test_ws_exec_input_test_container_authorized_and_dispatched(ws_handler) -> None:
     ws_handler._authorizer.set_permissions("u_tester", {"server:test:execute"})
     ws = _MockWS()

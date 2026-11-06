@@ -6,6 +6,7 @@ from app.modules.auth.domain.aggregate import ApiKey, Role, User
 from app.modules.auth.domain.events import (
     ApiKeyCreatedEvent,
     ApiKeyRevokedEvent,
+    UserActivatedEvent,
     UserCreatedEvent,
     UserDeactivatedEvent,
     UserLoggedInEvent,
@@ -90,6 +91,14 @@ class TestUser:
         assert sample_user.is_active is False
         events = sample_user.collect_events()
         assert any(isinstance(e, UserDeactivatedEvent) for e in events)
+
+    def test_activate(self, sample_user: User) -> None:
+        sample_user.deactivate()
+        sample_user.collect_events()
+        sample_user.activate()
+        assert sample_user.is_active is True
+        events = sample_user.collect_events()
+        assert any(isinstance(e, UserActivatedEvent) for e in events)
 
     def test_add_api_key(self, sample_user: User) -> None:
         sample_user.collect_events()

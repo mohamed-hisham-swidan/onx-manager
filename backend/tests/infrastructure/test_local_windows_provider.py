@@ -725,3 +725,18 @@ class TestLocalWindowsProviderConsoleAndExec:
             assert is_windows() is True
         with patch.object(sys, "platform", "linux"):
             assert is_windows() is False
+
+    def test_release_process_handles_closes_stdin_and_polls(self, provider):
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.closed = False
+        provider._release_process_handles(mock_proc)
+        mock_proc.stdin.close.assert_called_once()
+        mock_proc.poll.assert_called_once()
+
+    def test_release_process_handles_suppresses_exceptions(self, provider):
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.closed = False
+        mock_proc.stdin.close.side_effect = OSError("Pipe broken")
+        provider._release_process_handles(mock_proc)

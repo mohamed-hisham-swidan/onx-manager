@@ -83,11 +83,8 @@ async def get_health_timeline(
 
 @router.get("/dashboard", response_model=HealthDashboardResponse)
 async def get_health_dashboard(
-    query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(get_current_user),
 ) -> HealthDashboardResponse:
-    statuses = await query_bus.ask(GetHealthStatusQuery(server_id=""))
-
     from app.core.persistence.db import database
     from app.modules.health.infrastructure.repository import SQLHealthRepository
 

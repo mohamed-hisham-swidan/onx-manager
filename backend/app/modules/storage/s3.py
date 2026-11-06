@@ -86,7 +86,8 @@ class S3Storage(StorageBackend):
             async with self._session.client("s3", endpoint_url=self._endpoint_url) as client:
                 await client.delete_object(Bucket=self._bucket, Key=key)
                 return True
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to delete S3 key %s: %s", key, e)
             return False
 
     async def exists(self, path: str) -> bool:
@@ -136,7 +137,8 @@ class S3Storage(StorageBackend):
                     checksum=response.get("ETag", "").strip('"'),
                     modified_at=response["LastModified"].replace(tzinfo=UTC),
                 )
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to get info for S3 key %s: %s", key, e)
             return None
 
     async def copy(self, source: str, destination: str) -> StorageResult:

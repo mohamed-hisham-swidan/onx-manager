@@ -420,11 +420,13 @@ class MetricsCollector:
                 async with database.session_factory() as session:
                     server_repo = SQLServerRepository(session)
                     server = await server_repo.get(ServerId(server_id))
-                    pid = server.runtime.pid
-                    container_name = server.runtime.external_id
-                    rcon_host = server.runtime.host or "127.0.0.1"
-                    if server.deployment and server.deployment.root_path:
-                        props_path = server.deployment.properties_path()
+                    if server is not None:
+                        if server.runtime is not None:
+                            pid = server.runtime.pid
+                            container_name = server.runtime.external_id
+                            rcon_host = server.runtime.host or "127.0.0.1"
+                        if server.deployment and server.deployment.root_path:
+                            props_path = server.deployment.properties_path()
             except Exception:
                 logger.debug("Server lookup failed for %s, using defaults", server_id)
 

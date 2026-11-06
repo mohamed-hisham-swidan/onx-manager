@@ -5,7 +5,6 @@ import contextlib
 import hashlib
 import json
 import logging
-import shlex
 import sys
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -354,9 +353,14 @@ class ConsoleStreamManager:
         seen_hashes: deque[str] = deque(maxlen=300)
         while self._running:
             try:
-                cmd = f"tmux capture-pane -t {shlex.quote(session_name)} -p -S -50"
-                proc = await asyncio.create_subprocess_shell(
-                    cmd,
+                proc = await asyncio.create_subprocess_exec(
+                    "tmux",
+                    "capture-pane",
+                    "-t",
+                    session_name,
+                    "-p",
+                    "-S",
+                    "-50",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -369,8 +373,8 @@ class ConsoleStreamManager:
                             await self._enqueue_line(queue, raw)
             except asyncio.CancelledError:
                 break
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("tmux poll producer for %s encountered: %s", session_name, exc)
             await asyncio.sleep(0.25)
 
     async def _file_tail_producer(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -347,3 +348,48 @@ class TestS3Storage:
                 aws_secret_access_key="test-secret",
                 region_name="us-west-2",
             )
+
+    @pytest.mark.asyncio
+    async def test_s3_delete_and_info_log_warning_on_exception(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        mock_session = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.delete_object.side_effect = RuntimeError("network glitch")
+        mock_client.head_object.side_effect = RuntimeError("network glitch")
+        mock_session.client.return_value.__aenter__.return_value = mock_client
+
+        storage = S3Storage(bucket="test-bucket", session=mock_session)
+        with caplog.at_level(logging.WARNING):
+            res_delete = await storage.delete("file.txt")
+            assert res_delete is False
+            assert "Failed to delete S3 key file.txt" in caplog.text
+
+            res_info = await storage.info("file.txt")
+            assert res_info is None
+            assert "Failed to get info for S3 key file.txt" in caplog.text
+
+
+class TestLocalStorageStreaming:
+    @pytest.mark.asyncio
+    async def test_local_storage_stream_write_and_read(self, tmp_path) -> None:
+        storage = LocalStorage(str(tmp_path))
+
+        async def chunk_gen():
+            yield b"hello "
+            yield b"world "
+            yield b"stream"
+
+        res = await storage.stream_write("stream.txt", chunk_gen())
+        assert res.size_bytes == 18
+        assert res.checksum == hashlib.sha256(b"hello world stream").hexdigest()
+
+        read_chunks = []
+        async for chunk in storage.stream_read("stream.txt", chunk_size=5):
+            read_chunks.append(chunk)
+
+        assert b"".join(read_chunks) == b"hello world stream"
+        assert len(read_chunks) == 4  # 5, 5, 5, 3
+

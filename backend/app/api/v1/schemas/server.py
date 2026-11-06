@@ -45,7 +45,7 @@ class ServerUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str | None = None
-    properties: dict[str, object] = {}
+    properties: dict[str, object] = Field(default_factory=dict)
     min_memory_mb: int | None = None
     max_memory_mb: int | None = None
     cpu_cores: int | None = None

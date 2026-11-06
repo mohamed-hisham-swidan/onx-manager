@@ -114,7 +114,11 @@ class WriteMaterializedFileHandler(CommandHandler[WriteMaterializedFileCommand])
                 f"classification '{classification}' (see ADR-0016)"
             )
 
-        dest_file = Path(materialization.root_path) / norm_path
+        dest_file = (Path(materialization.root_path) / norm_path).resolve()
+        resolved_root = Path(materialization.root_path).resolve()
+        if not dest_file.is_relative_to(resolved_root):
+            raise ValidationError(f"Path escapes materialization root: {command.path}")
+
         bytes_written = atomic_write_file(dest_file, command.content)
 
         # Update path classification if new tracked file

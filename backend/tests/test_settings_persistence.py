@@ -233,3 +233,52 @@ class TestSettingsAPIEndpoints:
             assert res_get2.status_code == 200
             assert res_get2.json()["rate_limit_per_minute"] == 90
             assert res_get2.json()["metrics_interval_seconds"] == 1.0
+
+    def test_persist_atomic_and_preserves_mode(self, tmp_path):
+        import os
+
+        from app.core.settings_store import _persist, get_live_settings
+
+        target = tmp_path / "custom_settings.yaml"
+        target.write_text("rate_limit_per_minute: 60\n")
+        os.chmod(target, 0o600)
+
+        live = get_live_settings()
+        _persist(live, path=target)
+
+        assert target.exists()
+        assert (target.stat().st_mode & 0o777) == 0o600
+
+    @pytest.mark.asyncio
+    async def test_settings_patch_logs_warning_on_metrics_error(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        import logging
+        from unittest.mock import patch
+
+        from app.modules.auth.infrastructure.jwt import create_access_token
+
+        app_instance = create_app()
+        token = create_access_token(user_id="u1", permissions=["admin:full"])
+        headers = {"Authorization": f"Bearer {token}"}
+        transport = ASGITransport(app=app_instance)
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(
+                "app.websocket.endpoint.get_metrics_batcher",
+                side_effect=RuntimeError("batcher exploded"),
+            ),
+        ):
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                res = await client.patch(
+                    "/api/v1/settings",
+                    json={"metrics_interval_seconds": 2.5},
+                    headers=headers,
+                )
+                assert res.status_code == 200
+                assert any(
+                    "Failed to update metrics batcher or scheduler interval" in rec.message
+                    for rec in caplog.records
+                )
+
+

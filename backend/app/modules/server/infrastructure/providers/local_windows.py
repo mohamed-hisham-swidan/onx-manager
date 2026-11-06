@@ -56,6 +56,14 @@ class LocalWindowsProvider(ServerProvider):
         self._fs = fs or local_fs
         self._processes: dict[str, subprocess.Popen[Any]] = {}
 
+    @staticmethod
+    def _release_process_handles(proc: subprocess.Popen[Any] | None) -> None:
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                if proc.stdin and not proc.stdin.closed:
+                    proc.stdin.close()
+                proc.poll()
+
     @property
     def provider_type(self) -> str:
         return "local_windows"
@@ -309,6 +317,7 @@ class LocalWindowsProvider(ServerProvider):
                 creationflags=creationflags,
             )
             pid = proc.pid
+            self._release_process_handles(self._processes.pop(server_id, None))
             self._processes[server_id] = proc
 
             if cpu_affinity:
@@ -414,7 +423,7 @@ class LocalWindowsProvider(ServerProvider):
                         pid,
                         server_label,
                     )
-                    self._processes.pop(server_id, None)
+                    self._release_process_handles(self._processes.pop(server_id, None))
                     return
                 await asyncio.sleep(0.5)
 
@@ -427,7 +436,7 @@ class LocalWindowsProvider(ServerProvider):
             )
             await self._force_kill_process_tree(pid)
 
-        self._processes.pop(server_id, None)
+        self._release_process_handles(self._processes.pop(server_id, None))
 
     async def _force_kill_process_tree(self, pid: int) -> None:
         if sys.platform == "win32":

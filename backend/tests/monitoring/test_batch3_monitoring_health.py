@@ -220,3 +220,14 @@ async def test_f036_generate_health_report_worst_status():
     assert report is not None
     assert report.worst_status == "broken"
     assert report.current_status == "healthy"
+
+
+@pytest.mark.asyncio
+async def test_get_health_dashboard_endpoint() -> None:
+    from app.api.v1.routers.health import get_health_dashboard
+
+    res = await get_health_dashboard(_current_user={"user_id": "admin"})
+    assert res.total_servers >= 0
+    assert res.healthy >= 0
+    assert isinstance(res.servers, list)
+

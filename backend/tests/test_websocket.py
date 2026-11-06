@@ -188,6 +188,30 @@ class TestConnectionRegistry:
         await reg.register("c1", _MockWebSocket())
         assert reg.active_connections == 1
 
+    @pytest.mark.asyncio
+    async def test_broadcast_deregisters_failed_connections(self) -> None:
+        reg = ConnectionRegistry()
+        good_ws = _MockWebSocket()
+        bad_ws = _MockWebSocket()
+
+        async def _failing_send_bytes(_data: bytes) -> None:
+            raise ConnectionResetError("client disconnected")
+
+        bad_ws.send_bytes = _failing_send_bytes  # type: ignore[assignment]
+
+        await reg.register("c_good", good_ws)
+        await reg.register("c_bad", bad_ws)
+        await reg.subscribe("c_good", "test_ch")
+        await reg.subscribe("c_bad", "test_ch")
+
+        sent = await reg.broadcast("test_ch", b"hello")
+        assert sent == 1
+        assert len(good_ws.sent_bytes) == 1
+        # c_bad must be deregistered
+        assert await reg.get("c_bad") is None
+        assert await reg.get("c_good") is good_ws
+        assert await reg.get_channel_subscriber_count("test_ch") == 1
+
 
 class TestWSAuthenticator:
     def test_register_and_get_connection(self) -> None:
@@ -518,6 +542,25 @@ class TestMetricsBatcher:
         assert batcher._running
         await batcher.stop()
         assert not batcher._running
+
+    @pytest.mark.asyncio
+    async def test_flush_snapshots_samples_before_await(self) -> None:
+        reg = ConnectionRegistry()
+        batcher = MetricsBatcher(reg, window_seconds=0.1)
+
+        async def _mock_broadcast(_channel: str, _data: bytes) -> int:
+            # Add a sample concurrently while flush is awaiting broadcast
+            await batcher.add_sample("s02", {"ts": 2.0})
+            return 1
+
+        reg.broadcast = _mock_broadcast  # type: ignore[assignment]
+        await batcher.add_sample("s01", {"ts": 1.0})
+        await batcher._flush()
+
+        # s01 was flushed, but concurrently added s02 must remain in _samples
+        assert "s01" not in batcher._samples
+        assert "s02" in batcher._samples
+        assert len(batcher._samples["s02"]) == 1
 
 
 class TestEndpoint:
