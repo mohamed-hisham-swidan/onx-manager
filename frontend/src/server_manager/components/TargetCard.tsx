@@ -213,7 +213,7 @@ export function TargetCard({
         onClose={() => setIsConfirmDeleteOpen(false)}
         title="Remove Companion Target?"
         size="sm"
-        closeOnBackdrop={true}
+        closeOnBackdrop={false}
         closeOnEscape={true}
         closeButtonAriaLabel="Close dialog"
       >

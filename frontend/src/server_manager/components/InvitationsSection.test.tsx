@@ -300,4 +300,62 @@ describe("InvitationsSection", () => {
       });
     });
   });
+
+  describe("Modal behavior (FIX-3)", () => {
+    it("renders dialog with accessible title, focuses inside, and supports Escape when idle", async () => {
+      await renderAndOpenModal();
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Generate Invitation" })).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(dialog.contains(document.activeElement)).toBe(true);
+      });
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      });
+    });
+
+    it("does not close on backdrop click or content click", async () => {
+      await renderAndOpenModal();
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toBeInTheDocument();
+
+      const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60")!;
+      expect(backdrop).toBeInTheDocument();
+      fireEvent.click(backdrop);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      fireEvent.click(dialog);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("guards against Escape and disables Cancel/Generate buttons while pending", async () => {
+      let resolveMutation!: (val: unknown) => void;
+      mockCreateInvite.mockImplementation(
+        () => new Promise((resolve) => { resolveMutation = resolve; })
+      );
+
+      await renderAndOpenModal();
+      const submitBtn = screen.getByRole("button", { name: "Generate Invitation" });
+      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+
+      fireEvent.click(submitBtn);
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Generating..." })).toBeDisabled();
+        expect(cancelBtn).toBeDisabled();
+      });
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      resolveMutation({ token: "tok-123", expires_at: "2026-11-08T00:00:00Z" });
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      });
+    });
+  });
 });

@@ -645,7 +645,7 @@ export function PanelExposureSection() {
         }}
         title="Disable Panel Exposure?"
         size="md"
-        closeOnBackdrop={!isUpdating}
+        closeOnBackdrop={false}
         closeOnEscape={!isUpdating}
         closeButtonAriaLabel="Close dialog"
       >

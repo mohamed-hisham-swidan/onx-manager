@@ -493,7 +493,7 @@ export function ServerExposureMethodSelector({
         }
         description="Changing exposure method will disconnect active tunnels and re-provision targets under the new method. Active player connections will be dropped."
         size="md"
-        closeOnBackdrop={true}
+        closeOnBackdrop={false}
         closeOnEscape={true}
         closeButtonAriaLabel="Close dialog"
         initialFocusRef={switchInputRef}

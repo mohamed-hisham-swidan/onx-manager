@@ -214,7 +214,7 @@ export function GlobalExposureActionsCard() {
         }
         description={currentConfig?.description}
         size="md"
-        closeOnBackdrop={!isInFlight}
+        closeOnBackdrop={false}
         closeOnEscape={!isInFlight}
         closeButtonAriaLabel="Close dialog"
         initialFocusRef={inputRef}

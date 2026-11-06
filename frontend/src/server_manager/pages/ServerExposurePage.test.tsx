@@ -1001,4 +1001,79 @@ describe("Batch 7.5 — ServerExposurePage Acceptance Tests (T-75-01..T-75-24)",
     const errorBadges = await screen.findAllByText("Error");
     expect(errorBadges.length).toBeGreaterThan(0);
   });
+
+  describe("Modal behavior (FIX-3)", () => {
+    async function renderActiveAndOpenModal() {
+      mockGetServerExposure.mockResolvedValue({
+        ...defaultExposureResponse,
+        method: "playit",
+        desired_state: "ENABLED",
+        aggregate_status: "ACTIVE",
+      });
+
+      renderServerExposurePage();
+      const disableBtn = await screen.findByRole("button", { name: "Disable Exposure" });
+      fireEvent.click(disableBtn);
+    }
+
+    it("renders dialog with accessible title, focuses inside, and supports Escape when idle", async () => {
+      await renderActiveAndOpenModal();
+
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Disable Server Exposure?" })).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(dialog.contains(document.activeElement)).toBe(true);
+      });
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      });
+    });
+
+    it("does not close on backdrop click or content click", async () => {
+      await renderActiveAndOpenModal();
+
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toBeInTheDocument();
+
+      const backdrop = document.querySelector(".fixed.inset-0.bg-black\\/60")!;
+      expect(backdrop).toBeInTheDocument();
+      fireEvent.click(backdrop);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      fireEvent.click(dialog);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("guards against Escape and disables Cancel/Action buttons while pending", async () => {
+      let resolveMutation!: (val: unknown) => void;
+      mockSetServerExposureState.mockImplementation(
+        () => new Promise((resolve) => { resolveMutation = resolve; })
+      );
+
+      await renderActiveAndOpenModal();
+
+      const dialog = screen.getByRole("dialog");
+      const confirmBtn = dialog.querySelector("button.bg-red-600") as HTMLButtonElement;
+      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Disabling..." })).toBeDisabled();
+        expect(cancelBtn).toBeDisabled();
+      });
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      resolveMutation({ ...defaultExposureResponse, desired_state: "DISABLED" });
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      });
+    });
+  });
 });

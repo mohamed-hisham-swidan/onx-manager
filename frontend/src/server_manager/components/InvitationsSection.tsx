@@ -270,7 +270,7 @@ export function InvitationsSection() {
         }}
         title="Generate Invitation"
         size="md"
-        closeOnBackdrop={!createMutation.isPending}
+        closeOnBackdrop={false}
         closeOnEscape={!createMutation.isPending}
         closeButtonAriaLabel="Close dialog"
       >

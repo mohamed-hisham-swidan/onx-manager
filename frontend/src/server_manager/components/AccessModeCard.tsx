@@ -169,7 +169,7 @@ export function AccessModeCard() {
             : "Switch to LOCAL Access Mode?"
         }
         size="md"
-        closeOnBackdrop={!updateMutation.isPending}
+        closeOnBackdrop={false}
         closeOnEscape={!updateMutation.isPending}
         closeButtonAriaLabel="Close dialog"
       >

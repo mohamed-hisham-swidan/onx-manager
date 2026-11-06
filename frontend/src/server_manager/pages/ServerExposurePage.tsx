@@ -259,7 +259,7 @@ export function ServerExposurePage() {
         }}
         title="Disable Server Exposure?"
         size="md"
-        closeOnBackdrop={!isSettingExposureState}
+        closeOnBackdrop={false}
         closeOnEscape={!isSettingExposureState}
         closeButtonAriaLabel="Close dialog"
       >

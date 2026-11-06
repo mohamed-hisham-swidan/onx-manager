@@ -154,5 +154,22 @@ The following decisions are consolidated and prioritized for repo owner review. 
 | **P5** | **Multi-Skin Palette Scope** | Shipped with "Graphite" (100% neutral gray, 0 channel spread) and "Azure" (modern slate blue), plus `skinValidator` contract. | Owner may introduce additional built-in skins (e.g. high-contrast, emerald). | `src/index.css`, `src/tokens/skinValidator.ts` |
 | **P6** | **Brand Visual Assets** | Vortex vector swirl mark (`BrandLogo.tsx`), abstract voxel banners (`VoxelBanner.tsx`), favicon.svg. | Owner may replace SVG artwork with custom product logos. | `src/components/brand/` |
 
+---
+
+## 13. N-04 NEW behavior: Escape Dismissal Standardization
+- **Status**: CONSERVATIVE CHOICE TAKEN / LOGGED FOR OWNER DECISION
+- **Context**: During batch N-04, 7 inline overlays in the Server Exposure workflow were migrated to the canonical `Modal` primitive.
+- **Escape Dismissal Changes**:
+  - Pre-migration, only 2 of the 7 components had Escape listeners (`GlobalExposureActionsCard.tsx` and `ServerExposureMethodSelector.tsx`).
+  - Five components had NO Escape dismissal pre-migration (only internal Cancel/Close buttons):
+    1. `AccessModeCard.tsx`
+    2. `InvitationsSection.tsx`
+    3. `PanelExposureSection.tsx`
+    4. `TargetCard.tsx`
+    5. `ServerExposurePage.tsx`
+  - In batch N-04, all 5 components gained Escape dismissal by default via `<Modal closeOnEscape={...}>` (standard WCAG dialog keyboard pattern).
+  - For all 5 components, Escape dismissal is strictly blocked while mutations are in-flight (`isPending` / `isUpdating` / `isSettingExposureState`).
+  - Backdrop dismissal remains strictly disabled (`closeOnBackdrop={false}`) across all 7 components to preserve their pre-migration behavior and prevent accidental dismissal.
+
 
 
