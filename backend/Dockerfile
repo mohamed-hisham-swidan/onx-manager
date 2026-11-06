@@ -42,4 +42,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
 
 # Use a shell wrapper so alembic runs before uvicorn starts
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
+CMD ["alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]

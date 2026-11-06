@@ -143,6 +143,8 @@ openapi.yaml
 # Backup / snapshot files (contains runtime data)
 # ──────────────────────────────────────────────
 *.backup
+*.bak
+*.bak.md
 *.db.*
 
 # ──────────────────────────────────────────────
@@ -155,6 +157,11 @@ backend/config/
 # ──────────────────────────────────────────────
 backend/data/backups/
 backend/data/artifacts/
+# Runtime backup output directory (backend CWD-relative "backups/")
+backend/backups/
+# Locally dropped plugin jars; only the tracked SDK is source
+backend/plugins/*
+!backend/plugins/sdk/
 
 # ──────────────────────────────────────────────
 # Local automation scripts & logs

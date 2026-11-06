@@ -4,6 +4,7 @@ set -euo pipefail
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <version>"
     echo "Example: $0 v0.1.0"
+    echo "Optional: IMAGE_REPO=ghcr.io/<owner>/onx-manager (registry-qualified image name to push)"
     exit 1
 fi
 
@@ -12,18 +13,37 @@ cd "$(dirname "$0")/.."
 
 echo "=== Releasing $VERSION ==="
 
+# Refuse to release from a dirty working tree
+if ! git diff-index --quiet HEAD --; then
+    echo "ERROR: working tree has uncommitted changes; commit or stash before releasing." >&2
+    exit 1
+fi
+
 # Run checks
 ./scripts/check
+
+# Release quality gates (same ones CI enforces)
+(
+    cd backend
+    python ../scripts/check-version-propagation
+    python ../scripts/check-db-revision
+    python ../scripts/check-stray-db
+)
 
 # Build
 ./scripts/build
 
-# Tag
+# Push Docker image first (needs a registry-qualified name; unqualified names
+# resolve to Docker Hub's official library namespace and are always denied).
+if [ -n "${IMAGE_REPO:-}" ]; then
+    docker tag onx-manager:latest "${IMAGE_REPO}:${VERSION}"
+    docker push "${IMAGE_REPO}:${VERSION}"
+else
+    echo "IMAGE_REPO not set; skipping docker push (image built locally as onx-manager:latest)."
+fi
+
+# Tag only after the artifacts built (and pushed) successfully
 git tag -a "$VERSION" -m "Release $VERSION"
 git push origin "$VERSION"
-
-# Push Docker image
-docker tag onx-manager:latest "onx-manager:$VERSION"
-docker push "onx-manager:$VERSION"
 
 echo "=== Release $VERSION Complete ==="
