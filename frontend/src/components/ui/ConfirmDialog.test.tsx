@@ -84,4 +84,112 @@ describe("ConfirmDialog", () => {
     expect(document.activeElement).toBe(trigger);
     document.body.removeChild(trigger);
   });
+
+  describe("pending guard", () => {
+    it("disables Confirm and Cancel buttons and sets aria-busy while pending", () => {
+      render(
+        <ConfirmDialog
+          open
+          title="Delete?"
+          isPending={true}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+        />
+      );
+
+      const confirmBtn = screen.getByRole("button", { name: "Confirm" });
+      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+      const dialog = screen.getByRole("dialog");
+
+      expect(confirmBtn).toBeDisabled();
+      expect(cancelBtn).toBeDisabled();
+      expect(dialog).toHaveAttribute("aria-busy", "true");
+    });
+
+    it("ignores Escape when pending", () => {
+      const onCancel = vi.fn();
+      render(
+        <ConfirmDialog
+          open
+          title="Delete?"
+          isPending={true}
+          onConfirm={() => {}}
+          onCancel={onCancel}
+        />
+      );
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it("ignores backdrop click when pending", () => {
+      const onCancel = vi.fn();
+      const { container } = render(
+        <ConfirmDialog
+          open
+          title="Delete?"
+          isPending={true}
+          onConfirm={() => {}}
+          onCancel={onCancel}
+        />
+      );
+
+      const backdrop = container.querySelector('[aria-hidden="true"]');
+      expect(backdrop).not.toBeNull();
+      fireEvent.click(backdrop!);
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it("prevents second confirm click while pending", () => {
+      const onConfirm = vi.fn();
+      const { rerender } = render(
+        <ConfirmDialog
+          open
+          title="Delete?"
+          isPending={false}
+          onConfirm={onConfirm}
+          onCancel={() => {}}
+        />
+      );
+
+      const confirmBtn = screen.getByRole("button", { name: "Confirm" });
+      fireEvent.click(confirmBtn);
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+
+      // Now pending
+      rerender(
+        <ConfirmDialog
+          open
+          title="Delete?"
+          isPending={true}
+          onConfirm={onConfirm}
+          onCancel={() => {}}
+        />
+      );
+
+      fireEvent.click(confirmBtn);
+      // Still only called once
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it("allows cancel and confirm when not pending", () => {
+      const onCancel = vi.fn();
+      const onConfirm = vi.fn();
+      render(
+        <ConfirmDialog
+          open
+          title="Delete?"
+          isPending={false}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -381,4 +381,34 @@ describe("TestDefinitionsModal Component", () => {
     expect(screen.queryByRole("dialog", { name: "Delete Test Profile" })).not.toBeInTheDocument();
     expect(mockDeleteTestDefinition).not.toHaveBeenCalled();
   });
+
+  it("guards against double-click on delete confirm button triggering only one API call", async () => {
+    let resolveDelete: (val?: unknown) => void = () => {};
+    mockDeleteTestDefinition.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveDelete = resolve;
+    }));
+
+    render(
+      <TestDefinitionsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        onDefinitionsChanged={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete profile" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete profile" }));
+    const confirmButton = screen.getByRole("button", { name: "Delete Profile" });
+
+    // Click twice rapidly
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+
+    expect(mockDeleteTestDefinition).toHaveBeenCalledTimes(1);
+    resolveDelete({ success: true });
+  });
 });

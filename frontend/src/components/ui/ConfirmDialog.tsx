@@ -8,6 +8,7 @@ export interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "danger" | "warning" | "info";
+  isPending?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -19,6 +20,7 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   variant = "danger",
+  isPending = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -38,6 +40,7 @@ export function ConfirmDialog({
 
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        if (isPending) return;
         onCancel();
         return;
       }
@@ -77,7 +80,7 @@ export function ConfirmDialog({
       window.removeEventListener("keydown", onKey);
       previousFocusRef.current?.focus();
     };
-  }, [open, onCancel, variant]);
+  }, [open, onCancel, variant, isPending]);
 
   if (!open) return null;
 
@@ -97,12 +100,17 @@ export function ConfirmDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-xs" onClick={onCancel} aria-hidden="true" />
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-xs"
+        onClick={isPending ? undefined : onCancel}
+        aria-hidden="true"
+      />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        aria-busy={isPending ? "true" : undefined}
         className="relative z-10 w-full max-w-sm rounded-xl border border-border-subtle bg-surface-card p-6 shadow-2xl transition-all"
       >
         <div className={`mb-4 flex h-11 w-11 items-center justify-center rounded-xl ${iconColors}`}>
@@ -116,16 +124,18 @@ export function ConfirmDialog({
           <button
             ref={cancelButtonRef}
             type="button"
+            disabled={isPending}
             onClick={onCancel}
-            className="rounded-lg border border-border-default px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+            className="rounded-lg border border-border-default px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {cancelLabel}
           </button>
           <button
             ref={confirmButtonRef}
             type="button"
-            onClick={onConfirm}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${confirmColors}`}
+            disabled={isPending}
+            onClick={isPending ? undefined : onConfirm}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${confirmColors}`}
           >
             {confirmLabel}
           </button>

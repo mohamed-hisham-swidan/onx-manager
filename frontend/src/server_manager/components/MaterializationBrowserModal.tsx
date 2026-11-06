@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createAuthenticatedApi } from "@/services/api";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
@@ -48,6 +48,7 @@ export function MaterializationBrowserModal({
   const [isCreating, setIsCreating] = useState(false);
   const [isTogglingMode, setIsTogglingMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const isDeletingRef = useRef(false);
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -224,7 +225,8 @@ export function MaterializationBrowserModal({
   };
 
   const handleDeleteMaterialization = async () => {
-    if (!activeMat) return;
+    if (!activeMat || isDeletingRef.current || isDeleting) return;
+    isDeletingRef.current = true;
     setIsDeleting(true);
     setError(null);
     try {
@@ -237,6 +239,7 @@ export function MaterializationBrowserModal({
       setError(msg);
       setIsConfirmDeleteOpen(false);
     } finally {
+      isDeletingRef.current = false;
       setIsDeleting(false);
     }
   };
@@ -669,8 +672,12 @@ export function MaterializationBrowserModal({
       }
       confirmLabel={isDeleting ? "Deleting..." : "Delete Snapshot"}
       variant="danger"
+      isPending={isDeleting}
       onConfirm={handleDeleteMaterialization}
-      onCancel={() => setIsConfirmDeleteOpen(false)}
+      onCancel={() => {
+        if (isDeleting) return;
+        setIsConfirmDeleteOpen(false);
+      }}
     />
   </>
   );

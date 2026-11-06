@@ -645,8 +645,12 @@ export function ServerFilesPage() {
         description={`Are you sure you want to delete ${fileToDelete?.name}? ${fileToDelete?.is_dir ? "All contents will be permanently deleted. " : ""}This action cannot be undone.`}
         confirmLabel={deleteMutation.isPending ? "Deleting..." : "Delete"}
         variant="danger"
+        isPending={deleteMutation.isPending}
         onConfirm={() => fileToDelete && deleteMutation.mutate(fileToDelete.path)}
-        onCancel={() => setFileToDelete(null)}
+        onCancel={() => {
+          if (deleteMutation.isPending) return;
+          setFileToDelete(null);
+        }}
       />
     </div>
   );

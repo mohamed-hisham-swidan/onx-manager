@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -36,6 +36,7 @@ export function TestDefinitionsModal({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const isDeletingRef = useRef<boolean>(false);
 
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
   if (isOpen !== prevIsOpen) {
@@ -116,7 +117,8 @@ export function TestDefinitionsModal({
   };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || isDeletingRef.current || isDeleting) return;
+    isDeletingRef.current = true;
     const { id, name } = deleteTarget;
     setIsDeleting(true);
     try {
@@ -130,6 +132,7 @@ export function TestDefinitionsModal({
       toast("error", "Delete Failed", msg);
       setDeleteTarget(null);
     } finally {
+      isDeletingRef.current = false;
       setIsDeleting(false);
     }
   };
@@ -348,8 +351,12 @@ export function TestDefinitionsModal({
       }
       confirmLabel={isDeleting ? "Deleting..." : "Delete Profile"}
       variant="danger"
+      isPending={isDeleting}
       onConfirm={handleConfirmDelete}
-      onCancel={() => setDeleteTarget(null)}
+      onCancel={() => {
+        if (isDeleting) return;
+        setDeleteTarget(null);
+      }}
     />
   </>
   );

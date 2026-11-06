@@ -273,4 +273,33 @@ describe("MaterializationBrowserModal", () => {
     expect(screen.queryByRole("dialog", { name: "Delete Worktree Snapshot" })).not.toBeInTheDocument();
     expect(mockDeleteMaterialization).not.toHaveBeenCalled();
   });
+
+  it("guards against double-click on confirm button during deletion triggering only one API call", async () => {
+    let resolveDelete: (val?: unknown) => void = () => {};
+    mockDeleteMaterialization.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveDelete = resolve;
+    }));
+
+    render(
+      <MaterializationBrowserModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete worktree" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete worktree" }));
+    const confirmButton = screen.getByRole("button", { name: "Delete Snapshot" });
+
+    // Click twice rapidly
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+
+    expect(mockDeleteMaterialization).toHaveBeenCalledTimes(1);
+    resolveDelete({ success: true });
+  });
 });
