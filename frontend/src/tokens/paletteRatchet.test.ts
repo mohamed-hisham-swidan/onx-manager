@@ -159,8 +159,8 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "server_manager/components/CommitDiffModal.tsx": {
     maxHex: 0,
-    maxPalette: 190,
-    reason: "Git commit diff viewer line coloring",
+    maxPalette: 165,
+    reason: "Git commit diff viewer line coloring (ratcheted down from 190)",
   },
   "server_manager/components/CompatibilityCard.tsx": {
     maxHex: 0,
@@ -214,8 +214,8 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "server_manager/components/ManageBranchesModal.tsx": {
     maxHex: 0,
-    maxPalette: 120,
-    reason: "Branch management modal",
+    maxPalette: 95,
+    reason: "Branch management modal (ratcheted down from 120)",
   },
   "server_manager/components/MaterializationBrowserModal.tsx": {
     maxHex: 0,
@@ -299,8 +299,8 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "server_manager/components/TestDefinitionsModal.tsx": {
     maxHex: 0,
-    maxPalette: 130,
-    reason: "Test definition configuration modal",
+    maxPalette: 105,
+    reason: "Test definition configuration modal (ratcheted down from 130)",
   },
   "server_manager/components/TestEvidenceModal.tsx": {
     maxHex: 0,
@@ -354,8 +354,8 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "server_manager/pages/PluginMarketplacePage.tsx": {
     maxHex: 0,
-    maxPalette: 70,
-    reason: "Marketplace search grid",
+    maxPalette: 45,
+    reason: "Marketplace search grid (ratcheted down from 70)",
   },
   "server_manager/pages/ServerActivityPage.tsx": {
     maxHex: 0,
@@ -364,8 +364,8 @@ const ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "server_manager/pages/ServerDetailPage.tsx": {
     maxHex: 6,
-    maxPalette: 175,
-    reason: "Server detail quick action cards and sparklines",
+    maxPalette: 145,
+    reason: "Server detail quick action cards and sparklines (ratcheted down from 175)",
   },
   "server_manager/pages/ServerExposurePage.tsx": {
     maxHex: 0,
