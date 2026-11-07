@@ -8,13 +8,20 @@ import {
   useRestartServer,
 } from "@/server_manager/hooks/useServers";
 import { toast } from "@/stores/toastStore";
-import type { ServerResponse } from "@/server_manager/types";
+import type { ServerDetailResponse, ServerResponse } from "@/server_manager/types";
+import type { MetricsSnapshot } from "@/services/api";
 
 interface CommandCenterFleetListProps {
   servers: ServerResponse[];
+  detailsMap?: Record<string, ServerDetailResponse | undefined>;
+  metricsMap?: Record<string, MetricsSnapshot[] | undefined>;
 }
 
-export function CommandCenterFleetList({ servers }: CommandCenterFleetListProps) {
+export function CommandCenterFleetList({
+  servers,
+  detailsMap,
+  metricsMap,
+}: CommandCenterFleetListProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "running" | "stopped">("all");
   const [copiedPort, setCopiedPort] = useState<number | null>(null);
@@ -258,29 +265,50 @@ export function CommandCenterFleetList({ servers }: CommandCenterFleetListProps)
                   <div className="flex items-center gap-1.5 text-text-muted">
                     <Icon name="users" size={13} />
                     <span className="font-mono tabular-nums">
-                      {isOnline ? "0" : "--"} / {server.max_players || 20} Players
+                      {(() => {
+                        const snaps = metricsMap?.[server.server_id];
+                        const latest = snaps?.length
+                          ? snaps.reduce((a, b) => (b.timestamp > a.timestamp ? b : a))
+                          : undefined;
+                        return isOnline ? String(latest?.players ?? 0) : "--";
+                      })()}{" "}
+                      / {server.max_players || 20} Players
                     </span>
                   </div>
                 </div>
 
                 {/* Col 3: Live Instance Telemetry */}
                 <div className="min-w-[180px] text-xs">
-                  {isOnline ? (
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between font-mono text-[11px] text-text-secondary">
-                        <span>CPU: 14%</span>
-                        <span>RAM: 3.2 / 4.0 GB</span>
+                  {(() => {
+                    const detail = detailsMap?.[server.server_id];
+                    const maxMb = detail?.max_memory_mb ?? 2048;
+                    const maxGb = +(maxMb / 1024).toFixed(1);
+                    const snaps = metricsMap?.[server.server_id];
+                    const latest = snaps?.length
+                      ? snaps.reduce((a, b) => (b.timestamp > a.timestamp ? b : a))
+                      : undefined;
+                    const cpuPct = isOnline && latest ? Math.min(100, Math.max(0, latest.cpu_percent)) : 0;
+                    const usedMb = isOnline && latest ? latest.ram_used_mb : 0;
+                    const usedGb = +(usedMb / 1024).toFixed(1);
+                    const ramPct = maxMb > 0 ? Math.min(100, Math.max(0, (usedMb / maxMb) * 100)) : 0;
+
+                    return isOnline ? (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between font-mono text-[11px] text-text-secondary">
+                          <span>CPU: {latest ? `${cpuPct.toFixed(1)}%` : "0.0%"}</span>
+                          <span>RAM: {usedGb.toFixed(1)} / {maxGb.toFixed(1)} GB</span>
+                        </div>
+                        <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-card">
+                          <div style={{ width: `${cpuPct}%` }} className="bg-status-success" />
+                          <div style={{ width: `${ramPct}%` }} className="bg-accent-primary" />
+                        </div>
                       </div>
-                      <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-card">
-                        <div style={{ width: "14%" }} className="bg-status-success" />
-                        <div style={{ width: "66%" }} className="bg-accent-primary" />
-                      </div>
-                    </div>
-                  ) : (
-                    <span className="font-mono text-[11px] text-text-muted">
-                      Instance halted · 4.0 GB RAM pre-allocated
-                    </span>
-                  )}
+                    ) : (
+                      <span className="font-mono text-[11px] text-text-muted">
+                        Instance halted · {maxGb.toFixed(1)} GB max heap
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 {/* Col 4: Action Control Group */}

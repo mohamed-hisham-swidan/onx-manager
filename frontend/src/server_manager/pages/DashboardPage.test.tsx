@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardPage } from "./DashboardPage";
 import { useActivityStore } from "@/stores/activityStore";
@@ -69,8 +69,11 @@ const qc = new QueryClient();
 function renderPage() {
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <DashboardPage />
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/servers/:serverId/console" element={<div data-testid="attached-console-route">Attached Console</div>} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -242,5 +245,16 @@ describe("DashboardPage Command Center", () => {
     } as unknown as ReturnType<typeof useServersList>);
     renderPage();
     expect(screen.getByText("Network timeout")).toBeInTheDocument();
+  });
+
+  it("allows selecting a server to attach console and navigates to /servers/:id/console", () => {
+    renderPage();
+    const select = screen.getByRole("combobox", { name: /select a server to attach/i });
+    expect(select).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Online Server/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Stopped Server/i })).toBeInTheDocument();
+
+    fireEvent.change(select, { target: { value: "srv-1" } });
+    expect(screen.getByTestId("attached-console-route")).toBeInTheDocument();
   });
 });

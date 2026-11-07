@@ -435,24 +435,24 @@ export function ServersPage() {
                           </button>
                         </div>
 
-                        {/* Telemetry Well */}
+                        {/* Instance Config Well */}
                         <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg border border-border-subtle bg-surface-elevated/70 p-2.5 text-center">
                           <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">CPU</div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Port</div>
                             <div className="mt-0.5 font-mono text-xs tabular-nums text-text-primary">
-                              {isRunning ? "1.2%" : "0%"}
+                              {s.port}
                             </div>
                           </div>
                           <div className="border-x border-border-subtle">
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">RAM</div>
-                            <div className="mt-0.5 font-mono text-xs tabular-nums text-text-primary">
-                              {isRunning ? "1.8G" : "0G"}
+                            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Mode</div>
+                            <div className="mt-0.5 font-mono text-xs capitalize text-text-primary">
+                              {s.gamemode || "survival"}
                             </div>
                           </div>
                           <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Players</div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Max Players</div>
                             <div className="mt-0.5 font-mono text-xs tabular-nums text-text-primary">
-                              {isRunning ? "0/20" : "--"}
+                              {s.max_players || 20}
                             </div>
                           </div>
                         </div>

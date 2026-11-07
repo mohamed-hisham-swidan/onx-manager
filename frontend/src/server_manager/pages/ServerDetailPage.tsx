@@ -428,17 +428,19 @@ export function ServerDetailPage() {
             />
           </div>
 
-          {/* Card 7: Storage Footprint */}
+          {/* Card 7: Allocated Memory */}
           <div className="rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs">
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary flex items-center gap-1.5">
                 <Icon name="database" size={14} className="text-accent-primary" />
-                Storage Usage
+                Memory Allocation
               </h3>
-              <span className="font-mono text-[10px] font-semibold text-text-muted">Active CoW</span>
+              <span className="font-mono text-[10px] font-semibold text-text-muted">JVM Heap</span>
             </div>
             <p className="font-mono text-sm font-bold tabular-nums text-text-primary">
-              {server.min_memory_mb ? "1.4 GB (Reflink)" : "—"}
+              {server.min_memory_mb && server.max_memory_mb
+                ? `${server.min_memory_mb} MB – ${server.max_memory_mb} MB`
+                : "—"}
             </p>
           </div>
         </div>

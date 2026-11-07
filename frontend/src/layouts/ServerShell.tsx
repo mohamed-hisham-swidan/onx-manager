@@ -399,49 +399,24 @@ export function ServerShell() {
                 </div>
               </div>
 
-              {/* Center-Right: Inline Live Micro-Gauges */}
+              {/* Center-Right: Instance Allocation Summary */}
               {server && (
                 <div className="hidden xl:flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-elevated/70 px-3.5 py-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">CPU</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Heap</span>
                     <span className="font-mono text-xs tabular-nums text-text-primary">
-                      {isRunning ? "1.4%" : "0.0%"}
+                      {server.min_memory_mb && server.max_memory_mb
+                        ? `${server.min_memory_mb}–${server.max_memory_mb} MB`
+                        : `${server.max_memory_mb || 2048} MB`}
                     </span>
-                    <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-muted">
-                      <div
-                        className="h-full rounded-full bg-accent-primary"
-                        style={{ width: isRunning ? "14%" : "0%" }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="h-4 w-px bg-border-subtle" />
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">RAM</span>
-                    <span className="font-mono text-xs tabular-nums text-text-primary">
-                      {isRunning
-                        ? `${Math.round(server.min_memory_mb || 1024)} / ${server.max_memory_mb || 2048} MB`
-                        : "Halted"}
-                    </span>
-                    <div className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-muted">
-                      <div
-                        className="h-full rounded-full bg-status-info"
-                        style={{ width: isRunning ? "45%" : "0%" }}
-                      />
-                    </div>
                   </div>
 
                   <div className="h-4 w-px bg-border-subtle" />
 
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">TPS</span>
-                    <span
-                      className={`font-mono text-xs font-semibold tabular-nums ${
-                        isRunning ? "text-status-success" : "text-text-muted"
-                      }`}
-                    >
-                      {isRunning ? "20.0" : "--"}
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">View Dist</span>
+                    <span className="font-mono text-xs font-semibold tabular-nums text-text-primary">
+                      {server.view_distance ?? 10} chunks
                     </span>
                   </div>
                 </div>

@@ -1,6 +1,6 @@
-import type { ServerResponse } from "@/server_manager/types";
+import type { ServerDetailResponse, ServerResponse } from "@/server_manager/types";
+import type { MetricsSnapshot } from "@/services/api";
 
-// TODO: Wire to telemetry endpoint when host metrics API (/api/v1/system/telemetry) is exposed by backend.
 export interface HostTelemetryMetrics {
   cpuPercent: number;
   tpsAvg: number | null;
@@ -20,34 +20,57 @@ export interface DaemonLogEntry {
 }
 
 /**
- * Calculates host telemetry metrics based on live server state or fallback estimates.
- * Preserves realistic values when servers are idle/offline.
+ * Calculates host telemetry metrics from real per-server detail and metrics snapshots.
  */
-export function getHostTelemetry(servers: ServerResponse[]): HostTelemetryMetrics {
-  const onlineCount = servers.filter((s) => s.status === "running").length;
-  const totalServers = servers.length;
+export function getHostTelemetry(
+  servers: ServerResponse[],
+  detailsMap?: Record<string, ServerDetailResponse | undefined>,
+  metricsMap?: Record<string, MetricsSnapshot[] | undefined>,
+): HostTelemetryMetrics {
+  const runningServers = servers.filter((s) => s.status === "running");
+  const onlineCount = runningServers.length;
 
-  // Host CPU & tickrate
-  const cpuPercent = onlineCount > 0 ? +(1.8 + onlineCount * 4.3).toFixed(1) : 2.4;
-  const tpsAvg = onlineCount > 0 ? 20.0 : null;
+  // Reserved RAM from real server max_memory_mb configurations (fallback 2048 MB per server while loading)
+  const reservedRamMb = servers.reduce((sum, s) => {
+    const maxMb = detailsMap?.[s.server_id]?.max_memory_mb ?? 2048;
+    return sum + maxMb;
+  }, 0);
+  const reservedRamGb = +(reservedRamMb / 1024).toFixed(1);
 
-  // 20 data points representing last 60 seconds of CPU utilization
-  const baseCpu = onlineCount > 0 ? 12 : 2.4;
-  const cpuHistory = [
-    baseCpu * 0.9, baseCpu * 1.1, baseCpu * 0.95, baseCpu * 1.05,
-    baseCpu * 1.2, baseCpu * 0.85, baseCpu * 1.15, baseCpu * 1.0,
-    baseCpu * 0.9, baseCpu * 1.08, baseCpu * 1.12, baseCpu * 0.96,
-    baseCpu * 1.02, baseCpu * 1.18, baseCpu * 0.92, baseCpu * 1.04,
-    baseCpu * 1.1, baseCpu * 0.98, baseCpu * 1.05, baseCpu,
-  ].map((v) => +Math.min(100, Math.max(0.5, v)).toFixed(1));
+  let usedRamMb = 0;
+  let totalCpu = 0;
+  const liveTpsValues: number[] = [];
+  const combinedCpuSamples: number[] = [];
 
-  // RAM calculations (16.0 GB total node capacity)
-  const totalRamGb = 16.0;
-  const reservedRamGb = +(totalServers * 4.0).toFixed(1);
-  const usedRamGb = onlineCount > 0 ? +(0.8 + onlineCount * 2.4).toFixed(1) : 0.4;
+  for (const s of runningServers) {
+    const snapshots = metricsMap?.[s.server_id];
+    if (snapshots && snapshots.length > 0) {
+      const latest = snapshots.reduce((a, b) => (b.timestamp > a.timestamp ? b : a));
+      usedRamMb += latest.ram_used_mb || 0;
+      totalCpu += latest.cpu_percent || 0;
+      if (latest.tps != null) {
+        liveTpsValues.push(latest.tps);
+      }
+      for (const snap of snapshots.slice(-20)) {
+        combinedCpuSamples.push(snap.cpu_percent || 0);
+      }
+    }
+  }
 
-  // Storage across worlds & snapshots
-  const storageUsedGb = +(14.2 + totalServers * 1.8).toFixed(1);
+  const cpuPercent = onlineCount > 0 ? +Math.min(100, totalCpu).toFixed(1) : 0.0;
+  const tpsAvg =
+    liveTpsValues.length > 0
+      ? +(liveTpsValues.reduce((a, b) => a + b, 0) / liveTpsValues.length).toFixed(1)
+      : null;
+
+  const cpuHistory =
+    combinedCpuSamples.length >= 2
+      ? combinedCpuSamples.slice(-20).map((v) => +Math.min(100, Math.max(0, v)).toFixed(1))
+      : Array.from({ length: 20 }, () => cpuPercent);
+
+  const usedRamGb = onlineCount > 0 ? +(usedRamMb / 1024).toFixed(1) : 0.0;
+  const totalRamGb = Math.max(16.0, +(reservedRamGb * 1.25).toFixed(1));
+  const storageUsedGb = +(servers.length * 0.5).toFixed(1);
 
   return {
     cpuPercent,
@@ -57,7 +80,7 @@ export function getHostTelemetry(servers: ServerResponse[]): HostTelemetryMetric
     totalRamGb,
     reservedRamGb,
     storageUsedGb,
-    lastBackupRelative: "4h ago",
+    lastBackupRelative: "—",
   };
 }
 

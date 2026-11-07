@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { useActivityStore } from "@/stores/activityStore";
 import type { DaemonLogEntry } from "@/server_manager/utils/telemetryAdapter";
@@ -14,7 +14,10 @@ export function CommandCenterDaemonStream({
   serverNames = {},
 }: CommandCenterDaemonStreamProps) {
   const [logs, setLogs] = useState<DaemonLogEntry[]>(initialLogs);
+  const [selectedServerId, setSelectedServerId] = useState("");
+  const navigate = useNavigate();
   const liveEvents = useActivityStore((s) => s.events);
+  const serverEntries = Object.entries(serverNames);
 
   function clearLogs() {
     setLogs([]);
@@ -117,13 +120,32 @@ export function CommandCenterDaemonStream({
       </div>
 
       {/* Footer Quick-Terminal Bar */}
-      <div className="mt-3.5 flex items-center justify-between rounded-lg border border-border-subtle bg-surface-elevated px-3 py-2 text-xs">
-        <div className="flex items-center gap-2 font-mono text-text-muted">
+      <div className="mt-3.5 flex items-center justify-between gap-2 rounded-lg border border-border-subtle bg-surface-elevated px-3 py-2 text-xs">
+        <div className="flex flex-1 min-w-0 items-center gap-2 font-mono text-text-muted">
           <span className="text-accent-primary font-bold">&gt;</span>
-          <span className="truncate">Select a server to attach console...</span>
+          <select
+            aria-label="Select a server to attach console"
+            value={selectedServerId}
+            onChange={(e) => {
+              const targetId = e.target.value;
+              setSelectedServerId(targetId);
+              if (targetId) {
+                navigate(`/servers/${targetId}/console`);
+              }
+            }}
+            className="w-full min-w-0 truncate bg-transparent font-mono text-xs text-text-primary focus:outline-hidden cursor-pointer"
+          >
+            <option value="">Select a server to attach console...</option>
+            {serverEntries.map(([id, name]) => (
+              <option key={id} value={id}>
+                Attach: {name}
+              </option>
+            ))}
+          </select>
         </div>
         <Link
-          to="/servers"
+          to={selectedServerId ? `/servers/${selectedServerId}/console` : "/servers"}
+          title={selectedServerId ? "Attach to selected server console" : "View all servers"}
           className="shrink-0 text-xs font-semibold text-accent-primary hover:underline"
         >
           <Icon name="terminal" size={13} />
