@@ -1,7 +1,6 @@
 # Design Spec — Enterprise Versioning Frontend UI Batch (Stages B, C, F, G)
 
 **Status:** BUILT & VERIFIED (Commit `8b219ba`, 2026-09-18)
-**Author:** AI Agent (Antigravity)  
 **Date:** 2026-09-18  
 **Verification:** 730 passed / 0 failed frontend across 83 test files (100% green), 0 TypeScript errors, 2,906 passed / 6 skipped backend, 6/6 CI quality gates PASS.
 **Scope:** Frontend UI implementation covering all 4 completed backend refactor stages:
@@ -14,18 +13,18 @@
 
 ## 1. Goal
 
-Close the frontend delivery gap across the Enterprise Branch Runtime refactor. All backend services, database migrations (`b1e2100000019`), and CQRS handlers for Stages B, C, F, and G are built, tested, and passing with 150/150 live API routes green. This design spec establishes the complete, production-grade frontend user interface within [`frontend/src/server_manager/`](file:///mnt/D/files/onx-manager/frontend/src/server_manager/) to expose these capabilities without regressions to existing Phase 4 versioning workflows.
+Close the frontend delivery gap across the Enterprise Branch Runtime refactor. All backend services, database migrations (`b1e2100000019`), and CQRS handlers for Stages B, C, F, and G are built, tested, and passing with 150/150 live API routes green. This design spec establishes the complete, production-grade frontend user interface within [`frontend/src/server_manager/`](../../../frontend/src/server_manager/) to expose these capabilities without regressions to existing Phase 4 versioning workflows.
 
 ---
 
 ## 2. Current Behavior
 
 1. **Branch Protection (Stage G):**
-   - [`ServerVersioningPage.tsx:334-362`](file:///mnt/D/files/onx-manager/frontend/src/server_manager/pages/ServerVersioningPage.tsx#L334-L362) renders an unstyled `<select>` dropdown. There is no visual badge or lock indicator indicating whether a branch is protected.
+   - [`ServerVersioningPage.tsx:334-362`](../../../frontend/src/server_manager/pages/ServerVersioningPage.tsx#L334-L362) renders an unstyled `<select>` dropdown. There is no visual badge or lock indicator indicating whether a branch is protected.
    - Creating a commit on a protected branch fails with an uncaught HTTP 409 error in the New Commit modal without offering administrative force bypass or policy inspection.
 2. **Test Platform & Evidence (Stage F):**
-   - [`TestRunModal.tsx:21-26`](file:///mnt/D/files/onx-manager/frontend/src/server_manager/components/TestRunModal.tsx#L21-L26) requires manual input of bot counts, duration, tech, and placement every run. There is no selector for saved `TestDefinition` profiles.
-   - Failed test runs in [`ServerVersioningPage.tsx:448-545`](file:///mnt/D/files/onx-manager/frontend/src/server_manager/pages/ServerVersioningPage.tsx#L448-L545) only display raw text from `failure_reason`. The structured `EvidenceBundle` (culprit mod blame, boot outcome, container exit code, crash analysis) cannot be viewed.
+   - [`TestRunModal.tsx:21-26`](../../../frontend/src/server_manager/components/TestRunModal.tsx#L21-L26) requires manual input of bot counts, duration, tech, and placement every run. There is no selector for saved `TestDefinition` profiles.
+   - Failed test runs in [`ServerVersioningPage.tsx:448-545`](../../../frontend/src/server_manager/pages/ServerVersioningPage.tsx#L448-L545) only display raw text from `failure_reason`. The structured `EvidenceBundle` (culprit mod blame, boot outcome, container exit code, crash analysis) cannot be viewed.
 3. **Materialization & Import Review (Stage C):**
    - There is no file browser to inspect `.onx/worktrees/<mat_id>` commit snapshots or toggle edit mode.
    - Live changes detected on server disk outside version control cannot be reviewed, confirmed, dismissed, or reverted from the web UI.
@@ -128,9 +127,9 @@ We will implement a cohesive, modular UI expansion divided into 5 clear slices:
 ### Slice 3: Area C — Stage C: Worktree Materialization Browser & Import Review
 - **`MaterializationBrowserModal.tsx`**:
   - Modal or sub-panel enabling operators to explore materialized commit trees in `.onx/worktrees/`.
-  - Tree browser patterned after [`ServerFilesPage.tsx`](file:///mnt/D/files/onx-manager/frontend/src/server_manager/pages/ServerFilesPage.tsx) with breadcrumbs, file sizes, and binary-detection guards.
+  - Tree browser patterned after [`ServerFilesPage.tsx`](../../../frontend/src/server_manager/pages/ServerFilesPage.tsx) with breadcrumbs, file sizes, and binary-detection guards.
   - **Read-Only by default** with an explicit "Enable Edit Mode" toggle (`PATCH .../materializations/{id}/mode` with `{ enabled: true }`, transitioning to `"editable"` mode).
-  - Integrates [`CodeEditor.tsx`](file:///mnt/D/files/onx-manager/frontend/src/components/CodeEditor.tsx) for viewing and editing materialized files.
+  - Integrates [`CodeEditor.tsx`](../../../frontend/src/components/CodeEditor.tsx) for viewing and editing materialized files.
 - **`ImportReviewModal.tsx`**:
   - Triggered by a banner on `ServerVersioningPage.tsx` when uncommitted live changes are detected (`GET .../changes/live`).
   - Displays categorized change list: Added files, Modified files, Removed files.
@@ -158,10 +157,10 @@ We will implement a cohesive, modular UI expansion divided into 5 clear slices:
 
 | File Path | Nature of Change | Description |
 |---|---|---|
-| [`frontend/src/server_manager/types.ts`](file:///mnt/D/files/onx-manager/frontend/src/server_manager/types.ts) | Modified | Add Stage B/C/F/G interfaces (`Materialization`, `ImportReview`, `ServerTag`, `DiffResponse`, `EvidenceBundle`, etc.) |
-| [`frontend/src/services/api.ts`](file:///mnt/D/files/onx-manager/frontend/src/services/api.ts) | Modified | Add typed client functions for all 22 versioning routes |
-| [`frontend/src/server_manager/pages/ServerVersioningPage.tsx`](file:///mnt/D/files/onx-manager/frontend/src/server_manager/pages/ServerVersioningPage.tsx) | Modified | Integrate branch protection indicator, tag badges, DAG markers, action buttons, and modal controllers |
-| [`frontend/src/server_manager/components/TestRunModal.tsx`](file:///mnt/D/files/onx-manager/frontend/src/server_manager/components/TestRunModal.tsx) | Modified | Add Test Definition profile selector dropdown and auto-populate logic |
+| [`frontend/src/server_manager/types.ts`](../../../frontend/src/server_manager/types.ts) | Modified | Add Stage B/C/F/G interfaces (`Materialization`, `ImportReview`, `ServerTag`, `DiffResponse`, `EvidenceBundle`, etc.) |
+| [`frontend/src/services/api.ts`](../../../frontend/src/services/api.ts) | Modified | Add typed client functions for all 22 versioning routes |
+| [`frontend/src/server_manager/pages/ServerVersioningPage.tsx`](../../../frontend/src/server_manager/pages/ServerVersioningPage.tsx) | Modified | Integrate branch protection indicator, tag badges, DAG markers, action buttons, and modal controllers |
+| [`frontend/src/server_manager/components/TestRunModal.tsx`](../../../frontend/src/server_manager/components/TestRunModal.tsx) | Modified | Add Test Definition profile selector dropdown and auto-populate logic |
 | `frontend/src/server_manager/components/BranchProtectionModal.tsx` | New | Policy editor dialog for Stage G protected branches |
 | `frontend/src/server_manager/components/TestDefinitionsModal.tsx` | New | CRUD management dialog for Stage F reusable test definitions |
 | `frontend/src/server_manager/components/TestEvidenceModal.tsx` | New | Diagnostic evidence viewer for Stage F test failures and culprit mods |

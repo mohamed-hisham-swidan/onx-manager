@@ -1,6 +1,6 @@
 # ONX Frontend Overhaul — Findings Ledger
 
-This document tracks all review, audit, and design findings across the frontend overhaul project (ADR-0021), reconciling findings from `/mnt/D/TEMP/onx-ux/PART_C_CORRECTIONS.md`, `/mnt/D/TEMP/STAGE_2_UX_IA_AUDIT_REPORT.md`, `docs/design/frontend-overhaul/DECISIONS-NEEDED.md`, and previous review rounds.
+This document tracks all review, audit, and design findings across the frontend overhaul project (ADR-0021), reconciling findings from the Stage 2 UX/IA audit, `docs/design/frontend-overhaul/DECISIONS-NEEDED.md`, and previous review rounds.
 
 ---
 

@@ -18,7 +18,7 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 | External keys | `set_private_key()` / `set_public_key()` for loading PEM files |
 | Production | Must load persistent keys — auto-generated keys are ephemeral |
 
-**Design rationale**: RS256 was chosen over HS256 so that Batch-05 and Batch-06 can verify tokens without holding the private key. Asymmetric signing adds slight computational overhead but enables key separation across services.
+**Design rationale**: RS256 was chosen over HS256 so that downstream services can verify tokens without holding the private key. Asymmetric signing adds slight computational overhead but enables key separation across services.
 
 ### Token Format
 
@@ -92,7 +92,7 @@ evaluates role permissions and ABAC ownership rules when tokens are issued
 surface as `403 PERMISSION_DENIED` via `backend/app/api/errors.py`.
 
 The live route→permission matrix is the single source of truth:
-`contracts/permissions.yaml` (v1.5, 85 effective routes), regenerated from
+`contracts/permissions.yaml` (155 effective routes), regenerated from
 runtime introspection of the route table and CI-enforced via
 `scripts/check-route-contract` (`.github/workflows/route-permission-ci.yml`).
 

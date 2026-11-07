@@ -143,10 +143,10 @@ wrong database, stop — `ONX_DATABASE_URL` is not set correctly.
    should never appear in the production DB or the production servers
    directory. The separate database and directory enforce this.
 
-4. **Ad-hoc test & recon scripts must use `tmp_path` or explicit `/tmp`.**
-   Ad-hoc recon/test scripts must construct SQLite paths via `tmp_path`
+4. **Ad-hoc test & diagnostic scripts must use `tmp_path` or explicit `/tmp`.**
+   Ad-hoc diagnostic/test scripts must construct SQLite paths via `tmp_path`
    (pytest fixture) or an explicit `/tmp` location (e.g. `tempfile.TemporaryDirectory()`).
-   Never use a bare relative filename (such as `test_audit_recon.db` or
+   Never use a bare relative filename (such as `test_audit_check.db` or
    `sqlite+aiosqlite:///test.db`) that resolves to whatever working directory (CWD)
    the script happens to be launched from. Bare relative filenames pollute the
    repository root and are blocked by `scripts/check-stray-db` and `scripts/pre-push-check.sh`.

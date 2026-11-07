@@ -29,7 +29,7 @@ Any task, anywhere in this roadmap, should be explainable as serving this object
 4. **Repo/DB state.** ✅ **VERIFIED (2026-09-02):** Current Alembic head `b1e2100000009` (29 migrations verified). Current git state clean on master. The `_archive/` directory at repo root houses pre-reorganization artifacts. **Version documentation drift (CLOSED FINDING):** Documentation previously carried stale `"4.0.0"` references (historical artifact from earlier planning); actual code has been uniformly `0.1.0` across `pyproject.toml`, `package.json`, and runtime `get_app_version()` since commit `bb92fac7` (2026-08-26). All active documentation, test fixtures, and state files were systematically synchronized to `0.1.0` under `SPEC-2026-09-02-CLEANUP-AND-FULL-AUDIT-01`.
 5. **Old-roadmap claims spot-check.** ✅ **VERIFIED (2026-09-02):** Workstreams A, B, and C spot-checked and confirmed implemented in code: Workstream A (plugin markdown rendering in `PluginDetailPage.tsx`, 13/13 tests pass), Workstream B (diagnostics leak prevented in `diagnostics.py` and `get_runtime_diagnostics.py`), and Workstream C (Forge / NeoForge provisioners in `forge_provisioner.py` and `neoforge_provisioner.py`).
 
-**Gate:** Phase 0 has an owner and a hard expectation — this is investigation, not a place to live indefinitely. Target: resolved within the time it takes to run the test suites and do the two RECON passes (§2, §3 above) — not an open-ended research phase.
+**Gate:** Phase 0 has an owner and a hard expectation — this is investigation, not a place to live indefinitely. Target: resolved within the time it takes to run the test suites and do the two verification passes (§2, §3 above) — not an open-ended research phase.
 
 **Exit criteria:** The Windows-lifecycle and `preflight.py` questions each have one evidence-backed answer, recorded. This baseline is then **frozen** — Phase 1 classifies against it, Phase 2/3 fix against it; nothing here gets silently re-investigated later without a new decision record.
 
@@ -49,17 +49,17 @@ Using Phase 0's frozen baseline as input, classify:
 | Python-detection loop hang | A | ✅ Already fixed & verified — closed, no routing needed |
 | Bug track 2 (TPS anomaly, scheduler skips, SQLAlchemy pool warnings) | A (auto-critical) | ✅ Already fixed & verified (`SPEC-2026-09-01-BUGTRACK2-01`) — closed |
 | Syntax highlighting broken | B | → Phase 3 |
-| "Extended files" issue | Deferred — Closed | Closed without a Lane (2026-09-08) — exhaustive recon across git history, archives, and code found no recoverable definition; the term was introduced undefined by Mohamed in commit 8b6a0c7 and is no longer recalled. Reopen if the underlying problem is observed again in production use. |
+| "Extended files" issue | Deferred — Closed | Closed (2026-09-08) — exhaustive inspection across git history, archives, and code found no recoverable definition; the term was introduced undefined by Mohamed in commit 8b6a0c7 and is no longer recalled. Reopen if the underlying problem is observed again in production use. |
 | Comment feature incomplete | B | → Phase 3 |
-| Files API possible IDOR | Closed — NOT A VULNERABILITY | RECON-verified 2026-09-08: all 7 file-touching endpoints enforce per-server ownership/membership via require_server_permission before any filesystem access; confirmed by existing passing cross-server and path-traversal tests. No Lane needed. |
+| Files API possible IDOR | Closed — NOT A VULNERABILITY | Verified 2026-09-08: all 7 file-touching endpoints enforce per-server ownership/membership via require_server_permission before any filesystem access; confirmed by existing passing cross-server and path-traversal tests. |
 | ROADMAP.md Workstream A/B/C claims | N/A — this is a documentation/state-integrity check, not a bug | Resolved in Phase 0 §5, not a Phase 1 bug item |
 | Rename pipeline final status | N/A — state-verification task | Confirmed built and merged (2026-08-26 commits 51bbc6c/cb6816a/309e5c1/128489c, verified via git merge-base --is-ancestor into master 2026-09-08). 3 cosmetic strays found and fixed same day (UPnP description strings, 2 stdlib logger names, 4 frontend localStorage keys). |
-| FastAPI `merged_lifespan` recursion | Closed — false positive | RECON-verified 2026-09-08: zero occurrences of merged_lifespan anywhere in the repo outside this roadmap doc; only a plain lifespan exists in backend/app/main.py. No Lane needed. |
+| FastAPI `merged_lifespan` recursion | Closed — false positive | Verified 2026-09-08: zero occurrences of merged_lifespan anywhere in the repo outside this roadmap doc; only a plain lifespan exists in backend/app/main.py. |
 | Windows CI first-run failures | A (surfaces real Phase 2 work) | ✅ Already fixed & verified (`SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`: 0 failed, 0 errors, green on GitHub Actions) — closed |
 
-**Exit criteria:** every row above has moved from "?" to a routed destination with a Lane. Nothing is fixed *in* Phase 1 beyond what's trivially self-contained; the deep work happens in Phase 2/3 where it can be scoped properly instead of turning this phase into what the external review correctly called a "bug graveyard."
+**Exit criteria:** every row above has moved from "?" to a routed destination. Nothing is fixed *in* Phase 1 beyond what's trivially self-contained; the deep work happens in Phase 2/3 where it can be scoped properly instead of turning this phase into what the external review correctly called a "bug graveyard."
 
-**Phase 1 status: CLOSED (2026-09-08).** All 13 rows have a routed disposition — 6 closed pre-existing, 2 routed to Phase 3 (Lane B), 1 deferred without a Lane, 2 closed as not-real, 2 N/A.
+**Phase 1 status: CLOSED (2026-09-08).** All 13 rows have a routed disposition — 6 closed pre-existing, 2 routed to Phase 3, 1 deferred, 2 closed as not-real, 2 N/A.
 
 ---
 
@@ -73,8 +73,8 @@ Receives everything routed here from Phase 1. Status of known contents:
 - Full backend suite green on **both** Linux and Windows CI: ✅ Verified (2,339 passed, 5 skipped, 0 failed of 2,344 collected; frontend 642/642 across 75 files; `SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2`).
 - Re-verify the 5 CI quality-gate scripts genuinely pass: ✅ Verified (5/5 PASS; expanded to 6/6 PASS on 2026-09-15 with `check-stray-db`).
 - Workstream B (diagnostics-leak) re-verification: ✅ Verified in code.
-- Files API IDOR: Closed — NOT A VULNERABILITY (RECON-verified 2026-09-08: per-server ownership/membership enforced before any filesystem access; cross-server and path-traversal tests pass).
-- FastAPI `merged_lifespan` recursion: Closed — false positive (RECON-verified 2026-09-08: zero occurrences outside this doc; only a plain lifespan in backend/app/main.py).
+- Files API IDOR: Closed — NOT A VULNERABILITY (verified 2026-09-08: per-server ownership/membership enforced before any filesystem access; cross-server and path-traversal tests pass).
+- FastAPI `merged_lifespan` recursion: Closed — false positive (verified 2026-09-08: zero occurrences outside this doc; only a plain lifespan in backend/app/main.py).
 
 **Exit criteria:** all named items verified in code/CI, no unresolved routing from Phase 1.
 
@@ -82,11 +82,11 @@ Receives everything routed here from Phase 1. Status of known contents:
 
 ## Phase 3 — Frontend Stabilization *(now also carries functional UX/reliability fixes — see Phase 7 note)*
 
-- ~~Syntax highlighting fix~~ — Verified working (2026-09-08 recon): CodeEditor.tsx correctly handles all 6 claimed languages (JSON/YAML/TOML/properties/shell/plaintext), worst case is an unstyled plaintext fallback with no crashes; 9 dedicated tests + 21/21 re-run pass. The original 'broken' framing was stale — like 'extended files,' it was introduced undefined in commit 8b6a0c7 with no antecedent report. Closed as verified, not a fix.
-- ~~Comment feature completion~~ — Closed as Deferred (2026-09-08), same treatment as 'extended files': zero definition recoverable anywhere in the repo (no 'comment' references in frontend/src/server_manager/, no antecedent in the predecessor roadmap, no newer trace). No Lane assigned. Reopen if the underlying need resurfaces with a concrete definition.
-- ~~"Extended files" issue~~ — Closed in Phase 1 (2026-09-08) as Deferred, no Lane; removed from Phase 3 scope. Reopen here only if the underlying problem resurfaces and gets a Lane.
+- ~~Syntax highlighting fix~~ — Verified working (2026-09-08): CodeEditor.tsx correctly handles all 6 claimed languages (JSON/YAML/TOML/properties/shell/plaintext), worst case is an unstyled plaintext fallback with no crashes; 9 dedicated tests + 21/21 re-run pass. The original 'broken' framing was stale — like 'extended files,' it was introduced undefined in commit 8b6a0c7 with no antecedent report. Closed as verified, not a fix.
+- ~~Comment feature completion~~ — Closed as Deferred (2026-09-08), same treatment as 'extended files': zero definition recoverable anywhere in the repo (no 'comment' references in frontend/src/server_manager/, no antecedent in the predecessor roadmap, no newer trace). Reopen if the underlying need resurfaces with a concrete definition.
+- ~~"Extended files" issue~~ — Closed in Phase 1 (2026-09-08) as Deferred; removed from Phase 3 scope. Reopen here only if the underlying problem resurfaces.
 - ~~Workstream A re-verification~~ — Confirmed, no regression (2026-09-08): 13/13 tests, GFM markdown rendering still correct in PluginDetailPage.tsx.
-- **Any functional UX or reliability fix discovered along the way lands here (Lane B), not in Phase 7.** Phase 7 is visual/brand polish only — see the split below.
+- **Any functional UX or reliability fix discovered along the way lands here, not in Phase 7.** Phase 7 is visual/brand polish only — see the split below.
 - ~~Full frontend suite green on both Linux and Windows CI~~ — Confirmed (2026-09-08): 75 files / 642 tests passing; Windows CI green per the Phase-2-closure push (commit e17da25's CI run).
 
 **Exit criteria:** all named items verified in code/tests, no unresolved routing from Phase 1/2.
@@ -96,7 +96,7 @@ Receives everything routed here from Phase 1. Status of known contents:
 ## Phase 4 — Feature Build from Community Feedback Pool
 
 **Status:** DONE / CLOSED (2026-09-14) — All 5 Features Built, Verified, and Closed (Feature 1: Git-Inspired Versioning & Isolated-Testing System; Feature 2: Test Environment, merged into F1; Feature 3: Custom Mod Support; Feature 4: Change History Log; Feature 5: Better Log/Crash Readability). Full suite: 3,397 tests (2,697 backend, 700 frontend across 78 test files), 5/5 CI quality gates PASS.
-**Design Spec:** [`docs/design/PHASE_4_COMMUNITY_FEATURES_DESIGN_SPEC.md`](../design/PHASE_4_COMMUNITY_FEATURES_DESIGN_SPEC.md) (Approved 2026-09-13, D2/Major, Lane B)
+**Design Spec:** [`docs/design/PHASE_4_COMMUNITY_FEATURES_DESIGN_SPEC.md`](../design/PHASE_4_COMMUNITY_FEATURES_DESIGN_SPEC.md) (Approved 2026-09-13)
 
 Features (priority order, from r/admincraft feedback pool, updated per DECISION-2026-09-12-001):
 
@@ -108,16 +108,16 @@ Features (priority order, from r/admincraft feedback pool, updated per DECISION-
 
 **Dependency on Phase 5 — RESOLVED & UNBLOCKED (2026-09-12).** Mohamed's decision: the test-environment isolation backend is a **permanent user-facing choice**, not a temporary stand-in — the product ships with both a **files-based mode** and a **container-based mode**, selectable by the user. With Phase 5 complete and verified, the container backend is fully implemented and available natively for feature #2, alongside files-based execution.
 
-**Scope update — ACCEPTED (2026-09-12, DECISION-2026-09-12-001).** Feature 1 redefined as a standalone git/CI-CD-inspired subsystem serving as the product's core differentiator. Dedicated RECON on storage feasibility in progress.
+**Scope update — ACCEPTED (2026-09-12, DECISION-2026-09-12-001).** Feature 1 redefined as a standalone git/CI-CD-inspired subsystem serving as the product's core differentiator.
 
-**Build-order update — COMPLETED (2026-09-12, DECISION-2026-09-10-001).** Phase 5 (Containers System) executed first — RECON → Design → Build → Review → Verify — across all 6 build batches and is now CLOSED. Phase 4 is unblocked to begin its RECON, Design Specs, and feature implementations.
+**Build-order update — COMPLETED (2026-09-12, DECISION-2026-09-10-001).** Phase 5 (Containers System) executed first across all 6 stages and is now CLOSED. Phase 4 is unblocked to begin its design specs and feature implementations.
 
 ## Phase 5 — Containers System
 
-**Status:** CLOSED (2026-09-11) — All 6 Batches Verified and Complete (Batch 1: Signature Alignment & Schema; Batches 2 & 3: Runtime Driver & RCON; Batch 4: Network & Windows WSL2; Batch 5: DooD Policy; Batch 6: Provider Conformance Suite & Polish)  
-**Design Spec:** [`docs/design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md`](../design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md) (Approved 2026-09-11, D2/Major, Lane B)
+**Status:** CLOSED (2026-09-11) — All 6 Stages Verified and Complete (Stage 1: Signature Alignment & Schema; Stages 2 & 3: Runtime Driver & RCON; Stage 4: Network & Windows WSL2; Stage 5: DooD Policy; Stage 6: Provider Conformance Suite & Polish)  
+**Design Spec:** [`docs/design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md`](../design/PHASE_5_CONTAINERS_SYSTEM_DESIGN_SPEC.md) (Approved 2026-09-11)
 
-Scope: replace host-level tmux/process execution with isolated per-server Docker containers across Linux/macOS/Windows. Also covers port-forward library testing — **"GPS" is a blocked item, not committed scope, pending Mohamed's definition of what it refers to (recon-confirmed undefined in code as of 2026-09-10).**
+Scope: replace host-level tmux/process execution with isolated per-server Docker containers across Linux/macOS/Windows. Also covers port-forward library testing — **"GPS" is a blocked item, not committed scope, pending Mohamed's definition of what it refers to (confirmed undefined in code as of 2026-09-10).**
 
 The approved design establishes 12 core architectural decisions:
 1. *CLI Subprocess Driver:* Continue CLI-subprocess driver via tokenized `asyncio.create_subprocess_exec` (zero extra dependencies, async-native, avoids shell-injection risks).
@@ -153,9 +153,9 @@ Scope and delivery summary:
 
 **Status:** Stages A & B implemented & verified (3,145 backend collected / 3,139 passed / 6 skipped / 0 failed, 752 frontend passed across 89 files, 6/6 CI gates PASS; Alembic head `b1e2100000022`).
 **Design Specs:** [`docs/decisions/PHASE-5.5-STAGE-A-RELIABILITY-FOUNDATION-DESIGN.md`](../decisions/PHASE-5.5-STAGE-A-RELIABILITY-FOUNDATION-DESIGN.md) (Stage A), [`docs/decisions/PHASE-5.5-STAGE-B-TEST-RUN-ENGINE-DESIGN.md`](../decisions/PHASE-5.5-STAGE-B-TEST-RUN-ENGINE-DESIGN.md) (Stage B)
-**Governing Decision Records:** [`DECISION-2026-09-27-001`](../decisions/DECISION-2026-09-27-001-stage-b-test-run-engine.md) (D2, Test Run Engine — Accepted by owner 2026-09-27), [`DECISION-2026-09-28-001`](../decisions/DECISION-2026-09-28-001-stage-b-canonical-test-dir-amendment.md) (D1, Canonical Test Directory Grounding Amendment — Accepted by owner 2026-09-28)
+**Governing Decision Records:** [`DECISION-2026-09-27-001`](../decisions/DECISION-2026-09-27-001-stage-b-test-run-engine.md) (Test Run Engine — Accepted by owner 2026-09-27), [`DECISION-2026-09-28-001`](../decisions/DECISION-2026-09-28-001-stage-b-canonical-test-dir-amendment.md) (Canonical Test Directory Grounding Amendment — Accepted by owner 2026-09-28)
 
-Scope (D2-bounded, RECON-evidenced; "Stage B" here is Phase 5.5 Test Run Engine, unrelated to the closed Enterprise Stage B above):
+Scope ("Stage B" here is Phase 5.5 Test Run Engine, unrelated to the closed Enterprise Stage B above):
 - **Stage A — Reliability Foundation (done):** `Operation` aggregate + steps, `operation.*` events, dual-layer idempotency, WS projection, recovery reconciler; exactly one producer wired (`RUN_TEST`).
 - **Stage B — Test Run Engine (done):** TestDefinition execution wired directly into run overrides without lossy integer division, supporting exact `duration_seconds` and `assertion_rules`; TestRun lifecycle hardening with standard `ValueError` terminal guards, `operation_id` column and index via migration `b1e2100000022`, and `expires_at` persistence; unified assertion engine behind `BaseVerifier` (`SmokeTestVerifier`, `FakePlayerVerifier`, `MineflayerVerifier`) preserving legacy driver semantics, disconnect ceilings, and zero-target bot handling; canonical `TestCleanupPlan` engine with authoritative deployment-directory grounding (`resolve_test_dir` separator-safe traversal protection, fail-closed `server_dir` validation across discard, promote, reap, and prune); versioned schema v1 evidence bundle with fallback dual keys. Hard boundaries: admission, promotion gates, and `Operation`-as-projection unchanged; Stage C–G untouched.
 
@@ -265,8 +265,8 @@ then having to refactor/rework it once the container runtime exists.
    already available for feature #2 (accepted).
 
 ## Decision
-Execute Phase 5 (Containers System) RECON → Design → Build → Review →
-Verify before starting Phase 4 Design Specs. Phase numbering in
+Execute Phase 5 (Containers System) design, build, review, and verification
+before starting Phase 4 Design Specs. Phase numbering in
 ROADMAP_v1.1 is unchanged; only execution order changes.
 
 ## Impact
@@ -290,7 +290,7 @@ either phase yet.
 Minor — record only; no change to phase numbering or scope.
 
 ## Verification
-Phase 5's RECON findings + Design Spec once produced.
+Phase 5's findings + Design Spec once produced.
 
 ## Outcome
 Accepted and completed 2026-09-11: Phase 5 (Containers System) built and closed ahead of Phase 4 as planned; Phase 4 now unblocked with container backend available.
@@ -302,7 +302,7 @@ Accepted and completed 2026-09-11: Phase 5 (Containers System) built and closed 
 
 1. ~~What does "extended files not working properly" refer to?~~ — Resolved 2026-09-08: closed as Deferred without a definition (see Phase 1 table); no longer an open question.
 2. What does "GPS" refer to in "state-of-the-art validation of GPS/local mode/global mode"? (Phase 5)
-3. `preflight.py`'s real current status — this is now Phase 0's job to resolve with evidence, but if Mohamed already knows the answer, it saves a RECON pass.
+3. `preflight.py`'s real current status — this is now Phase 0's job to resolve with evidence, but if Mohamed already knows the answer, it saves an investigation pass.
 
 ---
 

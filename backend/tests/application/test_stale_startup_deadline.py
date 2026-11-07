@@ -1,7 +1,7 @@
 """Tests for stale startup deadline and supervisor reuse prevention.
 
 Covers:
-A. tests/application/test_stale_startup_deadline.py (two tests from RECON-BUG):
+A. tests/application/test_stale_startup_deadline.py:
    - restart gets a fresh startup window: short injected startup_timeout (~0.3 s),
      alive-never-ready fake provider; assert run #2 time-to-RUNNING ~= run #1
      (not ~0 s).

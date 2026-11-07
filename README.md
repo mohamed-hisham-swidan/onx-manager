@@ -10,8 +10,8 @@ Manage multiple servers, monitor them live, handle backups, browse plugins, and 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178c6?style=flat-square&logo=typescript&logoColor=white)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#)
-[![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/Tests-3139_backend_%7C_752_frontend-brightgreen?style=flat-square)](#)
+[![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-3510_backend_%7C_1113_frontend-brightgreen?style=flat-square)](docs/testing.md)
 
 </div>
 
@@ -156,9 +156,12 @@ start.sh        Linux/macOS launcher entry point (auto Node.js installer)
 | [Getting Started](docs/getting-started.md) | Full setup & quickstart guide |
 | [Architecture](docs/architecture/ARCHITECTURE.md) | System architecture & DDD modular monolith |
 | [Database Architecture](docs/architecture/DATABASE.md) | Schema, migrations & pre-backend reconciliation |
-| [API Reference](docs/API.md) | REST endpoints (16 routers) & WebSocket protocols |
+| [API Reference](docs/API.md) | REST endpoints (18 routers, 155 routes) & WebSocket protocols |
 | [Development Guide](docs/DEVELOPMENT.md) | Development workflow & preflight reconciliation |
 | [Testing Guide](docs/testing.md) | Test suites & CI verification gates |
+| [Contributing](CONTRIBUTING.md) | Contribution guidelines, conventions & quality gates |
+| [Security Policy](SECURITY.md) | Vulnerability reporting & supported versions |
+| [Changelog](CHANGELOG.md) | Release history |
 
 ---
 

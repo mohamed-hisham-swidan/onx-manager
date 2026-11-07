@@ -1,4 +1,4 @@
-"""Stage A gap-fix regressions (RECON-verified gaps, approved design only).
+"""Stage A gap-fix regressions (verified gaps, approved design only).
 
 Covers, with focused tests and no docker dependency:
 1. RUN_TEST executor registration -> cooperative cancel (no orphaned run

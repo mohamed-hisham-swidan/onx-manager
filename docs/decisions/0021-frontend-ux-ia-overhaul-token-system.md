@@ -2,15 +2,13 @@
 
 **Status**: Accepted by owner (decisions D1-D10 recorded 2026-11-04)  
 **Date**: 2026-11-04  
-**Author**: Documentation Builder (recording owner decisions)  
-**Decision level**: D2 (Major)  
-**Primary lane**: Lane B (Release Improvement)  
+**Author**: Project Maintainers (recording owner decisions)  
 **Roadmap drift**: Controlled Drift  
-**Spec Reference**: `/mnt/D/TEMP/STAGE_2_UX_IA_AUDIT_REPORT.md` (Stage 2 Audit & Design Proposal), `/mnt/D/TEMP/onx-ux/PART_C_CORRECTIONS.md` (Stage 2C Corrections)
+**Spec Reference**: [`docs/design/frontend-overhaul/README.md`](../design/frontend-overhaul/README.md)
 
 ## Context
 
-ONX Manager is preparing to go public as an open-source project. An architectural audit of the frontend (`/mnt/D/workspace/onx-manager/frontend`, React 19 + TypeScript + Vite + Tailwind CSS v4) revealed that while functional capabilities are extensive, the user interface reads as an unrefined, generic template:
+ONX Manager is preparing to go public as an open-source project. An architectural audit of the frontend (`frontend/`, React 19 + TypeScript + Vite + Tailwind CSS v4) revealed that while functional capabilities are extensive, the user interface reads as an unrefined, generic template:
 
 - **Aesthetic Immaturity**: Relies on default system fonts, a single monochrome gray/blue palette, repetitive identical rounded cards, emoji icons mixed inconsistently with SVGs, and a 10-card rainbow status grid on the dashboard where over 80% of cards display zeros in typical deployments.
 - **Monolithic Pages**: High-complexity pages have grown into unmaintainable monoliths, notably `ServerVersioningPage.tsx` (1,280 LOC, 6 inline dialogs) and `CreateServerPage.tsx` (811 LOC).

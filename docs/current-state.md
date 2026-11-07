@@ -1,11 +1,11 @@
-## Current State (2026-11-06)
+## Current State (2026-11-07)
 
 **Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
 - Phase 0 (Ground Truth/Baseline Freeze): CLOSED
 - Phase 1 (Bug Triage & Classification): CLOSED — commit `4a130ce` + `e06e4d9`
 - Phase 2 (Backend Stabilization): CLOSED — commit `e17da25`
 - Phase 3 (Frontend Stabilization): CLOSED — commit `0de35cb`
-- **Phase 5 (Containers System): CLOSED (2026-09-11 / 2026-09-12)** — All 6 batches complete & pushed to origin/master (`183ae7b`).
+- **Phase 5 (Containers System): CLOSED (2026-09-11 / 2026-09-12)** — All 6 stages complete & pushed to origin/master (`183ae7b`).
 - **Phase 4 (Community Features): CLOSED (2026-09-14)** — All 5 features implemented & verified: Git-Inspired Versioning & Bot Testing, Test Environment, Custom Mod Support, Change History Log, Unified Log/Crash Readability.
 - **Enterprise Branch Runtime — Stage A (Domain Reconstruction): CLOSED (2026-09-17)** — Domain model formalized in `backend/app/modules/versioning/domain/` (Project, Repository, Tree, Commit immutability, Branch created->active->archived state machine, Revision value object, Materialization lifecycle & root isolation, Runtime pinned to immutable Commit ID, PersistentDataset mutable boundary isolation, Run/TestRun terminal state protections); ADRs 0013, 0014, 0015, 0016 recorded; 2,753 backend tests passing, 6/6 CI quality gates PASS. Commit `e72a219`.
 - **Enterprise Branch Runtime — Stage B (Real Version Control): CLOSED (2026-09-17)** — Persistent commit DAG with additive `server_commit_parents` junction table, cycle detection, multi-parent merge history, immutable server tags (`server_tags`), deterministic tree and commit diffing (`diff_trees`, `diff_commits`), branch archiving (`ArchiveBranchCommand` and persistent `status` column on `server_branches`), revision resolution (`Revision.from_tag()`), repository history queries (`GetBranchHistoryQuery`, `DiffCommitsQuery`, `GetServerTagsQuery`, `GetServerTagQuery`), and 7 new FastAPI endpoints (129 routes verified). Alembic migration `b1e2100000015`. 2,793 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `641ea58`.
@@ -14,14 +14,14 @@
 - **Enterprise Branch Runtime — Stage E (Console & Observability): CLOSED (2026-09-17)** — Demand-driven `ConsoleStreamManager` (`docker logs -f --timestamps --tail 0` with tmux capture fallback, 5s subscriber debounce, batch flush at 50 lines / 100ms, 64KB frame partitioning, non-silent queue overflow drop marker); WS `exec_input` and `exec_resize` client messages with RBAC checks; additive `write_exec_input` provider extension per ADR-0015; unified `docker stats` batch telemetry with multi-core CPU normalization clamped to 100%; frontend reconnect re-tail backfill and polling suppression when WS is connected; 2,859 backend tests passing / 6 skipped, 6/6 CI quality gates PASS (141/141 route contract preserved). Commits `41da076` / `0b64ef2`.
 - **Enterprise Branch Runtime — Stage F (Test Platform & Verification Drivers): CLOSED (2026-09-18)** — Reusable `TestDefinition` configurations aggregate, 1:1 `Runtime` entity container attach model via `server_runtimes` table, automated `PatternCrashAnalyzer` mod blame integration, structured `EvidenceBundle` generation, and lazy 24h debug artifact pruning in admission reaping; Alembic migration `b1e2100000018`; 6 new FastAPI endpoints (147 live routes verified); 2,882 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `785c7cc`.
 - **Enterprise Branch Runtime — Stage G (Protected Branches): CLOSED (2026-09-18)** — `BranchProtectionPolicy` frozen dataclass (require_test_pass, allow_direct_commit, allow_force_bypass, prevent_deletion), `ServerBranch` lifecycle methods (`protect`, `unprotect`, `can_commit_directly`, `can_archive`), `BranchProtectedError` (HTTP 409), `CreateCommitCommand` protection enforcement with administrative emergency bypass permission and audit logging, strict `AutoCommitLiveChangesCommand` and `ArchiveBranchCommand` rejection, and 3 new REST endpoints; Alembic migration `b1e2100000019` advancing route contract to 150/150 routes; 2,906 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `ba8b539`.
-- **Enterprise Branch Runtime — Frontend UI Batch: CLOSED (2026-09-18)** — Complete user interfaces for Stages B, C, F, G: `BranchProtectionModal.tsx`, `TestDefinitionsModal.tsx`, `TestEvidenceModal.tsx`, `MaterializationBrowserModal.tsx`, `ImportReviewModal.tsx`, `ManageBranchesModal.tsx`, `CreateTagModal.tsx`, `CommitDiffModal.tsx`, and full page integration in `ServerVersioningPage.tsx`; all 22 versioning routes wired in `api.ts`; 0 TypeScript errors; 730 frontend tests passing across 83 test files (100% green); 6/6 CI quality gates PASS. Commit `8b219ba`.
+- **Enterprise Branch Runtime — Frontend UI: CLOSED (2026-09-18)** — Complete user interfaces for Stages B, C, F, G: `BranchProtectionModal.tsx`, `TestDefinitionsModal.tsx`, `TestEvidenceModal.tsx`, `MaterializationBrowserModal.tsx`, `ImportReviewModal.tsx`, `ManageBranchesModal.tsx`, `CreateTagModal.tsx`, `CommitDiffModal.tsx`, and full page integration in `ServerVersioningPage.tsx`; all 22 versioning routes wired in `api.ts`; 0 TypeScript errors; 730 frontend tests passing across 83 test files (100% green); 6/6 CI quality gates PASS. Commit `8b219ba`.
 - **Phase 5.5 — Pre-Beta Reliability (Stages A & B): CLOSED (2026-09-29)** — Stage A Reliability Foundation (`Operation` aggregate, idempotency, WS projection) and Stage B Test Run Engine (`TestDefinition` execution without lossy division, standard `ValueError` terminal guards, `operation_id` column/index via migration `b1e2100000022`, unified assertion engine with `BaseVerifier`, canonical `TestCleanupPlan` with separator-safe `resolve_test_dir`). 3,145 backend collected / 3,139 passed / 6 skipped / 0 failed, 752 frontend passed across 89 files, 6/6 CI quality gates PASS.
-- **Frontend UX/IA Overhaul & Design Token System (2026-11-06; Lane B, D1; ADR-0021): IMPLEMENTED_PENDING_REVIEW** — Full autonomous overhaul across Phases 1 through 9, review batches F1-F5, and Overnight Closure Batches N-01 through N-23: semantic token engine, multi-skin system (Graphite & Azure), 18 reusable primitives, unified AppShell/ServerShell, 7 standardized page templates (Fleet status bar, client-side files filter/paging, decomposed versioning & create server wizards), palette ratchet test, overlay ratchet test (100% overlay consolidation to Modal/ConfirmDialog, 0 bypassing overlays, 0 native confirm/alert/prompt dialogs), original brand identity (vortex mark, voxel banners, domain icons, legal disclaimer), motion/density controls, route-level code splitting (-68.3% initial bundle reduction: 1,251 kB -> 396.68 kB across 39 JS chunks), comprehensive docs in `docs/design/frontend-overhaul/` and findings ledger in `FINDINGS-LEDGER.md` (33 findings: 26 closed, 5 owner decisions, 2 backend-dependent, 0 open). 1,018 frontend tests passing across 118 test files (100% green), typecheck clean, 0 ESLint errors and 0 ESLint warnings, production build green (39 JS chunks, largest chunk 396.68 kB), 6/6 CI quality gates PASS. Pending independent reviews: R2 (primitives/shells/a11y), R3b (page behavior), R4 (brand/IP), and final review.
+- **Frontend UX/IA Overhaul & Design Token System (2026-11-07; ADR-0021): CLOSED** — Comprehensive frontend architecture and UX overhaul: semantic token engine, multi-skin system (Graphite & Azure), 18 reusable primitives, unified AppShell/ServerShell, 7 standardized page templates (Fleet status bar, client-side files filter/paging, decomposed versioning & create server wizards), palette ratchet test, overlay ratchet test (100% overlay consolidation to Modal/ConfirmDialog, 0 bypassing overlays, 0 native confirm/alert/prompt dialogs), original brand identity (vortex mark, voxel banners, domain icons, legal disclaimer), motion/density controls, route-level code splitting (-68.3% initial bundle reduction across 39 JS chunks), and complete design documentation in `docs/design/frontend-overhaul/`. 1,113 frontend tests passing across 125 test files (100% green), typecheck clean, 0 ESLint errors and 0 ESLint warnings, production build green, 6/6 CI quality gates PASS.
 - **Next: Phase 6 (Final Installs / Wrap-up) — READY**: Installer polish, distribution packaging, first-run experience, documentation review.
 
 
-**Resolved recently (for reference, don't re-investigate):**
-- Frontend UX/IA Overhaul & Design Token System (2026-11-06; Lane B, D1; ADR-0021; Status: IMPLEMENTED_PENDING_REVIEW):
+**Resolved recently (for reference):**
+- Frontend UX/IA Overhaul & Design Token System (2026-11-07; ADR-0021):
   - Semantic CSS token architecture in `frontend/src/index.css` registered with Tailwind v4 `@theme`.
   - Multi-skin engine featuring Graphite (neutral black, 0% blue chroma on neutral tokens) and Azure (slate blue), pre-paint DOM init in `main.tsx`, WCAG AA contrast verification (`contrast.test.ts`), and pure custom skin validator (`skinValidator.ts`).
   - 18 token-based primitives in `components/ui/` (Modal, ConfirmDialog, Tabs, Table, Pagination, PageHeader, States, Banner, Button/IconButton, Chip, Icon).
@@ -31,13 +31,13 @@
   - Original brand identity: vector vortex logo mark (`BrandLogo.tsx`), isometric voxel banners (`VoxelBanner.tsx`), themed domain icons (`Icon.tsx`), and legal disclaimers.
   - Motion tokens (`--motion-duration-*`, `--motion-ease-standard`) with global `prefers-reduced-motion` override and density hierarchy tokens.
   - Production route code-splitting with `React.lazy` and `Suspense`, dropping initial JS payload from 1,251 kB to 396.68 kB (-68.3% across 39 JS chunks).
-  - Verified 2026-11-06: 1,018 frontend tests passing across 118 test files (0 failures); typecheck clean; 0 ESLint errors and 0 ESLint warnings; production build green (39 JS chunks, largest chunk 396.68 kB); 6/6 CI quality gates PASS. Pending independent reviews: R2 (primitives/shells/a11y), R3b (page behavior), R4 (brand/IP), and final review.
-- Test Signal Safety Guard (2026-10-04; Test Safety, Lane A, D1):
+  - Verified 2026-11-07: 1,113 frontend tests passing across 125 test files (0 failures); typecheck clean; 0 ESLint errors and 0 ESLint warnings; production build green; 6/6 CI quality gates PASS.
+- Test Signal Safety Guard (2026-10-04; Test Safety):
   - Hermetic autouse test fixture in `backend/tests/conftest.py` wrapping `os.kill` and `os.killpg` (and signal helpers) to raise `AssertionError` if target PID is not a verified descendant of the current pytest process.
   - Documented guard behavior: raises `AssertionError` (not `OSError`), noted `LocalLinuxProvider._is_pid_alive` exception fallback to `kill -0`, and documented Win32 residual (`ctypes.windll.kernel32.TerminateProcess` in `process_utils.py` not intercepted).
   - Narrowed `@pytest.mark.allow_real_signals` strictly to `test_live_process_current_pid` and `test_dead_process_nonexistent_pid` in `test_process_utils.py`; removed unused `allow_unsafe_signals` marker from `pyproject.toml` and `conftest.py`.
   - Repo-wide AST scanner in `backend/tests/test_signal_safety_guard.py` ensuring zero un-allowlisted signal bypass patterns (`from os import kill/killpg`, `signal.raise_signal`, `signal.pthread_kill`, `psutil.Process(...).kill()/.terminate()`) across `app/` and `tests/`; backed by `backend/tests/signal_bypass_allowlist.json`. 6/6 tests PASS.
-- Naive UTC Timestamps Misread as Local Time in UI (2026-10-03 / 2026-10-04; Lane A/B, small-change):
+- Naive UTC Timestamps Misread as Local Time in UI (2026-10-03 / 2026-10-04):
   - Symptom: Server starting monitor banner showed "Server Boot in Progress 180:07 / 2:00" in UTC+3 (Africa/Cairo) and prematurely triggered overdue warning due to naive UTC ISO timestamps parsed as local time by the browser.
   - Backend API Boundary Normalization: `BaseResponse(BaseModel)` in `backend/app/api/v1/schemas/common.py` using wildcard `@field_serializer("*", mode="plain", when_used="json")` to normalize all `datetime.datetime` instances (naive -> assume UTC; aware -> `astimezone(datetime.timezone.utc)`) and naive ISO string values (`YYYY-MM-DDTHH:MM:SS` or `YYYY-MM-DD HH:MM:SS` for timestamp fields) to UTC ISO-8601 strings ending with `'Z'`. Extended `BaseResponse` across all response schemas in common, server, backup, plugin, versioning, operation, auth, user, health, exposure, files, activity, import_server, and invites.
   - Architecture Cleanliness: extracted pure datetime formatting logic to neutral module `backend/app/core/timeutil.py` (`format_datetime_utc`, `is_timestamp_field`, `normalize_iso_timestamp`), ensuring zero illegal application -> API layer imports in `list_invites.py`.
@@ -46,23 +46,23 @@
   - Frontend CI Timezone Isolation: added `test: { env: { TZ: 'Africa/Cairo' } }` in `frontend/vitest.config.ts` so Vitest workers consistently execute under non-UTC timezone even on CI runners with `TZ=UTC`.
   - Verification & Quality:
     - Backend: `backend/tests/api/test_datetime_timezone_serialization.py` (20/20 passed, covering all response schemas, string protection, raw dict endpoints, enum/alias/exclude_none preservation, and nested models).
-    - Frontend: `StartingMonitorBanner.tz.test.tsx` (3/3 passed under `Africa/Cairo` and `America/Los_Angeles` with fake timers verifying ~0:00 elapsed), `format.test.ts` (16/16 passed), `activityStore.test.ts` (5/5 passed); full frontend suite 766/766 passed across 90 files; typecheck and build PASS.
+    - Frontend: `StartingMonitorBanner.tz.test.tsx` (3/3 passed under `Africa/Cairo` and `America/Los_Angeles` with fake timers verifying ~0:00 elapsed), `format.test.ts` (16/16 passed), `activityStore.test.ts` (5/5 passed); full frontend suite passing; typecheck and build PASS.
     - 6/6 CI quality gates PASS (`check-db-revision`, `check-ruff-baseline`, `check-version-propagation`, `check-route-contract`, `check-ps1-bom`, `check-stray-db`).
     - Mutation tests: removing serializer in `BaseResponse` fails backend tests; reverting `parseServerDate` in `StartingMonitorBanner` fails frontend TZ tests with `expected '180:05 / 2:00' to be '0:05 / 2:00'`.
-- Stale Startup Deadline & Supervisor Reuse Prevention (2026-10-02 / 2026-10-04; Lane A, D1):
+- Stale Startup Deadline & Supervisor Reuse Prevention (2026-10-02 / 2026-10-04):
   - Fix stale startup deadline in `RuntimeSupervisor`: `start()` re-anchors per-run state (`_started_at = time.monotonic()`, resets `_start_duration`, `_ready_at_wall`, `_last_heartbeat`, `_active = True`) so repeated runs receive a fresh deadline instead of being verified against run #1's expired window.
   - Fix supervisor instance reuse in `start_for()`: never supervise a new run with an old handle/provider. Discards dead/dying instances (inactive, `_stop_event` set, or task done), returns idempotent instance only if alive with identical handle and provider, and stops differing-handle instances before constructing fresh.
   - Clear `_active` in `stop()`, `_handle_crash()`, and `_health_check()` whenever `_stop_event` is set; cleared `_active = False` immediately upon entry to `_handle_crash()` to block concurrent reuse while async crash handling is in flight; guard registry cleanup in `stop()` and `_run()`'s `finally:` block (`if self._instances.get(self._server_id) is self: self._instances.pop(...)`) so completing tasks do not evict newly registered supervisors; deleted unused `__await__` shim.
   - Regression tests in `tests/application/test_stale_startup_deadline.py`: 7/7 passing (pinned mid-verify task suspension registry protection, differing-handle scheduled stop, and immediate `_active=False` in `_handle_crash`). 6/6 CI quality gates PASS.
-- Alert Rule last_triggered_at Persistence in SQLAlertRuleRepository (2026-10-04; Lane B, D1):
+- Alert Rule last_triggered_at Persistence in SQLAlertRuleRepository (2026-10-04):
   - Persist `model.last_triggered_at = rule.last_triggered_at` in `SQLAlertRuleRepository.save()`. Previously omitted, causing reloads from the database to always return `None` despite the column existing on `AlertRuleModel` and being mapped in `_model_to_domain()`.
   - Regression test: `test_save_and_get_persists_last_triggered_at` in `backend/tests/infrastructure/test_repositories.py`.
-- Fix 1 / Fix 1.5 Bot Verification Results Honesty & Folia/Pufferfish Decoupling (2026-09-18; D0, Lane A, roadmap drift Micro):
+- Fix 1 / Fix 1.5 Bot Verification Results Honesty & Folia/Pufferfish Decoupling (2026-09-18):
   - Honest bot verification outcome counting: `test_runner.py` fakeplayer branch now strictly computes `passed = (spawned_bots == bot_cfg.bot_count)`, reports `connected_bots = spawned_bots`, and details failure reason on mismatch as `Spawned {spawned_bots}/{bot_count} FakePlayer bots via RCON: {err_msg}`; replaced fragile substring match with exact command token check (`scmd.split()[1] == 'spawn'`); stopped zeroing out honest `connected_bots` on failed runs in `evidence_bundle["assertions"]["bots_spawned_actual"]` and `BotVerificationResult`.
   - Strategy Result formalization & artifact fail-fast: replaced 3-tuple with frozen dataclass `StrategyResult(mode, driver, reason, downgraded_from, artifact_ok)` across production and test unpack sites; added pure helper `is_fakeplayer_artifact_usable` validating artifact existence, non-placeholder bytes, and jar header/size via `validate_jar`; falls back to `SMOKE_TEST` with `downgraded_from='fakeplayer_next'` and non-raising failure reason / evidence assertions when artifact is missing or 30-byte placeholder.
   - Folia & Pufferfish config decoupling: constrained `PAPER_FAMILY_TYPES` in `config_resolver.py` to `{'paper', 'purpur'}`; AUTO mode on Folia/Pufferfish now cleanly defaults to `MINEFLAYER`, while explicit `fakeplayer_next` requests raise `UnsupportedBotTechError` (HTTP 400); existing stored records self-heal per run.
-  - Test suites: added 6 dedicated regression tests in `test_bot_verification_regression.py`; 2,912 backend tests passing / 6 skipped (2,918 collected), 730 frontend tests passing across 83 files (3,642 total tests); all 6 CI quality gates PASS (150/150 routes, ruff baseline clean, stray DB clean).
-- Enterprise Branch Runtime Platform (Stages A–G & Frontend Batch, 2026-09-16 – 2026-09-18):
+  - Test suites: added 6 dedicated regression tests in `test_bot_verification_regression.py`; all 6 CI quality gates PASS.
+- Enterprise Branch Runtime Platform (Stages A–G & Frontend UI, 2026-09-16 – 2026-09-18):
   - Full Git-inspired version control with commit DAG, tags, branch archiving, and commit diff inspector.
   - Worktree materialization engine with read-only/edit modes, atomic filesystem primitives, and uncommitted live changes review.
   - Database-backed concurrent admission gate (`server_admission_leases`) with dynamic host RAM/CPU headroom accounting.
@@ -75,13 +75,13 @@
   - `74786be`: Implemented `resolve_docker_image()` for Java 8/17/21/25, added container `collect_diagnostics()`, mapped `exited 0` to `ServerRuntimeStatus.STOPPED`, added `ConfirmDialog` on server stop, and added provider tags in console/details.
   - `77416c8`: Added `get_dynamic_local_ip()` / `get_address()` to `ServerProvider` implementations, dynamically inspects container IP in `DockerProvider`, syncs live host in `get_server.py` and `supervisor.py`, renders dynamic IP badge in `ServerConsole`.
   - `2adf213`: Resolved Bug 3 via `identity_writer.py` atomic `.onx-manager/server.json` stamping at creation/import, deterministic candidate scoring (+100 active, +50 running/starting/created, +25 docker runtime, newest `updated_at` tiebreak) with in-place `ActionType.HEAL_IDENTITY` in `FilesystemReconciliationService`, and volume-mount filtering in `DockerProvider.destroy()`.
-- Phase 5 (Containers System — Batches 1–6):
-  - Batch 1 (`282a7de`): Aligned stale `start()` signatures to 4 kwargs across `SSHProvider`, `CloudProvider`, `CircuitBreakerProviderWrapper`, and `DockerProvider`; corrected schema enum to `local_windows`.
-  - Batches 2 & 3 (`4c3e4ff`): Implemented `DockerProvider` subprocess driver, whole-directory volume mounts, Forge/NeoForge `run.sh` launch translation, and `ContainerInstallerRunner`.
-  - Batch 4 (`f1d941e`): Bridge container networking, external port publishing, RCON loopback security, and Windows WSL2 Linux containers policy.
-  - Pre-Batch-5 Fix-Up & Companions (`109e67e`, `d48bea4`): Wired `provider.destroy()` into server deletion with 10s timeout guard and regression tests.
-  - Batch 5 (`5649644`): Static Docker CLI packaging (27.5.1), opt-in DooD compose policy (`docker-compose.dood.yml`), and `resolve_host_mount_path()` host path translation.
-  - Batch 6 (`183ae7b`): Parameterized provider conformance suite (87 tests), CI Docker build smoke probe, path normalization follow-ups (O1, O2, O3), and frontend toggle polish.
+- Phase 5 (Containers System — Stages 1–6):
+  - Stage 1 (`282a7de`): Aligned stale `start()` signatures to 4 kwargs across `SSHProvider`, `CloudProvider`, `CircuitBreakerProviderWrapper`, and `DockerProvider`; corrected schema enum to `local_windows`.
+  - Stages 2 & 3 (`4c3e4ff`): Implemented `DockerProvider` subprocess driver, whole-directory volume mounts, Forge/NeoForge `run.sh` launch translation, and `ContainerInstallerRunner`.
+  - Stage 4 (`f1d941e`): Bridge container networking, external port publishing, RCON loopback security, and Windows WSL2 Linux containers policy.
+  - Pre-Stage-5 Fix-Up & Companions (`109e67e`, `d48bea4`): Wired `provider.destroy()` into server deletion with 10s timeout guard and regression tests.
+  - Stage 5 (`5649644`): Static Docker CLI packaging (27.5.1), opt-in DooD compose policy (`docker-compose.dood.yml`), and `resolve_host_mount_path()` host path translation.
+  - Stage 6 (`183ae7b`): Parameterized provider conformance suite (87 tests), CI Docker build smoke probe, path normalization follow-ups (O1, O2, O3), and frontend toggle polish.
 - ADR-0009 verification finding: ADR-0009 covers domain value-object field validators,
   not provider naming (no phantom ADR created).
 - 'Extended files' (Phase 1) and 'Comment feature' (Phase 3): both
@@ -104,17 +104,17 @@
 
 **Still open, not yet decided:**
 - 'GPS' definition (Phase 5 scope) — still undefined, same class of
-  problem as extended-files/comment-feature (recon-confirmed undefined in code).
+  problem as extended-files/comment-feature (confirmed undefined in code).
 
 ---
 
 # ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-11-04. Every claim below was verified against source code, the database,
+2026-11-07. Every claim below was verified against source code, the database,
 and a live test run.
 
-**Last verified:** 2026-11-04
+**Last verified:** 2026-11-07
 **App version (code):** `0.1.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
@@ -124,9 +124,9 @@ and a live test run.
 | Item | Count | Evidence |
 |------|-------|----------|
 | Backend Python source files | 412 | `backend/app/` (including domain aggregates, commands, queries, providers) |
-| Backend test files | 239 | `backend/tests/` (including 225 dedicated test suites across versioning, reliability, and modules) |
-| Frontend test files | 110 | `find frontend/src -name "*.test.*"` |
-| REST routers (`api/v1/routers/`) | 16 | `auth, backups, exposure, files, health, invites, marketplace, monitoring, plugins, schedules, servers, settings, setup, software, users, versioning` |
+| Backend test files | 239 | `backend/tests/` (including dedicated test suites across versioning, reliability, and modules) |
+| Frontend test files | 125 | `find frontend/src -name "*.test.*"` |
+| REST routers (`api/v1/routers/`) | 18 | `activity, auth, backups, exposure, files, health, invites, marketplace, monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning` |
 | Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml`) |
 | Alembic migration revisions | 42 | `backend/alembic/versions/` (head `b1e2100000022`) |
 | Architecture Decision Records & Decisions | 33 | `docs/decisions/` (ADRs 0001–0021 + 12 formal DECISION records) |
@@ -136,15 +136,14 @@ and a live test run.
 
 ---
 
-## 2. Test suite (measured 2026-11-06)
+## 2. Test suite (measured 2026-11-07)
 
 ### Backend — `backend/` `python -m pytest tests/`
-*(State plainly: NOT re-measured on this branch, carried from the 2026-10-20 owner local sequential full suite run)*
 
 | Metric | Value |
 |--------|-------|
-| Collected | **3288** |
-| Passed | **3282** |
+| Collected | **3510** |
+| Passed | **3504** |
 | Skipped | **6** |
 | Failed | **0** |
 
@@ -153,21 +152,20 @@ Backend CI runs the full suite on every push/PR to `master`
 (`check-db-revision`, `check-route-contract`, `check-ruff-baseline`, `check-version-propagation`, `check-ps1-bom`, `check-stray-db`).
 
 ### Frontend — `frontend/` `npx vitest run`
-*(Measured fresh on `feat/frontend-overhaul`)*
 
 | Metric | Value |
 |--------|-------|
-| Test files | **122** |
-| Collected | **1069** |
-| Passed | **1069** across 122 test files |
+| Test files | **125** |
+| Collected | **1113** |
+| Passed | **1113** across 125 test files |
 | Skipped | **0** |
 | Failed | **0** |
 
 ### Suite Totals
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
 on every push/PR to `master`. Total test metrics:
-- **Total collected**: **4,357** (3,288 backend + 1,069 frontend)
-- **Total passed**: **4,351** (3,282 backend + 1,069 frontend)
+- **Total collected**: **4,623** (3,510 backend + 1,113 frontend)
+- **Total passed**: **4,617** (3,504 backend + 1,113 frontend)
 - **Total skipped**: **6** (backend)
 - **Total failed**: **0**
 
@@ -334,14 +332,14 @@ Classification used by `Blueprint V5`:
 | — | ~~**Invitation status case mismatch:** frontend compared `"active"`/`"consumed"` while backend returns `ACTIVE`/`USED`/`REVOKED`, so the Revoke button never rendered and status badges always fell through to the gray style~~ **Resolved 2026-08-12** — `InvitationsSection.tsx` compares uppercase enum values; `InvitationItem.use_count` matches backend `use_count` | ~~Medium~~ | ~~Bug~~ |
 | — | ~~`npm run lint` fails with pre-existing errors~~ **Resolved 2026-08-13 (B6-2)** — `eslint src/` is 0 errors / 0 warnings across the codebase; typed error handling fixed without config weakening; `frontend-ci.yml` gates on lint | ~~Medium~~ | ~~Tech debt~~ |
 | — | ~~`ruff check` reports pre-existing errors across backend; no ruff CI gate~~ **Resolved 2026-08-13 (B6-2)** — `backend/ruff-baseline.json` (1738 pre-existing violations / 42 rules) + `scripts/check-ruff-baseline` + CI step in `backend-tests.yml`; **new** violations fail CI, baseline debt remains tracked | ~~Low~~ | ~~Tech debt~~ |
-| — | ~~**Windows Launcher Hang:** `start.ps1` unconstrained Python invocation with open stdin caused REPL interactive hangs~~ **Resolved 2026-09-01 (SPEC-2026-09-01-WIN-LAUNCHER-01)** — `New-OnxProcessStartInfo` (stdin closed) + `Invoke-OnxProcessProbe` (15s timeout, taskkill /F /T) + UTF-8 BOM gate | ~~Critical~~ | ~~Bug (Lane A)~~ |
-| — | ~~**TPS Validation & Scheduler Misfires:** RCON collector crashed on >20.0 TPS overshoots; scheduler dropped jobs under 1s I/O bursts; SQLite lacked connection pre-ping~~ **Resolved 2026-09-01 (SPEC-2026-09-01-BUGTRACK2-01)** — Clamped TPS at collector boundary; expanded `misfire_grace_time=60`; added `pool_pre_ping=True` | ~~Critical~~ | ~~Bug (Lane A)~~ |
-| — | ~~**Windows CI `os.killpg` Mock Resolution:** 140 test ERRORs on Windows CI due to missing `create=True` on `patch("os.killpg")`~~ **Resolved 2026-09-01 (SPEC-2026-09-01-WIN-KILLPG-01 Issue A)** — Added `mock_os_killpg` fixture in conftest + `create=True` across 7 test files | ~~High~~ | ~~Test infra (Lane A)~~ |
-| — | ~~**55 Windows CI Test Failures:** Windows CI test suite failures across core primitives, storage containment, prerequisite checks, and mock fixtures~~ **Resolved 2026-09-02 (SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2)** — Implemented `platform_force_kill`, `platform_kill_process_tree_sync/async`, LocalStorage `Path.is_relative_to` traversal security, platform-aware environment prereqs, and test fixture portability hardening | ~~High~~ | ~~Bug (Lane A)~~ |
-| — | ~~**Jar Download Timeout & Error Detail Propagation:** Rigid 120s timeout caused download failures on large jars; generic errors masked underlying cause~~ **Resolved 2026-09-12 (commit `9d7f700`)** — Activity-based socket timeouts, `.part` streaming, structured `details` in `CommandResult` and `InfrastructureError` hierarchy | ~~Critical~~ | ~~Bug (Lane A)~~ |
-| — | ~~**Container Crash Diagnostics & Clean Stop Mapping:** Modern Java 21/25 mismatch diagnosed as unknown crash; clean container stop mapped to error; dead container collisions~~ **Resolved 2026-09-12 (commit `74786be`)** — `resolve_docker_image()` for Java 8/17/21/25, container `collect_diagnostics()`, `exited 0` mapped to `STOPPED`, `ConfirmDialog` on UI stop, automatic dead container prune | ~~Critical~~ | ~~Bug (Lane A)~~ |
-| — | ~~**Console Provider Tags & Dynamic IP Display:** Console lacked runtime provider indication; container bridge network IP hidden behind hardcoded 127.0.0.1~~ **Resolved 2026-09-13 (commit `77416c8`)** — `get_dynamic_local_ip()` / `get_address()`, atomic `docker inspect` for PID and IP, live host sync in queries/supervisor, `console-ip-badge` in UI | ~~High~~ | ~~Feature / Bug (Lane A)~~ |
-| — | ~~**Server Identity Loss on Restart & Provider Flip (Bug 3):** Server identity file missing at creation/import caused reconciliation to reimport servers as LOCAL on restart, orphaning Docker containers~~ **Resolved 2026-09-13 (commit `2adf213`, `BUG_3_SERVER_IDENTITY_LOSS_DESIGN_SPEC`)** — Authoritative `identity_writer.py`, deterministic adopt-vs-heal scoring (+100 active, +50 running, +25 docker), in-place `ActionType.HEAL_IDENTITY`, broadened volume-filter container cleanup | ~~Critical~~ | ~~Bug (Lane A)~~ |
+| — | ~~**Windows Launcher Hang:** `start.ps1` unconstrained Python invocation with open stdin caused REPL interactive hangs~~ **Resolved 2026-09-01 (SPEC-2026-09-01-WIN-LAUNCHER-01)** — `New-OnxProcessStartInfo` (stdin closed) + `Invoke-OnxProcessProbe` (15s timeout, taskkill /F /T) + UTF-8 BOM gate | ~~Critical~~ | ~~Bug~~ |
+| — | ~~**TPS Validation & Scheduler Misfires:** RCON collector crashed on >20.0 TPS overshoots; scheduler dropped jobs under 1s I/O bursts; SQLite lacked connection pre-ping~~ **Resolved 2026-09-01 (SPEC-2026-09-01-BUGTRACK2-01)** — Clamped TPS at collector boundary; expanded `misfire_grace_time=60`; added `pool_pre_ping=True` | ~~Critical~~ | ~~Bug~~ |
+| — | ~~**Windows CI `os.killpg` Mock Resolution:** 140 test ERRORs on Windows CI due to missing `create=True` on `patch("os.killpg")`~~ **Resolved 2026-09-01 (SPEC-2026-09-01-WIN-KILLPG-01 Issue A)** — Added `mock_os_killpg` fixture in conftest + `create=True` across 7 test files | ~~High~~ | ~~Test infra~~ |
+| — | ~~**55 Windows CI Test Failures:** Windows CI test suite failures across core primitives, storage containment, prerequisite checks, and mock fixtures~~ **Resolved 2026-09-02 (SPEC-2026-09-02-WIN-CI-REMEDIATION-01-R2)** — Implemented `platform_force_kill`, `platform_kill_process_tree_sync/async`, LocalStorage `Path.is_relative_to` traversal security, platform-aware environment prereqs, and test fixture portability hardening | ~~High~~ | ~~Bug~~ |
+| — | ~~**Jar Download Timeout & Error Detail Propagation:** Rigid 120s timeout caused download failures on large jars; generic errors masked underlying cause~~ **Resolved 2026-09-12 (commit `9d7f700`)** — Activity-based socket timeouts, `.part` streaming, structured `details` in `CommandResult` and `InfrastructureError` hierarchy | ~~Critical~~ | ~~Bug~~ |
+| — | ~~**Container Crash Diagnostics & Clean Stop Mapping:** Modern Java 21/25 mismatch diagnosed as unknown crash; clean container stop mapped to error; dead container collisions~~ **Resolved 2026-09-12 (commit `74786be`)** — `resolve_docker_image()` for Java 8/17/21/25, container `collect_diagnostics()`, `exited 0` mapped to `STOPPED`, `ConfirmDialog` on UI stop, automatic dead container prune | ~~Critical~~ | ~~Bug~~ |
+| — | ~~**Console Provider Tags & Dynamic IP Display:** Console lacked runtime provider indication; container bridge network IP hidden behind hardcoded 127.0.0.1~~ **Resolved 2026-09-13 (commit `77416c8`)** — `get_dynamic_local_ip()` / `get_address()`, atomic `docker inspect` for PID and IP, live host sync in queries/supervisor, `console-ip-badge` in UI | ~~High~~ | ~~Feature / Bug~~ |
+| — | ~~**Server Identity Loss on Restart & Provider Flip (Bug 3):** Server identity file missing at creation/import caused reconciliation to reimport servers as LOCAL on restart, orphaning Docker containers~~ **Resolved 2026-09-13 (commit `2adf213`, `BUG_3_SERVER_IDENTITY_LOSS_DESIGN_SPEC`)** — Authoritative `identity_writer.py`, deterministic adopt-vs-heal scoring (+100 active, +50 running, +25 docker), in-place `ActionType.HEAL_IDENTITY`, broadened volume-filter container cleanup | ~~Critical~~ | ~~Bug~~ |
 | — | ServerMetricsCharts 5s REST refetchInterval vs 60s backend collection cadence | Low | Known edge case |
 | — | Non-running server writes zero metrics rows → chart renders empty state without explanatory UI message | Low | Known edge case |
 
@@ -396,12 +394,12 @@ instead of trusting memory (Blueprint V5 §2.4):
 Checks executed each run (identical locally via `scripts/reverify`):
 
 1. `python ../scripts/check-version-propagation` — pyproject.toml / package.json / runtime agree (0.1.0)
-2. `python ../scripts/check-db-revision` — database schema matches compatible migration head (`b1e2100000019`)
+2. `python ../scripts/check-db-revision` — database schema matches compatible migration head (`b1e2100000022`)
 3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
-4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 150 entries match 150 live routes
+4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 155 entries match 155 live routes
 5. `python ../scripts/check-ps1-bom` — PowerShell scripts UTF-8 BOM encoding
-6. `python -m pytest -q` (backend) — full suite 2,912 passed / 6 skipped (2,918 collected)
-7. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — 83 files / 730 tests passing, build succeeds
+6. `python -m pytest -q` (backend) — full suite 3,504 passed / 6 skipped (3,510 collected)
+7. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — 125 files / 1,113 tests passing, build succeeds
 
 ### 7.3 Execution status
 

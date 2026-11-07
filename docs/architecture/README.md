@@ -19,4 +19,4 @@ This directory contains the living architecture and system design specifications
 
 ---
 
-> Historical design reviews and superseded phase plans are archived in [`docs/history/`](../history/).
+> Historical design reviews and feature notes are preserved in [`docs/project-history/`](../project-history/).

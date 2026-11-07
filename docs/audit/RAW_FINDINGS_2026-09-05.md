@@ -14,7 +14,7 @@
 | F001 | backend/core | backend/app/core/config.py:53 | FACT | logic-error | AppSettings model_config specifies env_prefix="MCS_", ignoring ONX_* environment variables |
 | F002 | backend/core | backend/app/core/security.py:51-52 | COSMETIC | naming | generate_api_key hardcodes legacy mcs_ prefix instead of generating onx_ prefix |
 | F003 | backend/core | backend/app/core/persistence/base.py:53-56 | FACT | logic-error | BaseRepository.update flushes and returns original detached entity rather than session.merge result |
-| F004 | backend/core | backend/app/core/persistence/db_revision.py:30 | FACT | contract-mismatch | Release minimum DB revision is b1e2100000010 (7 zeros) but STATE.json documents b1e210000010 (6 zeros) |
+| F004 | backend/core | backend/app/core/persistence/db_revision.py:30 | FACT | contract-mismatch | Release minimum DB revision is b1e2100000010 (7 zeros) but state tracking documents b1e210000010 (6 zeros) |
 | F005 | backend/core | backend/app/core/event_bus.py:108-109 | FACT | logic-error | asyncio.gather(*tasks) executes all subscribers concurrently, rendering priority sorting in subscribe() ineffective |
 | F006 | backend/core | backend/app/core/circuit_breaker.py:39, 144 | COSMETIC | dead-code | _half_open_start attribute is assigned on transition to HALF_OPEN but never read or referenced |
 | F007 | backend/core | backend/app/core/circuit_breaker.py:40, 136 | LIKELY | state-management | CircuitBreaker._events list appends on every state transition with no bounds or retention eviction |

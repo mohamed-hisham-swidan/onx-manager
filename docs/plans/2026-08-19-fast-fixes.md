@@ -115,8 +115,7 @@ are to be made at this time.
 - A persistent RCON client base already exists
   (`backend/app/modules/monitoring/infrastructure/rcon_client.py`,
   `AsyncRCONClient` + `PersistentRCONClient`).
-- Multi-packet response support remains on the roadmap (see
-  `CURRENT_STATE.json` → "Multi-packet RCON (Batch 8.1): DEFERRED").
+- Multi-packet response support remains on the roadmap (Multi-packet RCON: DEFERRED).
 - When picked up, this should be revisited against the TPS/console contract
   changes from SPEC-TPS-VALIDATION-001 and SPEC-CONSOLE-OVERVIEW-001.
 

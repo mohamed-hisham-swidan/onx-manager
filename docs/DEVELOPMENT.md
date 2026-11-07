@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Python** 3.12 (exact; 3.13/3.14 are not supported by the installer)
-- **Node.js** 20+ (Node.js 22 LTS portable auto-installed on Windows if missing)
+- **Node.js** 18+ (Node.js 22 LTS recommended; portable 22 LTS auto-installed on Windows if missing)
 - **PostgreSQL 16+** (optional — SQLite with WAL mode is the zero-config default)
 - **Git**
 
@@ -42,9 +42,9 @@ For deep troubleshooting and process tracing:
 ```bash
 python3 -m venv backend/.venv
 source backend/.venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r backend/requirements.txt -e "backend[dev]"
 cp .env.example .env   # configure database URL, secrets
-alembic upgrade head
+cd backend && alembic upgrade head
 ```
 
 ### Frontend
@@ -60,14 +60,15 @@ npm run dev            # Vite dev server on :5173
 ```bash
 # Terminal 1 — Backend (auto-reload on file change)
 source backend/.venv/bin/activate
+cd backend
 uvicorn app.main:app --reload --port 8000  # Default port; launcher resolves preferred port (precedence: ONX_BACKEND_PORT > MCS_BACKEND_PORT > .onx/config.json > 8000)
 
 # Terminal 2 — Frontend (HMR on file change)
 cd frontend && npm run dev
 
-# Terminal 3 — Tests (watch mode)
-pytest-watch           # backend
-cd frontend && npm run test:watch  # frontend
+# Terminal 3 — Tests
+cd backend && pytest -q            # backend test suite
+cd frontend && npm run test:watch  # frontend watch mode
 ```
 
 ### POST /api/v1/servers/reconcile (Orphan Cleanup)
@@ -165,6 +166,8 @@ npm run typecheck    # tsc --noEmit
 ## Database Migrations
 
 ```bash
+cd backend
+
 # Create a new migration
 alembic revision --autogenerate -m "description"
 
@@ -186,7 +189,7 @@ See [Database docs](architecture/DATABASE.md) for full schema reference.
 
 ```bash
 cd backend
-python -m pytest tests/ -q          # All tests (2,906 passed, 6 skipped)
+python -m pytest tests/ -q          # All tests (3,510 collected: 3,504 passed, 6 skipped)
 python -m pytest tests/ -x -q       # Stop on first failure
 ```
 
@@ -196,8 +199,9 @@ Tests MUST use a sandbox database and sandbox server directory to avoid
 affecting production data:
 
 ```bash
-MCS_DATABASE_URL="sqlite+aiosqlite:///data/servers_test/test.db" \
-MCS_SERVERS_DATA_DIR="data/servers_test" \
+cd backend
+ONX_DATABASE_URL="sqlite+aiosqlite:///data/servers_test/test.db" \
+ONX_SERVERS_DATA_DIR="data/servers_test" \
   python -m uvicorn app.main:app --host 0.0.0.0 --port 8002
 ```
 
@@ -221,7 +225,7 @@ cd frontend && npm test            # All frontend tests
 cd frontend && npm run test:watch  # Watch mode
 ```
 
-730 frontend tests across 83 files (measured 2026-09-18). Vitest with jsdom environment.
+1,113 frontend tests across 125 files (measured 2026-11-07). Vitest with jsdom environment.
 
 ## Docker Development
 

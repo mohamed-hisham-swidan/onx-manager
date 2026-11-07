@@ -1,11 +1,11 @@
-# TEMPORARY: re-enable on path-filtered PRs after Windows test fixes (Batch B2); weekly red blocks release.
+# TEMPORARY: re-enable on path-filtered PRs after Windows test fixes; weekly red blocks release.
 name: windows-ci
 
 # Additive Windows coverage. Does NOT replace or modify the existing
 # ubuntu-latest-only workflows (backend-tests.yml, backend-version-ci.yml,
 # frontend-ci.yml, route-permission-ci.yml, verification-cadence.yml) —
 # those keep running exactly as before. This workflow closes the Windows
-# coverage gap identified by RECON on 2026-09-01: every existing workflow
+# coverage gap identified on 2026-09-01: every existing workflow
 # ran on ubuntu-latest only, so nothing was ever verified against a real
 # Windows runner (the test suite mocks sys.platform=="win32" on Linux,
 # which is not the same as actually running on Windows).
@@ -13,7 +13,7 @@ name: windows-ci
 # Trigger is broad (push/PR to master) for now rather than mirroring each
 # original workflow's path-based trigger — safer starting point given zero
 # prior Windows coverage. Consider splitting to match the per-concern
-# triggers once this is confirmed stable, as a follow-up D0/D1 decision.
+# triggers once this is confirmed stable.
 
 on:
   schedule:

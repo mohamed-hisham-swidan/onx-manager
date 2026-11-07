@@ -42,7 +42,7 @@ backend/app/
 │   ├── errors.py              # Global exception handlers
 │   └── v1/
 │       ├── middleware/        # Auth, audit, rate-limit, request-id
-│       ├── routers/           # 16 endpoint groups + WebSocket
+│       ├── routers/           # 18 endpoint groups + WebSocket
 │       └── schemas/           # Pydantic request/response schemas
 ├── core/                      # Foundation layer
 │   ├── command_bus.py         # CQRS command bus
@@ -56,9 +56,11 @@ backend/app/
 │   ├── config.py              # Configuration (AppSettings)
 │   ├── exceptions.py          # MCSError hierarchy
 │   └── logging.py             # Structured logging
-├── modules/                   # 11 DDD modules
+├── modules/                   # 13 DDD modules
 │   ├── server/                # Minecraft server domain & lifecycle
 │   ├── versioning/            # Git-inspired branching, snapshotting, tags, materialization
+│   ├── operations/            # Multi-step asynchronous operations & recovery
+│   ├── activity/              # Per-server activity & audit logs
 │   ├── backup/                # Backup/restore domain
 │   ├── auth/                  # User & auth domain
 │   ├── health/                # Health monitoring & diagnostics

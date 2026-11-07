@@ -8,8 +8,8 @@
 >
 > This document is generated from the router code (`backend/app/api/v1/routers/`).
 > Every endpoint below was verified directly against its router function (the
-> 16 routers: `auth, backups, exposure, files, health, invites, marketplace,
-> monitoring, plugins, schedules, servers, settings, setup, software, users, versioning`).
+> 18 routers: `activity, auth, backups, exposure, files, health, invites, marketplace,
+> monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning`).
 
 ---
 
@@ -37,6 +37,8 @@
 20. [WebSocket protocol](#websocket-protocol)
 21. [Exposure](#exposure)
 22. [Versioning & Branch Runtime](#versioning--branch-runtime)
+23. [Activity](#activity)
+24. [Operations](#operations)
 
 ---
 
@@ -1278,3 +1280,28 @@ Update versioning settings for the server.
 Run preflight admission checks (verifies host RAM/CPU headroom, disk space, and provider capabilities).
 - **Auth:** Required (`server:version:read`)
 - **Response `200 OK`:** `PreflightCheckResponse` (`can_materialize`: bool, `can_run_tests`: bool, `available_ram_mb`: int, `reasons`: array of string)
+
+---
+
+## Activity
+
+Prefix `/api/v1/servers/{server_id}/activity` (`backend/app/api/v1/routers/activity.py`).
+
+| Method | Path | Auth | Query params | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/v1/servers/{server_id}/activity` | `server.{id}.view` | `limit` (1–200, default 50), `offset` (≥ 0, default 0), `event_type`, `from_date`, `to_date` | `200 ServerActivityLogListResponse` | Paginated server activity & audit log (`items`, `total`, `limit`, `offset`) |
+
+---
+
+## Operations
+
+Prefix `/api/v1` (`backend/app/api/v1/routers/operations.py`). Tracks multi-step asynchronous operations with idempotency support (`Idempotency-Key` header).
+
+| Method | Path | Auth | Request body | Query params | Response | Notes |
+|---|---|---|---|---|---|---|
+| `POST` | `/api/v1/operations` | `server:write` | `CreateOperationRequest` | — | `202 OperationDetailResponse` | Creates an operation (supports `Idempotency-Key` header) |
+| `GET` | `/api/v1/operations` | `server:read` | — | `target_type`, `target_id`, `status`, `limit` (default 50) | `200 list[OperationSummaryResponse]` | Lists operations matching optional filters |
+| `GET` | `/api/v1/operations/{operation_id}` | `server:read` | — | — | `200 OperationDetailResponse` | Full operation detail including step statuses |
+| `POST` | `/api/v1/operations/{operation_id}/cancel` | `server:write` | — | — | `202 OperationDetailResponse` | Requests cooperative cancellation of a running/queued operation |
+| `POST` | `/api/v1/operations/{operation_id}/retry` | `server:write` | — | — | `202 OperationDetailResponse` | Retries a failed operation from its retryable step |
+

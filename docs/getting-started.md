@@ -5,7 +5,7 @@ A 5-minute quickstart for running ONX Manager on your machine.
 ## Prerequisites
 
 - **Python** 3.12 (exact; 3.13/3.14 are not supported by the installer)
-- **Node.js** 20+ (Node.js 22 LTS portable auto-installed on Windows if missing)
+- **Node.js** 18+ (Node.js 22 LTS recommended; portable 22 LTS auto-installed on Windows if missing)
 - **Git**
 
 ## Quick Start (Automated)

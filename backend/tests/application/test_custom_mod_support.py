@@ -201,10 +201,10 @@ async def test_toggle_mod_state_renames_on_disk(event_bus: EventBus, tmp_path: P
 
 @pytest.mark.asyncio
 async def test_reconcile_mods_directory(event_bus: EventBus, tmp_path: Path) -> None:
-    srv_dir = tmp_path / "srv-fab-recon"
+    srv_dir = tmp_path / "srv-fab-reconcile"
     mods_dir = srv_dir / "mods"
     mods_dir.mkdir(parents=True, exist_ok=True)
-    server = await _create_test_server("srv-fab-recon", "fabric", str(srv_dir))
+    server = await _create_test_server("srv-fab-reconcile", "fabric", str(srv_dir))
 
     # Write one active mod and one disabled mod
     active_jar = _create_jar_bytes(

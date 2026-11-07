@@ -21,7 +21,7 @@ cd onx-manager
 
 # 2. Set up environment
 cp .env.example .env
-# Edit .env — at minimum change MCS_SECRET_KEY to a long random string
+# Edit .env — at minimum change ONX_SECRET_KEY to a long random string
 
 # 3. Build and start
 docker compose up -d
@@ -41,7 +41,7 @@ curl http://localhost:80/
 | `ONX_DEBUG` | `false` | Enable debug mode |
 | `ONX_LOG_LEVEL` | `INFO` | Logging level |
 | `ONX_FORCE_ASCII` | `0` | Set `1` to force ASCII console output |
-| `MCS_JWT_PRIVATE_KEY` | *(auto-generated)* | PEM-encoded RSA private key for JWT signing. If omitted, a key is generated on first start and persisted to `config/jwt_private_key.pem` inside the container — all JWTs are invalidated if the container is recreated without preserving this file. |
+| `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) | *(auto-generated)* | PEM-encoded RSA private key for JWT signing. If omitted, a key is generated on first start and persisted to `config/jwt_private_key.pem` inside the container — all JWTs are invalidated if the container is recreated without preserving this file. |
 
 ## Persistent data
 
@@ -49,7 +49,7 @@ Docker Compose creates two named volumes:
 
 | Volume | Mount point | Contents |
 |--------|-------------|----------|
-| `onx-db-data` | `/data/` | SQLite database (`onx.db`) |
+| `onx-db-data` | `/app/data/` | SQLite database (`onx.db`) |
 | `onx-server-data` | `/app/data/servers/` | Minecraft server files (worlds, JARs, plugins) |
 
 Data survives container restarts and upgrades. To wipe everything (including the database):
@@ -151,7 +151,7 @@ in its container command and will not start against an incompatible schema
 ## Database migrations & compatibility floor
 
 **ONX Manager 0.1.0 requires DB compatibility with Alembic revision
-`b1e2100000019`.** The version-conditional floor is declared once in
+`b1e2100000022`.** The version-conditional floor is declared once in
 `backend/app/core/persistence/db_revision.py`
 (`RELEASE_MINIMUM_DB_REVISION`); it is **never auto-applied** and **never read
 from the DB URL config**.
@@ -159,12 +159,14 @@ from the DB URL config**.
 Each deployment must follow this sequence:
 
 ```bash
+cd backend
+
 # 1. Apply migrations (container entrypoint does this; you may run it explicitly)
 alembic upgrade head
 
 # 2. Verify the database reached the required revision
 alembic current
-#   → should show b1e2100000019 (or a compatible descendant for later releases)
+#   → should show b1e2100000022 (or a compatible descendant for later releases)
 
 # 3. Start the application
 uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -175,7 +177,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
   performs **no** automatic migration.
 - **Startup fails closed.** On start the backend reads `alembic_version` from the
   live database and aborts if the revision is missing, unknown, **behind
-  `b1e2100000019`**, or on an incompatible branch. The error names the current
+  `b1e2100000022`**, or on an incompatible branch. The error names the current
   revision, the required minimum, and the fix (`alembic upgrade head`) — without
   exposing the database URL or credentials.
 - A fresh database migrated with `alembic upgrade head` starts normally; a
@@ -197,7 +199,7 @@ The project also supports a local development path:
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -r requirements.txt -e ".[dev]"
 alembic upgrade head
 uvicorn app.main:app --reload
 ```

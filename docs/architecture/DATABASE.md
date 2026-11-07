@@ -12,7 +12,7 @@
 | Embedded mode | SQLite 3 (fallback via config) |
 
 > **Task queue note:** The runtime exclusively uses `InProcessQueue`. The legacy
-> unused Arq/Redis queue (`tasks/arq_queue.py`) was removed in Batch 4 (F072) and
+> unused Arq/Redis queue (`tasks/arq_queue.py`) was removed and
 > the `aredis` dependency eliminated. There is no Redis requirement, cache, or pub/sub.
 
 Connection pooling: 20 pool size, 10 max overflow, `pool_pre_ping=True` for PostgreSQL. SQLite mode skips pooling. See `backend/app/core/persistence/db.py`.
@@ -231,6 +231,7 @@ server_test_definitions 1──* server_test_runs
 Alembic with async engine (`backend/alembic/env.py:34`). All models register on `Base.metadata`.
 
 ```bash
+cd backend
 alembic revision --autogenerate -m "description"
 alembic upgrade head
 alembic downgrade -1
@@ -362,11 +363,12 @@ Config-driven URL: supports both PostgreSQL (`postgresql+asyncpg://...`) and SQL
 
 ### Connection
 
-The application reads the database URL from the `MCS_DATABASE_URL` environment
-variable.  If unset it falls back to `alembic.ini` → `sqlalchemy.url`.
+The application reads the database URL from the `ONX_DATABASE_URL` (or legacy `MCS_DATABASE_URL`) environment
+variable. If unset it falls back to `alembic.ini` → `sqlalchemy.url`.
 
 ```bash
-export MCS_DATABASE_URL="sqlite+aiosqlite:///path/to/mcs.db"
+cd backend
+export ONX_DATABASE_URL="sqlite+aiosqlite:///path/to/onx.db"
 alembic upgrade head
 ```
 
@@ -375,7 +377,7 @@ alembic upgrade head
 | Revision | Description |
 |----------|-------------|
 | `001` | Initial schema |
-| `002` | Batch-09 tables: task_queue, cron_jobs, metric_points, alert_rules |
+| `002` | Task scheduling & telemetry tables: task_queue, cron_jobs, metric_points, alert_rules |
 | `16f9e2a1f2d6` | Auth users tables |
 | `003` | **Deployment columns** on `servers` (location_type, …) |
 | `5a50140d37df` | `server_type` on `servers` |

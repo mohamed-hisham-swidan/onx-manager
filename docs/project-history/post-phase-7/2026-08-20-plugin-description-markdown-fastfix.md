@@ -14,7 +14,7 @@ Modrinth project `body` is raw GFM Markdown
 (`backend/app/modules/plugin/infrastructure/providers/modrinth.py:120` →
 `body=data.get("body", "")`), but `PluginDetailPage.tsx` rendered it as
 escaped plain text with `whitespace-pre-wrap`. Result: images showed as
-literal `![alt](url)` text, headers/bullets/tables displayed as raw
+literal `![alt](...)` markdown syntax, headers/bullets/tables displayed as raw
 markdown. User observed broken images on a plugin description page.
 
 ## Decision (Option A — frontend-only, no backend change)
@@ -50,7 +50,7 @@ Key implementation points:
 - `frontend/src/server_manager/pages/PluginDetailPage.test.tsx` — 4 new tests
   (9 total): markdown image → real `img` with `loading="lazy"`; GFM table +
   task-list checkboxes; raw HTML `<script>`/`<img onerror>` escaped; no
-  `a[href^="javascript:"]` after `[click me](javascript:alert(1))`.
+  `a[href^="javascript:"]` after rendering a `javascript:alert(1)` link.
 
 ## Verification
 

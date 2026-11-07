@@ -9,10 +9,10 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 2,906 backend tests, 730 frontend tests, 39 DB migrations). |
-| [Canonical Roadmap](roadmap/ROADMAP_v1.1.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 5 (Containers — CLOSED), Phase 4 (Community Features — CLOSED), Enterprise Branch Runtime (Stages A–G & Frontend Batch — CLOSED), Phase 6 (UP NEXT). |
-| [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`0.1.0`), compatibility floor (`b1e2100000019`). |
-| [API Reference](API.md) | ✅ **CURRENT** | REST API reference (16 routers, 150 live routes) & WebSocket protocols. |
+| [Current State](current-state.md) | ✅ **CURRENT** | Verified snapshot of the codebase (version 0.1.0, 3,510 backend tests collected, 1,113 frontend tests, 42 DB migrations). |
+| [Canonical Roadmap](roadmap/ROADMAP_v1.1.md) | ✅ **CANONICAL** | Authoritative living roadmap governing Phase 5 (Containers — CLOSED), Phase 4 (Community Features — CLOSED), Enterprise Branch Runtime (Stages A–G & Frontend UI — CLOSED), Phase 5.5 (Pre-Beta Reliability — CLOSED), Phase 6 (UP NEXT). |
+| [Versioning Policy](VERSIONING.md) | ✅ **ADOPTED** | SemVer 2.0.0 rules, version single source of truth (`0.1.0`), compatibility floor (`b1e2100000022`). |
+| [API Reference](API.md) | ✅ **CURRENT** | REST API reference (18 routers, 155 live routes) & WebSocket protocols. |
 
 ---
 
@@ -20,9 +20,9 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [System Architecture](architecture/ARCHITECTURE.md) | ✅ **CURRENT** | Modular monolith design, 11 DDD bounded contexts, CQRS buses, outbox, supervisor. |
+| [System Architecture](architecture/ARCHITECTURE.md) | ✅ **CURRENT** | Modular monolith design, 13 DDD bounded contexts, CQRS buses, outbox, supervisor. |
 | [Technical Specs](architecture/SPECS.md) | ✅ **CURRENT** | Tech stack, repository metrics, directory layouts, feature matrices. |
-| [Database Architecture](architecture/DATABASE.md) | ✅ **CURRENT** | SQLite (`backend/data/onx.db`) & PostgreSQL models, 39 Alembic migrations (`b1e2100000019`), pre-backend reconciler. |
+| [Database Architecture](architecture/DATABASE.md) | ✅ **CURRENT** | SQLite (`backend/data/onx.db`) & PostgreSQL models, 42 Alembic migrations (`b1e2100000022`), pre-backend reconciler. |
 | [Security Architecture](architecture/SECURITY.md) | ✅ **CURRENT** | RS256 JWT auth, RBAC/ABAC route permissions, API keys, path sandboxing. |
 | [Frontend Architecture](architecture/FRONTEND.md) | ✅ **CURRENT** | React 19, Tailwind CSS v4, TanStack Query, WebSocket store. |
 | [Forge/NeoForge Provisioning Spec](architecture/SPEC-FORGE-PROVISIONING-001.md) | ✅ **CURRENT** | Unified InstallerProvisioner, non-destructive retry, failure classification. |
@@ -48,9 +48,9 @@ listed with their status so it is always clear what is implemented vs planned.
 | Document | Status | Purpose |
 |---|---|---|
 | [Domain Event Catalog](reference/event-catalog.md) | ✅ **CURRENT** | 61 domain event classes across 8 bounded contexts with payload schemas. |
-| [System Module Map](reference/module-map.md) | ✅ **CURRENT** | 11 DDD modules, 16 REST routers, 22 frontend pages. |
+| [System Module Map](reference/module-map.md) | ✅ **CURRENT** | 13 DDD modules, 18 REST routers, 22 frontend pages. |
 | [Dependency Graph](reference/dependency-graph.md) | ✅ **CURRENT** | Layering rules, bounded context communication, hexagonal boundaries. |
-| [Contract Registry](reference/contract-registry.md) | ✅ **CURRENT** | RBAC route contracts (`contracts/permissions.yaml`, 150 live routes), schemas. |
+| [Contract Registry](reference/contract-registry.md) | ✅ **CURRENT** | RBAC route contracts (`contracts/permissions.yaml`, 155 live routes), schemas. |
 
 ---
 
@@ -58,9 +58,9 @@ listed with their status so it is always clear what is implemented vs planned.
 
 | Document | Status | Purpose |
 |---|---|---|
-| [Container & Identity Remediation Record](history/2026-09-13-container-and-identity-bug-remediation-record.md) | ✅ **RECORD** | Authoritative findings and remediation log for post-Phase-5 bugs (Bugs 1, 2, 2b, 2c, 3). |
-| [Archived Roadmap Generations](history/archive/legacy-roadmaps/) | ⏸️ **ARCHIVED** | Historical roadmap monoliths (v1–v4), volume splits (vol2–vol6-8), and Blueprint v4 series. |
-| [Archived Blueprint V5](history/archive/blueprint-v5-2026-08-07.md) | ⏸️ **ARCHIVED** | Superseded blueprint (Phases 0–7 completed). |
-| [Docs Reconnaissance Report](history/2026-08-23-docs-recon-report.md) | ⏸️ **AUDIT** | 107-file inventory and health assessment report. |
-| [Redoc Execution Plan](history/2026-08-23-redoc-execution-plan.md) | ⏸️ **PLAN** | 7-batch documentation reorganization plan. |
-| [Status Journal](history/status-journal-2026.md) | ⏸️ **ARCHIVED** | Historical narrative log of project milestones. |
+| [Project History Index](project-history/README.md) | ✅ **RECORD** | Index of preserved feature design reviews and engineering notes. |
+| [K5 Marketplace Design Review](project-history/features/2026-08-07-k5-marketplace-review.md) | ⏸️ **ARCHIVED** | First-class marketplace section design review. |
+| [Marketplace UX & Theming Findings](project-history/features/marketplace-ux-findings.md) | ⏸️ **ARCHIVED** | Marketplace UX and theming findings. |
+| [Dashboard & Server Management Redesign](project-history/features/dashboard-redesign-v1-findings.md) | ⏸️ **ARCHIVED** | Dashboard and server management redesign findings. |
+| [Plugin Description Markdown Fast-Fix](project-history/post-phase-7/2026-08-20-plugin-description-markdown-fastfix.md) | ⏸️ **ARCHIVED** | Markdown rendering and sanitization notes for plugin descriptions. |
+| [FakePlayer Verification Speedup Report](project-history/FIX2C-SPEED-2026-09-21.md) | ⏸️ **ARCHIVED** | Test execution optimization record for FakePlayer verification. |

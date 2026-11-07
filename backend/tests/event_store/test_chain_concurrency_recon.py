@@ -32,7 +32,7 @@ from app.modules.event_store.models import StoredEventModel
 
 def _test_engine(tmp_path):
     engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path}/recon_chain.db",
+        f"sqlite+aiosqlite:///{tmp_path}/concurrency_chain.db",
         connect_args={"timeout": 30.0, "check_same_thread": False},
     )
 
@@ -60,7 +60,7 @@ async def test_concurrent_append_chain_stays_linear(tmp_path, monkeypatch) -> No
 
         async with factory() as session:
             await EventChain(session).append_chain(
-                DomainEvent(event_type="genesis", event_id="recon-genesis")
+                DomainEvent(event_type="genesis", event_id="chain-genesis")
             )
             await session.commit()
 
@@ -89,8 +89,8 @@ async def test_concurrent_append_chain_stays_linear(tmp_path, monkeypatch) -> No
                 return stored
 
         stored_a, stored_b = await asyncio.gather(
-            worker("recon-A", "race.a"),
-            worker("recon-B", "race.b"),
+            worker("worker-A", "race.a"),
+            worker("worker-B", "race.b"),
         )
 
         async with factory() as session:

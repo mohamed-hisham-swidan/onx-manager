@@ -15,7 +15,7 @@ Modules communicate across strict boundaries:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                       API Routers (15)                      │
+│                       API Routers (18)                      │
 └──────────────────────────────┬──────────────────────────────┘
                                │ CommandBus / QueryBus
 ┌──────────────────────────────v──────────────────────────────┐
@@ -35,6 +35,9 @@ Modules communicate across strict boundaries:
 | Module | Allowed Upstream Modules | Prohibited Direct Dependencies | Communication Mechanism |
 |---|---|---|---|
 | **`server`** | `shared`, `core` | `auth`, `plugin`, `backup`, `exposure` | Publishes domain events to EventBus |
+| **`versioning`** | `shared`, `core`, `server` (queries), `operations` | `auth`, `plugin`, `exposure` | Publishes domain events; coordinates via OperationService |
+| **`operations`** | `shared`, `core` | `auth`, `plugin`, `backup`, `exposure` | Multi-step operation state & WS events |
+| **`activity`** | `shared`, `core` | `auth`, `plugin`, `backup`, `exposure` | Subscribes to domain events to record server activity |
 | **`auth`** | `shared`, `core` | `server`, `plugin`, `exposure` | Self-contained identity & permission context |
 | **`backup`** | `shared`, `core`, `server` (queries only) | `auth`, `plugin`, `exposure` | Subscribes to server events; executes sagas |
 | **`health`** | `shared`, `core`, `server` (queries only) | `plugin`, `exposure` | Subscribes to server lifecycle events |

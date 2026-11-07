@@ -4,10 +4,10 @@
 
 | Layer | Framework | Test Count | Location |
 |---|---|---|---|
-| Backend (unit + integration + lifecycle) | pytest + pytest-asyncio | **3,139 passed / 6 skipped (3,145 collected, 0 failures)** | `backend/tests/` |
-| Frontend (component + unit) | Vitest + jsdom | **752 passed across 89 files (0 failures)** | `frontend/src/**/*.test.*` |
+| Backend (unit + integration + lifecycle) | pytest + pytest-asyncio | **3,504 passed / 6 skipped (3,510 collected, 0 failures)** | `backend/tests/` |
+| Frontend (component + unit) | Vitest + jsdom | **1,113 passed across 125 files (0 failures)** | `frontend/src/**/*.test.*` |
 
-> Measured 2026-09-29 (see `docs/current-state.md` §2). Backend lint is enforced as a **Ruff
+> Measured 2026-11-07 (see `docs/current-state.md` §2). Backend lint is enforced as a **Ruff
 > baseline regression gate** — new violations fail CI while the pre-existing
 > baseline remains tracked in `backend/ruff-baseline.json` (see `scripts/check-ruff-baseline`).
 
@@ -43,9 +43,6 @@ cd backend && pytest -k "websocket"
 
 # Run with verbose output
 cd backend && pytest -v
-
-# Watch mode (re-run on changes)
-cd backend && pytest-watch
 ```
 
 ### Test Structure

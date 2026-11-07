@@ -52,7 +52,7 @@ def main() -> int:
                 rel = path
             print(f"  - {rel}", file=sys.stderr)
         print(
-            "\nRemediation: Remove stray SQLite files and ensure test/recon scripts use tmp_path or /tmp.",
+            "\nRemediation: Remove stray SQLite files and ensure test/diagnostic scripts use tmp_path or /tmp.",
             file=sys.stderr,
         )
         return 1

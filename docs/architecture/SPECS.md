@@ -32,7 +32,7 @@ repository shape, code statistics, structure, specs, and features.**
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |
 | DB dialect | SQLite (`aiosqlite`), PostgreSQL (`asyncpg`) |
-| Migrations | Alembic `>=1.13` (39 revisions, head `b1e2100000019`) |
+| Migrations | Alembic `>=1.13` (42 revisions, head `b1e2100000022`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (decoupled schema inspection, locks, and ACID backups) |
 | Validation / config | Pydantic v2 `>=2.5`, `pydantic-settings >=2.1` |
 | HTTP client | aiohttp `>=3.9` |
@@ -122,13 +122,13 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | storage | 5 | 472 | Storage backends (local/S3/encryption) |
 | shared | 3 | 282 | Shared value objects / exceptions |
 
-### Tests (measured 2026-09-29)
+### Tests (measured 2026-11-07)
 
 | Suite | Count | Detail |
 |---|---|---|
-| Backend | **3,139 passed / 6 skipped** (3,145 collected) | 200+ `test_*.py` files across `backend/tests/` |
-| Frontend | **752 passed across 89 test files** | `npm test` (`npx vitest run`) |
-| Total | **3,891 total (3,885 passed, 0 failed, 6 skipped)** | Full regression verification & 6/6 CI quality gates PASS |
+| Backend | **3,504 passed / 6 skipped** (3,510 collected) | 239 `test_*.py` files across `backend/tests/` |
+| Frontend | **1,113 passed across 125 test files** | `npm test` (`npx vitest run`) |
+| Total | **4,623 total (4,617 passed, 0 failed, 6 skipped)** | Full regression verification & 6/6 CI quality gates PASS |
 | Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit`, `versioning` |
 
 ---
@@ -141,7 +141,7 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 backend/
 ├── app/
 │   ├── api/v1/
-│   │   ├── routers/          # 16 REST routers (144 route handlers + 11 system routes = 155 live routes)
+│   │   ├── routers/          # 18 REST routers (148 route handlers + 7 system routes = 155 live routes)
 │   │   └── schemas/          # Pydantic response/request models
 │   ├── core/                 # settings, version, exceptions, buses, security
 │   ├── modules/              # 13 DDD modules (server, versioning, activity, exposure,
@@ -189,14 +189,13 @@ frontend/
 ```
 docs/
 ├── architecture/        # ARCHITECTURE, SPECS, DATABASE, FRONTEND, SECURITY, PROVISIONING, etc.
-├── decisions/           # 22 ADRs / DECISION records (0001–0016 + 6 DECISION records)
-├── design/              # Design specs (incl. testing-system-refactor/ 01–08)
-├── history/             # Historical features and bug remediation logs
+├── decisions/           # 33 ADRs / DECISION records (0001–0021 + 12 DECISION records)
+├── design/              # Design specs (incl. testing-system-refactor/ and frontend-overhaul/)
+├── project-history/     # Historical feature design reviews and notes
 ├── roadmap/             # ROADMAP_v1.1.md
 ├── reference/           # module-map.md, event-catalog.md, etc.
 ├── runtime/             # providers.md, etc.
-├── status/              # history.md
-API.md, CONTRIBUTING.md, DEPLOYMENT.md, DEVELOPMENT.md, FEATURE_IDEAS.md,
+API.md, DEPLOYMENT.md, DEVELOPMENT.md, FEATURE_IDEAS.md,
 README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 ```
 

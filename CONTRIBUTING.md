@@ -9,7 +9,7 @@ Thanks for your interest in contributing to ONX Manager! This guide covers the d
 1. Fork the repository and clone your fork
 2. Run `./scripts/bootstrap` to set up the environment (venv, deps, migrations)
 3. Start the dev environment: `python launcher.py`
-4. Read [docs/architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) before making changes
+4. Read [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) before making changes
 
 ---
 
@@ -73,13 +73,13 @@ Before submitting a PR, verify all of the following:
 | Gate | Command | Requirement |
 |---|---|---|
 | Version Propagation | `python3 scripts/check-version-propagation` | All versions match `0.1.0` |
-| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000019` |
+| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000022` |
 | Backend Lint Baseline | `python3 scripts/check-ruff-baseline` | Zero new violations beyond baseline |
-| Route/Permission Contract | `python3 scripts/check-route-contract` | 150 / 150 routes match `contracts/permissions.yaml` |
+| Route/Permission Contract | `python3 scripts/check-route-contract` | 155 / 155 routes match `contracts/permissions.yaml` |
 | PowerShell UTF-8 BOM | `python3 scripts/check-ps1-bom` | All `.ps1` scripts have valid UTF-8 BOM |
 | Stray DB Check | `python3 scripts/check-stray-db` | No stray SQLite `.db` files at repo root or backend root |
-| Backend Tests | `cd backend && pytest` | All 2,906+ tests passing (6 skipped, 0 failed) |
-| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test` | Typecheck, lint & tests passing (730 tests across 83 files) |
+| Backend Tests | `cd backend && pytest` | All 3,504 passed (6 skipped, 0 failed, 3,510 collected) |
+| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test` | Typecheck, lint & tests passing (1,113 tests across 125 files) |
 
 ### PR Checklist
 
@@ -96,12 +96,13 @@ Before submitting a PR, verify all of the following:
 
 The project follows a **modular monolith with hexagonal architecture**. Before changing any module, read its domain layer (`domain/aggregate.py`, `domain/events.py`) to understand its contracts.
 
-See [Architecture Overview](architecture/ARCHITECTURE.md) for the full picture.
+See [Architecture Overview](docs/architecture/ARCHITECTURE.md) for the full picture.
 
 ---
 
 ## Need Help?
 
-- Check [Getting Started](getting-started.md) for environment setup
-- Check [Development Guide](DEVELOPMENT.md) for common workflows
+- Check [Getting Started](docs/getting-started.md) for environment setup
+- Check [Development Guide](docs/DEVELOPMENT.md) for common workflows
+- Review our [Code of Conduct](CODE_OF_CONDUCT.md) and [Security Policy](SECURITY.md)
 - Open an issue or reach out directly

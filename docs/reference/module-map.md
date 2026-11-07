@@ -1,7 +1,7 @@
 # System Module Map & Route Inventory
 
 **Status:** Living Reference (Synchronized with live codebase)  
-**Backend Architecture:** Modular Monolith with 11 DDD Bounded Contexts & Hexagonal Architecture  
+**Backend Architecture:** Modular Monolith with 13 DDD Bounded Contexts & Hexagonal Architecture  
 **Frontend Architecture:** React 19 / Vite / TanStack Query with 22 pages
 
 ---
@@ -12,7 +12,9 @@
 |---|---|---|---|
 | **`server`** | Server aggregate root, lifecycle transitions, provisioning engine, launch config, process supervision, import scanner, filesystem reconciliation | `Server`, `ServerId`, `ServerStatus`, `ServerProperties`, `LaunchConfiguration` | `backend/app/modules/server/` |
 | **`versioning`** | Git-inspired server version control, commit DAG, tags, materialization worktrees, import reviews, test definitions, admission-scheduled test runs, branch protection | `ServerBranch`, `ServerCommit`, `ServerTag`, `Materialization`, `ImportReview`, `TestDefinition`, `Runtime`, `TestRun`, `BranchProtectionPolicy` | `backend/app/modules/versioning/` |
-| **`auth`** | User entity, password hashing (bcrypt), RS256 JWT tokens, RBAC/ABAC permissions, invite codes, API keys | `User`, `UserId`, `Role`, `Permission`, `ApiKey`, `InviteCode` | `backend/app/modules/auth/` |
+| **`operations`** | Multi-step operation state machine, step execution tracking, cooperative cancellation, idempotency, WebSocket projection | `Operation`, `OperationStep`, `OperationStatus` | `backend/app/modules/operations/` |
+| **`activity`** | Persistent per-server activity and audit logs | `ServerActivityLog` | `backend/app/modules/activity/` |
+| **`auth`** | User entity, password hashing (Argon2id/bcrypt), RS256 JWT tokens, RBAC/ABAC permissions, invite codes, API keys | `User`, `UserId`, `Role`, `Permission`, `ApiKey`, `InviteCode` | `backend/app/modules/auth/` |
 | **`backup`** | Backup saga, tar/gzip archiving, restoration orchestrator, S3/local storage strategies, checksum verification | `Backup`, `BackupId`, `BackupType`, `BackupStatus` | `backend/app/modules/backup/` |
 | **`health`** | System & server health classification, filesystem integrity guard, crash analyzer, automated recovery sagas | `HealthReport`, `IntegrityCheck`, `CrashClassification`, `RecoveryAction` | `backend/app/modules/health/` |
 | **`monitoring`** | Host & process CPU/RAM metrics collection, RCON client & TPS parsing, Prometheus metrics endpoint | `MetricPoint`, `MetricsSnapshot`, `AlertRule` | `backend/app/modules/monitoring/` |
@@ -24,28 +26,30 @@
 
 ---
 
-## 2. API Routers (`backend/app/api/v1/routers/` — 16 Routers)
+## 2. API Routers (`backend/app/api/v1/routers/` — 18 Routers)
 
 | Router | Prefix | Responsibility | Endpoint Count |
 |---|---|---|---|
-| `auth.py` | `/api/v1/auth` | User authentication, token issuance, refresh, logout, session inspection | 5 |
-| `users.py` | `/api/v1/users` | User management, role assignment, password updates, deactivation | 6 |
-| `invites.py` | `/api/v1/invites` | User invitation creation, token redemption, invite revocation | 4 |
+| `activity.py` | `/api/v1/servers/{id}/activity` | Per-server activity and audit log queries | 1 |
+| `auth.py` | `/api/v1/auth` | User authentication, token issuance, refresh, logout, session inspection | 7 |
+| `users.py` | `/api/v1/users` | User management, role assignment, password updates, deactivation | 5 |
+| `invites.py` | `/api/v1/invites` | User invitation creation, token redemption, invite revocation | 5 |
 | `setup.py` | `/api/v1/setup` | First-run owner bootstrap, system initialization guard | 3 |
-| `servers.py` | `/api/v1/servers` | Server CRUD, start/stop/restart/kill, console tail, command execution, retry-provisioning | 14 |
+| `servers.py` | `/api/v1/servers` | Server CRUD, start/stop/restart/kill, console tail, command execution, retry-provisioning | 19 |
 | `software.py` | `/api/v1/software` | Minecraft server software list, version discovery, download metadata | 4 |
-| `plugins.py` | `/api/v1/servers/{id}/plugins` | Installed plugin management, enable/disable, local JAR install/uninstall | 6 |
-| `marketplace.py` | `/api/v1/marketplace` | Global & server-scoped plugin search, project details, version listing, Modrinth install | 6 |
-| `backups.py` | `/api/v1/backups` | Backup creation, listing, restoration, deletion, download stream | 7 |
-| `exposure.py` | `/api/v1/exposure` & `/servers/{id}/exposure` | Cloudflare/Playit panel access, server tunnel mapping, UPnP forwarding, agent claim | 10 |
-| `files.py` | `/api/v1/servers/{id}/files` | Server filesystem browser, file read/write, directory listing, upload/delete | 8 |
-| `health.py` | `/api/v1/health` & `/servers/{id}/health` | System health checks, server integrity validation, crash reports, recovery triggers | 6 |
-| `monitoring.py` | `/api/v1/monitoring` | Host metrics, server CPU/RAM/TPS timeseries, resource alerts | 5 |
-| `schedules.py` | `/api/v1/schedules` | Automated scheduled tasks (backups, restarts, commands) | 6 |
-| `settings.py` | `/api/v1/settings` | Live application settings inspection, runtime config updates | 5 |
-| `versioning.py` | `/api/v1/servers/{id}/versioning` | Branches, protection, commits, merge, diff, tags, materializations, import reviews, test definitions, test runs, evidence | 40 |
+| `plugins.py` | `/api/v1/servers/{id}/plugins` & `/api/v1/plugins` | Installed plugin management, enable/disable, local JAR install/uninstall | 14 |
+| `marketplace.py` | `/api/v1/marketplace` | Global & server-scoped plugin search, project details, version listing, Modrinth install | 2 |
+| `backups.py` | `/api/v1/backups` | Backup creation, listing, restoration, deletion, verification | 5 |
+| `exposure.py` | `/api/v1/exposure` & `/servers/{id}/exposure` | Cloudflare/Playit panel access, server tunnel mapping, UPnP forwarding, agent claim | 18 |
+| `files.py` | `/api/v1/servers/{id}/files` | Server filesystem browser, file read/write, directory listing, upload/delete | 7 |
+| `health.py` | `/api/v1/health` & `/servers/{id}/health` | System health checks, server integrity validation, crash reports, recovery triggers | 5 |
+| `monitoring.py` | `/api/v1/monitoring` | Host metrics, server CPU/RAM/TPS timeseries, resource alerts | 4 |
+| `operations.py` | `/api/v1/operations` | Multi-step operation creation, status inspection, cooperative cancel, and retry | 5 |
+| `schedules.py` | `/api/v1/schedules` | Automated scheduled tasks (backups, restarts, commands) | 3 |
+| `settings.py` | `/api/v1/settings` | Live application settings inspection, runtime config updates | 2 |
+| `versioning.py` | `/api/v1/servers/{id}/versioning` | Branches, protection, commits, merge, diff, tags, materializations, import reviews, test definitions, test runs, evidence | 39 |
 
-*Total live routes: 150 (139 router endpoints + 11 system/app routes including `/ws`, `/health`, `/metrics`, `/.well-known/jwks.json`, OpenAPI). Verified by `./scripts/check-route-contract` (150/150 PASS).*
+*Total live routes: 155 (148 router endpoints + 7 system/app routes including `/ws`, `/health`, `/metrics`, `/.well-known/jwks.json`, OpenAPI). Verified by `./scripts/check-route-contract` (155/155 PASS).*
 
 ---
 
