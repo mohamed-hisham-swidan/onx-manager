@@ -1,10 +1,10 @@
 # Design Spec: Make Isolated Test Verification Real (Batch)
 
 **Document Status:** DRAFT FOR DESIGN REVIEW  
-**Governance Classification:** Decision Level D1 (Significant) / Lane A (Release Critical)  
-**Governing Authority:** `docs/governance/GOVERNANCE.md` §4–5, §12; `Orchestrator.md §5`  
+**Governance Classification:** Decision Level D1 (Significant) / Release Critical track (Release Critical)  
+**Governing Authority:** project governance standards§12; project engineering standards  
 **Spec Identifier:** `SPEC-2026-09-15-ISOLATED-TEST-REAL-VERIFICATION-01`  
-**Author:** Antigravity (Design Agent)  
+**Author:** ONX Engineering  
 **Date:** 2026-09-15  
 
 ---
@@ -28,7 +28,7 @@ Transform the stubbed isolated test runner into a real, automated verification e
 
 ### 2.1 Forensic Confirmation of Current Limitations
 
-Forensic analysis of the completed RECON and live codebase reveals that while the COW filesystem cloning (Btrfs/Zfs reflink) and test container startup function correctly, the actual verification pipeline is stubbed and decoupled from persistence and promotion:
+Forensic analysis of the completed codebase audit and live codebase reveals that while the COW filesystem cloning (Btrfs/Zfs reflink) and test container startup function correctly, the actual verification pipeline is stubbed and decoupled from persistence and promotion:
 
 ```
 [User triggers POST /api/v1/servers/{id}/versioning/tests]
@@ -496,7 +496,7 @@ Content-Type: application/json
 
 1. **Remote Multi-Node Worker Distribution:** Distributed execution across remote cluster nodes via Celery/Ray remains architectural groundwork (§3.7) and is not implemented in this batch.
 2. **Automated Mod Conflict Auto-Patching:** Analyzing crash reports detects and blames offending mods via `PatternCrashAnalyzer`, but does not attempt automated bytecode modification or mod removal.
-3. **Bedrock Protocol Verification:** Verification is strictly bounded to Java Edition Minecraft servers. Bedrock server management remains classified under Lane E (Future Product).
+3. **Bedrock Protocol Verification:** Verification is strictly bounded to Java Edition Minecraft servers. Bedrock server management remains classified under Future Product track (Future Product).
 
 ---
 
@@ -544,10 +544,10 @@ The following design decisions require explicit review and owner alignment befor
 
 ## 10. Governance Gate Check
 
-Per `docs/governance/GOVERNANCE.md` §4–5 and §12:
+Per project governance standardsand §12:
 
 1. **Lane Assignment:**  
-   **Lane A — Release Critical**  
+   **Release Critical track — Release Critical**  
    *Rationale:* Phase 4 (Community Features: Git-Inspired Versioning & Bot Testing) committed isolated test runs and verification as a primary release capability. Leaving test execution stubbed and promotion ungated represents an unverified functional gap and a critical data-integrity risk (unverified commits can silently overwrite live servers).
 2. **Decision Level:**  
    **Decision Level D1 (Significant)**  

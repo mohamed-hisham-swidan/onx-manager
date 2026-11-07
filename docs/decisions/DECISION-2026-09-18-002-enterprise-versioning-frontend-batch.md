@@ -1,7 +1,7 @@
 # DECISION-2026-09-18-002 — Enterprise Versioning Frontend UI Batch
 
 **Date:** 2026-09-18  
-**Decision Level:** D1 (Minor / Subsystem UI) — per GOVERNANCE.md §4: delivers frontend user interfaces for already-approved backend domain capabilities without modifying backend contracts or data models.  
+**Decision Level:** D1 (Minor / Subsystem UI) — per project governance standards: delivers frontend user interfaces for already-approved backend domain capabilities without modifying backend contracts or data models.  
 **Lane:** Standard / Frontend User Experience  
 **Status:** Approved (Authorized by Mohamed 2026-09-18; Built & Verified in commit `8b219ba`)  
 

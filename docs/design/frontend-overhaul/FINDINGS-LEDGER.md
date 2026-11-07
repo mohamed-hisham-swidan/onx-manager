@@ -22,7 +22,7 @@ This document tracks all review, audit, and design findings across the frontend 
 | **C4** | PART_C_CORRECTIONS | Batch Architecture (token engine in B1-B2 prior to components) | **CLOSED** | `5252a84` | `src/index.css`, `src/stores/uiStore.ts` |
 | **C5** | PART_C_CORRECTIONS | CodeEditor Strategy (retain in-house lightweight editor) | **CLOSED** | `f99f902` | `src/components/CodeEditor.tsx` |
 | **C6** | PART_C_CORRECTIONS | WebSocket client typing & concurrency | **CLOSED** | `483ec43` | `src/websocket/client.ts` |
-| **C7** | PART_C_CORRECTIONS | Governance Alignment (ADR-0021 under Lane B, D1) | **CLOSED** | `483ec43` | `docs/decisions/0021-frontend-ux-ia-overhaul-token-system.md` |
+| **C7** | PART_C_CORRECTIONS | Governance Alignment (ADR-0021 under Release Improvement track, D1) | **CLOSED** | `483ec43` | `docs/decisions/0021-frontend-ux-ia-overhaul-token-system.md` |
 | **C8-a** | PART_C_CORRECTIONS | OperationDrawer unmounted in layout | **CLOSED** | `92af315` | Mounted in `AppShell.tsx:54` and `ServerShell.tsx:307` |
 | **C8-b** | PART_C_CORRECTIONS | ServerResponse lacks live metrics / WS fleet metrics | **BACKEND-DEPENDENT** | Documented | `docs/design/frontend-overhaul/BACKEND-DEPENDENT.md` |
 | **C8-c** | PART_C_CORRECTIONS | Files API lacks server pagination/search | **CLOSED** (honest client UI) | `f99f902` | `src/server_manager/pages/ServerFilesPage.tsx:430` |

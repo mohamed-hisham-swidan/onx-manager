@@ -1,8 +1,8 @@
 # Design Spec: Isolated Test Boot Contract & Executable Staging Hardening
 
 **Document Status:** APPROVED WITH CHANGES  
-**Governance Classification:** Decision Level D1 (Significant) / Lane A (Release Critical)  
-**Governing Authority:** `docs/governance/GOVERNANCE.md` §4–5, §12; `Orchestrator.md §5, §7`  
+**Governance Classification:** Decision Level D1 (Significant) / Release Critical track (Release Critical)  
+**Governing Authority:** project governance standards§12; project engineering standards  
 **Spec Identifier:** `SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01`  
 **Review Decision:** Outcome: APPROVED WITH CHANGES (Design Review Decision 2026-09-15)  
 **Date:** 2026-09-15  
@@ -11,7 +11,7 @@
 
 ## 1. Context & Problem Statement
 
-Following the initial implementation of the isolated test verification engine (`SPEC-2026-09-15-ISOLATED-TEST-REAL-VERIFICATION-01`), design review and Windows-safety micro-recon revealed three critical operational contract gaps in the test container execution pipeline:
+Following the initial implementation of the isolated test verification engine (`SPEC-2026-09-15-ISOLATED-TEST-REAL-VERIFICATION-01`), design review and Windows-safety targeted code audit revealed three critical operational contract gaps in the test container execution pipeline:
 
 1. **Missing Container Launch Command (CMD):**  
    In `DockerTestExecutionRunner.run_test()`, the test container was launched via `docker run -d ... image` without appending a startup CMD. Because `resolve_docker_image()` returns base JRE images (`eclipse-temurin`), omitting the startup command causes the container to exit immediately or fail to launch the Minecraft server executable.
@@ -103,5 +103,5 @@ Refactor `SmokeTestRunner.run_smoke_test()` in `backend/app/modules/versioning/i
 ## 3. Scope Boundaries
 
 - Strictly bounded to the approved spec + the return-code fix.
-- No commit, push, or merge per `.ai/RULES/commit-and-safety.md` and `Orchestrator.md §15.7`.
+- No commit, push, or merge per project engineering policies and project engineering standards.
 - All quality gates must pass.

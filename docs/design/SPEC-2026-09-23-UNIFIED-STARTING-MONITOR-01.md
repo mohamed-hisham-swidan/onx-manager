@@ -3,9 +3,9 @@
 **Document Status:** DOCUMENTED DESIGN, NOT YET IMPLEMENTED — 2026-09-23  
 **Spec Identifier:** `SPEC-2026-09-23-UNIFIED-STARTING-MONITOR-01`  
 **Date:** 2026-09-23  
-**Governing Authority:** `docs/governance/GOVERNANCE.md`; `.ai/pls-agent-ignore-that/Orchestrator.md` §5  
+**Governing Authority:** project governance standards; project engineering standards
 
-> Design-completion gate note (per `.ai/RULES/documentation-and-state.md`):  
+> Design-completion gate note (per project engineering policies):  
 > this is a **documented design, not yet implemented**.
 
 ---
@@ -162,15 +162,14 @@ zero frontend visibility into the wait.
   statement found in the Build-time audit.
 - Frontend: banner/timer component tests (elapsed-time display, warning
   state past timeout, check-now action, dismiss-is-idempotent behavior).
-- Full backend + frontend suites + all 6 CI gates, per Orchestrator.md §9.
-- Manual live verification (matches the project's established no-
+- Full backend + frontend suites + all 6 CI gates, per project engineering standardsManual live verification (matches the project's established no-
   trust-unverified-claims culture): start a regular Docker server and
   confirm the new wait_ready actually gates RUNNING on real boot, not
   container-start; run an isolated test against a fresh branch/commit
   with an intentionally-short-looking window and confirm the
   first-boot/download case no longer false-fails.
 
-## Governance Gate Check (per GOVERNANCE.md)
+## Governance Gate Check (per project governance standards)
 - Lane: D1+ (confirmed by Mohamed) — cross-cutting, touches server
   module, versioning module, and settings/config surface.
 - Reversible: yes — additive fields/settings, no destructive migration,
@@ -183,7 +182,7 @@ zero frontend visibility into the wait.
 - Any change to the reconciliation age-gate values themselves (reused
   as-is per Finding A3, unless Design Review decides otherwise).
 - ServerConsole.tsx's own STARTING-related elements — unchecked by
-  recon, must be audited at Build to avoid a duplicate/conflicting
+  codebase audit, must be audited at Build to avoid a duplicate/conflicting
   timer surface.
 - Dev-DB phantom-row cleanup, DB-isolation work — unrelated, tracked
   separately.

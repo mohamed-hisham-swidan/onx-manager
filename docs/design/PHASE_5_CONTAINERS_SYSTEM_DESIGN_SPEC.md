@@ -1,11 +1,10 @@
 # Design Spec: Phase 5 — Containers System (Docker Integration)
 
 **Document Status:** APPROVED & FULLY IMPLEMENTED (Phase 5 Closed 2026-09-11)  
-**Governance Classification:** Decision Level D2 (Major) / Lane B (Release Improvement)  
-**Governing Authority:** `docs/governance/GOVERNANCE.md` §4–5  
-**Preceding Precedent:** DECISION-2026-09-10-001 (Build Phase 5 before Phase 4 starts)  
+**Governance Classification:** Decision Level D2 (Major) / Release Improvement track (Release Improvement)  
+**Governing Authority:** project governance standards**Preceding Precedent:** DECISION-2026-09-10-001 (Build Phase 5 before Phase 4 starts)  
 **Target Delivery:** Phase 5 — Containers System  
-**Author:** Antigravity (Design Agent)  
+**Author:** ONX Engineering  
 **Date:** 2026-09-11  
 
 ---
@@ -460,7 +459,7 @@ Location: `backend/tests/integration/test_docker_live_daemon.py`
 ## 8. Out of Scope
 
 1. **GPS / Local-Global-Mode Validation:**
-   - Explicitly excluded: *"GPS/local-global-mode validation — blocked pending Mohamed's definition (roadmap-stated, recon-confirmed undefined in code as of 2026-09-10)"*. No implementation, interfaces, or assumptions will be introduced for GPS in this phase.
+   - Explicitly excluded: *"GPS/local-global-mode validation — blocked pending Mohamed's definition (roadmap-stated, audit-confirmed undefined in code as of 2026-09-10)"*. No implementation, interfaces, or assumptions will be introduced for GPS in this phase.
 2. **Phase 4 Community Features:**
    - Features #1 to #5 of Phase 4 (transparent update system, test environment, custom mod support, change history log, log readability) are strictly out of scope for Phase 5 design and build.
 3. **Multi-Host Clustering & Orchestration:**
@@ -537,7 +536,7 @@ Location: `backend/tests/integration/test_docker_live_daemon.py`
 
 ## 11. Acceptance & Sign-off Gate
 
-Per `docs/governance/GOVERNANCE.md` §4–5, this D2 (Major) Design Spec was reviewed and signed off by Mohamed before Build began. All 6 batches are complete, verified, and merged.
+Per project governance standardsthis D2 (Major) Design Spec was reviewed and signed off by Mohamed before Build began. All 6 batches are complete, verified, and merged.
 
 - [x] **Mohamed Approval:** Approved 2026-09-11 (D2 scope commitment).
 - [x] **Roadmap Sync:** Synchronized `ROADMAP_v1.1.md` Phase 5 scope with this design spec (CLOSED 2026-09-11).

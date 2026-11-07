@@ -4,8 +4,8 @@
 - **Status:** Draft / Revision 2 (Addressing Independent Design Review Findings F1–F21)
 - **Date:** 2026-10-05
 - **Role:** Design Spec Author (Design Only — no implementation code modified, no commits)
-- **Governance Classification:** Lane E (Future Product) / Decision Level: D2 (Major)
-- **Baseline Evidence:** RECON findings (Muse Spark 1.3) and Review Findings (F1–F21), re-verified against code.
+- **Governance Classification:** Future Product track (Future Product) / Decision Level: D2 (Major)
+- **Baseline Evidence:** codebase audit findings  and Review Findings (F1–F21), re-verified against code.
 - **Evidence Labeling Discipline:**
   - `[FACT]`: Verified directly against repository code, tests, or database models.
   - `[ASSUMPTION]`: Inferred system behavior or operational expectation.
@@ -27,7 +27,7 @@ This revised specification formalizes three interrelated capabilities for ONX Ma
 
 | Gate Item | Evaluation | Status |
 |---|---|---|
-| **Governance Classification** | Lane E (Future Product), Decision Level D2 (Major). Touches core branch lifecycle, Files API routing contract, and database schemas. Does not block v0.1.0 launch gates. | **D2 COVERAGE REQUIRED** |
+| **Governance Classification** | Future Product track (Future Product), Decision Level D2 (Major). Touches core branch lifecycle, Files API routing contract, and database schemas. Does not block v0.1.0 launch gates. | **D2 COVERAGE REQUIRED** |
 | **API Contract Impact** | Extends all 7 Files API routes with optional query parameters (`source`, `ref`); adds endpoint `POST /api/v1/servers/{server_id}/versioning/materializations/{mat_id}/commit`. Updates `contracts/permissions.yaml`. | **D2 REQUIRED** |
 | **DB Schema Impact** | Migration `b1e2100000023` (down_revision `b1e2100000022`) adds `is_system: bool` and check constraints to `server_branches`. Dual-dialect support (SQLite + PostgreSQL). Bumps `RELEASE_MINIMUM_DB_REVISION`. | **D2 REQUIRED** |
 | **Stage-B Hard-Stop Provenance** | The Stage-B Design Spec (`docs/design/testing-system-refactor/03-stage-b-real-version-control-design-spec.md:30`) states: *"NO auto-resolution — Hard Stop"*. Decision `docs/decisions/DECISION-2026-09-17-001:22` authorizes merge commits with caller-supplied manifests on conflict. Fast-forward pointer advancement introduces NO auto-resolution, but because it introduces pointer advancement into protected branches, it requires explicit D2 coverage. | **GOVERNED UNDER D2** |
@@ -633,7 +633,7 @@ Part A (W1–W4, W6: main Provisioning, System Protection, Genesis, Files Guard)
 
 # Verification Gates & Test Plan
 
-All three parts must satisfy the repository's 6 canonical CI quality gates before merge (`[FACT]` `testing-and-verification.md:45`, `STATE.json:32`):
+All three parts must satisfy the repository's 6 canonical CI quality gates before merge (`[FACT]` `testing-and-verification.md:45`, project state tracking):
 1. `scripts/check-db-revision`: Passes against migration `b1e2100000023`.
 2. `scripts/check-ruff-baseline`: Clean lint on all new/modified Python files.
 3. `scripts/check-version-propagation`: App version integrity maintained.
@@ -642,7 +642,7 @@ All three parts must satisfy the repository's 6 canonical CI quality gates befor
 6. `scripts/check-stray-db`: No stray SQLite databases created in repo root.
 
 ### Full Test Execution Requirements
-Per `.ai/RULES/testing-and-verification.md:9-20`, milestone verification requires a **sequential** backend run with minimum 15-minute command timeout:
+Per project engineering policies:9-20`, milestone verification requires a **sequential** backend run with minimum 15-minute command timeout:
 ```bash
 # Backend sequential verification
 cd backend && python -m pytest -q

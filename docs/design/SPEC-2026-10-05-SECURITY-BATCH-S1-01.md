@@ -2,7 +2,7 @@
 
 Status: Implemented in working tree 2026-10-06 (uncommitted; verification: backend 3228 passed / 6 skipped sequential, frontend 767, 6/6 gates)
 Revision: 1.1 (supersedes in-prompt v1.0, which was never saved to disk; see Change Log §13) + §6.1/§13 amendment 2026-10-06 (poisoned-row 422 surface + DB-surgery repair, verified live)
-Lane: Lane A (Release Critical — confirmed security vulnerability fixes)
+Lane: Release Critical track (Release Critical — confirmed security vulnerability fixes)
 Decision level: D1 (multi-module bug fix within established architecture; no `permissions.yaml` change)
 Date: 2026-10-05
 
@@ -540,7 +540,7 @@ strictly OUT OF SCOPE for Security Batch S1 (identical to v1.0):
 
 ## 9. Governance Gate Result
 
-- Lane: Lane A (Release Critical) — GOVERNANCE.md §12 auto-classification of
+- Lane: Release Critical track (Release Critical) — project governance standardsauto-classification of
   confirmed security bugs. No scheduling decision is made here.
 - Decision level: D1 (Standard, §4 — multi-module fix affecting user behavior
   and release capacity; record required, this file). Not D2: no architecture,
@@ -616,14 +616,14 @@ Per `scripts/`, all 6 canonical CI quality gates must pass before promotion
 
 ---
 
-## 14. Build Prompt (copy-paste executor handoff — Lane A, D1)
+## 14. Build Prompt (copy-paste executor handoff — Release Critical track, D1)
 
 > ROLE: Build agent implementing SPEC-2026-10-05-SECURITY-BATCH-S1-01 Rev 1.1.
 > TASK: Implement S1.1 + S1.2 + S1.3 exactly as specified in §§3–7 below. No design
 > changes — spec ambiguities are D1+: stop and ask, do not reinterpret.
 >
-> BOOTSTRAP FIRST (in order): `AGENTS.md` → `.ai/README.md` → `.ai/STATE.json`
-> → `docs/governance/GOVERNANCE.md` §4/§12 (Lane A, D1) → `.ai/RULES/`
+> BOOTSTRAP FIRST (in order): project contributor guide → project documentation → project state tracking
+> → project governance standards§12 (Release Critical track, D1) → project engineering policies
 > (`core-principles.md`, `scope-and-implementation.md`,
 > `testing-and-verification.md`, `commit-and-safety.md`,
 > `documentation-and-state.md`). State BOOTSTRAP COMPLETE, then start.
@@ -648,7 +648,7 @@ Per `scripts/`, all 6 canonical CI quality gates must pass before promotion
 > if secret-bearing). FORBIDDEN: `contracts/permissions.yaml`,
 > `backend/app/modules/server/infrastructure/repository.py` (especially the
 > `except` at `:184` — do NOT widen), `SENSITIVE_FILENAMES`, any router guard,
-> `.ai/STATE.json` (executor does not update state), any other spec/doc.
+> project state tracking (executor does not update state), any other spec/doc.
 >
 > ORDER (sequential; each step green before the next):
 > 1. S1.1 grammar (§3 S1.1.1): `_reject_shell_metachars` + constructor wiring.

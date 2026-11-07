@@ -2,7 +2,7 @@
 
 **Document Status:** DRAFT  
 **Governance Level:** D1 (Architectural extension of existing server configuration paths)  
-**Target Lane:** Lane B (Feature & Diagnostic Layer)  
+**Target Lane:** Release Improvement track (Feature & Diagnostic Layer)  
 **Scope:** Design Only (No Implementation Code)
 
 ---

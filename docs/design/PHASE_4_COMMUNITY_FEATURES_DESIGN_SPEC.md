@@ -1,13 +1,13 @@
 # Design Spec: Phase 4 — Community Feature Build (Feedback Pool)
 
 **Document Status:** DRAFT FOR DESIGN REVIEW  
-**Governance Classification:** Decision Level D2 (Major — 5 Community Features, Standalone Subsystem) / Lane B (Release Improvement)  
-**Governing Authority:** `docs/governance/GOVERNANCE.md` §4–5, §15–16  
+**Governance Classification:** Decision Level D2 (Major — 5 Community Features, Standalone Subsystem) / Release Improvement track (Release Improvement)  
+**Governing Authority:** project governance standards§15–16  
 **Preceding Precedents:**  
 - [`DECISION-2026-09-10-001`](../decisions/DECISION-2026-09-10-001.md) (Phase 5 Built & Closed Ahead of Phase 4)  
 - [`DECISION-2026-09-12-001`](../decisions/DECISION-2026-09-12-001.md) (Redefine Phase 4 Feature 1 as Standalone Git/CI-CD-Inspired Versioning & Test System)  
 **Target Delivery:** Phase 4 — Feature Build from Community Feedback Pool (`ROADMAP_v1.1.md`)  
-**Author:** Antigravity (Design Agent)  
+**Author:** ONX Engineering  
 **Date:** 2026-09-12  
 **Revision:** 2026-09-13 — §3.5 finalized per Mohamed's sign-off on all 12 review items (clamps removed in favor of ResourcePreflightProbe sole guard, server-type-aware auto bot_tech selection, configurable defaults throughout, per-server JSON column, and candid self-review). Features 3–5 content unchanged.
 
@@ -15,7 +15,7 @@
 
 ## Executive Summary & Architectural Posture
 
-This Design Spec defines the complete implementation architecture for Phase 4 of ONX Manager. It is structured around four locked governance decisions established during RECON:
+This Design Spec defines the complete implementation architecture for Phase 4 of ONX Manager. It is structured around four locked governance decisions established during codebase audit:
 
 1. **Feature 1 Redefinition (DECISION-2026-09-12-001):** Feature 1 is redefined as a **standalone git/CI-CD-inspired versioning and isolated-testing subsystem** (branch/commit tracking, copy-on-write world snapshots, isolated test containers, multi-node groundwork). It is architecturally decoupled from the production `ServerProvider` hierarchy (`LocalLinuxProvider`, `LocalWindowsProvider`, `DockerProvider`), ensuring zero regressions to live production server lifecycles.
 2. **Feature 2 Merge:** Feature 2 (Test Environment) is fully absorbed into Feature 1. Disposable test instances are realized exclusively through Feature 1's isolated test-container pipeline.
@@ -106,7 +106,7 @@ The rejected "90s automated boot probe + optional 15-minute human play-test" mod
 - The supervising runner records per-bot connect time, disconnects, server log readiness markers, and any `crash-reports/*.txt` appearance. **Pass = automated runtime sanity check passed (all required bots connected within the connect window and the server survived the full duration with no crash reports or unrecoverable disconnects). Fail = any bot unable to connect within the window, any mid-run disconnect the bot cannot recover from, container exit/crash during the run, or a crash-report file appearing.** Failure handling (halt, parse crash log via Feature 5, mark `FAILED`, surface failed-mod list) is unchanged from the prior model.
 
 ##### 3.5.2 Bot Technology Selection (Hybrid, per Mohamed Decision 1 & Sign-Off Item 6)
-- **Primary: Mineflayer (Node.js, MIT, protocol-level).** Covers MC 1.8→26.1 (including 1.16.x–1.21.11), supports offline auth, runs headless with no GPU, and provides built-in movement physics (`setControlState('forward'/'jump')`). Works on **all** server types (vanilla, Paper, Forge, Fabric, NeoForge). Footprint ≈ 30–50 MB per bot. Caveat carried from RECON: brand-new MC drops lag Mineflayer releases by weeks–months (26.2 unreleased at time of writing), so the driver pins a minimum Mineflayer version per supported MC range and surfaces a clear error for unsupported brand-new protocols.
+- **Primary: Mineflayer (Node.js, MIT, protocol-level).** Covers MC 1.8→26.1 (including 1.16.x–1.21.11), supports offline auth, runs headless with no GPU, and provides built-in movement physics (`setControlState('forward'/'jump')`). Works on **all** server types (vanilla, Paper, Forge, Fabric, NeoForge). Footprint ≈ 30–50 MB per bot. Caveat carried from codebase audit: brand-new MC drops lag Mineflayer releases by weeks–months (26.2 unreleased at time of writing), so the driver pins a minimum Mineflayer version per supported MC range and surfaces a clear error for unsupported brand-new protocols.
 - **Complementary fast path: fakeplayer-next (Apache-2.0, server-side Paper/Purpur plugin).** Near-zero footprint; walk/jump via plugin commands. **Paper/Purpur-family only** — structurally incapable of verifying vanilla/Forge/Fabric servers, and it bypasses the real network login path, so it never replaces protocol-level verification where fidelity matters.
 - **Selection logic (server-type-aware auto-resolution):** `bot_tech` per-run field with values `auto | mineflayer | fakeplayer_next` (default: `auto`, user-configurable). When `bot_tech=auto`, the system dynamically detects the test server's software type:
   - **Paper/Purpur-family servers** (`paper`, `purpur`, `folia`, `pufferfish`) $\rightarrow$ **auto-selects `fakeplayer_next`** (the fast, lightweight path with near-zero memory footprint and instantaneous startup).
@@ -273,7 +273,7 @@ Minecraft servers scan and boot every `.jar` file present in `mods/`. Setting a 
 #### 3.4 Modrinth Catalog Unblocking
 Remove `fabric`, `forge`, `neoforge` from `_MANUAL_SERVER_TYPES` in `install_modrinth_plugin.py`. Route downloaded files to `mods/` when the server type is modded.
 
-#### 3.5 Resolution of RECON Open Unknowns
+#### 3.5 Resolution of codebase audit Open Unknowns
 - **Catalog vs Direct Upload Scope:** **Recommendation:** Implement BOTH direct custom `.jar` upload AND Modrinth mod search/download. *Rationale:* Modrinth provider already supports `project_type="mod"`; unblocking the blacklist and routing files to `mods/` is minimal incremental effort that delivers a complete mod manager.
 - **Client vs Server Mod Filtering:** **Recommendation:** Non-blocking warning badge in UI. Parse `fabric.mod.json` (`environment: "client"`) or Forge metadata. If a client-only mod is detected (e.g. Sodium, Iris, JEI), display a warning badge ("Client-only mod detected — may fail or be ignored on dedicated server"), but do not hard-block installation.
 
@@ -326,7 +326,7 @@ An asynchronous `ActivityEventSubscriber` subscribes to the global `EventBus` an
   - Backups: `BackupCreatedEvent`, `BackupRestoredEvent`, `BackupDeletedEvent`
   - Versioning/Testing: `CommitCreatedEvent`, `TestRunStartedEvent`, `TestRunCompletedEvent`, `CommitPromotedEvent`
 
-#### 3.2 Resolution of RECON Open Unknowns
+#### 3.2 Resolution of codebase audit Open Unknowns
 - **Event Granularity:** **Recommendation:** Capture both user-initiated API mutations (with actor ID, IP, and summary) AND significant system lifecycle transitions (crashes, recovery runs). Exclude high-frequency background noise (TPS metric polls, websocket heartbeats).
 - **Storage Strategy:** **Recommendation:** Create a dedicated `server_activity_logs` table rather than overloading the auth `audit_log` hash chain. *Rationale:* Activity logs require fast paginated queries with composite filtering on `(server_id, timestamp)`, whereas `audit_log` is a sequential cryptographic ledger for security auditing.
 
@@ -386,7 +386,7 @@ Update `GetServerConsoleHandler`: if the server runtime is absent or server stat
   - Passes crash reports to `PatternCrashAnalyzer` (extended with Forge `ModLoadingException` and Fabric `ModResolutionException` patterns).
   - Returns structured `CrashReportSummary`: timestamp, failure code, blamed mod (if identifiable), stack trace snippet, and suggested remediation.
 
-#### 3.3 Resolution of RECON Open Unknowns
+#### 3.3 Resolution of codebase audit Open Unknowns
 - **Transport Mechanism:** **Recommendation:** Use WebSocket streaming (`server:<id>:console` channel, already verified in Phase 5) for live log streaming while running, with HTTP query fallback for initial history and offline reading. Eliminates aggressive 3s HTTP polling.
 - **UI Presentation:** **Recommendation:** Inline severity highlighting and search directly in `ServerConsole.tsx`, accompanied by a prominent "Crash Detected" alert banner that opens an inspectable `CrashReportViewerModal` with formatted stack traces and blamed-mod remediation advice.
 
@@ -426,7 +426,7 @@ In `ServerConsole.tsx`:
 
 ## Inter-Feature Dependencies & Natural Order
 
-While build-batch planning will be formalized separately, this Design Spec acknowledges the natural dependency flow established during RECON:
+While build-batch planning will be formalized separately, this Design Spec acknowledges the natural dependency flow established during codebase audit:
 
 ```text
 ┌────────────────────────────────────────────────────────┐
@@ -455,7 +455,7 @@ While build-batch planning will be formalized separately, this Design Spec ackno
 
 ---
 
-## Design Review Self-Application (Orchestrator.md §6 Checklist)
+## Design Review Self-Application (project engineering standardsChecklist)
 
 | Criteria | Assessment | Detail |
 |---|:---:|---|

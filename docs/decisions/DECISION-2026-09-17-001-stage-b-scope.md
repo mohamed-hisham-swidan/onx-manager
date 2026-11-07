@@ -1,8 +1,8 @@
 # DECISION-2026-09-17-001 — Stage B (Real Version Control) Scope Authorization
 
 **Date:** 2026-09-17  
-**Decision Level:** D2 (Major) — per GOVERNANCE.md §4: changes persistence strategy, core contracts, and migration strategy.  
-**Lane:** Release Improvement (per GOVERNANCE.md §9) — planned platform refactor under the Enterprise Branch Runtime effort.  
+**Decision Level:** D2 (Major) — per project governance standards: changes persistence strategy, core contracts, and migration strategy.  
+**Lane:** Release Improvement (per project governance standards) — planned platform refactor under the Enterprise Branch Runtime effort.  
 **Status:** Approved (Authorized by Mohamed 2026-09-17; Built & Verified in commit `641ea58`)  
 
 ---

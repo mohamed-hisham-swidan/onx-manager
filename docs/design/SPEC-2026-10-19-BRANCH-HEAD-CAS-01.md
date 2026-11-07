@@ -1,6 +1,6 @@
 # SPEC-2026-10-19-BRANCH-HEAD-CAS-01 — Branch-Head Atomicity (CAS)
 
-Lane A (Release Critical)
+Release Critical track (Release Critical)
 Decision level: D1
 Status: DRAFT v2
 Changelog: v2 applies independent-review changes R1–R9 (see "Change Log (v1 → v2)").
@@ -824,7 +824,7 @@ cd backend && python -m pytest -q \
 ```
 
 Then the versioning suite and, for close-out, the sequential full backend
-suite (evidence rule, `.ai/RULES/testing-and-verification.md`):
+suite (evidence rule, project engineering policies):
 
 ```
 cd backend && python -m pytest -q tests -k versioning
@@ -934,6 +934,6 @@ report rather than guessing.
   retry pattern in `archive_branch.py`, `branch_protection.py`,
   `create_branch.py`, or `auto_commit_live_changes.py`; R1 scope is
   create/merge only.
-- Per this task's MODE constraint (exactly one file), `.ai/STATE.json` was
+- Per this task's MODE constraint (exactly one file), project state tracking was
   intentionally **not** updated for this DRAFT; it will be recorded when the
   build phase lands.

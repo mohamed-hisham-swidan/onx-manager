@@ -9,7 +9,7 @@
 | Date | 2026-10-21 |
 | HEAD | `5b775e4` (original inspection baseline was origin/master `e67e59a`) |
 | Spec ID | `SPEC-2026-10-20-DYNAMIC-PORT-FIXES-01` |
-| Governance | `docs/governance/GOVERNANCE.md`; `.ai/RULES/core-principles.md`; `.ai/RULES/scope-and-implementation.md`; `.ai/RULES/testing-and-verification.md` |
+| Governance | project governance standards; project engineering policies |
 | Related | `docs/design/SPEC-2026-10-20-DYNAMIC-BACKEND-PORT-01.md`; `docs/decisions/0019-dynamic-backend-port.md` |
 | Mode | Design. This task creates only this file. No code, test, state, ADR, or preflight edits; no git writes. |
 | Revision | v5.3 (2026-10-23) |
@@ -74,7 +74,7 @@ The background-process fallback already uses `O_APPEND` (`launcher.py:1422`), so
 
 Those variables are passed only to the Vite child (`launcher.py:1311`). The old spec, ADR-0019, and preflight all state the precedence `ONX_BACKEND_PORT` > `MCS_BACKEND_PORT` > `.onx/config.json` > `8000` (`docs/design/SPEC-2026-10-20-DYNAMIC-BACKEND-PORT-01.md:107`, `docs/decisions/0019-dynamic-backend-port.md:53-54`, `scripts/preflight.sh:45-54`, `scripts/preflight.py:85-90`).
 
-`.ai/STATE.json:159` currently claims this precedence is implemented. That claim was false at `e67e59a` and is true at `cf827e8`.
+project state tracking currently claims this precedence is implemented. That claim was false at `e67e59a` and is true at `cf827e8`.
 
 Crucially, the D-1 rationale in the v1 spec was flawed: **historical (pre-B4 / pre-HEAD)**, `scripts/preflight.py:85-90` (at `e67e59a`) evaluated `os.environ.get("ONX_BACKEND_PORT") or os.environ.get("MCS_BACKEND_PORT")`. When `ONX_BACKEND_PORT` is set to an invalid non-empty string, Python's `or` short-circuits on the truthy string; `_valid_port()` evaluates to `False`, and execution jumps directly to `_read_config_backend_port() or 8000`. It does NOT fall through to `MCS_BACKEND_PORT`. Bash (`scripts/preflight.sh:45-54`) resets an invalid port directly to `8000`. Neither script implements proper fall-through across all tiers.
 
@@ -421,7 +421,7 @@ Tests in `backend/tests/test_launcher_dynamic_port.py` must adhere to rigorous l
 | `launcher.py` | F1 stop ownership guard; F2 append/offset guard; F3 env precedence and persistence distinction; F4 failure reconciliation; F5 shared health predicate; F6 EOF refusal. | Design only |
 | `scripts/preflight.sh` / `scripts/preflight.py` | Align invalid-preferred fallback and `1024..65535` range with F3; no new contract. | Design only |
 | `backend/tests/test_launcher_dynamic_port.py` | Add/replace the tests named below. | Design only |
-| `.ai/STATE.json` | Correct the false precedence claim and record these defects. Separate docs/state patch. | Not edited |
+| project state tracking | Correct the false precedence claim and record these defects. Separate docs/state patch. | Not edited |
 | `docs/DEVELOPMENT.md` | Replace hard-coded `:8000` guidance with dynamic-port/preflight behavior. Separate docs patch. | Not edited |
 
 No production Docker, nginx, backend API, database, or frontend behavior changes.
@@ -666,7 +666,7 @@ Preflight scripts must be verified alongside the launcher:
 - Production Docker/nginx/backend API changes.
 - Modifying `PortManager.belongs_to_project` heuristic keywords or adding new project markers.
 - Modifying the port scan span (`100` ports) or maximum retry count (`3` attempts).
-- **Rollback awareness:** satisfied per `.ai/RULES/scope-and-implementation.md` by the per-batch revert notes above (small local, unpushed diffs at HEAD `5b775e4`).
+- **Rollback awareness:** satisfied per project engineering policies by the per-batch revert notes above (small local, unpushed diffs at HEAD `5b775e4`).
 - **Residual risk (D-9 non-atomic window):** an inherent non-atomic window remains between the last `create_time` revalidation and signal emission, including `kill_on_port`'s internal resolve -> verify -> signal sequence; accepted because the `0.5` s `create_time` tolerance makes PID reuse within that window vanishingly unlikely.
 
 ---
@@ -754,7 +754,7 @@ These documentation and state updates are separate from the core code build and 
 1. **`docs/DEVELOPMENT.md`:**
    - **Docker statements stay at `:8000`:** Line 225 (`"Both backend (uvicorn on :8000) and frontend (nginx on :80) are defined in docker-compose.yml"`) and lines 220-228 reside in the "Docker Development" section where fixed port 8000 is intentional. These statements must remain `:8000`.
    - **Local development lines updated:** Update local dev sections (`:63`, `:86`, `:100`, `:119`, `:148`, `:299`, `:303`) to describe dynamic preferred port resolution, runtime active port `.onx/backend.port`, panel-signature health verification, precedence (`ONX_BACKEND_PORT` > `MCS_BACKEND_PORT` > `.onx/config.json` > `8000`), and `ConfigManager.save()` persisting `configured_backend_port`.
-2. **`.ai/STATE.json`:**
+2. **project state tracking:**
    - Correct claims regarding stop path foreign-listener safety (recording that ownership gating on both active-port and `backend.pid` fallback was added to close foreign signaling vulnerabilities).
    - Record F1-F7 defect resolutions once verified by CI.
 3. **`launcher.py:98-99` dead constants (documentation note only):**
@@ -962,11 +962,11 @@ Implemented in 5b775e4. Known minor difference: the Bash script reads .onx/confi
 - **Gate Commands:** `cd backend && python -m pytest -q tests/test_launcher_dynamic_port.py`
 - **Dependencies:** None.
 
-### Batch B9: Docs Patch - STATE.json, DEVELOPMENT.md, ADR-0019 & Parent Spec Amendments
-- **Target Files:** `.ai/STATE.json`, `docs/DEVELOPMENT.md`, `docs/decisions/0019-dynamic-backend-port.md`, `docs/design/SPEC-2026-10-20-DYNAMIC-BACKEND-PORT-01.md`.
+### Batch B9: Docs Patch - project state tracking, DEVELOPMENT.md, ADR-0019 & Parent Spec Amendments
+- **Target Files:** project state tracking, `docs/DEVELOPMENT.md`, `docs/decisions/0019-dynamic-backend-port.md`, `docs/design/SPEC-2026-10-20-DYNAMIC-BACKEND-PORT-01.md`.
 - **Scope:**
   - Dedicated docs-only patch: no code modifications to `launcher.py`.
-  - Correct `.ai/STATE.json:159` claims regarding environment precedence and stop path foreign-listener safety.
+  - Correct project state tracking claims regarding environment precedence and stop path foreign-listener safety.
   - Update `docs/DEVELOPMENT.md` local dev lines while strictly preserving Docker statements at `:8000` (line 225). Record `ConfigManager.save()` persisting `configured_backend_port`.
   - Record dead constants in `launcher.py:98-99` (`BACKEND_HEALTH_URL`, `SWAGGER_URL`) as a documentation note only.
   - Deliver parent spec and ADR-0019 documentation amendments for D-3 and D-7.
@@ -974,4 +974,4 @@ Implemented in 5b775e4. Known minor difference: the Bash script reads .onx/confi
 - **Tests Added/Updated:** Full quality gates run (`scripts/reverify`).
 - **Gate Commands:** `scripts/reverify && cd backend && python -m pytest -q`
 - **Dependencies:** all (B1 through B8 complete).
-- **Rollback:** Docs-only revert of `.ai/STATE.json`, `docs/DEVELOPMENT.md`, ADR-0019, and the parent spec; revert the docs commit. Commits are local and unpushed at HEAD `5b775e4`.
+- **Rollback:** Docs-only revert of project state tracking, `docs/DEVELOPMENT.md`, ADR-0019, and the parent spec; revert the docs commit. Commits are local and unpushed at HEAD `5b775e4`.

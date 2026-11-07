@@ -1,7 +1,7 @@
 # DECISION-2026-09-17-001 — Stage B (Real Version Control) Scope Authorization
 
 **Date:** 2026-09-17
-**Decision Level:** D2 (Major) — per GOVERNANCE.md §4: changes persistence strategy, core contracts, and migration strategy.
+**Decision Level:** D2 (Major) — per project governance standards: changes persistence strategy, core contracts, and migration strategy.
 **Status:** Approved (Authorized by Mohamed 2026-09-17; Built & Verified in commit `641ea58`)
 **Canonical Location:** `docs/decisions/DECISION-2026-09-17-001-stage-b-scope.md`
 
@@ -46,4 +46,4 @@ The multi-parent migration is additive: single-parent commits remain valid, and 
 
 ## Decided by
 
-Drafted by Claude (Orchestrator) from independent Design Review evidence dated 2026-09-17. Requires Mohamed's explicit approval to take effect — this document is a proposal, not yet a ratified decision.
+Drafted from independent design review evidence dated 2026-09-17. Requires Mohamed's explicit approval to take effect — this document is a proposal, not yet a ratified decision.

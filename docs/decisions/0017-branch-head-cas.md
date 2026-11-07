@@ -4,7 +4,7 @@
 **Date**: 2026-10-20  
 **Author**: F1-1 Build/Review Session  
 **Decision level**: D1  
-**Primary lane**: Lane A (Release Critical)  
+**Primary lane**: Release Critical track (Release Critical)  
 
 ## Context
 

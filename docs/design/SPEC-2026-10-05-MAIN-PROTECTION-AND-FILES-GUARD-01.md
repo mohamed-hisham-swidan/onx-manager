@@ -3,9 +3,9 @@
 - **Spec Identifier**: `SPEC-2026-10-05-MAIN-PROTECTION-AND-FILES-GUARD-01`
 - **Revision**: 3 (Scope-Reduced: "Part A-lite")
 - **Date**: 2026-10-05
-- **Author**: Antigravity (Design Spec Author role)
+- **Author**: ONX Engineering
 - **Status**: DRAFT — DESIGN SPEC ONLY (No code changes, no test changes, no commits)
-- **Governance Classification**: Lane E (Future Product), Decision Level D2 (Major — Database Schema Change & API Contract Hardening)
+- **Governance Classification**: Future Product track (Future Product), Decision Level D2 (Major — Database Schema Change & API Contract Hardening)
 - **Scope Baseline**: Derived from `SPEC-2026-10-05-BRANCH-AWARE-FILES-AND-PROTECTED-MAIN-01` (rev 2) following Independent Design Reviews Round 1 (findings F1–F21) and Round 2 (findings N1–N10), scoped down strictly per Owner Decision of 2026-10-05.
 
 ---
@@ -456,7 +456,7 @@ INTERNAL_PROTECTED_ROOT_DIRS: frozenset[str] = frozenset({
 
 ## 6. Tests & Verification Matrix
 
-All tests must be run sequentially per `.ai/RULES/testing-and-verification.md` (`pytest -v backend/tests/...` without `-n auto`).
+All tests must be run sequentially per project engineering policies (`pytest -v backend/tests/...` without `-n auto`).
 
 ### 6.1 Eager Provisioning & Lifecycle Tests
 - `test_create_server_eagerly_creates_main`: Create server via `CreateServerHandler`; verify `main` branch exists with `is_system=True`, `is_protected=True`, `status="created"`, `head_commit_id=None`.
@@ -523,7 +523,7 @@ The following items were rejected/parked during reviews of Revision 2 and are **
 
 ## 8. Governance Gate Result
 
-- **Lane**: Lane E (Future Product) with Lane A safety characteristics.
+- **Lane**: Future Product track (Future Product) with Release Critical track safety characteristics.
 - **Decision Level**: D2 (Major) — Schema alteration to `server_branches`, new migration `b1e2100000023`, API security hardening in Files API.
 - **Roadmap Sync**: Required upon promotion from Design to Build.
 - **CI Quality Gates Verification**: All 6 real quality gates from `scripts/` must pass:
@@ -563,6 +563,6 @@ The following items were rejected/parked during reviews of Revision 2 and are **
 ## 11. Open Owner Questions (Listed, Not Answered)
 
 The following design decisions are surfaced for owner ruling and are **not** decided by the author:
-1. *PostgreSQL CI Pipeline*: Should a PostgreSQL container service be added to `backend-tests.yml` to automate dual-dialect migration verification, or is manual gate verification acceptable for Lane E?
+1. *PostgreSQL CI Pipeline*: Should a PostgreSQL container service be added to `backend-tests.yml` to automate dual-dialect migration verification, or is manual gate verification acceptable for Future Product track?
 2. *Read Access Policy on Internal Control Dirs*: Should `GET /files?path=.onx` (explicit query into internal directories) remain accessible to holders of `server.{id}.files`, or should explicit read navigation into `.onx` also be restricted to `admin:full`?
 3. *Future Merge Pipeline Timing*: When Part B (Merge-to-Main) is un-parked, should it require automated test preflight execution or permit fast-forward merges based solely on manual review?

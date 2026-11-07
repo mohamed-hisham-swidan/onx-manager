@@ -3,9 +3,8 @@
 **Document Status:** Approved with Changes (Revision 2 updated per Design Review)  
 **Spec Identifier:** `SPEC-2026-10-03-SERVER-LIFECYCLE-LOCK-AND-IDEMPOTENCY-01`  
 **Date:** 2026-10-03 (Revision 2)  
-**Classification:** Lane A (Release Critical), Decision level D1 (Standard Multi-Module)  
-**Governing Authority:** `docs/governance/GOVERNANCE.md` §§4, 5, 9, 11, 16  
-**Implementation Slices:** B1 (Lock Middleware, Idempotency, Async `start_for`), B2 (Docker Pre-Inspect, Adoption/Recreation Policy, Bounded Backoff, Restart Explicit Rm, Crash Stop)  
+**Classification:** Release Critical track (Release Critical), Decision level D1 (Standard Multi-Module)  
+**Governing Authority:** project governance standards**Implementation Slices:** B1 (Lock Middleware, Idempotency, Async `start_for`), B2 (Docker Pre-Inspect, Adoption/Recreation Policy, Bounded Backoff, Restart Explicit Rm, Crash Stop)  
 **Build Gate:** B1 is blocked until uncommitted `supervisor.py` changes (`stale-startup-deadline-supervisor-2026-10-02`) are reviewed and committed.
 
 ---

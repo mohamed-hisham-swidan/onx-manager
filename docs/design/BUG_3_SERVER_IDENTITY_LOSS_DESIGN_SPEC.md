@@ -1,10 +1,10 @@
 # Design Spec: Bug 3 — Server Identity Loss & Provider-Badge Flip Remediation
 
 **Document Status:** APPROVED BY MOHAMED (2026-09-13) — PROCEEDING TO BUILD  
-**Governance Classification:** Decision Level D1 (Significant) / Lane A (Release Critical)  
-**Governing Authority:** `docs/governance/GOVERNANCE.md` §4–5, §12; `Orchestrator.md §5`  
+**Governance Classification:** Decision Level D1 (Significant) / Release Critical track (Release Critical)  
+**Governing Authority:** project governance standards§12; project engineering standards  
 **Target Delivery:** Bug 3 Fix (Server Identity & Container Cleanup Pipeline)  
-**Author:** Antigravity (Design Agent)  
+**Author:** ONX Engineering  
 **Date:** 2026-09-13  
 
 ---
@@ -22,7 +22,7 @@ Eliminate server identity loss and the resulting provider-badge flip (`Docker Co
 
 ## 2. Current Behavior & Root Cause Analysis
 
-### 2.1 The Confirmed Failure Mechanism (RECON Sandbox Repro)
+### 2.1 The Confirmed Failure Mechanism (codebase audit Sandbox Repro)
 Forensic investigation and sandbox reproduction revealed that the provider-badge flip is caused by a **multi-stage row-replacement cycle**, not an in-place column update:
 
 ```
@@ -281,7 +281,7 @@ In `filesystem_reconciliation.py`:
 
 ---
 
-## 9. Design Review Self-Application (Orchestrator.md §6 Checklist)
+## 9. Design Review Self-Application (project engineering standardsChecklist)
 
 | Criteria | Assessment | Detail |
 |---|:---:|---|

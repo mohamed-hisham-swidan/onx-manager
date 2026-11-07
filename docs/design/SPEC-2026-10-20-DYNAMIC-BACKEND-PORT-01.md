@@ -8,8 +8,8 @@
 | Date | 2026-10-20 |
 | HEAD | `14a441f` (`docs(design): add F1-2 promote atomicity and stop guard spec (v4 + binding review deltas)`) |
 | Spec ID | `SPEC-2026-10-20-DYNAMIC-BACKEND-PORT-01` |
-| Governance | `docs/governance/GOVERNANCE.md`; `.ai/RULES/core-principles.md`; `.ai/RULES/scope-and-implementation.md`; `.ai/RULES/testing-and-verification.md` |
-| Mode | Design (v2) plus implementation (v3-v4). New files: this spec, `docs/decisions/0019-dynamic-backend-port.md`, `backend/tests/test_launcher_dynamic_port.py`. Modified: `launcher.py`, `scripts/preflight.sh`, `scripts/preflight.py`, `frontend/vite.config.ts`, `.ai/STATE.json`. No git writes. The worktree also carries unrelated uncommitted F1-2a work (see `git status`). |
+| Governance | project governance standards; project engineering policies |
+| Mode | Design (v2) plus implementation (v3-v4). New files: this spec, `docs/decisions/0019-dynamic-backend-port.md`, `backend/tests/test_launcher_dynamic_port.py`. Modified: `launcher.py`, `scripts/preflight.sh`, `scripts/preflight.py`, `frontend/vite.config.ts`, project state tracking. No git writes. The worktree also carries unrelated uncommitted F1-2a work (see `git status`). |
 | Revision | v4 (2026-10-20) |
 
 ---
@@ -18,7 +18,7 @@
 
 | Revision | Date | Summary |
 |---|---|---|
-| v1 | 2026-10-20 | Initial design draft based on a read-only RECON of `launcher.py`, `scripts/preflight.*`, `frontend/vite.config.ts`, and `backend/app/core/config.py`. Records the current live port conflict, the port-resolution design, propagation to Vite and the backend, tests, and open owner decisions. |
+| v1 | 2026-10-20 | Initial design draft based on a read-only codebase audit of `launcher.py`, `scripts/preflight.*`, `frontend/vite.config.ts`, and `backend/app/core/config.py`. Records the current live port conflict, the port-resolution design, propagation to Vite and the backend, tests, and open owner decisions. |
 | v2 | 2026-10-20 | Applies the hard review. **MAJOR-1:** preflight now resolves and protects the active port in `check_services`, `check_db_lock`, `scan_orphans`, summary, and PID sync; foreign occupancy of the preferred port no longer makes preflight exit 1. **MAJOR-2:** fallback scanning now classifies every occupied candidate (including reuse of a healthy project backend) before spawning. **MAJOR-3/m2:** mutation row and interface cleanup. **M1:** corrected wording - an unresolvable PID skips the prompt, `kill_on_port` becomes a no-op, and startup fails at bind/timeout rather than killing. **M2:** retry failure discrimination no longer depends on wrapper death; per-attempt timeouts are defined. **M3:** explicit bash config parsing strategy. **M4:** preflight health uses the panel signature. **M5:** preference/active env meaning clarified. Minors: exact ownership markers, dirty-tree caveat, run-#2 live test, stop semantics, enum mapping, O-5. One additional conservatism fix: `HEALTHY_UNVERIFIED` is limited to unresolvable PIDs; a resolved non-project PID returning the panel signature is `FOREIGN` and is not reused (avoids proxying to another checkout's database). Owner decisions O-1..O-5 recorded as approved; ADR-0019 created. |
 | v3 | 2026-10-20 | Implementation and live verification. Wired `start_backend` to `resolve_startup_port`, added bounded retry/per-attempt timeouts and `ONX_PANEL_BIND_PORT`; propagated the active port to Vite, status, Swagger, and ReadyScreen; added `--stop` supervisor-tree cleanup and active-port clearing. Updated preflight (bash + Windows Python) for config precedence, panel-signature health, active-port protection, ancestor protection, and foreign-not-unclean summaries. Added `exclude_ports` for retries and three start-path tests. Live: backend on 8001 while 8000 is foreign, run-#2 reuse, preflight preservation, stop cleanup, and Vite `/health` proxy verified. Windows remains UNVERIFIED. |
 | v4 | 2026-10-20 | Status correctness and final local verification. `--status` now reports the backend as running only when the panel health signature validates; `get_effective_backend_port` trusts `.onx/backend.port` only when that signature is healthy, so a foreign listener on the preferred port is not shown as our backend. Added 2 tests (25 total in `test_launcher_dynamic_port.py`). Evidence: sequential backend suite 3282 passed / 6 skipped / 0 failed (3288 collected, 1006.55s); frontend 767 passed across 90 files; 6/6 quality gates PASS via `scripts/reverify`. CI and Windows remain UNVERIFIED. |
@@ -414,7 +414,7 @@ Production containers keep `MCS_PANEL_BIND_PORT=8000` from `backend/Dockerfile`;
 | `backend/tests/test_launcher_dynamic_port.py` | New unit tests (see below). |
 | `backend/tests/test_launcher_prerequisites.py` | Unchanged; must remain green. |
 | `docs/DEVELOPMENT.md` | Implementation follow-up: document fallback behavior and the active-port file. |
-| `.ai/STATE.json` | Implementation follow-up only: add a D1 item with status per the ladder. This design session does not edit state. |
+| project state tracking | Implementation follow-up only: add a D1 item with status per the ladder. This design session does not edit state. |
 
 ### Implementation order
 
@@ -493,9 +493,9 @@ cd backend && python -m pytest -q tests/test_launcher_dynamic_port.py tests/test
 
 Before claiming the implementation complete:
 
-- Sequential full backend suite (`cd backend && python -m pytest -q`) or the CI run, per `.ai/RULES/testing-and-verification.md`.
-- Six quality gates (`scripts/check-*` per `.ai/RULES/testing-and-verification.md`).
-- Live verification from the previous section, with the actual observed port, PID, and commands recorded in `.ai/STATE.json`.
+- Sequential full backend suite (`cd backend && python -m pytest -q`) or the CI run, per project engineering policies.
+- Six quality gates (`scripts/check-*` per project engineering policies).
+- Live verification from the previous section, with the actual observed port, PID, and commands recorded in project state tracking.
 
 Mutation checks (must fail when the fix is reverted):
 
@@ -573,10 +573,10 @@ These are required before code lands. Items 1-2 are complete; items 3-6 remain f
 
 1. Decision record `docs/decisions/0019-dynamic-backend-port.md` with the D1 required fields. **Done 2026-10-20.**
 2. Owner answers to O-1 through O-5. **Done 2026-10-20; all defaults approved.**
-3. `.ai/STATE.json` item added (`dynamic-backend-port-2026-10-20`, status `OPEN`). **Done 2026-10-20; move to implementation status when code lands.**
+3. project state tracking item added (`dynamic-backend-port-2026-10-20`, status `OPEN`). **Done 2026-10-20; move to implementation status when code lands.**
 4. Documentation update in `docs/DEVELOPMENT.md` describing the fallback behavior, `.onx/backend.port`, and preflight active-port protection.
 5. F-PORT-FRONTEND-01 captured as a separate finding (frontend readiness/URL constants), not fixed by this batch.
-6. Preflight has no automated harness today. The implementation must either add a small testable resolver helper or record the preflight scenarios as manual evidence in `.ai/STATE.json`; it must not claim preflight coverage from launcher unit tests.
+6. Preflight has no automated harness today. The implementation must either add a small testable resolver helper or record the preflight scenarios as manual evidence in project state tracking; it must not claim preflight coverage from launcher unit tests.
 
 ---
 

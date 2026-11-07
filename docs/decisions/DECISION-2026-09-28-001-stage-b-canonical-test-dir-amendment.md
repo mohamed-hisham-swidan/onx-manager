@@ -1,17 +1,13 @@
 # DECISION-2026-09-28-001 — Stage B Canonical Test Directory Grounding Amendment
 
 Status: Accepted
-Lane: Release Improvement / Stabilization (Lane B)
+Lane: Release Improvement / Stabilization (Release Improvement track)
 Decision level: D1 (Standard Decision)
 Roadmap drift: Controlled Drift (Zero scope creep; aligns design with existing DB/domain ground truth)
 Decided by: Architecture & Versioning Engineering Review
 Approved by: Mohamed (Lead Reviewer / System Owner)
 Date: 2026-09-28
-Reference: DECISION-2026-09-27-001, PHASE-5.5-STAGE-B-TEST-RUN-ENGINE-DESIGN.md, GOVERNANCE.md §4
-
----
-
-## Context
+Reference: DECISION-2026-09-27-001, PHASE-5.5-STAGE-B-TEST-RUN-ENGINE-DESIGN.md, project governance standards## Context
 
 During the independent design review of Phase 5.5 Stage B (Test Run Engine), a blocker was identified in the canonical path derivation specification:
 - The approved Stage B Design Spec (`docs/decisions/PHASE-5.5-STAGE-B-TEST-RUN-ENGINE-DESIGN.md` §§4.4.1, 4.4.2) defined `resolve_test_dir(server_id, test_id, servers_root=None)` by reconstructing test directories under `Path(AppSettings().servers_data_dir) / server_id / ".onx" / "tests" / test_id`.
@@ -23,7 +19,7 @@ This design contradicted existing database and domain ground truth: in ONX Manag
 
 1. **Concrete Failure (FACT):** When running `test_promote_and_rollback.py::test_promote_commit_with_keep_world_changes`, the test failed (`AssertionError: 'old-level-data' == 'new-level-data-from-test'`). The test created test files under `srv_dir / ".onx" / "tests" / "t-world"`, but `PromoteCommitHandler` reconstructed `test_dir` from `AppSettings().servers_data_dir / "srv-1" / ".onx" / "tests" / "t-world"`, completely missing the real test artifacts.
 2. **Execution Disconnect (FACT):** In `DockerTestExecutionRunner` (`backend/app/modules/versioning/infrastructure/test_runner.py:407`), test execution materializes under `Path(spec.server_dir) / ".onx" / "tests" / spec.test_id`, where `spec.server_dir` is passed from `server.deployment.server_dir`. However, `discard_test.py`, `promote_commit.py`, `admission.py`, and `prune_test_artifacts.py` attempted to reconstruct `test_dir` using global server root settings.
-3. **Governance Mandate (FACT):** Under `docs/governance/GOVERNANCE.md` §4, a decision that affects multiple modules (`server` domain/persistence and `versioning` domain/application/infrastructure layers) and alters a cross-cutting path contract classifies as **D1 — Standard**.
+3. **Governance Mandate (FACT):** Under project governance standardsa decision that affects multiple modules (`server` domain/persistence and `versioning` domain/application/infrastructure layers) and alters a cross-cutting path contract classifies as **D1 — Standard**.
 
 ## Decision
 
@@ -74,5 +70,5 @@ High — pure domain and application path resolution alignment.
 - **Decided by:** Architecture & Versioning Engineering Review
 - **Approved by:** Mohamed (Lead Reviewer / System Owner)
 - **Approval Date:** 2026-09-28 (Explicit Owner Approval granted)
-- **Governance Classification:** D1 — Standard Decision (Lane B)
+- **Governance Classification:** D1 — Standard Decision (Release Improvement track)
 - **Execution:** Approved for implementation.

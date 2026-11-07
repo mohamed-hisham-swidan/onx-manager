@@ -16,7 +16,7 @@ producer: `RUN_TEST` test runs
 runner overhaul, assertion engine, cleanup plans, evidence aggregation bundles
 (§22; `operation_artifacts` deferred to Stage B per §11 scope note).
 
-A completed RECON (2026-09-27) inventoried the existing versioning/test
+A completed codebase audit (2026-09-27) inventoried the existing versioning/test
 machinery against those four items. This record authorizes bounded Stage B
 design and implementation scope on that evidence — nothing more.
 
@@ -97,7 +97,7 @@ was deliberately replaced by the global admission gate (Stage D); the
    real payloads, and cleanup stays three divergent deleters.
 3. **Authorize a narrower slice** (e.g. evidence keys only): rejected as a
    standalone scope — the modal fix without bundle versioning repeats the
-   same silent-miss pattern the RECON flagged.
+   same silent-miss pattern the codebase audit flagged.
 
 ## Decision
 
@@ -141,7 +141,7 @@ D1 minimum; admission tuning → D1 (lock reversal → D2).
 
 ## Why
 
-GOVERNANCE.md §5.4: (1) Not launch-blocking — current runs execute and
+project governance standards: (1) Not launch-blocking — current runs execute and
 promote correctly; this is quality/debt inside the release objective. (2)
 Reduces real risk: dead config, silent modal misses, divergent deleters, and
 unguarded terminal overwrites are all observed, not hypothetical. (3)
@@ -197,7 +197,7 @@ overwrite races); modal renders real backend payloads (contract test pinning
 backend keys); one test-dir resolver + explicit-verdict teardown (no
 `ignore_errors` divergence); bundle has version/validation; full backend +
 frontend suites green with 6/6 CI gates (including `check-route-contract`
-and ruff baseline); `.ai/STATE.json` updated with fresh numbers only.
+and ruff baseline); project state tracking updated with fresh numbers only.
 
 ## Outcome
 

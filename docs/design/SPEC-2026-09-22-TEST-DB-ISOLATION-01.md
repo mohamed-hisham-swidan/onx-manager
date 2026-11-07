@@ -3,16 +3,16 @@
 **Document Status:** IMPLEMENTED/VERIFIED — 2026-09-22 (3038 passed / 6 skipped, 3/3 clean `-n auto` runs, 6/6 CI gates PASS)
 **Spec Identifier:** `SPEC-2026-09-22-TEST-DB-ISOLATION-01`
 **Date:** 2026-09-22
-**Source Recon:** Test DB isolation audit, 2026-09-22 (Finding / Files-Modules /
+**Source Codebase audit:** Test DB isolation audit, 2026-09-22 (Finding / Files-Modules /
 Current-Behavior / Problem / Constraints / Related-Tests / Unknowns / Recommendation;
 5 findings: 4 real-DB violators, opt-in fixture archaeology, preflight kill predicate,
 autouse feasibility, dev-DB pollution census — 66 phantom `test-srv-*` servers,
 59 `feat-*` branches in `backend/data/onx.db`)
-**Governing Authority:** `docs/governance/GOVERNANCE.md`; `.ai/pls-agent-ignore-that/Orchestrator.md` §5
+**Governing Authority:** project governance standards; project engineering standards
 
-> Design-completion gate note (per `.ai/RULES/documentation-and-state.md`):
+> Design-completion gate note (per project engineering policies):
 > this is a **documented design, not yet implemented**. The file:line claims below
-> were checked against actual code during the 2026-09-22 recon (violator sites,
+> were checked against actual code during the 2026-09-22 codebase audit (violator sites,
 > `db.py` path anchoring, `preflight.sh:84-353`, `application/conftest.py:32-53`).
 > Saver-verified 2026-09-22: pytest marker registry lives at
 > `backend/pyproject.toml:61-66` (`[tool.pytest.ini_options]`, currently only
@@ -58,7 +58,7 @@ pending owner confirmation of which rows are genuine).
 3. Mark the ~6 legitimate file-DB tests with `@pytest.mark.no_isolated_db`:
    `test_database.py`, `test_reconciler.py`,
    `auth/test_audit.py:86-87,169-170`,
-   `event_store/test_chain_concurrency_recon.py:34-35`,
+   `event_store/test_chain_concurrency_audit.py:34-35`,
    `application/test_stage_d_admission.py:43,331-332`,
    `domain/test_stage_a_domain_invariants.py:145`.
 4. Fix the 4 violating sites in `test_sqlite_locking_remediation.py`
@@ -80,7 +80,7 @@ pending owner confirmation of which rows are genuine).
    the real `ONX_DB` resolution, so the test itself can never touch the
    real file.
 8. Remove the interim "KNOWN ISSUE" caveat added to
-   `.ai/RULES/testing-policy.md` on 2026-09-22, since the root cause
+   project engineering policies on 2026-09-22, since the root cause
    will no longer exist.
 
 ## Affected Components
@@ -89,12 +89,12 @@ pending owner confirmation of which rows are genuine).
 - `backend/tests/integration/test_sqlite_locking_remediation.py`
 - `backend/tests/test_settings_persistence.py`
 - `backend/tests/test_database.py`, `test_reconciler.py`,
-  `auth/test_audit.py`, `event_store/test_chain_concurrency_recon.py`,
+  `auth/test_audit.py`, `event_store/test_chain_concurrency_audit.py`,
   `application/test_stage_d_admission.py`,
   `domain/test_stage_a_domain_invariants.py` (marker only)
 - `scripts/preflight.sh`
 - `backend/tests/test_preflight.py`
-- `.ai/RULES/testing-policy.md` (remove caveat)
+- project engineering policies (remove caveat)
 - Up to ~13 files with duplicate local `init_test_db` (list to be
   confirmed during Build via grep, per Finding 2 census)
 
@@ -108,7 +108,7 @@ Internal-only test-infrastructure and one dev shell script.
 - A test outside the audited list that also bypasses isolation and
   isn't caught by the census → Build must re-grep for
   `database.init(` and `session_factory(` calls project-wide before
-  closing, not just trust the recon's sampled list.
+  closing, not just trust the codebase audit's sampled list.
 - `no_isolated_db` marker not registered in `pytest.ini`/`pyproject.toml`
   → pytest will warn "unknown marker"; must add it to the markers list.
 - Autouse fixture ordering: must run before any fixture that touches
@@ -131,12 +131,10 @@ Internal-only test-infrastructure and one dev shell script.
 - Full suite `python -m pytest -q -n auto` must complete without any
   worker being killed, run to run, 3 consecutive times (to catch
   xdist-scheduling nondeterminism).
-- All 5 CI gates + full backend/frontend suites per Orchestrator.md §9.
-
-## Out of Scope
+- All 5 CI gates + full backend/frontend suites per project engineering standards## Out of Scope
 
 - Cleaning the 66 phantom `test-srv-*` / 59 `feat-*` rows already in
   `backend/data/onx.db` (Finding 5) — separate task, pending Mohamed's
   confirmation of which non-prefixed rows are genuine.
-- Any change to `.ai/STATE.json` Lane classification — governance call,
+- Any change to project state tracking Lane classification — governance call,
   not part of this spec's implementation.

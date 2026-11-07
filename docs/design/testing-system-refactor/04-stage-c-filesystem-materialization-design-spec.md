@@ -4,7 +4,7 @@
 **Migration:** `b1e2100000016` (server_materializations, server_import_reviews)
 **Prerequisite verified:** Stage B CLOSED 2026-09-17 — 2,793 passed / 6 skipped / 0 failed backend, 6/6 CI gates, head `b1e2100000015`.
 **Verification:** 2,829 passed / 6 skipped / 0 failed backend, 6/6 CI gates, +12 versioning routes (141 total).
-**Source:** Stage C RECON (complete). Prior art is only the 5-line outline at `02-stages-b-through-g-outline.md:15-19`; there is no prior spec and no "runtime-change import review" definition anywhere in the repo — the semantics below are defined here for the first time, constrained by the binding decisions listed under Governance Gate Check.
+**Source:** Stage C codebase audit (complete). Prior art is only the 5-line outline at `02-stages-b-through-g-outline.md:15-19`; there is no prior spec and no "runtime-change import review" definition anywhere in the repo — the semantics below are defined here for the first time, constrained by the binding decisions listed under Governance Gate Check.
 
 ## Goal
 
@@ -24,7 +24,7 @@ Turn `Materialization` from a domain-only entity (today: constructed only in tes
 
 ### (a) Separate root + constructor generalization
 
-- New root: `<server_dir>/.onx/worktrees/<materialization_id>`. `.onx/tests` stays EXCLUSIVELY for the test runner (untouched; RECON decision 2).
+- New root: `<server_dir>/.onx/worktrees/<materialization_id>`. `.onx/tests` stays EXCLUSIVELY for the test runner (untouched; codebase audit decision 2).
 - Generalize `Materialization.__post_init__` root rule from "must contain `.onx` AND `tests`" to an **allowlist of managed roots**: path must resolve under `<server_dir>/.onx/tests/` (legacy/test-runner context) OR `<server_dir>/.onx/worktrees/` (Stage C). Keep the `..` rejection and the `stage_path()` absolute/containment checks byte-for-byte. Rationale: minimal relaxation of the isolation invariant — arbitrary roots (e.g. `/tmp`, live dir itself) stay rejected, so every existing root-rejection test keeps passing; only `.onx/worktrees` is newly accepted.
 - New domain field `mode: MaterializationMode = MaterializationMode.READONLY` (`READONLY | EDITABLE`, new enum in `value_objects.py`), defaulting to read-only (decision 3). `EDITABLE` is entered only via explicit `SetMaterializationEditMode` on a non-`REMOVED` materialization; entering edit mode never changes `status`. Appending a defaulted field preserves all existing constructor call sites.
 
@@ -132,4 +132,4 @@ Router prefix follows convention: `/api/v1/servers/{server_id}/versioning`. Payl
 
 ## Governance Gate Check
 
-**This design is D2 per GOVERNANCE.md §4** — it adds persistence strategy (two new tables + `b1e2100000016` migration convention) and new API/permission contract surface (12 `permissions.yaml` entries). **No separate governance escalation is required before Build:** the D2-level choices that would otherwise need it — (1) auto-commit-by-default import review with after-the-fact close/reject/manual-commit, (2) the separate `.onx/worktrees` root, (3) read-only-default with opt-in advanced edit mode — are **already authorized by Mohamed's binding decisions** stated in the task brief. Design Review (§6) is still required (this spec is NOT build authorization), and must verify: root-allowlist minimality, the no-migration-of-test_runner choice in (e), the 12-entry contract table, and that no changeset leaks beyond the listed Affected Components. After Design Review approval, Build may proceed directly.
+**This design is D2 per project governance standards** — it adds persistence strategy (two new tables + `b1e2100000016` migration convention) and new API/permission contract surface (12 `permissions.yaml` entries). **No separate governance escalation is required before Build:** the D2-level choices that would otherwise need it — (1) auto-commit-by-default import review with after-the-fact close/reject/manual-commit, (2) the separate `.onx/worktrees` root, (3) read-only-default with opt-in advanced edit mode — are **already authorized by Mohamed's binding decisions** stated in the task brief. Design Review (§6) is still required (this spec is NOT build authorization), and must verify: root-allowlist minimality, the no-migration-of-test_runner choice in (e), the 12-entry contract table, and that no changeset leaks beyond the listed Affected Components. After Design Review approval, Build may proceed directly.

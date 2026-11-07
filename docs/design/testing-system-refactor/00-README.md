@@ -32,11 +32,11 @@ The implementation was executed in dependency order (Stage A → G + Frontend UI
 
 ## Review & Governance Process
 
-The design and build workflows adhere strictly to the project's canonical governance ([`docs/governance/GOVERNANCE.md`](../../governance/GOVERNANCE.md)) and execution policies ([`.ai/RULES/`](../../../.ai/RULES/)):
-- **RECON:** In-depth investigation of live code, dependencies, and invariants prior to design.
+The design and build workflows adhere strictly to the project's canonical governance and execution policies:
+- **codebase audit:** In-depth investigation of live code, dependencies, and invariants prior to design.
 - **Design Spec:** Structured specification covering goals, current behavior, proposed changes, interfaces, and test criteria.
 - **Design Review:** Independent review verifying root causes, failure modes, and boundaries before build authorization.
 - **Build & Verification:** Strict test-driven execution requiring 100% CI quality gates PASS, zero regressions, and state synchronization before closure.
 
-*(Note on historical citations: references in earlier design drafts to `Orchestrator.md §4/§5/§6` refer to the prompt execution instructions governing the agent workflow, codified canonically in `docs/governance/GOVERNANCE.md` and `.ai/RULES/`.)*
+*(Note on historical citations: references in earlier design drafts to project engineering standards refer to the prompt execution instructions governing the agent workflow, codified canonically in project governance standards and project engineering policies.)*
 

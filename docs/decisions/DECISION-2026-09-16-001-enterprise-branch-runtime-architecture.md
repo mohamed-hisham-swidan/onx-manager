@@ -1,7 +1,7 @@
 # DECISION-2026-09-16-001 — Enterprise Branch Runtime Architecture Rebuild
 
 **Date:** 2026-09-16  
-**Decision Level:** D2 (Major) — per GOVERNANCE.md §4: changes platform architecture direction, versioning domain model, persistence strategy, and roadmap scope.  
+**Decision Level:** D2 (Major) — per project governance standards: changes platform architecture direction, versioning domain model, persistence strategy, and roadmap scope.  
 **Lane:** Release Improvement / Core Platform Architecture  
 **Status:** Approved (Ratified by Mohamed 2026-09-16)  
 
@@ -15,7 +15,7 @@ Under ROADMAP v1.1, Phase 4 (Community Features) and Phase 5 (Containers System)
 
 ## Decision
 
-Authorize the Enterprise Branch Runtime Architecture Program, structured into progressive stages (A through G) with dedicated RECON, Design Specs, and verification gates:
+Authorize the Enterprise Branch Runtime Architecture Program, structured into progressive stages (A through G) with dedicated codebase audit, Design Specs, and verification gates:
 
 1. **Stage A (Domain Reconstruction):** Formalize domain entities (`Project`, `Repository`, `Commit`, `Branch`, `Revision`, `Materialization`, `Runtime`, `PersistentDataset`, `Run`) and ADRs 0013–0016.
 2. **Stage B (Real Version Control):** Commit DAG ancestry (`server_commit_parents`), branch lifecycle with status column (`server_branches`), immutable tags (`server_tags`), deterministic diffing, and merge commit support.

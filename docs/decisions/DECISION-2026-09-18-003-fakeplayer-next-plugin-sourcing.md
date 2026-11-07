@@ -3,10 +3,10 @@
 **Date:** 2026-09-18  
 **Status:** Accepted (2026-09-19)  
 **Decision Level:** D1 (new external dependency origin + behavior change in test runs)  
-**Lane:** Lane A (Release Critical, owner-confirmed)  
+**Lane:** Release Critical track (Release Critical, owner-confirmed)  
 **Roadmap Drift:** Controlled  
 **Supersedes/Relates:** Fix 1 / 1.5 (already implemented, D0); `SPEC-2026-09-15-ISOLATED-TEST-REAL-VERIFICATION-01 §3.1.2`  
-**Evidence Base:** Recon #1, #2, #3; Spike Part 1 (`SPIKE-FAKEPLAYER-2026-09-18.md`) and Part 2 (`SPIKE-PART2-2026-09-19.md`) with independent reviews (`SPIKE-REVIEW-2026-09-18.md`, `SPIKE-PART2-REVIEW-2026-09-19.md`; raw logs archived under `docs/reports/_archive/` and `docs/reports/spike-logs-p2/`).  
+**Evidence Base:** Codebase audit #1, #2, #3; Spike Part 1 (`SPIKE-FAKEPLAYER-2026-09-18.md`) and Part 2 (`SPIKE-PART2-2026-09-19.md`) with independent reviews (`SPIKE-REVIEW-2026-09-18.md`, `SPIKE-PART2-REVIEW-2026-09-19.md`; raw logs archived under `docs/reports/_archive/` and `docs/reports/spike-logs-p2/`).  
 
 ---
 
@@ -105,14 +105,14 @@ This approach satisfies all governance constraints:
 
 ## Effort & Reversibility
 
-- **Effort:** Controlled (Lane A, D1). Implementation touches ~4 backend infrastructure files and test fixtures.
+- **Effort:** Controlled (Release Critical track, D1). Implementation touches ~4 backend infrastructure files and test fixtures.
 - **Reversibility:** Easy. Reverting the Fix 2 commits cleanly returns Paper/Purpur bot verification to the Fix 1/1.5 state (`SMOKE_TEST` fallback). No database schema, migration, or route contract to unwind.
 
 ---
 
 ## Roadmap Impact
 
-None. Fix 2 remains strictly within Lane A (Bug Remediation / Release Critical) and preserves the Phase 4 / Feature 1 scope definition without roadmap drift.
+None. Fix 2 remains strictly within Release Critical track (Bug Remediation / Release Critical) and preserves the Phase 4 / Feature 1 scope definition without roadmap drift.
 
 ---
 
@@ -133,7 +133,7 @@ None. Fix 2 remains strictly within Lane A (Bug Remediation / Release Critical) 
 - **No DB migration, no route/contract/schema/frontend change.**
 - Gates at risk: `check-ruff-baseline` (100 cols limit) and `pytest`. Keep fixtures in `tmp` to avoid `check-stray-db` violations.
 - D1 record committed to `docs/decisions/DECISION-2026-09-18-003-fakeplayer-next-plugin-sourcing.md`.
-- `STATE.json` and `docs/current-state.md` updated with fresh measured metrics upon implementation.
+- project state tracking and `docs/current-state.md` updated with fresh measured metrics upon implementation.
 
 ---
 

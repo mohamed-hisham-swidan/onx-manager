@@ -14,9 +14,9 @@
 
 ## Goal
 
-Establish authoritative domain entities and invariants for the "versioned desired-state → isolated runtime" model, **formalizing and extending** ONX Manager's already-shipped branch/commit/test-environment implementation — RECON found the existing code is more mature than the source report assumed.
+Establish authoritative domain entities and invariants for the "versioned desired-state → isolated runtime" model, **formalizing and extending** ONX Manager's already-shipped branch/commit/test-environment implementation — codebase audit found the existing code is more mature than the source report assumed.
 
-## Current Behavior (RECON-verified 2026-09-16)
+## Current Behavior (Audit-verified 2026-09-16)
 
 - **Branch/commit model — FACT.** `ServerBranch` is already a mutable named ref (`head_commit_id`, `backend/app/modules/versioning/domain/entities.py:23`, unique per server). `ServerCommit.parent_commit_id: str | None` (`entities.py:43`) permits exactly **one** parent — no multi-parent/merge representation exists anywhere in domain, model, or repository layers. `CreateBranchCommand` already accepts an arbitrary `head_commit_id` (branch-from-any-commit is possible at the command layer today), but `CreateCommitHandler` always parents the new commit to `branch.head_commit_id` and every commit carries a `branch_id` — so history is branch-scoped and linear, not a shared DAG. `ServerBranch` has no status field — the proposed created → active → archived state machine does not exist yet.
 - **Test-environment pipeline — CORRECTED.** The spec previously assumed "files-based mode now, container-based mode added later." This is false: `DockerTestExecutionRunner` (`backend/app/modules/versioning/infrastructure/test_runner.py:118-303`) is the **only** test-execution implementation in the repo. Files-based mode was never built — superseded by `DECISION-2026-09-10-001`, which built Phase 5 (Containers) before Phase 4. One `run_test()` call already performs revision resolution → materialization → container launch → async verification as a single pipeline, with no Revision/Materialization/Runtime/Run domain separation. **A one-active-run-per-server lock already exists** (`_server_locks` + `ConflictError`, `test_runner.py:128-140`) and **remains in force for this stage** (see Invariant 2). `ServerTestRun` already binds `commit_id` + terminal `PASSED/FAILED/CANCELLED` status + evidence (log output, failure reason), and promotion is strictly gated on `PASSED` (`promote_commit.py:117-171`) — substantial overlap with the proposed Run/TestRun split.
@@ -50,7 +50,7 @@ Define the following as explicit domain entities/aggregates, **extending** `back
 | `Branch` | Mutable reference to a `Commit`. | **Extends** `ServerBranch` — add the created → active → archived state machine (does not exist today). |
 | `Revision` | A resolved, specific commit. | New concept; formalizes what commit resolution already does implicitly in `run_isolated_test.py`. |
 | `Materialization` | Concrete filesystem working tree from a `Revision`, with path classification. | Formalizes the materialization step already inside `test_runner.py:154-230` — decompose, do not reimplement. |
-| `Runtime` | Execution instance bound to exactly one immutable commit ID; wraps `ServerProvider`. | **No contract change needed** — RECON confirmed clean fit. |
+| `Runtime` | Execution instance bound to exactly one immutable commit ID; wraps `ServerProvider`. | **No contract change needed** — codebase audit confirmed clean fit. |
 | `PersistentDataset` | Runtime-generated mutable state excluded from versioning. | New; formalizes the COW world-clone step already in the test pipeline. |
 | `Run` / `TestRun` | Execution of a Revision; TestRun adds assertions/evidence. | **Substantial overlap** with `ServerTestRun`/`TestSpec`/`TestHandle`/`TestServerDeployment` (`domain/deployment.py:8-31`) — this stage extends those, not parallel entities. |
 
@@ -62,7 +62,7 @@ Define the following as explicit domain entities/aggregates, **extending** `back
 **ADRs required:**
 1. Why domain-model-first for the *new* entities (Revision/Materialization/PersistentDataset) rather than a parallel persistence engine — the Commit/Branch/DAG question is covered by ADR #2 instead.
 2. Migrating the existing single-parent, branch-scoped commit chain to a shared DAG (multi-parent support) + adding the Branch lifecycle state machine — framed as **extending the real, shipped model**. **ADR #2 must be written and approved before any multi-parent work begins.**
-3. Relationship between the new `Runtime` entity and `ServerProvider` — confirmed extension, no contract change (RECON verified).
+3. Relationship between the new `Runtime` entity and `ServerProvider` — confirmed extension, no contract change (codebase audit verified).
 4. `PersistentDataset` boundary rules, informed by the existing COW world-clone/reflink behavior already in `test_runner.py`.
 
 **Invariants:**
@@ -82,9 +82,9 @@ Every criterion below must hold in the built domain layer, each backed by a reje
 - **PersistentDataset.** Required fields: `id`, owning runtime/commit reference, dataset root, classification. Dataset paths are excluded from `Tree` diffs by construction. **Reject:** any write path resolving into the tracked set; any silent mutation of a `Commit` or `Branch` through dataset writes.
 - **Run / TestRun.** Extends `ServerTestRun`: required `commit_id` binding, terminal states `PASSED`/`FAILED`/`CANCELLED` preserved. `TestRun` adds assertions + evidence fields (`log_output`, `failure_reason` preserved). Existing promotion gate preserved: only `PASSED` promotable. **Reject:** promotion of a non-`PASSED` run (already enforced — keep green); terminal-state regression (e.g. `PASSED`→`RUNNING`).
 
-## Affected Components (RECON-corrected — real paths, not placeholders)
+## Affected Components (Audit-corrected — real paths, not placeholders)
 
-- **Extend, don't create a parallel tree:** `backend/app/modules/versioning/domain/` (`entities.py`, `value_objects.py`, `deployment.py`, `repository.py`, `events.py`) — add Revision/Materialization/Runtime/PersistentDataset here. RECON explicitly flagged that the spec's original placeholder paths (`backend/app/domain/versioning/` etc.) would have caused a builder to create a parallel `backend/app/domain/` tree duplicating the project's real `modules/<module>/domain/` convention — exactly the duplication failure mode this spec is meant to avoid.
+- **Extend, don't create a parallel tree:** `backend/app/modules/versioning/domain/` (`entities.py`, `value_objects.py`, `deployment.py`, `repository.py`, `events.py`) — add Revision/Materialization/Runtime/PersistentDataset here. codebase audit explicitly flagged that the spec's original placeholder paths (`backend/app/domain/versioning/` etc.) would have caused a builder to create a parallel `backend/app/domain/` tree duplicating the project's real `modules/<module>/domain/` convention — exactly the duplication failure mode this spec is meant to avoid.
 - `backend/app/modules/versioning/application/commands/` — `create_branch.py`, `create_commit.py`, `run_isolated_test.py`, `promote_commit.py`, `discard_test.py` (extend/reconcile existing commands).
 - `backend/app/modules/versioning/infrastructure/` — `models.py`, `repository.py`, `test_runner.py` (contains the pipeline to decompose into the new entities).
 - `backend/app/modules/server/infrastructure/providers/` — `base.py` (`ServerProvider`), unchanged contract, extension point only.
@@ -108,9 +108,9 @@ Every criterion below must hold in the built domain layer, each backed by a reje
 
 - A contract test per invariant, each proving the domain layer **rejects** the violation.
 - A test per Acceptance Criteria bullet above (transitions, required fields, rejected illegal states).
-- **Pre-change baseline (RECON-verified 2026-09-16, freshly executed, not reused):** backend `2733 passed / 6 skipped / 0 failed` (2739 collected); frontend `79 files / 711 passed / 0 failed`. Matches `STATE.json`'s recorded verified metrics. Any regression against this baseline blocks close.
+- **Pre-change baseline (Audit-verified 2026-09-16, freshly executed, not reused):** backend `2733 passed / 6 skipped / 0 failed` (2739 collected); frontend `79 files / 711 passed / 0 failed`. Matches project state tracking's recorded verified metrics. Any regression against this baseline blocks close.
 - No live server/container tests required for the *new* domain entities (Revision/Materialization/PersistentDataset) — but decomposing `test_runner.py` touches shipped, tested behavior, so the existing `test_isolated_test_runner.py` and related suites must stay green throughout, not just at the end.
-- Note: the project's 5-minute full-suite timeout policy (`.ai/RULES/testing-and-verification.md`) was insufficient for the RECON backend run (8m12s actual) — budget accordingly for Build/Review verification runs, or flag this to Mohamed as a policy calibration item.
+- Note: the project's 5-minute full-suite timeout policy (project engineering policies) was insufficient for the codebase audit backend run (8m12s actual) — budget accordingly for Build/Review verification runs, or flag this to Mohamed as a policy calibration item.
 
 ## Out of Scope (this stage)
 
@@ -122,6 +122,6 @@ Every criterion below must hold in the built domain layer, each backed by a reje
 - RBAC/ABAC, multi-host scheduler, resource pools, audit logging (Stage G).
 - Adopting OCI/containerd/cgroup v2/OpenTelemetry as concrete dependencies — moot for Stage D beyond what Phase 5 already shipped; revisit only if a real scheduler/admission-policy need emerges.
 
-## RECON Status
+## codebase audit Status
 
 **Complete (2026-09-16).** All checklist items verified with file/line evidence; corrections applied in v2. **Design Review returned APPROVED WITH CHANGES (2026-09-16):** Invariant 2 closed via option (c) in v3; reviewer items C1 (`Project`↔`Server` 1:1), C2 (`Tree` formalizes `CommitManifest`), C3 (state-machine triggers + events) resolved in the tables above. The August "Executor Runtime" precedent cited as this spec's motivating pattern could not be independently confirmed from repo evidence (no artifact found) — it remains valid as external/chat history, just not verifiable from the codebase itself.

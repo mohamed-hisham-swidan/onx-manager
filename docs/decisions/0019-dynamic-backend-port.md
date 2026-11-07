@@ -4,7 +4,7 @@
 **Date**: 2026-10-20  
 **Author**: Dynamic Port Design Session  
 **Decision level**: D1  
-**Primary lane**: Lane B (Release Improvement)  
+**Primary lane**: Release Improvement track (Release Improvement)  
 **Roadmap drift**: None  
 **Spec**: `docs/design/SPEC-2026-10-20-DYNAMIC-BACKEND-PORT-01.md` (v2)
 

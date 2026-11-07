@@ -54,7 +54,7 @@ Activate and unify the real-time observability and interactive control plane acr
 │  ┌─────────────────────────┐                ┌────────────────────────────┐  │
 │  │    ServerConsole.tsx    │                │      WSClient / Hook       │  │
 │  │  - Zero 3s poll when WS │                │  - Auto-reconnect          │  │
-│  │  - HTTP re-tail on recon│◄───────────────┤  - onopen / onclose events │  │
+│  │  - HTTP re-tail on retry│◄───────────────┤  - onopen / onclose events │  │
 │  └────────────┬────────────┘                └─────────────▲──────────────┘  │
 └───────────────┼───────────────────────────────────────────┼─────────────────┘
                 │ HTTP GET /console                         │ WS Frames
@@ -424,7 +424,7 @@ Activate and unify the real-time observability and interactive control plane acr
 ## Governance Gate Check
 
 ### Classification
-**This design is classified as D2 (Major) under GOVERNANCE.md §4.**
+**This design is classified as D2 (Major) under project governance standards**
 
 ### Rationale
 While Stage E introduces zero database migrations and zero new HTTP routes, it modifies the core telemetry data source for all live Docker servers from host process inspection (`psutil`) to container virtualization inspection (`docker stats`). This alters operational telemetry semantics across the monitoring and alerting system. Additionally, it introduces interactive bidirectional command execution over WebSockets.
@@ -437,4 +437,4 @@ The three binding governance decisions:
 3. Interactive exec support for both live servers and `onx-test-*` containers;
 were already explicitly authorized in the task charter.
 
-This Design Spec is complete, adheres strictly to Orchestrator.md §5, and is ready for **Design Review per Orchestrator.md §6**.
+This Design Spec is complete, adheres strictly to project engineering standardsand is ready for **Design Review per project engineering standards**.

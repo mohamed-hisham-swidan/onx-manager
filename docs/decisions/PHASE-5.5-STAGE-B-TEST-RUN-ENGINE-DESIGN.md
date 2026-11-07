@@ -1,10 +1,10 @@
 # Phase 5.5 Stage B — Test Run Engine Design Specification
 
 **Status:** Proposed / Design Ready  
-**Lane:** Lane B — Release Improvement  
+**Lane:** Release Improvement track — Release Improvement  
 **Decision Level:** D2 — Major (Alembic migration `b1e2100000022` + declarative assertion schema)  
 **Roadmap Drift:** Controlled Drift  
-**Governing Authority:** `docs/governance/GOVERNANCE.md`, `docs/decisions/DECISION-2026-09-27-001-stage-b-test-run-engine.md`  
+**Governing Authority:** project governance standards, `docs/decisions/DECISION-2026-09-27-001-stage-b-test-run-engine.md`  
 **Target File:** `docs/decisions/PHASE-5.5-STAGE-B-TEST-RUN-ENGINE-DESIGN.md`
 
 ---
@@ -44,7 +44,7 @@ Stage B delivers:
 
 ---
 
-## 3. Ground Truth & RECON Evidence Resolution
+## 3. Ground Truth & codebase audit Evidence Resolution
 
 All evidence claims were verified against repository code (master branch at commit `457cc6d`):
 

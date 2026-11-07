@@ -8,7 +8,7 @@
 | Date | 2026-10-20 |
 | HEAD | `0a62d45` (`fix(versioning): atomic branch head advance via CAS (F1-1)`) |
 | Spec ID | `SPEC-2026-10-20-PROMOTE-ATOMICITY-STOP-GUARD-01` |
-| Governance | `docs/governance/GOVERNANCE.md`; `.ai/RULES/core-principles.md`; `.ai/RULES/testing-and-verification.md` |
+| Governance | project governance standards; project engineering policies |
 | Mode | Design only. Exactly one new file was created. No source, test, state or git-write changes. |
 | Revision | **v4 (2026-10-20), applies D-O1 (STOPPING re-verification gate), D-F1-2c (reconciliation fail-open fix) and the v3 R1-R8 / option A decisions** |
 
@@ -26,7 +26,7 @@
 | R4 | MAJOR | Tests (F1-2a, F1-2b); Mutation checklist | Added missing tests: no-handle/empty-`external_id`, temp removal before `os.replace`, post-replace parent-fsync failure, abort writes nothing (checksum), inconsistent-result mutants, real-`tmp_path` integration test. |
 | R5 | MINOR | F1-2a items 2/4; Interfaces (semantics); Failure/Edge Cases; Tests (F1-2a) | Failure ordering: close fd before unlink; `replaced` flag prevents unlinking after `os.replace`; post-replace parent-fsync raises without unlinking; `os.close` failure in `finally` never masks the original exception. |
 | R6 | MINOR | F1-2b item 13; Failure/Edge Cases | Wrap the `StopServerCommand` send in `try/except Exception`; any exception is "not confirmed" and aborts with `PROMOTE_STOP_NOT_CONFIRMED`. Failure-table row retained. |
-| R7 | MINOR | New section: Pre-implementation Requirements | Lists the docs-patch work (decision record `0018`, `.ai/STATE.json` F1-2 item, live runtime verification) explicitly **not created** in this design session. |
+| R7 | MINOR | New section: Pre-implementation Requirements | Lists the docs-patch work (decision record `0018`, project state tracking F1-2 item, live runtime verification) explicitly **not created** in this design session. |
 | R8 | MINOR | New section: Coupling and Blast Radius; Affected Components; Out of Scope | Records the versioning-application -> server-infrastructure `fs.py` import, accepted with follow-up `F-U-PROMOTE-FS-PROTOCOL-01`, and the full `write_binary_atomic` caller blast radius. |
 
 ### v3 (2026-10-20) — citation corrections and owner-approved option A
@@ -103,8 +103,8 @@ ordering are explicitly deferred (see **Out of Scope**).
    `StartServerCommand` result** (`promote_commit.py:217-219`).
 9. Emits `CommitPromotedEvent` and returns a success result (`promote_commit.py:221-248`).
 
-> **Recon correction:** there is no `backend/app/modules/versioning/application/commands/promote.py`
-> at HEAD `0a62d45` (verified by `find`/`rg`). The recon citations `promote.py:196-202` and
+> **Codebase audit correction:** there is no `backend/app/modules/versioning/application/commands/promote.py`
+> at HEAD `0a62d45` (verified by `find`/`rg`). The codebase audit citations `promote.py:196-202` and
 > `promote.py:217-219` are the world-swap and restart blocks of `promote_commit.py`.
 
 ### Stop behavior
@@ -777,7 +777,7 @@ fail-open path (reconciliation) but does not add a retry.
 ## Tests & Verification
 
 Design-completion note: no test was executed in this design session. Counts in
-`.ai/STATE.json` are from 2026-10-04 and are not claimed as current. The builder must write
+project state tracking are from 2026-10-04 and are not claimed as current. The builder must write
 the failing tests first, observe them fail on HEAD `0a62d45`, then implement.
 
 ### Failing tests first (name -> expected failure on current code)
@@ -933,7 +933,7 @@ cd backend && python -m pytest -q \
 
 Development runs may use `-n auto`; before claiming the batch is clean, run sequentially
 (`python -m pytest -q` from `backend/`) or use the CI run, per
-`.ai/RULES/testing-and-verification.md`.
+project engineering policies.
 
 ### Six quality gates (expect 6/6 PASS)
 
@@ -959,7 +959,7 @@ Development runs may use `-n auto`; before claiming the batch is clean, run sequ
 - Tests must use `tmp_path`/`tempfile.TemporaryDirectory` and must not assume directory
   fsync works on Windows. Mark Windows behavior **UNVERIFIED** until the Windows workflow
   runs.
-- Do not write any recon/test artifact to the repository root or `/tmp` from repository tests.
+- Do not write any codebase audit/test artifact to the repository root or `/tmp` from repository tests.
 
 ---
 
@@ -989,11 +989,11 @@ required in the docs-patch stage before implementation:
      unknown/probe error -> leave `STOPPING` and log a warning. It is a separately landable
      sub-batch;
    - the R3 decision to include `ServerStatus.STOPPING` in the "was running" set.
-2. **`.ai/STATE.json` F1-2 item** for this workstream, with the spec path, the split
+2. **project state tracking F1-2 item** for this workstream, with the spec path, the split
    F1-2a/F1-2b/F1-2c scope, D-O1 and D-F1-2c as resolved decisions, and the deferred
    all-or-nothing follow-up.
 3. **Live runtime verification** of promote with a running server, per
-   `.ai/RULES/testing-and-verification.md` (including (i) confirmed stopped, (ii) still
+   project engineering policies (including (i) confirmed stopped, (ii) still
    running -> `RUNNING` with pid/port/external_id preserved, (iii) unknown -> `STOPPING`,
    the D-O1 `STOPPING` re-probe path, and both second-promote paths: re-send on `RUNNING`,
    re-probe on `STOPPING`). Include a startup reconciliation check for F1-2c: a `STOPPING`
@@ -1037,7 +1037,7 @@ required in the docs-patch stage before implementation:
 
 | # | Item | Evidence / status |
 |---|---|---|
-| 1 | There is no `promote.py`; the recon's `promote.py:196-202` and `:217-219` are `promote_commit.py:196-202` and `:217-219`. | Verified by `find backend -name 'promote*.py'` and `rg`. **CONFLICT** with recon label, resolved in this spec. |
+| 1 | There is no `promote.py`; the codebase audit's `promote.py:196-202` and `:217-219` are `promote_commit.py:196-202` and `:217-219`. | Verified by `find backend -name 'promote*.py'` and `rg`. **CONFLICT** with codebase audit label, resolved in this spec. |
 | 2 | `CommandBus.send` never raises for handler failures; it converts `MCSError` and generic exceptions into `success=False`. | `command_bus.py:105-121`. |
 | 3 | At HEAD, `mark_stopped()` is unconditional, so DB `STOPPED` is not proof of process exit. v3/v4 gate it on the three-outcome branch (CV3-2). | `stop_server.py:165-173`, `aggregate.py:384-393`; changed by item 12. |
 | 4 | A re-read of server status in the promote session may be stale because of the identity map and `expire_on_commit=False`. | `db.py:100`, `repository.py:35-41`; **UNVERIFIED** by a runtime probe in this design session. |
@@ -1050,7 +1050,7 @@ required in the docs-patch stage before implementation:
 | 11 | `server.runtime` is available on the pre-stop aggregate and carries `external_id` for real local/Docker runs. | `start_server.py:347,369`, `local.py:364`; mocked tests may set it to `None`. |
 | 12 | Manifest `rel_path` values are trusted; promotion does not validate traversal. | `promote_commit.py:185-188`; out of scope. |
 | 13 | No migration, new dependency, new exception type, or permission/route change is required. The new `PROMOTE_STOP_NOT_CONFIRMED` is a `CommandResult.error_code`, not a new exception class. | Verified against `exceptions.py` and `api/errors.py`. |
-| 14 | Test counts and gate results in `.ai/STATE.json` are from 2026-10-04 and were not re-run in this design session. | `.ai/STATE.json` `verified_metrics`; **UNVERIFIED** for HEAD `0a62d45`. |
+| 14 | Test counts and gate results in project state tracking are from 2026-10-04 and were not re-run in this design session. | project state tracking `verified_metrics`; **UNVERIFIED** for HEAD `0a62d45`. |
 | 15 | `runtime_verified` must come from the pre-stop capture at `stop_server.py:67` (consumed at `:74`), not from the `server` rebound at `:167`; `mark_stopped()` clears `external_id` (`:391`). Neither `runtime_verified` nor `stop_confirmed` exists at HEAD; both are introduced by this spec. | Verified: `stop_server.py:49,67,74,167,168`, `aggregate.py:384-393` (R1); `rg` finds no `runtime_verified`/`stop_confirmed` in `backend/app` or `backend/tests`. |
 | 16 | The test fixture `_create_test_server(make_running=True)` (`test_server_commands.py:70-102`) sets no `external_id`; `mark_running(pid=100, port=25565)` at `:98` leaves it empty and `test_stop_running_server` asserts `external_id == ""` at `:396`. A confirmed-stop test must set a non-empty `external_id` explicitly; the existing `test_stop_running_server` must be updated accordingly (see Tests). | Verified at HEAD (R1). |
 | 17 | The first UnitOfWork commits `STOPPING` at `stop_server.py:58` (`await uow.commit()`) on the `RUNNING`/`STARTING` path, so "DB status unchanged" means not advanced to `STOPPED`; it cannot mean the pre-request `RUNNING` value. `server.stop()` at `:53` only sets the in-memory status before that commit. D-O1 skips both for a `STOPPING` input (item 12a). | Verified: `stop_server.py:51-58`; resolved in item 12 (R2/CV3-2), extended by D-O1. |

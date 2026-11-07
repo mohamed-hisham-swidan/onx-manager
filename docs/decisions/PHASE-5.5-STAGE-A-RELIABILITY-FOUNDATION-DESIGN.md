@@ -78,7 +78,7 @@ An inspection of the repository reveals the following current state:
 
 ---
 
-## 3. RECON Evidence
+## 3. codebase audit Evidence
 
 | ID | Item | Classification | Verification Detail |
 |---|---|---|---|
@@ -90,7 +90,7 @@ An inspection of the repository reveals the following current state:
 | R-06 | `InMemoryIdempotencyStore` is ephemeral | **FACT** | `InMemoryIdempotencyStore` holds in-memory Python dictionaries with TTL eviction. Process restart wipes reservations and results. |
 | R-07 | Frontend UI primitives are reusable | **FACT** | Inspected `frontend/src/components/ui/` and `frontend/src/stores/`. `StatusBadge`, `LoaderBadge`, and `toastStore` are mature and ready for reuse in the new drawer/stepper. |
 | R-08 | Script naming collision is non-functional | **FACT** | Inspected `scripts/check-db-revision`. The phrase "Phase 5.5 startup check" in line 4 is an unrelated docstring comment in the Alembic revision checking script. |
-| R-09 | Historical baseline metrics recorded | **FACT** | `.ai/STATE.json` records 3,058 passed / 6 skipped backend tests, 735 frontend tests across 84 files, 6/6 CI gates, Alembic head `b1e2100000020` as verified on 2026-09-24. These are historical baseline facts, not re-run during this design session. |
+| R-09 | Historical baseline metrics recorded | **FACT** | project state tracking records 3,058 passed / 6 skipped backend tests, 735 frontend tests across 84 files, 6/6 CI gates, Alembic head `b1e2100000020` as verified on 2026-09-24. These are historical baseline facts, not re-run during this design session. |
 
 ---
 

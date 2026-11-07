@@ -4,7 +4,7 @@
 **Date**: 2026-11-02  
 **Author**: B6b Docs Build Session  
 **Decision level**: D1  
-**Primary lane**: Lane A (Release Critical)  
+**Primary lane**: Release Critical track (Release Critical)  
 **Roadmap drift**: None  
 **Spec**: `docs/design/SPEC-2026-10-29-PYTHON-312-PIN-01.md` (local, untracked)
 

@@ -1,7 +1,7 @@
 # DECISION-2026-09-18-001 — Stage G Protected Branches (Narrowed Scope)
 
 **Date:** 2026-09-18  
-**Decision Level:** D2 (Major) — per GOVERNANCE.md §4: introduces new branch protection policy invariants, direct-commit and archival rejection rules, administrative bypass permissions, and database migration.  
+**Decision Level:** D2 (Major) — per project governance standards: introduces new branch protection policy invariants, direct-commit and archival rejection rules, administrative bypass permissions, and database migration.  
 **Lane:** Standard / Core Versioning  
 **Status:** Approved (Authorized by Mohamed 2026-09-18; Built & Verified in commit `ba8b539`)  
 
@@ -9,7 +9,7 @@
 
 ## Context
 
-Stage G in the initial Enterprise Branch Runtime outline proposed multiple enterprise capabilities (Fine-grained RBAC/ABAC, Persistent Volume Snapshotting, Multi-host/node scheduler groundwork, and Protected Branches). A systematic RECON evaluated these four:
+Stage G in the initial Enterprise Branch Runtime outline proposed multiple enterprise capabilities (Fine-grained RBAC/ABAC, Persistent Volume Snapshotting, Multi-host/node scheduler groundwork, and Protected Branches). A systematic codebase audit evaluated these four:
 1. Fine-grained RBAC/ABAC: Already handled by the existing hierarchical Casbin RBAC engine (`permissions.yaml`).
 2. Persistent Volume Snapshotting: Redundant with ONX Manager's existing copy-on-write (`btrfs`/`zfs`) reflink snapshotting engine.
 3. Multi-host scheduler: Explicitly deferred as external to ONX Manager's single-host architecture.

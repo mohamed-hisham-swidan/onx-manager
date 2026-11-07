@@ -80,7 +80,7 @@ The repository owner made the following binding architectural decisions on 2026-
 - URL query parameter synchronization (`?status=`) for server fleet filtering.
 - Unified Add-ons interface integrating Plugins and Mods.
 
-### Out of Scope (Deferred to Lane E)
+### Out of Scope (Deferred to Future Product track)
 - Bulk server power actions (multi-select start/stop/restart).
 - Dedicated players management panel (in-browser kick, ban, message).
 - Global command palette (`Cmd+K`).
@@ -102,19 +102,19 @@ The following items are isolated into separate functional tasks outside visual l
 3. `client.ts:180` typing fix (`exec_input` shape in `WSClientMessage`).
 4. Merging the invitation token redemption flow of `RegisterPage.tsx` into `InvitePage.tsx`.
 5. Route-level code splitting (`React.lazy` / dynamic imports in `App.tsx`).
-6. Vitest test runner stabilization via worker pool configuration (`Lane C`).
+6. Vitest test runner stabilization via worker pool configuration (`Tech Debt track`).
 
 ## Execution Constraints & Governance
 
 - **API Invariance**: Backend API contracts and route URLs remain strictly unchanged.
 - **Zero Unapproved Dependencies**: No new runtime npm libraries are introduced without explicit owner approval.
 - **Atmosphere & Trademark Safety**: Absolutely zero Mojang/Minecraft trademarks, brand logos, proprietary textures, or look-alike lettering. Original voxel/pixel artistic touches are deferred to Stage 3.
-- **Batch Cadence**: Work is executed in approximately 19 small, focused batches. Every batch begins with a targeted mini-recon of the exact file lines it modifies and must fit within a 30-minute agent execution window.
-- **Peer Review & Commits**: Every batch must be independently reviewed by a separate agent before completion. Per `.ai/RULES/commit-and-safety.md`, only the repository owner commits changes.
+- **Batch Cadence**: Work is executed in approximately 19 small, focused batches. Every batch begins with a targeted targeted code audit of the exact file lines it modifies and must fit within a 30-minute agent execution window.
+- **Peer Review & Commits**: Every batch must be independently reviewed by a separate agent before completion. Per project engineering policies, only the repository owner commits changes.
 
 ## Why
 
-This decision satisfies the governance requirements of `docs/governance/GOVERNANCE.md`:
+This decision satisfies the governance requirements of project governance standards:
 1. It eliminates significant technical debt (monolith components, modal duplication, unvirtualized lists) while respecting the 15% pre-launch controlled drift budget.
 2. It decouples visual design from component logic through semantic tokens, allowing brand customization without ongoing code churn.
 3. It strictly contains blast radius by enforcing frontend-only boundaries, neutral token fallbacks, and single-batch reversibility.

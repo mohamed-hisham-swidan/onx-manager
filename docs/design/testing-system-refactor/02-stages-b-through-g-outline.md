@@ -1,6 +1,6 @@
 # Outline — Stages B through G (Enterprise Branch Runtime)
 
-**Status:** Captured for future planning. **Not** design specs — each of these gets its own full Design Spec, through the normal RECON → Design Spec → Design Review pipeline, once Stage A is built and the entities below actually exist in code. Writing detailed specs for these now would mean designing against entities that don't exist yet.
+**Status:** Captured for future planning. **Not** design specs — each of these gets its own full Design Spec, through the normal codebase audit → Design Spec → Design Review pipeline, once Stage A is built and the entities below actually exist in code. Writing detailed specs for these now would mean designing against entities that don't exist yet.
 
 Each stage below lists: what it covers, what from the source report it borrows, and the trigger condition for when it's ready to become a real spec.
 
@@ -20,7 +20,7 @@ Each stage below lists: what it covers, what from the source report it borrows, 
 
 ## Stage D — Runtime Control
 
-**Covers:** Domain `Runtime` identity + a global scheduler/resource-pool/admission policy. **RECON-narrowed (2026-09-16):** container lifecycle, multi-runtime support, and per-container resource policy are already shipped via Phase 5's `DockerProvider` — this stage is NOT "build container runtime control," it's "add the scheduling/admission layer the shipped provider doesn't have."
+**Covers:** Domain `Runtime` identity + a global scheduler/resource-pool/admission policy. **Audit-narrowed (2026-09-16):** container lifecycle, multi-runtime support, and per-container resource policy are already shipped via Phase 5's `DockerProvider` — this stage is NOT "build container runtime control," it's "add the scheduling/admission layer the shipped provider doesn't have."
 **Report basis:** §3.5 (never hide concurrency behind arbitrary global locks), Stage D steps 18-23 — largely superseded by what Phase 5 already shipped.
 **Trigger for spec:** Stage A's Invariant 2 open question (lock lifted vs. kept vs. deferred, see `01-...md`) must be resolved first — it directly determines whether this stage needs a scheduler at all in the near term, or whether the existing per-server lock is "good enough" until real multi-runtime demand appears.
 
@@ -34,10 +34,10 @@ Each stage below lists: what it covers, what from the source report it borrows, 
 
 **Covers:** Making `TestDefinition`/`TestRun` first-class, bound to exact revisions, parallel runs, structured assertions/evidence, cleanup/retention.
 **Report basis:** Stage F steps 30-34.
-**Trigger for spec:** This directly overlaps the Phase 4 "test environment" feature — RECON in Stage A already needs to map this overlap. This stage's spec should fold in (not duplicate) whatever's already shipped there.
+**Trigger for spec:** This directly overlaps the Phase 4 "test environment" feature — codebase audit in Stage A already needs to map this overlap. This stage's spec should fold in (not duplicate) whatever's already shipped there.
 
 ## Stage G — Enterprise Capabilities
 
 **Covers:** RBAC/ABAC, audit logging, protected branches, multi-host scheduler, resource pools, persistent-volume snapshots, backup/restore.
 **Report basis:** Stage G steps 35-41.
-**Trigger for spec:** Explicitly the last stage in the report's own recommended order, and the one furthest from anything currently in ONX Manager (single-host, no multi-tenant RBAC model yet). Each item in this stage likely needs its own GOVERNANCE.md D2 record before a spec is even written — this is the stage most likely to be partially rejected or deferred to Lane E (Future/Backlog) once real usage of Stages A-F exists to justify it.
+**Trigger for spec:** Explicitly the last stage in the report's own recommended order, and the one furthest from anything currently in ONX Manager (single-host, no multi-tenant RBAC model yet). Each item in this stage likely needs its own project governance standards D2 record before a spec is even written — this is the stage most likely to be partially rejected or deferred to Future Product track (Future/Backlog) once real usage of Stages A-F exists to justify it.

@@ -3,9 +3,9 @@
 - **Status:** Accepted (Accepted by owner on 2026-10-02)
 - **Date:** 2026-10-02 (Revised — Revision 2: Option Z, re-graded)
 - **Decision level:** D0 (Routine — re-graded from D1: one provider-internal branch plus tests; no signature, enum, interface, or consumer-code change; fully revertible. Owner confirms the grade.)
-- **Primary lane:** Lane B (Release Improvement)
+- **Primary lane:** Release Improvement track (Release Improvement)
 - **Roadmap drift:** None
-- **Owners / Deciders:** Mohamed (project owner), Antigravity (Design Agent)
+- **Owners / Deciders:** Mohamed (project owner)
 - **Target release / milestone:** Launch v0.1.0 (Phase 6 / Stabilization)
 
 ---
@@ -59,7 +59,7 @@ Adopt **Option Z** (Revision 2; Option 1 withdrawn above):
 2. **Stop Flow:** unchanged code — clean stops (0/137/143, `OOMKilled=false`) keep reading `STOPPED`; no `collect_diagnostics` coupling in `stop_server.py` / `restart_server.py`.
 3. **Delete Honesty:** Retain HTTP 500 (`FILESYSTEM_CLEANUP_FAILED`). In `details`, provide `leftover_path` (justified under `server:delete` role check) and a neutral `cleanup_hint` stating the failure "may be caused by file permissions or active file locks". Do not output ready-made shell commands (`sudo rm -rf`).
 4. **Deferred Items (Part C):** Keep automatic root cleanup container (D2, security-critical) and `DELETING` state (D1/D2) recorded and deferred.
-5. **Separate Itzg Finding (Part D):** Record the `itzg` UID/GID finding and its migration risks as an independent open finding in `STATE.json` without designing the fix.
+5. **Separate Itzg Finding (Part D):** Record the `itzg` UID/GID finding and its migration risks as an independent open finding in project state tracking without designing the fix.
 6. **Accepted residuals (R1):** unconfirmed-kill (137/`OOMKilled=false`) status string and the container-removed case — see spec §5 matrix and §7.3 task-5 finding (diagnostic misattribution recorded separately, no design).
 
 ---
@@ -108,4 +108,4 @@ None. Does not alter release scope or milestone commitments.
   - Updated `delete_server.py:184-193`: error payload returns `leftover_path` and neutral `cleanup_hint` without raw shell commands (`sudo rm -rf`).
   - Added unit test matrix in `test_docker_provider.py` covering `OOMKilled` true/false x exit codes (0, 137, 143, 1), missing-token tolerant parsing, and running state.
   - Updated `test_delete_filesystem_failure_returns_error_result` in `test_server_commands.py` asserting `leftover_path`, neutral cleanup hint, and absence of `manual_command`.
-  - Added open items `docker-itzg-uid-gid-mapping` and `docker-diagnostics-clean-stop-memory-exhausted` to `.ai/STATE.json` under Lane B (Release Improvement).
+  - Added open items `docker-itzg-uid-gid-mapping` and `docker-diagnostics-clean-stop-memory-exhausted` to project state tracking under Release Improvement track (Release Improvement).
