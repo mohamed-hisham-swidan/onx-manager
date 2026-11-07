@@ -135,6 +135,18 @@ export function ServerDetailPage() {
   const resolvedAddress = resolveAccessAddress(server, exposure);
   const address = resolvedAddress.address ?? "—";
 
+  const connectableHost =
+    server.deployment_host &&
+    server.deployment_host !== "undefined" &&
+    server.deployment_host !== "null"
+      ? server.deployment_host.trim()
+      : "";
+  const connectablePort = server.deployment_port ?? server.port;
+  const portWidgetDisplay = connectableHost || String(server.port);
+  const portWidgetCopyValue = connectableHost
+    ? `${connectableHost}:${connectablePort}`
+    : String(server.port);
+
   const hasLiveTps = isRunning && currentMetric?.tps != null;
 
   return (
@@ -317,12 +329,12 @@ export function ServerDetailPage() {
               Server Port
             </h3>
             <div className="flex items-center justify-between">
-              <span className="font-mono text-base font-bold tabular-nums text-text-primary truncate pr-2">{server.port}</span>
+              <span className="font-mono text-base font-bold tabular-nums text-text-primary truncate pr-2">{portWidgetDisplay}</span>
               <button
                 type="button"
-                onClick={() => copy(String(server.port), "Port copied to clipboard")}
+                onClick={() => copy(portWidgetCopyValue, connectableHost ? "Address copied to clipboard" : "Port copied to clipboard")}
                 className="shrink-0 p-1 rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
-                title="Copy port"
+                title={connectableHost ? "Copy address" : "Copy port"}
               >
                 <Icon name="copy" size={14} />
               </button>

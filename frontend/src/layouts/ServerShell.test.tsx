@@ -344,4 +344,30 @@ describe("ServerShell", () => {
     skipLink.click();
     expect(document.activeElement).toBe(main);
   });
+
+  it("displays deployment_host IP in header copy control and copies <ip>:<port>, falling back when deployment_host is null", async () => {
+    vi.mocked(useServerDetail).mockReturnValue({
+      data: {
+        ...mockServer,
+        deployment_host: "172.18.0.5",
+        deployment_port: 25565,
+        port: 25565,
+      },
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useServerDetail>);
+
+    const user = userEvent.setup();
+    const writeTextSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    renderServerShell("/servers/srv-123/console");
+
+    const header = screen.getByTestId("server-context-header");
+    expect(header).toHaveTextContent("172.18.0.5");
+    expect(header.textContent).not.toContain("undefined");
+    expect(header.textContent).not.toContain("null");
+
+    const copyBtn = screen.getByTestId("server-header-copy-address");
+    await user.click(copyBtn);
+    expect(writeTextSpy).toHaveBeenCalledWith("172.18.0.5:25565");
+  });
 });

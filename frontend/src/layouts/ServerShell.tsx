@@ -95,7 +95,17 @@ export function ServerShell() {
     currentSection === "Files" ? resolvedPath.split("/").filter(Boolean) : [];
   const fileName = searchFile ? searchFile.split("/").pop() : "";
 
-  const serverAddress = server ? `127.0.0.1:${server.port}` : "";
+  const effectiveHost =
+    server?.deployment_host &&
+    server.deployment_host !== "undefined" &&
+    server.deployment_host !== "null"
+      ? server.deployment_host.trim()
+      : "";
+  const effectivePort = server?.deployment_port ?? server?.port;
+  const serverAddress = server
+    ? `${effectiveHost || "127.0.0.1"}:${effectivePort}`
+    : "";
+  const headerDisplayIpOrFallback = effectiveHost || serverAddress;
 
   const handleCopyAddress = () => {
     if (!serverAddress) return;
@@ -365,13 +375,18 @@ export function ServerShell() {
                         </span>
                         <span className="text-border-subtle">•</span>
                         <span className="font-mono">
-                          <strong className="text-text-secondary">Port:</strong> {server.port}
+                          <strong className="text-text-secondary">Port:</strong>{" "}
+                          {effectiveHost || server.port}
                         </span>
                         <span className="text-border-subtle">•</span>
-                        <span className="inline-flex items-center gap-1">
+                        <span
+                          data-testid="server-header-copy-address"
+                          onClick={handleCopyAddress}
+                          className="inline-flex items-center gap-1 cursor-pointer"
+                        >
                           <strong className="text-text-secondary">Address:</strong>
                           <Chip
-                            label={copiedAddress ? "Copied!" : serverAddress}
+                            label={copiedAddress ? "Copied!" : headerDisplayIpOrFallback}
                             size="xs"
                             variant="outline"
                             onClick={handleCopyAddress}

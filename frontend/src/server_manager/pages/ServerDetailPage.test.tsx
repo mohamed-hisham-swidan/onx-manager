@@ -12,9 +12,10 @@ function NavigateButton({ to, label }: { to: string; label: string }) {
   return <button onClick={() => navigate(to)}>{label}</button>;
 }
 
-const { subscribeChannelsMock, unsubscribeChannelsMock } = vi.hoisted(() => ({
+const { subscribeChannelsMock, unsubscribeChannelsMock, copyMock } = vi.hoisted(() => ({
   subscribeChannelsMock: vi.fn(),
   unsubscribeChannelsMock: vi.fn(),
+  copyMock: vi.fn(),
 }));
 
 vi.mock("@/hooks/useWebSocket", () => ({
@@ -111,7 +112,7 @@ vi.mock("@/server_manager/components/Sparkline", () => ({
 }));
 
 vi.mock("@/hooks/useClipboard", () => ({
-  useClipboard: () => ({ copy: vi.fn() }),
+  useClipboard: () => ({ copy: copyMock }),
 }));
 
 function renderPage(serverId = "srv-1") {
@@ -276,6 +277,23 @@ describe("ServerDetailPage", () => {
     expect(portWidget).toBeInTheDocument();
     expect(portWidget).toHaveTextContent("Server Port");
     expect(portWidget).toHaveTextContent("25577");
+  });
+
+  it("displays deployment_host IP in server-port-widget and copies <ip>:<port> when deployment_host is known", async () => {
+    const user = userEvent.setup();
+    mockData = {
+      ...mockServer,
+      deployment_host: "172.18.0.5",
+      deployment_port: 25565,
+      port: 25565,
+    };
+    renderPage();
+    const portWidget = screen.getByTestId("server-port-widget");
+    expect(portWidget).toHaveTextContent("172.18.0.5");
+    const copyBtn = portWidget.querySelector("button");
+    expect(copyBtn).not.toBeNull();
+    await user.click(copyBtn!);
+    expect(copyMock).toHaveBeenCalledWith("172.18.0.5:25565", expect.any(String));
   });
 
   it("renders uptime formatted when uptime_seconds > 0", () => {
