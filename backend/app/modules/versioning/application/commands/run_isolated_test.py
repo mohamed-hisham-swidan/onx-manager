@@ -248,6 +248,8 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
         test_run.operation_id = op.id
         test_run.mark_booting()
         await versioning_repo.save_test_run(test_run)
+        if getattr(versioning_repo, "_session", None) is not None:
+            await versioning_repo._session.commit()
 
         # 5. Launch test runner pipeline
         spec = TestSpec(
@@ -269,6 +271,8 @@ class RunIsolatedTestHandler(CommandHandler[RunIsolatedTestCommand]):
             # would also catch it, but an explicit FAILED carries the cause).
             test_run.mark_failed(f"Runner failed before verification: {exc}")
             await versioning_repo.save_test_run(test_run)
+            if getattr(versioning_repo, "_session", None) is not None:
+                await versioning_repo._session.commit()
             raise
 
         from app.modules.versioning.domain.events import TestRunStartedEvent
