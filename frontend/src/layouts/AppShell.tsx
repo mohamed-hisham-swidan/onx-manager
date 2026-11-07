@@ -39,11 +39,11 @@ export function AppShell() {
       <main
         id="main-content"
         tabIndex={-1}
-        className={`pt-14 transition-all duration-200 outline-hidden ${
+        className={`min-h-[calc(100vh-3.5rem)] pt-14 overflow-y-auto pb-16 transition-all duration-200 outline-hidden ${
           sidebarOpen ? "lg:pl-56" : "lg:pl-0"
         }`}
       >
-        <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6">
+        <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6 pb-16">
           <ErrorBoundary>
             <Suspense fallback={<RouteFallback />}>
               <Outlet />

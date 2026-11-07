@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { PluginListPage } from "./PluginListPage";
+import { PluginListPage, parsePluginMetadata } from "./PluginListPage";
 import { useLastUsedServerStore } from "@/stores/lastUsedServerStore";
 
 const mockNavigate = vi.fn();
@@ -104,6 +104,7 @@ describe("PluginListPage", () => {
     mockError = null;
     useLastUsedServerStore.setState({ lastUsedServerId: "" });
     localStorage.removeItem("onx_last_used_server");
+    localStorage.removeItem("onx_plugins_view_mode");
   });
 
   it("renders page header", () => {
@@ -230,5 +231,125 @@ describe("PluginListPage", () => {
   it("shows server select dropdown when route serverId is absent", () => {
     renderPage();
     expect(screen.getByLabelText("Choose a server")).toBeInTheDocument();
+  });
+
+  describe("parsePluginMetadata helper", () => {
+    it("parses semver plugin name and jar filename into clean title and version", () => {
+      const meta = parsePluginMetadata({
+        plugin_id: "plg-via",
+        server_id: "srv-1",
+        name: "5.12.2",
+        filename: "ViaVersion-5.12.2.jar",
+        version: "5.12.2",
+        description: "",
+        author: "",
+        status: "enabled",
+        dependencies: [],
+        installed_at: "",
+        updated_at: "",
+      });
+      expect(meta.title).toBe("ViaVersion");
+      expect(meta.version).toBe("5.12.2");
+      expect(meta.author).toBe("Local .jar / Modrinth");
+    });
+
+    it("parses hyphenated package filename like veinminer-paper-2.12.3.jar", () => {
+      const meta = parsePluginMetadata({
+        plugin_id: "plg-vein",
+        server_id: "srv-1",
+        name: "veinminer-paper-2.12.3.jar",
+        filename: "veinminer-paper-2.12.3.jar",
+        version: "",
+        description: "",
+        author: "",
+        status: "enabled",
+        dependencies: [],
+        installed_at: "",
+        updated_at: "",
+      });
+      expect(meta.title).toBe("VeinMiner Paper");
+      expect(meta.version).toBe("2.12.3");
+      expect(meta.author).toBe("Local .jar / Modrinth");
+      expect(meta.loaders).toContain("Paper");
+    });
+
+    it("preserves established human plugin names like WorldEdit and EssentialsX", () => {
+      const meta = parsePluginMetadata({
+        plugin_id: "plg-we",
+        server_id: "srv-1",
+        name: "WorldEdit",
+        filename: "worldedit-bukkit-7.3.0.jar",
+        version: "7.3.0",
+        description: "",
+        author: "EngineHub",
+        status: "enabled",
+        dependencies: [],
+        installed_at: "",
+        updated_at: "",
+      });
+      expect(meta.title).toBe("WorldEdit");
+      expect(meta.version).toBe("7.3.0");
+      expect(meta.author).toBe("EngineHub");
+    });
+
+    it("never displays a bare semver as the primary title", () => {
+      const meta = parsePluginMetadata({
+        plugin_id: "plg-bare",
+        server_id: "srv-1",
+        name: "1.2.3",
+        filename: null,
+        version: "1.2.3",
+        description: "",
+        author: "",
+        status: "enabled",
+        dependencies: [],
+        installed_at: "",
+        updated_at: "",
+      });
+      expect(meta.title).not.toBe("1.2.3");
+      expect(meta.title).toBe("Plugin 1.2.3");
+    });
+  });
+
+  describe("PluginListPage cards grid and metadata UI", () => {
+    it("renders ViaVersion title instead of bare version when backend returns semver name", () => {
+      mockPluginsData = [
+        {
+          plugin_id: "plg-via",
+          server_id: "srv-1",
+          name: "5.12.2",
+          filename: "ViaVersion-5.12.2.jar",
+          version: "5.12.2",
+          description: "Allows newer clients to connect",
+          author: "",
+          status: "enabled",
+          dependencies: [],
+          installed_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          source: "detected",
+          external_url: "https://modrinth.com/plugin/viaversion",
+        },
+      ];
+      renderPage();
+      selectServer();
+
+      expect(screen.getByText("ViaVersion")).toBeInTheDocument();
+      expect(screen.getByText("5.12.2")).toBeInTheDocument();
+      expect(screen.getByText("Local .jar / Modrinth")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Config" })).toBeInTheDocument();
+    });
+
+    it("allows toggling viewMode between Cards and List in PluginListPage", () => {
+      renderPage();
+      selectServer();
+
+      expect(screen.getByRole("button", { name: /Grid card view/i })).toHaveAttribute("aria-pressed", "true");
+
+      fireEvent.click(screen.getByRole("button", { name: /Compact list view/i }));
+      expect(screen.getByRole("table")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /Grid card view/i }));
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    });
   });
 });

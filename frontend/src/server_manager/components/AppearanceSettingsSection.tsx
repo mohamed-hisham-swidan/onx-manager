@@ -1,66 +1,7 @@
 import { useState, useEffect } from "react";
 import { useUIStore } from "@/stores/uiStore";
 import { Icon } from "@/components/ui/Icon";
-
-interface SkinDefinition {
-  id: string;
-  name: string;
-  description: string;
-  previewBg: string;
-  previewCard: string;
-  previewAccent: string;
-}
-
-const SKINS: SkinDefinition[] = [
-  {
-    id: "graphite",
-    name: "Graphite",
-    description: "Pure neutral monochrome carbon",
-    previewBg: "rgb(20, 20, 20)",
-    previewCard: "rgb(32, 32, 32)",
-    previewAccent: "rgb(240, 240, 240)",
-  },
-  {
-    id: "azure",
-    name: "Azure",
-    description: "Deep ocean slate & sky blue",
-    previewBg: "rgb(15, 23, 42)",
-    previewCard: "rgb(30, 41, 59)",
-    previewAccent: "rgb(56, 189, 248)",
-  },
-  {
-    id: "emerald",
-    name: "Emerald",
-    description: "Obsidian forest & matrix green",
-    previewBg: "rgb(6, 26, 18)",
-    previewCard: "rgb(12, 42, 29)",
-    previewAccent: "rgb(52, 211, 153)",
-  },
-  {
-    id: "amethyst",
-    name: "Amethyst",
-    description: "Cosmic nebula & royal violet",
-    previewBg: "rgb(24, 15, 38)",
-    previewCard: "rgb(40, 25, 64)",
-    previewAccent: "rgb(192, 132, 252)",
-  },
-  {
-    id: "amber",
-    name: "Amber",
-    description: "Warm carbon & industrial gold",
-    previewBg: "rgb(28, 20, 10)",
-    previewCard: "rgb(48, 34, 16)",
-    previewAccent: "rgb(251, 191, 36)",
-  },
-  {
-    id: "crimson",
-    name: "Crimson",
-    description: "Volcanic basalt & ruby rose",
-    previewBg: "rgb(32, 14, 18)",
-    previewCard: "rgb(54, 22, 30)",
-    previewAccent: "rgb(251, 113, 133)",
-  },
-];
+import { THEME_SKINS } from "@/tokens/storageKeys";
 
 interface AccentDefinition {
   id: string;
@@ -275,32 +216,47 @@ export function AppearanceSettingsSection() {
 
             {/* Wireframe Mini Preview */}
             <div
-              className="rounded-lg p-2.5 border border-border-subtle space-y-2"
-              style={{ backgroundColor: "rgb(248, 250, 252)" }}
+              className="rounded-lg p-2.5 space-y-2 border"
+              style={{
+                backgroundColor: "rgb(226, 232, 240)",
+                borderColor: "rgb(203, 213, 225)",
+              }}
             >
-              <div className="flex items-center justify-between pb-1 border-b border-border-subtle">
+              <div
+                className="flex items-center justify-between pb-1 border-b"
+                style={{ borderColor: "rgb(203, 213, 225)" }}
+              >
                 <div
-                  className="h-2 w-12 rounded-sm"
-                  style={{ backgroundColor: "rgb(203, 213, 225)" }}
+                  className="h-2 w-12 rounded-xs"
+                  style={{ backgroundColor: "rgb(148, 163, 184)" }}
                 />
                 <div
-                  className="h-2 w-6 rounded-sm"
+                  className="h-2 w-6 rounded-xs"
                   style={{ backgroundColor: "rgb(37, 99, 235)" }}
                 />
               </div>
               <div className="flex gap-2">
                 <div
-                  className="w-1/4 h-12 rounded-sm"
-                  style={{ backgroundColor: "rgb(226, 232, 240)" }}
+                  className="w-1/4 h-12 rounded-xs border"
+                  style={{
+                    backgroundColor: "rgb(241, 245, 249)",
+                    borderColor: "rgb(203, 213, 225)",
+                  }}
                 />
                 <div className="w-3/4 space-y-1.5">
                   <div
-                    className="h-5 rounded-sm"
-                    style={{ backgroundColor: "rgb(255, 255, 255)", border: "1px solid rgb(226, 232, 240)" }}
+                    className="h-5 rounded-xs border"
+                    style={{
+                      backgroundColor: "rgb(241, 245, 249)",
+                      borderColor: "rgb(203, 213, 225)",
+                    }}
                   />
                   <div
-                    className="h-5 rounded-sm"
-                    style={{ backgroundColor: "rgb(255, 255, 255)", border: "1px solid rgb(226, 232, 240)" }}
+                    className="h-5 rounded-xs border"
+                    style={{
+                      backgroundColor: "rgb(241, 245, 249)",
+                      borderColor: "rgb(203, 213, 225)",
+                    }}
                   />
                 </div>
               </div>
@@ -324,7 +280,7 @@ export function AppearanceSettingsSection() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {SKINS.map((s) => {
+          {THEME_SKINS.map((s) => {
             const isSelected = skin === s.id;
             return (
               <button
@@ -338,10 +294,18 @@ export function AppearanceSettingsSection() {
                 }`}
               >
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-text-primary">{s.name}</span>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-semibold text-text-primary">{s.name}</span>
+                        <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-sm bg-surface-card border border-border-default text-text-secondary">
+                          {s.paletteBadge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-text-secondary mt-0.5">{s.tagline}</p>
+                    </div>
                     {isSelected && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-accent-primary px-2 py-0.5 text-[10px] font-semibold text-accent-contrast-text">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-accent-primary px-2 py-0.5 text-[10px] font-semibold text-accent-contrast-text shrink-0">
                         <Icon name="check" size={10} />
                         Active
                       </span>
@@ -350,23 +314,130 @@ export function AppearanceSettingsSection() {
                   <p className="text-xs text-text-muted min-h-[32px]">{s.description}</p>
                 </div>
 
-                {/* Surface layers preview chips */}
-                <div className="mt-4 pt-3 border-t border-border-subtle flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
+                {/* Rich Mini-UI Preview Window */}
+                <div
+                  className="mt-3 rounded-lg p-2.5 space-y-2 border"
+                  style={{
+                    backgroundColor: s.canvasColor,
+                    borderColor: s.borderColor,
+                  }}
+                >
+                  {/* Mini Window Top Header */}
+                  <div
+                    className="flex items-center justify-between pb-1.5 border-b"
+                    style={{ borderColor: s.borderColor }}
+                  >
+                    <div className="flex items-center gap-1">
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: s.accentColor }}
+                      />
+                      <div
+                        className="h-1.5 w-10 rounded-xs"
+                        style={{ backgroundColor: s.borderColor }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div
+                        className="h-1.5 w-4 rounded-xs"
+                        style={{ backgroundColor: s.badgeColor }}
+                      />
+                      <div
+                        className="h-2 w-6 rounded-xs"
+                        style={{ backgroundColor: s.accentColor }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Mini Body: Sidebar + Main Surface Content */}
+                  <div className="flex gap-1.5">
+                    {/* Mini Sidebar */}
                     <div
-                      className="w-5 h-5 rounded-full border border-border-default"
-                      style={{ backgroundColor: s.previewBg }}
-                      title="Background base"
+                      className="w-1/4 h-12 rounded-xs p-1 space-y-1 border"
+                      style={{
+                        backgroundColor: s.surfaceColor,
+                        borderColor: s.borderColor,
+                      }}
+                    >
+                      <div
+                        className="h-1.5 w-full rounded-xs"
+                        style={{ backgroundColor: s.borderColor }}
+                      />
+                      <div
+                        className="h-1.5 w-3/4 rounded-xs"
+                        style={{ backgroundColor: s.accentColor }}
+                      />
+                      <div
+                        className="h-1.5 w-1/2 rounded-xs"
+                        style={{ backgroundColor: s.borderColor }}
+                      />
+                    </div>
+
+                    {/* Mini Surface Cards */}
+                    <div className="w-3/4 space-y-1.5">
+                      <div
+                        className="h-5 rounded-xs p-1 flex items-center justify-between border"
+                        style={{
+                          backgroundColor: s.surfaceColor,
+                          borderColor: s.borderColor,
+                        }}
+                      >
+                        <div
+                          className="h-1.5 w-10 rounded-xs"
+                          style={{ backgroundColor: s.borderColor }}
+                        />
+                        <div
+                          className="h-1.5 w-3 rounded-xs"
+                          style={{ backgroundColor: s.accentColor }}
+                        />
+                      </div>
+                      <div
+                        className="h-5 rounded-xs p-1 flex items-center justify-between border"
+                        style={{
+                          backgroundColor: s.surfaceColor,
+                          borderColor: s.borderColor,
+                        }}
+                      >
+                        <div
+                          className="h-1.5 w-7 rounded-xs"
+                          style={{ backgroundColor: s.badgeColor }}
+                        />
+                        <div
+                          className="h-1.5 w-5 rounded-xs"
+                          style={{ backgroundColor: s.borderColor }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Surface layers preview chips & technical palette specification */}
+                <div className="mt-3 pt-2.5 border-t border-border-subtle flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <div
+                      className="w-4 h-4 rounded-full border border-border-default"
+                      style={{ backgroundColor: s.canvasColor }}
+                      title="Canvas color"
                     />
                     <div
-                      className="w-5 h-5 rounded-full border border-border-default -ml-2"
-                      style={{ backgroundColor: s.previewCard }}
-                      title="Card surface"
+                      className="w-4 h-4 rounded-full border border-border-default -ml-1.5"
+                      style={{ backgroundColor: s.surfaceColor }}
+                      title="Surface card color"
                     />
                     <div
-                      className="w-5 h-5 rounded-full border border-border-default -ml-2 shadow-xs"
-                      style={{ backgroundColor: s.previewAccent }}
-                      title="Accent tint"
+                      className="w-4 h-4 rounded-full border border-border-default -ml-1.5"
+                      style={{ backgroundColor: s.borderColor }}
+                      title="Border default color"
+                    />
+                    <div
+                      className="w-4 h-4 rounded-full border border-border-default -ml-1.5 shadow-xs"
+                      style={{ backgroundColor: s.accentColor }}
+                      title="Primary accent color"
+                    />
+                    <div
+                      className="w-4 h-4 rounded-full border border-border-default -ml-1.5"
+                      style={{ backgroundColor: s.badgeColor }}
+                      title="Secondary badge color"
                     />
                   </div>
                   <span className="text-[11px] font-mono text-text-muted capitalize">

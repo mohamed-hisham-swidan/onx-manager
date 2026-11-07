@@ -261,4 +261,51 @@ describe("ServerSettingsSection", () => {
     expect(minRamInput.value).toBe("512");
     expect(maxRamInput.value).toBe("1024");
   });
+
+  it("does not coerce empty string to 0 while typing in numeric inputs", () => {
+    renderSettings();
+
+    const portInput = screen.getByLabelText("Server Port (1024–65535)") as HTMLInputElement;
+    expect(portInput.value).toBe("25565");
+
+    // Clear input completely
+    fireEvent.change(portInput, { target: { value: "" } });
+    expect(portInput.value).toBe("");
+
+    // Type new number freely without jumping to 0
+    fireEvent.change(portInput, { target: { value: "25570" } });
+    expect(portInput.value).toBe("25570");
+  });
+
+  it("adjusts numeric fields via stepper buttons", () => {
+    renderSettings();
+
+    const portInput = screen.getByLabelText("Server Port (1024–65535)") as HTMLInputElement;
+    expect(portInput.value).toBe("25565");
+
+    const increasePortBtn = screen.getByRole("button", { name: "Increase Server Port" });
+    const decreasePortBtn = screen.getByRole("button", { name: "Decrease Server Port" });
+
+    fireEvent.click(increasePortBtn);
+    expect(portInput.value).toBe("25566");
+
+    fireEvent.click(decreasePortBtn);
+    expect(portInput.value).toBe("25565");
+  });
+
+  it("updates gamemode and difficulty using segmented pill selectors", () => {
+    renderSettings();
+
+    const creativePill = screen.getByRole("button", { name: "Creative" });
+    fireEvent.click(creativePill);
+
+    const gamemodeSelect = screen.getByLabelText("Default Gamemode") as HTMLSelectElement;
+    expect(gamemodeSelect.value).toBe("creative");
+
+    const hardPill = screen.getByRole("button", { name: "Hard" });
+    fireEvent.click(hardPill);
+
+    const difficultySelect = screen.getByLabelText("Difficulty") as HTMLSelectElement;
+    expect(difficultySelect.value).toBe("hard");
+  });
 });

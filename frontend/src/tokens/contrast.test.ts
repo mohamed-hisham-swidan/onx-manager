@@ -519,5 +519,11 @@ describe("WCAG 2.1 AA Contrast Computation (Real CSS Parser - Task 2)", () => {
       const degraded = { ...fallbackPalettes[".dark"], textMuted: "#1e293b" };
       expect(calculateContrastRatio(degraded.textMuted, degraded.card)).toBeLessThan(4.5);
     });
+
+    it("verifies global CSS variable aliases --bg-canvas and --bg-surface are defined in :root", () => {
+      const rootTokens = parseCssBlock(cssContent, ":root");
+      expect(rootTokens["--bg-canvas"]).toBe("var(--surface-page)");
+      expect(rootTokens["--bg-surface"]).toBe("var(--surface-card)");
+    });
   });
 });

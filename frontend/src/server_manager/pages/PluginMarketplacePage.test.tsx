@@ -169,6 +169,7 @@ describe("PluginMarketplacePage & InstallModal", () => {
     useMarketplaceSourceStore.setState({ source: "modrinth" });
     localStorage.removeItem("onx_last_used_server");
     localStorage.removeItem("onx_marketplace_source");
+    localStorage.removeItem("onx_marketplace_view_mode");
   });
 
   it("renders page header", () => {
@@ -362,5 +363,24 @@ describe("PluginMarketplacePage & InstallModal", () => {
       loader: undefined,
     });
     expect(screen.queryByTestId("loader-filter-tag")).not.toBeInTheDocument();
+  });
+
+  it("allows toggling between cards grid view and compact list view", () => {
+    useMarketplaceSearchGlobal.mockReturnValue({
+      data: mockSearchResults,
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    renderPage("/marketplace");
+
+    const list = screen.getByTestId("project-card-list");
+    expect(list.className).toContain("grid");
+
+    fireEvent.click(screen.getByRole("button", { name: /compact list view/i }));
+    expect(list.className).toContain("space-y-3");
+
+    fireEvent.click(screen.getByRole("button", { name: /grid card view/i }));
+    expect(list.className).toContain("grid");
   });
 });

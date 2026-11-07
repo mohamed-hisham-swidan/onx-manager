@@ -266,6 +266,7 @@ export function TopBar() {
                           style={{ backgroundColor: preset.preview.accent }}
                         />
                         <span className="truncate">{preset.name}</span>
+                        <span className="sr-only">{preset.legacyName || preset.name}</span>
                       </button>
                     ))}
                   </div>

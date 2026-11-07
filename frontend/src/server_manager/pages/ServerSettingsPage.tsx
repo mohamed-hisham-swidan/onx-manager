@@ -27,7 +27,7 @@ export function ServerSettingsPage() {
 
   if (error || !server) {
     return (
-      <div className="rounded-xl border border-status-danger/30 bg-status-danger/10 p-6">
+      <div className="rounded-xl border border-status-danger-border bg-status-danger-bg p-6">
         <p className="text-sm text-status-danger">
           {error instanceof Error ? error.message : "Failed to load server details"}
         </p>
@@ -55,12 +55,12 @@ export function ServerSettingsPage() {
       {/* Danger Zone: Delete Server */}
       <section
         data-testid="server-danger-zone"
-        className="rounded-2xl border border-status-danger/30 bg-surface-card p-6 shadow-xs"
+        className="rounded-2xl border border-status-danger-border bg-surface-card p-6 shadow-xs"
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-status-danger/10 text-status-danger">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-status-danger-bg text-status-danger">
                 <Icon name="trash" size={16} />
               </span>
               <h3 className="text-base font-bold text-text-primary">

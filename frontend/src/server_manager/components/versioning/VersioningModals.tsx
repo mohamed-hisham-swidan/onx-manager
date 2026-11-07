@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Icon } from "@/components/ui/Icon";
 import type { ServerBranch, ServerCommit, ServerTestRun } from "@/server_manager/types";
@@ -492,6 +493,46 @@ export function BotSettingsModal({
   onClose,
   isPending = false,
 }: BotSettingsModalProps) {
+  const [rawBotCount, setRawBotCount] = useState<string>(String(botCount));
+  const [rawDuration, setRawDuration] = useState<string>(String(duration));
+  const [prevProps, setPrevProps] = useState({ isOpen, botCount, duration });
+
+  if (isOpen !== prevProps.isOpen || botCount !== prevProps.botCount || duration !== prevProps.duration) {
+    setPrevProps({ isOpen, botCount, duration });
+    if (isOpen) {
+      setRawBotCount(String(botCount));
+      setRawDuration(String(duration));
+    }
+  }
+
+  const handleBotCountBlur = () => {
+    const parsed = parseInt(rawBotCount, 10);
+    const valid = isNaN(parsed) || parsed < 1 ? 1 : parsed;
+    setRawBotCount(String(valid));
+    onBotCountChange(valid);
+  };
+
+  const handleDurationBlur = () => {
+    const parsed = parseInt(rawDuration, 10);
+    const valid = isNaN(parsed) || parsed < 1 ? 1 : parsed;
+    setRawDuration(String(valid));
+    onDurationChange(valid);
+  };
+
+  const stepBotCount = (delta: number) => {
+    const cur = parseInt(rawBotCount, 10) || 1;
+    const next = Math.max(1, cur + delta);
+    setRawBotCount(String(next));
+    onBotCountChange(next);
+  };
+
+  const stepDuration = (delta: number) => {
+    const cur = parseInt(rawDuration, 10) || 1;
+    const next = Math.max(1, cur + delta);
+    setRawDuration(String(next));
+    onDurationChange(next);
+  };
+
   return (
     <Modal
       open={isOpen}
@@ -506,7 +547,13 @@ export function BotSettingsModal({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!isPending) onSubmit();
+          if (!isPending) {
+            const finalBot = Math.max(1, parseInt(rawBotCount, 10) || 1);
+            const finalDur = Math.max(1, parseInt(rawDuration, 10) || 1);
+            onBotCountChange(finalBot);
+            onDurationChange(finalDur);
+            onSubmit();
+          }
         }}
         className="space-y-4"
       >
@@ -515,30 +562,72 @@ export function BotSettingsModal({
             <label htmlFor="settings-bot-count-input" className="block font-medium text-text-secondary mb-1">
               Default Bot Count
             </label>
-            <input
-              id="settings-bot-count-input"
-              type="number"
-              min={1}
-              value={botCount}
-              onChange={(e) => onBotCountChange(Math.max(1, parseInt(e.target.value) || 1))}
-              disabled={isPending}
-              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
-            />
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                aria-label="Decrease default bot count"
+                onClick={() => stepBotCount(-1)}
+                disabled={isPending}
+                className="h-9 w-9 rounded-lg border border-border-default bg-surface-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+              >
+                -
+              </button>
+              <input
+                id="settings-bot-count-input"
+                type="number"
+                min={1}
+                value={rawBotCount}
+                onChange={(e) => setRawBotCount(e.target.value)}
+                onBlur={handleBotCountBlur}
+                disabled={isPending}
+                className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50 text-center"
+              />
+              <button
+                type="button"
+                aria-label="Increase default bot count"
+                onClick={() => stepBotCount(1)}
+                disabled={isPending}
+                className="h-9 w-9 rounded-lg border border-border-default bg-surface-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+              >
+                +
+              </button>
+            </div>
           </div>
 
           <div>
             <label htmlFor="settings-duration-input" className="block font-medium text-text-secondary mb-1">
               Default Duration (Minutes)
             </label>
-            <input
-              id="settings-duration-input"
-              type="number"
-              min={1}
-              value={duration}
-              onChange={(e) => onDurationChange(Math.max(1, parseInt(e.target.value) || 1))}
-              disabled={isPending}
-              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
-            />
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                aria-label="Decrease default duration"
+                onClick={() => stepDuration(-1)}
+                disabled={isPending}
+                className="h-9 w-9 rounded-lg border border-border-default bg-surface-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+              >
+                -
+              </button>
+              <input
+                id="settings-duration-input"
+                type="number"
+                min={1}
+                value={rawDuration}
+                onChange={(e) => setRawDuration(e.target.value)}
+                onBlur={handleDurationBlur}
+                disabled={isPending}
+                className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50 text-center"
+              />
+              <button
+                type="button"
+                aria-label="Increase default duration"
+                onClick={() => stepDuration(1)}
+                disabled={isPending}
+                className="h-9 w-9 rounded-lg border border-border-default bg-surface-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+              >
+                +
+              </button>
+            </div>
           </div>
 
           <div>

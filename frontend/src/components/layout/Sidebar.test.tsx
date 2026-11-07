@@ -1,15 +1,24 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "@/stores/uiStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
+import { useServersList } from "@/server_manager/hooks/useServers";
+
+vi.mock("@/server_manager/hooks/useServers", () => ({
+  useServersList: vi.fn(),
+}));
 
 function renderSidebar() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <Sidebar />
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <Sidebar />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -17,6 +26,7 @@ describe("Sidebar", () => {
   beforeEach(() => {
     useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false, theme: "light" });
     useMarketplaceSourceStore.setState({ source: "modrinth" });
+    vi.mocked(useServersList).mockReturnValue({ data: [] } as unknown as ReturnType<typeof useServersList>);
   });
 
   it("renders all navigation items", () => {
@@ -210,6 +220,30 @@ describe("Sidebar", () => {
 
       const filesLink = screen.getByRole("link", { name: /files/i });
       expect(filesLink).not.toHaveAttribute("aria-current");
+    });
+
+    it("renders dual high-contrast online and offline counters next to Servers nav item", () => {
+      vi.mocked(useServersList).mockReturnValue({
+        data: [
+          { server_id: "s1", status: "RUNNING" },
+          { server_id: "s2", status: "STARTING" },
+          { server_id: "s3", status: "STOPPED" },
+        ],
+      } as unknown as ReturnType<typeof useServersList>);
+      renderSidebar();
+      expect(screen.getByText("2 ON")).toBeInTheDocument();
+      expect(screen.getByText("1 OFF")).toBeInTheDocument();
+      expect(screen.getByTestId("sidebar-server-counters")).toBeInTheDocument();
+    });
+
+    it("handles undefined or loading servers list gracefully", () => {
+      vi.mocked(useServersList).mockReturnValue({
+        data: undefined,
+        isLoading: true,
+      } as unknown as ReturnType<typeof useServersList>);
+      renderSidebar();
+      expect(screen.getByText("0 ON")).toBeInTheDocument();
+      expect(screen.getByText("0 OFF")).toBeInTheDocument();
     });
   });
 });

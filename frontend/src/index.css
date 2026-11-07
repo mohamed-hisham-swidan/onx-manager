@@ -53,6 +53,10 @@
 }
 
 :root {
+  /* Global CSS variable aliases */
+  --bg-canvas: var(--surface-page);
+  --bg-surface: var(--surface-card);
+
   /* Default mode tokens (light mode) */
   --surface-page: #f8fafc;
   --surface-card: #ffffff;
@@ -153,28 +157,28 @@
   --status-info-border: rgba(59, 130, 246, 0.3);
 }
 
-/* Graphite Skin (Neutral Deep Black / Graphite Dark - 0% Blue Chroma, Pure R=G=B) */
+/* Graphite Skin -> Obsidian Graphite (Obsidian Canvas & Cobalt Accent) */
 [data-skin="graphite"],
 [data-skin="graphite"][data-mode="dark"],
 [data-skin="graphite"].dark {
-  --surface-page: #141414;
-  --surface-card: #1a1a1a;
-  --surface-hover: #222222;
-  --surface-active: #2b2b2b;
-  --surface-elevated: #262626;
-  --surface-overlay: rgba(0, 0, 0, 0.8);
-  --surface-muted: #1e1e1e;
+  --surface-page: #08090e;
+  --surface-card: #11141f;
+  --surface-hover: #1d2233;
+  --surface-active: #252b40;
+  --surface-elevated: #171b29;
+  --surface-overlay: rgba(0, 0, 0, 0.85);
+  --surface-muted: #0c0e16;
 
-  --text-primary: #f0f0f0;
-  --text-secondary: #b8b8b8;
-  --text-muted: #9e9e9e;
-  --text-inverse: #141414;
+  --text-primary: #f0f2f8;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-inverse: #08090e;
   --text-accent: #60a5fa;
 
-  --border-subtle: #2c2c2c;
-  --border-default: #707070;
-  --border-strong: #828282;
-  --border-focus: #60a5fa;
+  --border-subtle: #1e2436;
+  --border-default: #64748b;
+  --border-strong: #94a3b8;
+  --border-focus: #3b82f6;
 
   --accent-primary: #2563eb;
   --accent-hover: #1d4ed8;
@@ -185,30 +189,30 @@
   --status-warning: #eab308;
   --status-danger: #ef4444;
   --status-info: #3b82f6;
-  --status-neutral: #9e9e9e;
+  --status-neutral: #94a3b8;
 
-  --terminal-bg: #101010;
-  --terminal-text: #f0f0f0;
+  --terminal-bg: #06070a;
+  --terminal-text: #f0f2f8;
 }
 
 [data-skin="graphite"][data-mode="light"] {
-  --surface-page: #f5f5f5;
+  --surface-page: #f5f7fa;
   --surface-card: #ffffff;
-  --surface-hover: #f9f9f9;
-  --surface-active: #eaeaea;
+  --surface-hover: #eef2f6;
+  --surface-active: #e2e8f0;
   --surface-elevated: #ffffff;
-  --surface-overlay: rgba(0, 0, 0, 0.5);
-  --surface-muted: #f5f5f5;
+  --surface-overlay: rgba(8, 9, 14, 0.5);
+  --surface-muted: #f1f5f9;
 
-  --text-primary: #171717;
-  --text-secondary: #404040;
-  --text-muted: #5f5f5f;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #526173;
   --text-inverse: #ffffff;
   --text-accent: #2563eb;
 
-  --border-subtle: #e5e5e5;
-  --border-default: #767676;
-  --border-strong: #525252;
+  --border-subtle: #e2e8f0;
+  --border-default: #64748b;
+  --border-strong: #475569;
   --border-focus: #2563eb;
 
   --accent-primary: #2563eb;
@@ -220,65 +224,68 @@
   --status-warning: #b45309;
   --status-danger: #b91c1c;
   --status-info: #1d4ed8;
-  --status-neutral: #5f5f5f;
+  --status-neutral: #526173;
 
-  --terminal-bg: #101010;
-  --terminal-text: #f0f0f0;
+  --terminal-bg: #06070a;
+  --terminal-text: #f0f2f8;
 }
 
-/* Azure Skin (Blue-Tinted Modern Dark & Clean Ocean Light) */
+/* Azure Skin -> Midnight Nord (Arctic Slate & Ice Cyan) */
 [data-skin="azure"],
 [data-skin="azure"][data-mode="dark"],
 [data-skin="azure"].dark {
-  --surface-page: #0b1222;
-  --surface-card: #0f172a;
-  --surface-hover: #1e293b;
-  --surface-active: #334155;
-  --surface-elevated: #1e293b;
-  --surface-overlay: rgba(0, 0, 0, 0.75);
-  --surface-muted: #131c31;
+  --surface-page: #090d16;
+  --surface-card: #111927;
+  --surface-hover: #1e2c45;
+  --surface-active: #273857;
+  --surface-elevated: #182338;
+  --surface-overlay: rgba(0, 0, 0, 0.85);
+  --surface-muted: #0e1524;
 
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #a0b4cc;
-  --text-inverse: #0b1222;
+  --text-primary: #f0f6fc;
+  --text-secondary: #bcd0e8;
+  --text-muted: #8da6c4;
+  --text-inverse: #090d16;
   --text-accent: #38bdf8;
 
-  --border-subtle: #1e293b;
-  --border-default: #687385;
-  --border-strong: #788599;
+  --border-subtle: #1f304d;
+  --border-default: #5f799e;
+  --border-strong: #8da6c4;
   --border-focus: #38bdf8;
 
-  --accent-primary: #0369a1;
+  --accent-primary: #38bdf8;
   --accent-hover: #0284c7;
-  --accent-active: #075985;
-  --accent-contrast-text: #ffffff;
+  --accent-active: #0369a1;
+  --accent-contrast-text: #08090e;
 
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
   --status-info: #38bdf8;
-  --status-neutral: #a0b4cc;
+  --status-neutral: #8da6c4;
+
+  --terminal-bg: #06090f;
+  --terminal-text: #f0f6fc;
 }
 
 [data-skin="azure"][data-mode="light"] {
-  --surface-page: #f0f7ff;
+  --surface-page: #f0f5fa;
   --surface-card: #ffffff;
-  --surface-hover: #f1f5f9;
-  --surface-active: #e2e8f0;
+  --surface-hover: #e6eff8;
+  --surface-active: #d9e7f4;
   --surface-elevated: #ffffff;
-  --surface-overlay: rgba(15, 23, 42, 0.5);
-  --surface-muted: #e0f2fe;
+  --surface-overlay: rgba(9, 13, 22, 0.5);
+  --surface-muted: #e8f1fa;
 
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #516278;
+  --text-primary: #0b1626;
+  --text-secondary: #273e5c;
+  --text-muted: #476385;
   --text-inverse: #ffffff;
   --text-accent: #0284c7;
 
-  --border-subtle: #e2e8f0;
-  --border-default: #6b7c93;
-  --border-strong: #475569;
+  --border-subtle: #d8e4f0;
+  --border-default: #6280a3;
+  --border-strong: #3d5c80;
   --border-focus: #0284c7;
 
   --accent-primary: #0369a1;
@@ -290,45 +297,48 @@
   --status-warning: #b45309;
   --status-danger: #b91c1c;
   --status-info: #0284c7;
-  --status-neutral: #516278;
+  --status-neutral: #476385;
+
+  --terminal-bg: #06090f;
+  --terminal-text: #f0f6fc;
 }
 
-/* Emerald Skin (Obsidian Forest & Matrix Green) */
+/* Emerald Skin -> Cyber Matrix (Deep Pine Obsidian & Mint Teal) */
 [data-skin="emerald"],
 [data-skin="emerald"][data-mode="dark"],
 [data-skin="emerald"].dark {
-  --surface-page: #091612;
-  --surface-card: #0f221c;
-  --surface-hover: #152c25;
-  --surface-active: #1f4036;
-  --surface-elevated: #18322a;
-  --surface-overlay: rgba(0, 0, 0, 0.8);
-  --surface-muted: #132821;
+  --surface-page: #070e0c;
+  --surface-card: #0f1b17;
+  --surface-hover: #1d332c;
+  --surface-active: #244038;
+  --surface-elevated: #162621;
+  --surface-overlay: rgba(0, 0, 0, 0.85);
+  --surface-muted: #0b1411;
 
-  --text-primary: #edf7f4;
-  --text-secondary: #b8d9ce;
-  --text-muted: #a3b8b0;
-  --text-inverse: #091612;
-  --text-accent: #34d399;
+  --text-primary: #ecfdf5;
+  --text-secondary: #a7f3d0;
+  --text-muted: #82bda6;
+  --text-inverse: #070e0c;
+  --text-accent: #2dd4bf;
 
   --border-subtle: #1c3830;
   --border-default: #568576;
-  --border-strong: #72a393;
-  --border-focus: #10b981;
+  --border-strong: #82bda6;
+  --border-focus: #14b8a6;
 
-  --accent-primary: #047857;
-  --accent-hover: #059669;
-  --accent-active: #065f46;
-  --accent-contrast-text: #ffffff;
+  --accent-primary: #14b8a6;
+  --accent-hover: #0d9488;
+  --accent-active: #0f766e;
+  --accent-contrast-text: #070e0c;
 
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
-  --status-info: #10b981;
-  --status-neutral: #a3b8b0;
+  --status-info: #14b8a6;
+  --status-neutral: #82bda6;
 
-  --terminal-bg: #07120e;
-  --terminal-text: #edf7f4;
+  --terminal-bg: #040807;
+  --terminal-text: #ecfdf5;
 }
 
 [data-skin="emerald"][data-mode="light"] {
@@ -337,18 +347,18 @@
   --surface-hover: #f2f9f5;
   --surface-active: #e1efe7;
   --surface-elevated: #ffffff;
-  --surface-overlay: rgba(9, 22, 18, 0.5);
+  --surface-overlay: rgba(7, 14, 12, 0.5);
   --surface-muted: #e8f7ee;
 
-  --text-primary: #0c2b20;
-  --text-secondary: #234e3e;
-  --text-muted: #466357;
+  --text-primary: #062419;
+  --text-secondary: #1c4937;
+  --text-muted: #3d6754;
   --text-inverse: #ffffff;
   --text-accent: #047857;
 
   --border-subtle: #e0ece5;
-  --border-default: #698d7f;
-  --border-strong: #456a5c;
+  --border-default: #5a8272;
+  --border-strong: #3d6754;
   --border-focus: #047857;
 
   --accent-primary: #047857;
@@ -360,47 +370,47 @@
   --status-warning: #b45309;
   --status-danger: #b91c1c;
   --status-info: #047857;
-  --status-neutral: #466357;
+  --status-neutral: #3d6754;
 
-  --terminal-bg: #07120e;
-  --terminal-text: #edf7f4;
+  --terminal-bg: #040807;
+  --terminal-text: #ecfdf5;
 }
 
-/* Amethyst Skin (Cosmic Nebula & Royal Violet) */
+/* Amethyst Skin -> Tokyo Night (Deep Night Indigo & Soft Periwinkle) */
 [data-skin="amethyst"],
 [data-skin="amethyst"][data-mode="dark"],
 [data-skin="amethyst"].dark {
-  --surface-page: #130f1e;
-  --surface-card: #1b162a;
-  --surface-hover: #231c36;
-  --surface-active: #31274c;
-  --surface-elevated: #28203d;
-  --surface-overlay: rgba(0, 0, 0, 0.8);
-  --surface-muted: #1e182e;
+  --surface-page: #0d0e17;
+  --surface-card: #151726;
+  --surface-hover: #252942;
+  --surface-active: #2f3454;
+  --surface-elevated: #1d2033;
+  --surface-overlay: rgba(0, 0, 0, 0.85);
+  --surface-muted: #11131f;
 
   --text-primary: #f5f3ff;
-  --text-secondary: #d4cce6;
-  --text-muted: #b4a8d4;
-  --text-inverse: #130f1e;
-  --text-accent: #c084fc;
+  --text-secondary: #c7d2fe;
+  --text-muted: #9aa5ce;
+  --text-inverse: #0d0e17;
+  --text-accent: #a5b4fc;
 
-  --border-subtle: #2c2344;
-  --border-default: #7a6b9e;
-  --border-strong: #9384b8;
-  --border-focus: #a855f7;
+  --border-subtle: #2a2e4a;
+  --border-default: #6b759e;
+  --border-strong: #9aa5ce;
+  --border-focus: #818cf8;
 
-  --accent-primary: #6d28d9;
-  --accent-hover: #7c3aed;
-  --accent-active: #5b21b6;
-  --accent-contrast-text: #ffffff;
+  --accent-primary: #818cf8;
+  --accent-hover: #6366f1;
+  --accent-active: #4f46e5;
+  --accent-contrast-text: #08090e;
 
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
-  --status-info: #a855f7;
-  --status-neutral: #b4a8d4;
+  --status-info: #818cf8;
+  --status-neutral: #9aa5ce;
 
-  --terminal-bg: #0d0a15;
+  --terminal-bg: #08080f;
   --terminal-text: #f5f3ff;
 }
 
@@ -410,7 +420,7 @@
   --surface-hover: #f5f0fa;
   --surface-active: #eae2f4;
   --surface-elevated: #ffffff;
-  --surface-overlay: rgba(19, 15, 30, 0.5);
+  --surface-overlay: rgba(13, 14, 23, 0.5);
   --surface-muted: #f1e8fc;
 
   --text-primary: #190d2e;
@@ -435,118 +445,118 @@
   --status-info: #6d28d9;
   --status-neutral: #574b6e;
 
-  --terminal-bg: #0d0a15;
+  --terminal-bg: #08080f;
   --terminal-text: #f5f3ff;
 }
 
-/* Amber Skin (Warm Carbon & Industrial Gold) */
+/* Amber Skin -> Titanium Monolith (Warm Gunmetal & Crisp Platinum-Silver - Zero Yellow/Gold) */
 [data-skin="amber"],
 [data-skin="amber"][data-mode="dark"],
 [data-skin="amber"].dark {
-  --surface-page: #17130d;
-  --surface-card: #211b13;
-  --surface-hover: #2a2217;
-  --surface-active: #3d3222;
-  --surface-elevated: #30281c;
-  --surface-overlay: rgba(0, 0, 0, 0.8);
-  --surface-muted: #241e15;
+  --surface-page: #0c0c0e;
+  --surface-card: #151519;
+  --surface-hover: #26262e;
+  --surface-active: #31313b;
+  --surface-elevated: #1e1e24;
+  --surface-overlay: rgba(0, 0, 0, 0.85);
+  --surface-muted: #101014;
 
-  --text-primary: #fef9ee;
-  --text-secondary: #dcd0be;
-  --text-muted: #c2b29b;
-  --text-inverse: #17130d;
-  --text-accent: #fbbf24;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-inverse: #0c0c0e;
+  --text-accent: #e2e8f0;
 
-  --border-subtle: #352c20;
-  --border-default: #877660;
-  --border-strong: #a39178;
-  --border-focus: #f59e0b;
+  --border-subtle: #272730;
+  --border-default: #64748b;
+  --border-strong: #94a3b8;
+  --border-focus: #cbd5e1;
 
-  --accent-primary: #b45309;
-  --accent-hover: #d97706;
-  --accent-active: #92400e;
-  --accent-contrast-text: #ffffff;
+  --accent-primary: #cbd5e1;
+  --accent-hover: #94a3b8;
+  --accent-active: #64748b;
+  --accent-contrast-text: #0c0c0e;
 
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
-  --status-info: #f59e0b;
-  --status-neutral: #c2b29b;
+  --status-info: #94a3b8;
+  --status-neutral: #94a3b8;
 
-  --terminal-bg: #110e09;
-  --terminal-text: #fef9ee;
+  --terminal-bg: #070708;
+  --terminal-text: #f8fafc;
 }
 
 [data-skin="amber"][data-mode="light"] {
-  --surface-page: #fffbeb;
+  --surface-page: #f8fafc;
   --surface-card: #ffffff;
-  --surface-hover: #fdf8e9;
-  --surface-active: #faedd0;
+  --surface-hover: #f1f5f9;
+  --surface-active: #e2e8f0;
   --surface-elevated: #ffffff;
-  --surface-overlay: rgba(23, 19, 13, 0.5);
-  --surface-muted: #fef3c7;
+  --surface-overlay: rgba(12, 12, 14, 0.5);
+  --surface-muted: #f1f5f9;
 
-  --text-primary: #291804;
-  --text-secondary: #523612;
-  --text-muted: #6b5435;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #526173;
   --text-inverse: #ffffff;
-  --text-accent: #b45309;
+  --text-accent: #334155;
 
-  --border-subtle: #f4e6cb;
-  --border-default: #8e7655;
-  --border-strong: #634f33;
-  --border-focus: #b45309;
+  --border-subtle: #e2e8f0;
+  --border-default: #64748b;
+  --border-strong: #475569;
+  --border-focus: #334155;
 
-  --accent-primary: #b45309;
-  --accent-hover: #d97706;
-  --accent-active: #92400e;
+  --accent-primary: #334155;
+  --accent-hover: #1e293b;
+  --accent-active: #0f172a;
   --accent-contrast-text: #ffffff;
 
   --status-success: #15803d;
   --status-warning: #b45309;
   --status-danger: #b91c1c;
-  --status-info: #b45309;
-  --status-neutral: #6b5435;
+  --status-info: #334155;
+  --status-neutral: #526173;
 
-  --terminal-bg: #110e09;
-  --terminal-text: #fef9ee;
+  --terminal-bg: #070708;
+  --terminal-text: #f8fafc;
 }
 
-/* Crimson Skin (Volcanic Basalt & Ruby Rose) */
+/* Crimson Skin -> Deep Rosé / Wine (Muted Dark Plum & Soft Coral-Rose) */
 [data-skin="crimson"],
 [data-skin="crimson"][data-mode="dark"],
 [data-skin="crimson"].dark {
-  --surface-page: #180e12;
-  --surface-card: #221419;
-  --surface-hover: #2c1720;
-  --surface-active: #3e222d;
-  --surface-elevated: #331c25;
-  --surface-overlay: rgba(0, 0, 0, 0.8);
-  --surface-muted: #26161c;
+  --surface-page: #110a0e;
+  --surface-card: #1b1116;
+  --surface-hover: #33202a;
+  --surface-active: #422a37;
+  --surface-elevated: #26181f;
+  --surface-overlay: rgba(0, 0, 0, 0.85);
+  --surface-muted: #160d12;
 
   --text-primary: #fff1f4;
-  --text-secondary: #e2c2cb;
-  --text-muted: #c8a6b0;
-  --text-inverse: #180e12;
+  --text-secondary: #fecdd3;
+  --text-muted: #b9959f;
+  --text-inverse: #110a0e;
   --text-accent: #fb7185;
 
-  --border-subtle: #381e28;
-  --border-default: #916271;
-  --border-strong: #ab7888;
-  --border-focus: #f43f5e;
+  --border-subtle: #3d2532;
+  --border-default: #8f6877;
+  --border-strong: #b9959f;
+  --border-focus: #fb7185;
 
-  --accent-primary: #be123c;
-  --accent-hover: #e11d48;
-  --accent-active: #9f1239;
-  --accent-contrast-text: #ffffff;
+  --accent-primary: #fb7185;
+  --accent-hover: #f43f5e;
+  --accent-active: #e11d48;
+  --accent-contrast-text: #110a0e;
 
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
-  --status-info: #f43f5e;
-  --status-neutral: #c8a6b0;
+  --status-info: #fb7185;
+  --status-neutral: #b9959f;
 
-  --terminal-bg: #120a0e;
+  --terminal-bg: #0a0608;
   --terminal-text: #fff1f4;
 }
 
@@ -556,7 +566,7 @@
   --surface-hover: #fdf2f4;
   --surface-active: #f9dce1;
   --surface-elevated: #ffffff;
-  --surface-overlay: rgba(24, 14, 18, 0.5);
+  --surface-overlay: rgba(17, 10, 14, 0.5);
   --surface-muted: #ffe4e8;
 
   --text-primary: #2d0a15;
@@ -566,13 +576,13 @@
   --text-accent: #be123c;
 
   --border-subtle: #f8d4dc;
-  --border-default: #96606f;
+  --border-default: #8a5866;
   --border-strong: #6d3544;
   --border-focus: #be123c;
 
   --accent-primary: #be123c;
-  --accent-hover: #e11d48;
-  --accent-active: #9f1239;
+  --accent-hover: #9f1239;
+  --accent-active: #881337;
   --accent-contrast-text: #ffffff;
 
   --status-success: #15803d;
@@ -581,7 +591,7 @@
   --status-info: #be123c;
   --status-neutral: #6e3948;
 
-  --terminal-bg: #120a0e;
+  --terminal-bg: #0a0608;
   --terminal-text: #fff1f4;
 }
 

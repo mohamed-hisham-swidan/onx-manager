@@ -36,19 +36,22 @@ To eliminate white/dark flash on page reload, `frontend/src/main.tsx` reads stor
 
 ---
 
-## 2. Shipped First-Class Skins
+## 2. Shipped First-Class Skins (6 Curated Developer-Grade Palettes)
 
-### 1. Graphite (Default)
-- **Aesthetic**: Pure neutral dark theme with 0% blue chroma (`R=G=B`, `max(R,G,B)-min(R,G,B) == 0`) across all neutral tokens (surfaces, text, borders, hover, active, muted, terminal). Accent (`#2563eb`) and status tokens retain their respective emerald/status hues.
-- **Surface Elevation**: `#141414` (page) < `#1a1a1a` (card) < `#1e1e1e` (muted) < `#222222` (hover) < `#262626` (elevated) < `#2b2b2b` (active).
-- **Accents**: Modern electric cobalt (`#2563eb`), tuned to satisfy WCAG AA (5.17:1 against white text).
-- **Ideal For**: Server operators, dark room administration, high-density monitoring.
+All 6 skins ship with both Dark and Light mode definitions (`12` total palettes), global `--bg-canvas` / `--bg-surface` aliases, and full WCAG 2.1 AA contrast verification (`contrast.test.ts`):
 
-### 2. Azure (Legacy Preserved)
-- **Aesthetic**: Classic deep ocean slate-blue theme.
-- **Surface Elevation**: `#0b1222` (page) < `#0f172a` (card) < `#131c31` (muted) < `#1e293b` (hover/elevated) < `#334155` (active).
-- **Accents**: Sky cyan/blue (`#0369a1`), meeting WCAG AA (5.93:1 against white text).
-- **Ideal For**: Users who prefer the familiar original ONX blue aesthetic.
+1. **`Obsidian Graphite` (`graphite`, Default)**:
+   - Deep carbon `#08090e` canvas, `#11141f` cards, `#171b29` elevated surfaces, and Cobalt `#2563eb` / `#3b82f6` accents.
+2. **`Midnight Nord` (`azure`)**:
+   - Deep arctic slate `#090d16` canvas, `#111927` cards, `#182338` elevated surfaces, and Ice Cyan `#38bdf8` / `#0369a1` accents.
+3. **`Tokyo Night` (`amethyst`)**:
+   - Deep atmospheric indigo `#0d0e17` canvas, `#151726` cards, `#1d2033` elevated surfaces, and Soft Periwinkle/Violet `#818cf8` / `#6d28d9` accents.
+4. **`Cyber Matrix` (`emerald`)**:
+   - Deep pine obsidian `#070e0c` canvas, `#0f1b17` cards, `#162621` elevated surfaces, and Mint Teal `#14b8a6` / `#047857` accents.
+5. **`Titanium Monolith` (`amber`)**:
+   - Industrial warm gunmetal `#0c0c0e` canvas, `#151519` cards, `#1e1e24` elevated surfaces, and Crisp Silver/Platinum & Slate `#cbd5e1` / `#334155` accents (zero gold/yellow).
+6. **`Deep Rosé / Wine` (`crimson`)**:
+   - Muted dark plum `#110a0e` canvas, `#1b1116` cards, `#26181f` elevated surfaces, and Soft Coral/Rose `#fb7185` / `#be123c` accents.
 
 ### 3. Border Contrast Policy
 All structural borders (`--border-default`, `--border-strong`, `--border-focus`) must maintain a minimum contrast ratio of **3.0:1** (WCAG AA non-text contrast) against all standard structural surfaces across both dark and light modes for all shipped skins:

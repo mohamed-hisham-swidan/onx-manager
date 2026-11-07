@@ -22,10 +22,13 @@ export function TestRunModal({
   const api = useMemo(() => createAuthenticatedApi(), []);
   const [definitions, setDefinitions] = useState<TestDefinition[]>([]);
   const [selectedDefId, setSelectedDefId] = useState<string>("");
-  const [botCount, setBotCount] = useState<number>(10);
-  const [durationMinutes, setDurationMinutes] = useState<number>(15);
+  const [botCountInput, setBotCountInput] = useState<string>("10");
+  const [durationInput, setDurationInput] = useState<string>("15");
   const [placementMode, setPlacementMode] = useState<string>("sidecar");
   const [botTech, setBotTech] = useState<string>("auto");
+
+  const botCount = useMemo(() => Math.max(1, parseInt(botCountInput, 10) || 1), [botCountInput]);
+  const durationMinutes = useMemo(() => Math.max(1, parseInt(durationInput, 10) || 1), [durationInput]);
 
   const [preflight, setPreflight] = useState<PreflightStatus | null>(null);
   const [isLoadingPreflight, setIsLoadingPreflight] = useState<boolean>(true);
@@ -141,8 +144,8 @@ export function TestRunModal({
                 setSelectedDefId(id);
                 const def = definitions.find((d) => d.id === id);
                 if (def) {
-                  setBotCount(def.bot_count);
-                  setDurationMinutes(Math.max(1, Math.round(def.duration_seconds / 60)));
+                  setBotCountInput(String(def.bot_count));
+                  setDurationInput(String(Math.max(1, Math.round(def.duration_seconds / 60))));
                   if (def.placement_mode) setPlacementMode(def.placement_mode);
                   if (def.bot_technology) setBotTech(def.bot_technology);
                 }
@@ -214,15 +217,48 @@ export function TestRunModal({
               >
                 Verification Bot Count
               </label>
-              <input
-                id="bot-count-input"
-                type="number"
-                min={1}
-                value={botCount}
-                onChange={(e) => setBotCount(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary focus:border-border-focus focus:outline-none"
-              />
-              <span className="text-[10px] text-text-muted">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  aria-label="Decrease bot count"
+                  onClick={() => {
+                    const cur = parseInt(botCountInput, 10) || 1;
+                    const next = Math.max(1, cur - 1);
+                    setBotCountInput(String(next));
+                  }}
+                  className="h-9 w-9 rounded-lg border border-border-default bg-surface-muted flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 cursor-pointer"
+                >
+                  -
+                </button>
+                <input
+                  id="bot-count-input"
+                  type="number"
+                  min={1}
+                  value={botCountInput}
+                  onChange={(e) => setBotCountInput(e.target.value)}
+                  onBlur={() => {
+                    const parsed = parseInt(botCountInput, 10);
+                    if (isNaN(parsed) || parsed < 1) {
+                      setBotCountInput("1");
+                    } else {
+                      setBotCountInput(String(parsed));
+                    }
+                  }}
+                  className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary focus:border-border-focus focus:outline-none text-center"
+                />
+                <button
+                  type="button"
+                  aria-label="Increase bot count"
+                  onClick={() => {
+                    const cur = parseInt(botCountInput, 10) || 1;
+                    setBotCountInput(String(cur + 1));
+                  }}
+                  className="h-9 w-9 rounded-lg border border-border-default bg-surface-muted flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 cursor-pointer"
+                >
+                  +
+                </button>
+              </div>
+              <span className="text-[10px] text-text-muted mt-1 block">
                 Unrestricted: dynamically validated against system headroom.
               </span>
             </div>
@@ -234,15 +270,48 @@ export function TestRunModal({
               >
                 Test Duration (Minutes)
               </label>
-              <input
-                id="duration-input"
-                type="number"
-                min={1}
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary focus:border-border-focus focus:outline-none"
-              />
-              <span className="text-[10px] text-text-muted">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  aria-label="Decrease duration"
+                  onClick={() => {
+                    const cur = parseInt(durationInput, 10) || 1;
+                    const next = Math.max(1, cur - 1);
+                    setDurationInput(String(next));
+                  }}
+                  className="h-9 w-9 rounded-lg border border-border-default bg-surface-muted flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 cursor-pointer"
+                >
+                  -
+                </button>
+                <input
+                  id="duration-input"
+                  type="number"
+                  min={1}
+                  value={durationInput}
+                  onChange={(e) => setDurationInput(e.target.value)}
+                  onBlur={() => {
+                    const parsed = parseInt(durationInput, 10);
+                    if (isNaN(parsed) || parsed < 1) {
+                      setDurationInput("1");
+                    } else {
+                      setDurationInput(String(parsed));
+                    }
+                  }}
+                  className="w-full rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary focus:border-border-focus focus:outline-none text-center"
+                />
+                <button
+                  type="button"
+                  aria-label="Increase duration"
+                  onClick={() => {
+                    const cur = parseInt(durationInput, 10) || 1;
+                    setDurationInput(String(cur + 1));
+                  }}
+                  className="h-9 w-9 rounded-lg border border-border-default bg-surface-muted flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover text-sm font-semibold transition-colors shrink-0 cursor-pointer"
+                >
+                  +
+                </button>
+              </div>
+              <span className="text-[10px] text-text-muted mt-1 block">
                 Active connection & activity period.
               </span>
             </div>

@@ -48,6 +48,7 @@ export function ServerVersioningPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState<number>(0);
+  const [isWorkflowGuideOpen, setIsWorkflowGuideOpen] = useState(true);
 
   const refresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -345,6 +346,119 @@ export function ServerVersioningPage() {
         </div>
       </div>
 
+      {/* Interactive 3-Step Visual Workflow Guide Banner */}
+      <section
+        aria-label="Guided Versioning & Testing Workflow"
+        className="rounded-xl border border-border-default bg-surface-card p-4 sm:p-5 shadow-xs space-y-4"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-accent-primary/15 text-accent-primary shrink-0">
+              <Icon name="activity" size={18} />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-text-primary">
+                3-Step Safe Testing &amp; Promotion Workflow
+              </h2>
+              <p className="text-xs text-text-muted">
+                Follow this automated cycle to preview changes safely without risking your production world.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsWorkflowGuideOpen((prev) => !prev)}
+            aria-expanded={isWorkflowGuideOpen}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer shrink-0"
+          >
+            <Icon name={isWorkflowGuideOpen ? "chevron-up" : "chevron-down"} size={14} />
+            <span>{isWorkflowGuideOpen ? "Collapse Guide" : "Expand Guide"}</span>
+          </button>
+        </div>
+
+        {isWorkflowGuideOpen && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
+            {/* Step 1 */}
+            <div className="flex flex-col justify-between rounded-lg border border-border-subtle bg-surface-elevated/50 p-3.5 space-y-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-accent-primary">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
+                    1
+                  </span>
+                  <span>Step 1: Snapshot World (Commit)</span>
+                </div>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Capture an instant zero-copy Btrfs/ZFS snapshot of your world &amp; configs.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewCommitOpen(true)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-card hover:bg-surface-hover border border-border-default px-3 py-1.5 text-xs font-semibold text-text-primary transition-colors shadow-2xs cursor-pointer w-full sm:w-auto self-start"
+              >
+                <Icon name="plus" size={12} className="text-accent-primary" />
+                Create Snapshot
+              </button>
+            </div>
+
+            {/* Step 2 */}
+            <div className="flex flex-col justify-between rounded-lg border border-border-subtle bg-surface-elevated/50 p-3.5 space-y-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-accent-primary">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
+                    2
+                  </span>
+                  <span>Step 2: Isolate (Branch / Worktree)</span>
+                </div>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Create a safe branch to test new plugins or server updates without risking production.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewBranchOpen(true)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-card hover:bg-surface-hover border border-border-default px-3 py-1.5 text-xs font-semibold text-text-primary transition-colors shadow-2xs cursor-pointer w-full sm:w-auto self-start"
+              >
+                <Icon name="version-branch" size={12} className="text-accent-primary" />
+                New Branch
+              </button>
+            </div>
+
+            {/* Step 3 */}
+            <div className="flex flex-col justify-between rounded-lg border border-border-subtle bg-surface-elevated/50 p-3.5 space-y-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-accent-primary">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
+                    3
+                  </span>
+                  <span>Step 3: Automated Bot Dry-Run (Verify)</span>
+                </div>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Spawn an isolated sidecar container with simulated players (fakeplayer_next) to audit TPS and crashes.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTestDefinitionsOpen(true)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-card hover:bg-surface-hover border border-border-default px-3 py-1.5 text-xs font-semibold text-text-primary transition-colors shadow-2xs cursor-pointer"
+                >
+                  <Icon name="settings" size={12} className="text-accent-primary" />
+                  Test Profiles
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsModalOpen(true)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-card hover:bg-surface-hover border border-border-default px-3 py-1.5 text-xs font-semibold text-text-secondary hover:text-text-primary transition-colors shadow-2xs cursor-pointer"
+                >
+                  Configure Bots
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* Alerts */}
       {error && (
         <div role="alert" className="rounded-xl bg-status-danger-bg border border-status-danger/30 p-4 text-sm text-status-danger flex items-center justify-between">
@@ -446,6 +560,7 @@ export function ServerVersioningPage() {
               setIsPromoteModalOpen(true);
             }}
             onDiscard={handleDiscard}
+            onRunTest={(commitId) => setTestModalCommitId(commitId)}
             onCheckNow={async (run) => {
               if (serverId) {
                 const updated = await api.getTestStatus?.(serverId, run.id);

@@ -319,4 +319,59 @@ describe("TestRunModal Component", () => {
       expect(dialog.contains(document.activeElement)).toBe(true);
     });
   });
+
+  it("allows clearing numeric inputs with backspace and typing multi-digit numbers without forcing 1", async () => {
+    render(
+      <TestRunModal
+        isOpen={true}
+        onClose={vi.fn()}
+        serverId="srv-1"
+        commitId="abcdef1234567890"
+        onTestStarted={vi.fn()}
+      />
+    );
+
+    const botInput = screen.getByLabelText<HTMLInputElement>("Verification Bot Count");
+    expect(botInput.value).toBe("10");
+
+    // Clear input completely to ""
+    await act(async () => {
+      fireEvent.change(botInput, { target: { value: "" } });
+    });
+    expect(botInput.value).toBe("");
+
+    // Type a multi-digit number "25"
+    await act(async () => {
+      fireEvent.change(botInput, { target: { value: "25" } });
+    });
+    expect(botInput.value).toBe("25");
+
+    // Stepper buttons
+    const incBtn = screen.getByRole("button", { name: "Increase bot count" });
+    const decBtn = screen.getByRole("button", { name: "Decrease bot count" });
+
+    await act(async () => {
+      fireEvent.click(incBtn);
+    });
+    expect(botInput.value).toBe("26");
+
+    await act(async () => {
+      fireEvent.click(decBtn);
+    });
+    expect(botInput.value).toBe("25");
+
+    // Duration input
+    const durationInput = screen.getByLabelText<HTMLInputElement>("Test Duration (Minutes)");
+    expect(durationInput.value).toBe("15");
+
+    await act(async () => {
+      fireEvent.change(durationInput, { target: { value: "" } });
+    });
+    expect(durationInput.value).toBe("");
+
+    await act(async () => {
+      fireEvent.change(durationInput, { target: { value: "45" } });
+    });
+    expect(durationInput.value).toBe("45");
+  });
 });

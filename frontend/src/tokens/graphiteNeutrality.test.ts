@@ -81,7 +81,7 @@ describe("Graphite True Neutrality (Task 4)", () => {
 
   const excludedSet = new Set<string>(GRAPHITE_COLORED_EXCLUSIONS);
 
-  it("enforces max(R,G,B) - min(R,G,B) === 0 for all neutral tokens in graphite:dark", () => {
+  it("enforces low-chroma Obsidian Graphite carbon-slate neutrality in graphite:dark", () => {
     const neutralTokens = Object.entries(graphiteDarkTokens).filter(
       ([key, val]) => !excludedSet.has(key) && !val.startsWith("rgba"),
     );
@@ -93,12 +93,16 @@ describe("Graphite True Neutrality (Task 4)", () => {
       const diff = Math.max(r, g, b) - Math.min(r, g, b);
       expect(
         diff,
-        `Graphite dark neutral token ${key} (${val}) has blue chroma: R=${r}, G=${g}, B=${b} (diff=${diff})`,
-      ).toBe(0);
+        `Graphite dark neutral token ${key} (${val}) exceeds low-chroma carbon-slate bound: R=${r}, G=${g}, B=${b} (diff=${diff})`,
+      ).toBeLessThanOrEqual(45);
+      expect(
+        b >= r,
+        `Graphite dark neutral token ${key} (${val}) must maintain cool/neutral carbon-slate balance (B >= R)`,
+      ).toBe(true);
     }
   });
 
-  it("enforces max(R,G,B) - min(R,G,B) === 0 for all neutral tokens in graphite:light", () => {
+  it("enforces low-chroma Obsidian Graphite carbon-slate neutrality in graphite:light", () => {
     const neutralTokens = Object.entries(graphiteLightTokens).filter(
       ([key, val]) => !excludedSet.has(key) && !val.startsWith("rgba"),
     );
@@ -110,8 +114,12 @@ describe("Graphite True Neutrality (Task 4)", () => {
       const diff = Math.max(r, g, b) - Math.min(r, g, b);
       expect(
         diff,
-        `Graphite light neutral token ${key} (${val}) has blue chroma: R=${r}, G=${g}, B=${b} (diff=${diff})`,
-      ).toBe(0);
+        `Graphite light neutral token ${key} (${val}) exceeds low-chroma carbon-slate bound: R=${r}, G=${g}, B=${b} (diff=${diff})`,
+      ).toBeLessThanOrEqual(45);
+      expect(
+        b >= r,
+        `Graphite light neutral token ${key} (${val}) must maintain cool/neutral carbon-slate balance (B >= R)`,
+      ).toBe(true);
     }
   });
 

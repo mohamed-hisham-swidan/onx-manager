@@ -338,4 +338,45 @@ describe("SettingsPage", () => {
     expect(screen.queryByText("General")).not.toBeInTheDocument();
     expect(screen.queryByText("Rate Limiting & Security")).not.toBeInTheDocument();
   });
+
+  it("does not coerce empty string to 0 in numeric settings while typing", () => {
+    renderPage();
+
+    const rateLimitInput = screen.getByLabelText("Rate Limit (per minute)") as HTMLInputElement;
+    expect(rateLimitInput.value).toBe("60");
+
+    // Clear input completely
+    fireEvent.change(rateLimitInput, { target: { value: "" } });
+    expect(rateLimitInput.value).toBe("");
+
+    // Type a new number freely
+    fireEvent.change(rateLimitInput, { target: { value: "120" } });
+    expect(rateLimitInput.value).toBe("120");
+  });
+
+  it("adjusts numeric fields via stepper buttons", () => {
+    renderPage();
+
+    const rateLimitInput = screen.getByLabelText("Rate Limit (per minute)") as HTMLInputElement;
+    expect(rateLimitInput.value).toBe("60");
+
+    const increaseBtn = screen.getByRole("button", { name: "Increase Rate Limit (per minute)" });
+    const decreaseBtn = screen.getByRole("button", { name: "Decrease Rate Limit (per minute)" });
+
+    fireEvent.click(increaseBtn);
+    expect(rateLimitInput.value).toBe("61");
+
+    fireEvent.click(decreaseBtn);
+    expect(rateLimitInput.value).toBe("60");
+  });
+
+  it("updates log level using segmented pill selectors", () => {
+    renderPage();
+
+    const warnPill = screen.getByRole("button", { name: "WARNING" });
+    fireEvent.click(warnPill);
+
+    const logLevelSelect = screen.getByLabelText("Log Level") as HTMLSelectElement;
+    expect(logLevelSelect.value).toBe("WARNING");
+  });
 });

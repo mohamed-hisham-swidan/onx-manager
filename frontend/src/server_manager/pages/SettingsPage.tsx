@@ -59,6 +59,142 @@ const CATEGORIES: CategoryDefinition[] = [
   { id: "telemetry", label: "Telemetry & Timeouts", sections: [5, 6] },
 ];
 
+const LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"] as const;
+
+function RestartBadge() {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-status-warning-bg text-status-warning border border-status-warning-border shrink-0"
+      title="Changes to this setting require a backend restart to take effect"
+    >
+      <Icon name="info" size={12} />
+      Requires restart
+    </span>
+  );
+}
+
+interface SplitSettingRowProps {
+  id: string;
+  label: string;
+  description: string;
+  propertyKey: string;
+  hasRestart?: boolean;
+  children: React.ReactNode;
+}
+
+function SplitSettingRow({
+  id,
+  label,
+  description,
+  propertyKey,
+  hasRestart,
+  children,
+}: SplitSettingRowProps) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(260px,360px)] items-center gap-4 px-5 py-4 border-b border-border-subtle last:border-b-0">
+      <section className="space-y-1">
+        <div className="flex items-center gap-2">
+          <label htmlFor={id} className="text-sm font-bold text-text-primary cursor-pointer">
+            {label}
+          </label>
+          {hasRestart && <RestartBadge />}
+        </div>
+        <p id={`${id}-help`} className="text-xs text-text-secondary mt-0.5 leading-relaxed">
+          {description}
+        </p>
+        <div className="pt-0.5">
+          <code className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-surface-elevated text-text-muted border border-border-subtle inline-block">
+            {propertyKey}
+          </code>
+        </div>
+      </section>
+
+      <section className="w-full lg:max-w-[360px] lg:ml-auto flex flex-col items-start lg:items-end">
+        {children}
+      </section>
+    </div>
+  );
+}
+
+interface NumberStepperProps {
+  id: string;
+  name: string;
+  label: string;
+  value: number;
+  draftValue?: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onBlur: () => void;
+  onStep: (delta: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+}
+
+function NumberStepper({
+  id,
+  name,
+  label,
+  value,
+  draftValue,
+  onChange,
+  onBlur,
+  onStep,
+  min,
+  max,
+  step,
+  unit,
+}: NumberStepperProps) {
+  const displayVal = draftValue !== undefined ? draftValue : String(value);
+
+  return (
+    <span className="inline-flex items-center gap-1.5 w-full justify-end">
+      <button
+        type="button"
+        aria-label={`Decrease ${label}`}
+        onClick={() => onStep(-(step || 1))}
+        disabled={min !== undefined && value <= min}
+        className="h-9 w-9 flex items-center justify-center rounded-lg border border-border-default bg-surface-elevated text-text-secondary hover:text-text-primary hover:bg-surface-hover active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer font-bold text-base select-none shrink-0"
+      >
+        −
+      </button>
+
+      <span className="relative inline-flex items-center">
+        <input
+          id={id}
+          name={name}
+          type="number"
+          min={min}
+          max={max}
+          step={step || "any"}
+          value={displayVal}
+          onChange={onChange}
+          onBlur={onBlur}
+          aria-describedby={`${id}-help`}
+          className={`w-32 text-center px-2 py-1.5 font-mono text-sm rounded-lg border border-border-default bg-surface-page text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow ${
+            unit ? "pr-8" : ""
+          }`}
+        />
+        {unit && (
+          <span className="absolute right-2.5 pointer-events-none text-[11px] font-mono text-text-muted">
+            {unit}
+          </span>
+        )}
+      </span>
+
+      <button
+        type="button"
+        aria-label={`Increase ${label}`}
+        onClick={() => onStep(step || 1)}
+        disabled={max !== undefined && value >= max}
+        className="h-9 w-9 flex items-center justify-center rounded-lg border border-border-default bg-surface-elevated text-text-secondary hover:text-text-primary hover:bg-surface-hover active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer font-bold text-base select-none shrink-0"
+      >
+        +
+      </button>
+    </span>
+  );
+}
+
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get("tab");
@@ -88,7 +224,7 @@ export function SettingsPage() {
         <Skeleton className="h-10 w-48" />
         <div className="space-y-6">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-border-default bg-surface-card p-6 space-y-4">
+            <div key={i} className="rounded-2xl border border-border-default bg-surface-card p-6 space-y-4">
               <Skeleton className="h-6 w-36" />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Skeleton className="h-10 w-full" />
@@ -172,6 +308,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
     test_boot_timeout_seconds: settings.test_boot_timeout_seconds ?? 120,
   });
 
+  // Local string drafts for numeric editing ergonomics (unblocks typing & backspace)
+  const [rawDrafts, setRawDrafts] = useState<Record<string, string>>({});
+
   const [activeCategory, setActiveCategory] = useState<CategoryId>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -210,11 +349,19 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value, type } = e.target;
-    let newValue: string | number | boolean = value;
-
     if (type === "number") {
-      newValue = value === "" ? 0 : Number(value);
-    } else if (name === "debug") {
+      setRawDrafts((prev) => ({ ...prev, [name]: value }));
+      if (value.trim() !== "") {
+        const num = Number(value);
+        if (!isNaN(num)) {
+          setFormData((prev) => ({ ...prev, [name]: num }));
+        }
+      }
+      return;
+    }
+
+    let newValue: string | number | boolean = value;
+    if (name === "debug") {
       newValue = value === "true";
     }
 
@@ -222,6 +369,40 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       ...prev,
       [name]: newValue,
     }));
+  };
+
+  const handleNumberBlur = (name: string, min?: number, max?: number) => {
+    const draft = rawDrafts[name];
+    if (draft === undefined) return;
+    const current = formData[name as keyof FormState] as number;
+    if (draft.trim() === "" || isNaN(Number(draft))) {
+      const fallback = min !== undefined ? Math.max(min, current) : current;
+      setFormData((prev) => ({ ...prev, [name]: fallback }));
+    } else {
+      let parsed = Number(draft);
+      if (min !== undefined && parsed < min) parsed = min;
+      if (max !== undefined && parsed > max) parsed = max;
+      setFormData((prev) => ({ ...prev, [name]: parsed }));
+    }
+    setRawDrafts((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
+
+  const handleNumberStep = (name: string, delta: number, min?: number, max?: number) => {
+    const current = (formData[name as keyof FormState] as number) ?? 0;
+    let nextVal = current + delta;
+    if (min !== undefined && nextVal < min) nextVal = min;
+    if (max !== undefined && nextVal > max) nextVal = max;
+    nextVal = Math.round(nextVal * 10) / 10;
+    setFormData((prev) => ({ ...prev, [name]: nextVal }));
+    setRawDrafts((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
   };
 
   const handleReset = () => {
@@ -239,6 +420,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       server_startup_timeout_seconds: settings.server_startup_timeout_seconds ?? 120,
       test_boot_timeout_seconds: settings.test_boot_timeout_seconds ?? 120,
     });
+    setRawDrafts({});
     setSaveError(null);
     setSaveSuccessNotice(null);
   };
@@ -252,19 +434,20 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       app_name: formData.app_name,
       log_level: formData.log_level,
       debug: formData.debug,
-      rate_limit_per_minute: Number(formData.rate_limit_per_minute),
-      idempotency_ttl_hours: Number(formData.idempotency_ttl_hours),
-      circuit_breaker_max_failures: Number(formData.circuit_breaker_max_failures),
-      circuit_breaker_timeout_seconds: Number(formData.circuit_breaker_timeout_seconds),
-      event_bus_retry_attempts: Number(formData.event_bus_retry_attempts),
-      saga_timeout_seconds: Number(formData.saga_timeout_seconds),
-      metrics_interval_seconds: Number(formData.metrics_interval_seconds),
-      server_startup_timeout_seconds: Number(formData.server_startup_timeout_seconds),
-      test_boot_timeout_seconds: Number(formData.test_boot_timeout_seconds),
+      rate_limit_per_minute: Number(rawDrafts["rate_limit_per_minute"] !== undefined && rawDrafts["rate_limit_per_minute"] !== "" ? rawDrafts["rate_limit_per_minute"] : formData.rate_limit_per_minute),
+      idempotency_ttl_hours: Number(rawDrafts["idempotency_ttl_hours"] !== undefined && rawDrafts["idempotency_ttl_hours"] !== "" ? rawDrafts["idempotency_ttl_hours"] : formData.idempotency_ttl_hours),
+      circuit_breaker_max_failures: Number(rawDrafts["circuit_breaker_max_failures"] !== undefined && rawDrafts["circuit_breaker_max_failures"] !== "" ? rawDrafts["circuit_breaker_max_failures"] : formData.circuit_breaker_max_failures),
+      circuit_breaker_timeout_seconds: Number(rawDrafts["circuit_breaker_timeout_seconds"] !== undefined && rawDrafts["circuit_breaker_timeout_seconds"] !== "" ? rawDrafts["circuit_breaker_timeout_seconds"] : formData.circuit_breaker_timeout_seconds),
+      event_bus_retry_attempts: Number(rawDrafts["event_bus_retry_attempts"] !== undefined && rawDrafts["event_bus_retry_attempts"] !== "" ? rawDrafts["event_bus_retry_attempts"] : formData.event_bus_retry_attempts),
+      saga_timeout_seconds: Number(rawDrafts["saga_timeout_seconds"] !== undefined && rawDrafts["saga_timeout_seconds"] !== "" ? rawDrafts["saga_timeout_seconds"] : formData.saga_timeout_seconds),
+      metrics_interval_seconds: Number(rawDrafts["metrics_interval_seconds"] !== undefined && rawDrafts["metrics_interval_seconds"] !== "" ? rawDrafts["metrics_interval_seconds"] : formData.metrics_interval_seconds),
+      server_startup_timeout_seconds: Number(rawDrafts["server_startup_timeout_seconds"] !== undefined && rawDrafts["server_startup_timeout_seconds"] !== "" ? rawDrafts["server_startup_timeout_seconds"] : formData.server_startup_timeout_seconds),
+      test_boot_timeout_seconds: Number(rawDrafts["test_boot_timeout_seconds"] !== undefined && rawDrafts["test_boot_timeout_seconds"] !== "" ? rawDrafts["test_boot_timeout_seconds"] : formData.test_boot_timeout_seconds),
     };
 
     try {
       const res = await updateSettings.mutateAsync(payload);
+      setRawDrafts({});
       toast("success", "Settings saved", "Your changes have been saved successfully.");
       setSaveSuccessNotice({
         message: res.message || "Settings updated successfully.",
@@ -363,7 +546,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       />
 
       {/* Category Filter & Search Bar */}
-      <div className="rounded-xl border border-border-default bg-surface-card p-4 space-y-3 shadow-xs">
+      <div className="rounded-2xl border border-border-default bg-surface-card p-4 space-y-3 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           {/* Category Filter Pills */}
           <div className="flex flex-wrap items-center gap-1.5">
@@ -455,7 +638,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
       )}
 
       {!hasAnyVisibleSection && (
-        <div className="rounded-xl border border-border-default bg-surface-card p-12 text-center space-y-3">
+        <div className="rounded-2xl border border-border-default bg-surface-card p-12 text-center space-y-3">
           <Icon name="search" size={24} className="mx-auto text-text-muted" />
           <p className="text-sm font-medium text-text-primary">No settings match "{searchQuery}"</p>
           <p className="text-xs text-text-muted">Try adjusting your keyword filter or browse all sections.</p>
@@ -472,35 +655,36 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         </div>
       )}
 
-      {/* Section 1: General */}
+      {/* Section 1: General (Split-Row Card) */}
       {isSectionVisible(1) && (
-        <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
-          <div className="mb-4">
-            <div className="flex items-center gap-2">
-              <span className="p-1 rounded-md bg-surface-elevated border border-border-subtle text-text-secondary">
-                <Icon name="settings" size={16} />
-              </span>
-              <h3 className="text-base font-semibold text-text-primary">General</h3>
+        <div className="rounded-2xl border border-border-default bg-surface-card shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
+            <div className="p-2 rounded-xl bg-surface-elevated border border-border-subtle text-text-secondary">
+              <Icon name="settings" size={18} />
             </div>
-            <p className="text-xs text-text-muted mt-1">
-              Core application identity and runtime logging configuration.
-            </p>
-            {settings.version ? (
-              <p className="mt-2 inline-flex items-center gap-2 rounded-lg bg-surface-elevated border border-border-default px-3 py-1.5 text-xs text-text-secondary">
-                <Icon name="info" size={14} className="text-text-muted" />
-                {settings.app_name ?? "onx-manager"} {settings.version}
-              </p>
-            ) : null}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* App Name */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="app_name" className="block text-sm font-medium text-text-secondary">
-                  App Name
-                </label>
-                {restartRequiredSet.has("app_name") && <RestartBadge />}
-              </div>
+              <h3 className="text-base font-semibold text-text-primary">General</h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                Core application identity and runtime logging configuration.
+              </p>
+              {settings.version ? (
+                <p className="mt-2 inline-flex items-center gap-2 rounded-lg bg-surface-elevated border border-border-default px-3 py-1.5 text-xs text-text-secondary">
+                  <Icon name="info" size={14} className="text-text-muted" />
+                  {settings.app_name ?? "onx-manager"} {settings.version}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="divide-y divide-border-subtle">
+            {/* App Name */}
+            <SplitSettingRow
+              id="app_name"
+              label="App Name"
+              description="Display name for this onx-manager instance."
+              propertyKey="app_name"
+              hasRestart={restartRequiredSet.has("app_name")}
+            >
               <input
                 id="app_name"
                 name="app_name"
@@ -508,355 +692,404 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
                 value={formData.app_name}
                 onChange={handleChange}
                 aria-describedby="app_name-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                className="w-full px-3.5 py-2 rounded-xl border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
               />
-              <p id="app_name-help" className="mt-1 text-xs text-text-muted">
-                Display name for this onx-manager instance.
-              </p>
-            </div>
+            </SplitSettingRow>
 
             {/* Log Level */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="log_level" className="block text-sm font-medium text-text-secondary">
-                  Log Level
-                </label>
-                {restartRequiredSet.has("log_level") && <RestartBadge />}
-              </div>
-              <select
-                id="log_level"
-                name="log_level"
-                value={formData.log_level}
-                onChange={handleChange}
-                aria-describedby="log_level-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
-              >
-                <option value="DEBUG">DEBUG</option>
-                <option value="INFO">INFO</option>
-                <option value="WARNING">WARNING</option>
-                <option value="ERROR">ERROR</option>
-              </select>
-              <p id="log_level-help" className="mt-1 text-xs text-text-muted">
-                Minimum severity level for application logs.
-              </p>
-            </div>
+            <SplitSettingRow
+              id="log_level"
+              label="Log Level"
+              description="Minimum severity level for application logs."
+              propertyKey="log_level"
+              hasRestart={restartRequiredSet.has("log_level")}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex p-1 rounded-xl bg-surface-elevated border border-border-default gap-1">
+                  {LOG_LEVELS.map((lvl) => {
+                    const isSelected = formData.log_level === lvl;
+                    return (
+                      <button
+                        key={lvl}
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, log_level: lvl }))}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-accent-primary text-accent-contrast-text shadow-xs"
+                            : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+                        }`}
+                      >
+                        {lvl}
+                      </button>
+                    );
+                  })}
+                </span>
+                <select
+                  id="log_level"
+                  name="log_level"
+                  value={formData.log_level}
+                  onChange={handleChange}
+                  aria-describedby="log_level-help"
+                  className="sr-only"
+                >
+                  {LOG_LEVELS.map((lvl) => (
+                    <option key={lvl} value={lvl}>
+                      {lvl}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            </SplitSettingRow>
 
             {/* Debug Mode */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="debug" className="block text-sm font-medium text-text-secondary">
-                  Debug Mode
+            <SplitSettingRow
+              id="debug"
+              label="Debug Mode"
+              description="Enables verbose logging and detailed error stack traces."
+              propertyKey="debug"
+              hasRestart={restartRequiredSet.has("debug")}
+            >
+              <span className="inline-flex items-center justify-end gap-3 w-full">
+                <span
+                  className={`text-[10px] font-bold font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border transition-colors ${
+                    formData.debug
+                      ? "bg-status-success-bg text-status-success border-status-success-border"
+                      : "bg-surface-elevated text-text-muted border-border-subtle"
+                  }`}
+                >
+                  {formData.debug ? "ENABLED" : "DISABLED"}
+                </span>
+
+                <label className="relative inline-flex items-center cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label="Debug Mode Toggle"
+                    checked={formData.debug}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, debug: e.target.checked }))}
+                    className="sr-only peer"
+                  />
+                  <div
+                    className={`w-11 h-6 rounded-full transition-colors duration-200 ease-in-out ${
+                      formData.debug ? "bg-accent-primary" : "bg-border-strong"
+                    }`}
+                  >
+                    <div
+                      className={`w-5 h-5 bg-accent-contrast-text rounded-full shadow-md transform transition-transform duration-200 ease-in-out mt-0.5 ${
+                        formData.debug ? "translate-x-5.5 ml-0.5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </div>
                 </label>
-                {restartRequiredSet.has("debug") && <RestartBadge />}
-              </div>
-              <select
-                id="debug"
-                name="debug"
-                value={formData.debug ? "true" : "false"}
-                onChange={handleChange}
-                aria-describedby="debug-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
-              >
-                <option value="true">Enabled</option>
-                <option value="false">Disabled</option>
-              </select>
-              <p id="debug-help" className="mt-1 text-xs text-text-muted">
-                Enables verbose logging and detailed error stack traces.
-              </p>
-            </div>
+
+                {/* Synchronized accessible select for test compatibility */}
+                <select
+                  id="debug"
+                  name="debug"
+                  value={formData.debug ? "true" : "false"}
+                  onChange={handleChange}
+                  aria-describedby="debug-help"
+                  className="sr-only"
+                >
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </span>
+            </SplitSettingRow>
           </div>
         </div>
       )}
 
-      {/* Section 2: Rate Limiting & Security */}
+      {/* Section 2: Rate Limiting & Security (Split-Row Card) */}
       {isSectionVisible(2) && (
-        <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
-          <div className="mb-4">
-            <div className="flex items-center gap-2">
-              <span className="p-1 rounded-md bg-surface-elevated border border-border-subtle text-text-secondary">
-                <Icon name="lock" size={16} />
-              </span>
-              <h3 className="text-base font-semibold text-text-primary">Rate Limiting & Security</h3>
+        <div className="rounded-2xl border border-border-default bg-surface-card shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
+            <div className="p-2 rounded-xl bg-surface-elevated border border-border-subtle text-text-secondary">
+              <Icon name="lock" size={18} />
             </div>
-            <p className="text-xs text-text-muted mt-1">
-              API request throttling and idempotency token retention policies.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Rate Limit per minute */}
             <div>
-              <label htmlFor="rate_limit_per_minute" className="block text-sm font-medium text-text-secondary mb-1.5">
-                Rate Limit (per minute)
-              </label>
-              <input
+              <h3 className="text-base font-semibold text-text-primary">Rate Limiting & Security</h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                API request throttling and idempotency token retention policies.
+              </p>
+            </div>
+          </div>
+
+          <div className="divide-y divide-border-subtle">
+            {/* Rate Limit per minute */}
+            <SplitSettingRow
+              id="rate_limit_per_minute"
+              label="Rate Limit (per minute)"
+              description="Max API requests per minute per IP address."
+              propertyKey="rate_limit_per_minute"
+            >
+              <NumberStepper
                 id="rate_limit_per_minute"
                 name="rate_limit_per_minute"
-                type="number"
+                label="Rate Limit (per minute)"
+                value={formData.rate_limit_per_minute}
+                draftValue={rawDrafts["rate_limit_per_minute"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("rate_limit_per_minute", 1, 10000)}
+                onStep={(delta) => handleNumberStep("rate_limit_per_minute", delta, 1, 10000)}
                 min={1}
                 max={10000}
-                value={formData.rate_limit_per_minute}
-                onChange={handleChange}
-                aria-describedby="rate_limit_per_minute-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
               />
-              <p id="rate_limit_per_minute-help" className="mt-1 text-xs text-text-muted">
-                Max API requests per minute per IP address.
-              </p>
-            </div>
+            </SplitSettingRow>
 
             {/* Idempotency TTL */}
-            <div>
-              <label htmlFor="idempotency_ttl_hours" className="block text-sm font-medium text-text-secondary mb-1.5">
-                Idempotency TTL (hours)
-              </label>
-              <input
+            <SplitSettingRow
+              id="idempotency_ttl_hours"
+              label="Idempotency TTL (hours)"
+              description="Retention period in hours for request idempotency execution keys."
+              propertyKey="idempotency_ttl_hours"
+            >
+              <NumberStepper
                 id="idempotency_ttl_hours"
                 name="idempotency_ttl_hours"
-                type="number"
+                label="Idempotency TTL (hours)"
+                value={formData.idempotency_ttl_hours}
+                draftValue={rawDrafts["idempotency_ttl_hours"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("idempotency_ttl_hours", 1, 720)}
+                onStep={(delta) => handleNumberStep("idempotency_ttl_hours", delta, 1, 720)}
                 min={1}
                 max={720}
-                value={formData.idempotency_ttl_hours}
-                onChange={handleChange}
-                aria-describedby="idempotency_ttl_hours-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                unit="hrs"
               />
-              <p id="idempotency_ttl_hours-help" className="mt-1 text-xs text-text-muted">
-                Retention period in hours for request idempotency execution keys.
-              </p>
-            </div>
+            </SplitSettingRow>
           </div>
         </div>
       )}
 
-      {/* Section 3: Circuit Breaker */}
+      {/* Section 3: Circuit Breaker (Split-Row Card) */}
       {isSectionVisible(3) && (
-        <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
-          <div className="mb-4">
-            <div className="flex items-center gap-2">
-              <span className="p-1 rounded-md bg-surface-elevated border border-border-subtle text-text-secondary">
-                <Icon name="alert" size={16} />
-              </span>
-              <h3 className="text-base font-semibold text-text-primary">Circuit Breaker</h3>
+        <div className="rounded-2xl border border-border-default bg-surface-card shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
+            <div className="p-2 rounded-xl bg-surface-elevated border border-border-subtle text-text-secondary">
+              <Icon name="alert" size={18} />
             </div>
-            <p className="text-xs text-text-muted mt-1">
-              Fault tolerance thresholds and automated service recovery timings.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Max Failures */}
             <div>
-              <label htmlFor="circuit_breaker_max_failures" className="block text-sm font-medium text-text-secondary mb-1.5">
-                Max Failures
-              </label>
-              <input
+              <h3 className="text-base font-semibold text-text-primary">Circuit Breaker</h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                Fault tolerance thresholds and automated service recovery timings.
+              </p>
+            </div>
+          </div>
+
+          <div className="divide-y divide-border-subtle">
+            {/* Max Failures */}
+            <SplitSettingRow
+              id="circuit_breaker_max_failures"
+              label="Max Failures"
+              description="Consecutive errors before opening the circuit breaker."
+              propertyKey="circuit_breaker_max_failures"
+            >
+              <NumberStepper
                 id="circuit_breaker_max_failures"
                 name="circuit_breaker_max_failures"
-                type="number"
+                label="Max Failures"
+                value={formData.circuit_breaker_max_failures}
+                draftValue={rawDrafts["circuit_breaker_max_failures"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("circuit_breaker_max_failures", 1, 100)}
+                onStep={(delta) => handleNumberStep("circuit_breaker_max_failures", delta, 1, 100)}
                 min={1}
                 max={100}
-                value={formData.circuit_breaker_max_failures}
-                onChange={handleChange}
-                aria-describedby="circuit_breaker_max_failures-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
               />
-              <p id="circuit_breaker_max_failures-help" className="mt-1 text-xs text-text-muted">
-                Consecutive errors before opening the circuit breaker.
-              </p>
-            </div>
+            </SplitSettingRow>
 
             {/* Timeout seconds */}
-            <div>
-              <label htmlFor="circuit_breaker_timeout_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
-                Timeout (seconds)
-              </label>
-              <input
+            <SplitSettingRow
+              id="circuit_breaker_timeout_seconds"
+              label="Timeout (seconds)"
+              description="Cooldown duration in seconds before attempting half-open recovery."
+              propertyKey="circuit_breaker_timeout_seconds"
+            >
+              <NumberStepper
                 id="circuit_breaker_timeout_seconds"
                 name="circuit_breaker_timeout_seconds"
-                type="number"
+                label="Timeout (seconds)"
+                value={formData.circuit_breaker_timeout_seconds}
+                draftValue={rawDrafts["circuit_breaker_timeout_seconds"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("circuit_breaker_timeout_seconds", 1, 3600)}
+                onStep={(delta) => handleNumberStep("circuit_breaker_timeout_seconds", delta, 1, 3600)}
                 min={1}
                 max={3600}
-                value={formData.circuit_breaker_timeout_seconds}
-                onChange={handleChange}
-                aria-describedby="circuit_breaker_timeout_seconds-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                unit="sec"
               />
-              <p id="circuit_breaker_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
-                Cooldown duration in seconds before attempting half-open recovery.
-              </p>
-            </div>
+            </SplitSettingRow>
           </div>
         </div>
       )}
 
-      {/* Section 4: Event Bus & Sagas */}
+      {/* Section 4: Event Bus & Sagas (Split-Row Card) */}
       {isSectionVisible(4) && (
-        <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
-          <div className="mb-4">
-            <div className="flex items-center gap-2">
-              <span className="p-1 rounded-md bg-surface-elevated border border-border-subtle text-text-secondary">
-                <Icon name="version-branch" size={16} />
-              </span>
-              <h3 className="text-base font-semibold text-text-primary">Event Bus & Sagas</h3>
+        <div className="rounded-2xl border border-border-default bg-surface-card shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
+            <div className="p-2 rounded-xl bg-surface-elevated border border-border-subtle text-text-secondary">
+              <Icon name="version-branch" size={18} />
             </div>
-            <p className="text-xs text-text-muted mt-1">
-              Asynchronous event dispatch retry policies and multi-step saga execution timeouts.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Event bus retry attempts */}
             <div>
-              <label htmlFor="event_bus_retry_attempts" className="block text-sm font-medium text-text-secondary mb-1.5">
-                Event Bus Retry Attempts
-              </label>
-              <input
+              <h3 className="text-base font-semibold text-text-primary">Event Bus & Sagas</h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                Asynchronous event dispatch retry policies and multi-step saga execution timeouts.
+              </p>
+            </div>
+          </div>
+
+          <div className="divide-y divide-border-subtle">
+            {/* Event bus retry attempts */}
+            <SplitSettingRow
+              id="event_bus_retry_attempts"
+              label="Event Bus Retry Attempts"
+              description="Max delivery retries for failing async domain event handlers."
+              propertyKey="event_bus_retry_attempts"
+            >
+              <NumberStepper
                 id="event_bus_retry_attempts"
                 name="event_bus_retry_attempts"
-                type="number"
+                label="Event Bus Retry Attempts"
+                value={formData.event_bus_retry_attempts}
+                draftValue={rawDrafts["event_bus_retry_attempts"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("event_bus_retry_attempts", 0, 10)}
+                onStep={(delta) => handleNumberStep("event_bus_retry_attempts", delta, 0, 10)}
                 min={0}
                 max={10}
-                value={formData.event_bus_retry_attempts}
-                onChange={handleChange}
-                aria-describedby="event_bus_retry_attempts-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
               />
-              <p id="event_bus_retry_attempts-help" className="mt-1 text-xs text-text-muted">
-                Max delivery retries for failing async domain event handlers.
-              </p>
-            </div>
+            </SplitSettingRow>
 
             {/* Saga timeout seconds */}
-            <div>
-              <label htmlFor="saga_timeout_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
-                Saga Timeout (seconds)
-              </label>
-              <input
+            <SplitSettingRow
+              id="saga_timeout_seconds"
+              label="Saga Timeout (seconds)"
+              description="Maximum execution duration before rolling back a distributed saga."
+              propertyKey="saga_timeout_seconds"
+            >
+              <NumberStepper
                 id="saga_timeout_seconds"
                 name="saga_timeout_seconds"
-                type="number"
+                label="Saga Timeout (seconds)"
+                value={formData.saga_timeout_seconds}
+                draftValue={rawDrafts["saga_timeout_seconds"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("saga_timeout_seconds", 1, 3600)}
+                onStep={(delta) => handleNumberStep("saga_timeout_seconds", delta, 1, 3600)}
                 min={1}
                 max={3600}
-                value={formData.saga_timeout_seconds}
-                onChange={handleChange}
-                aria-describedby="saga_timeout_seconds-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                unit="sec"
               />
-              <p id="saga_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
-                Maximum execution duration before rolling back a distributed saga.
-              </p>
-            </div>
+            </SplitSettingRow>
           </div>
         </div>
       )}
 
-      {/* Section 5: Monitoring & Performance */}
+      {/* Section 5: Monitoring & Performance (Split-Row Card) */}
       {isSectionVisible(5) && (
-        <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
-          <div className="mb-4">
-            <div className="flex items-center gap-2">
-              <span className="p-1 rounded-md bg-surface-elevated border border-border-subtle text-text-secondary">
-                <Icon name="activity" size={16} />
-              </span>
-              <h3 className="text-base font-semibold text-text-primary">Monitoring & Performance</h3>
+        <div className="rounded-2xl border border-border-default bg-surface-card shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
+            <div className="p-2 rounded-xl bg-surface-elevated border border-border-subtle text-text-secondary">
+              <Icon name="activity" size={18} />
             </div>
-            <p className="text-xs text-text-muted mt-1">
-              Real-time server metrics collection rate and CPU/RAM sampling interval.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Metrics interval seconds */}
             <div>
-              <label htmlFor="metrics_interval_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
-                CPU & Metrics Sampling Interval (seconds)
-              </label>
-              <input
+              <h3 className="text-base font-semibold text-text-primary">Monitoring & Performance</h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                Real-time server metrics collection rate and CPU/RAM sampling interval.
+              </p>
+            </div>
+          </div>
+
+          <div className="divide-y divide-border-subtle">
+            {/* Metrics interval seconds */}
+            <SplitSettingRow
+              id="metrics_interval_seconds"
+              label="CPU & Metrics Sampling Interval (seconds)"
+              description="Frequency in seconds for sampling CPU, RAM, and streaming real-time metrics (e.g. 0.2s for live real-time, 1.0s or 5.0s for reduced CPU overhead)."
+              propertyKey="metrics_interval_seconds"
+            >
+              <NumberStepper
                 id="metrics_interval_seconds"
                 name="metrics_interval_seconds"
-                type="number"
+                label="CPU & Metrics Sampling Interval (seconds)"
+                value={formData.metrics_interval_seconds}
+                draftValue={rawDrafts["metrics_interval_seconds"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("metrics_interval_seconds", 0.1, 60)}
+                onStep={(delta) => handleNumberStep("metrics_interval_seconds", delta, 0.1, 60)}
                 min={0.1}
                 max={60}
                 step={0.1}
-                value={formData.metrics_interval_seconds}
-                onChange={handleChange}
-                aria-describedby="metrics_interval_seconds-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                unit="sec"
               />
-              <p id="metrics_interval_seconds-help" className="mt-1 text-xs text-text-muted">
-                Frequency in seconds for sampling CPU, RAM, and streaming real-time metrics (e.g. 0.2s for live real-time, 1.0s or 5.0s for reduced CPU overhead).
-              </p>
-            </div>
+            </SplitSettingRow>
           </div>
         </div>
       )}
 
-      {/* Section 6: Startup & Boot Timeouts */}
+      {/* Section 6: Startup & Boot Timeouts (Split-Row Card) */}
       {isSectionVisible(6) && (
-        <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs">
-          <div className="mb-4">
-            <div className="flex items-center gap-2">
-              <span className="p-1 rounded-md bg-surface-elevated border border-border-subtle text-text-secondary">
-                <Icon name="clock" size={16} />
-              </span>
-              <h3 className="text-base font-semibold text-text-primary">Startup & Boot Timeouts</h3>
+        <div className="rounded-2xl border border-border-default bg-surface-card shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
+            <div className="p-2 rounded-xl bg-surface-elevated border border-border-subtle text-text-secondary">
+              <Icon name="clock" size={18} />
             </div>
-            <p className="text-xs text-text-muted mt-1">
-              Default boot-gate timeouts for regular servers and isolated test containers (30–1800s). No server restart required.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label htmlFor="server_startup_timeout_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
-                Server Startup Timeout (seconds)
-              </label>
-              <input
+              <h3 className="text-base font-semibold text-text-primary">Startup & Boot Timeouts</h3>
+              <p className="text-xs text-text-muted mt-0.5">
+                Default boot-gate timeouts for regular servers and isolated test containers (30–1800s). No server restart required.
+              </p>
+            </div>
+          </div>
+
+          <div className="divide-y divide-border-subtle">
+            {/* Server Startup Timeout */}
+            <SplitSettingRow
+              id="server_startup_timeout_seconds"
+              label="Server Startup Timeout (seconds)"
+              description="Global timeout before starting monitor warns on slow server boot. Can be overridden per-server."
+              propertyKey="server_startup_timeout_seconds"
+            >
+              <NumberStepper
                 id="server_startup_timeout_seconds"
                 name="server_startup_timeout_seconds"
-                type="number"
+                label="Server Startup Timeout (seconds)"
+                value={formData.server_startup_timeout_seconds}
+                draftValue={rawDrafts["server_startup_timeout_seconds"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("server_startup_timeout_seconds", 30, 1800)}
+                onStep={(delta) => handleNumberStep("server_startup_timeout_seconds", delta, 30, 1800)}
                 min={30}
                 max={1800}
-                value={formData.server_startup_timeout_seconds}
-                onChange={handleChange}
-                aria-describedby="server_startup_timeout_seconds-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                unit="sec"
               />
-              <p id="server_startup_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
-                Global timeout before starting monitor warns on slow server boot. Can be overridden per-server.
-              </p>
-            </div>
+            </SplitSettingRow>
 
-            <div>
-              <label htmlFor="test_boot_timeout_seconds" className="block text-sm font-medium text-text-secondary mb-1.5">
-                Test Boot Timeout (seconds)
-              </label>
-              <input
+            {/* Test Boot Timeout */}
+            <SplitSettingRow
+              id="test_boot_timeout_seconds"
+              label="Test Boot Timeout (seconds)"
+              description="Global timeout before isolated test containers fail boot verification."
+              propertyKey="test_boot_timeout_seconds"
+            >
+              <NumberStepper
                 id="test_boot_timeout_seconds"
                 name="test_boot_timeout_seconds"
-                type="number"
+                label="Test Boot Timeout (seconds)"
+                value={formData.test_boot_timeout_seconds}
+                draftValue={rawDrafts["test_boot_timeout_seconds"]}
+                onChange={handleChange}
+                onBlur={() => handleNumberBlur("test_boot_timeout_seconds", 30, 1800)}
+                onStep={(delta) => handleNumberStep("test_boot_timeout_seconds", delta, 30, 1800)}
                 min={30}
                 max={1800}
-                value={formData.test_boot_timeout_seconds}
-                onChange={handleChange}
-                aria-describedby="test_boot_timeout_seconds-help"
-                className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                unit="sec"
               />
-              <p id="test_boot_timeout_seconds-help" className="mt-1 text-xs text-text-muted">
-                Global timeout before isolated test containers fail boot verification.
-              </p>
-            </div>
+            </SplitSettingRow>
           </div>
         </div>
       )}
     </form>
-  );
-}
-
-function RestartBadge() {
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-status-warning-bg text-status-warning border border-status-warning-border"
-      title="Changes to this setting require a backend restart to take effect"
-    >
-      <Icon name="info" size={12} />
-      Requires restart
-    </span>
   );
 }

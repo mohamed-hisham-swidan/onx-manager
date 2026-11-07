@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
 import type { ServerTestRun } from "@/server_manager/types";
@@ -11,6 +12,7 @@ interface TestRunListProps {
   onPromote: (testId: string) => void;
   onDiscard: (testId: string) => void;
   onCheckNow: (run: ServerTestRun) => Promise<void>;
+  onRunTest?: (commitId: string) => void;
 }
 
 export function TestRunList({
@@ -21,7 +23,24 @@ export function TestRunList({
   onPromote,
   onDiscard,
   onCheckNow,
+  onRunTest,
 }: TestRunListProps) {
+  const passedCount = useMemo(
+    () => testRuns.filter((r) => r.status === "PASSED").length,
+    [testRuns]
+  );
+  const activeCount = useMemo(
+    () =>
+      testRuns.filter(
+        (r) => r.status === "RUNNING" || r.status === "PENDING" || r.status === "BOOTING"
+      ).length,
+    [testRuns]
+  );
+  const failedCount = useMemo(
+    () => testRuns.filter((r) => r.status === "FAILED" || r.status === "CANCELLED").length,
+    [testRuns]
+  );
+
   return (
     <div className="rounded-xl border border-border-subtle bg-surface-card dark:bg-gray-800 shadow-2xs overflow-hidden">
       {/* Header */}
@@ -46,6 +65,25 @@ export function TestRunList({
           </span>
         </div>
       </div>
+
+      {/* Live Summary Bar */}
+      {testRuns.length > 0 && (
+        <div className="px-5 py-2.5 bg-surface-muted/60 border-b border-border-subtle/70 flex flex-wrap items-center gap-3 text-xs">
+          <span className="text-text-muted font-medium">Summary:</span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-status-success-bg px-2 py-0.5 font-semibold text-status-success border border-status-success-border">
+            <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
+            {passedCount} Passed
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-status-info-bg px-2 py-0.5 font-semibold text-status-info border border-status-info-border">
+            <span className="h-1.5 w-1.5 rounded-full bg-status-info" />
+            {activeCount} Running / Pending
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-status-danger-bg px-2 py-0.5 font-semibold text-status-danger border border-status-danger-border">
+            <span className="h-1.5 w-1.5 rounded-full bg-status-danger" />
+            {failedCount} Cancelled / Failed
+          </span>
+        </div>
+      )}
 
       {testRuns.length === 0 ? (
         <div className="p-8 text-center text-sm text-text-muted">
@@ -98,39 +136,68 @@ export function TestRunList({
               </div>
 
               {/* 4-Step Visual Mini-Stepper */}
-              <div className="grid grid-cols-4 gap-1 rounded-lg border border-border-subtle bg-surface-elevated/60 p-2 text-center text-[11px]">
-                <div className="flex items-center justify-center gap-1 font-mono text-status-success font-semibold">
+              <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-elevated/60 p-2.5 text-[11px] font-mono">
+                <div
+                  className="flex items-center gap-1 text-status-success font-semibold shrink-0"
+                  title="Zero-copy instant Btrfs/ZFS reflink clone of server directory and world snapshot"
+                >
                   <span>✓</span>
                   <span>1. CoW Clone</span>
                 </div>
+
+                <div className="flex-1 mx-2 h-0.5 bg-status-success shrink" />
+
                 <div
-                  className={`flex items-center justify-center gap-1 font-mono font-semibold ${
+                  className={`flex items-center gap-1 font-semibold shrink-0 ${
                     run.status !== "BOOTING" ? "text-status-success" : "text-status-warning animate-pulse"
                   }`}
+                  title="Spin up isolated container/sandbox instance without network exposure to players"
                 >
                   <span>{run.status !== "BOOTING" ? "✓" : "▶"}</span>
                   <span>2. Sidecar Boot</span>
                 </div>
+
                 <div
-                  className={`flex items-center justify-center gap-1 font-mono font-semibold ${
+                  className={`flex-1 mx-2 h-0.5 shrink ${
+                    run.status === "PASSED" || run.status === "FAILED" || run.status === "RUNNING"
+                      ? "bg-status-success"
+                      : "bg-border-subtle"
+                  }`}
+                />
+
+                <div
+                  className={`flex items-center gap-1 font-semibold shrink-0 ${
                     run.status === "PASSED" || run.status === "FAILED"
                       ? "text-status-success"
                       : run.status === "RUNNING"
                       ? "text-status-info animate-pulse"
                       : "text-text-muted"
                   }`}
+                  title="Connect automated bots to simulate gameplay, join stress, and generate world activity"
                 >
-                  <span>{run.status === "PASSED" || run.status === "FAILED" ? "✓" : "•"}</span>
+                  <span>{run.status === "PASSED" || run.status === "FAILED" ? "✓" : run.status === "RUNNING" ? "▶" : "•"}</span>
                   <span>3. Bot Swarm</span>
                 </div>
+
                 <div
-                  className={`flex items-center justify-center gap-1 font-mono font-semibold ${
+                  className={`flex-1 mx-2 h-0.5 shrink ${
+                    run.status === "PASSED"
+                      ? "bg-status-success"
+                      : run.status === "FAILED"
+                      ? "bg-status-danger"
+                      : "bg-border-subtle"
+                  }`}
+                />
+
+                <div
+                  className={`flex items-center gap-1 font-semibold shrink-0 ${
                     run.status === "PASSED"
                       ? "text-status-success"
                       : run.status === "FAILED"
                       ? "text-status-danger"
                       : "text-text-muted"
                   }`}
+                  title="Evaluate crash dumps, tick rate (TPS), log assertions, and resource health"
                 >
                   <span>{run.status === "PASSED" ? "✓" : run.status === "FAILED" ? "×" : "•"}</span>
                   <span>4. Audit</span>
@@ -181,6 +248,17 @@ export function TestRunList({
                   <Icon name="activity" size={12} />
                   Evidence
                 </button>
+                {onRunTest && (
+                  <button
+                    type="button"
+                    onClick={() => onRunTest(run.commit_id)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-semibold text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
+                    title="Re-run isolated test against this target commit"
+                  >
+                    <Icon name="play" size={12} />
+                    Re-run
+                  </button>
+                )}
                 {run.log_output && (
                   <button
                     type="button"
@@ -212,7 +290,19 @@ export function TestRunList({
                   </button>
                 ) : null}
 
-                {(run.status === "RUNNING" || run.status === "PASSED" || run.status === "FAILED") && (
+                {(run.status === "RUNNING" || run.status === "BOOTING") && (
+                  <button
+                    type="button"
+                    onClick={() => onDiscard(run.id)}
+                    className="inline-flex items-center gap-1 rounded-md border border-status-danger-border bg-status-danger-bg px-2.5 py-1 text-xs font-semibold text-status-danger hover:bg-status-danger-bg/80 transition-colors cursor-pointer"
+                    title="Cancel active test run"
+                  >
+                    <Icon name="x" size={12} />
+                    Cancel Run
+                  </button>
+                )}
+
+                {(run.status === "PASSED" || run.status === "FAILED") && (
                   <button
                     type="button"
                     onClick={() => onDiscard(run.id)}

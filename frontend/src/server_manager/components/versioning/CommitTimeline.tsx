@@ -76,13 +76,13 @@ export function CommitTimeline({
                   <div
                     className={`relative z-10 mt-1 flex h-4 w-4 items-center justify-center rounded-full border-2 transition-transform duration-150 group-hover:scale-125 ${
                       isHead
-                        ? "border-accent-primary bg-accent-primary shadow-[0_0_8px_var(--accent-primary)] ring-2 ring-accent-primary/30"
-                        : "border-border-strong bg-surface-card"
+                        ? "border-accent-primary bg-surface-card ring-2 ring-accent-primary/40 shadow-xs"
+                        : "border-border-strong bg-surface-elevated ring-1 ring-border-subtle"
                     }`}
                   >
                     <div
                       className={`h-1.5 w-1.5 rounded-full ${
-                        isHead ? "bg-accent-contrast-text" : "bg-text-muted"
+                        isHead ? "bg-accent-primary" : "bg-text-muted"
                       }`}
                     />
                   </div>
@@ -96,11 +96,17 @@ export function CommitTimeline({
                       {commit.id.slice(0, 8)}
                     </span>
 
-                    {/* HEAD Tag */}
+                    {/* HEAD Tag & Branch Pointer */}
                     {isHead && (
-                      <span className="rounded bg-accent-primary/15 border border-accent-primary/30 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-primary">
-                        HEAD
-                      </span>
+                      <div className="inline-flex items-center gap-1">
+                        <span className="rounded bg-accent-primary/15 border border-accent-primary/30 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-primary">
+                          HEAD
+                        </span>
+                        <span className="rounded bg-surface-elevated border border-border-subtle px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary flex items-center gap-1">
+                          <Icon name="version-branch" size={10} className="text-accent-primary" />
+                          <span>→ {selectedBranch}</span>
+                        </span>
+                      </div>
                     )}
 
                     {isMerge && (
@@ -144,7 +150,7 @@ export function CommitTimeline({
                       type="button"
                       onClick={() => onTagCommit(commit.id)}
                       className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
-                      title="Create immutable tag"
+                      title="Create immutable tag snapshot for this commit"
                     >
                       <Icon name="backup" size={12} />
                       Tag
@@ -154,7 +160,7 @@ export function CommitTimeline({
                         type="button"
                         onClick={() => onDiff(parentId, commit.id)}
                         className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
-                        title="View changes against parent commit"
+                        title="View configuration and file differences against parent commit"
                       >
                         <Icon name="activity" size={12} />
                         Diff
@@ -164,6 +170,7 @@ export function CommitTimeline({
                       type="button"
                       onClick={() => onInspect(commit)}
                       className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
+                      title="Inspect captured configuration files, mod JARs, and SHA256 checksums"
                     >
                       <Icon name="file" size={12} />
                       Inspect Manifest
@@ -172,6 +179,7 @@ export function CommitTimeline({
                       type="button"
                       onClick={() => onRunTest(commit.id)}
                       className="inline-flex items-center gap-1.5 rounded-md bg-accent-primary px-3 py-1 text-xs font-bold text-accent-contrast-text hover:bg-accent-hover transition-colors shadow-2xs cursor-pointer ml-auto"
+                      title="Spawn an isolated sidecar container and execute bot-driven dry-run verification"
                     >
                       <Icon name="play" size={12} />
                       Run Isolated Test

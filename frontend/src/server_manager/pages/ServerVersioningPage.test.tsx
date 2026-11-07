@@ -125,10 +125,10 @@ describe("ServerVersioningPage", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText("New Branch")).toBeInTheDocument();
+      expect(screen.getAllByText("New Branch")[0]).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText("New Branch"));
+    fireEvent.click(screen.getAllByText("New Branch")[0]);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Create New Branch")).toBeInTheDocument();
@@ -382,6 +382,88 @@ describe("ServerVersioningPage", () => {
         force: true,
         force_reason: "Manually verified in local client",
       });
+    });
+  });
+
+  it("renders 3-step visual workflow guide banner and allows collapsing and expanding", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("3-Step Safe Testing & Promotion Workflow")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Step 1: Snapshot World (Commit)")).toBeInTheDocument();
+    expect(screen.getByText("Step 2: Isolate (Branch / Worktree)")).toBeInTheDocument();
+    expect(screen.getByText("Step 3: Automated Bot Dry-Run (Verify)")).toBeInTheDocument();
+
+    // Click quick action "Create Snapshot" opens commit modal
+    fireEvent.click(screen.getByRole("button", { name: "Create Snapshot" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Create Snapshot Commit" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Toggle collapse
+    const collapseBtn = screen.getByRole("button", { name: /Collapse Guide/i });
+    fireEvent.click(collapseBtn);
+    expect(screen.queryByText("Step 1: Snapshot World (Commit)")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Expand Guide/i })).toBeInTheDocument();
+
+    // Toggle expand
+    fireEvent.click(screen.getByRole("button", { name: /Expand Guide/i }));
+    expect(screen.getByText("Step 1: Snapshot World (Commit)")).toBeInTheDocument();
+  });
+
+  it("displays live summary badge counts, re-run button, and allows re-running test from run list", async () => {
+    const mockRuns = [
+      {
+        id: "test-run-passed-1",
+        server_id: "srv-vers-1",
+        commit_id: "c-111222333",
+        status: "PASSED",
+        bot_count: 10,
+        bot_tech: "fakeplayer_next",
+        duration_minutes: 15,
+        placement_mode: "sidecar",
+        ephemeral_port: 25566,
+        failure_reason: null,
+        log_output: "All ok",
+        created_at: "2026-09-15T10:00:00Z",
+      },
+      {
+        id: "test-run-active-2",
+        server_id: "srv-vers-1",
+        commit_id: "c-111222333",
+        status: "RUNNING",
+        bot_count: 5,
+        bot_tech: "auto",
+        duration_minutes: 10,
+        placement_mode: "sidecar",
+        ephemeral_port: 25568,
+        failure_reason: null,
+        log_output: "Running swarm",
+        created_at: "2026-09-15T10:10:00Z",
+      },
+    ];
+    vi.mocked(mockApi.getServerTestRuns).mockResolvedValue(mockRuns);
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("1 Passed")).toBeInTheDocument();
+      expect(screen.getByText("1 Running / Pending")).toBeInTheDocument();
+    });
+
+    // Cancel Run button for active run
+    expect(screen.getByRole("button", { name: /Cancel Run/i })).toBeInTheDocument();
+
+    // Re-run button for test run
+    const reRunBtns = screen.getAllByRole("button", { name: /Re-run/i });
+    expect(reRunBtns.length).toBeGreaterThan(0);
+    fireEvent.click(reRunBtns[0]);
+
+    // Opens Launch Isolated Bot Test modal
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Launch Isolated Bot Test" })).toBeInTheDocument();
     });
   });
 });

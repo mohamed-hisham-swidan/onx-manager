@@ -11,11 +11,17 @@ export interface ProjectCardProps {
   project: PluginSearchResultResponse;
   searchParams: URLSearchParams;
   onInstall: (project: PluginSearchResultResponse) => void;
+  viewMode?: "grid" | "list";
 }
 
 const MAX_VISIBLE_PILLS = 4;
 
-export function ProjectCard({ project, searchParams, onInstall }: ProjectCardProps) {
+export function ProjectCard({
+  project,
+  searchParams,
+  onInstall,
+  viewMode = "grid",
+}: ProjectCardProps) {
   const navigate = useNavigate();
   const detailQuery = searchParams.toString();
   const loaders = project.loaders ?? [];
@@ -58,69 +64,163 @@ export function ProjectCard({ project, searchParams, onInstall }: ProjectCardPro
   const visiblePills = pillElements.slice(0, MAX_VISIBLE_PILLS);
   const hiddenPillCount = pillElements.length - visiblePills.length;
 
+  if (viewMode === "list") {
+    return (
+      <li
+        data-testid={`project-card-${project.project_id}`}
+        onClick={() => navigate(detailPath)}
+        className="group relative flex flex-col sm:flex-row sm:items-center justify-between gap-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4 pt-5 sm:pt-4 shadow-2xs transition-all duration-150 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
+      >
+        <div className="absolute top-0 start-0 end-0 h-1 bg-gradient-to-r from-accent-primary via-status-info to-status-success" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-3">
+            <Link
+              to={detailPath}
+              onClick={(e) => e.stopPropagation()}
+              className="group/link flex min-w-0 flex-1 items-start gap-3"
+            >
+              {project.icon_url ? (
+                <img
+                  src={project.icon_url}
+                  alt=""
+                  className="h-12 w-12 shrink-0 rounded-xl object-cover border border-border-subtle shadow-2xs"
+                />
+              ) : (
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-surface-elevated text-accent-primary shadow-2xs">
+                  <Icon name="plugin" size={24} />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <h3 className="truncate font-bold text-base text-text-primary group-hover/link:text-accent-primary">
+                    {project.title}
+                  </h3>
+                  <p className="text-xs text-text-muted">by {project.author}</p>
+                </div>
+                {project.description && (
+                  <p className="mt-1 line-clamp-1 text-xs text-text-secondary leading-relaxed">
+                    {project.description}
+                  </p>
+                )}
+              </div>
+            </Link>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 pt-2 ps-0 sm:ps-15">
+            {visiblePills}
+            {hiddenPillCount > 0 && (
+              <Link
+                to={detailPath}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`${hiddenPillCount} more tags`}
+                className="rounded-md border border-border-subtle bg-surface-elevated px-2 py-0.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+              >
+                +{hiddenPillCount}
+              </Link>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between sm:flex-col sm:items-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-border-subtle/50">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onInstall(project);
+            }}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-bold text-accent-contrast-text transition-colors hover:bg-accent-hover shadow-2xs cursor-pointer"
+          >
+            <Icon name="plus" size={14} />
+            Install
+          </button>
+
+          <div className="flex items-center gap-3 text-xs text-text-muted font-mono tabular-nums">
+            <span className="inline-flex items-center gap-1">
+              <Icon name="download" size={12} className="text-text-muted" />
+              {formatDownloads(project.downloads)}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Icon name="heart" size={12} className="text-status-danger" />
+              {formatDownloads(project.follows)}
+            </span>
+            {updatedLabel && (
+              <span className="inline-flex items-center gap-1 font-sans text-[11px]">
+                <Icon name="clock" size={12} />
+                Updated {updatedLabel}
+              </span>
+            )}
+          </div>
+        </div>
+      </li>
+    );
+  }
+
   return (
     <li
       data-testid={`project-card-${project.project_id}`}
       onClick={() => navigate(detailPath)}
-      className="group relative flex flex-col justify-between gap-3 rounded-xl border border-border-subtle bg-surface-card p-4.5 shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
+      className="group relative flex flex-col justify-between gap-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4.5 pt-5 shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
     >
-      <div className="flex items-start justify-between gap-3.5">
-        <Link
-          to={detailPath}
-          onClick={(e) => e.stopPropagation()}
-          className="group/link flex min-w-0 flex-1 items-start gap-3"
-        >
-          {project.icon_url ? (
-            <img
-              src={project.icon_url}
-              alt=""
-              className="h-12 w-12 shrink-0 rounded-xl object-cover border border-border-subtle shadow-2xs"
-            />
-          ) : (
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-surface-elevated text-accent-primary shadow-2xs">
-              <Icon name="plugin" size={24} />
-            </div>
-          )}
-          <div className="min-w-0">
-            <h3 className="truncate font-bold text-base text-text-primary group-hover/link:text-accent-primary">
-              {project.title}
-            </h3>
-            <p className="mt-0.5 text-xs text-text-muted">
-              by {project.author}
-            </p>
-            {project.description && (
-              <p className="mt-1 line-clamp-2 text-xs text-text-secondary leading-relaxed">
-                {project.description}
-              </p>
-            )}
-          </div>
-        </Link>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onInstall(project);
-          }}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-bold text-accent-contrast-text transition-colors hover:bg-accent-hover shadow-2xs cursor-pointer"
-        >
-          <Icon name="plus" size={14} />
-          Install
-        </button>
-      </div>
-
-      {/* Tags & Loaders */}
-      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-        {visiblePills}
-        {hiddenPillCount > 0 && (
+      <div className="absolute top-0 start-0 end-0 h-1 bg-gradient-to-r from-accent-primary via-status-info to-status-success" />
+      <div>
+        <div className="flex items-start justify-between gap-3.5">
           <Link
             to={detailPath}
             onClick={(e) => e.stopPropagation()}
-            aria-label={`${hiddenPillCount} more tags`}
-            className="rounded-md border border-border-subtle bg-surface-elevated px-2 py-0.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+            className="group/link flex min-w-0 flex-1 items-start gap-3"
           >
-            +{hiddenPillCount}
+            {project.icon_url ? (
+              <img
+                src={project.icon_url}
+                alt=""
+                className="h-12 w-12 shrink-0 rounded-xl object-cover border border-border-subtle shadow-2xs"
+              />
+            ) : (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-surface-elevated text-accent-primary shadow-2xs">
+                <Icon name="plugin" size={24} />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h3 className="truncate font-bold text-base text-text-primary group-hover/link:text-accent-primary">
+                {project.title}
+              </h3>
+              <p className="mt-0.5 text-xs text-text-muted">
+                by {project.author}
+              </p>
+            </div>
           </Link>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onInstall(project);
+            }}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-bold text-accent-contrast-text transition-colors hover:bg-accent-hover shadow-2xs cursor-pointer"
+          >
+            <Icon name="plus" size={14} />
+            Install
+          </button>
+        </div>
+
+        {project.description && (
+          <p className="mt-2.5 line-clamp-2 text-xs text-text-secondary leading-relaxed">
+            {project.description}
+          </p>
         )}
+
+        {/* Tags & Loaders */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-2">
+          {visiblePills}
+          {hiddenPillCount > 0 && (
+            <Link
+              to={detailPath}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`${hiddenPillCount} more tags`}
+              className="rounded-md border border-border-subtle bg-surface-elevated px-2 py-0.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+            >
+              +{hiddenPillCount}
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Metrics Footer */}

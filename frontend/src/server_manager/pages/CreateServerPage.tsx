@@ -96,13 +96,13 @@ export function CreateServerPage() {
   const handleCreate = async () => {
     setError("");
     try {
-      const minMem = Number(data.minMemoryMb) || 1024;
-      const maxMem = Math.max(Number(data.maxMemoryMb) || 2048, minMem);
+      const minMem = Math.max(512, Number(data.minMemoryMb) || 1024);
+      const maxMem = Math.max(minMem, Number(data.maxMemoryMb) || 2048);
       const result = await createServer.mutateAsync({
         name: data.name,
         server_type: data.serverType,
         minecraft_version: data.minecraftVersion,
-        port: Number(data.port) || 25565,
+        port: Math.max(1, Math.min(65535, Number(data.port) || 25565)),
         max_players: Number(data.maxPlayers) || 20,
         min_memory_mb: minMem,
         max_memory_mb: maxMem,

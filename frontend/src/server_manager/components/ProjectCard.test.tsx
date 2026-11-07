@@ -101,4 +101,21 @@ describe("ProjectCard", () => {
     expect(screen.queryByText("Paper")).not.toBeInTheDocument();
     expect(screen.queryByText("management")).not.toBeInTheDocument();
   });
+
+  it("renders properly in list view mode", () => {
+    render(
+      <MemoryRouter>
+        <ProjectCard
+          project={mockProject}
+          searchParams={new URLSearchParams()}
+          onInstall={vi.fn()}
+          viewMode="list"
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("EssentialsX")).toBeInTheDocument();
+    expect(screen.getByText(/by Essentials Team/)).toBeInTheDocument();
+    expect(screen.getByText("Essential commands")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Install/i })).toBeInTheDocument();
+  });
 });

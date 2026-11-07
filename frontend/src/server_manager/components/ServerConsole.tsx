@@ -242,13 +242,42 @@ export function ServerConsole({
       <div className="bg-terminal-bg text-terminal-text font-mono text-xs rounded-xl border border-border-default overflow-hidden mb-3">
         {/* Console Header Bar */}
         <div className="flex items-center justify-between px-3.5 py-2 bg-surface-card/90 border-b border-border-subtle text-xs select-none flex-wrap gap-2">
-          <div className="flex items-center gap-2 text-text-secondary font-sans font-medium text-xs">
+          <div className="flex items-center gap-2 text-text-secondary font-sans font-medium text-xs flex-wrap">
             <span
               className={`flex h-2 w-2 rounded-full ${
                 isRunning ? "bg-status-success animate-pulse" : "bg-text-muted"
               }`}
             />
             <span>Server Console</span>
+
+            {/* High-Contrast Status Capsule */}
+            {isRunning ? (
+              <span
+                data-testid="console-status-capsule"
+                className="inline-flex items-center gap-1.5 rounded-full border border-status-success/40 bg-status-success-bg px-2.5 py-0.5 font-mono text-[11px] font-bold text-status-success shadow-xs"
+              >
+                <span className="text-[9px] leading-none" aria-hidden="true">●</span>
+                <span>ONLINE · PORT {port ?? 25565}</span>
+              </span>
+            ) : (
+              <span
+                data-testid="console-status-capsule"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-elevated px-2.5 py-0.5 font-mono text-[11px] font-bold text-text-secondary shadow-xs"
+              >
+                <span className="text-[9px] leading-none" aria-hidden="true">○</span>
+                <span>OFFLINE · CONTAINER HALTED</span>
+              </span>
+            )}
+
+            {/* Active Player Counter Badge */}
+            <div
+              data-testid="console-player-counter-capsule"
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-elevated border border-border-default text-[11px] text-text-secondary font-mono"
+              title="Active Players"
+            >
+              <Icon name="users" size={12} className="text-text-muted" />
+              <span>{livePlayers ?? 0} / 20 Players</span>
+            </div>
             {isContainer ? (
               <span
                 data-testid="console-provider-badge"

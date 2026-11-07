@@ -93,9 +93,24 @@ describe("ServerConsole Component", () => {
   });
 
   it("renders server console header and lines", async () => {
-    renderConsole();
+    renderConsole({ serverStatus: "running", port: 25565, players: 4 });
     expect(screen.getByText("Server Console")).toBeInTheDocument();
     expect(await screen.findByText(/Done \(2\.4s\)!/)).toBeInTheDocument();
+
+    const capsule = screen.getByTestId("console-status-capsule");
+    expect(capsule).toBeInTheDocument();
+    expect(capsule).toHaveTextContent("ONLINE · PORT 25565");
+
+    const playerCapsule = screen.getByTestId("console-player-counter-capsule");
+    expect(playerCapsule).toBeInTheDocument();
+    expect(playerCapsule).toHaveTextContent("4 / 20 Players");
+  });
+
+  it("renders prominent offline status capsule in console header when stopped", async () => {
+    renderConsole({ serverStatus: "stopped" });
+    const capsule = screen.getByTestId("console-status-capsule");
+    expect(capsule).toBeInTheDocument();
+    expect(capsule).toHaveTextContent("OFFLINE · CONTAINER HALTED");
   });
 
   it("displays live TPS badge in console header when running", async () => {

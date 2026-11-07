@@ -67,6 +67,10 @@ const KNOWN_KEY_LABELS: Record<string, string> = {
   "force_gamemode": "Force Gamemode toggle",
   "enforce-secure-profile": "Enforce Secure Profile toggle",
   "enforce_secure_profile": "Enforce Secure Profile toggle",
+  "generate-structures": "Generate Structures toggle",
+  "generate_structures": "Generate Structures toggle",
+  "sync-chunk-writes": "Sync Chunk Writes toggle",
+  "sync_chunk_writes": "Sync Chunk Writes toggle",
 };
 
 const KNOWN_PROPERTY_KEYS = new Set(Object.keys(KNOWN_KEY_LABELS));
@@ -100,70 +104,309 @@ function parseAffinity(affinity: string): boolean {
   return true;
 }
 
-interface ToggleSwitchProps {
-  label: string;
+const RAM_PRESETS = [
+  { label: "1 GB", min: 512, max: 1024 },
+  { label: "2 GB", min: 1024, max: 2048 },
+  { label: "4 GB", min: 2048, max: 4096 },
+  { label: "6 GB", min: 3072, max: 6144 },
+  { label: "8 GB", min: 4096, max: 8192 },
+  { label: "16 GB", min: 8192, max: 16384 },
+];
+
+const GAMEMODE_OPTIONS = [
+  { value: "survival", label: "Survival" },
+  { value: "creative", label: "Creative" },
+  { value: "adventure", label: "Adventure" },
+  { value: "spectator", label: "Spectator" },
+];
+
+const DIFFICULTY_OPTIONS = [
+  { value: "peaceful", label: "Peaceful" },
+  { value: "easy", label: "Easy" },
+  { value: "normal", label: "Normal" },
+  { value: "hard", label: "Hard" },
+];
+
+interface SplitRowProps {
+  id: string;
+  title: string;
   description?: string;
+  propertyKey?: string;
+  badge?: string;
+  children: React.ReactNode;
+}
+
+function SplitRow({ id, title, description, propertyKey, badge, children }: SplitRowProps) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(260px,360px)] items-center gap-4 px-5 py-4 border-b border-border-subtle last:border-b-0">
+      <section className="space-y-1">
+        <div className="flex items-center gap-2">
+          <label htmlFor={id} className="text-sm font-bold text-text-primary cursor-pointer">
+            {title}
+          </label>
+          {badge && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium uppercase bg-status-warning-bg text-status-warning border border-status-warning-border shrink-0">
+              {badge}
+            </span>
+          )}
+        </div>
+        {description && (
+          <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">
+            {description}
+          </p>
+        )}
+        {propertyKey && (
+          <div className="pt-0.5">
+            <code className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-surface-elevated text-text-muted border border-border-subtle inline-block">
+              {propertyKey}
+            </code>
+          </div>
+        )}
+      </section>
+
+      <section className="w-full lg:max-w-[360px] lg:ml-auto flex flex-col items-start lg:items-end">
+        {children}
+      </section>
+    </div>
+  );
+}
+
+interface StepperNumberInputProps {
+  id: string;
+  name?: string;
+  label: string;
+  value: number;
+  draftValue?: string;
+  onChange: (val: string) => void;
+  onBlur?: () => void;
+  onStep: (delta: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  placeholder?: string;
+  required?: boolean;
+}
+
+function StepperNumberInput({
+  id,
+  name,
+  label,
+  value,
+  draftValue,
+  onChange,
+  onBlur,
+  onStep,
+  min,
+  max,
+  step = 1,
+  unit,
+  placeholder,
+  required,
+}: StepperNumberInputProps) {
+  const displayVal = draftValue !== undefined ? draftValue : String(value);
+
+  return (
+    <span className="inline-flex items-center gap-1.5 w-full justify-end">
+      <button
+        type="button"
+        aria-label={`Decrease ${label}`}
+        onClick={() => onStep(-step)}
+        disabled={min !== undefined && value <= min}
+        className="h-9 w-9 flex items-center justify-center rounded-lg border border-border-default bg-surface-elevated text-text-secondary hover:text-text-primary hover:bg-surface-hover active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer font-bold text-base select-none shrink-0"
+      >
+        −
+      </button>
+
+      <span className="relative inline-flex items-center">
+        <input
+          id={id}
+          name={name}
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          required={required}
+          value={displayVal}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+          placeholder={placeholder}
+          className={`w-32 text-center px-2 py-1.5 font-mono text-sm rounded-lg border border-border-default bg-surface-card text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow ${
+            unit ? "pr-8" : ""
+          }`}
+        />
+        {unit && (
+          <span className="absolute right-2.5 pointer-events-none text-[11px] font-mono text-text-muted">
+            {unit}
+          </span>
+        )}
+      </span>
+
+      <button
+        type="button"
+        aria-label={`Increase ${label}`}
+        onClick={() => onStep(step)}
+        disabled={max !== undefined && value >= max}
+        className="h-9 w-9 flex items-center justify-center rounded-lg border border-border-default bg-surface-elevated text-text-secondary hover:text-text-primary hover:bg-surface-hover active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer font-bold text-base select-none shrink-0"
+      >
+        +
+      </button>
+    </span>
+  );
+}
+
+interface DistanceSliderProps {
+  id: string;
+  label: string;
+  value: number;
+  draftValue?: string;
+  onChange: (val: string) => void;
+  onBlur?: () => void;
+  onStep: (delta: number) => void;
+  min: number;
+  max: number;
+  unit: string;
+}
+
+function DistanceSliderWithStepper({
+  id,
+  label,
+  value,
+  draftValue,
+  onChange,
+  onBlur,
+  onStep,
+  min,
+  max,
+  unit,
+}: DistanceSliderProps) {
+  const displayVal = draftValue !== undefined ? draftValue : String(value);
+
+  return (
+    <span className="inline-flex flex-col sm:flex-row items-end sm:items-center gap-3 w-full justify-end">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={`${label} slider`}
+        className="w-28 sm:w-36 accent-accent-primary cursor-pointer shrink-0"
+      />
+
+      <span className="inline-flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-label={`Decrease ${label}`}
+          onClick={() => onStep(-1)}
+          disabled={value <= min}
+          className="h-8 w-8 flex items-center justify-center rounded-lg border border-border-default bg-surface-elevated text-text-secondary hover:text-text-primary hover:bg-surface-hover active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer font-bold text-sm select-none shrink-0"
+        >
+          −
+        </button>
+
+        <span className="relative inline-flex items-center">
+          <input
+            id={id}
+            type="number"
+            min={min}
+            max={max}
+            step={1}
+            value={displayVal}
+            onChange={(e) => onChange(e.target.value)}
+            onBlur={onBlur}
+            className="w-20 text-center px-1.5 py-1 font-mono text-sm rounded-lg border border-border-default bg-surface-card text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
+          />
+          <span className="text-xs font-mono text-text-muted shrink-0 ml-1.5">
+            {unit}
+          </span>
+        </span>
+
+        <button
+          type="button"
+          aria-label={`Increase ${label}`}
+          onClick={() => onStep(1)}
+          disabled={value >= max}
+          className="h-8 w-8 flex items-center justify-center rounded-lg border border-border-default bg-surface-elevated text-text-secondary hover:text-text-primary hover:bg-surface-hover active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer font-bold text-sm select-none shrink-0"
+        >
+          +
+        </button>
+      </span>
+    </span>
+  );
+}
+
+interface BooleanSwitchRowProps {
+  id: string;
+  title: string;
+  description?: string;
+  propertyKey?: string;
+  badge?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   icon?: IconName;
-  badge?: string;
 }
 
-function ToggleSwitch({ label, description, checked, onChange, icon, badge }: ToggleSwitchProps) {
+function BooleanSwitchRow({
+  id,
+  title,
+  description,
+  propertyKey,
+  badge,
+  checked,
+  onChange,
+  icon,
+}: BooleanSwitchRowProps) {
   return (
-    <label
-      className={`group relative flex items-center justify-between p-4 rounded-xl border transition-all cursor-pointer select-none ${
-        checked
-          ? "bg-status-info-bg border-accent-primary shadow-xs"
-          : "bg-surface-card border-border-default hover:bg-surface-hover"
-      }`}
-    >
-      <div className="flex items-start gap-3 pr-3">
-        {icon && (
-          <div
-            className={`p-2 rounded-lg mt-0.5 shrink-0 transition-colors ${
-              checked
-                ? "bg-accent-primary text-accent-contrast-text"
-                : "bg-surface-muted text-text-muted"
-            }`}
-          >
-            <Icon name={icon} size={16} />
-          </div>
-        )}
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-text-primary">
-              {label}
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(260px,360px)] items-center gap-4 px-5 py-4 border-b border-border-subtle last:border-b-0">
+      <section className="space-y-1">
+        <div className="flex items-center gap-2">
+          {icon && (
+            <span className="p-1 rounded-md bg-surface-elevated border border-border-subtle text-text-secondary shrink-0">
+              <Icon name={icon} size={14} />
             </span>
-            {badge && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium uppercase bg-status-warning-bg text-status-warning border border-status-warning-border">
-                {badge}
-              </span>
-            )}
-          </div>
-          {description && (
-            <p className="mt-0.5 text-xs text-text-muted leading-relaxed">
-              {description}
-            </p>
+          )}
+          <label htmlFor={id} className="text-sm font-bold text-text-primary cursor-pointer">
+            {title}
+          </label>
+          {badge && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium uppercase bg-status-warning-bg text-status-warning border border-status-warning-border shrink-0">
+              {badge}
+            </span>
           )}
         </div>
-      </div>
+        {description && (
+          <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">
+            {description}
+          </p>
+        )}
+        {propertyKey && (
+          <div className="pt-0.5">
+            <code className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-surface-elevated text-text-muted border border-border-subtle inline-block">
+              {propertyKey}
+            </code>
+          </div>
+        )}
+      </section>
 
-      <div className="flex items-center gap-2.5 shrink-0">
+      <section className="w-full lg:max-w-[360px] lg:ml-auto flex items-center justify-end gap-3">
         <span
-          className={`text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded transition-colors ${
+          className={`text-[10px] font-bold font-mono uppercase tracking-wider px-2 py-0.5 rounded-full border transition-colors ${
             checked
-              ? "text-accent-primary"
-              : "text-text-muted"
+              ? "bg-status-success-bg text-status-success border-status-success-border"
+              : "bg-surface-elevated text-text-muted border-border-subtle"
           }`}
         >
-          {checked ? "ON" : "OFF"}
+          {checked ? "ENABLED" : "DISABLED"}
         </span>
-        <div className="relative inline-flex items-center">
+
+        <label className="relative inline-flex items-center cursor-pointer select-none">
           <input
+            id={id}
             type="checkbox"
             role="switch"
-            aria-label={label}
+            aria-label={title}
             checked={checked}
             onChange={(e) => onChange(e.target.checked)}
             className="sr-only peer"
@@ -179,20 +422,11 @@ function ToggleSwitch({ label, description, checked, onChange, icon, badge }: To
               }`}
             />
           </div>
-        </div>
-      </div>
-    </label>
+        </label>
+      </section>
+    </div>
   );
 }
-
-const RAM_PRESETS = [
-  { label: "1 GB", min: 512, max: 1024 },
-  { label: "2 GB", min: 1024, max: 2048 },
-  { label: "4 GB", min: 2048, max: 4096 },
-  { label: "6 GB", min: 3072, max: 6144 },
-  { label: "8 GB", min: 4096, max: 8192 },
-  { label: "16 GB", min: 8192, max: 16384 },
-];
 
 export function ServerSettingsSection({ serverId, server }: ServerSettingsSectionProps) {
   const updateServer = useUpdateServer();
@@ -201,6 +435,9 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
   // Active Category & Quick Search State
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("all");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // String draft state for numeric inputs (prevents 0 coercion / clamping while typing)
+  const [rawDrafts, setRawDrafts] = useState<Record<string, string>>({});
 
   // General & Identity
   const [name, setName] = useState(server.name || "");
@@ -260,6 +497,72 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
   const [enforceSecureProfile, setEnforceSecureProfile] = useState<boolean>(() =>
     parseBool(server.raw_properties?.["enforce-secure-profile"], false)
   );
+  const [generateStructures, setGenerateStructures] = useState<boolean>(() =>
+    parseBool(server.raw_properties?.["generate-structures"], true)
+  );
+  const [syncChunkWrites, setSyncChunkWrites] = useState<boolean>(() =>
+    parseBool(server.raw_properties?.["sync-chunk-writes"], true)
+  );
+
+  // Numeric input draft helpers
+  const handleNumericChange = (
+    key: string,
+    val: string,
+    setter: (n: number) => void
+  ) => {
+    setRawDrafts((prev) => ({ ...prev, [key]: val }));
+    if (val.trim() !== "") {
+      const num = Number(val);
+      if (!isNaN(num)) {
+        setter(num);
+      }
+    }
+  };
+
+  const handleNumericBlur = (
+    key: string,
+    current: number,
+    setter: (n: number) => void,
+    min?: number,
+    max?: number
+  ) => {
+    const draft = rawDrafts[key];
+    if (draft === undefined) return;
+    if (draft.trim() === "" || isNaN(Number(draft))) {
+      const fallback = min !== undefined ? Math.max(min, current) : current;
+      setter(fallback);
+    } else {
+      let parsed = Number(draft);
+      if (min !== undefined && parsed < min) parsed = min;
+      if (max !== undefined && parsed > max) parsed = max;
+      setter(parsed);
+    }
+    setRawDrafts((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const handleStep = (
+    key: string,
+    current: number,
+    delta: number,
+    setter: (n: number) => void,
+    min?: number,
+    max?: number
+  ) => {
+    let nextVal = current + delta;
+    if (min !== undefined && nextVal < min) nextVal = min;
+    if (max !== undefined && nextVal > max) nextVal = max;
+    nextVal = Math.round(nextVal * 10) / 10;
+    setter(nextVal);
+    setRawDrafts((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
 
   // Preserve any custom plugin or mod properties not controlled by the GUI
   const customProperties = useMemo(() => {
@@ -329,13 +632,16 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
     if (hardcore !== parseBool(server.raw_properties?.["hardcore"], false)) return true;
     if (forceGamemode !== parseBool(server.raw_properties?.["force-gamemode"], false)) return true;
     if (enforceSecureProfile !== parseBool(server.raw_properties?.["enforce-secure-profile"], false)) return true;
+    if (generateStructures !== parseBool(server.raw_properties?.["generate-structures"], true)) return true;
+    if (syncChunkWrites !== parseBool(server.raw_properties?.["sync-chunk-writes"], true)) return true;
     return false;
   }, [
     name, port, motd, minRam, maxRam, cpuCores, cpuAffinity, javaArgs,
     gamemode, difficulty, maxPlayers, spawnProtection, viewDistance,
     simulationDistance, pvp, onlineMode, whitelist, enableCommandBlock,
     allowFlight, spawnMonsters, spawnAnimals, spawnNpcs, allowNether,
-    hardcore, forceGamemode, enforceSecureProfile, server
+    hardcore, forceGamemode, enforceSecureProfile, generateStructures,
+    syncChunkWrites, server
   ]);
 
   const handleReset = () => {
@@ -369,6 +675,9 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
     setHardcore(parseBool(server.raw_properties?.["hardcore"], false));
     setForceGamemode(parseBool(server.raw_properties?.["force-gamemode"], false));
     setEnforceSecureProfile(parseBool(server.raw_properties?.["enforce-secure-profile"], false));
+    setGenerateStructures(parseBool(server.raw_properties?.["generate-structures"], true));
+    setSyncChunkWrites(parseBool(server.raw_properties?.["sync-chunk-writes"], true));
+    setRawDrafts({});
   };
 
   const isSaveDisabled =
@@ -417,6 +726,8 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
         hardcore,
         "force-gamemode": forceGamemode,
         "enforce-secure-profile": enforceSecureProfile,
+        "generate-structures": generateStructures,
+        "sync-chunk-writes": syncChunkWrites,
         ...customProperties,
       },
     };
@@ -426,6 +737,7 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
         serverId,
         body: payload,
       });
+      setRawDrafts({});
       toast("success", "Settings updated. Restart server to apply.");
     } catch (err) {
       toast("error", "Update failed", err instanceof Error ? err.message : "Failed to save settings");
@@ -502,6 +814,8 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
       "hardcore",
       "force gamemode",
       "enforce secure profile",
+      "generate structures",
+      "sync chunk writes",
       "rules",
       "security",
       "combat",
@@ -553,7 +867,7 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => setActiveCategory(cat.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   isActive
                     ? "bg-accent-primary text-accent-contrast-text shadow-xs"
                     : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
@@ -583,7 +897,7 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
               type="button"
               aria-label="Clear search"
               onClick={() => setSearchQuery("")}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-text-muted hover:text-text-primary"
+              className="absolute inset-y-0 right-0 pr-3 flex items-center text-text-muted hover:text-text-primary cursor-pointer"
             >
               <Icon name="x" size={14} />
             </button>
@@ -630,17 +944,17 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
               setSearchQuery("");
               setActiveCategory("all");
             }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-surface-muted hover:bg-surface-hover text-text-primary border border-border-default transition-colors"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-surface-muted hover:bg-surface-hover text-text-primary border border-border-default transition-colors cursor-pointer"
           >
             Clear Search
           </button>
         </div>
       )}
 
-      {/* Card 1: General & Identity */}
+      {/* Card 1: General & Identity (Split-Row Card) */}
       {showCard1 && (
-        <section className="p-5 sm:p-6 bg-surface-card rounded-2xl border border-border-default shadow-xs space-y-5">
-          <div className="flex items-center gap-3 border-b border-border-subtle pb-3.5">
+        <section className="bg-surface-card rounded-2xl border border-border-default shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
             <div className="p-2 rounded-xl bg-status-info-bg text-accent-primary">
               <Icon name="server" size={18} />
             </div>
@@ -654,70 +968,76 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4.5">
-            <div>
-              <label
-                htmlFor={`${formId}-name`}
-                className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-              >
-                Server Name
-              </label>
+          <div className="divide-y divide-border-subtle">
+            {/* Server Name */}
+            <SplitRow
+              id={`${formId}-name`}
+              title="Server Name"
+              description="Primary server label and identity displayed in the fleet dashboard."
+              propertyKey="server-name"
+            >
               <input
                 id={`${formId}-name`}
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
+                className="w-full px-3.5 py-2 rounded-xl border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
               />
-            </div>
-            <div>
-              <label
-                htmlFor={`${formId}-port`}
-                className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-              >
-                Server Port (1024–65535)
-              </label>
-              <input
-                id={`${formId}-port`}
-                type="number"
-                min={1024}
-                max={65535}
-                value={port}
-                onChange={(e) => setPort(Number(e.target.value))}
-                required
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
-              />
-              {!portValid && (
-                <p className="text-xs text-status-danger mt-1 font-medium">
-                  Port must be between 1024 and 65535
-                </p>
-              )}
-            </div>
-            <div className="md:col-span-2">
-              <label
-                htmlFor={`${formId}-motd`}
-                className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-              >
-                MOTD (Message of the Day)
-              </label>
+            </SplitRow>
+
+            {/* Server Port */}
+            <SplitRow
+              id={`${formId}-port`}
+              title="Server Port (1024–65535)"
+              description="Primary TCP/UDP network socket port listening for game traffic."
+              propertyKey="server-port"
+            >
+              <div className="flex flex-col items-end gap-1 w-full">
+                <StepperNumberInput
+                  id={`${formId}-port`}
+                  label="Server Port"
+                  value={port}
+                  draftValue={rawDrafts["port"]}
+                  onChange={(v) => handleNumericChange("port", v, setPort)}
+                  onBlur={() => handleNumericBlur("port", port, setPort, 1024, 65535)}
+                  onStep={(delta) => handleStep("port", port, delta, setPort, 1024, 65535)}
+                  min={1024}
+                  max={65535}
+                  required
+                />
+                {!portValid && (
+                  <p className="text-xs text-status-danger font-medium mt-0.5">
+                    Port must be between 1024 and 65535
+                  </p>
+                )}
+              </div>
+            </SplitRow>
+
+            {/* MOTD */}
+            <SplitRow
+              id={`${formId}-motd`}
+              title="MOTD (Message of the Day)"
+              description="Short server tagline broadcasted in multiplayer lobby listings."
+              propertyKey="motd"
+            >
               <input
                 id={`${formId}-motd`}
                 type="text"
                 value={motd}
                 onChange={(e) => setMotd(e.target.value)}
                 placeholder="A Minecraft Server"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
+                className="w-full px-3.5 py-2 rounded-xl border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
               />
-            </div>
+            </SplitRow>
           </div>
         </section>
       )}
 
       {/* Card 2: Resource Allocation (RAM & CPU) */}
       {showCard2 && (
-        <section className="p-5 sm:p-6 bg-surface-card rounded-2xl border border-border-default shadow-xs space-y-5">
-          <div className="flex items-center gap-3 border-b border-border-subtle pb-3.5">
+        <section className="bg-surface-card rounded-2xl border border-border-default shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
             <div className="p-2 rounded-xl bg-status-info-bg text-accent-primary">
               <Icon name="cpu" size={18} />
             </div>
@@ -732,7 +1052,7 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
           </div>
 
           {/* Visual Memory Allocation Ratio Bar */}
-          <div className="p-4 rounded-xl border border-border-default bg-surface-muted space-y-2.5">
+          <div className="p-5 border-b border-border-subtle bg-surface-muted/30 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-text-primary flex items-center gap-1.5">
@@ -759,11 +1079,9 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
               <span>Initial JVM Heap (-Xms): {minRam} MB</span>
               <span>Maximum JVM Heap (-Xmx): {maxRam} MB</span>
             </div>
-          </div>
 
-          {/* RAM Quick Presets */}
-          <div>
-            <div className="flex flex-wrap items-center gap-2 mb-3">
+            {/* RAM Quick Presets */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <span className="text-xs font-semibold text-text-muted mr-1">
                 Memory Presets:
               </span>
@@ -776,11 +1094,17 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
                     onClick={() => {
                       setMinRam(preset.min);
                       setMaxRam(preset.max);
+                      setRawDrafts((prev) => {
+                        const next = { ...prev };
+                        delete next["minRam"];
+                        delete next["maxRam"];
+                        return next;
+                      });
                     }}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all border ${
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all border cursor-pointer ${
                       isSelected
                         ? "bg-accent-primary text-accent-contrast-text border-accent-primary shadow-xs"
-                        : "bg-surface-muted text-text-secondary border-border-default hover:bg-surface-hover"
+                        : "bg-surface-card text-text-secondary border-border-default hover:bg-surface-hover"
                     }`}
                   >
                     {preset.label}
@@ -788,107 +1112,119 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
                 );
               })}
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4.5">
-              <div>
-                <label
-                  htmlFor={`${formId}-min-ram`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-                >
-                  Minimum Memory (MB)
-                </label>
-                <input
-                  id={`${formId}-min-ram`}
-                  type="number"
-                  min={128}
-                  max={262144}
-                  value={minRam}
-                  onChange={(e) => setMinRam(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor={`${formId}-max-ram`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-                >
-                  Maximum Memory (MB)
-                </label>
-                <input
+          <div className="divide-y divide-border-subtle">
+            {/* Minimum Memory */}
+            <SplitRow
+              id={`${formId}-min-ram`}
+              title="Minimum Memory (MB)"
+              description={`Initial JVM heap (-Xms) allocated at launch (~${(minRam / 1024).toFixed(1)} GB).`}
+              propertyKey="-Xms (min_memory_mb)"
+            >
+              <StepperNumberInput
+                id={`${formId}-min-ram`}
+                label="Minimum Memory"
+                value={minRam}
+                draftValue={rawDrafts["minRam"]}
+                onChange={(v) => handleNumericChange("minRam", v, setMinRam)}
+                onBlur={() => handleNumericBlur("minRam", minRam, setMinRam, 128, 262144)}
+                onStep={(delta) => handleStep("minRam", minRam, delta, setMinRam, 128, 262144)}
+                min={128}
+                max={262144}
+                step={128}
+                unit="MB"
+              />
+            </SplitRow>
+
+            {/* Maximum Memory */}
+            <SplitRow
+              id={`${formId}-max-ram`}
+              title="Maximum Memory (MB)"
+              description={`Upper limit for Java heap (-Xmx) allocation (~${(maxRam / 1024).toFixed(1)} GB).`}
+              propertyKey="-Xmx (max_memory_mb)"
+            >
+              <div className="flex flex-col items-end gap-1 w-full">
+                <StepperNumberInput
                   id={`${formId}-max-ram`}
-                  type="number"
+                  label="Maximum Memory"
+                  value={maxRam}
+                  draftValue={rawDrafts["maxRam"]}
+                  onChange={(v) => handleNumericChange("maxRam", v, setMaxRam)}
+                  onBlur={() => handleNumericBlur("maxRam", maxRam, setMaxRam, 128, 262144)}
+                  onStep={(delta) => handleStep("maxRam", maxRam, delta, setMaxRam, 128, 262144)}
                   min={128}
                   max={262144}
-                  value={maxRam}
-                  onChange={(e) => setMaxRam(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
+                  step={128}
+                  unit="MB"
                 />
+                {ramError && (
+                  <p className="text-xs text-status-danger font-medium mt-0.5">
+                    {ramError}
+                  </p>
+                )}
               </div>
-              {ramError && (
-                <p className="md:col-span-2 text-xs text-status-danger font-medium">
-                  {ramError}
-                </p>
-              )}
+            </SplitRow>
 
-              <div>
-                <label
-                  htmlFor={`${formId}-cpu-cores`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-                >
-                  Maximum CPU Cores (0 = unconstrained)
-                </label>
-                <input
-                  id={`${formId}-cpu-cores`}
-                  type="number"
-                  min={0}
-                  value={cpuCores}
-                  onChange={(e) => setCpuCores(Math.max(0, Number(e.target.value)))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
-                />
-                <p className="mt-1 text-[11px] text-text-muted">
-                  Sets active processor count limits on the JVM runtime.
-                </p>
-              </div>
-              <div>
-                <label
-                  htmlFor={`${formId}-cpu-affinity`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-                >
-                  CPU Affinity Mask
-                </label>
+            {/* Maximum CPU Cores */}
+            <SplitRow
+              id={`${formId}-cpu-cores`}
+              title="Maximum CPU Cores (0 = unconstrained)"
+              description="Pins runtime threads to an upper bound on logical execution units."
+              propertyKey="cpu_cores"
+            >
+              <StepperNumberInput
+                id={`${formId}-cpu-cores`}
+                label="CPU Cores"
+                value={cpuCores}
+                draftValue={rawDrafts["cpuCores"]}
+                onChange={(v) => handleNumericChange("cpuCores", v, setCpuCores)}
+                onBlur={() => handleNumericBlur("cpuCores", cpuCores, setCpuCores, 0)}
+                onStep={(delta) => handleStep("cpuCores", cpuCores, delta, setCpuCores, 0)}
+                min={0}
+                step={1}
+              />
+            </SplitRow>
+
+            {/* CPU Affinity Mask */}
+            <SplitRow
+              id={`${formId}-cpu-affinity`}
+              title="CPU Affinity Mask"
+              description="Pins the server process to specified logical CPU cores."
+              propertyKey="cpu_affinity"
+            >
+              <div className="w-full">
                 <input
                   id={`${formId}-cpu-affinity`}
                   type="text"
                   placeholder="e.g. 0-3 or 0,2,4"
                   value={cpuAffinity}
                   onChange={(e) => setCpuAffinity(e.target.value)}
-                  className="w-full font-mono px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
+                  className="w-full font-mono px-3.5 py-2 rounded-xl border border-border-default bg-surface-page text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
                 />
-                {!cpuAffinityValid ? (
+                {!cpuAffinityValid && (
                   <p className="text-xs text-status-danger mt-1 font-medium">
                     Invalid core format (e.g. &quot;0-3&quot; or &quot;0,2,4&quot;)
                   </p>
-                ) : (
-                  <p className="mt-1 text-[11px] text-text-muted">
-                    Pins the server process to specified logical CPU cores.
-                  </p>
                 )}
               </div>
+            </SplitRow>
 
-              <div className="md:col-span-2">
-                <label
-                  htmlFor={`${formId}-jvm-args`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-                >
-                  Custom JVM Arguments (one flag per line)
-                </label>
+            {/* Custom JVM Arguments */}
+            <SplitRow
+              id={`${formId}-jvm-args`}
+              title="Custom JVM Arguments (one flag per line)"
+              description="Low-level Java VM parameters passed directly to the launch command."
+              propertyKey="java_args"
+            >
+              <div className="w-full">
                 <textarea
                   id={`${formId}-jvm-args`}
                   rows={3}
                   value={javaArgs}
                   onChange={(e) => setJavaArgs(e.target.value)}
                   placeholder="-XX:+UseG1GC&#10;-XX:+ParallelRefProcEnabled"
-                  className="w-full font-mono px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-xs text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
+                  className="w-full font-mono px-3.5 py-2 rounded-xl border border-border-default bg-surface-page text-xs text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
                 />
                 {!jvmFlagsValid && (
                   <p className="text-xs text-status-danger mt-1 font-medium">
@@ -896,15 +1232,15 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
                   </p>
                 )}
               </div>
-            </div>
+            </SplitRow>
           </div>
         </section>
       )}
 
       {/* Card 3: Gameplay & World Properties */}
       {showCard3 && (
-        <section className="p-5 sm:p-6 bg-surface-card rounded-2xl border border-border-default shadow-xs space-y-6">
-          <div className="flex items-center gap-3 border-b border-border-subtle pb-3.5">
+        <section className="bg-surface-card rounded-2xl border border-border-default shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
             <div className="p-2 rounded-xl bg-status-success-bg text-status-success">
               <Icon name="activity" size={18} />
             </div>
@@ -918,248 +1254,350 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
             </div>
           </div>
 
-          {/* Typed World Numeric & Select Controls (hidden if focusing purely on rules) */}
-          {activeCategory !== "rules" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4.5">
-              <div>
-                <label
-                  htmlFor={`${formId}-gamemode`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-                >
-                  Default Gamemode
-                </label>
-                <select
+          <div className="divide-y divide-border-subtle">
+            {/* Gamemode, Difficulty & Distances (hidden if focusing purely on rules) */}
+            {activeCategory !== "rules" && (
+              <>
+                {/* Default Gamemode */}
+                <SplitRow
                   id={`${formId}-gamemode`}
-                  value={gamemode}
-                  onChange={(e) => setGamemode(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
+                  title="Default Gamemode"
+                  description="Initial game mode assigned to new players joining the server."
+                  propertyKey="gamemode"
                 >
-                  <option value="survival">Survival</option>
-                  <option value="creative">Creative</option>
-                  <option value="adventure">Adventure</option>
-                  <option value="spectator">Spectator</option>
-                </select>
-              </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex p-1 rounded-xl bg-surface-elevated border border-border-default gap-1">
+                      {GAMEMODE_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setGamemode(opt.value)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            gamemode === opt.value
+                              ? "bg-accent-primary text-accent-contrast-text shadow-xs"
+                              : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </span>
+                    <select
+                      id={`${formId}-gamemode`}
+                      value={gamemode}
+                      onChange={(e) => setGamemode(e.target.value)}
+                      className="sr-only"
+                    >
+                      {GAMEMODE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </SplitRow>
 
-              <div>
-                <label
-                  htmlFor={`${formId}-difficulty`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-                >
-                  Difficulty
-                </label>
-                <select
+                {/* Difficulty */}
+                <SplitRow
                   id={`${formId}-difficulty`}
-                  value={difficulty}
-                  onChange={(e) => setDifficulty(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
+                  title="Difficulty"
+                  description="World hostility scale controlling mob damage, hunger depletion, and hazard severity."
+                  propertyKey="difficulty"
                 >
-                  <option value="peaceful">Peaceful</option>
-                  <option value="easy">Easy</option>
-                  <option value="normal">Normal</option>
-                  <option value="hard">Hard</option>
-                </select>
-              </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex p-1 rounded-xl bg-surface-elevated border border-border-default gap-1">
+                      {DIFFICULTY_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setDifficulty(opt.value)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            difficulty === opt.value
+                              ? "bg-accent-primary text-accent-contrast-text shadow-xs"
+                              : "text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </span>
+                    <select
+                      id={`${formId}-difficulty`}
+                      value={difficulty}
+                      onChange={(e) => setDifficulty(e.target.value)}
+                      className="sr-only"
+                    >
+                      {DIFFICULTY_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </SplitRow>
 
-              <div>
-                <label
-                  htmlFor={`${formId}-max-players`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
-                >
-                  Player Capacity (1–500)
-                </label>
-                <input
+                {/* Player Capacity */}
+                <SplitRow
                   id={`${formId}-max-players`}
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={maxPlayers}
-                  onChange={(e) => setMaxPlayers(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
-                />
-                {!maxPlayersValid && (
-                  <p className="text-xs text-status-danger mt-1 font-medium">
-                    Must be between 1 and 500
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label
-                  htmlFor={`${formId}-spawn-protection`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
+                  title="Player Capacity (1–500)"
+                  description="Maximum simultaneous player slots available on this server."
+                  propertyKey="max-players"
                 >
-                  Spawn Protection (blocks)
-                </label>
-                <input
+                  <div className="flex flex-col items-end gap-1 w-full">
+                    <StepperNumberInput
+                      id={`${formId}-max-players`}
+                      label="Player Capacity"
+                      value={maxPlayers}
+                      draftValue={rawDrafts["maxPlayers"]}
+                      onChange={(v) => handleNumericChange("maxPlayers", v, setMaxPlayers)}
+                      onBlur={() => handleNumericBlur("maxPlayers", maxPlayers, setMaxPlayers, 1, 500)}
+                      onStep={(delta) => handleStep("maxPlayers", maxPlayers, delta, setMaxPlayers, 1, 500)}
+                      min={1}
+                      max={500}
+                    />
+                    {!maxPlayersValid && (
+                      <p className="text-xs text-status-danger font-medium mt-0.5">
+                        Must be between 1 and 500
+                      </p>
+                    )}
+                  </div>
+                </SplitRow>
+
+                {/* Spawn Protection */}
+                <SplitRow
                   id={`${formId}-spawn-protection`}
-                  type="number"
-                  min={0}
-                  value={spawnProtection}
-                  onChange={(e) => setSpawnProtection(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor={`${formId}-view-distance`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
+                  title="Spawn Protection (blocks)"
+                  description="Radius in blocks around the world spawn where non-operator players cannot place or break blocks."
+                  propertyKey="spawn-protection"
                 >
-                  View Distance (2–32 chunks)
-                </label>
-                <input
+                  <DistanceSliderWithStepper
+                    id={`${formId}-spawn-protection`}
+                    label="Spawn Protection"
+                    value={spawnProtection}
+                    draftValue={rawDrafts["spawnProtection"]}
+                    onChange={(v) => handleNumericChange("spawnProtection", v, setSpawnProtection)}
+                    onBlur={() => handleNumericBlur("spawnProtection", spawnProtection, setSpawnProtection, 0, 1000)}
+                    onStep={(delta) => handleStep("spawnProtection", spawnProtection, delta, setSpawnProtection, 0, 1000)}
+                    min={0}
+                    max={100}
+                    unit="blocks"
+                  />
+                </SplitRow>
+
+                {/* View Distance */}
+                <SplitRow
                   id={`${formId}-view-distance`}
-                  type="number"
-                  min={2}
-                  max={32}
-                  value={viewDistance}
-                  onChange={(e) => setViewDistance(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor={`${formId}-sim-distance`}
-                  className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5"
+                  title="View Distance (2–32 chunks)"
+                  description="Client render distance sent by the server; affects memory and network bandwidth."
+                  propertyKey="view-distance"
                 >
-                  Simulation Distance (2–32 chunks)
-                </label>
-                <input
+                  <DistanceSliderWithStepper
+                    id={`${formId}-view-distance`}
+                    label="View Distance"
+                    value={viewDistance}
+                    draftValue={rawDrafts["viewDistance"]}
+                    onChange={(v) => handleNumericChange("viewDistance", v, setViewDistance)}
+                    onBlur={() => handleNumericBlur("viewDistance", viewDistance, setViewDistance, 2, 32)}
+                    onStep={(delta) => handleStep("viewDistance", viewDistance, delta, setViewDistance, 2, 32)}
+                    min={2}
+                    max={32}
+                    unit="chunks"
+                  />
+                </SplitRow>
+
+                {/* Simulation Distance */}
+                <SplitRow
                   id={`${formId}-sim-distance`}
-                  type="number"
-                  min={2}
-                  max={32}
-                  value={simulationDistance}
-                  onChange={(e) => setSimulationDistance(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-border-default bg-surface-card text-sm text-text-primary focus:ring-2 focus:ring-border-focus focus:outline-none transition-shadow"
-                />
-              </div>
-            </div>
-          )}
+                  title="Simulation Distance (2–32 chunks)"
+                  description="Chunk radius around active players in which ticks, mobs, and redstone run."
+                  propertyKey="simulation-distance"
+                >
+                  <DistanceSliderWithStepper
+                    id={`${formId}-sim-distance`}
+                    label="Simulation Distance"
+                    value={simulationDistance}
+                    draftValue={rawDrafts["simulationDistance"]}
+                    onChange={(v) => handleNumericChange("simulationDistance", v, setSimulationDistance)}
+                    onBlur={() => handleNumericBlur("simulationDistance", simulationDistance, setSimulationDistance, 2, 32)}
+                    onStep={(delta) => handleStep("simulationDistance", simulationDistance, delta, setSimulationDistance, 2, 32)}
+                    min={2}
+                    max={32}
+                    unit="chunks"
+                  />
+                </SplitRow>
+              </>
+            )}
 
-          {/* Sub-Group 1: Access & Security GUI Toggles */}
-          <div className="pt-2">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-3 flex items-center gap-2">
-              <Icon name="check" size={14} className="text-accent-primary" />
-              Access & Security
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              <ToggleSwitch
-                label="Online Mode"
-                badge="CRITICAL"
-                description="Verify players with Mojang authentication. Turn OFF to allow offline / cracked launchers."
-                checked={onlineMode}
-                onChange={setOnlineMode}
-                icon="globe"
-              />
-              <ToggleSwitch
-                label="Whitelist"
-                description="Restrict server connection exclusively to players enrolled on whitelist.json."
-                checked={whitelist}
-                onChange={setWhitelist}
-                icon="users"
-              />
-              <ToggleSwitch
-                label="Enforce Secure Profile"
-                description="Require Mojang-signed cryptographic public keys for player chat."
-                checked={enforceSecureProfile}
-                onChange={setEnforceSecureProfile}
-                icon="check"
-              />
-              <ToggleSwitch
-                label="Force Gamemode"
-                description="Force reconnecting players back into the default world gamemode."
-                checked={forceGamemode}
-                onChange={setForceGamemode}
-                icon="settings"
-              />
+            {/* Sub-Group 1: Access & Security */}
+            <div className="px-5 py-2.5 bg-surface-muted/30">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary flex items-center gap-2">
+                <Icon name="check" size={14} className="text-accent-primary" />
+                Access & Security
+              </h4>
             </div>
-          </div>
 
-          {/* Sub-Group 2: Combat & Gameplay Rules */}
-          <div className="pt-2">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-3 flex items-center gap-2">
-              <Icon name="activity" size={14} className="text-status-danger" />
-              Combat & Player Rules
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              <ToggleSwitch
-                label="PvP"
-                description="Enable combat damage between players in all dimensions."
-                checked={pvp}
-                onChange={setPvp}
-                icon="activity"
-              />
-              <ToggleSwitch
-                label="Hardcore Mode"
-                description="Permadeath rule: players are permanently locked in spectator or banned on death."
-                checked={hardcore}
-                onChange={setHardcore}
-                icon="alert"
-              />
-              <ToggleSwitch
-                label="Command Blocks"
-                description="Allow redstone-triggered command blocks to execute commands."
-                checked={enableCommandBlock}
-                onChange={setEnableCommandBlock}
-                icon="settings"
-              />
-              <ToggleSwitch
-                label="Allow Flight"
-                description="Allow survival mode players to fly without triggering automated anti-float kicks."
-                checked={allowFlight}
-                onChange={setAllowFlight}
-                icon="paper"
-              />
-            </div>
-          </div>
+            <BooleanSwitchRow
+              id={`${formId}-online-mode`}
+              title="Online Mode"
+              badge="CRITICAL"
+              description="Verify players with Mojang authentication. Turn OFF to allow offline / cracked launchers."
+              propertyKey="online-mode"
+              checked={onlineMode}
+              onChange={setOnlineMode}
+              icon="globe"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-whitelist`}
+              title="Whitelist"
+              description="Restrict server connection exclusively to players enrolled on whitelist.json."
+              propertyKey="white-list"
+              checked={whitelist}
+              onChange={setWhitelist}
+              icon="users"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-enforce-secure-profile`}
+              title="Enforce Secure Profile"
+              description="Require Mojang-signed cryptographic public keys for player chat."
+              propertyKey="enforce-secure-profile"
+              checked={enforceSecureProfile}
+              onChange={setEnforceSecureProfile}
+              icon="check"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-force-gamemode`}
+              title="Force Gamemode"
+              description="Force reconnecting players back into the default world gamemode."
+              propertyKey="force-gamemode"
+              checked={forceGamemode}
+              onChange={setForceGamemode}
+              icon="settings"
+            />
 
-          {/* Sub-Group 3: World Generation & Entities */}
-          <div className="pt-2">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-3 flex items-center gap-2">
-              <Icon name="globe" size={14} className="text-status-success" />
-              Entities & Dimensions
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              <ToggleSwitch
-                label="Allow Nether"
-                description="Enable Nether portal transit and the Nether dimension."
-                checked={allowNether}
-                onChange={setAllowNether}
-                icon="globe"
-              />
-              <ToggleSwitch
-                label="Spawn Monsters"
-                description="Spawn hostile entities (skeletons, zombies, creepers, phantoms)."
-                checked={spawnMonsters}
-                onChange={setSpawnMonsters}
-                icon="alert"
-              />
-              <ToggleSwitch
-                label="Spawn Animals"
-                description="Spawn passive wildlife (cows, sheep, pigs, chickens, horses)."
-                checked={spawnAnimals}
-                onChange={setSpawnAnimals}
-                icon="heart"
-              />
-              <ToggleSwitch
-                label="Spawn NPCs"
-                description="Spawn villagers and wandering traders in generated settlements."
-                checked={spawnNpcs}
-                onChange={setSpawnNpcs}
-                icon="users"
-              />
+            {/* Sub-Group 2: Combat & Player Rules */}
+            <div className="px-5 py-2.5 bg-surface-muted/30">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary flex items-center gap-2">
+                <Icon name="activity" size={14} className="text-status-danger" />
+                Combat & Player Rules
+              </h4>
             </div>
+
+            <BooleanSwitchRow
+              id={`${formId}-pvp`}
+              title="PvP"
+              description="Enable combat damage between players in all dimensions."
+              propertyKey="pvp"
+              checked={pvp}
+              onChange={setPvp}
+              icon="activity"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-hardcore`}
+              title="Hardcore Mode"
+              description="Permadeath rule: players are permanently locked in spectator or banned on death."
+              propertyKey="hardcore"
+              checked={hardcore}
+              onChange={setHardcore}
+              icon="alert"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-command-block`}
+              title="Command Blocks"
+              description="Allow redstone-triggered command blocks to execute commands."
+              propertyKey="enable-command-block"
+              checked={enableCommandBlock}
+              onChange={setEnableCommandBlock}
+              icon="settings"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-allow-flight`}
+              title="Allow Flight"
+              description="Allow survival mode players to fly without triggering automated anti-float kicks."
+              propertyKey="allow-flight"
+              checked={allowFlight}
+              onChange={setAllowFlight}
+              icon="paper"
+            />
+
+            {/* Sub-Group 3: Entities & Dimensions */}
+            <div className="px-5 py-2.5 bg-surface-muted/30">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary flex items-center gap-2">
+                <Icon name="globe" size={14} className="text-status-success" />
+                Entities & Dimensions
+              </h4>
+            </div>
+
+            <BooleanSwitchRow
+              id={`${formId}-allow-nether`}
+              title="Allow Nether"
+              description="Enable Nether portal transit and the Nether dimension."
+              propertyKey="allow-nether"
+              checked={allowNether}
+              onChange={setAllowNether}
+              icon="globe"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-spawn-monsters`}
+              title="Spawn Monsters"
+              description="Spawn hostile entities (skeletons, zombies, creepers, phantoms)."
+              propertyKey="spawn-monsters"
+              checked={spawnMonsters}
+              onChange={setSpawnMonsters}
+              icon="alert"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-spawn-animals`}
+              title="Spawn Animals"
+              description="Spawn passive wildlife (cows, sheep, pigs, chickens, horses)."
+              propertyKey="spawn-animals"
+              checked={spawnAnimals}
+              onChange={setSpawnAnimals}
+              icon="heart"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-spawn-npcs`}
+              title="Spawn NPCs"
+              description="Spawn villagers and wandering traders in generated settlements."
+              propertyKey="spawn-npcs"
+              checked={spawnNpcs}
+              onChange={setSpawnNpcs}
+              icon="users"
+            />
+
+            {/* Sub-Group 4: World Mechanics */}
+            <div className="px-5 py-2.5 bg-surface-muted/30">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary flex items-center gap-2">
+                <Icon name="file" size={14} className="text-accent-primary" />
+                World Mechanics
+              </h4>
+            </div>
+
+            <BooleanSwitchRow
+              id={`${formId}-generate-structures`}
+              title="Generate Structures"
+              description="Generate villages, strongholds, dungeons, and temples during world generation."
+              propertyKey="generate-structures"
+              checked={generateStructures}
+              onChange={setGenerateStructures}
+              icon="globe"
+            />
+            <BooleanSwitchRow
+              id={`${formId}-sync-chunk-writes`}
+              title="Sync Chunk Writes"
+              description="Synchronously flush chunks to disk immediately when saved to prevent corruption."
+              propertyKey="sync-chunk-writes"
+              checked={syncChunkWrites}
+              onChange={setSyncChunkWrites}
+              icon="file"
+            />
           </div>
         </section>
       )}
 
       {/* Card 4: Advanced Configuration */}
       {showCard4 && (
-        <section className="p-5 sm:p-6 bg-surface-card rounded-2xl border border-border-default shadow-xs space-y-4">
-          <div className="flex items-center gap-3 border-b border-border-subtle pb-3.5">
+        <section className="bg-surface-card rounded-2xl border border-border-default shadow-xs overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
             <div className="p-2 rounded-xl bg-status-warning-bg text-status-warning">
               <Icon name="settings" size={18} />
             </div>
@@ -1173,7 +1611,7 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4.5 rounded-xl bg-surface-muted border border-border-default">
+          <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm font-semibold text-accent-primary">server.properties</span>
@@ -1187,7 +1625,7 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
             </div>
             <Link
               to={`/servers/${serverId}/files?file=server.properties`}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-semibold shadow-xs transition-colors shrink-0"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-xs font-semibold shadow-xs transition-colors shrink-0 cursor-pointer"
               aria-label="Open server.properties in File Manager"
             >
               <Icon name="file" size={14} />
@@ -1219,7 +1657,7 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
             type="button"
             onClick={handleReset}
             disabled={!isDirty || updateServer.isPending}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-4 py-2 rounded-xl text-xs font-semibold text-text-secondary hover:text-text-primary bg-surface-muted hover:bg-surface-hover border border-border-default transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             Reset to Saved
           </button>
@@ -1227,7 +1665,7 @@ export function ServerSettingsSection({ serverId, server }: ServerSettingsSectio
           <button
             type="submit"
             disabled={isSaveDisabled}
-            className="px-6 py-2.5 rounded-xl bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-semibold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-6 py-2.5 rounded-xl bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-semibold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer"
           >
             {updateServer.isPending ? (
               <>

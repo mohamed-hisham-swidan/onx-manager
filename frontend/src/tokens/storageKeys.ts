@@ -5,6 +5,7 @@ export const ACCENT_KEY = "onx_accent";
 
 export type Theme = "light" | "dark";
 export type Skin = "graphite" | "azure" | "emerald" | "amethyst" | "amber" | "crimson";
+export type ThemeSkin = Skin;
 export type Density = "comfortable" | "compact";
 export type AccentColor = "theme" | "blue" | "emerald" | "violet" | "amber" | "rose" | "cyan";
 
@@ -16,6 +17,7 @@ export const DEFAULT_ACCENT: AccentColor = "theme";
 export interface SkinPreset {
   id: Skin;
   name: string;
+  legacyName?: string;
   tagline: string;
   preview: {
     bg: string;
@@ -27,39 +29,147 @@ export interface SkinPreset {
 export const SKIN_PRESETS: SkinPreset[] = [
   {
     id: "graphite",
-    name: "Graphite",
-    tagline: "Pure neutral monochrome carbon",
-    preview: { bg: "rgb(20, 20, 20)", card: "rgb(26, 26, 26)", accent: "rgb(37, 99, 235)" },
+    name: "Obsidian Graphite",
+    legacyName: "Graphite",
+    tagline: "Deep obsidian carbon & engineering cobalt",
+    preview: { bg: "rgb(8, 9, 14)", card: "rgb(17, 20, 31)", accent: "rgb(37, 99, 235)" },
   },
   {
     id: "azure",
-    name: "Azure",
-    tagline: "Deep ocean slate & sky blue",
-    preview: { bg: "rgb(11, 18, 34)", card: "rgb(15, 23, 42)", accent: "rgb(2, 132, 199)" },
+    name: "Midnight Nord",
+    legacyName: "Azure",
+    tagline: "Deep arctic slate & ice cyan",
+    preview: { bg: "rgb(9, 13, 22)", card: "rgb(17, 25, 39)", accent: "rgb(56, 189, 248)" },
   },
   {
     id: "emerald",
-    name: "Emerald",
-    tagline: "Obsidian forest & matrix green",
-    preview: { bg: "rgb(9, 22, 18)", card: "rgb(15, 34, 28)", accent: "rgb(5, 150, 105)" },
+    name: "Cyber Matrix",
+    legacyName: "Emerald",
+    tagline: "Deep pine obsidian & mint teal",
+    preview: { bg: "rgb(7, 14, 12)", card: "rgb(15, 27, 23)", accent: "rgb(20, 184, 166)" },
   },
   {
     id: "amethyst",
-    name: "Amethyst",
-    tagline: "Cosmic nebula & royal violet",
-    preview: { bg: "rgb(19, 15, 30)", card: "rgb(27, 22, 42)", accent: "rgb(124, 58, 237)" },
+    name: "Tokyo Night",
+    legacyName: "Amethyst",
+    tagline: "Deep night indigo & soft periwinkle",
+    preview: { bg: "rgb(13, 14, 23)", card: "rgb(21, 23, 38)", accent: "rgb(129, 140, 248)" },
   },
   {
     id: "amber",
-    name: "Amber",
-    tagline: "Warm carbon & industrial gold",
-    preview: { bg: "rgb(23, 19, 13)", card: "rgb(33, 27, 19)", accent: "rgb(180, 83, 9)" },
+    name: "Titanium Monolith",
+    legacyName: "Amber",
+    tagline: "Warm gunmetal & crisp silver platinum",
+    preview: { bg: "rgb(12, 12, 14)", card: "rgb(21, 21, 25)", accent: "rgb(203, 213, 225)" },
   },
   {
     id: "crimson",
-    name: "Crimson",
-    tagline: "Volcanic basalt & ruby rose",
-    preview: { bg: "rgb(24, 14, 18)", card: "rgb(34, 20, 25)", accent: "rgb(190, 18, 60)" },
+    name: "Deep Rosé / Wine",
+    legacyName: "Crimson",
+    tagline: "Muted dark plum & soft coral rosé",
+    preview: { bg: "rgb(17, 10, 14)", card: "rgb(27, 17, 22)", accent: "rgb(251, 113, 133)" },
+  },
+];
+
+export interface ThemeSkinDefinition {
+  id: Skin;
+  name: string;
+  legacyName?: string;
+  tagline: string;
+  description: string;
+  paletteBadge: string;
+  canvasColor: string;
+  surfaceColor: string;
+  elevatedColor: string;
+  borderColor: string;
+  accentColor: string;
+  badgeColor: string;
+}
+
+export const THEME_SKINS: ThemeSkinDefinition[] = [
+  {
+    id: "graphite",
+    name: "Obsidian Graphite",
+    legacyName: "Graphite",
+    tagline: "Deep obsidian carbon & engineering cobalt",
+    description: "Pure obsidian canvas with deep navy-carbon elevations and high-contrast cobalt accents.",
+    paletteBadge: "Obsidian Graphite",
+    canvasColor: "rgb(8, 9, 14)",
+    surfaceColor: "rgb(17, 20, 31)",
+    elevatedColor: "rgb(23, 27, 41)",
+    borderColor: "rgb(100, 116, 139)",
+    accentColor: "rgb(37, 99, 235)",
+    badgeColor: "rgb(59, 130, 246)",
+  },
+  {
+    id: "azure",
+    name: "Midnight Nord",
+    legacyName: "Azure",
+    tagline: "Deep arctic slate & ice cyan",
+    description: "Sub-zero arctic slate architecture with crystalline cyan telemetry highlights.",
+    paletteBadge: "Midnight Nord",
+    canvasColor: "rgb(9, 13, 22)",
+    surfaceColor: "rgb(17, 25, 39)",
+    elevatedColor: "rgb(24, 35, 56)",
+    borderColor: "rgb(95, 121, 158)",
+    accentColor: "rgb(56, 189, 248)",
+    badgeColor: "rgb(2, 132, 199)",
+  },
+  {
+    id: "emerald",
+    name: "Cyber Matrix",
+    legacyName: "Emerald",
+    tagline: "Deep pine obsidian & mint teal",
+    description: "Bio-synthetic obsidian canvas with glowing terminal mint-teal vectors.",
+    paletteBadge: "Cyber Matrix",
+    canvasColor: "rgb(7, 14, 12)",
+    surfaceColor: "rgb(15, 27, 23)",
+    elevatedColor: "rgb(22, 38, 33)",
+    borderColor: "rgb(86, 133, 118)",
+    accentColor: "rgb(20, 184, 166)",
+    badgeColor: "rgb(13, 148, 136)",
+  },
+  {
+    id: "amethyst",
+    name: "Tokyo Night",
+    legacyName: "Amethyst",
+    tagline: "Deep night indigo & soft periwinkle",
+    description: "Cyberpunk midnight atmospheric indigo with electric periwinkle-violet accents.",
+    paletteBadge: "Tokyo Night",
+    canvasColor: "rgb(13, 14, 23)",
+    surfaceColor: "rgb(21, 23, 38)",
+    elevatedColor: "rgb(29, 32, 51)",
+    borderColor: "rgb(107, 117, 158)",
+    accentColor: "rgb(129, 140, 248)",
+    badgeColor: "rgb(99, 102, 241)",
+  },
+  {
+    id: "amber",
+    name: "Titanium Monolith",
+    legacyName: "Amber",
+    tagline: "Warm gunmetal & crisp silver platinum",
+    description: "Precision engineered gunmetal monolith surfaces with high-clarity platinum-silver luster.",
+    paletteBadge: "Titanium Monolith",
+    canvasColor: "rgb(12, 12, 14)",
+    surfaceColor: "rgb(21, 21, 25)",
+    elevatedColor: "rgb(30, 30, 36)",
+    borderColor: "rgb(100, 116, 139)",
+    accentColor: "rgb(203, 213, 225)",
+    badgeColor: "rgb(148, 163, 184)",
+  },
+  {
+    id: "crimson",
+    name: "Deep Rosé / Wine",
+    legacyName: "Crimson",
+    tagline: "Muted dark plum & soft coral rosé",
+    description: "Opulent dark plum baseline paired with soft neon coral-rosé focal highlights.",
+    paletteBadge: "Deep Rosé / Wine",
+    canvasColor: "rgb(17, 10, 14)",
+    surfaceColor: "rgb(27, 17, 22)",
+    elevatedColor: "rgb(38, 24, 31)",
+    borderColor: "rgb(143, 104, 119)",
+    accentColor: "rgb(251, 113, 133)",
+    badgeColor: "rgb(225, 29, 72)",
   },
 ];
 
