@@ -3,8 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08090e" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>onx-manager</title>
+    <link rel="alternate icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <title>ONX Manager</title>
+    <script>
+      (function() {
+        try {
+          var mode = localStorage.getItem('onx_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          var skin = localStorage.getItem('onx_skin') || 'graphite';
+          var density = localStorage.getItem('onx_density') || 'comfortable';
+          var corners = localStorage.getItem('onx_corner_style') || 'rounded';
+          var doc = document.documentElement;
+          doc.dataset.mode = mode;
+          doc.dataset.skin = skin;
+          doc.dataset.density = density;
+          doc.dataset.corners = corners;
+          if (mode === 'dark') doc.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

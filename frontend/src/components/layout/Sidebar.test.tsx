@@ -212,4 +212,63 @@ describe("Sidebar", () => {
       expect(filesLink).not.toHaveAttribute("aria-current");
     });
   });
+
+  describe("resizable sidebar handle", () => {
+    it("renders resize handle when sidebarOpen is true on global navigation", () => {
+      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
+      renderSidebar();
+      const handle = screen.getByRole("separator", { name: /resize sidebar/i });
+      expect(handle).toBeInTheDocument();
+      expect(handle).toHaveAttribute("aria-orientation", "vertical");
+      expect(handle).toHaveAttribute("aria-valuenow", "224");
+      expect(handle).toHaveAttribute("aria-valuemin", "200");
+      expect(handle).toHaveAttribute("aria-valuemax", "420");
+    });
+
+    it("hides resize handle when desktop sidebarOpen is false", () => {
+      useUIStore.setState({ sidebarOpen: false });
+      renderSidebar();
+      const handle = screen.queryByRole("separator", { name: /resize sidebar/i });
+      expect(handle).not.toBeInTheDocument();
+    });
+
+    it("does not render resize handle when serverContext is present (per-server sidebar)", () => {
+      useUIStore.setState({ sidebarOpen: true });
+      render(
+        <MemoryRouter>
+          <Sidebar
+            serverContext={{
+              serverId: "srv-test",
+              serverName: "Test Server",
+            }}
+          />
+        </MemoryRouter>,
+      );
+      const handle = screen.queryByRole("separator", { name: /resize sidebar/i });
+      expect(handle).not.toBeInTheDocument();
+    });
+
+    it("resizes via keyboard arrow keys on the handle", () => {
+      useUIStore.setState({ sidebarOpen: true });
+      renderSidebar();
+      const handle = screen.getByRole("separator", { name: /resize sidebar/i });
+
+      fireEvent.keyDown(handle, { key: "ArrowRight" });
+      expect(handle).toHaveAttribute("aria-valuenow", "240");
+
+      fireEvent.keyDown(handle, { key: "ArrowLeft" });
+      expect(handle).toHaveAttribute("aria-valuenow", "224");
+    });
+
+    it("resets to default width on double-click", () => {
+      useUIStore.setState({ sidebarOpen: true });
+      localStorage.setItem("onx_sidebar_width", "350");
+      renderSidebar();
+      const handle = screen.getByRole("separator", { name: /resize sidebar/i });
+      expect(handle).toHaveAttribute("aria-valuenow", "350");
+
+      fireEvent.doubleClick(handle);
+      expect(handle).toHaveAttribute("aria-valuenow", "224");
+    });
+  });
 });

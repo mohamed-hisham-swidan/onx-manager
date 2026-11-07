@@ -32,16 +32,21 @@ export function DashboardPage() {
   }, [serverList]);
 
   const onlineCount = counts.running || 0;
-  const crashedCount = (counts.crashed || 0) + (counts.broken || 0);
+  const crashedServers = useMemo(() => {
+    return serverList.filter(
+      (s) => s.status === "crashed" || s.status === "broken",
+    );
+  }, [serverList]);
+  const crashedCount = crashedServers.length;
   const totalCount = serverList.length;
 
   const telemetry = useMemo(() => getHostTelemetry(serverList), [serverList]);
   const initialLogs = useMemo(() => getInitialDaemonLogs(serverList), [serverList]);
 
   return (
-    <div className="w-full max-w-[1920px] mx-auto space-y-5">
+    <div className="@container w-full max-w-[1920px] mx-auto space-y-5">
       {/* A. Top Header Bar & Honest Telemetry Strip */}
-      <div className="flex flex-col gap-4 pb-1 border-b border-border-subtle lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-4 pb-1 border-b border-border-subtle @5xl:flex-row @5xl:items-center @5xl:justify-between">
         {/* Left Side: Breadcrumb & Title */}
         <div>
           <div className="flex items-center gap-1.5 font-mono text-xs text-text-muted">
@@ -65,36 +70,50 @@ export function DashboardPage() {
         {/* Right Side: Honest Telemetry Pill & Quick Actions */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Honest Status Pill */}
-          <div className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-card px-3 py-1.5 font-mono text-xs font-semibold shadow-2xs">
-            {crashedCount > 0 ? (
-              <>
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-danger opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-status-danger" />
-                </span>
-                <span className="text-status-danger">
-                  DEGRADED ({crashedCount} CRASHED)
-                </span>
-              </>
-            ) : onlineCount > 0 ? (
-              <>
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-success opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-status-success" />
-                </span>
-                <span className="text-status-success">
-                  NODE ACTIVE ({onlineCount}/{totalCount} ONLINE)
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="h-2 w-2 rounded-full bg-status-warning" />
-                <span className="text-status-warning">
-                  DAEMON STANDBY (ALL OFFLINE)
-                </span>
-              </>
-            )}
-          </div>
+          {crashedCount > 0 ? (
+            <Link
+              to={
+                crashedCount === 1
+                  ? `/servers/${crashedServers[0].server_id}`
+                  : "/servers?status=crashed"
+              }
+              aria-label={
+                crashedCount === 1
+                  ? `Open crashed server ${crashedServers[0].name}`
+                  : `View ${crashedCount} crashed servers`
+              }
+              className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-card px-3 py-1.5 font-mono text-xs font-semibold shadow-2xs hover:bg-surface-hover hover:border-status-danger/40 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-status-danger cursor-pointer"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-danger opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-status-danger" />
+              </span>
+              <span className="text-status-danger">
+                DEGRADED ({crashedCount} CRASHED)
+              </span>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-card px-3 py-1.5 font-mono text-xs font-semibold shadow-2xs">
+              {onlineCount > 0 ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-success opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-status-success" />
+                  </span>
+                  <span className="text-status-success">
+                    NODE ACTIVE ({onlineCount}/{totalCount} ONLINE)
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-status-warning" />
+                  <span className="text-status-warning">
+                    DAEMON STANDBY (ALL OFFLINE)
+                  </span>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Quick Actions */}
           <Link
@@ -110,14 +129,14 @@ export function DashboardPage() {
             className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-accent-primary px-4 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover active:bg-accent-active shadow-xs transition-colors"
           >
             <Icon name="plus" size={13} />
-            <span>+ Deploy Server</span>
+            <span>Create Server</span>
           </Link>
         </div>
       </div>
 
       {isLoading ? (
         <div className="space-y-5">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 @lg:grid-cols-2 @4xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
@@ -133,8 +152,8 @@ export function DashboardPage() {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-            <div className="h-[400px] rounded-xl border border-border-subtle bg-surface-card p-5 lg:col-span-8">
+          <div className="grid grid-cols-1 gap-5 @5xl:grid-cols-12">
+            <div className="h-[400px] rounded-xl border border-border-subtle bg-surface-card p-5 @5xl:col-span-8">
               <Skeleton className="h-5 w-32 mb-4" />
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -142,7 +161,7 @@ export function DashboardPage() {
                 ))}
               </div>
             </div>
-            <div className="h-[400px] rounded-xl border border-border-subtle bg-surface-card p-5 lg:col-span-4">
+            <div className="h-[400px] rounded-xl border border-border-subtle bg-surface-card p-5 @5xl:col-span-4">
               <Skeleton className="h-5 w-40 mb-4" />
               <Skeleton className="h-[300px] w-full rounded-lg" />
             </div>
@@ -168,7 +187,7 @@ export function DashboardPage() {
                 className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-accent-primary px-4 text-xs font-semibold text-accent-contrast-text hover:bg-accent-hover transition-colors shadow-xs"
               >
                 <Icon name="plus" size={13} />
-                <span>+ Deploy Server</span>
+                <span>Create Server</span>
               </Link>
             </div>
           </div>
@@ -183,14 +202,14 @@ export function DashboardPage() {
           />
 
           {/* C. Row 2: Main Split Workspace (12-Column Grid) */}
-          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-12">
+          <div className="grid grid-cols-1 items-start gap-5 @5xl:grid-cols-12">
             {/* Left Panel: Interactive Server Fleet Table/Cards (col-span-8) */}
-            <section className="lg:col-span-8">
+            <section className="@5xl:col-span-8 @container min-w-0">
               <CommandCenterFleetList servers={serverList} />
             </section>
 
             {/* Right Panel: Real-Time Event Stream & Quick Diagnostics (col-span-4) */}
-            <section className="lg:col-span-4">
+            <section className="@5xl:col-span-4 min-w-0">
               <CommandCenterDaemonStream
                 initialLogs={initialLogs}
                 serverNames={serverNames}

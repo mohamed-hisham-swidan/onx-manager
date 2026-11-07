@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/authStore";
 import { createApiClient } from "@/services/api";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 
 export function SetupPage() {
   const api = useMemo(() => createApiClient(window.location.origin, () => null), []);
@@ -73,9 +74,9 @@ export function SetupPage() {
     <div className="min-h-screen flex items-center justify-center bg-surface-page px-4 py-8">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-text-primary">
-            onx-manager
-          </h1>
+          <div className="flex justify-center mb-2">
+            <BrandLogo variant="full" size="md" />
+          </div>
           <p className="text-sm text-text-muted mt-1">
             First-time Instance Setup
           </p>

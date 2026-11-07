@@ -36,17 +36,17 @@ export function ProjectCard({
       return (
         <span
           key={loader}
-          className="inline-flex items-center gap-1 rounded-md border border-accent-primary/20 bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary"
+          className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted"
         >
-          <Icon name={display.icon} size={11} className="shrink-0" />
-          {display.label}
+          <Icon name={display.icon} size={11} className="shrink-0 text-text-muted" />
+          <span>{display.label}</span>
         </span>
       );
     }),
     ...categories.map((category) => (
       <span
         key={category}
-        className="rounded-md border border-border-subtle bg-surface-elevated px-2 py-0.5 text-xs font-medium text-text-secondary"
+        className="shrink-0 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted"
       >
         {category}
       </span>
@@ -54,10 +54,10 @@ export function ProjectCard({
     ...envs.map((env) => (
       <span
         key={env}
-        className="inline-flex items-center gap-1 rounded-md border border-status-success-border bg-status-success-bg px-2 py-0.5 text-xs font-medium text-status-success"
+        className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted"
       >
-        <Icon name="globe" size={11} className="shrink-0" />
-        {env}
+        <Icon name="globe" size={11} className="shrink-0 text-text-muted" />
+        <span>{env}</span>
       </span>
     )),
   ];
@@ -69,9 +69,8 @@ export function ProjectCard({
       <li
         data-testid={`project-card-${project.project_id}`}
         onClick={() => navigate(detailPath)}
-        className="group relative flex flex-col sm:flex-row sm:items-center justify-between gap-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4 pt-5 sm:pt-4 shadow-2xs transition-all duration-150 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
+        className="group relative flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface-card p-4 transition-colors duration-150 hover:border-border-default cursor-pointer"
       >
-        <div className="absolute top-0 start-0 end-0 h-1 bg-gradient-to-r from-accent-primary via-status-info to-status-success" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">
             <Link
@@ -83,36 +82,36 @@ export function ProjectCard({
                 <img
                   src={project.icon_url}
                   alt=""
-                  className="h-12 w-12 shrink-0 rounded-xl object-cover border border-border-subtle shadow-2xs"
+                  className="h-11 w-11 shrink-0 rounded-lg bg-surface-page object-cover border border-border-subtle"
                 />
               ) : (
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-surface-elevated text-accent-primary shadow-2xs">
-                  <Icon name="plugin" size={24} />
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-surface-page text-text-muted">
+                  <Icon name="plugin" size={22} />
                 </div>
               )}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-2">
-                  <h3 className="truncate font-bold text-base text-text-primary group-hover/link:text-accent-primary">
+                  <h3 className="truncate font-semibold text-[15px] text-text-primary group-hover/link:text-accent-primary transition-colors">
                     {project.title}
                   </h3>
                   <p className="text-xs text-text-muted">by {project.author}</p>
                 </div>
                 {project.description && (
-                  <p className="mt-1 line-clamp-1 text-xs text-text-secondary leading-relaxed">
+                  <p className="mt-1 line-clamp-1 text-xs text-text-muted leading-relaxed">
                     {project.description}
                   </p>
                 )}
               </div>
             </Link>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 pt-2 ps-0 sm:ps-15">
+          <div className="flex flex-wrap items-center gap-1.5 pt-2 ps-0 sm:ps-14">
             {visiblePills}
             {hiddenPillCount > 0 && (
               <Link
                 to={detailPath}
                 onClick={(e) => e.stopPropagation()}
                 aria-label={`${hiddenPillCount} more tags`}
-                className="rounded-md border border-border-subtle bg-surface-elevated px-2 py-0.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+                className="shrink-0 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
               >
                 +{hiddenPillCount}
               </Link>
@@ -120,32 +119,32 @@ export function ProjectCard({
           </div>
         </div>
 
-        <div className="flex items-center justify-between sm:flex-col sm:items-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-border-subtle/50">
+        <div className="flex items-center justify-between sm:flex-col sm:items-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-border-subtle">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               onInstall(project);
             }}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-bold text-accent-contrast-text transition-colors hover:bg-accent-hover shadow-2xs cursor-pointer"
+            className="inline-flex shrink-0 items-center gap-1.5 h-[30px] px-3 text-[12.5px] font-medium rounded-md border border-accent-primary/30 bg-accent-primary/12 text-accent-primary transition-colors hover:bg-accent-primary hover:text-accent-contrast-text cursor-pointer"
           >
-            <Icon name="plus" size={14} />
-            Install
+            <Icon name="plus" size={13} />
+            <span>Install</span>
           </button>
 
-          <div className="flex items-center gap-3 text-xs text-text-muted font-mono tabular-nums">
-            <span className="inline-flex items-center gap-1">
-              <Icon name="download" size={12} className="text-text-muted" />
-              {formatDownloads(project.downloads)}
+          <div className="flex items-center gap-3.5 text-xs text-text-muted font-mono tabular-nums">
+            <span className="inline-flex items-center gap-1" title={`${project.downloads.toLocaleString()} downloads`}>
+              <Icon name="download" size={12} className="text-text-muted shrink-0" />
+              <span>{formatDownloads(project.downloads)}</span>
             </span>
-            <span className="inline-flex items-center gap-1">
-              <Icon name="heart" size={12} className="text-status-danger" />
-              {formatDownloads(project.follows)}
+            <span className="inline-flex items-center gap-1" title={`${project.follows.toLocaleString()} likes`}>
+              <Icon name="heart" size={12} className="text-status-danger shrink-0" />
+              <span>{formatDownloads(project.follows)}</span>
             </span>
             {updatedLabel && (
               <span className="inline-flex items-center gap-1 font-sans text-[11px]">
-                <Icon name="clock" size={12} />
-                Updated {updatedLabel}
+                <Icon name="clock" size={12} className="shrink-0" />
+                <span>Updated {updatedLabel}</span>
               </span>
             )}
           </div>
@@ -158,64 +157,68 @@ export function ProjectCard({
     <li
       data-testid={`project-card-${project.project_id}`}
       onClick={() => navigate(detailPath)}
-      className="group relative flex flex-col justify-between gap-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4.5 pt-5 shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
+      className="group relative flex h-full flex-col justify-between rounded-lg border border-border-subtle bg-surface-card p-4 transition-colors duration-150 hover:border-border-default cursor-pointer"
     >
-      <div className="absolute top-0 start-0 end-0 h-1 bg-gradient-to-r from-accent-primary via-status-info to-status-success" />
+      {/* Top Zone: Header */}
       <div>
-        <div className="flex items-start justify-between gap-3.5">
+        <div className="flex items-center gap-3">
           <Link
             to={detailPath}
             onClick={(e) => e.stopPropagation()}
-            className="group/link flex min-w-0 flex-1 items-start gap-3"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-surface-page overflow-hidden"
           >
             {project.icon_url ? (
               <img
                 src={project.icon_url}
                 alt=""
-                className="h-12 w-12 shrink-0 rounded-xl object-cover border border-border-subtle shadow-2xs"
+                className="h-11 w-11 shrink-0 rounded-lg bg-surface-page object-cover"
               />
             ) : (
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-surface-elevated text-accent-primary shadow-2xs">
-                <Icon name="plugin" size={24} />
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center text-text-muted">
+                <Icon name="plugin" size={22} />
               </div>
             )}
-            <div className="min-w-0">
-              <h3 className="truncate font-bold text-base text-text-primary group-hover/link:text-accent-primary">
+          </Link>
+          <div className="min-w-0 flex-1">
+            <Link
+              to={detailPath}
+              onClick={(e) => e.stopPropagation()}
+              className="group/link block min-w-0"
+            >
+              <h3 className="truncate font-semibold text-[15px] text-text-primary group-hover/link:text-accent-primary transition-colors">
                 {project.title}
               </h3>
-              <p className="mt-0.5 text-xs text-text-muted">
+              <p className="truncate text-xs text-text-muted mt-0.5">
                 by {project.author}
               </p>
-            </div>
-          </Link>
+            </Link>
+          </div>
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               onInstall(project);
             }}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-bold text-accent-contrast-text transition-colors hover:bg-accent-hover shadow-2xs cursor-pointer"
+            className="ml-auto inline-flex shrink-0 items-center gap-1.5 h-[30px] px-3 text-[12.5px] font-medium rounded-md border border-accent-primary/30 bg-accent-primary/12 text-accent-primary transition-colors hover:bg-accent-primary hover:text-accent-contrast-text cursor-pointer"
           >
-            <Icon name="plus" size={14} />
-            Install
+            <Icon name="plus" size={13} />
+            <span>Install</span>
           </button>
         </div>
 
-        {project.description && (
-          <p className="mt-2.5 line-clamp-2 text-xs text-text-secondary leading-relaxed">
-            {project.description}
-          </p>
-        )}
+        {/* Middle Zone: Description + Tags */}
+        <p className="mt-3 text-[13px] text-text-muted leading-[1.45] line-clamp-2 min-h-[38px]">
+          {project.description}
+        </p>
 
-        {/* Tags & Loaders */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-2">
+        <div className="mt-3 flex flex-nowrap overflow-hidden gap-1.5">
           {visiblePills}
           {hiddenPillCount > 0 && (
             <Link
               to={detailPath}
               onClick={(e) => e.stopPropagation()}
               aria-label={`${hiddenPillCount} more tags`}
-              className="rounded-md border border-border-subtle bg-surface-elevated px-2 py-0.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+              className="shrink-0 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
             >
               +{hiddenPillCount}
             </Link>
@@ -223,20 +226,22 @@ export function ProjectCard({
         </div>
       </div>
 
-      {/* Metrics Footer */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border-subtle/60 pt-3 text-xs text-text-muted font-mono tabular-nums">
-        <span className="inline-flex items-center gap-1">
-          <Icon name="download" size={12} className="text-text-muted" />
-          {formatDownloads(project.downloads)}
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <Icon name="heart" size={12} className="text-status-danger" />
-          {formatDownloads(project.follows)}
-        </span>
+      {/* Bottom Zone: Metrics Footer */}
+      <div className="mt-3.5 flex items-center justify-between border-t border-border-subtle pt-3 text-xs text-text-muted font-mono tabular-nums">
+        <div className="flex items-center gap-3.5">
+          <span className="inline-flex items-center gap-1" title={`${project.downloads.toLocaleString()} downloads`}>
+            <Icon name="download" size={12} className="text-text-muted shrink-0" />
+            <span>{formatDownloads(project.downloads)}</span>
+          </span>
+          <span className="inline-flex items-center gap-1" title={`${project.follows.toLocaleString()} likes`}>
+            <Icon name="heart" size={12} className="text-status-danger shrink-0" />
+            <span>{formatDownloads(project.follows)}</span>
+          </span>
+        </div>
         {updatedLabel && (
-          <span className="inline-flex items-center gap-1 ml-auto font-sans text-[11px]">
-            <Icon name="clock" size={12} />
-            Updated {updatedLabel}
+          <span className="inline-flex items-center gap-1 font-sans text-[11px] text-text-muted shrink-0">
+            <Icon name="clock" size={12} className="shrink-0" />
+            <span>Updated {updatedLabel}</span>
           </span>
         )}
       </div>

@@ -3,6 +3,7 @@ import { NavLink, Link } from "react-router-dom";
 import { useUIStore } from "@/stores/uiStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
+import { useResizableWidth } from "@/hooks/useResizableWidth";
 import { Icon, type IconName } from "@/components/ui/Icon";
 
 export interface ServerContext {
@@ -26,10 +27,15 @@ const GLOBAL_NAV_ITEMS: { to: string; label: string; icon: IconName; end?: boole
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
+  const isServerContext = Boolean(serverContext);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
   const setSource = useMarketplaceSourceStore((s) => s.setSource);
+
+  const { width, isDragging, handleProps } = useResizableWidth({
+    disabled: isServerContext,
+  });
 
   const asideRef = useRef<HTMLElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -95,9 +101,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
       <aside
         ref={asideRef}
         tabIndex={-1}
-        className={`fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] flex-col border-r border-border-subtle bg-surface-card transition-all duration-200 outline-hidden ${
+        style={
+          !isServerContext
+            ? ({
+                "--sidebar-width": `${width}px`,
+                width: "var(--sidebar-width)",
+              } as React.CSSProperties)
+            : undefined
+        }
+        className={`fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] flex-col border-r border-border-subtle bg-surface-card outline-hidden ${
+          isDragging ? "transition-none select-none" : "transition-all duration-200"
+        } ${
           mobileSidebarOpen ? "w-64 translate-x-0" : "w-64 -translate-x-full"
-        } lg:w-56 ${sidebarOpen ? "lg:translate-x-0" : "lg:-translate-x-full"}`}
+        } ${isServerContext ? "lg:w-56" : "lg:w-[var(--sidebar-width,14rem)]"} ${
+          sidebarOpen ? "lg:translate-x-0" : "lg:-translate-x-full"
+        }`}
       >
         {serverContext ? (
           /* Contextual Server Navigation (D5) */
@@ -240,6 +258,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
         <div className="mt-auto border-t border-border-subtle p-3 text-[10px] leading-tight text-text-muted">
           <p>Unofficial. Not affiliated with or endorsed by Mojang or Microsoft.</p>
         </div>
+
+        {/* Resizable drag handle (desktop global navigation only) */}
+        {!isServerContext && sidebarOpen && !mobileSidebarOpen && (
+          <div
+            {...handleProps}
+            className={`group absolute top-0 right-0 z-50 h-full w-[6px] cursor-col-resize select-none touch-none hidden lg:flex items-center justify-center transition-colors ${
+              isDragging ? "bg-accent-primary" : "hover:bg-accent-primary/60"
+            }`}
+          >
+            <div
+              className={`h-8 w-[2px] rounded-full transition-opacity ${
+                isDragging
+                  ? "bg-white opacity-100"
+                  : "bg-text-muted/40 opacity-0 group-hover:opacity-100"
+              }`}
+            />
+          </div>
+        )}
       </aside>
     </>
   );

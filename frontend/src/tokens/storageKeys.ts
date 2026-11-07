@@ -2,17 +2,20 @@ export const THEME_KEY = "onx_theme";
 export const SKIN_KEY = "onx_skin";
 export const DENSITY_KEY = "onx_density";
 export const ACCENT_KEY = "onx_accent";
+export const CORNER_STYLE_KEY = "onx_corner_style";
 
 export type Theme = "light" | "dark";
 export type Skin = "graphite" | "azure" | "emerald" | "amethyst" | "amber" | "crimson";
 export type ThemeSkin = Skin;
 export type Density = "comfortable" | "compact";
 export type AccentColor = "theme" | "blue" | "emerald" | "violet" | "amber" | "rose" | "cyan";
+export type CornerStyle = "rounded" | "sharp";
 
 export const DEFAULT_THEME: Theme = "dark";
 export const DEFAULT_SKIN: Skin = "graphite";
 export const DEFAULT_DENSITY: Density = "comfortable";
 export const DEFAULT_ACCENT: AccentColor = "theme";
+export const DEFAULT_CORNER_STYLE: CornerStyle = "rounded";
 
 export interface SkinPreset {
   id: Skin;
@@ -46,7 +49,7 @@ export const SKIN_PRESETS: SkinPreset[] = [
     name: "Cyber Matrix",
     legacyName: "Emerald",
     tagline: "Deep pine obsidian & mint teal",
-    preview: { bg: "rgb(7, 14, 12)", card: "rgb(15, 27, 23)", accent: "rgb(20, 184, 166)" },
+    preview: { bg: "rgb(13, 15, 15)", card: "rgb(21, 24, 24)", accent: "rgb(79, 168, 155)" },
   },
   {
     id: "amethyst",
@@ -67,7 +70,7 @@ export const SKIN_PRESETS: SkinPreset[] = [
     name: "Deep Rosé / Wine",
     legacyName: "Crimson",
     tagline: "Muted dark plum & soft coral rosé",
-    preview: { bg: "rgb(17, 10, 14)", card: "rgb(27, 17, 22)", accent: "rgb(251, 113, 133)" },
+    preview: { bg: "rgb(16, 14, 18)", card: "rgb(24, 21, 27)", accent: "rgb(199, 125, 137)" },
   },
 ];
 
@@ -122,12 +125,12 @@ export const THEME_SKINS: ThemeSkinDefinition[] = [
     tagline: "Deep pine obsidian & mint teal",
     description: "Bio-synthetic obsidian canvas with glowing terminal mint-teal vectors.",
     paletteBadge: "Cyber Matrix",
-    canvasColor: "rgb(7, 14, 12)",
-    surfaceColor: "rgb(15, 27, 23)",
-    elevatedColor: "rgb(22, 38, 33)",
-    borderColor: "rgb(86, 133, 118)",
-    accentColor: "rgb(20, 184, 166)",
-    badgeColor: "rgb(13, 148, 136)",
+    canvasColor: "rgb(13, 15, 15)",
+    surfaceColor: "rgb(21, 24, 24)",
+    elevatedColor: "rgb(26, 30, 30)",
+    borderColor: "rgb(102, 117, 111)",
+    accentColor: "rgb(79, 168, 155)",
+    badgeColor: "rgb(67, 143, 132)",
   },
   {
     id: "amethyst",
@@ -164,12 +167,12 @@ export const THEME_SKINS: ThemeSkinDefinition[] = [
     tagline: "Muted dark plum & soft coral rosé",
     description: "Opulent dark plum baseline paired with soft neon coral-rosé focal highlights.",
     paletteBadge: "Deep Rosé / Wine",
-    canvasColor: "rgb(17, 10, 14)",
-    surfaceColor: "rgb(27, 17, 22)",
-    elevatedColor: "rgb(38, 24, 31)",
-    borderColor: "rgb(143, 104, 119)",
-    accentColor: "rgb(251, 113, 133)",
-    badgeColor: "rgb(225, 29, 72)",
+    canvasColor: "rgb(16, 14, 18)",
+    surfaceColor: "rgb(24, 21, 27)",
+    elevatedColor: "rgb(30, 26, 34)",
+    borderColor: "rgb(114, 102, 115)",
+    accentColor: "rgb(199, 125, 137)",
+    badgeColor: "rgb(181, 107, 120)",
   },
 ];
 
@@ -189,11 +192,18 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   { id: "cyan", name: "Cyan", swatch: "rgb(8, 145, 178)" },
 ];
 
-export function initPrePaintAttributes(): { mode: Theme; skin: Skin; density: Density; accent: AccentColor } {
+export function initPrePaintAttributes(): {
+  mode: Theme;
+  skin: Skin;
+  density: Density;
+  accent: AccentColor;
+  cornerStyle: CornerStyle;
+} {
   let mode: Theme = DEFAULT_THEME;
   let skin: Skin = DEFAULT_SKIN;
   let density: Density = DEFAULT_DENSITY;
   let accent: AccentColor = DEFAULT_ACCENT;
+  let cornerStyle: CornerStyle = DEFAULT_CORNER_STYLE;
 
   try {
     const rawMode = localStorage.getItem(THEME_KEY);
@@ -235,11 +245,17 @@ export function initPrePaintAttributes(): { mode: Theme; skin: Skin; density: De
       accent = rawAccent;
     }
 
+    const rawCorners = localStorage.getItem(CORNER_STYLE_KEY);
+    if (rawCorners === "rounded" || rawCorners === "sharp") {
+      cornerStyle = rawCorners;
+    }
+
     if (typeof document !== "undefined") {
       document.documentElement.setAttribute("data-mode", mode);
       document.documentElement.setAttribute("data-skin", skin);
       document.documentElement.setAttribute("data-density", density);
       document.documentElement.setAttribute("data-accent", accent);
+      document.documentElement.setAttribute("data-corners", cornerStyle);
       if (mode === "dark") {
         document.documentElement.classList.add("dark");
       } else {
@@ -255,9 +271,16 @@ export function initPrePaintAttributes(): { mode: Theme; skin: Skin; density: De
     skin: Skin;
     density: Density;
     accent: AccentColor;
+    cornerStyle: CornerStyle;
   };
   Object.defineProperty(result, "accent", {
     value: accent,
+    enumerable: false,
+    writable: true,
+    configurable: true,
+  });
+  Object.defineProperty(result, "cornerStyle", {
+    value: cornerStyle,
     enumerable: false,
     writable: true,
     configurable: true,

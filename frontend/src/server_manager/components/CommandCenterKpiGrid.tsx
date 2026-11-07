@@ -39,7 +39,7 @@ export function CommandCenterKpiGrid({
   const reservedRamPct = Math.min(100, (telemetry.reservedRamGb / telemetry.totalRamGb) * 100);
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 @lg:grid-cols-2 @4xl:grid-cols-4">
       {/* Card 1: Fleet Availability */}
       <div
         role="region"
@@ -89,7 +89,7 @@ export function CommandCenterKpiGrid({
               />
             )}
           </div>
-          <div className="mt-2 flex items-center justify-between text-[11px] text-text-muted">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-text-muted">
             <Link
               to="/servers?status=running"
               className="hover:text-status-success transition-colors"

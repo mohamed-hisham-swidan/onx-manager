@@ -22,7 +22,10 @@ export function AppShell() {
   }, [location.pathname, setMobileSidebarOpen]);
 
   return (
-    <div className="min-h-screen bg-surface-page text-text-primary transition-colors">
+    <div
+      className="min-h-screen bg-surface-page text-text-primary transition-colors"
+      style={{ "--sidebar-width": "var(--sidebar-width, 224px)" } as React.CSSProperties}
+    >
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:inset-block-start-3 focus:inset-inline-start-3 focus:z-50 focus:rounded-lg focus:bg-surface-elevated focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-primary focus:shadow-lg focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
@@ -40,7 +43,7 @@ export function AppShell() {
         id="main-content"
         tabIndex={-1}
         className={`min-h-[calc(100vh-3.5rem)] pt-14 overflow-y-auto pb-16 transition-all duration-200 outline-hidden ${
-          sidebarOpen ? "lg:pl-56" : "lg:pl-0"
+          sidebarOpen ? "lg:pl-[var(--sidebar-width,14rem)]" : "lg:pl-0"
         }`}
       >
         <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6 pb-16">

@@ -138,9 +138,9 @@ export function PluginMarketplacePage() {
         }
       />
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-1 flex-wrap items-center gap-3">
-          <div className="relative inline-flex items-center">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="relative inline-flex items-center shrink-0">
             <label htmlFor="discover-select" className="sr-only">
               Discover
             </label>
@@ -150,7 +150,7 @@ export function PluginMarketplacePage() {
                 aria-label="Discover type"
                 value={projectType}
                 onChange={(e) => handleProjectTypeChange(e.target.value as "plugin" | "mod")}
-                className="appearance-none rounded-lg border border-border-default bg-surface-card py-2 pl-3 pr-8 text-sm font-medium text-text-primary focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus"
+                className="h-9 appearance-none rounded-lg border border-border-default bg-surface-card pl-3 pr-8 text-sm font-medium text-text-primary focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus"
               >
                 <option value="plugin">Plugins</option>
                 <option value="mod">Mods</option>
@@ -161,8 +161,8 @@ export function PluginMarketplacePage() {
             </div>
           </div>
 
-          <form onSubmit={handleSearch} className="flex-1">
-            <div className="flex gap-2">
+          <form onSubmit={handleSearch} className="flex-1 max-w-lg min-w-0">
+            <div className="flex items-center gap-2">
               <input
                 type="text"
                 value={query}
@@ -173,24 +173,26 @@ export function PluginMarketplacePage() {
                     : `Search ${projectType === "mod" ? "mods" : "plugins"} in the global marketplace...`
                 }
                 aria-label="Search plugins"
-                className="w-full max-w-md rounded-lg border border-border-default bg-surface-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus"
+                className="h-9 w-full rounded-lg border border-border-default bg-surface-card px-3 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus"
               />
               <button
                 type="submit"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40"
+                className="h-9 shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 text-sm font-medium text-accent-contrast-text transition-colors hover:bg-accent-hover disabled:opacity-40 cursor-pointer"
               >
-                <Icon name="search" size={16} />
-                Search
+                <Icon name="search" size={15} />
+                <span>Search</span>
               </button>
             </div>
           </form>
         </div>
 
-        <ViewModeToggle
-          mode={viewMode}
-          onChange={setViewMode}
-          storageKey="onx_marketplace_view_mode"
-        />
+        <div className="shrink-0">
+          <ViewModeToggle
+            mode={viewMode}
+            onChange={setViewMode}
+            storageKey="onx_marketplace_view_mode"
+          />
+        </div>
       </div>
 
       {!serverId && (

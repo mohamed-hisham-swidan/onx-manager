@@ -102,14 +102,14 @@ export function CommandCenterDaemonStream({
                       : "text-text-secondary";
 
               return (
-                <div key={log.id} className="flex items-start gap-1.5">
+                <div key={log.id} className="flex flex-wrap items-start gap-x-2 min-w-0">
                   <span className="shrink-0 text-text-muted/70">
                     [{log.timeStr}]
                   </span>
                   <span className={`shrink-0 font-bold ${badgeClass}`}>
                     [{log.source}]
                   </span>
-                  <span className="text-text-primary break-all">
+                  <span className="text-text-primary break-words min-w-0 flex-1 basis-40">
                     {log.message}
                   </span>
                 </div>

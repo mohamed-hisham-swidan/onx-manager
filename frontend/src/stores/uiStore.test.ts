@@ -4,6 +4,7 @@ const THEME_KEY = "onx_theme";
 const SKIN_KEY = "onx_skin";
 const DENSITY_KEY = "onx_density";
 const ACCENT_KEY = "onx_accent";
+const CORNER_STYLE_KEY = "onx_corner_style";
 
 describe("uiStore", () => {
   beforeEach(() => {
@@ -13,6 +14,7 @@ describe("uiStore", () => {
     document.documentElement.removeAttribute("data-skin");
     document.documentElement.removeAttribute("data-density");
     document.documentElement.removeAttribute("data-accent");
+    document.documentElement.removeAttribute("data-corners");
     vi.resetModules();
   });
 
@@ -100,6 +102,32 @@ describe("uiStore", () => {
     expect(useUIStore.getState().density).toBe("comfortable");
     expect(localStorage.getItem(DENSITY_KEY)).toBe("comfortable");
     expect(document.documentElement.getAttribute("data-density")).toBe("comfortable");
+  });
+
+  it("defaults to rounded corner style and sets data-corners attribute", async () => {
+    const { useUIStore } = await import("./uiStore");
+    expect(useUIStore.getState().cornerStyle).toBe("rounded");
+    expect(document.documentElement.getAttribute("data-corners")).toBe("rounded");
+  });
+
+  it("setCornerStyle and toggleCornerStyle update corner style attribute and persistence", async () => {
+    const { useUIStore } = await import("./uiStore");
+    useUIStore.getState().setCornerStyle("sharp");
+    expect(useUIStore.getState().cornerStyle).toBe("sharp");
+    expect(localStorage.getItem(CORNER_STYLE_KEY)).toBe("sharp");
+    expect(document.documentElement.getAttribute("data-corners")).toBe("sharp");
+
+    useUIStore.getState().toggleCornerStyle();
+    expect(useUIStore.getState().cornerStyle).toBe("rounded");
+    expect(localStorage.getItem(CORNER_STYLE_KEY)).toBe("rounded");
+    expect(document.documentElement.getAttribute("data-corners")).toBe("rounded");
+  });
+
+  it("loads stored cornerStyle from localStorage on initialization", async () => {
+    localStorage.setItem(CORNER_STYLE_KEY, "sharp");
+    const { useUIStore } = await import("./uiStore");
+    expect(useUIStore.getState().cornerStyle).toBe("sharp");
+    expect(document.documentElement.getAttribute("data-corners")).toBe("sharp");
   });
 
   it("defaults to theme accent and sets data-accent attribute", async () => {

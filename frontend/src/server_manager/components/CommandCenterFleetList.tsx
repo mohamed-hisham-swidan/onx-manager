@@ -111,7 +111,7 @@ export function CommandCenterFleetList({
   return (
     <div className="rounded-xl border border-border-subtle bg-surface-card p-4 sm:p-5 shadow-2xs">
       {/* Container Header & Toolbar */}
-      <div className="flex flex-col gap-3 pb-4 border-b border-border-subtle sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 pb-4 border-b border-border-subtle @lg:flex-row @lg:items-center @lg:justify-between">
         <div className="flex items-center gap-2.5">
           <h2 className="text-sm font-bold text-text-primary tracking-wide">
             Server Instances
@@ -139,7 +139,7 @@ export function CommandCenterFleetList({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter by name, port, or tag..."
-              className="h-8 w-44 sm:w-56 rounded-lg border border-border-subtle bg-surface-elevated ps-8 pe-2.5 font-mono text-xs text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-hidden"
+              className="h-8 w-44 @lg:w-56 rounded-lg border border-border-subtle bg-surface-elevated ps-8 pe-2.5 font-mono text-xs text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-hidden"
             />
           </div>
 
@@ -211,10 +211,10 @@ export function CommandCenterFleetList({
             return (
               <div
                 key={server.server_id}
-                className="group flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface-elevated p-3.5 transition-all hover:border-border-default hover:shadow-xs lg:flex-row lg:items-center lg:justify-between"
+                className="group relative flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface-elevated p-3.5 transition-all cursor-pointer hover:border-border-default hover:bg-surface-card/80 hover:shadow-xs @2xl:flex-row @2xl:items-center @2xl:justify-between min-w-0"
               >
                 {/* Col 1: Identity */}
-                <div className="flex items-center gap-3 min-w-[220px]">
+                <div className="flex items-center gap-3 min-w-0">
                   {/* Status Indicator Dot */}
                   <div className="flex shrink-0 items-center justify-center">
                     {isOnline ? (
@@ -232,7 +232,7 @@ export function CommandCenterFleetList({
                   <div className="min-w-0">
                     <Link
                       to={`/servers/${server.server_id}`}
-                      className="block truncate text-sm font-bold text-text-primary hover:text-accent-primary transition-colors"
+                      className="block truncate text-sm font-bold text-text-primary hover:text-accent-primary transition-colors after:absolute after:inset-0 after:rounded-lg focus:outline-hidden focus-visible:after:ring-2 focus-visible:after:ring-border-focus"
                     >
                       {server.name}
                     </Link>
@@ -245,13 +245,13 @@ export function CommandCenterFleetList({
                 </div>
 
                 {/* Col 2: Network & Players */}
-                <div className="flex items-center gap-4 text-xs">
+                <div className="flex items-center gap-4 text-xs min-w-0">
                   {server.port ? (
                     <button
                       type="button"
                       onClick={() => copyPort(server.port)}
                       title="Click to copy server port"
-                      className="flex items-center gap-1 rounded bg-surface-card px-2 py-0.5 font-mono text-xs text-text-secondary border border-border-subtle hover:border-border-default transition-colors"
+                      className="relative z-10 flex items-center gap-1 rounded bg-surface-card px-2 py-0.5 font-mono text-xs text-text-secondary border border-border-subtle hover:border-border-default transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
                     >
                       <span>:{server.port}</span>
                       <Icon
@@ -278,7 +278,7 @@ export function CommandCenterFleetList({
                 </div>
 
                 {/* Col 3: Live Instance Telemetry */}
-                <div className="min-w-[180px] text-xs">
+                <div className="min-w-0 flex-1 text-xs">
                   {(() => {
                     const detail = detailsMap?.[server.server_id];
                     const maxMb = detail?.max_memory_mb ?? 2048;
@@ -294,9 +294,9 @@ export function CommandCenterFleetList({
 
                     return isOnline ? (
                       <div className="space-y-1">
-                        <div className="flex items-center justify-between font-mono text-[11px] text-text-secondary">
-                          <span>CPU: {latest ? `${cpuPct.toFixed(1)}%` : "0.0%"}</span>
-                          <span>RAM: {usedGb.toFixed(1)} / {maxGb.toFixed(1)} GB</span>
+                        <div className="flex items-center justify-between gap-2 font-mono text-[11px] text-text-secondary">
+                          <span className="whitespace-nowrap">CPU: {latest ? `${cpuPct.toFixed(1)}%` : "0.0%"}</span>
+                          <span className="whitespace-nowrap">RAM: {usedGb.toFixed(1)} / {maxGb.toFixed(1)} GB</span>
                         </div>
                         <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-card">
                           <div style={{ width: `${cpuPct}%` }} className="bg-status-success" />
@@ -312,13 +312,13 @@ export function CommandCenterFleetList({
                 </div>
 
                 {/* Col 4: Action Control Group */}
-                <div className="flex items-center justify-end gap-1.5 shrink-0">
+                <div className="relative z-10 flex items-center justify-end gap-1.5 shrink-0">
                   {isOnline || isStarting ? (
                     <button
                       type="button"
                       onClick={() => handleStop(server.server_id, server.name)}
                       disabled={isBusy || isStarting}
-                      className="flex h-8 items-center gap-1.5 rounded-lg border border-status-danger-border bg-status-danger-bg px-3 text-xs font-semibold text-status-danger hover:bg-status-danger/20 disabled:opacity-40 transition-colors"
+                      className="relative z-10 flex h-8 items-center gap-1.5 rounded-lg border border-status-danger-border bg-status-danger-bg px-3 text-xs font-semibold text-status-danger hover:bg-status-danger/20 disabled:opacity-40 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
                     >
                       <Icon name="stop" size={12} />
                       <span>Stop</span>
@@ -328,7 +328,7 @@ export function CommandCenterFleetList({
                       type="button"
                       onClick={() => handleStart(server.server_id, server.name)}
                       disabled={isBusy || isCooldown}
-                      className="flex h-8 items-center gap-1.5 rounded-lg border border-status-success-border bg-status-success-bg px-3 text-xs font-semibold text-status-success hover:bg-status-success/20 disabled:opacity-40 transition-colors"
+                      className="relative z-10 flex h-8 items-center gap-1.5 rounded-lg border border-status-success-border bg-status-success-bg px-3 text-xs font-semibold text-status-success hover:bg-status-success/20 disabled:opacity-40 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
                     >
                       <Icon name="play" size={12} />
                       <span>Start</span>
@@ -339,7 +339,7 @@ export function CommandCenterFleetList({
                   <Link
                     to={`/servers/${server.server_id}/console`}
                     title="Open Console & Terminal"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-card text-text-secondary hover:border-border-default hover:text-text-primary transition-colors"
+                    className="relative z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-card text-text-secondary hover:border-border-default hover:text-text-primary transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
                   >
                     <Icon name="terminal" size={14} />
                   </Link>
@@ -348,7 +348,7 @@ export function CommandCenterFleetList({
                   <Link
                     to={`/servers/${server.server_id}/settings`}
                     title="Configure Server"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-card text-text-secondary hover:border-border-default hover:text-text-primary transition-colors"
+                    className="relative z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-card text-text-secondary hover:border-border-default hover:text-text-primary transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
                   >
                     <Icon name="settings" size={14} />
                   </Link>

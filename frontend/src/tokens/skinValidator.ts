@@ -36,6 +36,9 @@ export const ALLOWED_TOKEN_KEYS = new Set([
   "accent-hover",
   "accent-active",
   "accent-contrast-text",
+  "brand-mark-1",
+  "brand-mark-2",
+  "brand-ink",
 
   // Status & Alerts
   "status-success",

@@ -35,9 +35,11 @@ export function AppearanceSettingsSection() {
   const theme = uiStore.theme;
   const skin = uiStore.skin;
   const density = uiStore.density;
+  const cornerStyle = uiStore.cornerStyle ?? "rounded";
   const setTheme = uiStore.setTheme;
   const setSkin = uiStore.setSkin;
   const setDensity = uiStore.setDensity;
+  const setCornerStyle = uiStore.setCornerStyle;
 
   const [activeAccent, setActiveAccent] = useState<string>(getInitialAccent);
 
@@ -88,6 +90,9 @@ export function AppearanceSettingsSection() {
     handleSelectSkin("graphite");
     setDensity("comfortable");
     handleSelectAccent("default");
+    if (typeof setCornerStyle === "function") {
+      setCornerStyle("rounded");
+    }
   };
 
   return (
@@ -574,6 +579,94 @@ export function AppearanceSettingsSection() {
         </div>
       </div>
 
+      {/* Corner Style Section */}
+      <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs space-y-4" data-testid="corner-style-section">
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider">
+            Corner Style
+          </h3>
+          <p className="text-xs text-text-muted mt-0.5">
+            Configure border radius across all cards, panels, inputs, and interactive elements.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" role="radiogroup" aria-label="Corner style">
+          {/* Rounded (Default) */}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={cornerStyle === "rounded"}
+            onClick={() => setCornerStyle("rounded")}
+            className={`text-left rounded-xl border p-4 transition-all cursor-pointer relative group focus-visible:outline-2 focus-visible:outline-border-focus ${
+              cornerStyle === "rounded"
+                ? "border-accent-primary bg-surface-elevated ring-2 ring-accent-primary/20 shadow-sm"
+                : "border-border-default bg-surface-page hover:border-border-strong hover:bg-surface-hover"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-text-primary">Rounded</span>
+              {cornerStyle === "rounded" && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-accent-primary px-2 py-0.5 text-[10px] font-semibold text-accent-contrast-text">
+                  <Icon name="check" size={10} />
+                  Active
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-text-muted mb-4">
+              Smooth, modern curves with fluid standard border radiuses.
+            </p>
+            {/* Visual Preview Box with explicit rounded styling */}
+            <div className="p-3 border border-border-subtle bg-surface-card" style={{ borderRadius: "12px" }}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="h-6 px-3 flex items-center bg-accent-primary/10 text-accent-primary text-xs font-medium" style={{ borderRadius: "8px" }}>
+                  Button
+                </div>
+                <div className="h-6 flex-1 bg-surface-muted border border-border-default px-2 flex items-center text-[11px] text-text-muted" style={{ borderRadius: "6px" }}>
+                  Input field
+                </div>
+              </div>
+            </div>
+          </button>
+
+          {/* Sharp */}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={cornerStyle === "sharp"}
+            onClick={() => setCornerStyle("sharp")}
+            className={`text-left rounded-xl border p-4 transition-all cursor-pointer relative group focus-visible:outline-2 focus-visible:outline-border-focus ${
+              cornerStyle === "sharp"
+                ? "border-accent-primary bg-surface-elevated ring-2 ring-accent-primary/20 shadow-sm"
+                : "border-border-default bg-surface-page hover:border-border-strong hover:bg-surface-hover"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-text-primary">Sharp</span>
+              {cornerStyle === "sharp" && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-accent-primary px-2 py-0.5 text-[10px] font-semibold text-accent-contrast-text">
+                  <Icon name="check" size={10} />
+                  Active
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-text-muted mb-4">
+              Flat, clean edges (2px) for a crisp, technical aesthetic.
+            </p>
+            {/* Visual Preview Box with explicit sharp styling (2px) */}
+            <div className="p-3 border border-border-subtle bg-surface-card" style={{ borderRadius: "3px" }}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="h-6 px-3 flex items-center bg-accent-primary/10 text-accent-primary text-xs font-medium" style={{ borderRadius: "2px" }}>
+                  Button
+                </div>
+                <div className="h-6 flex-1 bg-surface-muted border border-border-default px-2 flex items-center text-[11px] text-text-muted" style={{ borderRadius: "2px" }}>
+                  Input field
+                </div>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+
       {/* 5. Live Interactive Preview Card */}
       <div className="rounded-xl border border-border-default bg-surface-card p-6 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border-subtle pb-3">
@@ -586,7 +679,7 @@ export function AppearanceSettingsSection() {
             </p>
           </div>
           <div className="text-[11px] font-mono text-text-muted bg-surface-page px-2.5 py-1 rounded-lg border border-border-subtle self-start sm:self-auto">
-            Mode: {theme} • Skin: {skin} • Accent: {activeAccent} • Density: {density}
+            Mode: {theme} • Skin: {skin} • Accent: {activeAccent} • Density: {density} • Corners: {cornerStyle}
           </div>
         </div>
 

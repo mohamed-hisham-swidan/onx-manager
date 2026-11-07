@@ -28,6 +28,10 @@
   --color-accent-active: var(--accent-active);
   --color-accent-contrast-text: var(--accent-contrast-text);
 
+  --color-brand-mark-1: var(--brand-mark-1);
+  --color-brand-mark-2: var(--brand-mark-2);
+  --color-brand-ink: var(--brand-ink);
+
   --color-status-success: var(--status-success);
   --color-status-warning: var(--status-warning);
   --color-status-danger: var(--status-danger);
@@ -50,6 +54,15 @@
   --spacing-density-card: var(--density-padding-card);
   --spacing-density-row: var(--density-padding-row);
   --spacing-density-input: var(--density-height-input);
+
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+  --radius-3xl: var(--radius-3xl);
+  --radius: var(--radius-md);
 }
 
 :root {
@@ -82,6 +95,10 @@
   --accent-active: #1e40af;
   --accent-contrast-text: #ffffff;
 
+  --brand-mark-1: #1e293b;
+  --brand-mark-2: #f1f5f9;
+  --brand-ink: #0f172a;
+
   --status-success: #16a34a;
   --status-warning: #d97706;
   --status-danger: #dc2626;
@@ -112,6 +129,15 @@
   --motion-duration-normal: 250ms;
   --motion-duration-slow: 350ms;
   --motion-ease-default: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Corner Radius Defaults (Rounded mode) */
+  --radius-xs: 0.125rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
 }
 
 /* Dark mode fallback: preserve existing dark styling while tokens migrate */
@@ -140,6 +166,10 @@
   --accent-hover: #2563eb;
   --accent-active: #1d4ed8;
   --accent-contrast-text: #ffffff;
+
+  --brand-mark-1: #60a5fa;
+  --brand-mark-2: #0f172a;
+  --brand-ink: #f8fafc;
 
   --status-success: #22c55e;
   --status-warning: #eab308;
@@ -185,6 +215,10 @@
   --accent-active: #1e40af;
   --accent-contrast-text: #ffffff;
 
+  --brand-mark-1: #cbd5e1;
+  --brand-mark-2: #08090e;
+  --brand-ink: #f0f2f8;
+
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
@@ -219,6 +253,10 @@
   --accent-hover: #1d4ed8;
   --accent-active: #1e40af;
   --accent-contrast-text: #ffffff;
+
+  --brand-mark-1: #1e293b;
+  --brand-mark-2: #f1f5f9;
+  --brand-ink: #0f172a;
 
   --status-success: #15803d;
   --status-warning: #b45309;
@@ -258,6 +296,10 @@
   --accent-active: #0369a1;
   --accent-contrast-text: #08090e;
 
+  --brand-mark-1: #38bdf8;
+  --brand-mark-2: #090d16;
+  --brand-ink: #f0f6fc;
+
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
@@ -293,6 +335,10 @@
   --accent-active: #075985;
   --accent-contrast-text: #ffffff;
 
+  --brand-mark-1: #0369a1;
+  --brand-mark-2: #f0f5fa;
+  --brand-ink: #0b1626;
+
   --status-success: #15803d;
   --status-warning: #b45309;
   --status-danger: #b91c1c;
@@ -307,34 +353,38 @@
 [data-skin="emerald"],
 [data-skin="emerald"][data-mode="dark"],
 [data-skin="emerald"].dark {
-  --surface-page: #070e0c;
-  --surface-card: #0f1b17;
-  --surface-hover: #1d332c;
-  --surface-active: #244038;
-  --surface-elevated: #162621;
+  --surface-page: #0d0f0f;
+  --surface-card: #151818;
+  --surface-hover: #212626;
+  --surface-active: #2c3232;
+  --surface-elevated: #1a1e1e;
   --surface-overlay: rgba(0, 0, 0, 0.85);
-  --surface-muted: #0b1411;
+  --surface-muted: #111414;
 
-  --text-primary: #ecfdf5;
-  --text-secondary: #a7f3d0;
-  --text-muted: #82bda6;
+  --text-primary: #f0f5f3;
+  --text-secondary: #cbd8d4;
+  --text-muted: #9caaa5;
   --text-inverse: #070e0c;
-  --text-accent: #2dd4bf;
+  --text-accent: #7cc7bc;
 
-  --border-subtle: #1c3830;
-  --border-default: #568576;
-  --border-strong: #82bda6;
-  --border-focus: #14b8a6;
+  --border-subtle: #262d2b;
+  --border-default: #66756f;
+  --border-strong: #9caaa5;
+  --border-focus: #4fa89b;
 
-  --accent-primary: #14b8a6;
-  --accent-hover: #0d9488;
-  --accent-active: #0f766e;
-  --accent-contrast-text: #070e0c;
+  --accent-primary: #4fa89b;
+  --accent-hover: #438f84;
+  --accent-active: #397a71;
+  --accent-contrast-text: #0d0f0f;
+
+  --brand-mark-1: #4fa89b;
+  --brand-mark-2: #070e0c;
+  --brand-ink: #f0f5f3;
 
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
-  --status-info: #14b8a6;
+  --status-info: #4fa89b;
   --status-neutral: #82bda6;
 
   --terminal-bg: #040807;
@@ -342,34 +392,38 @@
 }
 
 [data-skin="emerald"][data-mode="light"] {
-  --surface-page: #f0fdf4;
+  --surface-page: #f4f8f6;
   --surface-card: #ffffff;
-  --surface-hover: #f2f9f5;
-  --surface-active: #e1efe7;
+  --surface-hover: #eef4f1;
+  --surface-active: #e0eae5;
   --surface-elevated: #ffffff;
   --surface-overlay: rgba(7, 14, 12, 0.5);
-  --surface-muted: #e8f7ee;
+  --surface-muted: #eff5f2;
 
-  --text-primary: #062419;
-  --text-secondary: #1c4937;
-  --text-muted: #3d6754;
+  --text-primary: #0d1a16;
+  --text-secondary: #344a43;
+  --text-muted: #4f645c;
   --text-inverse: #ffffff;
-  --text-accent: #047857;
+  --text-accent: #2f7d73;
 
-  --border-subtle: #e0ece5;
-  --border-default: #5a8272;
-  --border-strong: #3d6754;
-  --border-focus: #047857;
+  --border-subtle: #dde8e3;
+  --border-default: #7a8f87;
+  --border-strong: #4f645c;
+  --border-focus: #2f7d73;
 
-  --accent-primary: #047857;
-  --accent-hover: #059669;
-  --accent-active: #065f46;
+  --accent-primary: #2f7d73;
+  --accent-hover: #276b62;
+  --accent-active: #205c54;
   --accent-contrast-text: #ffffff;
+
+  --brand-mark-1: #2f7d73;
+  --brand-mark-2: #f0fdf4;
+  --brand-ink: #0d1a16;
 
   --status-success: #15803d;
   --status-warning: #b45309;
   --status-danger: #b91c1c;
-  --status-info: #047857;
+  --status-info: #2f7d73;
   --status-neutral: #3d6754;
 
   --terminal-bg: #040807;
@@ -403,6 +457,10 @@
   --accent-hover: #6366f1;
   --accent-active: #4f46e5;
   --accent-contrast-text: #08090e;
+
+  --brand-mark-1: #a5b4fc;
+  --brand-mark-2: #0d0e17;
+  --brand-ink: #f5f3ff;
 
   --status-success: #22c55e;
   --status-warning: #eab308;
@@ -438,6 +496,10 @@
   --accent-hover: #7c3aed;
   --accent-active: #5b21b6;
   --accent-contrast-text: #ffffff;
+
+  --brand-mark-1: #6d28d9;
+  --brand-mark-2: #faf5ff;
+  --brand-ink: #190d2e;
 
   --status-success: #15803d;
   --status-warning: #b45309;
@@ -477,6 +539,10 @@
   --accent-active: #64748b;
   --accent-contrast-text: #0c0c0e;
 
+  --brand-mark-1: #e2e8f0;
+  --brand-mark-2: #0c0c0e;
+  --brand-ink: #f8fafc;
+
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
@@ -512,6 +578,10 @@
   --accent-active: #0f172a;
   --accent-contrast-text: #ffffff;
 
+  --brand-mark-1: #334155;
+  --brand-mark-2: #f8fafc;
+  --brand-ink: #0f172a;
+
   --status-success: #15803d;
   --status-warning: #b45309;
   --status-danger: #b91c1c;
@@ -526,34 +596,38 @@
 [data-skin="crimson"],
 [data-skin="crimson"][data-mode="dark"],
 [data-skin="crimson"].dark {
-  --surface-page: #110a0e;
-  --surface-card: #1b1116;
-  --surface-hover: #33202a;
-  --surface-active: #422a37;
-  --surface-elevated: #26181f;
+  --surface-page: #100e12;
+  --surface-card: #18151b;
+  --surface-hover: #252129;
+  --surface-active: #312c37;
+  --surface-elevated: #1e1a22;
   --surface-overlay: rgba(0, 0, 0, 0.85);
-  --surface-muted: #160d12;
+  --surface-muted: #141117;
 
-  --text-primary: #fff1f4;
-  --text-secondary: #fecdd3;
-  --text-muted: #b9959f;
+  --text-primary: #f6f2f5;
+  --text-secondary: #d6ccd3;
+  --text-muted: #ab9fa7;
   --text-inverse: #110a0e;
-  --text-accent: #fb7185;
+  --text-accent: #d99aa4;
 
-  --border-subtle: #3d2532;
-  --border-default: #8f6877;
-  --border-strong: #b9959f;
-  --border-focus: #fb7185;
+  --border-subtle: #2b2630;
+  --border-default: #726673;
+  --border-strong: #ab9fa7;
+  --border-focus: #c77d89;
 
-  --accent-primary: #fb7185;
-  --accent-hover: #f43f5e;
-  --accent-active: #e11d48;
-  --accent-contrast-text: #110a0e;
+  --accent-primary: #c77d89;
+  --accent-hover: #b56b78;
+  --accent-active: #9e5a66;
+  --accent-contrast-text: #100e12;
+
+  --brand-mark-1: #c77d89;
+  --brand-mark-2: #110a0e;
+  --brand-ink: #f6f2f5;
 
   --status-success: #22c55e;
   --status-warning: #eab308;
   --status-danger: #ef4444;
-  --status-info: #fb7185;
+  --status-info: #c77d89;
   --status-neutral: #b9959f;
 
   --terminal-bg: #0a0608;
@@ -561,34 +635,38 @@
 }
 
 [data-skin="crimson"][data-mode="light"] {
-  --surface-page: #fff1f2;
+  --surface-page: #faf6f7;
   --surface-card: #ffffff;
-  --surface-hover: #fdf2f4;
-  --surface-active: #f9dce1;
+  --surface-hover: #f4eef0;
+  --surface-active: #eadfe2;
   --surface-elevated: #ffffff;
   --surface-overlay: rgba(17, 10, 14, 0.5);
-  --surface-muted: #ffe4e8;
+  --surface-muted: #f6eff1;
 
-  --text-primary: #2d0a15;
-  --text-secondary: #591d2e;
-  --text-muted: #6e3948;
+  --text-primary: #1c1216;
+  --text-secondary: #4a3a40;
+  --text-muted: #665860;
   --text-inverse: #ffffff;
-  --text-accent: #be123c;
+  --text-accent: #a83e50;
 
-  --border-subtle: #f8d4dc;
-  --border-default: #8a5866;
-  --border-strong: #6d3544;
-  --border-focus: #be123c;
+  --border-subtle: #e9dfe2;
+  --border-default: #8a7a81;
+  --border-strong: #665860;
+  --border-focus: #a83e50;
 
-  --accent-primary: #be123c;
-  --accent-hover: #9f1239;
-  --accent-active: #881337;
+  --accent-primary: #a83e50;
+  --accent-hover: #8f3343;
+  --accent-active: #7a2a38;
   --accent-contrast-text: #ffffff;
+
+  --brand-mark-1: #a83e50;
+  --brand-mark-2: #fff1f2;
+  --brand-ink: #1c1216;
 
   --status-success: #15803d;
   --status-warning: #b45309;
   --status-danger: #b91c1c;
-  --status-info: #be123c;
+  --status-info: #a83e50;
   --status-neutral: #6e3948;
 
   --terminal-bg: #0a0608;
@@ -687,6 +765,27 @@
   --density-padding-row: 0.75rem;
   --density-height-input: 2.5rem;
   --density-font-scale: 1rem;
+}
+
+/* Corner Style Controls */
+[data-corners="sharp"] {
+  --radius-xs: 1px;
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-xl: 3px;
+  --radius-2xl: 3px;
+  --radius-3xl: 4px;
+}
+
+[data-corners="rounded"] {
+  --radius-xs: 0.125rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
 }
 
 /* Base styles */

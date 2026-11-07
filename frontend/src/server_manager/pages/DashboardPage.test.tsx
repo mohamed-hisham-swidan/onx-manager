@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DashboardPage } from "./DashboardPage";
@@ -73,6 +73,8 @@ function renderPage() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/servers/:serverId/console" element={<div data-testid="attached-console-route">Attached Console</div>} />
+          <Route path="/servers/:serverId" element={<div data-testid="server-detail-route">Server Detail</div>} />
+          <Route path="/servers" element={<div data-testid="servers-page-route">Servers Page</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -120,13 +122,111 @@ describe("DashboardPage Command Center", () => {
     expect(screen.getByText(/DAEMON STANDBY \(ALL OFFLINE\)/i)).toBeInTheDocument();
   });
 
-  it("renders quick actions: Import Server and + Deploy Server", () => {
+  it("renders quick actions: Import Server and Create Server", () => {
     renderPage();
     const importBtn = screen.getByRole("link", { name: /Import Server/i });
     expect(importBtn).toHaveAttribute("href", "/servers/import");
 
-    const deployBtn = screen.getByRole("link", { name: /\+ Deploy Server/i });
-    expect(deployBtn).toHaveAttribute("href", "/servers/create");
+    const createBtn = screen.getByRole("link", { name: /Create Server/i });
+    expect(createBtn).toHaveAttribute("href", "/servers/create");
+  });
+
+  it("ensures 'Create Server' button has no duplicate '+ ' and no 'Deploy Server' occurrences", () => {
+    renderPage();
+    const createBtn = screen.getByRole("link", { name: /Create Server/i });
+    expect(createBtn).toBeInTheDocument();
+    expect(createBtn.textContent?.replace(/\s+/g, " ").trim()).toBe("Create Server");
+    expect(screen.queryByText(/Deploy Server/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\+\s*Create Server/i)).not.toBeInTheDocument();
+  });
+
+  it("navigates to the crashed server detail page when 1 server is crashed", () => {
+    // mockServers has exactly 1 crashed server (srv-3, 'Crashed Server')
+    renderPage();
+    const badge = screen.getByRole("link", { name: /Open crashed server Crashed Server/i });
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveAttribute("href", "/servers/srv-3");
+
+    fireEvent.click(badge);
+    expect(screen.getByTestId("server-detail-route")).toBeInTheDocument();
+  });
+
+  it("navigates to servers page with status filter when more than 1 server is crashed", () => {
+    const twoCrashedServers: ServerResponse[] = [
+      mockServers[0],
+      mockServers[2],
+      {
+        ...mockServers[1],
+        server_id: "srv-4",
+        name: "Second Crashed Server",
+        status: "crashed",
+      },
+    ];
+    vi.mocked(useServersList).mockReturnValue({
+      data: twoCrashedServers,
+      isLoading: false,
+    } as unknown as ReturnType<typeof useServersList>);
+
+    renderPage();
+    const badge = screen.getByRole("link", { name: /View 2 crashed servers/i });
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveAttribute("href", "/servers?status=crashed");
+
+    fireEvent.click(badge);
+    expect(screen.getByTestId("servers-page-route")).toBeInTheDocument();
+  });
+
+  it("implements accessible stretched link pattern on server cards and preserves control actions", () => {
+    // NOTE: Overlay geometry and hit-testing of pseudo-elements (after:absolute after:inset-0)
+    // cannot be computed in JSDOM. This test asserts DOM structure, stretched link classes,
+    // presence of relative z-10 on child controls, and independent handler execution.
+    renderPage();
+
+    // Check Online Server (srv-1) card
+    const serverNameLink = screen.getByRole("link", { name: "Online Server" });
+    expect(serverNameLink).toHaveAttribute("href", "/servers/srv-1");
+    // Verify after:absolute and after:inset-0 overlay classes on stretched link
+    expect(serverNameLink.className).toContain("after:absolute");
+    expect(serverNameLink.className).toContain("after:inset-0");
+
+    // Parent card must have relative, cursor-pointer, and hover styling
+    const card = serverNameLink.closest(".group");
+    expect(card).not.toBeNull();
+    expect(card).toHaveClass("relative");
+    expect(card).toHaveClass("cursor-pointer");
+
+    // Server card must contain exactly one link to the server detail
+    const cardLinks = card ? Array.from(card.querySelectorAll('a[href="/servers/srv-1"]')) : [];
+    expect(cardLinks).toHaveLength(1);
+
+    // Interactive children within the card must have relative and z-10
+    const copyBtn = within(card as HTMLElement).getByTitle("Click to copy server port");
+    expect(copyBtn).toHaveClass("relative");
+    expect(copyBtn).toHaveClass("z-10");
+
+    const stopBtn = within(card as HTMLElement).getByRole("button", { name: "Stop" });
+    expect(stopBtn).toHaveClass("relative");
+    expect(stopBtn).toHaveClass("z-10");
+
+    const terminalLink = within(card as HTMLElement).getByTitle("Open Console & Terminal");
+    expect(terminalLink).toHaveClass("relative");
+    expect(terminalLink).toHaveClass("z-10");
+    expect(terminalLink).toHaveAttribute("href", "/servers/srv-1/console");
+
+    const settingsLink = within(card as HTMLElement).getByTitle("Configure Server");
+    expect(settingsLink).toHaveClass("relative");
+    expect(settingsLink).toHaveClass("z-10");
+    expect(settingsLink).toHaveAttribute("href", "/servers/srv-1/settings");
+
+    // Check Start button on Stopped Server (srv-2)
+    const startBtns = screen.getAllByRole("button", { name: "Start" });
+    expect(startBtns[0]).toHaveClass("relative");
+    expect(startBtns[0]).toHaveClass("z-10");
+
+    // Clicking Stop button triggers stop confirmation dialog, not navigation to server detail
+    fireEvent.click(stopBtn);
+    expect(screen.getByText(/Are you sure you want to stop "Online Server"\?/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("server-detail-route")).not.toBeInTheDocument();
   });
 
   it("renders the 4-Column Hardware & Fleet KPI Grid with sparkline and metrics", () => {

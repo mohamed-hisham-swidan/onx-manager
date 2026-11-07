@@ -1,21 +1,36 @@
 import { create } from "zustand";
+import { updateDynamicFavicon } from "@/tokens/dynamicFavicon";
 import {
   THEME_KEY,
   SKIN_KEY,
   DENSITY_KEY,
   ACCENT_KEY,
+  CORNER_STYLE_KEY,
   DEFAULT_THEME,
   DEFAULT_SKIN,
   DEFAULT_DENSITY,
   DEFAULT_ACCENT,
+  DEFAULT_CORNER_STYLE,
   type Theme,
   type Skin,
   type Density,
   type AccentColor,
+  type CornerStyle,
 } from "@/tokens/storageKeys";
 
-export { THEME_KEY, SKIN_KEY, DENSITY_KEY, ACCENT_KEY, DEFAULT_THEME, DEFAULT_SKIN, DEFAULT_DENSITY, DEFAULT_ACCENT };
-export type { Theme, Skin, Density, AccentColor };
+export {
+  THEME_KEY,
+  SKIN_KEY,
+  DENSITY_KEY,
+  ACCENT_KEY,
+  CORNER_STYLE_KEY,
+  DEFAULT_THEME,
+  DEFAULT_SKIN,
+  DEFAULT_DENSITY,
+  DEFAULT_ACCENT,
+  DEFAULT_CORNER_STYLE,
+};
+export type { Theme, Skin, Density, AccentColor, CornerStyle };
 
 function loadTheme(): Theme {
   try {
@@ -69,16 +84,26 @@ function loadAccent(): AccentColor {
   return DEFAULT_ACCENT;
 }
 
+function loadCornerStyle(): CornerStyle {
+  try {
+    const raw = localStorage.getItem(CORNER_STYLE_KEY);
+    if (raw === "rounded" || raw === "sharp") return raw;
+  } catch { /* ignore */ }
+  return DEFAULT_CORNER_STYLE;
+}
+
 export function applyTheme(theme: Theme) {
   if (typeof document !== "undefined") {
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.setAttribute("data-mode", theme);
+    updateDynamicFavicon();
   }
 }
 
 export function applySkin(skin: Skin) {
   if (typeof document !== "undefined") {
     document.documentElement.setAttribute("data-skin", skin);
+    updateDynamicFavicon();
   }
 }
 
@@ -91,6 +116,12 @@ export function applyDensity(density: Density) {
 export function applyAccent(accent: AccentColor) {
   if (typeof document !== "undefined") {
     document.documentElement.setAttribute("data-accent", accent);
+  }
+}
+
+export function applyCornerStyle(cornerStyle: CornerStyle) {
+  if (typeof document !== "undefined") {
+    document.documentElement.setAttribute("data-corners", cornerStyle);
   }
 }
 
@@ -107,6 +138,7 @@ export interface UIState {
   skin: Skin;
   density: Density;
   accent: AccentColor;
+  cornerStyle: CornerStyle;
   sidebarOpen: boolean;
   mobileSidebarOpen: boolean;
   setTheme: (theme: Theme) => void;
@@ -115,6 +147,8 @@ export interface UIState {
   setDensity: (density: Density) => void;
   toggleDensity: () => void;
   setAccent: (accent: AccentColor) => void;
+  setCornerStyle: (cornerStyle: CornerStyle) => void;
+  toggleCornerStyle: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
@@ -126,17 +160,20 @@ export const useUIStore = create<UIState>((set) => {
   const initialSkin = loadSkin();
   const initialDensity = loadDensity();
   const initialAccent = loadAccent();
+  const initialCornerStyle = loadCornerStyle();
 
   applyTheme(initialTheme);
   applySkin(initialSkin);
   applyDensity(initialDensity);
   applyAccent(initialAccent);
+  applyCornerStyle(initialCornerStyle);
 
   return {
     theme: initialTheme,
     skin: initialSkin,
     density: initialDensity,
     accent: initialAccent,
+    cornerStyle: initialCornerStyle,
     sidebarOpen: true,
     mobileSidebarOpen: false,
 
@@ -179,6 +216,20 @@ export const useUIStore = create<UIState>((set) => {
       applyAccent(accent);
       set({ accent });
     },
+
+    setCornerStyle: (cornerStyle) => {
+      saveStorage(CORNER_STYLE_KEY, cornerStyle);
+      applyCornerStyle(cornerStyle);
+      set({ cornerStyle });
+    },
+
+    toggleCornerStyle: () =>
+      set((state) => {
+        const next = state.cornerStyle === "rounded" ? "sharp" : "rounded";
+        saveStorage(CORNER_STYLE_KEY, next);
+        applyCornerStyle(next);
+        return { cornerStyle: next };
+      }),
 
     setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
 

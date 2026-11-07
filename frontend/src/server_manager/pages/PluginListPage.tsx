@@ -373,17 +373,8 @@ export function PluginListPage() {
                 return (
                   <div
                     key={p.plugin_id}
-                    className="group relative flex flex-col justify-between overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4.5 pt-5 shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md"
+                    className="group relative flex h-full flex-col justify-between rounded-lg border border-border-subtle bg-surface-card p-4 transition-colors duration-150 hover:border-border-default"
                   >
-                    {/* Sleek top gradient accent strip */}
-                    <div
-                      className={`absolute top-0 start-0 end-0 h-1 ${
-                        isEnabled
-                          ? "bg-gradient-to-r from-accent-primary via-status-info to-status-success"
-                          : "bg-surface-muted"
-                      }`}
-                    />
-
                     <div>
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -391,21 +382,21 @@ export function PluginListPage() {
                             <img
                               src={p.icon_url}
                               alt={`${p.name} icon`}
-                              className="h-12 w-12 shrink-0 rounded-xl bg-surface-page object-cover border border-border-subtle shadow-2xs"
+                              className="h-11 w-11 shrink-0 rounded-lg bg-surface-page object-cover border border-border-subtle"
                             />
                           ) : (
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border-subtle bg-surface-elevated text-accent-primary font-bold text-sm shadow-2xs select-none">
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-surface-page text-text-muted font-bold text-sm select-none">
                               {meta.title.slice(0, 2).toUpperCase()}
                             </div>
                           )}
                           <div className="min-w-0 flex-1">
-                            <h3 className="truncate text-base font-bold text-text-primary" title={meta.title}>
+                            <h3 className="truncate text-[15px] font-semibold text-text-primary" title={meta.title}>
                               {meta.title}
                             </h3>
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <SourceBadge plugin={p} />
                               {meta.version && meta.version !== "unknown" && (
-                                <span className="inline-flex items-center gap-0.5 rounded-full border border-border-subtle bg-surface-elevated px-2 py-0.5 font-mono text-xs font-semibold text-text-secondary">
+                                <span className="inline-flex items-center gap-0.5 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 font-mono text-[11px] font-medium text-text-muted">
                                   <span className="text-text-muted">v</span>
                                   <span>{meta.version}</span>
                                 </span>
@@ -471,7 +462,7 @@ export function PluginListPage() {
                       </div>
 
                       {p.description && (
-                        <p className="mt-2.5 line-clamp-2 text-xs text-text-secondary leading-relaxed">
+                        <p className="mt-3 line-clamp-2 text-[13px] text-text-muted leading-[1.45] min-h-[38px]">
                           {p.description}
                         </p>
                       )}
@@ -486,11 +477,11 @@ export function PluginListPage() {
                       )}
 
                       {/* Loader tags */}
-                      <div className="mt-2.5 flex flex-wrap items-center gap-1">
+                      <div className="mt-3 flex flex-wrap items-center gap-1.5">
                         {meta.loaders.map((ldr) => (
                           <span
                             key={ldr}
-                            className="inline-flex items-center rounded-md border border-border-subtle bg-surface-page px-1.5 py-0.5 text-[10px] font-medium text-text-muted"
+                            className="inline-flex items-center rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted"
                           >
                             {ldr}
                           </span>
@@ -499,12 +490,12 @@ export function PluginListPage() {
                     </div>
 
                     {/* Action Footer */}
-                    <div className="mt-4 flex items-center justify-between border-t border-border-subtle/60 pt-3">
+                    <div className="mt-3.5 flex items-center justify-between border-t border-border-subtle pt-3">
                       <div className="flex items-center gap-1.5">
                         {(p as { has_update?: boolean }).has_update && (
                           <button
                             type="button"
-                            className="inline-flex items-center gap-1 rounded-lg bg-accent-primary/10 px-2.5 py-1 text-xs font-semibold text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 rounded-md bg-accent-primary/10 px-2.5 py-1 text-xs font-semibold text-accent-primary hover:bg-accent-primary/20 transition-colors cursor-pointer"
                             title={`Update ${p.name}`}
                             aria-label={`Update ${p.name}`}
                           >
@@ -514,7 +505,7 @@ export function PluginListPage() {
                         )}
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 rounded-lg border border-border-subtle bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
                           title={`Configure ${meta.title}`}
                         >
                           <Icon name="settings" size={13} />
@@ -528,7 +519,7 @@ export function PluginListPage() {
                         disabled={uninstallPlugin.isPending}
                         aria-label={uninstallLabel}
                         title={uninstallLabel}
-                        className="inline-flex items-center gap-1 rounded-lg border border-status-danger/20 bg-status-danger-bg px-2.5 py-1 text-xs font-medium text-status-danger hover:bg-status-danger/20 transition-colors disabled:opacity-40 cursor-pointer"
+                        className="inline-flex items-center gap-1 rounded-md border border-status-danger/20 bg-status-danger-bg px-2.5 py-1 text-xs font-medium text-status-danger hover:bg-status-danger/20 transition-colors disabled:opacity-40 cursor-pointer"
                       >
                         <Icon name="trash" size={13} />
                         Uninstall
