@@ -83,7 +83,11 @@ class TestCreateServerProvisioning:
             minecraft_version="1.21.4",
         )
 
-        result = await handler.handle(cmd)
+        with patch(
+            "app.modules.server.application.services.forge_provisioner.provision_forge_server",
+        ) as mock_provision:
+            result = await handler.handle(cmd)
+            mock_provision.assert_called_once()
 
         assert result.success is True
         sid = result.data["server_id"]
@@ -109,7 +113,11 @@ class TestCreateServerProvisioning:
             minecraft_version="1.21.1",
         )
 
-        result = await handler.handle(cmd)
+        with patch(
+            "app.modules.server.application.services.neoforge_provisioner.provision_neoforge_server",
+        ) as mock_provision:
+            result = await handler.handle(cmd)
+            mock_provision.assert_called_once()
 
         assert result.success is True
         sid = result.data["server_id"]
