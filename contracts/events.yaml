@@ -1,5 +1,10 @@
 # Event Contract
 # Every domain event schema.
+# Registry rules:
+# 1. New events are added to the catalog first before any module implements them.
+# 2. Each event has a single authoritative publisher bounded context.
+# 3. Event payloads are additive only (never remove fields).
+# 4. Schema changes require incrementing version / schema_version in the payload.
 
 version: 1.0
 
@@ -8,7 +13,7 @@ event_envelope:
   type: string  # dot-notation: "server.crashed"
   version: integer  # schema version, starts at 1
   timestamp: datetime
-  source: string  # batch name that published
+  source: string  # bounded context / module that published
   correlation_id: uuid
   payload: object  # event-specific
 
