@@ -85,12 +85,6 @@ Screenshot_*
 # ──────────────────────────────────────────────
 .history/
 
-# Local-only AI/agent tooling (never tracked)
-.ai/
-/AGENTS.md
-/Orchestrator.md
-/docs/governance/GOVERNANCE.md
-
 # ──────────────────────────────────────────────
 # Coverage / Test Artifacts
 # ──────────────────────────────────────────────
@@ -122,16 +116,11 @@ backend/data/servers/
 backend/data/staging/
 
 # ──────────────────────────────────────────────
-# Test / dev server sandbox (agent-created data)
+# Test / dev server sandbox
 # ──────────────────────────────────────────────
 backend/data/servers_test/*
 !backend/data/servers_test/TEST_DB.md
-!backend/data/servers_test/AGENT_README.md
-
-# ──────────────────────────────────────────────
-# Agent guardrail files (warnings for AI agents)
-# ──────────────────────────────────────────────
-backend/data/AGENT_README.md
+!backend/data/servers_test/README.md
 
 # ──────────────────────────────────────────────
 # Generated / auto-documented artifacts
@@ -163,13 +152,4 @@ backend/backups/
 backend/plugins/*
 !backend/plugins/sdk/
 
-# ──────────────────────────────────────────────
-# Local automation scripts & logs
-# ──────────────────────────────────────────────
-auto-continue.py
-auto-continue.sh
-auto-continue.log
-opencode.txt
-scripts/auto-continue.py
-scripts/auto-continue.sh
 
