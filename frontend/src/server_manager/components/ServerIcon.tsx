@@ -29,30 +29,39 @@ export function ServerIcon({
 
   useEffect(() => {
     if (!blob) {
-      setImageUrl(null);
       return;
     }
     if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
       return;
     }
 
+    let isMounted = true;
     try {
       const url = URL.createObjectURL(blob);
-      setImageUrl(url);
-      setImgError(false);
+      queueMicrotask(() => {
+        if (isMounted) {
+          setImageUrl(url);
+          setImgError(false);
+        }
+      });
 
       return () => {
+        isMounted = false;
         if (typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
           URL.revokeObjectURL(url);
         }
-        setImageUrl(null);
       };
     } catch {
-      setImgError(true);
+      queueMicrotask(() => {
+        if (isMounted) {
+          setImgError(true);
+        }
+      });
     }
   }, [blob]);
 
-  const showDefault = isError || imgError || !imageUrl;
+  const shownUrl = blob ? imageUrl : null;
+  const showDefault = isError || imgError || !shownUrl;
 
   return (
     <div
@@ -73,7 +82,7 @@ export function ServerIcon({
       ) : (
         <img
           data-testid="server-icon-img"
-          src={imageUrl}
+          src={shownUrl ?? undefined}
           alt=""
           onError={() => setImgError(true)}
           className="h-full w-full object-cover"
