@@ -110,7 +110,7 @@ class TestDockerContainerCleanup:
     ) -> None:
         sid = "del11111111111111111111111111111"
         server_dir = tmp_path / "deleted-server"
-        server_dir.mkdir(parents=True, exist_ok=True)
+        # Root directory must not exist so reconciliation proceeds with deletion
 
         server = Server.create(
             server_id=ServerId(sid),
@@ -166,3 +166,55 @@ class TestDockerContainerCleanup:
         # 4. Repo delete was awaited
         repo.delete.assert_awaited_once_with(server.id)
         assert len(result.deleted) == 1
+
+    @pytest.mark.asyncio
+    async def test_reconciliation_handle_delete_aborts_when_directory_still_exists(
+        self, tmp_path: Path
+    ) -> None:
+        sid = "abort1111111111111111111111111111"
+        server_dir = tmp_path / "existing-server"
+        server_dir.mkdir(parents=True, exist_ok=True)
+
+        server = Server.create(
+            server_id=ServerId(sid),
+            name="Still-Present",
+            server_type=ServerType.PAPER,
+            minecraft_version=MinecraftVersion.parse("1.21"),
+            memory=MemoryAllocation(1024, 2048),
+            java_args=JavaArguments(),
+            properties=ServerProperties(port=PortNumber(25565)),
+            deployment=ServerDeployment(
+                location_type=LocationType.DOCKER,
+                root_path=str(server_dir),
+                working_directory=".",
+                startup_jar="server.jar",
+            ),
+            runtime=RuntimeInfo(provider="docker", external_id=f"onx-{sid}"),
+        )
+
+        repo = MagicMock()
+        repo.delete = AsyncMock()
+
+        mock_provider = AsyncMock()
+        mock_factory = MagicMock()
+        mock_factory.get.return_value = mock_provider
+
+        service = FilesystemReconciliationService(
+            repo=repo,
+            provider_factory=mock_factory,
+        )
+
+        pa = PlanAction(action=ActionType.DELETE, db_server=server)
+        result = ReconciliationResult()
+
+        with patch(
+            "app.modules.server.application.supervisor.RuntimeSupervisor.stop_for",
+            new_callable=AsyncMock,
+        ) as mock_supervisor_stop:
+            await service._handle_delete(pa, result)
+
+        mock_supervisor_stop.assert_not_called()
+        mock_factory.get.assert_not_called()
+        mock_provider.destroy.assert_not_called()
+        repo.delete.assert_not_called()
+        assert len(result.deleted) == 0
