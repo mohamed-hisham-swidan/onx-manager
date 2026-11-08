@@ -51,6 +51,29 @@ from app.services.backup_orchestrator import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_port_25565():
+    with (
+        patch(
+            "app.modules.server.application.commands.start_server._port_is_listening",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.server.application.commands.stop_server._port_is_listening",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.server.application.commands.stop_server._wait_for_port_free",
+            return_value=True,
+        ),
+        patch(
+            "app.modules.server.application.runtime_ownership._port_is_listening",
+            return_value=False,
+        ),
+    ):
+        yield
+
+
 @pytest.fixture
 def event_bus() -> EventBus:
     return EventBus()
@@ -221,16 +244,53 @@ class TestStartAndRestartCommandsLeaveStarting:
     async def test_stop_command_on_starting_server_succeeds(self, event_bus: EventBus) -> None:
         await _create_server("srv-stop-starting-1", status=ServerStatus.STARTING)
 
+        mock_provider = AsyncMock()
+        mock_provider.provider_type = "local"
+        mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
+        mock_provider.stop.return_value = None
+
         handler = StopServerHandler(event_bus)
-        result = await handler.handle(
-            StopServerCommand(server_id="srv-stop-starting-1", reason="test")
-        )
+        with patch(
+            "app.modules.server.application.commands.stop_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
+            result = await handler.handle(
+                StopServerCommand(server_id="srv-stop-starting-1", reason="test")
+            )
 
         assert result.success is True
         async with database.session_factory() as session:
             repo = SQLServerRepository(session)
             saved = await repo.get(ServerId("srv-stop-starting-1"))
             assert saved.status == ServerStatus.STOPPED
+
+    @pytest.mark.asyncio
+    async def test_stop_command_on_starting_server_fail_closed_unconfirmed(
+        self, event_bus: EventBus
+    ) -> None:
+        await _create_server("srv-stop-unconfirmed-1", status=ServerStatus.STARTING)
+
+        mock_provider = AsyncMock()
+        mock_provider.provider_type = "local"
+        mock_provider.status.return_value = ServerRuntimeStatus.UNKNOWN
+        mock_provider.stop.return_value = None
+
+        handler = StopServerHandler(event_bus)
+        with patch(
+            "app.modules.server.application.commands.stop_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
+            result = await handler.handle(
+                StopServerCommand(server_id="srv-stop-unconfirmed-1", reason="test")
+            )
+
+        assert result.success is False
+        assert result.error_code == "SERVER_STOP_UNCONFIRMED"
+        assert result.data["stop_confirmed"] is False
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            saved = await repo.get(ServerId("srv-stop-unconfirmed-1"))
+            assert saved.status == ServerStatus.STOPPING
 
     @pytest.mark.asyncio
     async def test_restart_command_on_starting_server_succeeds(self, event_bus: EventBus) -> None:

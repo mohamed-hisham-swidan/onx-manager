@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.core.command_bus import CommandBus
+from app.core.command_bus import CommandBus, CommandResult
 from app.core.event_bus import EventBus
-from app.core.exceptions import FilesystemOperationError, ValidationError
+from app.core.exceptions import ValidationError
 from app.modules.activity.domain.entities import ServerActivityLog
 from app.modules.activity.domain.repository import ActivityRepository
 from app.modules.server.application.commands.start_server import StartServerCommand
@@ -486,7 +486,7 @@ async def test_promote_config_write_failure_on_second_file_raises_filesystem_err
 
     fake_fs.write_text_atomic.side_effect = write_text_atomic
 
-    test_setup["server_repo"].get.return_value.status = ServerStatus.RUNNING
+    test_setup["server_repo"].get.return_value.status = ServerStatus.STOPPED
 
     handler = PromoteCommitHandler(
         server_repo=test_setup["server_repo"],
@@ -522,17 +522,20 @@ async def test_promote_config_write_failure_on_second_file_raises_filesystem_err
     )
     await v_repo.save_test_run(run)
 
-    with pytest.raises(FilesystemOperationError) as exc_info:
-        await handler.handle(
-            PromoteCommitCommand(server_id="srv-gate-1", test_id="t-atomic-fail", force=False)
-        )
+    res = await handler.handle(
+        PromoteCommitCommand(server_id="srv-gate-1", test_id="t-atomic-fail", force=False)
+    )
+    assert res.success is False
+    assert res.error_code == "PROMOTE_SWAP_ROLLED_BACK"
+    assert "Filesystem write failed" in res.error
+    assert "ops.json" in res.error
+    assert "simulated disk full" in res.error
+    assert res.details.get("rolled_back") is True
 
     assert written == [
         str(test_setup["srv_dir"] / "server.properties"),
         str(test_setup["srv_dir"] / "ops.json"),
     ]
-    assert exc_info.value.path == str(test_setup["srv_dir"] / "ops.json")
-    assert exc_info.value.operation == "write"
 
     test_setup["test_runner"].cleanup_test.assert_not_called()
     assert not any(
@@ -540,3 +543,45 @@ async def test_promote_config_write_failure_on_second_file_raises_filesystem_err
         for call in test_setup["command_bus"].send.call_args_list
     )
     test_setup["event_bus"].publish.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_promote_fails_when_stop_not_confirmed(test_setup) -> None:
+    v_repo = test_setup["v_repo"]
+    commit = ServerCommit(
+        id="c-stop-unconfirmed",
+        server_id="srv-gate-1",
+        message="Valid commit",
+        manifest=CommitManifest(server_type="vanilla", minecraft_version="1.21.1", configs={}),
+    )
+    await v_repo.save_commit(commit)
+    test_run = ServerTestRun(
+        id="t-stop-unconfirmed",
+        server_id="srv-gate-1",
+        commit_id="c-stop-unconfirmed",
+        status=TestRunStatus.PASSED,
+        created_at=time.time(),
+    )
+    await v_repo.save_test_run(test_run)
+
+    test_setup["server_repo"].get.return_value.status = ServerStatus.RUNNING
+    test_setup["command_bus"].send = AsyncMock(
+        return_value=CommandResult(success=False, error="Stop failed")
+    )
+
+    handler = PromoteCommitHandler(
+        server_repo=test_setup["server_repo"],
+        versioning_repo=v_repo,
+        command_bus=test_setup["command_bus"],
+        test_runner=test_setup["test_runner"],
+        event_bus=test_setup["event_bus"],
+        activity_repo=test_setup["act_repo"],
+        fs=MagicMock(),
+    )
+
+    result = await handler.handle(
+        PromoteCommitCommand(server_id="srv-gate-1", test_id="t-stop-unconfirmed", force=False)
+    )
+    assert result.success is False
+    assert result.error_code == "PROMOTE_STOP_NOT_CONFIRMED"
+    assert result.error_code == "PROMOTE_STOP_NOT_CONFIRMED"

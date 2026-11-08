@@ -464,9 +464,15 @@ class TestServers:
         )
 
         server_id = created_server["server_id"]
-        with patch(
-            "app.modules.server.application.commands.start_server.provider_factory.get",
-            return_value=mock_provider,
+        with (
+            patch(
+                "app.modules.server.application.commands.start_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch(
+                "app.modules.server.application.commands.start_server._port_is_listening",
+                return_value=False,
+            ),
         ):
             resp = await client.post(
                 f"/api/v1/servers/{server_id}/start", headers=privileged_header
@@ -493,6 +499,7 @@ class TestServers:
         server_id = created_server["server_id"]
         mock_provider = AsyncMock()
         mock_provider.provider_type = "local"
+        mock_provider.get_address = AsyncMock(return_value="127.0.0.1")
         mock_provider.start.return_value = DeploymentResult(
             status=ServerRuntimeStatus.RUNNING,
             address="127.0.0.1",
@@ -503,9 +510,15 @@ class TestServers:
         mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
         mock_provider.stop.return_value = None
 
-        with patch(
-            "app.modules.server.application.commands.start_server.provider_factory.get",
-            return_value=mock_provider,
+        with (
+            patch(
+                "app.modules.server.application.commands.start_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch(
+                "app.modules.server.application.commands.start_server._port_is_listening",
+                return_value=False,
+            ),
         ):
             await client.post(f"/api/v1/servers/{server_id}/start", headers=privileged_header)
         async with database._session_factory() as session:
@@ -513,9 +526,19 @@ class TestServers:
                 text("UPDATE servers SET status = 'running' WHERE id = :id"), {"id": server_id}
             )
             await session.commit()
-        with patch(
-            "app.modules.server.application.commands.stop_server.provider_factory.get",
-            return_value=mock_provider,
+        with (
+            patch(
+                "app.modules.server.application.commands.stop_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch(
+                "app.modules.server.application.commands.stop_server._port_is_listening",
+                return_value=False,
+            ),
+            patch(
+                "app.modules.server.application.commands.stop_server._wait_for_port_free",
+                return_value=True,
+            ),
         ):
             resp = await client.post(
                 f"/api/v1/servers/{server_id}/stop",
@@ -531,7 +554,11 @@ class TestServers:
         created_server: dict,
     ) -> None:
         server_id = created_server["server_id"]
-        resp = await client.delete(f"/api/v1/servers/{server_id}", headers=privileged_header)
+        with patch(
+            "app.modules.server.application.commands.delete_server._port_is_listening",
+            return_value=False,
+        ):
+            resp = await client.delete(f"/api/v1/servers/{server_id}", headers=privileged_header)
         assert resp.status_code == 204
 
     async def test_unauthorized_access(self, client: AsyncClient) -> None:
@@ -1699,7 +1726,11 @@ class TestAuthorizationEnforcement:
         self, client: AsyncClient, admin_header: dict[str, str], created_server: dict
     ) -> None:
         server_id = created_server["server_id"]
-        resp = await client.delete(f"/api/v1/servers/{server_id}", headers=admin_header)
+        with patch(
+            "app.modules.server.application.commands.delete_server._port_is_listening",
+            return_value=False,
+        ):
+            resp = await client.delete(f"/api/v1/servers/{server_id}", headers=admin_header)
         assert resp.status_code == 204
 
     async def test_stop_server_without_permission_denied(

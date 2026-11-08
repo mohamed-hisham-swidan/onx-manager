@@ -142,6 +142,14 @@ class TestDeleteBackupHandler:
 
 @pytest.mark.usefixtures("init_test_db")
 class TestRestoreBackupHandler:
+    @pytest.fixture(autouse=True)
+    def _mock_port_listening(self):
+        with patch(
+            "app.modules.backup.application.commands.restore_backup._port_is_listening",
+            return_value=False,
+        ):
+            yield
+
     async def _create_server(
         self, server_id: str, status: str = "created", with_deployment: bool = True
     ) -> None:
@@ -361,7 +369,7 @@ class TestRestoreBackupHandler:
         assert result.success is True
         assert start_result_during_restore is not None
         assert start_result_during_restore.success is False
-        assert start_result_during_restore.error_code == "SERVER_RESTORING"
+        assert start_result_during_restore.error_code == "SERVER_BUSY"
 
         # Verify status is reset to stopped after restore completes
         async with database.session_factory() as session:
