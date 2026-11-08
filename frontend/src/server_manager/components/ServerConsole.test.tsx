@@ -433,7 +433,7 @@ describe("ServerConsole Component", () => {
     expect(logContainer).toBeInTheDocument();
     expect(logContainer?.className).toContain("min-h-[420px]");
     expect(logContainer?.className).toContain("calc(100dvh-33rem)");
-    expect(logContainer?.className).not.toContain("h-[420px]");
-    expect(logContainer?.className).not.toContain("flex-1");
+    expect(logContainer?.className).not.toMatch(/(^|\s)h-\[420px\]/);
+    expect(logContainer?.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
   });
 });
