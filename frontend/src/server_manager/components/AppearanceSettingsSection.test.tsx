@@ -113,4 +113,26 @@ describe("AppearanceSettingsSection - Corner Style Setting", () => {
     expect(sharpBody).toContain("--radius-2xl: 3px;");
     expect(sharpBody).toContain("--radius-3xl: 4px;");
   });
+
+  it("6. Does not render duplicate paletteBadge next to skin title in skin gallery cards", () => {
+    render(<AppearanceSettingsSection />);
+    // Each skin should have its name rendered exactly once per card, not duplicated as a badge
+    const obsidianMatches = screen.getAllByText("Obsidian Graphite");
+    expect(obsidianMatches).toHaveLength(1);
+
+    const midnightMatches = screen.getAllByText("Midnight Nord");
+    expect(midnightMatches).toHaveLength(1);
+
+    const cyberMatches = screen.getAllByText("Cyber Matrix");
+    expect(cyberMatches).toHaveLength(1);
+  });
+
+  it("7. Density cards use bg-surface-muted without inner bordered boxes", () => {
+    const { container } = render(<AppearanceSettingsSection />);
+    // Density preview boxes should use bg-surface-muted and not have border-border-subtle inside the card
+    const mutedDensityBoxes = container.querySelectorAll(".bg-surface-muted");
+    expect(mutedDensityBoxes.length).toBeGreaterThan(0);
+    const densityBorderedBoxes = container.querySelectorAll(".space-y-2.border-border-subtle, .space-y-1.border-border-subtle");
+    expect(densityBorderedBoxes.length).toBe(0);
+  });
 });

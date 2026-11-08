@@ -59,6 +59,7 @@ class RuntimeSupervisor:
         self._last_heartbeat = time.time()
         self._start_duration: float | None = None
         self._ready_at_wall: float | None = None
+        self._running_persisted: bool = False
         self._stop_event = asyncio.Event()
 
     @property
@@ -201,6 +202,75 @@ class RuntimeSupervisor:
                 self._server_id,
             )
 
+    async def _persist_running_transition(self, ready_reason: str = "") -> bool:
+        backoffs = [0.5, 1.0, 2.0]
+        for attempt in range(len(backoffs)):
+            try:
+                server = await self._repo_get(ServerId(self._server_id))
+                if self._stop_event.is_set():
+                    logger.info(
+                        'Concurrent stop detected during RUNNING transition for server "%s" — skipping sid=%s',
+                        self._server_name,
+                        self._server_id,
+                    )
+                    return False
+                if server.status != ServerStatus.STARTING:
+                    if server.status == ServerStatus.RUNNING:
+                        self._running_persisted = True
+                        return True
+                    return False
+
+                pid = (
+                    self._handle.metadata.get("pid", 0)
+                    if hasattr(self._handle, "metadata") and self._handle.metadata
+                    else (server.runtime.pid or 0)
+                )
+                port = (
+                    self._handle.metadata.get("port", server.properties.port.value)
+                    if hasattr(self._handle, "metadata") and self._handle.metadata
+                    else (server.runtime.port or server.properties.port.value)
+                )
+                external_id = self._handle.external_id or server.runtime.external_id
+                start_time = server.runtime.start_time
+                try:
+                    live_addr = await self._provider.get_address(self._handle)
+                except Exception:
+                    live_addr = None
+                host = live_addr or server.runtime.host or "127.0.0.1"
+
+                server.mark_running(
+                    pid=pid,
+                    port=port,
+                    host=host,
+                    external_id=external_id,
+                    start_time=start_time,
+                )
+                await self._repo_save(server)
+                self._running_persisted = True
+                add_timeline_milestone(
+                    None,
+                    f"Server marked running{f' ({ready_reason})' if ready_reason else ''}",
+                    self._server_name,
+                    self._server_id,
+                )
+                return True
+            except Exception as exc:
+                logger.warning(
+                    'Attempt %d/3 to persist RUNNING for server "%s" failed: %s',
+                    attempt + 1,
+                    self._server_name,
+                    exc,
+                )
+                if attempt < len(backoffs) - 1:
+                    await asyncio.sleep(backoffs[attempt])
+
+        logger.error(
+            'Failed to transition server "%s" to RUNNING after 3 attempts — sid=%s',
+            self._server_name,
+            self._server_id,
+        )
+        return False
+
     async def _verify_startup(self) -> None:
         deadline = self._started_at + self._startup_timeout
         iteration = 0
@@ -230,50 +300,7 @@ class RuntimeSupervisor:
                     self._server_name,
                     self._server_id,
                 )
-                try:
-                    server = await self._repo_get(ServerId(self._server_id))
-                    if self._stop_event.is_set():
-                        logger.info(
-                            'Concurrent stop detected after wait_ready for server "%s" — skipping RUNNING transition sid=%s',
-                            self._server_name,
-                            self._server_id,
-                        )
-                        return
-                    pid = (
-                        self._handle.metadata.get("pid", 0)
-                        if hasattr(self._handle, "metadata") and self._handle.metadata
-                        else (server.runtime.pid or 0)
-                    )
-                    port = (
-                        self._handle.metadata.get("port", server.properties.port.value)
-                        if hasattr(self._handle, "metadata") and self._handle.metadata
-                        else (server.runtime.port or server.properties.port.value)
-                    )
-                    external_id = self._handle.external_id or server.runtime.external_id
-                    start_time = server.runtime.start_time
-                    try:
-                        live_addr = await self._provider.get_address(self._handle)
-                    except Exception:
-                        live_addr = None
-                    host = live_addr or server.runtime.host or "127.0.0.1"
-                    if server.status == ServerStatus.STARTING:
-                        server.mark_running(
-                            pid=pid,
-                            port=port,
-                            host=host,
-                            external_id=external_id,
-                            start_time=start_time,
-                        )
-                        await self._repo_save(server)
-                        add_timeline_milestone(
-                            None, "Server marked running", self._server_name, self._server_id
-                        )
-                except Exception:
-                    logger.exception(
-                        'Failed to transition server "%s" to RUNNING after startup verification — sid=%s',
-                        self._server_name,
-                        self._server_id,
-                    )
+                await self._persist_running_transition(ready_reason="startup verified")
                 return
 
             iteration += 1
@@ -311,55 +338,7 @@ class RuntimeSupervisor:
                 elapsed,
                 self._server_id,
             )
-            # Deadline elapsed but process still alive: best-effort transition to
-            # RUNNING below (guarded by the concurrent-stop recheck).
-            try:
-                server = await self._repo_get(ServerId(self._server_id))
-                if self._stop_event.is_set():
-                    logger.info(
-                        'Concurrent stop detected at startup deadline for server "%s" — skipping RUNNING transition sid=%s',
-                        self._server_name,
-                        self._server_id,
-                    )
-                    return
-                pid = (
-                    self._handle.metadata.get("pid", 0)
-                    if hasattr(self._handle, "metadata") and self._handle.metadata
-                    else (server.runtime.pid or 0)
-                )
-                port = (
-                    self._handle.metadata.get("port", server.properties.port.value)
-                    if hasattr(self._handle, "metadata") and self._handle.metadata
-                    else (server.runtime.port or server.properties.port.value)
-                )
-                external_id = self._handle.external_id or server.runtime.external_id
-                start_time = server.runtime.start_time
-                try:
-                    live_addr = await self._provider.get_address(self._handle)
-                except Exception:
-                    live_addr = None
-                host = live_addr or server.runtime.host or "127.0.0.1"
-                if server.status == ServerStatus.STARTING:
-                    server.mark_running(
-                        pid=pid,
-                        port=port,
-                        host=host,
-                        external_id=external_id,
-                        start_time=start_time,
-                    )
-                    await self._repo_save(server)
-                    add_timeline_milestone(
-                        None,
-                        "Server marked running (deadline continue)",
-                        self._server_name,
-                        self._server_id,
-                    )
-            except Exception:
-                logger.exception(
-                    'Failed to transition server "%s" to RUNNING on deadline continue — sid=%s',
-                    self._server_name,
-                    self._server_id,
-                )
+            await self._persist_running_transition(ready_reason="deadline continue")
             return
         diag = await self._provider.collect_diagnostics(self._handle)
         log_crash_diagnostics(
@@ -445,6 +424,8 @@ class RuntimeSupervisor:
                     self._active = False
                     self._stop_event.set()
                 return
+            if not self._running_persisted:
+                await self._persist_running_transition(ready_reason="health_check_self_heal")
             self._last_heartbeat = time.time()
         except ProviderError as exc:
             # Provider explicitly cannot verify (e.g., tmux missing, job not found)
@@ -503,6 +484,48 @@ class RuntimeSupervisor:
             pid = self._handle.metadata.get("pid") if hasattr(self._handle, "metadata") else None
             diag.failure_reason = f"Unexpected error during health check (pid={pid})"
             await self._handle_crash(diag)
+
+    async def _stop_runtime_on_crash(self) -> None:
+        still_running = False
+        try:
+            status = await self._provider.status(self._handle)
+            if status == ServerRuntimeStatus.RUNNING:
+                still_running = True
+        except Exception:
+            still_running = True
+
+        if not still_running:
+            try:
+                alive = await self._provider.verify_process(self._handle)
+                if alive:
+                    still_running = True
+            except Exception:
+                pass
+
+        if still_running:
+            logger.warning(
+                'Server "%s" still running during crash handling — stopping runtime sid=%s',
+                self._server_name,
+                self._server_id,
+            )
+            try:
+                await asyncio.wait_for(
+                    self._provider.stop(self._handle, force=False),
+                    timeout=20.0,
+                )
+            except Exception:
+                try:
+                    await asyncio.wait_for(
+                        self._provider.stop(self._handle, force=True),
+                        timeout=10.0,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        'Force stop during crash failed for server "%s" sid=%s: %s',
+                        self._server_name,
+                        self._server_id,
+                        exc,
+                    )
 
     async def _cleanup_os_resources(self) -> None:
         session_name = self._handle.external_id if hasattr(self._handle, "external_id") else ""
@@ -574,6 +597,7 @@ class RuntimeSupervisor:
             failure_reason=diag.failure_reason,
         )
 
+        await self._stop_runtime_on_crash()
         await self._cleanup_os_resources()
 
         try:

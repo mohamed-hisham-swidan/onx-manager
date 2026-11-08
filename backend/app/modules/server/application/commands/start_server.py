@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from typing import TYPE_CHECKING
 
 from pydantic import Field
 
@@ -30,11 +32,21 @@ from app.modules.server.application.startup_guard import check_startup_readiness
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
-from app.modules.server.domain.value_objects import default_provider_for_platform
+from app.modules.server.domain.value_objects import (
+    build_server_handle,
+    default_provider_for_platform,
+)
 from app.modules.server.infrastructure.providers import provider_factory
-from app.modules.server.infrastructure.providers.base import ServerHandle
+from app.modules.server.infrastructure.providers.base import (
+    ServerHandle,
+    ServerProvider,
+    ServerRuntimeStatus,
+)
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
+
+if TYPE_CHECKING:
+    from app.modules.server.application.lifecycle_lock import ServerLifecycleLeaseManager
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.start_server")
 
@@ -45,42 +57,136 @@ class StartServerCommand(Command):
 
 
 class StartServerHandler(CommandHandler[StartServerCommand]):
-    def __init__(self, event_bus: EventBus) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        provider: ServerProvider | None = None,
+        lifecycle_lease: ServerLifecycleLeaseManager | None = None,
+    ) -> None:
         self._event_bus = event_bus
+        self._provider = provider
+        self._lifecycle_lease = lifecycle_lease
 
     async def handle(self, command: StartServerCommand) -> CommandResult:
+        if self._lifecycle_lease is not None:
+            async with self._lifecycle_lease.acquire(
+                command.server_id,
+                holder=f"StartServerCommand:{os.getpid()}",
+                wait_timeout=60.0,
+            ):
+                return await self._handle_locked(command)
+        return await self._handle_locked(command)
+
+    async def _handle_locked(self, command: StartServerCommand) -> CommandResult:
         server_id = ServerId(command.server_id)
         sid = str(server_id)
-
-        active_supervisor = RuntimeSupervisor.get_for(sid)
-        if active_supervisor and active_supervisor.is_running:
-            logger.warning(
-                "Server has an active supervisor — stopping it first server_id=%s",
-                sid,
-            )
-            await RuntimeSupervisor.stop_for(sid)
 
         async with UnitOfWork(self._event_bus) as uow:
             repo: ServerRepository = SQLServerRepository(uow.session)
             server = await repo.get(server_id)
 
-            if server.status == ServerStatus.RESTORING:
+            server_dir = (
+                server.deployment.server_directory()
+                if server.deployment
+                else None
+            )
+
+            provider_type = (
+                server.runtime.provider
+                if (server.runtime and server.runtime.provider)
+                else default_provider_for_platform()
+            )
+            provider = (
+                self._provider
+                if self._provider is not None
+                else provider_factory.get(provider_type)
+            )
+            provider_name = getattr(provider, "name", provider_type)
+
+            # Idempotent status re-check inside the lock
+            if server.status == ServerStatus.RUNNING:
+                handle = build_server_handle(server, provider_name, server_dir)
+                runtime_status = await provider.status(handle)
+                if runtime_status == ServerRuntimeStatus.RUNNING:
+                    active_supervisor = RuntimeSupervisor.get_for(sid)
+                    if not active_supervisor or not active_supervisor.is_running:
+                        RuntimeSupervisor.start_for(
+                            server=server,
+                            provider=provider,
+                            handle=handle,
+                            repo_get=lambda s_id: sql_get_server(s_id),
+                            repo_save=lambda s: sql_save_server(s, self._event_bus),
+                            startup_timeout=float(
+                                server.startup_timeout_seconds
+                                or get_live_settings().server_startup_timeout_seconds
+                            ),
+                        )
+                    return CommandResult(
+                        success=True,
+                        data={"server_id": sid, "status": "running", "idempotent": True},
+                    )
+                else:
+                    await RuntimeSupervisor.stop_for(sid)
+                    server.mark_stopped()
+                    await repo.save(server)
+                    for event in server.collect_events():
+                        uow.add_event(event)
+
+            elif server.status == ServerStatus.STARTING:
+                if server.runtime and server.runtime.external_id:
+                    handle = build_server_handle(server, provider_name, server_dir)
+                    runtime_status = await provider.status(handle)
+                    if runtime_status == ServerRuntimeStatus.RUNNING:
+                        return CommandResult(
+                            success=True,
+                            data={"server_id": sid, "status": "starting", "idempotent": True},
+                        )
+                handle = build_server_handle(server, provider_name, server_dir)
+                try:
+                    await provider.stop(handle, force=True)
+                except Exception as exc:
+                    logger.debug("Error stopping partial runtime for %s: %s", sid, exc)
+                await RuntimeSupervisor.stop_for(sid)
+                server.mark_stopped()
+                await repo.save(server)
+                for event in server.collect_events():
+                    uow.add_event(event)
+
+            elif server.status in (
+                ServerStatus.PROVISIONING,
+                ServerStatus.RESTORING,
+                ServerStatus.STOPPING,
+            ):
                 return CommandResult(
                     success=False,
-                    error="Server is currently being restored from backup",
-                    error_code="SERVER_RESTORING",
+                    error=f"Cannot start server while in '{server.status.value}' state",
+                    error_code="SERVER_BUSY",
+                )
+
+            elif server.status in (
+                ServerStatus.PROVISIONING_FAILED,
+                ServerStatus.BROKEN,
+            ):
+                return CommandResult(
+                    success=False,
+                    error=f"Cannot start server in '{server.status.value}' state",
+                    error_code="INVALID_SERVER_STATE",
                 )
 
             if server.deployment is None:
                 return CommandResult(
                     success=False,
-                    error="Server has no deployment. Configure install_dir or set up a deployment path.",
+                    error=(
+                        "Server has no deployment. Configure install_dir or set up "
+                        "a deployment path."
+                    ),
                     error_code="NO_DEPLOYMENT",
                 )
 
             if server.runtime and server.runtime.external_id:
                 logger.warning(
-                    'Server "%s" has stale runtime handle "%s" — cleaning up before start server_id=%s',
+                    'Server "%s" has stale runtime handle "%s" — cleaning up '
+                    "before start server_id=%s",
                     server.name,
                     server.runtime.external_id,
                     sid,
@@ -110,12 +216,7 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     sid,
                 )
 
-            provider_type = (
-                server.runtime.provider
-                if (server.runtime and server.runtime.provider)
-                else default_provider_for_platform()
-            )
-            provider = provider_factory.get(provider_type)
+            await RuntimeSupervisor.stop_for(sid)
             server.start()
             await repo.save(server)
             for event in server.collect_events():
@@ -185,11 +286,25 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
             except Exception:
                 pass
             logger.error(
-                'Port %d still occupied after ownership claim — server="%s" occupant_pid=%s server_id=%s',
+                'Port %d still occupied after ownership claim — server="%s" '
+                "occupant_pid=%s server_id=%s",
                 port,
                 server_name,
                 occupant_pid,
                 sid,
+            )
+            async with UnitOfWork(self._event_bus) as uow:
+                repo = SQLServerRepository(uow.session)
+                server = await repo.get(server_id)
+                server.mark_stopped()
+                await repo.save(server)
+                for event in server.collect_events():
+                    uow.add_event(event)
+                await uow.commit()
+            return CommandResult(
+                success=False,
+                error=f"Port {port} is still occupied; refusing to start server",
+                error_code="PORT_OCCUPIED",
             )
         else:
             logger.info(
@@ -292,10 +407,38 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
                     provider_type,
                     sid,
                 )
+                cleanup_handle = ServerHandle(
+                    provider=provider_type,
+                    server_id=sid,
+                    external_id=f"onx-{sid}",
+                    metadata={"server_dir": str(server_dir), "port": port},
+                )
+                try:
+                    await provider.stop(cleanup_handle, force=True)
+                except Exception as exc:
+                    logger.warning("Error stopping timed-out server %s: %s", sid, exc)
+                try:
+                    await provider.destroy(cleanup_handle)
+                except Exception as exc:
+                    logger.warning("Error destroying timed-out server %s: %s", sid, exc)
+
+                still_running = False
+                try:
+                    st = await provider.status(cleanup_handle)
+                    if st == ServerRuntimeStatus.RUNNING:
+                        still_running = True
+                except Exception:
+                    pass
+                if _port_is_listening(port):
+                    still_running = True
+
                 async with UnitOfWork(self._event_bus) as uow:
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)
-                    server.mark_stopped()
+                    if still_running:
+                        server.crash(reason="Start timed out and runtime cleanup failed")
+                    else:
+                        server.mark_stopped()
                     await repo.save(server)
                     for event in server.collect_events():
                         uow.add_event(event)
@@ -363,22 +506,13 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
 
             add_timeline_milestone(None, "Process spawned, starting recorded", server_name, sid)
 
-            handle = ServerHandle(
-                provider=provider_type,
-                server_id=sid,
-                external_id=external_id,
-                metadata={
-                    "pid": result.pid,
-                    "port": result.port,
-                    "server_name": server_name,
-                },
-            )
+            handle = build_server_handle(server, provider_type, server_dir)
 
             RuntimeSupervisor.start_for(
                 server=server,
                 provider=provider,
                 handle=handle,
-                repo_get=lambda sid: sql_get_server(sid),
+                repo_get=lambda s_id: sql_get_server(s_id),
                 repo_save=lambda s: sql_save_server(s, self._event_bus),
                 startup_timeout=float(
                     server.startup_timeout_seconds

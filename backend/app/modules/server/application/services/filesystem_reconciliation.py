@@ -11,6 +11,10 @@ from pathlib import Path
 
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
+from app.modules.server.application.lifecycle_lock import (
+    ServerLifecycleLeaseManager,
+    ServerLifecycleLockTimeoutError,
+)
 from app.modules.server.application.services.identity_writer import write_server_identity
 from app.modules.server.application.services.import_service import scan_server_directory
 from app.modules.server.application.supervisor import RuntimeSupervisor
@@ -25,6 +29,7 @@ from app.modules.server.domain.value_objects import (
     ServerDeployment,
     ServerProperties,
     ServerType,
+    build_server_handle,
     default_provider_for_platform,
 )
 from app.modules.server.infrastructure.fs import FileSystem, local_fs
@@ -33,7 +38,6 @@ from app.modules.server.infrastructure.providers import (
 )
 from app.modules.server.infrastructure.providers.base import (
     ProviderFactory,
-    ServerHandle,
 )
 from app.modules.shared.value_objects import MinecraftVersion, ServerId
 
@@ -423,7 +427,18 @@ class FilesystemReconciliationService:
                     pass
 
         accounted: set[str] = set()
+        claimed_paths: set[str] = set()
         data_dir = self._servers_data_dir()
+
+        def _account_server(server_id: str, entry_path: str | None = None) -> None:
+            accounted.add(server_id)
+            if entry_path:
+                with contextlib.suppress(ValueError, OSError):
+                    claimed_paths.add(str(Path(entry_path).resolve()))
+            s = db_by_id.get(server_id)
+            if s and s.deployment and s.deployment.root_path:
+                with contextlib.suppress(ValueError, OSError):
+                    claimed_paths.add(str(Path(s.deployment.root_path).resolve()))
 
         def _score_candidate(s: Server) -> tuple[int, datetime]:
             score = 0
@@ -441,12 +456,27 @@ class FilesystemReconciliationService:
             scan = scans[i]
 
             if scan.category == ScanCategory.SCAN_FAILED:
+                matched_server: Server | None = None
+                if identity.uid and identity.uid in db_by_id:
+                    matched_server = db_by_id[identity.uid]
+                    _account_server(identity.uid, entry.path)
+
+                try:
+                    norm_entry = str(Path(entry.path).resolve())
+                    for s in db_by_path.get(norm_entry, []):
+                        _account_server(str(s.id), entry.path)
+                        if matched_server is None:
+                            matched_server = s
+                except (ValueError, OSError):
+                    pass
+
                 plan.actions.append(
                     PlanAction(
                         action=ActionType.IGNORE,
                         fs_entry=entry,
                         identity=identity,
                         scan=scan,
+                        db_server=matched_server,
                     )
                 )
                 continue
@@ -455,7 +485,7 @@ class FilesystemReconciliationService:
                 uid = identity.uid
                 if uid in db_by_id:
                     server = db_by_id[uid]
-                    accounted.add(uid)
+                    _account_server(uid, entry.path)
                     self._classify_existing(server, entry, scan, plan)
                 else:
                     plan.actions.append(
@@ -476,7 +506,7 @@ class FilesystemReconciliationService:
                     ]
                     if matching:
                         primary = sorted(matching, key=_score_candidate, reverse=True)[0]
-                        accounted.add(str(primary.id))
+                        _account_server(str(primary.id), entry.path)
                         if len(matching) > 1:
                             logger.warning(
                                 "Duplicate DB servers match root_path %s: adopted %s (%s), "
@@ -526,7 +556,7 @@ class FilesystemReconciliationService:
                 ]
                 if matching and scan.is_minecraft:
                     primary = sorted(matching, key=_score_candidate, reverse=True)[0]
-                    accounted.add(str(primary.id))
+                    _account_server(str(primary.id), entry.path)
                     plan.actions.append(
                         PlanAction(
                             action=ActionType.HEAL_IDENTITY,
@@ -553,6 +583,14 @@ class FilesystemReconciliationService:
                 continue
             if self._is_outside_data_dir(server, data_dir):
                 continue
+            if server.deployment and server.deployment.root_path:
+                try:
+                    norm_path = str(Path(server.deployment.root_path).resolve())
+                    if norm_path not in claimed_paths:
+                        if Path(norm_path).is_dir() or self._fs.is_dir(norm_path):
+                            continue
+                except (ValueError, OSError):
+                    pass
             if server.missing_since is not None:
                 plan.actions.append(
                     PlanAction(
@@ -642,7 +680,7 @@ class FilesystemReconciliationService:
         try:
             root = Path(dep.root_path).resolve()
             dd = Path(data_dir).resolve()
-            return not str(root).startswith(str(dd))
+            return not root.is_relative_to(dd)
         except (ValueError, OSError):
             return True
 
@@ -895,49 +933,63 @@ class FilesystemReconciliationService:
         server = pa.db_server
         sid = str(server.id)
 
-        # Teardown provider resources (containers, tmux sessions, etc.) before DB purge
-        provider_type = (
-            server.runtime.provider
-            if server.runtime and server.runtime.provider
-            else default_provider_for_platform()
-        )
-        external_id = (
-            server.runtime.external_id
-            if server.runtime and server.runtime.external_id
-            else f"{IDENTITY.temp_prefix_new}{sid}"
-        )
-        root_path = server.deployment.root_path if server.deployment else None
-        handle = ServerHandle(
-            provider=provider_type,
-            server_id=sid,
-            external_id=external_id,
-            metadata={"server_name": server.name, "root_path": root_path},
-        )
-        with contextlib.suppress(Exception):
-            await RuntimeSupervisor.stop_for(sid)
+        lease_mgr = ServerLifecycleLeaseManager()
         try:
-            provider = self._provider_factory.get(provider_type)
-            await asyncio.wait_for(
-                provider.destroy(handle),
-                timeout=DESTROY_TIMEOUT_SECONDS,
-            )
-            logger.info("Destroyed provider resources for deleted server %s (%s)", server.name, sid)
-        except Exception as e:
-            logger.warning(
-                "Failed to destroy provider resources for deleted server %s: %s",
-                sid,
-                e,
-            )
+            async with lease_mgr.acquire(sid, holder="FilesystemReconciliation", wait_timeout=0.0):
+                # Re-check at execution time that the directory is absent
+                if server.deployment and server.deployment.root_path:
+                    try:
+                        root_path = Path(server.deployment.root_path).resolve()
+                        if root_path.is_dir() or self._fs.is_dir(str(root_path)):
+                            logger.warning(
+                                "Aborting DELETE for server %s (%s): directory %s still exists",
+                                server.name,
+                                sid,
+                                server.deployment.root_path,
+                            )
+                            return
+                    except (ValueError, OSError):
+                        pass
 
-        server.mark_deleted()
-        await self._repo.delete(server.id)
-        result.deleted.append(
-            {
-                "server_id": sid,
-                "name": server.name,
-            }
-        )
-        logger.info("Deleted MISSING server %s (%s) — second pass", server.name, sid)
+                # Teardown provider resources (containers, tmux sessions, etc.) before DB purge
+                provider_type = (
+                    server.runtime.provider
+                    if server.runtime and server.runtime.provider
+                    else default_provider_for_platform()
+                )
+                root_path = server.deployment.root_path if server.deployment else None
+                handle = build_server_handle(server, provider_type, server_dir=root_path)
+                if root_path and "root_path" not in handle.metadata:
+                    handle.metadata["root_path"] = root_path
+
+                with contextlib.suppress(Exception):
+                    await RuntimeSupervisor.stop_for(sid)
+                try:
+                    provider = self._provider_factory.get(provider_type)
+                    await asyncio.wait_for(
+                        provider.destroy(handle),
+                        timeout=DESTROY_TIMEOUT_SECONDS,
+                    )
+                    logger.info("Destroyed provider resources for deleted server %s (%s)", server.name, sid)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to destroy provider resources for deleted server %s: %s",
+                        sid,
+                        e,
+                    )
+
+                server.mark_deleted()
+                await self._repo.delete(server.id)
+                result.deleted.append(
+                    {
+                        "server_id": sid,
+                        "name": server.name,
+                    }
+                )
+                logger.info("Deleted MISSING server %s (%s) — second pass", server.name, sid)
+        except ServerLifecycleLockTimeoutError:
+            logger.info("Server %s is locked by an active operation; skipping reconciliation delete", sid)
+            return
 
     async def _handle_unchanged(self, pa: PlanAction, result: ReconciliationResult) -> None:
         result.unchanged.append(
@@ -948,14 +1000,24 @@ class FilesystemReconciliationService:
         )
 
     async def _handle_ignore(self, pa: PlanAction, result: ReconciliationResult) -> None:
-        self._write_single_identity(pa.fs_entry.path, pa.identity.uid, result)
+        if (
+            pa.identity
+            and pa.identity.uid
+            and (not pa.scan or pa.scan.category != ScanCategory.SCAN_FAILED)
+        ):
+            self._write_single_identity(pa.fs_entry.path, pa.identity.uid, result)
+        reason = (
+            "Scan failed"
+            if pa.scan and pa.scan.category == ScanCategory.SCAN_FAILED
+            else "Not a Minecraft server"
+        )
         result.ignored.append(
             {
                 "path": pa.fs_entry.path,
-                "reason": "Not a Minecraft server",
+                "reason": reason,
             }
         )
-        logger.debug("Ignored non-Minecraft directory %s", pa.fs_entry.path)
+        logger.debug("Ignored directory %s (%s)", pa.fs_entry.path, reason)
 
     async def _handle_invalid_identity(self, pa: PlanAction, result: ReconciliationResult) -> None:
         result.invalid_identity.append(

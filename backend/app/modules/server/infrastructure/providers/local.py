@@ -15,6 +15,7 @@ from typing import Any
 
 from app.core.exceptions import ProviderError
 from app.core.identity import IDENTITY
+from app.core.process_utils import verify_process_identity
 from app.modules.server.domain.diagnostics import RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
     CpuAllocation,
@@ -397,23 +398,54 @@ class LocalLinuxProvider(ServerProvider):
 
         pid = await self._get_tmux_pid(session_name)
         if pid:
+            expected_create_time = (
+                handle.metadata.get("start_time") if handle.metadata else None
+            )
+            expected_server_dir = (
+                handle.metadata.get("server_dir") if handle.metadata else None
+            )
+
             try:
-                logger.info(
-                    "Phase 2/3: Sending SIGTERM — server=%s pid=%d session=%s phase=stop",
-                    server_label,
+                import psutil
+
+                process_exists = psutil.pid_exists(pid)
+            except Exception:
+                process_exists = False
+
+            check = verify_process_identity(
+                pid,
+                expected_create_time=expected_create_time,
+                expected_server_dir=expected_server_dir,
+                allow_wrapper_shell=True,
+            )
+
+            if not check.verified and process_exists:
+                logger.warning(
+                    "Refusing to send SIGTERM to pid=%d for server=%s: "
+                    "process identity check failed (%s)",
                     pid,
-                    session_name,
-                )
-                os.kill(pid, signal.SIGTERM)
-                process_exited = False
-            except ProcessLookupError:
-                logger.debug(
-                    "SIGTERM — process already exited server=%s pid=%d session=%s phase=stop",
                     server_label,
-                    pid,
-                    session_name,
+                    check.reason,
                 )
                 process_exited = True
+            else:
+                try:
+                    logger.info(
+                        "Phase 2/3: Sending SIGTERM — server=%s pid=%d session=%s phase=stop",
+                        server_label,
+                        pid,
+                        session_name,
+                    )
+                    os.kill(pid, signal.SIGTERM)
+                    process_exited = False
+                except ProcessLookupError:
+                    logger.debug(
+                        "SIGTERM — process already exited server=%s pid=%d session=%s phase=stop",
+                        server_label,
+                        pid,
+                        session_name,
+                    )
+                    process_exited = True
 
             # Poll process liveness up to grace period before sending SIGKILL
             if not process_exited:
@@ -431,22 +463,38 @@ class LocalLinuxProvider(ServerProvider):
                     await asyncio.sleep(SHUTDOWN_POLL_INTERVAL_SECONDS)
 
             if not process_exited and await self._is_pid_alive(pid):
-                try:
-                    logger.info(
-                        "Phase 2/3: Process alive after grace; sending SIGKILL — "
-                        "server=%s pid=%d session=%s phase=stop",
-                        server_label,
+                recheck = verify_process_identity(
+                    pid,
+                    expected_create_time=expected_create_time,
+                    expected_server_dir=expected_server_dir,
+                    allow_wrapper_shell=True,
+                )
+                if not recheck.verified and process_exists:
+                    logger.warning(
+                        "Refusing to send SIGKILL to pid=%d for server=%s: "
+                        "process identity check failed (%s)",
                         pid,
-                        session_name,
-                    )
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    logger.debug(
-                        "SIGKILL — process already exited server=%s pid=%d session=%s phase=stop",
                         server_label,
-                        pid,
-                        session_name,
+                        recheck.reason,
                     )
+                else:
+                    try:
+                        logger.info(
+                            "Phase 2/3: Process alive after grace; sending SIGKILL — "
+                            "server=%s pid=%d session=%s phase=stop",
+                            server_label,
+                            pid,
+                            session_name,
+                        )
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        logger.debug(
+                            "SIGKILL — process already exited "
+                            "server=%s pid=%d session=%s phase=stop",
+                            server_label,
+                            pid,
+                            session_name,
+                        )
 
         logger.info(
             "Phase 3/3: Cleaning up tmux session — server=%s session=%s phase=stop",
@@ -505,13 +553,24 @@ class LocalLinuxProvider(ServerProvider):
         escaped = command.replace("'", "'\\''")
         try:
             returncode, stdout = await self._run_command_with_output(
-                f"tmux send-keys -t {shlex.quote(session_name)} '{escaped}' Enter",
+                f"tmux send-keys -t {shlex.quote(session_name)} -l -- '{escaped}'",
             )
             if returncode != 0:
                 raise ProviderError(
                     "local",
                     "execute_command",
-                    f"tmux send-keys failed session={session_name} cmd={command[:100]} returncode={returncode}",
+                    f"tmux send-keys failed session={session_name} cmd={command[:100]} "
+                    f"returncode={returncode}",
+                )
+            returncode, _ = await self._run_command_with_output(
+                f"tmux send-keys -t {shlex.quote(session_name)} Enter",
+            )
+            if returncode != 0:
+                raise ProviderError(
+                    "local",
+                    "execute_command",
+                    f"tmux send-keys Enter failed session={session_name} "
+                    f"returncode={returncode}",
                 )
             return stdout
         except ProviderError:

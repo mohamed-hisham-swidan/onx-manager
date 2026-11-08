@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from app.modules.versioning.domain.value_objects import (
@@ -314,7 +315,7 @@ class Materialization:
         if norm_rel.startswith("..") or os.path.isabs(relative_path):
             raise ValueError(f"Staging path escapes materialization root: {relative_path}")
         target = os.path.normpath(os.path.join(self.root_path, norm_rel))
-        if not target.startswith(os.path.normpath(self.root_path)):
+        if not Path(target).is_relative_to(Path(self.root_path)):
             raise ValueError(f"Staging path escapes materialization root: {relative_path}")
         self.path_classification[norm_rel] = classification
         return target

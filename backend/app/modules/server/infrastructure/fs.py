@@ -9,6 +9,8 @@ import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from app.core.fs_utils import assert_inside_root
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,7 +37,7 @@ class FileSystem(ABC):
     def delete(self, path: str) -> None: ...
 
     @abstractmethod
-    def delete_dir(self, path: str) -> None: ...
+    def delete_dir(self, path: str, *, root: str | None = None) -> None: ...
 
     @abstractmethod
     def copy(self, source: str, dest: str) -> None: ...
@@ -118,10 +120,12 @@ class LocalFileSystem(FileSystem):
             if p.exists():
                 raise PermissionError(f"File could not be completely removed: {path}")
 
-    def delete_dir(self, path: str) -> None:
+    def delete_dir(self, path: str, *, root: str | None = None) -> None:
         p = Path(path)
         if not p.is_dir():
             return
+        if root is not None:
+            assert_inside_root(p, root)
         shutil.rmtree(p, onexc=self._force_rm_error_handler)
 
         if p.exists():
@@ -153,7 +157,16 @@ class LocalFileSystem(FileSystem):
         shutil.copy2(source, dest)
 
     def copy_dir(self, source: str, dest: str) -> None:
-        shutil.copytree(source, dest, symlinks=False, dirs_exist_ok=True)
+        shutil.copytree(
+            source,
+            dest,
+            symlinks=False,
+            ignore_dangling_symlinks=True,
+            dirs_exist_ok=True,
+            ignore=lambda dir_path, names: [
+                n for n in names if os.path.islink(os.path.join(dir_path, n))
+            ],
+        )
 
     def rename(self, source: str, dest: str) -> None:
         os.replace(source, dest)
@@ -177,6 +190,10 @@ class LocalFileSystem(FileSystem):
         dest = Path(path)
         parent = dest.parent
         self.ensure_dir(str(parent))
+        orig_mode: int | None = None
+        if dest.exists():
+            with contextlib.suppress(OSError):
+                orig_mode = stat.S_IMODE(dest.stat().st_mode)
         fd, tmp_path = tempfile.mkstemp(dir=str(parent), suffix=".tmp")
         replaced = False
         try:
@@ -200,6 +217,9 @@ class LocalFileSystem(FileSystem):
                         path,
                         exc_info=True,
                     )
+            if orig_mode is not None:
+                with contextlib.suppress(OSError):
+                    os.chmod(tmp_path, orig_mode)
             os.replace(tmp_path, str(dest))
             replaced = True
             self._fsync_parent_dir(parent)

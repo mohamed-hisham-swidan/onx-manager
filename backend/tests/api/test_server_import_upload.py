@@ -189,9 +189,9 @@ async def test_upload_and_import_success(
     assert extracted_path.exists()
     assert (extracted_path / "server.properties").exists()
 
-    # 2. Complete import using the scanned path
+    # 2. Complete import using the scanned import_id
     import_payload = {
-        "source_path": scan_data["path"],
+        "import_id": scan_data["import_id"],
         "name": "Imported From Upload",
         "server_type": "vanilla",
         "minecraft_version": "1.20.1",
@@ -209,8 +209,12 @@ async def test_upload_and_import_success(
 
 @pytest.mark.asyncio
 async def test_scan_local_zip_file(
-    client: AsyncClient, created_user: dict, tmp_path: Path
+    client: AsyncClient, created_user: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    staging_root = tmp_path / "staging_scan"
+    staging_root.mkdir()
+    monkeypatch.setenv("MCS_IMPORT_STAGING_DIR", str(staging_root))
+
     headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
     zip_bytes = _build_zip_bytes({
         "server.properties": (
@@ -219,12 +223,14 @@ async def test_scan_local_zip_file(
         "eula.txt": b"eula=true\n",
         "purpur.jar": b"PK\x03\x04fakejarcontent",
     })
-    zip_file = tmp_path / "test_server.zip"
-    zip_file.write_bytes(zip_bytes)
+    files = {"file": ("server.zip", zip_bytes, "application/zip")}
+    upload_resp = await client.post("/api/v1/servers/import/upload", files=files, headers=headers)
+    assert upload_resp.status_code == 200
+    import_id = upload_resp.json()["import_id"]
 
     resp = await client.post(
         "/api/v1/servers/scan",
-        json={"path": str(zip_file)},
+        json={"import_id": import_id},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -236,8 +242,12 @@ async def test_scan_local_zip_file(
 
 @pytest.mark.asyncio
 async def test_import_direct_from_zip(
-    client: AsyncClient, created_user: dict, tmp_path: Path
+    client: AsyncClient, created_user: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    staging_root = tmp_path / "staging_direct"
+    staging_root.mkdir()
+    monkeypatch.setenv("MCS_IMPORT_STAGING_DIR", str(staging_root))
+
     headers = await _seed_api_key_header(client, created_user["user_id"], ["server:write"])
     zip_bytes = _build_zip_bytes({
         "server.properties": (
@@ -246,11 +256,29 @@ async def test_import_direct_from_zip(
         "eula.txt": b"eula=true\n",
         "server.jar": b"PK\x03\x04fakejarcontent",
     })
-    zip_file = tmp_path / "direct_server.zip"
-    zip_file.write_bytes(zip_bytes)
+    files = {"file": ("direct.zip", zip_bytes, "application/zip")}
+    upload_resp = await client.post("/api/v1/servers/import/upload", files=files, headers=headers)
+    assert upload_resp.status_code == 200
+    import_id = upload_resp.json()["import_id"]
 
+    # Passing raw path is rejected with 422
+    bad_payload = {
+        "source_path": "/some/path",
+        "name": "Direct Zip Imported",
+        "server_type": "vanilla",
+        "minecraft_version": "1.20.1",
+        "port": 25589,
+    }
+    bad_resp = await client.post(
+        "/api/v1/servers/import",
+        json=bad_payload,
+        headers=headers,
+    )
+    assert bad_resp.status_code == 422
+
+    # Passing valid import_id succeeds
     import_payload = {
-        "source_path": str(zip_file),
+        "import_id": import_id,
         "name": "Direct Zip Imported",
         "server_type": "vanilla",
         "minecraft_version": "1.20.1",

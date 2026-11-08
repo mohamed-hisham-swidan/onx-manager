@@ -197,7 +197,7 @@ export function ServerConsole({
   const latestCrash = hasCrashReports ? crashReports![0] : null;
 
   return (
-    <div>
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Crash Detected Alert Banner */}
       {hasCrashReports && latestCrash && (
         <div
@@ -239,7 +239,7 @@ export function ServerConsole({
         </div>
       )}
 
-      <div className="bg-terminal-bg text-terminal-text font-mono text-xs rounded-xl border border-border-default overflow-hidden mb-3">
+      <div className="flex flex-col flex-1 min-h-0 bg-terminal-bg text-terminal-text font-mono text-xs rounded-xl border border-border-default overflow-hidden mb-3">
         {/* Console Header Bar */}
         <div className="flex items-center justify-between px-3.5 py-2 bg-surface-card/90 border-b border-border-subtle text-xs select-none flex-wrap gap-2">
           <div className="flex items-center gap-2 text-text-secondary font-sans font-medium text-xs flex-wrap">
@@ -439,8 +439,8 @@ export function ServerConsole({
           </div>
         </div>
 
-        {/* Output container */}
-        <div ref={containerRef} className="h-[420px] overflow-y-auto p-3 space-y-0.5 select-text">
+        {/* Output container (33rem is a tunable constant for estimated chrome above and below the log) */}
+        <div ref={containerRef} className="h-[calc(100dvh-33rem)] min-h-[420px] overflow-y-auto p-3 space-y-0.5 select-text">
           {filteredLines.length === 0 ? (
             <p className="text-text-muted font-sans">
               {searchQuery ? "No logs matching your search filter." : "No console output yet."}

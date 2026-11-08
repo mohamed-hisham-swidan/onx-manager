@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import app.modules.health.infrastructure.models  # noqa: F401
-from app.core.command_bus import CommandBus
+from app.core.command_bus import CommandBus, CommandResult
+from app.core.config import AppSettings
 from app.core.event_bus import EventBus
 from app.core.exceptions import ServerNotFoundError
 from app.core.persistence.db import database
@@ -72,12 +73,13 @@ async def _create_test_server(
     name: str = "TestServer",
     make_running: bool = False,
     with_deployment: bool = False,
+    root_path: str | None = None,
 ) -> Server:
     deployment = None
     if with_deployment:
         deployment = ServerDeployment(
             location_type=LocationType.LOCAL,
-            root_path=f"/tmp/onx-test/{server_id}",
+            root_path=root_path or os.path.join(AppSettings().servers_data_dir, server_id),
             working_directory=".",
             startup_jar="server.jar",
         )
@@ -95,7 +97,7 @@ async def _create_test_server(
         )
         if make_running:
             server.start()
-            server.mark_running(pid=100, port=25565)
+            server.mark_running(pid=100, port=25565, external_id=f"ext-{server_id}")
         server.collect_events()
         await repo.save(server)
         await session.commit()
@@ -121,6 +123,26 @@ def _mock_runtime_supervisor_in_command_tests():
         patch(
             "app.modules.server.application.commands.restart_server.RuntimeSupervisor.start_for"
         ) as m2,
+        patch(
+            "app.modules.server.application.commands.start_server._port_is_listening",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.server.application.commands.stop_server._port_is_listening",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.server.application.commands.stop_server._wait_for_port_free",
+            AsyncMock(return_value=True),
+        ),
+        patch(
+            "app.modules.server.application.commands.restart_server._port_is_listening",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.server.application.commands.restart_server._wait_for_port_free",
+            AsyncMock(return_value=True),
+        ),
     ):
         yield m1, m2
 
@@ -196,6 +218,91 @@ class TestDeleteServerHandler:
 
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_delete_server_confirms_not_running_before_calling_destroy(
+        self, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+        await _create_test_server("test-del-f6-running", make_running=True)
+
+        mock_provider = AsyncMock()
+        mock_provider.name = "local"
+        mock_provider.status.return_value = ServerRuntimeStatus.RUNNING
+
+        handler = DeleteServerHandler(
+            event_bus, provider_factory=MagicMock(get=lambda _: mock_provider)
+        )
+
+        stop_target = (
+            "app.modules.server.application.commands.delete_server.StopServerHandler.handle"
+        )
+        port_target = (
+            "app.modules.server.application.commands.delete_server._port_is_listening"
+        )
+        with (
+            patch(stop_target) as mock_stop,
+            patch(port_target, return_value=False),
+        ):
+            mock_stop.return_value = CommandResult(success=True)
+            result = await handler.handle(DeleteServerCommand(server_id="test-del-f6-running"))
+
+        assert result.success is False
+        assert result.error_code == "DELETE_STOP_NOT_CONFIRMED"
+        assert "runtime process/container could not be stopped" in (result.error or "")
+        mock_provider.destroy.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_server_aborts_if_port_still_listening(
+        self, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+        await _create_test_server("test-del-f6-port", make_running=True)
+
+        mock_provider = AsyncMock()
+        mock_provider.name = "local"
+        mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
+
+        handler = DeleteServerHandler(
+            event_bus, provider_factory=MagicMock(get=lambda _: mock_provider)
+        )
+
+        stop_target = (
+            "app.modules.server.application.commands.delete_server.StopServerHandler.handle"
+        )
+        port_target = (
+            "app.modules.server.application.commands.delete_server._port_is_listening"
+        )
+        with (
+            patch(stop_target) as mock_stop,
+            patch(port_target, return_value=True),
+        ):
+            mock_stop.return_value = CommandResult(success=True)
+            result = await handler.handle(DeleteServerCommand(server_id="test-del-f6-port"))
+
+        assert result.success is False
+        assert result.error_code == "DELETE_STOP_NOT_CONFIRMED"
+        assert "still occupied" in (result.error or "")
+        mock_provider.destroy.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_server_provider_factory_failure_returns_error_result(
+        self, event_bus: EventBus
+    ) -> None:
+        await _create_test_server("test-del-f6-factory", make_running=True)
+
+        bad_factory = MagicMock()
+        bad_factory.get.side_effect = RuntimeError("Provider plugin crashed")
+
+        handler = DeleteServerHandler(event_bus, provider_factory=bad_factory)
+        result = await handler.handle(DeleteServerCommand(server_id="test-del-f6-factory"))
+
+        assert result.success is False
+        assert result.error_code == "PROVIDER_UNAVAILABLE"
+        assert "Provider plugin crashed" in (result.error or "")
+
 
 
 @pytest.mark.usefixtures("init_test_db")
@@ -379,9 +486,169 @@ class TestStartServerHandler:
         loaded = await _get_server("test-start-tout-1")
         assert loaded.status.value == "stopped"
 
+    @pytest.mark.asyncio
+    async def test_start_server_idempotent_when_running(self, event_bus: EventBus) -> None:
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+        server = await _create_test_server(
+            "test-start-idem-running", make_running=False, with_deployment=True
+        )
+        server.start()
+        server.mark_running(pid=1234, port=25565, external_id="onx-test-start-idem-running")
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        mock_provider = AsyncMock()
+        mock_provider.name = "local"
+        mock_provider.status.return_value = ServerRuntimeStatus.RUNNING
+
+        handler = StartServerHandler(event_bus, provider=mock_provider)
+        result = await handler.handle(StartServerCommand(server_id="test-start-idem-running"))
+
+        assert result.success is True
+        assert result.data["idempotent"] is True
+        assert result.data["status"] == "running"
+        mock_provider.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_server_idempotent_when_starting_and_alive(
+        self, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+        server = await _create_test_server(
+            "test-start-idem-starting", make_running=False, with_deployment=True
+        )
+        server.start()
+        server.record_runtime_starting(
+            pid=2345, port=25565, external_id="onx-test-start-idem-starting"
+        )
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            await repo.save(server)
+            await session.commit()
+
+        mock_provider = AsyncMock()
+        mock_provider.name = "local"
+        mock_provider.status.return_value = ServerRuntimeStatus.RUNNING
+
+        handler = StartServerHandler(event_bus, provider=mock_provider)
+        result = await handler.handle(StartServerCommand(server_id="test-start-idem-starting"))
+
+        assert result.success is True
+        assert result.data["idempotent"] is True
+        assert result.data["status"] == "starting"
+        mock_provider.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_server_fails_closed_when_port_occupied(self, event_bus: EventBus) -> None:
+        await _create_test_server("test-start-port-occ", with_deployment=True)
+
+        mock_provider = AsyncMock()
+        handler = StartServerHandler(event_bus, provider=mock_provider)
+
+        target = "app.modules.server.application.commands.start_server._port_is_listening"
+        with patch(target, return_value=True):
+            result = await handler.handle(StartServerCommand(server_id="test-start-port-occ"))
+
+        assert result.success is False
+        assert result.error_code == "PORT_OCCUPIED"
+        assert "still occupied" in (result.error or "")
+
+        loaded = await _get_server("test-start-port-occ")
+        assert loaded.status == ServerStatus.STOPPED
+        mock_provider.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_server_refuses_busy_states(self, event_bus: EventBus) -> None:
+        server = await _create_test_server("test-start-busy", with_deployment=True)
+        handler = StartServerHandler(event_bus)
+
+        busy_states = (
+            ServerStatus.PROVISIONING,
+            ServerStatus.RESTORING,
+            ServerStatus.STOPPING,
+        )
+        for busy_status in busy_states:
+            server._status = busy_status
+            async with database.session_factory() as session:
+                repo = SQLServerRepository(session)
+                await repo.save(server)
+                await session.commit()
+
+            result = await handler.handle(StartServerCommand(server_id="test-start-busy"))
+            assert result.success is False
+            assert result.error_code == "SERVER_BUSY"
+
+    @pytest.mark.asyncio
+    async def test_start_server_refuses_invalid_states(self, event_bus: EventBus) -> None:
+        server = await _create_test_server("test-start-invalid", with_deployment=True)
+        handler = StartServerHandler(event_bus)
+
+        for invalid_status in (ServerStatus.PROVISIONING_FAILED, ServerStatus.BROKEN):
+            server._status = invalid_status
+            async with database.session_factory() as session:
+                repo = SQLServerRepository(session)
+                await repo.save(server)
+                await session.commit()
+
+            result = await handler.handle(StartServerCommand(server_id="test-start-invalid"))
+            assert result.success is False
+            assert result.error_code == "INVALID_SERVER_STATE"
+
+    @pytest.mark.asyncio
+    async def test_start_server_timeout_cleans_up_runtime_and_crashes_if_alive(
+        self, event_bus: EventBus
+    ) -> None:
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+        await _create_test_server("test-start-tout-cleanup", with_deployment=True)
+
+        mock_provider = AsyncMock()
+        mock_provider.name = "docker"
+        mock_provider.provider_type = "docker"
+        mock_provider.start.side_effect = TimeoutError()
+        # Pretend runtime is still running after forced stop
+        mock_provider.status.return_value = ServerRuntimeStatus.RUNNING
+
+        handler = StartServerHandler(event_bus, provider=mock_provider)
+        with (
+            patch(
+                "app.modules.server.application.commands.start_server.provider_factory.get",
+                return_value=mock_provider,
+            ),
+            patch("asyncio.wait_for", AsyncMock(side_effect=TimeoutError())),
+        ):
+            result = await handler.handle(StartServerCommand(server_id="test-start-tout-cleanup"))
+
+        assert result.success is False
+        assert result.error_code == "STARTUP_TIMEOUT"
+        mock_provider.stop.assert_awaited_once()
+        mock_provider.destroy.assert_awaited_once()
+
+        loaded = await _get_server("test-start-tout-cleanup")
+        assert loaded.status == ServerStatus.CRASHED
+
+
 
 @pytest.mark.usefixtures("init_test_db")
 class TestStopServerHandler:
+    @pytest.fixture(autouse=True)
+    def _mock_default_stop_provider(self):
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+        mock_p = AsyncMock()
+        mock_p.provider_type = "local"
+        mock_p.stop.return_value = None
+        mock_p.status.return_value = ServerRuntimeStatus.STOPPED
+        with patch(
+            "app.modules.server.application.commands.stop_server.provider_factory.get",
+            return_value=mock_p,
+        ):
+            yield mock_p
+
     @pytest.mark.asyncio
     async def test_stop_running_server(self, event_bus: EventBus) -> None:
         await _create_test_server("test-stop-1", make_running=True)
@@ -429,9 +696,8 @@ class TestStopServerHandler:
                 StopServerCommand(server_id="test-stop-unexpected", reason="test")
             )
 
-        assert result.success is True
-        assert "stopped with unexpected status" in caplog.text
-        assert "still running after stop" not in caplog.text
+        assert result.success is False
+        assert result.error_code == "SERVER_STOP_UNCONFIRMED"
 
 
 @pytest.mark.usefixtures("init_test_db")
@@ -440,8 +706,18 @@ class TestRestartServerHandler:
     async def test_restart_server_no_deployment(self, event_bus: EventBus) -> None:
         await _create_test_server("test-restart-1", make_running=True)
 
+        from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+        mock_provider = AsyncMock()
+        mock_provider.provider_type = "local"
+        mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
+
         handler = RestartServerHandler(event_bus)
-        result = await handler.handle(RestartServerCommand(server_id="test-restart-1"))
+        with patch(
+            "app.modules.server.application.commands.restart_server.provider_factory.get",
+            return_value=mock_provider,
+        ):
+            result = await handler.handle(RestartServerCommand(server_id="test-restart-1"))
 
         assert result.success is False
         assert result.error_code == "NO_DEPLOYMENT"
@@ -529,13 +805,20 @@ class TestRestartServerHandler:
         mock_provider.provider_type = "docker"
         mock_provider.status.return_value = ServerRuntimeStatus.STOPPED
 
+        orig_wait_for = asyncio.wait_for
+
+        async def _fake_wait_for(fut, timeout=None):
+            if timeout == 30:
+                raise TimeoutError()
+            return await orig_wait_for(fut, timeout=timeout)
+
         handler = RestartServerHandler(event_bus)
         with (
             patch(
                 "app.modules.server.application.commands.restart_server.provider_factory.get",
                 return_value=mock_provider,
             ),
-            patch("asyncio.wait_for", AsyncMock(side_effect=TimeoutError())),
+            patch("asyncio.wait_for", side_effect=_fake_wait_for),
         ):
             result = await handler.handle(RestartServerCommand(server_id="test-restart-tout-1"))
 
@@ -635,6 +918,22 @@ class TestDeleteServerFS:
         r2 = await handler.handle(DeleteServerCommand(server_id="test-del-double-1"))
         assert r2.success is False
         assert r2.error_code == "NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_delete_refuses_directory_outside_servers_root(
+        self, mock_delete_dir: AsyncMock, event_bus: EventBus, tmp_path
+    ) -> None:
+        outside = tmp_path / "elsewhere" / "srv"
+        await _create_test_server(
+            "test-del-outside-1", with_deployment=True, root_path=str(outside)
+        )
+
+        handler = DeleteServerHandler(event_bus)
+        result = await handler.handle(DeleteServerCommand(server_id="test-del-outside-1"))
+
+        assert result.success is False
+        assert result.error_code == "FILESYSTEM_CLEANUP_FAILED"
+        mock_delete_dir.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_delete_without_deployment_skips_fs(
@@ -1078,6 +1377,7 @@ class TestGetServerConsole:
         async with database.session_factory() as session:
             repo = SQLServerRepository(session)
             server = await repo.get(ServerId("test-console-1"))
+            server.start()
             server.record_runtime_starting(
                 pid=1234,
                 port=25565,

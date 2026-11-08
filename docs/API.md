@@ -291,8 +291,8 @@ specific server enforce server-scoped RBAC via `require_server_permission(...)`
 | `GET` | `/api/v1/servers/available-port` | Bearer | — | — | `200 dict` | Returns `{"port": <int>}` — first free port ≥ 25565 |
 | `GET` | `/api/v1/servers` | Bearer | — | `status`, `group_id`, `name_search`, `minecraft_version` | `200 list[ServerResponse]` | Filterable list; no pagination |
 | `POST` | `/api/v1/servers` | `server:create` | `ServerCreateRequest` | — | `201 dict` | Creates a server; the creator becomes `owner_id` |
-| `POST` | `/api/v1/servers/scan` | `server:write` | `ScanDirectoryRequest` | — | `200 ScanResult` | Scans a directory for an existing server; `400`/`403` on bad path/permission |
-| `POST` | `/api/v1/servers/import` | `server:write` | `ImportServerRequest` | — | `201 dict` | Imports an existing server dir |
+| `POST` | `/api/v1/servers/scan` | `server:write` | `ScanDirectoryRequest` | — | `200 ScanResult` | Scans an uploaded staging directory by import_id; `400`/`404` on invalid/missing import |
+| `POST` | `/api/v1/servers/import` | `server:write` | `ImportServerRequest` | — | `201 dict` | Finalizes server import from an uploaded staging directory by import_id |
 | `POST` | `/api/v1/servers/import/upload` | `server:write` | `multipart/form-data` (`file`: `.zip`) | — | `200 ScanResult` | Uploads a server `.zip` archive, extracts to staging, and scans configuration |
 | `GET` | `/api/v1/servers/{server_id}` | Bearer | — | — | `200 ServerDetailResponse` | Full server detail (auth-only; no permission node) |
 | `PATCH` | `/api/v1/servers/{server_id}` | `server:write` | `ServerUpdateRequest` | — | `200 dict` | Update properties/memory |

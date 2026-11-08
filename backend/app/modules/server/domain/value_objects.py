@@ -6,6 +6,11 @@ import shlex
 import sys
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.modules.server.infrastructure.providers.base import ServerHandle
 
 from app.core.exceptions import InvalidValueError
 
@@ -109,6 +114,18 @@ class PortNumber:
         return str(self.value)
 
 
+FORBIDDEN_JVM_HOOK_FLAGS = (
+    "-XX:OnError",
+    "-XX:OnOutOfMemoryError",
+    "-XX:Flags=",
+    "-XX:VMOptionsFile",
+    "-javaagent:",
+    "-agentpath:",
+    "-agentlib:",
+    "-Xrun",
+)
+
+
 @dataclass(frozen=True)
 class JavaArguments:
     args: tuple[str, ...]
@@ -122,6 +139,13 @@ class JavaArguments:
                     value=arg,
                     reason="Invalid JVM argument (must start with '-')",
                 )
+            for forbidden_flag in FORBIDDEN_JVM_HOOK_FLAGS:
+                if arg.lower().startswith(forbidden_flag.lower()):
+                    raise InvalidValueError(
+                        field="java_args",
+                        value=arg,
+                        reason=f"Disallowed JVM flag: {forbidden_flag}",
+                    )
             _reject_shell_metachars(arg, "java_args")
         object.__setattr__(self, "args", validated)
 
@@ -312,3 +336,52 @@ class RuntimeInfo:
     restart_count: int = 0
     external_id: str = ""
     last_log_lines: list[str] = field(default_factory=list)
+
+
+def build_server_handle(
+    server: Any,
+    provider_name: str,
+    server_dir: Path | str | None = None,
+) -> ServerHandle:
+    from app.modules.server.infrastructure.providers.base import ServerHandle
+
+    server_id = str(server.id)
+    external_id = (
+        server.runtime.external_id
+        if hasattr(server, "runtime") and server.runtime and server.runtime.external_id
+        else ""
+    )
+    port_val = (
+        server.runtime.port
+        if hasattr(server, "runtime") and server.runtime and server.runtime.port
+        else (
+            server.port.value
+            if hasattr(server, "port") and hasattr(server.port, "value")
+            else getattr(server, "port", 25565)
+        )
+    )
+    pid_val = (
+        server.runtime.pid
+        if hasattr(server, "runtime") and server.runtime
+        else None
+    )
+    start_time_val = (
+        server.runtime.start_time
+        if hasattr(server, "runtime") and server.runtime
+        else None
+    )
+    server_name = str(server.name) if hasattr(server, "name") else ""
+    metadata = {
+        "server_name": server_name,
+        "pid": pid_val,
+        "start_time": start_time_val,
+        "port": port_val,
+        "server_dir": str(server_dir) if server_dir else None,
+    }
+    return ServerHandle(
+        provider=provider_name,
+        server_id=server_id,
+        external_id=external_id,
+        metadata=metadata,
+    )
+

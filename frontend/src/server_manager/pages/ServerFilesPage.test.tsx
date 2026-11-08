@@ -237,11 +237,11 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("renders /files breadcrumb as root and updates breadcrumb for subdirectories", async () => {
+  it("renders root breadcrumb and updates breadcrumb for subdirectories", async () => {
     currentFileList = [{ name: "mods", is_dir: true, size: 0, path: "mods" }];
     renderPage("srv-1", ["/servers/srv-1/files?path=mods"]);
 
-    expect(await screen.findByText("/files")).toBeInTheDocument();
+    expect(await screen.findByText("root")).toBeInTheDocument();
     expect(screen.getAllByText("mods").length).toBeGreaterThanOrEqual(1);
     expect(listServerFilesMock).toHaveBeenCalledWith("srv-1", "mods");
   });
@@ -250,7 +250,7 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
     currentFileList = [{ name: "mods", is_dir: true, size: 0, path: "mods" }];
     renderPage();
 
-    expect(await screen.findByText("/files")).toBeInTheDocument();
+    expect(await screen.findByText("root")).toBeInTheDocument();
     const folder = await screen.findByText("mods");
     fireEvent.click(folder);
 
@@ -337,5 +337,44 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
+  });
+
+  it("omits LAST MODIFIED column because api and backend do not return modified time", async () => {
+    renderPage();
+    expect(await screen.findByText("server.properties")).toBeInTheDocument();
+    expect(screen.queryByText(/last modified/i)).not.toBeInTheDocument();
+  });
+
+  it("supports row selection checkboxes and bulk delete using existing api.deleteServerFile", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("server.properties")).toBeInTheDocument();
+    expect(await screen.findByText("world")).toBeInTheDocument();
+
+    const selectFileCheckbox = screen.getByRole("checkbox", { name: "Select server.properties" });
+    await user.click(selectFileCheckbox);
+
+    const bulkDeleteBtn = screen.getByRole("button", { name: /delete selected/i });
+    expect(bulkDeleteBtn).toBeInTheDocument();
+    await user.click(bulkDeleteBtn);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText("Delete Selected Items")).toBeInTheDocument();
+
+    const confirmBtn = within(dialog).getByRole("button", { name: "Delete" });
+    await user.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(deleteServerFileMock).toHaveBeenCalledWith("srv-1", "server.properties");
+    });
+  });
+
+  it("renders folder row with open and delete action buttons", async () => {
+    renderPage();
+    expect(await screen.findByText("world")).toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: "Open world" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete world" })).toBeInTheDocument();
   });
 });

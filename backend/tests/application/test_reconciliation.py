@@ -142,7 +142,7 @@ class TestReconciliation:
 
         with patch(
             "app.modules.server.application.reconciliation.provider_factory.get",
-            return_value=MagicMock(),
+            return_value=MagicMock(status=AsyncMock(return_value=ServerRuntimeStatus.STOPPED)),
         ):
             results = await reconcile_servers(repo)
 
@@ -476,3 +476,66 @@ class TestFilesystemReconciliationNameDrift:
         assert result.total_unchanged == 1
         assert server.name == "Custom DB Server Name"
         repo.save.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_supervisor_reattach_receives_port_and_timeout() -> None:
+    from app.modules.server.application.reconciliation import reconcile_servers
+    from app.modules.server.application.supervisor import RuntimeSupervisor
+    from app.modules.server.domain.aggregate import RuntimeInfo, ServerStatus
+    from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
+
+    sid = "srv-f2-reattach"
+    server = _make_server(sid, ServerStatus.STOPPING, name="F2 Server")
+    server._runtime = RuntimeInfo(
+        status="stopping",
+        provider="local",
+        port=25577,
+        pid=5555,
+        external_id="onx-srv-f2-reattach",
+    )
+    server._startup_timeout_seconds = 75
+
+    repo = MagicMock()
+    repo.list = AsyncMock(return_value=[server])
+    repo.save = AsyncMock()
+
+    mock_provider = AsyncMock()
+    mock_provider.name = "local"
+    mock_provider.status = AsyncMock(return_value=ServerRuntimeStatus.RUNNING)
+
+    with (
+        patch(
+            "app.modules.server.application.reconciliation.provider_factory.get",
+            return_value=mock_provider,
+        ),
+        patch.object(RuntimeSupervisor, "get_for", return_value=None),
+        patch.object(RuntimeSupervisor, "start_for") as mock_start_for,
+    ):
+        results = await reconcile_servers(repo)
+
+    assert len(results) == 1
+    assert results[0]["action"] == "reverted"
+    assert results[0]["new_status"] == "running"
+
+    mock_start_for.assert_called_once()
+    call_kwargs = mock_start_for.call_args[1]
+
+    # Verify startup_timeout is passed from server.startup_timeout_seconds
+    assert call_kwargs.get("startup_timeout") == 75.0
+
+    # Verify handle carries the server port
+    handle = call_kwargs.get("handle")
+    assert handle is not None
+    assert handle.metadata.get("port") == 25577
+
+    # Verify repo_get and repo_save are session-independent, not bound to the reconcile session repo
+    repo_get_fn = call_kwargs.get("repo_get")
+    assert repo_get_fn is not None
+    with patch(
+        "app.modules.server.application.reconciliation.sql_get_server", AsyncMock()
+    ) as mock_sql_get:
+        await repo_get_fn(sid)
+        mock_sql_get.assert_called_once_with(sid)
+    repo.get.assert_not_called()
+

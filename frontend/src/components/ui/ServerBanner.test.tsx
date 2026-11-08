@@ -25,4 +25,10 @@ describe("ServerBanner", () => {
     const banner = container.firstChild as HTMLElement;
     expect(banner.style.backgroundImage).toContain("example.com/banner.png");
   });
+
+  it("defaults to 64px height (shorter h-16 banner)", () => {
+    const { container } = render(<ServerBanner seed="survival-main" />);
+    const banner = container.firstChild as HTMLElement;
+    expect(banner.style.height).toBe("64px");
+  });
 });

@@ -570,6 +570,44 @@ class TestReconcileOrphans:
         mock_kill.assert_any_call(12345, signal.SIGTERM)
         assert mock_repo.list.call_count == 2
 
+    async def test_reconcile_orphans_aborts_when_repository_raises(self):
+        mock_repo = AsyncMock(spec=ServerRepository)
+        mock_repo.list = AsyncMock(side_effect=RuntimeError("Database query failed"))
+
+        with (
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_tmux_sessions",
+                return_value=["onx-potential-orphan"],
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation._get_tmux_pid",
+                return_value=12345,
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation._is_project_owned_process",
+                return_value=True,
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation.os.kill",
+            ) as mock_kill,
+            patch(
+                "app.modules.server.application.runtime_reconciliation.platform_force_kill",
+            ) as mock_force_kill,
+            patch(
+                "app.modules.server.application.runtime_reconciliation._find_all_java_pids",
+                return_value=[9999],
+            ),
+            patch(
+                "app.modules.server.application.runtime_reconciliation._is_minecraft_java_pid",
+                return_value=True,
+            ),
+        ):
+            actions = await reconcile_orphans(mock_repo)
+
+        assert actions == []
+        mock_kill.assert_not_called()
+        mock_force_kill.assert_not_called()
+
     async def test_skips_running_server_tmux_by_external_id(self):
         server = _make_server("srv-custom", ServerStatus.RUNNING)
         server._runtime = RuntimeInfo(

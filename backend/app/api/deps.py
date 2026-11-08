@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +15,8 @@ from app.modules.storage.base import StorageBackend
 from app.modules.storage.encryption import BackupEncryption, build_backup_encryption
 from app.modules.storage.local import LocalStorage
 from app.modules.storage.s3 import S3Storage
+
+logger = logging.getLogger(__name__)
 
 _command_bus: CommandBus | None = None
 _query_bus: QueryBus | None = None
@@ -82,7 +86,8 @@ async def get_current_user(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        logger.error("Unexpected error resolving bearer token: %s", e, exc_info=True)
+        raise HTTPException(status_code=401, detail="Authentication failed") from e
 
 
 def require_permission(permission: str):

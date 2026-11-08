@@ -21,7 +21,7 @@ function hashSeed(str: string): number {
 export const ServerBanner: React.FC<ServerBannerProps> = ({
   seed,
   customBannerUrl,
-  height = 132,
+  height = 64,
   className = "",
   children,
 }) => {

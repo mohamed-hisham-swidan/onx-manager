@@ -74,116 +74,123 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                 error=f"Directory or zip archive not found: {command.source_path}",
             )
 
-        server_id = ServerId()
-        target = Path(resolve_server_dir(str(server_id), name=command.name)).resolve()
-
-        if target.exists():
-            return CommandResult(
-                success=False,
-                error=f"Target directory already exists: {target}",
-            )
-
-        async with UnitOfWork(self._event_bus) as uow:
+        def _cleanup_staging() -> None:
             try:
-                if is_zip:
-                    with tempfile.TemporaryDirectory() as td:
-                        temp_extracted = Path(td) / "extracted"
-                        temp_extracted.mkdir(parents=True, exist_ok=True)
-                        _safe_extract_zip(source, temp_extracted)
-                        effective = get_effective_server_dir(temp_extracted)
-                        local_fs.copy_dir(str(effective), str(target))
-                else:
-                    local_fs.copy_dir(str(source), str(target))
-            except Exception as exc:
-                logger.error("Failed to copy server directory: %s", exc)
-                return CommandResult(
-                    success=False,
-                    error=f"Failed to copy server directory: {exc}",
+                from app.core.config import AppSettings
+
+                staging_root = Path(AppSettings().import_staging_dir).resolve()
+                if source.is_relative_to(staging_root):
+                    rel_parts = source.relative_to(staging_root).parts
+                    if rel_parts:
+                        import_dir = staging_root / rel_parts[0]
+                        local_fs.delete_dir(str(import_dir))
+            except Exception as cleanup_err:
+                logger.warning(
+                    "Failed to clean up staging directory for %s: %s",
+                    source,
+                    cleanup_err,
                 )
 
-            uow.defer_cleanup(lambda p=str(target): local_fs.delete_dir(p))
-
-            # Remove any stale legacy identity folder copied from source archive
-            legacy_identity_dir = target / IDENTITY.identity_dir_legacy
-            if legacy_identity_dir.exists():
-                local_fs.delete_dir(str(legacy_identity_dir))
-
-            # Authoritatively stamp new server identity
-            provider_type = default_provider_for_platform()
-            write_server_identity(
-                dir_path=str(target),
-                uid=str(server_id),
-                provider=provider_type,
-                fs=local_fs,
-            )
-
-            detected_jar = _find_server_jar(str(target), local_fs) or "server.jar"
-
-            deployment = ServerDeployment(
-                location_type=LocationType.LOCAL,
-                location_uri=f"file://{target}",
-                root_path=str(target),
-                working_directory=".",
-                startup_jar=detected_jar,
-                primary_world="world",
-            )
-
-            repo: ServerRepository = SQLServerRepository(uow.session)
-
-            server = Server.create(
-                server_id=server_id,
-                name=command.name,
-                server_type=ServerType(command.server_type),
-                minecraft_version=MinecraftVersion.parse(command.minecraft_version),
-                memory=MemoryAllocation(
-                    min_mb=command.min_memory_mb,
-                    max_mb=command.max_memory_mb,
-                ),
-                java_args=JavaArguments([]),
-                properties=ServerProperties(
-                    port=PortNumber(command.port),
-                    motd=command.motd,
-                    max_players=command.max_players,
-                    gamemode=command.gamemode,
-                    difficulty=command.difficulty,
-                    spawn_protection=command.spawn_protection,
-                    pvp=command.pvp,
-                    enable_command_block=command.enable_command_block,
-                    online_mode=command.online_mode,
-                    whitelist=command.whitelist,
-                    view_distance=command.view_distance,
-                    simulation_distance=command.simulation_distance,
-                ),
-                group_id=command.group_id,
-                deployment=deployment,
-                owner_id=command.creator_id,
-            )
-            await repo.save(server)
-
-            for event in server.collect_events():
-                uow.add_event(event)
-            await uow.commit()
-
-        # Clean up staging directory if imported from an uploaded archive
         try:
-            from app.core.config import AppSettings
+            server_id = ServerId()
+            target = Path(resolve_server_dir(str(server_id), name=command.name)).resolve()
 
-            staging_root = Path(AppSettings().import_staging_dir).resolve()
-            if source.is_relative_to(staging_root):
-                rel_parts = source.relative_to(staging_root).parts
-                if rel_parts:
-                    import_dir = staging_root / rel_parts[0]
-                    local_fs.delete_dir(str(import_dir))
-        except Exception as cleanup_err:
-            logger.warning("Failed to clean up staging directory for %s: %s", source, cleanup_err)
+            if target.exists():
+                return CommandResult(
+                    success=False,
+                    error=f"Target directory already exists: {target}",
+                )
 
-        logger.info(
-            'Server "%s" imported from %s → %s (jar=%s server_id=%s)',
-            command.name,
-            source,
-            target,
-            detected_jar,
-            server_id,
-        )
+            async with UnitOfWork(self._event_bus) as uow:
+                try:
+                    if is_zip:
+                        with tempfile.TemporaryDirectory() as td:
+                            temp_extracted = Path(td) / "extracted"
+                            temp_extracted.mkdir(parents=True, exist_ok=True)
+                            _safe_extract_zip(source, temp_extracted)
+                            effective = get_effective_server_dir(temp_extracted)
+                            local_fs.copy_dir(str(effective), str(target))
+                    else:
+                        local_fs.copy_dir(str(source), str(target))
+                except Exception as exc:
+                    logger.error("Failed to copy server directory: %s", exc)
+                    return CommandResult(
+                        success=False,
+                        error=f"Failed to copy server directory: {exc}",
+                    )
 
-        return CommandResult(success=True, data={"server_id": str(server_id)})
+                uow.defer_cleanup(lambda p=str(target): local_fs.delete_dir(p))
+
+                # Remove any stale legacy identity folder copied from source archive
+                legacy_identity_dir = target / IDENTITY.identity_dir_legacy
+                if legacy_identity_dir.exists():
+                    local_fs.delete_dir(str(legacy_identity_dir))
+
+                # Authoritatively stamp new server identity
+                provider_type = default_provider_for_platform()
+                write_server_identity(
+                    dir_path=str(target),
+                    uid=str(server_id),
+                    provider=provider_type,
+                    fs=local_fs,
+                )
+
+                detected_jar = _find_server_jar(str(target), local_fs) or "server.jar"
+
+                deployment = ServerDeployment(
+                    location_type=LocationType.LOCAL,
+                    location_uri=f"file://{target}",
+                    root_path=str(target),
+                    working_directory=".",
+                    startup_jar=detected_jar,
+                    primary_world="world",
+                )
+
+                repo: ServerRepository = SQLServerRepository(uow.session)
+
+                server = Server.create(
+                    server_id=server_id,
+                    name=command.name,
+                    server_type=ServerType(command.server_type),
+                    minecraft_version=MinecraftVersion.parse(command.minecraft_version),
+                    memory=MemoryAllocation(
+                        min_mb=command.min_memory_mb,
+                        max_mb=command.max_memory_mb,
+                    ),
+                    java_args=JavaArguments([]),
+                    properties=ServerProperties(
+                        port=PortNumber(command.port),
+                        motd=command.motd,
+                        max_players=command.max_players,
+                        gamemode=command.gamemode,
+                        difficulty=command.difficulty,
+                        spawn_protection=command.spawn_protection,
+                        pvp=command.pvp,
+                        enable_command_block=command.enable_command_block,
+                        online_mode=command.online_mode,
+                        whitelist=command.whitelist,
+                        view_distance=command.view_distance,
+                        simulation_distance=command.simulation_distance,
+                    ),
+                    group_id=command.group_id,
+                    deployment=deployment,
+                    owner_id=command.creator_id,
+                )
+                await repo.save(server)
+
+                for event in server.collect_events():
+                    uow.add_event(event)
+                await uow.commit()
+
+            logger.info(
+                'Server "%s" imported from %s → %s (jar=%s server_id=%s)',
+                command.name,
+                source,
+                target,
+                detected_jar,
+                server_id,
+            )
+
+            return CommandResult(success=True, data={"server_id": str(server_id)})
+        finally:
+            _cleanup_staging()

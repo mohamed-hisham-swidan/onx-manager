@@ -160,7 +160,7 @@ export function ServerShell() {
   ];
 
   return (
-    <div className="min-h-screen bg-surface-page text-text-primary transition-colors">
+    <div className="min-h-screen bg-surface-page text-text-primary transition-colors flex flex-col">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:inset-block-start-3 focus:inset-inline-start-3 focus:z-50 focus:rounded-lg focus:bg-surface-elevated focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-primary focus:shadow-lg focus:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
@@ -188,11 +188,11 @@ export function ServerShell() {
       <main
         id="main-content"
         tabIndex={-1}
-        className={`min-h-[calc(100vh-3.5rem)] pt-14 overflow-y-auto pb-16 transition-all duration-200 outline-hidden ${
+        className={`min-h-[calc(100vh-3.5rem)] pt-14 overflow-y-auto pb-16 transition-all duration-200 outline-hidden flex flex-col flex-1 min-h-0 ${
           sidebarOpen ? "lg:pl-56" : "lg:pl-0"
         }`}
       >
-        <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6 space-y-4 pb-16">
+        <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6 space-y-4 pb-16 flex flex-col flex-1 min-h-0">
           {/* Breadcrumb Navigation (Exact semantics preserved for tests) */}
           <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs flex-wrap text-text-muted">
             <Link
@@ -264,10 +264,10 @@ export function ServerShell() {
               {/* Left: Identity & Metadata */}
               <div className="flex flex-wrap items-center gap-3.5 min-w-0">
                 <div
-                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border transition-all ${
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-all ${
                     isRunning
-                      ? "border-status-success/30 bg-status-success-bg text-status-success shadow-xs ring-2 ring-status-success/20 ring-offset-2 ring-offset-surface-card"
-                      : "border-accent-primary/20 bg-accent-primary/10 text-accent-primary shadow-2xs"
+                      ? "bg-status-success-bg text-status-success shadow-xs ring-2 ring-status-success/20 ring-offset-2 ring-offset-surface-card"
+                      : "bg-accent-primary/10 text-accent-primary shadow-2xs"
                   }`}
                 >
                   <Icon name="server" size={24} />
@@ -316,8 +316,8 @@ export function ServerShell() {
                         className={
                           "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium " +
                           (server.provider === "docker"
-                            ? "bg-status-info-bg text-status-info border border-status-info-border"
-                            : "bg-surface-elevated text-text-secondary border border-border-default")
+                            ? "bg-status-info-bg text-status-info"
+                            : "bg-surface-elevated text-text-secondary")
                         }
                         title={
                           server.provider === "docker"
@@ -336,7 +336,7 @@ export function ServerShell() {
                     {isStatusRunning ? (
                       <span
                         data-testid="server-status-capsule"
-                        className="inline-flex items-center gap-1.5 rounded-full border border-status-success/40 bg-status-success-bg px-3 py-1 font-mono text-xs font-bold text-status-success shadow-xs"
+                        className="inline-flex items-center gap-1.5 rounded-full bg-status-success-bg px-3 py-1 font-mono text-xs font-bold text-status-success shadow-2xs"
                       >
                         <span className="text-[10px] leading-none" aria-hidden="true">●</span>
                         <span>ONLINE · PORT {server?.port ?? 25565}</span>
@@ -344,7 +344,7 @@ export function ServerShell() {
                     ) : isStatusStarting ? (
                       <span
                         data-testid="server-status-capsule"
-                        className="inline-flex items-center gap-1.5 rounded-full border border-status-warning/40 bg-status-warning-bg px-3 py-1 font-mono text-xs font-bold text-status-warning shadow-xs"
+                        className="inline-flex items-center gap-1.5 rounded-full bg-status-warning-bg px-3 py-1 font-mono text-xs font-bold text-status-warning shadow-2xs"
                       >
                         <span className="text-[10px] leading-none" aria-hidden="true">◐</span>
                         <span>STARTING · PORT {server?.port ?? 25565}</span>
@@ -352,7 +352,7 @@ export function ServerShell() {
                     ) : (
                       <span
                         data-testid="server-status-capsule"
-                        className="inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-elevated px-3 py-1 font-mono text-xs font-bold text-text-secondary shadow-xs"
+                        className="inline-flex items-center gap-1.5 rounded-full bg-surface-elevated px-3 py-1 font-mono text-xs font-bold text-text-secondary shadow-2xs"
                       >
                         <span className="text-[10px] leading-none" aria-hidden="true">○</span>
                         <span>OFFLINE · CONTAINER HALTED</span>
@@ -362,7 +362,7 @@ export function ServerShell() {
                     {/* Active Player Counter Badge */}
                     <div
                       data-testid="server-active-players-badge"
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border-default bg-surface-elevated px-3 py-1 font-mono text-xs font-semibold text-text-secondary"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-surface-elevated px-3 py-1 font-mono text-xs font-semibold text-text-secondary"
                     >
                       <Icon name="users" size={13} className="text-text-muted" />
                       <span>0 / {maxPlayers} Players</span>
@@ -388,7 +388,7 @@ export function ServerShell() {
                           <Chip
                             label={copiedAddress ? "Copied!" : headerDisplayIpOrFallback}
                             size="xs"
-                            variant="outline"
+                            variant="inset"
                             onClick={handleCopyAddress}
                             className="font-mono text-[11px] cursor-pointer"
                           />
@@ -401,7 +401,7 @@ export function ServerShell() {
 
               {/* Center-Right: Instance Allocation Summary */}
               {server && (
-                <div className="hidden xl:flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-elevated/70 px-3.5 py-2">
+                <div className="hidden xl:flex items-center gap-3 rounded-lg bg-surface-elevated/70 px-3.5 py-2">
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Heap</span>
                     <span className="font-mono text-xs tabular-nums text-text-primary">
@@ -462,7 +462,7 @@ export function ServerShell() {
             </div>
 
             {/* Sub-Page Navigation / Breadcrumb Pills */}
-            <div className="w-full pt-3 border-t border-border-subtle flex items-center justify-between flex-wrap gap-2">
+            <div className="w-full pt-3 border-t border-border-subtle flex items-center justify-between flex-wrap gap-2 lg:hidden">
               <nav aria-label="Server quick navigation" className="flex items-center gap-1.5 overflow-x-auto py-0.5 text-xs">
                 {navPills.map((pill) => {
                   const isActive = location.pathname.includes(pill.id);

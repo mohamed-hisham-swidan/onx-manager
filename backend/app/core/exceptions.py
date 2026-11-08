@@ -303,6 +303,18 @@ class FilesystemOperationError(ProvisioningError):
         self.operation = operation
 
 
+class PathContainmentError(MCSError):
+    def __init__(self, path: str, root: str) -> None:
+        super().__init__(
+            f"Path '{path}' must be strictly inside '{root}'",
+            code="PATH_CONTAINMENT_VIOLATION",
+            http_status=403,
+            details={"path": path, "root": root},
+        )
+        self.path = path
+        self.root = root
+
+
 class StorageCowUnavailableError(MCSError):
     def __init__(
         self,

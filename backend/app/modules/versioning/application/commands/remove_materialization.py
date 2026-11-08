@@ -3,12 +3,22 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import shutil
+from pathlib import Path
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import EventBus
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, PathContainmentError
+from app.core.fs_utils import assert_inside_root
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.domain.repository import VersioningRepository
+
+
+def _materializations_root(root_path: str) -> Path:
+    """Return the ``.onx/tests`` or ``.onx/worktrees`` container of a materialization."""
+    container = Path(root_path).parent
+    if container.name not in ("tests", "worktrees") or container.parent.name != ".onx":
+        raise PathContainmentError(root_path, "<server>/.onx/(tests|worktrees)")
+    return container
 
 
 class RemoveMaterializationCommand(Command):
@@ -69,6 +79,9 @@ class RemoveMaterializationHandler(CommandHandler[RemoveMaterializationCommand])
                 f"'{command.server_id}'"
             )
 
+        assert_inside_root(
+            materialization.root_path, _materializations_root(materialization.root_path)
+        )
         materialization.mark_removed()
         shutil.rmtree(materialization.root_path, ignore_errors=True)
         await versioning_repo.save_materialization(materialization)

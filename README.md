@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo.svg" alt="ONX Manager" width="64" height="64" />
+
 # ONX Manager
 
 **Self-hosted Minecraft server management — from your browser.**

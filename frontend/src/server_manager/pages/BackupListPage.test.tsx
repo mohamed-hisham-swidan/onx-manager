@@ -94,6 +94,7 @@ describe("BackupListPage", () => {
     expect(screen.getByText("Total backups")).toBeInTheDocument();
     expect(screen.getByText("Total size")).toBeInTheDocument();
     expect(screen.getByText("Last successful backup")).toBeInTheDocument();
+    expect(screen.getByText("Instant copy available")).toBeInTheDocument();
     const statRows = screen.getAllByText("Alpha");
     expect(statRows.length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("1.0 MB").length).toBeGreaterThanOrEqual(1);
@@ -129,7 +130,7 @@ describe("BackupListPage", () => {
     renderPage();
     expect(screen.getByLabelText("Verify bkp-1")).toBeInTheDocument();
     expect(screen.getByLabelText("Verify bkp-2")).toBeInTheDocument();
-    expect(screen.getAllByLabelText(/Delete/)).toHaveLength(2);
+    expect(screen.getAllByLabelText("Delete backup")).toHaveLength(2);
   });
 
   it("filters by server", () => {
@@ -168,9 +169,15 @@ describe("BackupListPage", () => {
 
   it("opens delete confirmation dialog", () => {
     renderPage();
-    fireEvent.click(screen.getByLabelText("Delete bkp-1"));
+    fireEvent.click(screen.getAllByLabelText("Delete backup")[0]);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Delete backup?")).toBeInTheDocument();
+  });
+
+  it("renders restore action as primary/warning action button", () => {
+    renderPage();
+    const restoreBtn = screen.getByLabelText("Restore bkp-1");
+    expect(restoreBtn).toHaveClass("text-status-warning");
   });
 
   it("ISS-056: clicking restore opens confirmation dialog and does not trigger restore immediately", async () => {

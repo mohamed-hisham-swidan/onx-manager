@@ -21,4 +21,12 @@ describe("Chip Primitive", () => {
     fireEvent.click(screen.getByLabelText("Remove"));
     expect(onRemove).toHaveBeenCalled();
   });
+
+  it("renders inset variant with bg-surface-muted and without border classes", () => {
+    const { container } = render(<Chip label="Inset Chip" variant="inset" />);
+    const chip = container.firstChild as HTMLElement;
+    expect(chip.className).toContain("bg-surface-muted");
+    expect(chip.className).not.toMatch(/\bborder\b/);
+    expect(chip.className).not.toMatch(/\bborder-/);
+  });
 });

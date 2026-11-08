@@ -7,7 +7,7 @@ import shutil
 import sys
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import aiohttp
 
@@ -53,6 +53,56 @@ class FailureDisposition(NamedTuple):
     preserve_directory: bool
     retryable: bool
     target_status: ServerStatus
+
+
+class ProvisioningRegistry:
+    _tasks: dict[str, asyncio.Task[Any]] = {}
+    _processes: dict[str, Any] = {}
+
+    @classmethod
+    def register_task(cls, server_id: str, task: asyncio.Task[Any]) -> None:
+        cls._tasks[str(server_id)] = task
+
+    @classmethod
+    def register_process(cls, server_id: str, proc: Any) -> None:
+        cls._processes[str(server_id)] = proc
+
+    @classmethod
+    def unregister(cls, server_id: str) -> None:
+        sid = str(server_id)
+        cls._tasks.pop(sid, None)
+        cls._processes.pop(sid, None)
+
+    @classmethod
+    async def cancel_and_wait(cls, server_id: str, timeout: float = 15.0) -> bool:
+        sid = str(server_id)
+        proc = cls._processes.pop(sid, None)
+        task = cls._tasks.pop(sid, None)
+
+        if proc is not None:
+            try:
+                if hasattr(proc, "terminate"):
+                    proc.terminate()
+                elif hasattr(proc, "kill"):
+                    proc.kill()
+            except Exception as exc:
+                logger.debug("Error terminating provisioning process for %s: %s", sid, exc)
+
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+            except (asyncio.CancelledError, TimeoutError, Exception) as exc:
+                logger.debug("Wait for cancelled provisioning task %s ended with %s", sid, exc)
+
+        if proc is not None:
+            try:
+                if hasattr(proc, "kill"):
+                    proc.kill()
+            except Exception:
+                pass
+
+        return True
 
 
 class InstallerProvisioner(ABC):
@@ -182,64 +232,76 @@ class InstallerProvisioner(ABC):
         sid = ServerId(server_id)
         server_dir: str | None = None
 
-        for attempt in range(self._max_retries):
-            try:
-                server = await _load_server(sid)
-                if server.deployment is None:
-                    raise InstallerExecutionError(
-                        server_id=str(sid),
-                        detail="server has no deployment directory",
-                    )
-                server_dir = server.deployment.server_directory()
+        try:
+            for attempt in range(self._max_retries):
+                try:
+                    server = await _load_server(sid)
+                    if server.deployment is None:
+                        raise InstallerExecutionError(
+                            server_id=str(sid),
+                            detail="server has no deployment directory",
+                        )
+                    server_dir = server.deployment.server_directory()
 
-                server = await self._install(sid, server, minecraft_version, server_dir)
-                await _save_server(server, self._event_bus)
-                logger.info(
-                    '%s provisioning complete for server "%s" (%s) — start_command="bash %s nogui"',
-                    self.provider_name,
-                    server.name,
-                    sid,
-                    self._run_sh_name(),
-                )
-                return
-            except Exception as exc:
-                disp = self._classify_failure(exc)
-                if (
-                    disp.classification == FailureClass.TRANSIENT
-                    and attempt < self._max_retries - 1
-                ):
-                    backoff = 1.0 * (2**attempt)
-                    logger.warning(
-                        "%s provisioning attempt %d/%d for server %s failed transiently (%s: %s). Retrying in %.1fs...",
-                        self.provider_name,
-                        attempt + 1,
-                        self._max_retries,
-                        sid,
-                        type(exc).__name__,
-                        exc,
-                        backoff,
-                    )
-                    await asyncio.sleep(backoff)
-                    continue
+                    server = await self._install(sid, server, minecraft_version, server_dir)
+                    try:
+                        fresh_check = await _load_server(sid)
+                        if fresh_check is None:
+                            logger.info("Server %s was deleted during provisioning; skipping finish save", sid)
+                            return
+                    except Exception:
+                        logger.info("Server %s was deleted during provisioning; skipping finish save", sid)
+                        return
 
-                if (
-                    disp.classification == FailureClass.TRANSIENT
-                    and attempt >= self._max_retries - 1
-                ):
-                    logger.error(
-                        "%s provisioning exhausted %d attempts for server %s (%s: %s). Manual intervention required.",
+                    await _save_server(server, self._event_bus)
+                    logger.info(
+                        '%s provisioning complete for server "%s" (%s) — start_command="bash %s nogui"',
                         self.provider_name,
-                        self._max_retries,
+                        server.name,
                         sid,
-                        type(exc).__name__,
-                        exc,
+                        self._run_sh_name(),
                     )
-                    await self._fail_provisioning(sid, server_dir, exc, force_retryable=False)
+                    return
+                except Exception as exc:
+                    disp = self._classify_failure(exc)
+                    if (
+                        disp.classification == FailureClass.TRANSIENT
+                        and attempt < self._max_retries - 1
+                    ):
+                        backoff = 1.0 * (2**attempt)
+                        logger.warning(
+                            "%s provisioning attempt %d/%d for server %s failed transiently (%s: %s). Retrying in %.1fs...",
+                            self.provider_name,
+                            attempt + 1,
+                            self._max_retries,
+                            sid,
+                            type(exc).__name__,
+                            exc,
+                            backoff,
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+
+                    if (
+                        disp.classification == FailureClass.TRANSIENT
+                        and attempt >= self._max_retries - 1
+                    ):
+                        logger.error(
+                            "%s provisioning exhausted %d attempts for server %s (%s: %s). Manual intervention required.",
+                            self.provider_name,
+                            self._max_retries,
+                            sid,
+                            type(exc).__name__,
+                            exc,
+                        )
+                        await self._fail_provisioning(sid, server_dir, exc, force_retryable=False)
+                        raise
+
+                    # Non-transient (FATAL or AMBIGUOUS)
+                    await self._fail_provisioning(sid, server_dir, exc)
                     raise
-
-                # Non-transient (FATAL or AMBIGUOUS)
-                await self._fail_provisioning(sid, server_dir, exc)
-                raise
+        finally:
+            ProvisioningRegistry.unregister(str(sid))
 
     async def _install(
         self,
@@ -381,11 +443,19 @@ class InstallerProvisioner(ABC):
 
         try:
             server = await _load_server(sid)
-            server.fail_provisioning(
-                error=str(exc),
-                retryable=retryable,
-                fatal=(disp.classification == FailureClass.FATAL),
-            )
+            if server is None:
+                logger.info("Server %s was deleted; skipping fail_provisioning save", sid)
+                return
+        except Exception:
+            logger.info("Server %s was deleted; skipping fail_provisioning save", sid)
+            return
+
+        server.fail_provisioning(
+            error=str(exc),
+            retryable=retryable,
+            fatal=(disp.classification == FailureClass.FATAL),
+        )
+        try:
             await _save_server(server, self._event_bus)
         except Exception as state_exc:
             logger.exception(

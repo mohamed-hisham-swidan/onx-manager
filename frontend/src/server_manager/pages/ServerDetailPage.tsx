@@ -150,7 +150,7 @@ export function ServerDetailPage() {
   const hasLiveTps = isRunning && currentMetric?.tps != null;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col flex-1 min-h-0 gap-5">
       {server.status === "starting" && (
         <StartingMonitorBanner
           targetName={server.name}
@@ -163,10 +163,10 @@ export function ServerDetailPage() {
       )}
 
       {/* 12-Column Terminal Workspace Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-0 lg:items-stretch">
         {/* Left (col-span-8 or 9 on wide monitors): IDE-Grade Terminal Emulator */}
-        <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-4">
-          <div className="rounded-xl border border-border-subtle bg-surface-card p-3 sm:p-4 shadow-2xs">
+        <div className="lg:col-span-8 xl:col-span-9 flex flex-col min-h-0 gap-4">
+          <div className="rounded-xl border border-border-subtle bg-surface-card p-3 sm:p-4 shadow-2xs flex-1 min-h-0 flex flex-col">
             <ServerConsole
               serverId={serverId}
               serverStatus={server.status}

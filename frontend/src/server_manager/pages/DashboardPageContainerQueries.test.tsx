@@ -81,6 +81,13 @@ describe("DashboardPage Container Queries (Class-Presence Guard)", () => {
     expect(html).not.toContain("break-all");
   });
 
+  it("ensures workspace split grid uses items-stretch", () => {
+    const { container } = renderPage();
+    const splitGrid = container.querySelector(".\\@5xl\\:grid-cols-12");
+    expect(splitGrid).not.toBeNull();
+    expect(splitGrid?.className).toContain("items-stretch");
+  });
+
   it("ensures loading state markup also has no lg:grid-cols-12 and no lg:col-span-8", () => {
     vi.mocked(useServersList).mockReturnValue({
       data: undefined,

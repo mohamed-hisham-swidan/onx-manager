@@ -387,4 +387,11 @@ describe("ServerDetailPage", () => {
     await user.click(screen.getByText("Server Info & Configuration"));
     expect(screen.getByText("Host")).toBeInTheDocument();
   });
+
+  it("renders page root with flex-1 min-h-0 for full-height viewport stretching", () => {
+    const { container } = renderPage();
+    const pageRoot = container.firstElementChild;
+    expect(pageRoot?.className).toContain("flex-1");
+    expect(pageRoot?.className).toContain("min-h-0");
+  });
 });

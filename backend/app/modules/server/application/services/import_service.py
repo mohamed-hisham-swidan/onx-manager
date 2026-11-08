@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import stat
+import time
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -328,24 +331,113 @@ def scan_server_directory(path: str, fs: FileSystem | None = None) -> dict[str, 
     }
 
 
+MAX_ZIP_MEMBERS: int = 10_000
+MAX_ZIP_UNCOMPRESSED_BYTES: int = 4 * 1024 * 1024 * 1024  # 4 GiB
+MAX_ZIP_COMPRESSION_RATIO: float = 100.0  # 100:1 max ratio
+STAGING_MAX_AGE_SECONDS: int = 24 * 3600  # 24 hours
+
+
+def cleanup_old_staging_directories(
+    staging_root: str | Path | None = None,
+    max_age_seconds: int = STAGING_MAX_AGE_SECONDS,
+) -> int:
+    """Delete staging directories older than max_age_seconds. Safe when dir missing."""
+    if staging_root is None:
+        from app.core.config import AppSettings
+
+        staging_root = Path(AppSettings().import_staging_dir)
+    root = Path(staging_root).resolve()
+    if not root.is_dir():
+        return 0
+
+    now = time.time()
+    cleaned = 0
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return 0
+
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        try:
+            mtime = entry.stat().st_mtime
+            if (now - mtime) >= max_age_seconds:
+                local_fs.delete_dir(str(entry))
+                cleaned += 1
+        except OSError:
+            continue
+    return cleaned
+
+
+def _is_symlink_or_device(member: zipfile.ZipInfo) -> bool:
+    mode = member.external_attr >> 16
+    if not mode:
+        return False
+    return (
+        stat.S_ISLNK(mode)
+        or stat.S_ISCHR(mode)
+        or stat.S_ISBLK(mode)
+        or stat.S_ISFIFO(mode)
+        or stat.S_ISSOCK(mode)
+    )
+
+
 def _safe_extract_zip(zip_path: str | Path, target_dir: str | Path) -> None:
-    """Safely extract zip archive preventing Zip Slip directory traversal (CVE-2007-4559)."""
+    """Safely extract zip archive preventing Zip Slip, symlinks/devices, and zip bombs."""
     resolved_target = Path(target_dir).resolve()
     with zipfile.ZipFile(str(zip_path), "r") as zf:
-        for member in zf.infolist():
+        members = zf.infolist()
+        if len(members) > MAX_ZIP_MEMBERS:
+            raise ValueError(
+                f"Archive member count {len(members)} exceeds limit of {MAX_ZIP_MEMBERS}"
+            )
+
+        total_uncompressed = 0
+        total_compressed = 0
+
+        for member in members:
             filename = member.filename
-            parts = Path(filename).parts
             if (
                 filename.startswith(("/", "\\"))
-                or ".." in parts
-                or any(part == ".." for part in parts)
+                or os.path.isabs(filename)
+                or Path(filename).is_absolute()
             ):
+                raise ValueError(
+                    f"Path traversal detected in archive entry (absolute path): {filename}"
+                )
+
+            parts = Path(filename).parts
+            if ".." in parts or any(part == ".." for part in parts):
                 raise ValueError(f"Path traversal detected in archive entry: {filename}")
+
+            if _is_symlink_or_device(member):
+                raise ValueError(f"Forbidden symlink or device entry in archive: {filename}")
 
             destination = (resolved_target / filename).resolve()
-            if not destination.is_relative_to(resolved_target):
-                raise ValueError(f"Path traversal detected in archive entry: {filename}")
+            if not destination.is_relative_to(resolved_target) or destination == resolved_target:
+                if not member.is_dir():
+                    raise ValueError(f"Path traversal detected in archive entry: {filename}")
 
+            total_uncompressed += member.file_size
+            total_compressed += member.compress_size
+            if total_uncompressed > MAX_ZIP_UNCOMPRESSED_BYTES:
+                raise ValueError(
+                    f"Archive uncompressed size exceeds limit of "
+                    f"{MAX_ZIP_UNCOMPRESSED_BYTES} bytes"
+                )
+
+        if total_compressed > 0:
+            ratio = total_uncompressed / total_compressed
+            if ratio > MAX_ZIP_COMPRESSION_RATIO:
+                raise ValueError(
+                    f"Archive compression ratio ({ratio:.1f}:1) exceeds limit of "
+                    f"{MAX_ZIP_COMPRESSION_RATIO:.1f}:1"
+                )
+        elif total_uncompressed > 0:
+            raise ValueError("Archive compression ratio exceeds limit")
+
+        for member in members:
             zf.extract(member, str(resolved_target))
 
 

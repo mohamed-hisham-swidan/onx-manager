@@ -15,6 +15,7 @@ from app.modules.server.domain.events import (
     ServerStartingEvent,
     ServerStoppedEvent,
     ServerStoppingEvent,
+    ServerStopUnknownEvent,
 )
 from app.modules.server.domain.value_objects import (
     CpuAllocation,
@@ -25,6 +26,7 @@ from app.modules.server.domain.value_objects import (
     ServerDeployment,
     ServerProperties,
     ServerType,
+    build_server_handle,
     default_provider_for_platform,
 )
 from app.modules.shared.aggregate import AggregateRoot
@@ -74,7 +76,11 @@ _SERVER_TRANSITIONS: dict[ServerStatus, set[ServerStatus]] = {
         ServerStatus.CRASHED,
         ServerStatus.STOPPED,
     },
-    ServerStatus.STOPPING: {ServerStatus.STOPPED, ServerStatus.CRASHED},
+    ServerStatus.STOPPING: {
+        ServerStatus.STOPPED,
+        ServerStatus.CRASHED,
+        ServerStatus.RUNNING,
+    },
     ServerStatus.STOPPED: {
         ServerStatus.STARTING,
         ServerStatus.RUNNING,
@@ -337,6 +343,12 @@ class Server(AggregateRoot):
         external_id: str = "",
         start_time: int | None = None,
     ) -> None:
+        if self._status != ServerStatus.STARTING:
+            raise InvalidValueError(
+                field="status",
+                value=self._status.value,
+                reason=f"Cannot record runtime starting when server is in {self._status} state",
+            )
         self._runtime = RuntimeInfo(
             status="starting",
             provider=self._runtime.provider,
@@ -392,6 +404,31 @@ class Server(AggregateRoot):
         )
         self._add_event(ServerStoppedEvent(server_id=self._id))
 
+    def revert_to_running(self) -> None:
+        self._transition_to(ServerStatus.RUNNING)
+        self._runtime = RuntimeInfo(
+            status="running",
+            provider=self._runtime.provider,
+            host=self._runtime.host,
+            port=self._runtime.port,
+            pid=self._runtime.pid,
+            start_time=self._runtime.start_time,
+            running_start_time=self._runtime.running_start_time,
+            restart_count=self._runtime.restart_count,
+            external_id=self._runtime.external_id,
+        )
+        self._updated_at = datetime.now(UTC)
+
+    def mark_stop_unknown(self, reason: str = "") -> None:
+        if self._status != ServerStatus.STOPPING:
+            raise InvalidValueError(
+                field="status",
+                value=self._status.value,
+                reason=f"Cannot mark stop unknown when server is in {self._status} state",
+            )
+        self._updated_at = datetime.now(UTC)
+        self._add_event(ServerStopUnknownEvent(server_id=str(self._id), reason=reason))
+
     def mark_restoring(self) -> None:
         self._transition_to(ServerStatus.RESTORING)
         self._runtime = RuntimeInfo(
@@ -410,24 +447,37 @@ class Server(AggregateRoot):
             external_id="",
         )
 
-    def crash(self, exit_code: int, last_log_lines: list[str] | None = None) -> None:
+    def crash(
+        self,
+        exit_code: int = -1,
+        last_log_lines: list[str] | None = None,
+        reason: str | None = None,
+    ) -> None:
         self._transition_to(ServerStatus.CRASHED)
         self._has_run = True
+        log_lines = list(last_log_lines or [])
+        if reason and not log_lines:
+            log_lines = [reason]
         self._runtime = RuntimeInfo(
             status="crashed",
             provider=self._runtime.provider,
             last_crash_time=datetime.now(UTC).timestamp(),
             restart_count=self._runtime.restart_count,
             external_id=self._runtime.external_id,
-            last_log_lines=list(last_log_lines or []),
+            last_log_lines=log_lines,
         )
         self._add_event(
             ServerCrashedEvent(
                 server_id=self._id,
                 exit_code=exit_code,
-                last_log_lines=last_log_lines or [],
+                last_log_lines=log_lines,
             ),
         )
+
+    def build_handle(
+        self, provider_name: str, server_dir: Any | None = None
+    ) -> Any:
+        return build_server_handle(self, provider_name, server_dir)
 
     def rename(self, name: str) -> None:
         if not name or not name.strip():

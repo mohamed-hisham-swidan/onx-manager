@@ -26,7 +26,6 @@ class AppSettings(BaseSettings):
     log_json: bool = True
     database_url: str = f"sqlite+aiosqlite:///data/{IDENTITY.db_filename_new}"
     database_echo: bool = False
-    secret_key: str = "change-me-in-production"
     allow_insecure_keys: bool = False
     cors_origins: list[str] = ["*"]
     rate_limit_per_minute: int = 60
@@ -53,6 +52,7 @@ class AppSettings(BaseSettings):
     metrics_interval_seconds: float = 5.0
     post_running_grace_seconds: float = 30.0
     import_max_zip_size_mb: int = 0
+    files_max_upload_size_mb: int = 512
     import_staging_dir: str = "data/staging"
     docker_default_image: str = "eclipse-temurin:21-jre-jammy"
     docker_test_image: str = (

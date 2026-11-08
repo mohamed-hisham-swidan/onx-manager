@@ -53,4 +53,21 @@ describe("AppShell", () => {
     fireEvent.click(skipLink);
     expect(document.activeElement).toBe(main);
   });
+
+  it("renders viewport flex column chain on main workspace and inner container", () => {
+    renderShell();
+    const main = document.getElementById("main-content");
+    expect(main).not.toBeNull();
+    expect(main?.className).toContain("flex");
+    expect(main?.className).toContain("flex-col");
+    expect(main?.className).toContain("flex-1");
+    expect(main?.className).toContain("min-h-0");
+
+    const innerWrapper = main?.firstElementChild as HTMLElement;
+    expect(innerWrapper).not.toBeNull();
+    expect(innerWrapper.className).toContain("flex");
+    expect(innerWrapper.className).toContain("flex-col");
+    expect(innerWrapper.className).toContain("flex-1");
+    expect(innerWrapper.className).toContain("min-h-0");
+  });
 });

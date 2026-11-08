@@ -1,3 +1,6 @@
+import contextlib
+import os
+import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -9,6 +12,7 @@ from app.api.v1.schemas.files import (
     FileEntryResponse,
     WriteFileContentRequest,
 )
+from app.core.config import AppSettings
 from app.core.query_bus import QueryBus
 from app.modules.server.application.queries.get_server import GetServerQuery
 from app.modules.server.infrastructure.fs import local_fs
@@ -18,18 +22,43 @@ router = APIRouter(prefix="/api/v1/servers/{server_id}/files", tags=["files"])
 __all__ = ["router"]
 
 SENSITIVE_FILENAMES: frozenset[str] = frozenset({".env"})
+PROTECTED_DIRNAMES: frozenset[str] = frozenset({".onx", ".onx-manager", ".mcsmanager"})
+
+
+def _normalize_name(name: str) -> str:
+    """Casefold a path component and strip trailing dots and spaces.
+
+    Windows-style filesystems ignore trailing dots/spaces, so ``.env.`` or
+    ``.onx `` would otherwise reach the protected entry.
+    """
+    return name.rstrip(". ").casefold()
+
+
+def _is_protected_name(name: str) -> bool:
+    return _normalize_name(name) in PROTECTED_DIRNAMES
 
 
 def _assert_not_sensitive(target_path: Path) -> None:
     """Deny access to files carrying application secrets (e.g. .env).
 
-    Comparison is case-insensitive so the guard also holds on case-insensitive
-    filesystems (macOS/Windows) where a differently-cased name resolves to the
-    same file. The resolved basename is used, so ./.env and any
-    normalized nested/.. form are covered too.
+    The comparison is case-insensitive and ignores trailing dots/spaces so the
+    guard also holds on case-insensitive filesystems (macOS/Windows) where a
+    differently-cased name resolves to the same file. The resolved basename is
+    used, so ./.env and any normalized nested/.. form are covered too.
     """
-    if target_path.name.lower() in {name.lower() for name in SENSITIVE_FILENAMES}:
+    if _normalize_name(target_path.name) in {_normalize_name(n) for n in SENSITIVE_FILENAMES}:
         raise HTTPException(status_code=403, detail="File access denied for sensitive server file")
+
+
+def _assert_not_protected_path(relative_path: str, target_path: Path, root: Path) -> None:
+    """Deny any path having a metadata folder (.onx, .onx-manager, .mcsmanager) as a component."""
+    raw_parts = [part for part in relative_path.replace("\\", "/").split("/") if part]
+    try:
+        resolved_parts = list(target_path.relative_to(root).parts)
+    except ValueError:
+        resolved_parts = []
+    if any(_is_protected_name(part) for part in (*raw_parts, *resolved_parts)):
+        raise HTTPException(status_code=403, detail="Access denied to protected server folder")
 
 
 async def _resolve_server_file_path(
@@ -37,6 +66,7 @@ async def _resolve_server_file_path(
     relative_path: str,
     query_bus: QueryBus,
     must_exist: bool = False,
+    follow_symlink: bool = True,
 ) -> tuple[Path, Path, str]:
 
     server = await query_bus.ask(GetServerQuery(server_id=server_id))
@@ -55,14 +85,27 @@ async def _resolve_server_file_path(
 
     resolved_root = Path(root_path).resolve()
     clean_rel = relative_path.lstrip("/") if relative_path else ""
-    target_path = (resolved_root / clean_rel).resolve()
+    if follow_symlink:
+        target_path = (resolved_root / clean_rel).resolve()
+    else:
+        # Keep the final component unresolved so an in-root symlink is addressed itself.
+        lexical = Path(os.path.normpath(resolved_root / clean_rel))
+        if lexical == resolved_root:
+            target_path = lexical
+        else:
+            target_path = lexical.parent.resolve() / lexical.name
 
     try:
         target_path.relative_to(resolved_root)
     except ValueError:
         raise HTTPException(status_code=403, detail="Path escapes server root directory")
 
-    if must_exist and not target_path.exists():
+    _assert_not_protected_path(clean_rel, target_path, resolved_root)
+
+    exists = target_path.exists() if follow_symlink else os.path.lexists(target_path)
+    if must_exist and not exists:
+        # Do not reveal whether a normalized-equivalent secret name exists.
+        _assert_not_sensitive(target_path)
         raise HTTPException(status_code=404, detail="Path does not exist")
 
     rel_str = str(target_path.relative_to(resolved_root))
@@ -88,13 +131,24 @@ async def list_files(
     entries = local_fs.list_dir(str(target_path))
     results: list[FileEntryResponse] = []
     for item in entries:
+        if _is_protected_name(item.name):
+            continue
         try:
             item_rel = str(item.resolve().relative_to(resolved_root))
         except ValueError:
             # Skip if symlink points outside
             continue
         is_directory = item.is_dir()
-        file_size = item.stat().st_size if not is_directory else 0
+        file_size = 0
+        if not is_directory:
+            try:
+                file_size = item.stat().st_size
+            except OSError:
+                # Dangling symlink or unreadable entry: report the link itself.
+                try:
+                    file_size = item.lstat().st_size
+                except OSError:
+                    continue
         results.append(
             FileEntryResponse(
                 name=item.name,
@@ -163,15 +217,18 @@ async def delete_file_or_dir(
     _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> None:
     resolved_root, target_path, _ = await _resolve_server_file_path(
-        server_id, path, query_bus, must_exist=True
+        server_id, path, query_bus, must_exist=True, follow_symlink=False
     )
     if target_path == resolved_root:
         raise HTTPException(status_code=400, detail="Cannot delete server root directory")
 
     _assert_not_sensitive(target_path)
 
-    if target_path.is_dir():
-        local_fs.delete_dir(str(target_path))
+    if target_path.is_symlink():
+        # Remove the link only; its target is never touched.
+        target_path.unlink()
+    elif target_path.is_dir():
+        local_fs.delete_dir(str(target_path), root=str(resolved_root))
     else:
         local_fs.delete(str(target_path))
 
@@ -197,14 +254,46 @@ async def upload_file(
 
     _assert_not_sensitive(target_file_path)
 
-    contents = await file.read()
-    local_fs.write_binary_atomic(str(target_file_path), contents)
+    chunk_size = 64 * 1024
+    max_mb = AppSettings().files_max_upload_size_mb
+    max_bytes = max_mb * 1024 * 1024 if max_mb > 0 else 0
+
+    total_bytes = 0
+    parent = target_file_path.parent
+    local_fs.ensure_dir(str(parent))
+    fd, tmp_path_str = tempfile.mkstemp(dir=str(parent), suffix=".tmp")
+    tmp_path = Path(tmp_path_str)
+    replaced = False
+
+    try:
+        with os.fdopen(fd, "wb") as out_fp:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if max_bytes > 0 and total_bytes > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Uploaded file exceeds maximum allowed size of {max_mb} MB",
+                    )
+                out_fp.write(chunk)
+            out_fp.flush()
+            os.fsync(out_fp.fileno())
+
+        os.replace(str(tmp_path), str(target_file_path))
+        replaced = True
+        local_fs._fsync_parent_dir(parent)
+    finally:
+        if not replaced and tmp_path.exists():
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
 
     return FileEntryResponse(
         name=target_file_path.name,
         path=rel_str,
         is_dir=False,
-        size=len(contents),
+        size=total_bytes,
     )
 
 
@@ -242,7 +331,14 @@ async def create_directory(
     _, target_path, rel_str = await _resolve_server_file_path(
         server_id, path, query_bus, must_exist=False
     )
-    local_fs.ensure_dir(str(target_path))
+    if target_path.exists() and not target_path.is_dir():
+        raise HTTPException(status_code=409, detail="A file already exists at this path")
+    try:
+        local_fs.ensure_dir(str(target_path))
+    except (FileExistsError, NotADirectoryError) as exc:
+        raise HTTPException(
+            status_code=409, detail="A file already exists at this path"
+        ) from exc
     return FileEntryResponse(
         name=target_path.name,
         path=rel_str,

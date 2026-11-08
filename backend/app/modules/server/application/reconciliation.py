@@ -5,9 +5,12 @@ import os
 
 from app.core.identity import IDENTITY
 from app.modules.server.application.services.jar_service import server_dir_name
-from app.modules.server.domain.aggregate import ServerStatus
+from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
-from app.modules.server.domain.value_objects import default_provider_for_platform
+from app.modules.server.domain.value_objects import (
+    build_server_handle,
+    default_provider_for_platform,
+)
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import (
@@ -15,6 +18,7 @@ from app.modules.server.infrastructure.providers.base import (
     ServerProvider,
     ServerRuntimeStatus,
 )
+from app.modules.shared.value_objects import ServerId
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.reconciliation")
 
@@ -95,6 +99,7 @@ STALE_STATUSES = {
 
 async def reconcile_servers(repo: ServerRepository) -> list[dict]:
     results: list[dict] = []
+    reconciled_running = 0
 
     all_servers = await repo.list()
 
@@ -122,16 +127,10 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
             )
             provider = provider_factory.get(provider_type)
 
-            ext_id = (
-                server.runtime.external_id
-                if (server.runtime and server.runtime.external_id)
-                else f"{IDENTITY.temp_prefix_new}{sid}"
+            server_dir = (
+                server.deployment.server_directory() if server.deployment is not None else None
             )
-            handle = ServerHandle(
-                provider=provider_type,
-                server_id=sid,
-                external_id=ext_id,
-            )
+            handle = build_server_handle(server, provider_type, server_dir=server_dir)
 
             status = ServerRuntimeStatus.STOPPED
             if handle:
@@ -252,7 +251,8 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
             elif server.status == ServerStatus.CRASHED:
                 if status == ServerRuntimeStatus.RUNNING:
                     logger.info(
-                        "Server %s was CRASHED in DB but runtime is RUNNING — recovering to RUNNING",
+                        "Server %s was CRASHED in DB but runtime is RUNNING"
+                        " — recovering to RUNNING",
                         label,
                     )
                     server.mark_running(
@@ -272,21 +272,86 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
                     )
 
             elif server.status == ServerStatus.STOPPING:
-                logger.info(
-                    "Server %s was STOPPING — marking STOPPED",
-                    label,
-                )
-                server.mark_stopped()
-                await repo.save(server)
-                results.append(
-                    {
-                        "server_id": sid,
-                        "old_status": old_status,
-                        "new_status": "stopped",
-                        "action": "repaired",
-                        "reason": "stale STOPPING state — backend restarted",
-                    }
-                )
+                has_handle = bool(server.runtime and server.runtime.external_id)
+                if status == ServerRuntimeStatus.STOPPED and has_handle:
+                    logger.info(
+                        "Server %s was STOPPING and confirmed STOPPED by provider"
+                        " — marking STOPPED",
+                        label,
+                    )
+                    server.mark_stopped()
+                    await repo.save(server)
+                    results.append(
+                        {
+                            "server_id": sid,
+                            "old_status": old_status,
+                            "new_status": "stopped",
+                            "action": "repaired",
+                            "reason": "confirmed stopped by provider",
+                        }
+                    )
+                elif status == ServerRuntimeStatus.RUNNING:
+                    logger.info(
+                        "Server %s was STOPPING but provider reports RUNNING"
+                        " — reverting to RUNNING",
+                        label,
+                    )
+                    server.revert_to_running()
+                    await repo.save(server)
+                    from app.core.settings_store import get_live_settings
+                    from app.modules.server.application.supervisor import RuntimeSupervisor
+
+                    active_sup = RuntimeSupervisor.get_for(sid)
+                    if not active_sup or not active_sup.is_running:
+                        try:
+                            handle = build_server_handle(
+                                server, provider_type, server_dir=server_dir
+                            )
+                            startup_timeout = float(
+                                server.startup_timeout_seconds
+                                or get_live_settings().server_startup_timeout_seconds
+                            )
+                            RuntimeSupervisor.start_for(
+                                server=server,
+                                provider=provider,
+                                handle=handle,
+                                repo_get=lambda s_id: sql_get_server(s_id),
+                                repo_save=lambda s: sql_save_server(s),
+                                startup_timeout=startup_timeout,
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to attach supervisor for %s in reconciliation: %s",
+                                sid,
+                                exc,
+                            )
+                    reconciled_running += 1
+                    results.append(
+                        {
+                            "server_id": sid,
+                            "old_status": old_status,
+                            "new_status": "running",
+                            "action": "reverted",
+                            "reason": "runtime still running after unconfirmed stop",
+                        }
+                    )
+                else:
+                    logger.warning(
+                        "Server %s is STOPPING with unconfirmed runtime status %s"
+                        " (has_handle=%s) — leaving STOPPING",
+                        label,
+                        status.value if hasattr(status, "value") else status,
+                        has_handle,
+                    )
+                    results.append(
+                        {
+                            "server_id": sid,
+                            "old_status": old_status,
+                            "new_status": "stopping",
+                            "action": "skipped",
+                            "reason": f"unconfirmed runtime status: {status}",
+                        }
+                    )
 
         except Exception:
             logger.exception("Reconciliation failed for server %s", label)
@@ -305,3 +370,23 @@ async def reconcile_servers(repo: ServerRepository) -> list[dict]:
         len(results),
     )
     return results
+
+
+async def sql_get_server(sid: ServerId) -> Server:
+    from app.core.persistence.db import database
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+
+    async with database.session_factory() as session:
+        repo = SQLServerRepository(session)
+        return await repo.get(sid)
+
+
+async def sql_save_server(server: Server) -> None:
+    from app.core.persistence.db import database
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+
+    async with database.session_factory() as session:
+        repo = SQLServerRepository(session)
+        await repo.save(server)
+        await session.commit()
+

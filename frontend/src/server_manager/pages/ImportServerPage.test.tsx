@@ -19,6 +19,7 @@ vi.mock("@/services/api", () => ({
 }));
 
 const sampleScanResult: ScanResult = {
+  import_id: "0123456789abcdef",
   path: "/srv/minecraft/survival",
   name: "survival-world",
   server_type: "paper",
@@ -74,61 +75,6 @@ describe("ImportServerPage", () => {
     expect(screen.getByText(/Drag and drop your server \.zip archive here/i)).toBeInTheDocument();
   });
 
-  it("allows switching to host path mode and enables scan button when path is entered", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    const hostPathTab = screen.getByRole("button", { name: "Host Path (Advanced)" });
-    await user.click(hostPathTab);
-
-    expect(screen.getByRole("heading", { name: "Server Directory" })).toBeInTheDocument();
-    const scanBtn = screen.getByRole("button", { name: "Scan" });
-    expect(scanBtn).toBeDisabled();
-
-    const input = screen.getByPlaceholderText("/opt/minecraft/survival");
-    await user.type(input, "/srv/minecraft/survival");
-    expect(scanBtn).toBeEnabled();
-  });
-
-  it("completes host path scan and import flow successfully", async () => {
-    mockScanDirectory.mockResolvedValueOnce(sampleScanResult);
-    mockImportServer.mockResolvedValueOnce({ server_id: "srv-imported-123" });
-
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(screen.getByRole("button", { name: "Host Path (Advanced)" }));
-
-    const input = screen.getByPlaceholderText("/opt/minecraft/survival");
-    await user.type(input, "/srv/minecraft/survival");
-    const scanBtn = screen.getByRole("button", { name: "Scan" });
-    await user.click(scanBtn);
-
-    expect(mockScanDirectory).toHaveBeenCalledWith("/srv/minecraft/survival");
-
-    // Review step
-    expect(await screen.findByRole("heading", { name: "Scan Results" })).toBeInTheDocument();
-    expect(screen.getByText("survival-world")).toBeInTheDocument();
-    expect(screen.getByText("paper")).toBeInTheDocument();
-    expect(screen.getByText("1.20.4")).toBeInTheDocument();
-
-    const importBtn = screen.getByRole("button", { name: "Import Server" });
-    await user.click(importBtn);
-
-    expect(mockImportServer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        source_path: "/srv/minecraft/survival",
-        name: "survival-world",
-        server_type: "paper",
-        minecraft_version: "1.20.4",
-      }),
-    );
-
-    // Done step
-    expect(await screen.findByRole("heading", { name: "Server Imported" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Go to Server" })).toBeInTheDocument();
-  });
-
   it("completes zip archive upload scan and import flow successfully", async () => {
     mockUploadImportZip.mockResolvedValueOnce(sampleScanResult);
     mockImportServer.mockResolvedValueOnce({ server_id: "srv-imported-456" });
@@ -158,8 +104,10 @@ describe("ImportServerPage", () => {
 
     expect(mockImportServer).toHaveBeenCalledWith(
       expect.objectContaining({
-        source_path: "/srv/minecraft/survival",
+        import_id: "0123456789abcdef",
         name: "survival-world",
+        server_type: "paper",
+        minecraft_version: "1.20.4",
       }),
     );
 
@@ -179,25 +127,10 @@ describe("ImportServerPage", () => {
     expect(screen.queryByRole("button", { name: "Upload & Scan Server" })).not.toBeInTheDocument();
   });
 
-  it("displays error message when directory scan fails", async () => {
-    mockScanDirectory.mockRejectedValueOnce(new Error("Directory not found or unreadable"));
-
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(screen.getByRole("button", { name: "Host Path (Advanced)" }));
-
-    const input = screen.getByPlaceholderText("/opt/minecraft/survival");
-    await user.type(input, "/invalid/path");
-    const scanBtn = screen.getByRole("button", { name: "Scan" });
-    await user.click(scanBtn);
-
-    expect(await screen.findByText("Directory not found or unreadable")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Scan Results" })).not.toBeInTheDocument();
-  });
-
   it("displays error message when upload scan fails", async () => {
-    mockUploadImportZip.mockRejectedValueOnce(new Error("Uploaded archive exceeds the maximum allowed size"));
+    mockUploadImportZip.mockRejectedValueOnce(
+      new Error("Uploaded archive exceeds the maximum allowed size")
+    );
 
     const user = userEvent.setup();
     renderPage();
@@ -209,22 +142,25 @@ describe("ImportServerPage", () => {
     const uploadBtn = screen.getByRole("button", { name: "Upload & Scan Server" });
     await user.click(uploadBtn);
 
-    expect(await screen.findByText("Uploaded archive exceeds the maximum allowed size")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Uploaded archive exceeds the maximum allowed size"),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Scan Results" })).not.toBeInTheDocument();
   });
 
   it("displays error message when import submission fails", async () => {
-    mockScanDirectory.mockResolvedValueOnce(sampleScanResult);
+    mockUploadImportZip.mockResolvedValueOnce(sampleScanResult);
     mockImportServer.mockRejectedValueOnce(new Error("Port 25565 already in use"));
 
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole("button", { name: "Host Path (Advanced)" }));
+    const fileInput = screen.getByTestId("zip-file-input");
+    const file = new File(["dummy zip bytes"], "my-server.zip", { type: "application/zip" });
+    await user.upload(fileInput, file);
 
-    const input = screen.getByPlaceholderText("/opt/minecraft/survival");
-    await user.type(input, "/srv/minecraft/survival");
-    await user.click(screen.getByRole("button", { name: "Scan" }));
+    const uploadBtn = screen.getByRole("button", { name: "Upload & Scan Server" });
+    await user.click(uploadBtn);
 
     const importBtn = await screen.findByRole("button", { name: "Import Server" });
     await user.click(importBtn);

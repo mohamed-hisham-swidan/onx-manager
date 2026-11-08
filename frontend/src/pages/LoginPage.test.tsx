@@ -57,6 +57,26 @@ describe("LoginPage", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 
+  it("renders enlarged sign-in header with welcome subtitle and h-11 controls in max-w-md card", () => {
+    renderPage();
+    const heading = screen.getByRole("heading", { name: "Sign in" });
+    expect(heading.className).toContain("text-2xl");
+    expect(screen.getByText("Sign in to manage your Minecraft servers.")).toBeInTheDocument();
+
+    const emailInput = screen.getByLabelText("Email");
+    const passwordInput = screen.getByLabelText("Password");
+    const submitBtn = screen.getByRole("button", { name: "Sign in" });
+
+    expect(emailInput.className).toContain("h-11");
+    expect(passwordInput.className).toContain("h-11");
+    expect(submitBtn.className).toContain("h-11");
+
+    const form = emailInput.closest("form");
+    expect(form?.className).toContain("p-8");
+    const cardWrapper = form?.parentElement;
+    expect(cardWrapper?.className).toContain("max-w-md");
+  });
+
   it("shows error when fields are empty", async () => {
     const user = userEvent.setup();
     renderPage();

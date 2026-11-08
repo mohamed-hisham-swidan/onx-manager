@@ -1,17 +1,35 @@
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
 
-interface StatCardProps {
+export interface StatCardProps {
   icon: IconName;
   label: string;
   value: ReactNode;
   sublabel?: ReactNode;
   color?: string;
+  variant?: "default" | "inset" | "flush";
+  className?: string;
 }
 
-export function StatCard({ icon, label, value, sublabel, color = "bg-accent-primary/10 text-accent-primary" }: StatCardProps) {
+const variantStyles: Record<NonNullable<StatCardProps["variant"]>, string> = {
+  default: "border border-border-default bg-surface-card shadow-xs",
+  inset: "bg-surface-muted",
+  flush: "bg-surface-muted",
+};
+
+export function StatCard({
+  icon,
+  label,
+  value,
+  sublabel,
+  color = "bg-accent-primary/10 text-accent-primary",
+  variant = "default",
+  className = "",
+}: StatCardProps) {
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-border-default bg-surface-card p-4 shadow-xs">
+    <div
+      className={`flex items-center gap-4 rounded-xl p-4 transition-all ${variantStyles[variant]} ${className}`}
+    >
       <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${color}`}>
         <Icon name={icon} size={20} />
       </div>

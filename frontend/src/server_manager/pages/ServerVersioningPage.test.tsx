@@ -113,10 +113,22 @@ describe("ServerVersioningPage", () => {
       expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Storage Copy-On-Write Capability")).toBeInTheDocument();
-    expect(screen.getByText("Active (Reflink / Btrfs / ZFS)")).toBeInTheDocument();
+    expect(screen.getByText(/Instant storage cloning: available/i)).toBeInTheDocument();
+    expect(screen.getByTitle(/copy-on-write \/ Btrfs \/ ZFS/i)).toBeInTheDocument();
     expect(screen.getByText("Initial baseline configuration")).toBeInTheDocument();
     expect(screen.getByText("c-111222")).toBeInTheDocument();
+  });
+
+  it("displays warning state when instant storage cloning is unavailable", async () => {
+    vi.mocked(mockApi.getPreflightStatus).mockResolvedValue({
+      ...mockPreflight,
+      reflink_supported: false,
+    });
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Instant storage cloning: unavailable/i)).toBeInTheDocument();
+    });
   });
 
   it("opens create branch dialog and creates a new branch", async () => {
@@ -385,32 +397,55 @@ describe("ServerVersioningPage", () => {
     });
   });
 
-  it("renders 3-step visual workflow guide banner and allows collapsing and expanding", async () => {
+  it("renders 3-step visual workflow guide banner collapsed by default and allows expanding and collapsing", async () => {
     renderPage();
 
     await waitFor(() => {
       expect(screen.getByText("3-Step Safe Testing & Promotion Workflow")).toBeInTheDocument();
     });
 
+    // Collapsed by default: steps not visible
+    expect(screen.queryByText("Step 1: Snapshot World (Commit)")).not.toBeInTheDocument();
+    const expandBtn = screen.getByRole("button", { name: /Expand Guide/i });
+    expect(expandBtn).toBeInTheDocument();
+
+    // Toggle expand: steps are visible as documentation
+    fireEvent.click(expandBtn);
     expect(screen.getByText("Step 1: Snapshot World (Commit)")).toBeInTheDocument();
     expect(screen.getByText("Step 2: Isolate (Branch / Worktree)")).toBeInTheDocument();
     expect(screen.getByText("Step 3: Automated Bot Dry-Run (Verify)")).toBeInTheDocument();
 
-    // Click quick action "Create Snapshot" opens commit modal
-    fireEvent.click(screen.getByRole("button", { name: "Create Snapshot" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Create Snapshot Commit" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    // No duplicate action buttons inside guide
+    expect(screen.queryByRole("button", { name: "Create Snapshot" })).not.toBeInTheDocument();
 
     // Toggle collapse
     const collapseBtn = screen.getByRole("button", { name: /Collapse Guide/i });
     fireEvent.click(collapseBtn);
     expect(screen.queryByText("Step 1: Snapshot World (Commit)")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Expand Guide/i })).toBeInTheDocument();
+  });
 
-    // Toggle expand
-    fireEvent.click(screen.getByRole("button", { name: /Expand Guide/i }));
-    expect(screen.getByText("Step 1: Snapshot World (Commit)")).toBeInTheDocument();
+  it("groups secondary commit actions in More commit actions menu while keeping primary test action visible", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Initial baseline configuration")).toBeInTheDocument();
+    });
+
+    // Primary action visible
+    expect(screen.getByRole("button", { name: "Run Isolated Test" })).toBeInTheDocument();
+
+    // Secondary actions initially not in DOM
+    expect(screen.queryByRole("button", { name: "Tag" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Inspect Manifest" })).not.toBeInTheDocument();
+
+    // Open More commit actions menu
+    const moreBtn = screen.getByRole("button", { name: "More commit actions" });
+    fireEvent.click(moreBtn);
+
+    // Secondary actions now visible
+    expect(screen.getByRole("button", { name: "Tag" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspect Manifest" })).toBeInTheDocument();
   });
 
   it("displays live summary badge counts, re-run button, and allows re-running test from run list", async () => {

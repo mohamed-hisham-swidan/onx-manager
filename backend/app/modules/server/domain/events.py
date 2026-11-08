@@ -44,6 +44,20 @@ class ServerStoppingEvent(DomainEvent):
         super().__init__(server_id=str(server_id), reason=reason, **data)
 
 
+class ServerStopUnknownEvent(DomainEvent):
+    server_id: str
+    reason: str = ""
+    event_type: str = "server.stop_unknown"
+
+    def __init__(self, server_id: ServerId | str, reason: str = "", **data: Any) -> None:
+        super().__init__(
+            server_id=str(server_id),
+            reason=reason,
+            event_type="server.stop_unknown",
+            **data,
+        )
+
+
 class ServerStoppedEvent(DomainEvent):
     server_id: str
 

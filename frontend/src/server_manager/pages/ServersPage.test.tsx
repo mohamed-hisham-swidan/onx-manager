@@ -225,7 +225,7 @@ describe("ServersPage", () => {
     expect(mockStopMutate).toHaveBeenCalledWith("srv-1", expect.any(Object));
   });
 
-  it("switches to grid view mode and renders server cards with banners", async () => {
+  it("switches to grid view mode and renders server cards with icons", async () => {
     const user = userEvent.setup();
     renderPage();
 
@@ -235,6 +235,28 @@ describe("ServersPage", () => {
     expect(gridBtn).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Alpha World")).toBeInTheDocument();
     expect(screen.getByText("Beta Plot")).toBeInTheDocument();
-    expect(screen.getByText(":25565")).toBeInTheDocument();
+
+    // Verify icons are present (default icon rendered when no image returned)
+    const serverIcons = screen.getAllByTestId("server-icon");
+    expect(serverIcons.length).toBe(mockServers.length);
+    expect(screen.getAllByTestId("server-icon-default").length).toBe(mockServers.length);
+
+    // Verify only one port element exists per card (in copyable port chip, removed from config well)
+    for (const server of mockServers) {
+      expect(screen.getAllByText(`:${server.port}`)).toHaveLength(1);
+    }
+    expect(screen.queryByText("Port")).not.toBeInTheDocument();
+
+    // Verify 2-column stats box is borderless with thin vertical dividers
+    const modeLabels = screen.getAllByText("Mode");
+    const statsBox = modeLabels[0].closest(".grid");
+    expect(statsBox?.className).toContain("grid-cols-2");
+    expect(statsBox?.className).toContain("divide-x");
+    expect(statsBox?.className).not.toContain("border-border-subtle");
+
+    // Verify no duplicate "Offline" footer text in grid cards (only the StatusBadge)
+    const offlineElements = screen.getAllByText("Offline");
+    // Only 1 StatusBadge for "Beta Plot" (srv-2 is stopped -> "Offline")
+    expect(offlineElements).toHaveLength(1);
   });
 });

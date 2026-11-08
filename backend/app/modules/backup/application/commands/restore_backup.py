@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import Field
 
@@ -14,6 +15,8 @@ from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.backup.application.restore_service import RestoreError, perform_safe_restore
 from app.modules.backup.domain.repository import BackupRepository
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
+from app.modules.server.application.lifecycle_lock import ServerLifecycleLockTimeoutError
+from app.modules.server.application.runtime_ownership import _port_is_listening
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import BackupJobId
 
@@ -29,11 +32,17 @@ _NON_IDLE_STATUSES: frozenset[str] = frozenset(
 class RestoreBackupCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     backup_id: str
+    defer_if_running: bool = True
 
 
 class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
-    def __init__(self, event_bus: EventBus) -> None:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        lifecycle_lease: Any | None = None,
+    ) -> None:
         self._event_bus = event_bus
+        self._lifecycle_lease = lifecycle_lease
 
     async def handle(self, command: RestoreBackupCommand) -> CommandResult:
         backup_id = BackupJobId(command.backup_id)
@@ -52,6 +61,28 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
                     error_code="BACKUP_STORAGE_MISSING",
                 )
 
+        if self._lifecycle_lease is not None:
+            try:
+                async with self._lifecycle_lease.acquire(
+                    str(job.server_id),
+                    holder="RestoreBackupCommand",
+                    wait_timeout=60.0,
+                ):
+                    return await self._execute(command, job, backup_id)
+            except ServerLifecycleLockTimeoutError:
+                return CommandResult(
+                    success=False,
+                    error="Another lifecycle operation is already in progress for this server",
+                    error_code="OPERATION_CONCURRENCY_CONFLICT",
+                )
+
+        return await self._execute(command, job, backup_id)
+
+    async def _execute(
+        self, command: RestoreBackupCommand, job: Any, backup_id: BackupJobId
+    ) -> CommandResult:
+        async with database.session_factory() as session:
+            backup_repo: BackupRepository = SQLBackupRepository(session)
             server_repo = SQLServerRepository(session)
             try:
                 server = await server_repo.get(job.server_id)
@@ -68,15 +99,51 @@ class RestoreBackupHandler(CommandHandler[RestoreBackupCommand]):
             server_dir = server.deployment.server_directory()
             base_world = server.deployment.primary_world or "world"
 
-            if server.status.value in _NON_IDLE_STATUSES:
+            status_val = (
+                server.status.value.lower()
+                if hasattr(server.status, "value")
+                else str(server.status).lower()
+            )
+
+            has_active_runtime = (
+                server.runtime is not None
+                and bool(
+                    getattr(server.runtime, "external_id", None)
+                    or getattr(server.runtime, "pid", None)
+                )
+            )
+            port_val = None
+            if server.runtime and getattr(server.runtime, "port", None):
+                port_val = server.runtime.port
+            elif getattr(server, "properties", None) and getattr(server.properties, "port", None):
+                p = server.properties.port
+                port_val = p.value if hasattr(p, "value") else int(p)
+            port_listening = _port_is_listening(port_val) if port_val else False
+
+            is_active = (
+                status_val in _NON_IDLE_STATUSES
+                or has_active_runtime
+                or port_listening
+            )
+
+            if is_active:
+                if not getattr(command, "defer_if_running", True):
+                    return CommandResult(
+                        success=False,
+                        error="Server runtime is still active; cannot perform live disk restore",
+                        error_code="RESTORE_SERVER_ACTIVE",
+                    )
                 requested_at = datetime.now(UTC)
                 await backup_repo.upsert_pending_restore(job.server_id, backup_id, requested_at)
                 await session.commit()
                 logger.info(
-                    "Restore deferred until next start — server_id=%s backup_id=%s status=%s",
+                    "Restore deferred until next start — server_id=%s backup_id=%s status=%s "
+                    "(runtime_active=%s, port_listening=%s)",
                     server_id,
                     command.backup_id,
-                    server.status.value,
+                    status_val,
+                    has_active_runtime,
+                    port_listening,
                 )
                 return CommandResult(
                     success=True,

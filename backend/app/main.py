@@ -123,6 +123,20 @@ async def lifespan(_app: FastAPI):
 
         repo = SQLServerRepository(session)
         try:
+            from app.modules.server.application.services.import_service import (
+                cleanup_old_staging_directories,
+            )
+
+            cleaned_staging = cleanup_old_staging_directories()
+            if cleaned_staging:
+                logger.info(
+                    "Cleaned %d stale staging directory(ies) on startup",
+                    cleaned_staging,
+                )
+        except Exception as exc:
+            logger.warning("Startup staging directory cleanup failed: %s", exc)
+
+        try:
             results = await reconcile_servers(repo)
             if results:
                 logger.info("Startup DB reconciliation results: %s", results)

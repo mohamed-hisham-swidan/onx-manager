@@ -58,7 +58,7 @@ export function CommandCenterDaemonStream({
   ];
 
   return (
-    <div className="flex h-full flex-col rounded-xl border border-border-subtle bg-surface-card p-4 sm:p-5 shadow-2xs">
+    <div className="flex h-full min-h-0 flex-col rounded-xl border border-border-subtle bg-surface-card p-4 sm:p-5 shadow-2xs">
       {/* Header */}
       <div className="flex items-center justify-between pb-3.5 border-b border-border-subtle">
         <div className="flex items-center gap-2">
@@ -73,7 +73,7 @@ export function CommandCenterDaemonStream({
         <button
           type="button"
           onClick={clearLogs}
-          className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors"
+          className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors cursor-pointer"
         >
           Clear
         </button>
@@ -83,7 +83,7 @@ export function CommandCenterDaemonStream({
       <div
         role="log"
         aria-label="System event logs"
-        className="mt-3.5 h-[340px] flex-1 overflow-y-auto rounded-lg border border-border-subtle bg-surface-elevated p-3 font-mono text-[11px] leading-relaxed select-text"
+        className="mt-3.5 flex-1 min-h-0 overflow-y-auto rounded-lg bg-surface-elevated p-3 font-mono text-xs leading-relaxed select-text"
       >
         {combinedEntries.length === 0 ? (
           <div className="flex h-full items-center justify-center text-text-muted">
@@ -99,14 +99,16 @@ export function CommandCenterDaemonStream({
                     ? "text-status-success"
                     : log.source === "STATE"
                       ? "text-status-warning"
-                      : "text-text-secondary";
+                      : log.source === "SYS"
+                        ? "text-status-info"
+                        : "text-text-secondary";
 
               return (
                 <div key={log.id} className="flex flex-wrap items-start gap-x-2 min-w-0">
                   <span className="shrink-0 text-text-muted/70">
                     [{log.timeStr}]
                   </span>
-                  <span className={`shrink-0 font-bold ${badgeClass}`}>
+                  <span className={`shrink-0 font-semibold ${badgeClass}`}>
                     [{log.source}]
                   </span>
                   <span className="text-text-primary break-words min-w-0 flex-1 basis-40">
@@ -120,7 +122,7 @@ export function CommandCenterDaemonStream({
       </div>
 
       {/* Footer Quick-Terminal Bar */}
-      <div className="mt-3.5 flex items-center justify-between gap-2 rounded-lg border border-border-subtle bg-surface-elevated px-3 py-2 text-xs">
+      <div className="mt-3.5 flex items-center justify-between gap-2 rounded-lg bg-surface-elevated px-3 py-2 text-xs">
         <div className="flex flex-1 min-w-0 items-center gap-2 font-mono text-text-muted">
           <span className="text-accent-primary font-bold">&gt;</span>
           <select

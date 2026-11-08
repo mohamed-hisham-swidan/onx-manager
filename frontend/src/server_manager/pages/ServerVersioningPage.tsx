@@ -48,7 +48,7 @@ export function ServerVersioningPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState<number>(0);
-  const [isWorkflowGuideOpen, setIsWorkflowGuideOpen] = useState(true);
+  const [isWorkflowGuideOpen, setIsWorkflowGuideOpen] = useState(false);
 
   const refresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -315,11 +315,12 @@ export function ServerVersioningPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border-default pb-5">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2.5">
             <Icon name="backup" size={24} className="text-accent-primary" />
             <h1 className="text-2xl font-bold text-text-primary">
               Versions & Isolated Testing
             </h1>
+            <StorageHealthBanner preflight={preflight} />
           </div>
           <p className="mt-1 text-sm text-text-muted">
             Git-inspired server snapshots, config commits, and isolated bot-verified dry-runs.
@@ -379,7 +380,7 @@ export function ServerVersioningPage() {
         {isWorkflowGuideOpen && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
             {/* Step 1 */}
-            <div className="flex flex-col justify-between rounded-lg border border-border-subtle bg-surface-elevated/50 p-3.5 space-y-3">
+            <div className="flex flex-col justify-between rounded-lg bg-surface-elevated/50 p-3.5 space-y-3">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-accent-primary">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
@@ -387,22 +388,14 @@ export function ServerVersioningPage() {
                   </span>
                   <span>Step 1: Snapshot World (Commit)</span>
                 </div>
-                <p className="text-xs text-text-muted leading-relaxed">
-                  Capture an instant zero-copy Btrfs/ZFS snapshot of your world &amp; configs.
+                <p className="text-xs text-text-muted leading-relaxed" title="copy-on-write / Btrfs / ZFS">
+                  Capture an instant storage snapshot of your world &amp; configs.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsNewCommitOpen(true)}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-card hover:bg-surface-hover border border-border-default px-3 py-1.5 text-xs font-semibold text-text-primary transition-colors shadow-2xs cursor-pointer w-full sm:w-auto self-start"
-              >
-                <Icon name="plus" size={12} className="text-accent-primary" />
-                Create Snapshot
-              </button>
             </div>
 
             {/* Step 2 */}
-            <div className="flex flex-col justify-between rounded-lg border border-border-subtle bg-surface-elevated/50 p-3.5 space-y-3">
+            <div className="flex flex-col justify-between rounded-lg bg-surface-elevated/50 p-3.5 space-y-3">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-accent-primary">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
@@ -414,18 +407,10 @@ export function ServerVersioningPage() {
                   Create a safe branch to test new plugins or server updates without risking production.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsNewBranchOpen(true)}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-card hover:bg-surface-hover border border-border-default px-3 py-1.5 text-xs font-semibold text-text-primary transition-colors shadow-2xs cursor-pointer w-full sm:w-auto self-start"
-              >
-                <Icon name="version-branch" size={12} className="text-accent-primary" />
-                New Branch
-              </button>
             </div>
 
             {/* Step 3 */}
-            <div className="flex flex-col justify-between rounded-lg border border-border-subtle bg-surface-elevated/50 p-3.5 space-y-3">
+            <div className="flex flex-col justify-between rounded-lg bg-surface-elevated/50 p-3.5 space-y-3">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-accent-primary">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary/20 text-[11px] font-mono font-bold">
@@ -434,25 +419,8 @@ export function ServerVersioningPage() {
                   <span>Step 3: Automated Bot Dry-Run (Verify)</span>
                 </div>
                 <p className="text-xs text-text-muted leading-relaxed">
-                  Spawn an isolated sidecar container with simulated players (fakeplayer_next) to audit TPS and crashes.
+                  Spawn a safe test environment with simulated players to audit TPS and crashes.
                 </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsTestDefinitionsOpen(true)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-card hover:bg-surface-hover border border-border-default px-3 py-1.5 text-xs font-semibold text-text-primary transition-colors shadow-2xs cursor-pointer"
-                >
-                  <Icon name="settings" size={12} className="text-accent-primary" />
-                  Test Profiles
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsSettingsModalOpen(true)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-card hover:bg-surface-hover border border-border-default px-3 py-1.5 text-xs font-semibold text-text-secondary hover:text-text-primary transition-colors shadow-2xs cursor-pointer"
-                >
-                  Configure Bots
-                </button>
               </div>
             </div>
           </div>
@@ -461,8 +429,11 @@ export function ServerVersioningPage() {
 
       {/* Alerts */}
       {error && (
-        <div role="alert" className="rounded-xl bg-status-danger-bg border border-status-danger/30 p-4 text-sm text-status-danger flex items-center justify-between">
-          <span>{error}</span>
+        <div role="alert" className="rounded-xl bg-surface-muted border border-border-subtle p-4 text-sm text-status-danger flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Icon name="alert" size={16} className="text-status-danger shrink-0" />
+            <span>{error}</span>
+          </div>
           <button
             type="button"
             aria-label="Dismiss error"
@@ -489,7 +460,7 @@ export function ServerVersioningPage() {
       )}
 
       {/* Live Changes Callout Banner */}
-      {Boolean(liveChanges?.has_changes || (liveChanges?.changes && liveChanges.changes.length > 0)) && (
+      {Boolean(liveChanges?.changes && liveChanges.changes.length > 0) && (
         <div className="rounded-xl border border-status-warning/40 bg-status-warning-bg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-status-warning/20 rounded-lg text-status-warning shrink-0">
@@ -514,9 +485,6 @@ export function ServerVersioningPage() {
         </div>
       )}
 
-      {/* Preflight & Storage Health Banner */}
-      <StorageHealthBanner preflight={preflight} />
-
       {/* Branch Navigation Toolbar */}
       <BranchToolbar
         branches={branches}
@@ -534,8 +502,8 @@ export function ServerVersioningPage() {
       />
 
       {/* 12-Column Split Workspace (Commit Graph + Isolated Bot Testing) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-7">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        <div className="lg:col-span-7 h-full">
           <CommitTimeline
             commits={filteredCommits}
             tags={tags}
@@ -548,7 +516,7 @@ export function ServerVersioningPage() {
           />
         </div>
 
-        <div className="lg:col-span-5">
+        <div className="lg:col-span-5 h-full">
           <TestRunList
             testRuns={testRuns}
             serverId={serverId}

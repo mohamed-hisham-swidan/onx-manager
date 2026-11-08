@@ -269,7 +269,14 @@ describe("DashboardPage Command Center", () => {
     );
 
     expect(screen.getByText(":25565")).toBeInTheDocument();
-    expect(screen.getByText("vanilla 1.21.4")).toBeInTheDocument();
+    const copyPortBtn = screen.getByRole("button", { name: "Copy port 25565" });
+    expect(copyPortBtn).toBeInTheDocument();
+
+    const vanillaBadge = screen.getByText("vanilla 1.21.4");
+    expect(vanillaBadge).toBeInTheDocument();
+    expect(vanillaBadge.className).toContain("bg-surface-muted");
+    expect(vanillaBadge.className).not.toContain("border");
+
     expect(screen.getByText("paper 1.21")).toBeInTheDocument();
 
     // Action buttons: Stop for running, Start for stopped/crashed
@@ -299,6 +306,14 @@ describe("DashboardPage Command Center", () => {
     expect(screen.getByRole("heading", { name: "Daemon Event Stream" })).toBeInTheDocument();
     expect(screen.getByText(/ONX Daemon v0\.4\.0 initialized/i)).toBeInTheDocument();
     expect(screen.getByText(/Socket connection established/i)).toBeInTheDocument();
+
+    const streamLog = screen.getByRole("log", { name: "System event logs" });
+    expect(streamLog.className).toContain("text-xs");
+    expect(streamLog.className).toContain("font-mono");
+
+    const sysTag = screen.getAllByText("[SYS]")[0];
+    expect(sysTag.className).toContain("text-status-info");
+    expect(sysTag.className).not.toContain("border");
 
     const clearBtn = screen.getByRole("button", { name: "Clear" });
     fireEvent.click(clearBtn);

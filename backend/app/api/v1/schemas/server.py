@@ -173,13 +173,24 @@ class ValidationChainResponse(BaseResponse):
 class CommandRequest(BaseModel):
     command: str = Field(..., min_length=1)
 
+    @field_validator("command")
+    @classmethod
+    def validate_command(cls, v: str) -> str:
+        if any(c in v for c in ("\r", "\n", "\0")):
+            raise ValueError("Command cannot contain CR, LF or NUL characters")
+        return v
+
 
 class ReconcileRequest(BaseModel):
     scope: str = Field(
         default="project_owned",
         pattern=r"^(project_owned|system_wide)$",
-        description="'project_owned' (default) — only kill processes with positive ownership marker/cwd inside project data dir. "
-        "'system_wide' — kill any managed tmux session or Minecraft Java PID not in DB (legacy behavior).",
+        description=(
+            "'project_owned' (default) — only kill processes with positive ownership "
+            "marker/cwd inside project data dir. "
+            "'system_wide' — kill any managed tmux session or Minecraft Java PID not in DB "
+            "(legacy behavior)."
+        ),
     )
 
 

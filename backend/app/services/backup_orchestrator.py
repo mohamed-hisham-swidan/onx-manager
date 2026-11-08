@@ -181,15 +181,14 @@ class BackupSaga:
                     f"cannot send save-all for backup {backup_id}",
                 )
 
-            from app.modules.server.domain.value_objects import default_provider_for_platform
+            from app.modules.server.domain.value_objects import (
+                build_server_handle,
+                default_provider_for_platform,
+            )
             from app.modules.server.infrastructure.providers import provider_factory
 
             provider_type = server.runtime.provider or default_provider_for_platform()
-            handle = ServerHandle(
-                provider=provider_type,
-                server_id=str(server_id),
-                external_id=server.runtime.external_id,
-            )
+            handle = build_server_handle(server, provider_type)
             provider = provider_factory.get(provider_type)
             baseline_lines = await provider.console(handle, tail=200)
             await provider.execute_command(handle, "save-all")

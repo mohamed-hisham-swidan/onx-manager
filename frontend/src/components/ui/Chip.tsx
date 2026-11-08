@@ -4,7 +4,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 export interface ChipProps {
   label: React.ReactNode;
   icon?: IconName;
-  variant?: "default" | "primary" | "success" | "warning" | "danger" | "outline";
+  variant?: "default" | "primary" | "success" | "warning" | "danger" | "outline" | "inset" | "flush";
   size?: "xs" | "sm" | "md";
   onRemove?: () => void;
   onClick?: () => void;
@@ -13,12 +13,14 @@ export interface ChipProps {
 }
 
 const variantStyles: Record<NonNullable<ChipProps["variant"]>, string> = {
-  default: "bg-surface-muted text-text-secondary border-border-subtle",
-  primary: "bg-accent-primary/10 text-accent-primary border-accent-primary/20",
-  success: "bg-status-success-bg text-status-success border-status-success-border",
-  warning: "bg-status-warning-bg text-status-warning border-status-warning-border",
-  danger: "bg-status-danger-bg text-status-danger border-status-danger-border",
-  outline: "bg-transparent text-text-secondary border-border-default hover:border-text-secondary",
+  default: "bg-surface-muted text-text-secondary border border-border-subtle",
+  primary: "bg-accent-primary/10 text-accent-primary border border-accent-primary/20",
+  success: "bg-status-success-bg text-status-success border border-status-success-border",
+  warning: "bg-status-warning-bg text-status-warning border border-status-warning-border",
+  danger: "bg-status-danger-bg text-status-danger border border-status-danger-border",
+  outline: "bg-transparent text-text-secondary border border-border-default hover:border-text-secondary",
+  inset: "bg-surface-muted text-text-secondary",
+  flush: "bg-surface-muted text-text-secondary",
 };
 
 const sizeStyles: Record<NonNullable<ChipProps["size"]>, { text: string; icon: number; remove: number }> = {
@@ -49,7 +51,7 @@ export const Chip: React.FC<ChipProps> = ({
       onClick={onClick}
       role={isInteractive ? "button" : undefined}
       tabIndex={isInteractive ? 0 : undefined}
-      className={`inline-flex items-center font-medium rounded-full border transition-all ${
+      className={`inline-flex items-center font-medium rounded-full transition-all ${
         isInteractive ? "cursor-pointer hover:opacity-85 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus" : ""
       } ${variantStyles[variant]} ${text} ${selectedClasses} ${className}`}
     >

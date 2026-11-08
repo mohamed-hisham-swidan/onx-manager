@@ -14,11 +14,17 @@ from typing import Literal
 
 from app.core.config import AppSettings
 from app.core.identity import IDENTITY
-from app.core.process_utils import platform_force_kill, platform_pid_alive
+from app.core.process_utils import (
+    platform_force_kill,
+    platform_pid_alive,
+    verify_process_identity,
+)
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerFilters, ServerRepository
-from app.modules.server.domain.value_objects import default_provider_for_platform
+from app.modules.server.domain.value_objects import (
+    default_provider_for_platform,
+)
 from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import (
     ServerHandle,
@@ -150,6 +156,15 @@ def _is_project_owned_process(pid: int, servers_data_dir: str | None = None) -> 
                     return True
             except ValueError:
                 pass
+    # Fall back to verify_process_identity when /proc is unavailable or on Windows
+    try:
+        check = verify_process_identity(
+            pid, servers_data_dir=servers_data_dir, allow_wrapper_shell=True
+        )
+        if check.verified:
+            return True
+    except Exception:
+        pass
     return False
 
 
@@ -234,13 +249,25 @@ async def _get_server_state(
     external_id = server.runtime.external_id if server.runtime else ""
     session_name = external_id or f"{IDENTITY.temp_prefix_new}{sid}"
 
+    port = server.properties.port.value if hasattr(server.properties, "port") else 25565
+    port_listening = _port_is_listening(port) if isinstance(port, int) else False
+
     if provider is not None:
+        provider_name = (
+            server.runtime.provider
+            if server.runtime and server.runtime.provider
+            else default_provider_for_platform()
+        )
         handle = ServerHandle(
-            provider=server.runtime.provider or default_provider_for_platform()
-            if server.runtime
-            else default_provider_for_platform(),
+            provider=provider_name,
             server_id=sid,
             external_id=session_name,
+            metadata={
+                "pid": server.runtime.pid if server.runtime else None,
+                "start_time": server.runtime.start_time if server.runtime else None,
+                "port": port,
+                "server_name": str(server.name) if hasattr(server, "name") else "",
+            },
         )
         try:
             has_tmux = await provider.verify_process(handle)
@@ -250,9 +277,6 @@ async def _get_server_state(
             logger.debug("State check failed for %s: %s", sid, exc)
         if tmux_pid:
             pid_alive = platform_pid_alive(tmux_pid)
-
-    port = server.properties.port.value if hasattr(server.properties, "port") else 25565
-    port_listening = _port_is_listening(port) if isinstance(port, int) else False
 
     start_age_seconds: float | None = None
     if server.status == ServerStatus.STARTING:
@@ -510,8 +534,11 @@ async def reconcile_orphans(
             active_servers = await repo.list(ServerFilters(status="running"))
             active_servers += await repo.list(ServerFilters(status="starting"))
         except Exception:
-            logger.exception("Failed to list active servers for orphan reconciliation")
-            active_servers = []
+            logger.error(
+                "Aborting orphan cleanup: failed to list active servers from repository",
+                exc_info=True,
+            )
+            return []
 
         for s in active_servers:
             sid = str(s.id)
@@ -593,12 +620,26 @@ async def reconcile_orphans(
             reason,
         )
         if pid:
-            try:
-                os.kill(pid, signal.SIGTERM)
-                await asyncio.sleep(0.5)
-            except (ProcessLookupError, OSError):
-                pass
-            platform_force_kill(pid)
+            check = verify_process_identity(
+                pid,
+                expected_create_time=proc_start,
+                servers_data_dir=servers_data_dir,
+                allow_wrapper_shell=True,
+            )
+            if not check.verified and check.reason != "no_such_process":
+                logger.warning(
+                    "Refusing to kill orphan tmux process pid=%s: "
+                    "identity verification failed (%s)",
+                    pid,
+                    check.reason,
+                )
+            else:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    await asyncio.sleep(0.5)
+                except (ProcessLookupError, OSError):
+                    pass
+                platform_force_kill(pid)
         os.popen(f"tmux kill-session -t {session} 2>/dev/null")
         actions.append({"type": "orphan_tmux", "session": session, "pid": pid, "action": "killed"})
 
@@ -646,6 +687,19 @@ async def reconcile_orphans(
             proc_start,
             reason,
         )
+        check = verify_process_identity(
+            pid,
+            expected_create_time=proc_start,
+            servers_data_dir=servers_data_dir,
+            allow_wrapper_shell=True,
+        )
+        if not check.verified and check.reason != "no_such_process":
+            logger.warning(
+                "Refusing to kill orphan Java process pid=%s: identity verification failed (%s)",
+                pid,
+                check.reason,
+            )
+            continue
         try:
             os.kill(pid, signal.SIGTERM)
             await asyncio.sleep(0.5)

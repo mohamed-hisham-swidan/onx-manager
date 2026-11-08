@@ -9,6 +9,7 @@ from app.modules.server.application.services.installer_provisioner import (
     INSTALL_TIMEOUT_SECONDS,
     MIN_FREE_DISK_MB,
     InstallerProvisioner,
+    ProvisioningRegistry,
 )
 from app.modules.server.application.services.jar_service import (
     forge_installer_url,
@@ -45,6 +46,7 @@ def provision_forge_server(
     """Spawn the Forge auto-install step off the create-request path."""
     provisioner = ForgeProvisioner(event_bus=event_bus)
     task = asyncio.create_task(provisioner.provision(server_id, minecraft_version))
+    ProvisioningRegistry.register_task(str(server_id), task)
     _track_background_task(task)
     return task
 

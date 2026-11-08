@@ -159,7 +159,7 @@ export function AppearanceSettingsSection() {
 
             {/* Wireframe Mini Preview */}
             <div
-              className="rounded-lg p-2.5 border border-border-subtle space-y-2"
+              className="rounded-lg p-2.5 space-y-2"
               style={{ backgroundColor: "rgb(15, 23, 42)" }}
             >
               <div className="flex items-center justify-between pb-1 border-b border-border-subtle">
@@ -221,10 +221,9 @@ export function AppearanceSettingsSection() {
 
             {/* Wireframe Mini Preview */}
             <div
-              className="rounded-lg p-2.5 space-y-2 border"
+              className="rounded-lg p-2.5 space-y-2"
               style={{
                 backgroundColor: "rgb(226, 232, 240)",
-                borderColor: "rgb(203, 213, 225)",
               }}
             >
               <div
@@ -301,12 +300,7 @@ export function AppearanceSettingsSection() {
                 <div>
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-sm font-semibold text-text-primary">{s.name}</span>
-                        <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-sm bg-surface-card border border-border-default text-text-secondary">
-                          {s.paletteBadge}
-                        </span>
-                      </div>
+                      <span className="text-sm font-semibold text-text-primary">{s.name}</span>
                       <p className="text-[11px] text-text-secondary mt-0.5">{s.tagline}</p>
                     </div>
                     {isSelected && (
@@ -358,10 +352,9 @@ export function AppearanceSettingsSection() {
                   <div className="flex gap-1.5">
                     {/* Mini Sidebar */}
                     <div
-                      className="w-1/4 h-12 rounded-xs p-1 space-y-1 border"
+                      className="w-1/4 h-12 rounded-xs p-1 space-y-1"
                       style={{
                         backgroundColor: s.surfaceColor,
-                        borderColor: s.borderColor,
                       }}
                     >
                       <div
@@ -381,10 +374,9 @@ export function AppearanceSettingsSection() {
                     {/* Mini Surface Cards */}
                     <div className="w-3/4 space-y-1.5">
                       <div
-                        className="h-5 rounded-xs p-1 flex items-center justify-between border"
+                        className="h-5 rounded-xs p-1 flex items-center justify-between"
                         style={{
                           backgroundColor: s.surfaceColor,
-                          borderColor: s.borderColor,
                         }}
                       >
                         <div
@@ -397,10 +389,9 @@ export function AppearanceSettingsSection() {
                         />
                       </div>
                       <div
-                        className="h-5 rounded-xs p-1 flex items-center justify-between border"
+                        className="h-5 rounded-xs p-1 flex items-center justify-between"
                         style={{
                           backgroundColor: s.surfaceColor,
-                          borderColor: s.borderColor,
                         }}
                       >
                         <div
@@ -482,7 +473,7 @@ export function AppearanceSettingsSection() {
                 title={`Select ${accent.name} accent`}
               >
                 <span
-                  className="w-4 h-4 rounded-full border border-border-subtle shrink-0 flex items-center justify-center"
+                  className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center"
                   style={{ backgroundColor: accent.colorRgb }}
                 >
                   {isSelected && (
@@ -531,11 +522,11 @@ export function AppearanceSettingsSection() {
               Spacious forms, relaxed padding, and increased breathing room for monitors and touch interfaces.
             </p>
             {/* Density mini rows */}
-            <div className="space-y-2 rounded-lg border border-border-subtle bg-surface-card p-3">
-              <div className="h-6 rounded bg-surface-muted flex items-center px-2">
+            <div className="space-y-2 rounded-lg bg-surface-muted p-3">
+              <div className="h-6 rounded bg-surface-card flex items-center px-2">
                 <div className="h-2 w-1/3 rounded bg-surface-active" />
               </div>
-              <div className="h-6 rounded bg-surface-muted flex items-center px-2">
+              <div className="h-6 rounded bg-surface-card flex items-center px-2">
                 <div className="h-2 w-1/2 rounded bg-surface-active" />
               </div>
             </div>
@@ -564,14 +555,14 @@ export function AppearanceSettingsSection() {
               High information density with compact table rows and tighter margins for multi-server management.
             </p>
             {/* Density mini rows */}
-            <div className="space-y-1 rounded-lg border border-border-subtle bg-surface-card p-3">
-              <div className="h-4 rounded bg-surface-muted flex items-center px-2">
+            <div className="space-y-1 rounded-lg bg-surface-muted p-3">
+              <div className="h-4 rounded bg-surface-card flex items-center px-2">
                 <div className="h-1.5 w-1/3 rounded bg-surface-active" />
               </div>
-              <div className="h-4 rounded bg-surface-muted flex items-center px-2">
+              <div className="h-4 rounded bg-surface-card flex items-center px-2">
                 <div className="h-1.5 w-1/2 rounded bg-surface-active" />
               </div>
-              <div className="h-4 rounded bg-surface-muted flex items-center px-2">
+              <div className="h-4 rounded bg-surface-card flex items-center px-2">
                 <div className="h-1.5 w-2/5 rounded bg-surface-active" />
               </div>
             </div>
@@ -616,12 +607,12 @@ export function AppearanceSettingsSection() {
               Smooth, modern curves with fluid standard border radiuses.
             </p>
             {/* Visual Preview Box with explicit rounded styling */}
-            <div className="p-3 border border-border-subtle bg-surface-card" style={{ borderRadius: "12px" }}>
+            <div className="p-3 bg-surface-muted" style={{ borderRadius: "12px" }}>
               <div className="flex items-center justify-between gap-2">
                 <div className="h-6 px-3 flex items-center bg-accent-primary/10 text-accent-primary text-xs font-medium" style={{ borderRadius: "8px" }}>
                   Button
                 </div>
-                <div className="h-6 flex-1 bg-surface-muted border border-border-default px-2 flex items-center text-[11px] text-text-muted" style={{ borderRadius: "6px" }}>
+                <div className="h-6 flex-1 bg-surface-card border border-border-default px-2 flex items-center text-[11px] text-text-muted" style={{ borderRadius: "6px" }}>
                   Input field
                 </div>
               </div>
@@ -653,12 +644,12 @@ export function AppearanceSettingsSection() {
               Flat, clean edges (2px) for a crisp, technical aesthetic.
             </p>
             {/* Visual Preview Box with explicit sharp styling (2px) */}
-            <div className="p-3 border border-border-subtle bg-surface-card" style={{ borderRadius: "3px" }}>
+            <div className="p-3 bg-surface-muted" style={{ borderRadius: "3px" }}>
               <div className="flex items-center justify-between gap-2">
                 <div className="h-6 px-3 flex items-center bg-accent-primary/10 text-accent-primary text-xs font-medium" style={{ borderRadius: "2px" }}>
                   Button
                 </div>
-                <div className="h-6 flex-1 bg-surface-muted border border-border-default px-2 flex items-center text-[11px] text-text-muted" style={{ borderRadius: "2px" }}>
+                <div className="h-6 flex-1 bg-surface-card border border-border-default px-2 flex items-center text-[11px] text-text-muted" style={{ borderRadius: "2px" }}>
                   Input field
                 </div>
               </div>

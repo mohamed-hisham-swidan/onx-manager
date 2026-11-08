@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 from app.core.exceptions import TestIsolationViolationError
+from app.modules.server.infrastructure.fs import local_fs
 from app.modules.versioning.domain.deployment import TestServerDeployment
 
 
@@ -81,12 +82,10 @@ def write_test_server_properties(
         lines.append(f"{key}={props[key]}")
 
     content = "\n".join(lines) + "\n"
-    with open(target_path, "w", encoding="utf-8") as f:
-        f.write(content)
+    local_fs.write_text_atomic(target_path, content)
 
     # Also ensure eula.txt exists in test deployment
     eula_path = deployment.eula_path()
-    with open(eula_path, "w", encoding="utf-8") as f:
-        f.write("eula=true\n")
+    local_fs.write_text_atomic(eula_path, "eula=true\n")
 
     return target_path

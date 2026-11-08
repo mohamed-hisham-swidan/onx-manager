@@ -699,8 +699,8 @@ export function createApiClient(
       request<{ port: number }>("/api/v1/servers/available-port"),
 
     // Import
-    scanDirectory: (path: string) =>
-      request<ScanResult>("/api/v1/servers/scan", { method: "POST", body: { path } }),
+    scanDirectory: (import_id: string) =>
+      request<ScanResult>("/api/v1/servers/scan", { method: "POST", body: { import_id } }),
     uploadImportZip: async (file: File, onProgress?: (percent: number) => void): Promise<ScanResult> => {
       const formData = new FormData();
       formData.append("file", file);

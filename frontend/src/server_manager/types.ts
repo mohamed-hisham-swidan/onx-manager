@@ -90,6 +90,7 @@ export interface ServerPropertiesInfo {
 }
 
 export interface ScanResult {
+  import_id?: string;
   path: string;
   name: string;
   server_name_declared?: boolean;

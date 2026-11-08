@@ -135,15 +135,23 @@ async def create_server(
     return check_command_result(result)
 
 
-def _process_and_scan_zip(zip_path: Path, staging_dir: Path) -> ScanResult:
+def _process_and_scan_zip(
+    zip_path: Path, staging_dir: Path, import_id: str | None = None
+) -> ScanResult:
+    try:
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
+            uncompressed_total = sum(m.file_size for m in zf.infolist())
+    except zipfile.BadZipFile as e:
+        raise HTTPException(
+            status_code=400, detail=f"Corrupted or invalid zip file: {e}"
+        ) from e
+
     try:
         free_bytes = shutil.disk_usage(str(staging_dir)).free
     except OSError:
         free_bytes = 0
 
-    file_size = zip_path.stat().st_size
-    required_free = int(file_size * 1.5)
-    if free_bytes < required_free:
+    if free_bytes < uncompressed_total:
         raise HTTPException(
             status_code=507,
             detail="Insufficient disk space on host to extract server archive",
@@ -165,6 +173,7 @@ def _process_and_scan_zip(zip_path: Path, staging_dir: Path) -> ScanResult:
 
     try:
         result = scan_server_directory(str(effective_dir))
+        result["import_id"] = import_id or staging_dir.name
         return ScanResult(**result)
     except (NotADirectoryError, ValueError) as e:
         raise HTTPException(
@@ -177,33 +186,28 @@ async def scan_directory(
     body: ScanDirectoryRequest,
     _current_user: dict = Depends(require_permission("server:write")),
 ) -> ScanResult:
-    path_obj = Path(body.path).expanduser().resolve()
-    if path_obj.is_file() and body.path.lower().endswith(".zip"):
-        settings = AppSettings()
-        import_id = secrets.token_hex(8)
-        staging_dir = Path(settings.import_staging_dir).resolve() / import_id
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            return _process_and_scan_zip(path_obj, staging_dir)
-        except HTTPException:
-            shutil.rmtree(str(staging_dir), ignore_errors=True)
-            raise
-        except Exception as exc:
-            shutil.rmtree(str(staging_dir), ignore_errors=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to process archive: {exc}",
-            ) from exc
+    settings = AppSettings()
+    staging_root = Path(settings.import_staging_dir).resolve()
+    staging_dir = (staging_root / body.import_id).resolve()
+    if not staging_dir.is_relative_to(staging_root) or staging_dir == staging_root:
+        raise HTTPException(status_code=400, detail="Invalid import_id")
+    if not staging_dir.is_dir():
+        raise HTTPException(
+            status_code=404, detail="Import staging directory not found or expired"
+        )
 
+    extracted_dir = staging_dir / "extracted"
+    target_dir = (
+        get_effective_server_dir(extracted_dir)
+        if extracted_dir.is_dir()
+        else staging_dir
+    )
     try:
-        result = scan_server_directory(body.path)
+        result = scan_server_directory(str(target_dir))
+        result["import_id"] = body.import_id
         return ScanResult(**result)
     except (NotADirectoryError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except PermissionError as e:
-        raise HTTPException(
-            status_code=403, detail="Permission denied to read the specified directory"
-        ) from e
 
 
 @router.post("/import/upload", response_model=ScanResult)
@@ -235,11 +239,13 @@ async def upload_and_scan_server_archive(
                 if max_bytes > 0 and total_bytes > max_bytes:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"Uploaded archive exceeds the maximum allowed size of {max_mb} MB",
+                        detail=(
+                            f"Uploaded archive exceeds the maximum allowed size of {max_mb} MB"
+                        ),
                     )
                 f_out.write(chunk)
 
-        return _process_and_scan_zip(zip_path, staging_dir)
+        return _process_and_scan_zip(zip_path, staging_dir, import_id=import_id)
 
     except HTTPException:
         shutil.rmtree(str(staging_dir), ignore_errors=True)
@@ -255,9 +261,27 @@ async def import_server(
     command_bus: CommandBus = Depends(get_command_bus),
     current_user: dict = Depends(require_permission("server:write")),
 ) -> dict:
+    settings = AppSettings()
+    staging_root = Path(settings.import_staging_dir).resolve()
+    staging_dir = (staging_root / body.import_id).resolve()
+    if not staging_dir.is_relative_to(staging_root) or staging_dir == staging_root:
+        raise HTTPException(status_code=400, detail="Invalid import_id")
+    if not staging_dir.is_dir():
+        raise HTTPException(
+            status_code=404, detail="Import staging directory not found or expired"
+        )
+
+    extracted_dir = staging_dir / "extracted"
+    if extracted_dir.is_dir():
+        source_dir = get_effective_server_dir(extracted_dir)
+    elif (staging_dir / "upload.zip").is_file():
+        source_dir = staging_dir / "upload.zip"
+    else:
+        source_dir = staging_dir
+
     cmd = ImportServerCommand(
         creator_id=current_user.get("user_id"),
-        source_path=body.source_path,
+        source_path=str(source_dir),
         name=body.name,
         server_type=body.server_type,
         minecraft_version=body.minecraft_version,
@@ -419,7 +443,6 @@ class _SendConsoleCommandImpl:
     async def handle(self, server_id: str, command: str) -> CommandResult:
         from app.modules.server.domain.aggregate import ServerStatus
         from app.modules.server.infrastructure.providers import provider_factory
-        from app.modules.server.infrastructure.providers.base import ServerHandle
         from app.modules.server.infrastructure.repository import SQLServerRepository
         from app.modules.shared.value_objects import ServerId
 
@@ -436,14 +459,13 @@ class _SendConsoleCommandImpl:
                     error="Server not running",
                     error_code="SERVER_NOT_RUNNING",
                 )
-            from app.modules.server.domain.value_objects import default_provider_for_platform
+            from app.modules.server.domain.value_objects import (
+                build_server_handle,
+                default_provider_for_platform,
+            )
 
             provider_name = server.runtime.provider or default_provider_for_platform()
-            handle = ServerHandle(
-                provider=provider_name,
-                server_id=server_id,
-                external_id=server.runtime.external_id,
-            )
+            handle = build_server_handle(server, provider_name)
             provider = provider_factory.get(provider_name)
             await provider.execute_command(handle, command)
             return CommandResult(success=True, data={"server_id": server_id, "command": command})

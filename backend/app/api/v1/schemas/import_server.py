@@ -5,10 +5,18 @@ from pydantic import BaseModel, Field, field_validator
 from app.api.v1.schemas.common import BaseResponse
 
 VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
+IMPORT_ID_PATTERN = re.compile(r"^[0-9a-f]{16}$")
 
 
 class ScanDirectoryRequest(BaseModel):
-    path: str = Field(..., min_length=1, max_length=4096)
+    import_id: str = Field(..., description="Staging import identifier")
+
+    @field_validator("import_id")
+    @classmethod
+    def validate_import_id(cls, v: str) -> str:
+        if not IMPORT_ID_PATTERN.match(v):
+            raise ValueError(f"Invalid import_id format: {v!r}")
+        return v
 
 
 class PluginInfo(BaseResponse):
@@ -49,6 +57,7 @@ class ServerPropertiesInfo(BaseResponse):
 
 
 class ScanResult(BaseResponse):
+    import_id: str | None = None
     path: str
     name: str
     server_name_declared: bool = False
@@ -68,7 +77,15 @@ class ScanResult(BaseResponse):
 
 
 class ImportServerRequest(BaseModel):
-    source_path: str = Field(..., min_length=1, max_length=4096)
+    import_id: str = Field(..., description="Staging import identifier")
+
+    @field_validator("import_id")
+    @classmethod
+    def validate_import_id(cls, v: str) -> str:
+        if not IMPORT_ID_PATTERN.match(v):
+            raise ValueError(f"Invalid import_id format: {v!r}")
+        return v
+
     name: str = Field(..., min_length=1, max_length=128)
     server_type: str = Field(default="vanilla")
     minecraft_version: str = Field(default="1.20.4")

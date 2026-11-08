@@ -116,7 +116,7 @@ export function CommandCenterFleetList({
           <h2 className="text-sm font-bold text-text-primary tracking-wide">
             Server Instances
           </h2>
-          <span className="flex h-5 items-center justify-center rounded-full bg-surface-elevated px-2 font-mono text-xs font-semibold text-text-secondary border border-border-subtle">
+          <span className="flex h-5 items-center justify-center rounded-full bg-surface-muted px-2 font-mono text-xs font-semibold text-text-secondary">
             {filteredServers.length}
           </span>
           <Link
@@ -144,7 +144,7 @@ export function CommandCenterFleetList({
           </div>
 
           {/* Filter Pills */}
-          <div className="flex items-center rounded-lg border border-border-subtle bg-surface-elevated p-0.5 text-xs font-medium">
+          <div className="flex items-center rounded-lg bg-surface-muted p-0.5 text-xs font-medium">
             <button
               type="button"
               onClick={() => setFilter("all")}
@@ -237,7 +237,7 @@ export function CommandCenterFleetList({
                       {server.name}
                     </Link>
                     <div className="mt-0.5 flex items-center gap-1.5">
-                      <span className="rounded bg-accent-primary/15 px-1.5 py-0.2 font-mono text-[10px] font-bold uppercase tracking-wider text-accent-primary border border-accent-primary/30">
+                      <span className="rounded bg-surface-muted px-2 py-0.5 font-mono text-xs text-text-secondary">
                         {server.server_type} {server.minecraft_version}
                       </span>
                     </div>
@@ -250,8 +250,9 @@ export function CommandCenterFleetList({
                     <button
                       type="button"
                       onClick={() => copyPort(server.port)}
+                      aria-label={`Copy port ${server.port}`}
                       title="Click to copy server port"
-                      className="relative z-10 flex items-center gap-1 rounded bg-surface-card px-2 py-0.5 font-mono text-xs text-text-secondary border border-border-subtle hover:border-border-default transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
+                      className="relative z-10 flex items-center gap-1 rounded bg-surface-muted px-2 py-0.5 font-mono text-xs text-text-secondary hover:text-text-primary transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus cursor-pointer"
                     >
                       <span>:{server.port}</span>
                       <Icon
@@ -339,7 +340,8 @@ export function CommandCenterFleetList({
                   <Link
                     to={`/servers/${server.server_id}/console`}
                     title="Open Console & Terminal"
-                    className="relative z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-card text-text-secondary hover:border-border-default hover:text-text-primary transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
+                    aria-label={`Open terminal for ${server.name}`}
+                    className="relative z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-surface-muted text-text-secondary hover:text-text-primary transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
                   >
                     <Icon name="terminal" size={14} />
                   </Link>
@@ -348,7 +350,8 @@ export function CommandCenterFleetList({
                   <Link
                     to={`/servers/${server.server_id}/settings`}
                     title="Configure Server"
-                    className="relative z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-border-subtle bg-surface-card text-text-secondary hover:border-border-default hover:text-text-primary transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
+                    aria-label={`Configure server ${server.name}`}
+                    className="relative z-10 flex h-8 w-8 items-center justify-center rounded-lg bg-surface-muted text-text-secondary hover:text-text-primary transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-border-focus"
                   >
                     <Icon name="settings" size={14} />
                   </Link>

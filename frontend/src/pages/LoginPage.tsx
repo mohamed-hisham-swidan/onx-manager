@@ -38,8 +38,14 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface-page px-4">
-      <div className="w-full max-w-sm">
+    <div
+      className="min-h-screen flex items-center justify-center bg-surface-page px-4 relative overflow-hidden"
+      style={{
+        background:
+          "radial-gradient(ellipse at 50% 20%, color-mix(in srgb, var(--accent-primary) 8%, transparent) 0%, transparent 70%), var(--surface-page)",
+      }}
+    >
+      <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-6">
           <VoxelBanner variant="auth" className="mb-2" />
           <h1 className="text-center">
@@ -49,9 +55,12 @@ export function LoginPage() {
 
         <form
           onSubmit={handleSubmit}
-          className="bg-surface-card rounded-xl shadow-xs border border-border-default p-6 space-y-4"
+          className="bg-surface-card rounded-xl shadow-xs border border-border-default p-8 space-y-5"
         >
-          <h2 className="text-lg font-semibold text-text-primary">Sign in</h2>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-text-primary">Sign in</h2>
+            <p className="text-sm text-text-muted mt-1">Sign in to manage your Minecraft servers.</p>
+          </div>
 
           {error && (
             <div role="alert" className="px-3 py-2 text-sm text-status-danger bg-status-danger/10 border border-status-danger/20 rounded-lg">
@@ -68,7 +77,7 @@ export function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-border-default bg-surface-page text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              className="h-11 w-full px-3.5 rounded-lg border border-border-default bg-surface-page text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
               placeholder="you@example.com"
               autoComplete="email"
             />
@@ -84,7 +93,7 @@ export function LoginPage() {
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 pr-10 rounded-lg border border-border-default bg-surface-page text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
+                className="h-11 w-full px-3.5 pr-10 rounded-lg border border-border-default bg-surface-page text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary"
                 placeholder="••••••••"
                 autoComplete="current-password"
               />
@@ -111,7 +120,7 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2 px-4 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="h-11 w-full px-4 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
           >
             {loading ? "Signing in..." : "Sign in"}
           </button>

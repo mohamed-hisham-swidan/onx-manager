@@ -94,3 +94,15 @@ class ServerMembershipModel(Base, TimestampMixin):
     user = relationship("UserModel", back_populates="server_memberships")
 
     __table_args__ = (UniqueConstraint("server_id", "user_id", name="uq_server_user_membership"),)
+
+
+class ServerLifecycleLeaseModel(Base):
+    __tablename__ = "server_lifecycle_leases"
+
+    server_id = Column(String(36), primary_key=True, nullable=False)
+    holder = Column(String(128), nullable=True)
+    owner_token = Column(String(64), nullable=True)
+    acquired_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+

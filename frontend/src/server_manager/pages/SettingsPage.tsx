@@ -55,7 +55,7 @@ const CATEGORIES: CategoryDefinition[] = [
   { id: "all", label: "All Sections (6)", sections: [1, 2, 3, 4, 5, 6] },
   { id: "general", label: "General & Logging", sections: [1] },
   { id: "security", label: "Security & Throttling", sections: [2] },
-  { id: "fault-tolerance", label: "Fault Tolerance & Sagas", sections: [3, 4] },
+  { id: "fault-tolerance", label: "Service Protection & Tasks", sections: [3, 4] },
   { id: "telemetry", label: "Telemetry & Timeouts", sections: [5, 6] },
 ];
 
@@ -79,6 +79,7 @@ interface SplitSettingRowProps {
   description: string;
   propertyKey: string;
   hasRestart?: boolean;
+  tooltip?: string;
   children: React.ReactNode;
 }
 
@@ -88,25 +89,33 @@ function SplitSettingRow({
   description,
   propertyKey,
   hasRestart,
+  tooltip,
   children,
 }: SplitSettingRowProps) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(260px,360px)] items-center gap-4 px-5 py-4 border-b border-border-subtle last:border-b-0">
+    <div
+      data-property-key={propertyKey}
+      className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(260px,360px)] items-center gap-4 px-5 py-4 border-b border-border-subtle last:border-b-0"
+    >
       <section className="space-y-1">
         <div className="flex items-center gap-2">
           <label htmlFor={id} className="text-sm font-bold text-text-primary cursor-pointer">
             {label}
           </label>
+          {tooltip && (
+            <span
+              className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-surface-muted text-text-muted hover:text-text-primary text-[10px] font-bold cursor-help shrink-0 select-none"
+              title={tooltip}
+              aria-label={`More info about ${label}`}
+            >
+              ?
+            </span>
+          )}
           {hasRestart && <RestartBadge />}
         </div>
         <p id={`${id}-help`} className="text-xs text-text-secondary mt-0.5 leading-relaxed">
           {description}
         </p>
-        <div className="pt-0.5">
-          <code className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-surface-elevated text-text-muted border border-border-subtle inline-block">
-            {propertyKey}
-          </code>
-        </div>
       </section>
 
       <section className="w-full lg:max-w-[360px] lg:ml-auto flex flex-col items-start lg:items-end">
@@ -477,11 +486,11 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         "general app name log level debug info warning error version onx-manager".includes(q) ||
         formData.app_name.toLowerCase().includes(q);
       matches[2] =
-        "rate limiting & security throttling idempotency ttl hours per minute request ip".includes(q);
+        "rate limiting & security throttling idempotency ttl hours per minute request ip duplicate".includes(q);
       matches[3] =
-        "circuit breaker fault tolerance max failures timeout cooldown consecutive errors recovery".includes(q);
+        "circuit breaker fault tolerance automatic failure protection service recovery max failures timeout cooldown consecutive errors recovery".includes(q);
       matches[4] =
-        "event bus & sagas retry attempts timeout distributed rollback async domain".includes(q);
+        "event bus & sagas background tasks operations retry attempts timeout distributed rollback async domain".includes(q);
       matches[5] =
         "monitoring & performance cpu ram sampling interval real-time metrics frequency overhead".includes(q);
       matches[6] =
@@ -810,7 +819,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             <div>
               <h3 className="text-base font-semibold text-text-primary">Rate Limiting & Security</h3>
               <p className="text-xs text-text-muted mt-0.5">
-                API request throttling and idempotency token retention policies.
+                API request throttling and duplicate-request protection policies.
               </p>
             </div>
           </div>
@@ -820,8 +829,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             <SplitSettingRow
               id="rate_limit_per_minute"
               label="Rate Limit (per minute)"
-              description="Max API requests per minute per IP address."
+              description="Maximum API requests allowed per minute per client IP to prevent abuse and denial of service."
               propertyKey="rate_limit_per_minute"
+              tooltip="Max API requests allowed per minute per client IP."
             >
               <NumberStepper
                 id="rate_limit_per_minute"
@@ -841,8 +851,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             <SplitSettingRow
               id="idempotency_ttl_hours"
               label="Idempotency TTL (hours)"
-              description="Retention period in hours for request idempotency execution keys."
+              description="How long duplicate requests (such as double-clicks on server actions) are remembered and prevented from repeating."
               propertyKey="idempotency_ttl_hours"
+              tooltip="How long duplicate requests are prevented from re-executing (retention in hours)."
             >
               <NumberStepper
                 id="idempotency_ttl_hours"
@@ -862,7 +873,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         </div>
       )}
 
-      {/* Section 3: Circuit Breaker (Split-Row Card) */}
+      {/* Section 3: Automatic Failure Protection (Split-Row Card) */}
       {isSectionVisible(3) && (
         <div className="rounded-2xl border border-border-default bg-surface-card shadow-xs overflow-hidden">
           <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
@@ -870,9 +881,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               <Icon name="alert" size={18} />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-text-primary">Circuit Breaker</h3>
+              <h3 className="text-base font-semibold text-text-primary">Automatic Failure Protection</h3>
               <p className="text-xs text-text-muted mt-0.5">
-                Fault tolerance thresholds and automated service recovery timings.
+                Circuit breaker thresholds that automatically pause calls to failing services to prevent cascading outages.
               </p>
             </div>
           </div>
@@ -881,14 +892,15 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             {/* Max Failures */}
             <SplitSettingRow
               id="circuit_breaker_max_failures"
-              label="Max Failures"
-              description="Consecutive errors before opening the circuit breaker."
+              label="Max Consecutive Failures"
+              description="Number of consecutive provider errors before pausing requests to let the service recover."
               propertyKey="circuit_breaker_max_failures"
+              tooltip="How many failed provider attempts before pausing retries."
             >
               <NumberStepper
                 id="circuit_breaker_max_failures"
                 name="circuit_breaker_max_failures"
-                label="Max Failures"
+                label="Max Consecutive Failures"
                 value={formData.circuit_breaker_max_failures}
                 draftValue={rawDrafts["circuit_breaker_max_failures"]}
                 onChange={handleChange}
@@ -902,14 +914,15 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             {/* Timeout seconds */}
             <SplitSettingRow
               id="circuit_breaker_timeout_seconds"
-              label="Timeout (seconds)"
-              description="Cooldown duration in seconds before attempting half-open recovery."
+              label="Recovery Cooldown (seconds)"
+              description="Cooldown duration before attempting to test whether the failing provider has recovered."
               propertyKey="circuit_breaker_timeout_seconds"
+              tooltip="How long to pause operations before testing whether the failing service has recovered."
             >
               <NumberStepper
                 id="circuit_breaker_timeout_seconds"
                 name="circuit_breaker_timeout_seconds"
-                label="Timeout (seconds)"
+                label="Recovery Cooldown (seconds)"
                 value={formData.circuit_breaker_timeout_seconds}
                 draftValue={rawDrafts["circuit_breaker_timeout_seconds"]}
                 onChange={handleChange}
@@ -924,7 +937,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         </div>
       )}
 
-      {/* Section 4: Event Bus & Sagas (Split-Row Card) */}
+      {/* Section 4: Background Tasks & Operations (Split-Row Card) */}
       {isSectionVisible(4) && (
         <div className="rounded-2xl border border-border-default bg-surface-card shadow-xs overflow-hidden">
           <div className="flex items-center gap-3 px-5 py-4 bg-surface-muted/50 border-b border-border-default">
@@ -932,9 +945,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               <Icon name="version-branch" size={18} />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-text-primary">Event Bus & Sagas</h3>
+              <h3 className="text-base font-semibold text-text-primary">Background Tasks & Operations</h3>
               <p className="text-xs text-text-muted mt-0.5">
-                Asynchronous event dispatch retry policies and multi-step saga execution timeouts.
+                Retry policies and execution timeouts for background events and multi-step workflows (sagas).
               </p>
             </div>
           </div>
@@ -943,14 +956,15 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             {/* Event bus retry attempts */}
             <SplitSettingRow
               id="event_bus_retry_attempts"
-              label="Event Bus Retry Attempts"
-              description="Max delivery retries for failing async domain event handlers."
+              label="Background Task Retries"
+              description="Maximum automatic retries when an internal background event handler fails."
               propertyKey="event_bus_retry_attempts"
+              tooltip="How many times failed background task handlers are retried before logging an error."
             >
               <NumberStepper
                 id="event_bus_retry_attempts"
                 name="event_bus_retry_attempts"
-                label="Event Bus Retry Attempts"
+                label="Background Task Retries"
                 value={formData.event_bus_retry_attempts}
                 draftValue={rawDrafts["event_bus_retry_attempts"]}
                 onChange={handleChange}
@@ -964,14 +978,15 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             {/* Saga timeout seconds */}
             <SplitSettingRow
               id="saga_timeout_seconds"
-              label="Saga Timeout (seconds)"
-              description="Maximum execution duration before rolling back a distributed saga."
+              label="Operation Timeout (seconds)"
+              description="Maximum duration allowed for multi-step workflows before cancelling and running rollback cleanup."
               propertyKey="saga_timeout_seconds"
+              tooltip="Background task timeout and rollback cleanup threshold in seconds."
             >
               <NumberStepper
                 id="saga_timeout_seconds"
                 name="saga_timeout_seconds"
-                label="Saga Timeout (seconds)"
+                label="Operation Timeout (seconds)"
                 value={formData.saga_timeout_seconds}
                 draftValue={rawDrafts["saga_timeout_seconds"]}
                 onChange={handleChange}
@@ -1008,6 +1023,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               label="CPU & Metrics Sampling Interval (seconds)"
               description="Frequency in seconds for sampling CPU, RAM, and streaming real-time metrics (e.g. 0.2s for live real-time, 1.0s or 5.0s for reduced CPU overhead)."
               propertyKey="metrics_interval_seconds"
+              tooltip="How often server CPU and memory usage are sampled."
             >
               <NumberStepper
                 id="metrics_interval_seconds"
@@ -1050,6 +1066,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               label="Server Startup Timeout (seconds)"
               description="Global timeout before starting monitor warns on slow server boot. Can be overridden per-server."
               propertyKey="server_startup_timeout_seconds"
+              tooltip="Maximum boot time before the system flags the server as slow to start."
             >
               <NumberStepper
                 id="server_startup_timeout_seconds"
@@ -1072,6 +1089,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               label="Test Boot Timeout (seconds)"
               description="Global timeout before isolated test containers fail boot verification."
               propertyKey="test_boot_timeout_seconds"
+              tooltip="Maximum boot time for isolated ephemeral test containers."
             >
               <NumberStepper
                 id="test_boot_timeout_seconds"

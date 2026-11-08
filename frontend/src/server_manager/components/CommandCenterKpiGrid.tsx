@@ -44,29 +44,25 @@ export function CommandCenterKpiGrid({
       <div
         role="region"
         aria-label="Fleet Availability"
-        className="flex min-h-[140px] flex-col justify-between rounded-xl border border-border-subtle bg-surface-card p-4.5 shadow-2xs transition-all hover:border-border-default hover:shadow-xs"
+        className="flex min-h-[120px] flex-col justify-between rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all hover:border-border-default hover:shadow-xs"
       >
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">
-            Fleet Status
-          </span>
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-elevated text-text-muted border border-border-subtle">
-            <Icon name="server" size={14} />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-elevated text-text-muted">
+              <Icon name="server" size={14} />
+            </div>
+            <span className="text-xs font-medium text-text-muted">
+              Instances Online
+            </span>
           </div>
-        </div>
-
-        <div className="my-1.5 flex items-baseline gap-2">
-          <span className="font-mono text-2xl font-bold tabular-nums text-text-primary">
+          <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
             {onlineCount} / {totalServers}
-          </span>
-          <span className="text-xs font-medium text-text-muted">
-            Instances Online
           </span>
         </div>
 
         <div>
           {/* Multi-color segmented progress bar */}
-          <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-elevated">
+          <div className="my-2.5 flex h-1.5 w-full overflow-hidden rounded-full bg-surface-elevated">
             {onlinePct > 0 && (
               <div
                 style={{ width: `${onlinePct}%` }}
@@ -89,7 +85,7 @@ export function CommandCenterKpiGrid({
               />
             )}
           </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-text-muted">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-text-muted">
             <Link
               to="/servers?status=running"
               className="hover:text-status-success transition-colors"
@@ -118,36 +114,24 @@ export function CommandCenterKpiGrid({
       <div
         role="region"
         aria-label="Compute and Tickrate"
-        className="flex min-h-[140px] flex-col justify-between rounded-xl border border-border-subtle bg-surface-card p-4.5 shadow-2xs transition-all hover:border-border-default hover:shadow-xs"
+        className="flex min-h-[120px] flex-col justify-between rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all hover:border-border-default hover:shadow-xs"
       >
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">
-            Compute &amp; Tickrate
-          </span>
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-elevated text-text-muted border border-border-subtle">
-            <Icon name="cpu" size={14} />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-elevated text-text-muted">
+              <Icon name="cpu" size={14} />
+            </div>
+            <span className="text-xs font-medium text-text-muted">
+              Compute &amp; Tickrate
+            </span>
           </div>
-        </div>
-
-        <div className="my-1 flex items-baseline justify-between">
-          <span className="font-mono text-2xl font-bold tabular-nums text-text-primary">
+          <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
             {telemetry.cpuPercent}%
-          </span>
-          <span
-            className={`rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold ${
-              telemetry.tpsAvg !== null
-                ? "bg-status-success-bg text-status-success border border-status-success-border"
-                : "bg-surface-elevated text-text-muted border border-border-subtle"
-            }`}
-          >
-            {telemetry.tpsAvg !== null
-              ? `${telemetry.tpsAvg.toFixed(1)} TPS avg`
-              : "-- TPS (Idle)"}
           </span>
         </div>
 
         {/* Inline SVG sparkline chart */}
-        <div className="h-7 w-full overflow-hidden">
+        <div className="my-1.5 h-7 w-full overflow-hidden">
           <svg
             viewBox="0 0 120 28"
             className="h-full w-full overflow-visible text-accent-primary"
@@ -170,35 +154,46 @@ export function CommandCenterKpiGrid({
             />
           </svg>
         </div>
+
+        <div className="flex items-center justify-between text-[11px] text-text-muted">
+          <span>Host CPU</span>
+          <span
+            className={
+              telemetry.tpsAvg !== null
+                ? "font-mono font-medium text-status-success"
+                : "font-mono text-text-muted"
+            }
+          >
+            {telemetry.tpsAvg !== null
+              ? `${telemetry.tpsAvg.toFixed(1)} TPS avg`
+              : "-- TPS (Idle)"}
+          </span>
+        </div>
       </div>
 
       {/* Card 3: Memory Allocation (RAM) */}
       <div
         role="region"
         aria-label="Memory Allocation"
-        className="flex min-h-[140px] flex-col justify-between rounded-xl border border-border-subtle bg-surface-card p-4.5 shadow-2xs transition-all hover:border-border-default hover:shadow-xs"
+        className="flex min-h-[120px] flex-col justify-between rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all hover:border-border-default hover:shadow-xs"
       >
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">
-            Memory Allocation
-          </span>
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-elevated text-text-muted border border-border-subtle">
-            <Icon name="hard-drive" size={14} />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-elevated text-text-muted">
+              <Icon name="hard-drive" size={14} />
+            </div>
+            <span className="text-xs font-medium text-text-muted">
+              Memory Allocation
+            </span>
           </div>
-        </div>
-
-        <div className="my-1.5 flex items-baseline justify-between gap-1">
           <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
             {telemetry.usedRamGb.toFixed(1)} / {telemetry.totalRamGb.toFixed(1)} GB
-          </span>
-          <span className="rounded-md bg-surface-elevated px-1.5 py-0.5 text-[11px] font-mono font-medium text-text-secondary border border-border-subtle">
-            {usedRamPct.toFixed(1)}% Used
           </span>
         </div>
 
         <div>
           {/* Dual-layer progress bar */}
-          <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-surface-elevated">
+          <div className="my-2.5 relative h-1.5 w-full overflow-hidden rounded-full bg-surface-elevated">
             {/* Translucent reserved RAM bar */}
             <div
               style={{ width: `${reservedRamPct}%` }}
@@ -210,8 +205,8 @@ export function CommandCenterKpiGrid({
               className="absolute inset-y-0 start-0 bg-accent-primary transition-all duration-300"
             />
           </div>
-          <div className="mt-2 flex items-center justify-between text-[11px] text-text-muted">
-            <span>{telemetry.reservedRamGb.toFixed(1)} GB Reserved</span>
+          <div className="flex items-center justify-between text-[11px] text-text-muted">
+            <span>{telemetry.reservedRamGb.toFixed(1)} GB Reserved ({usedRamPct.toFixed(1)}% Used)</span>
             <span>{(telemetry.totalRamGb - telemetry.usedRamGb).toFixed(1)} GB Free</span>
           </div>
         </div>
@@ -221,36 +216,40 @@ export function CommandCenterKpiGrid({
       <div
         role="region"
         aria-label="Storage and Snapshots"
-        className="flex min-h-[140px] flex-col justify-between rounded-xl border border-border-subtle bg-surface-card p-4.5 shadow-2xs transition-all hover:border-border-default hover:shadow-xs"
+        className="flex min-h-[120px] flex-col justify-between rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all hover:border-border-default hover:shadow-xs"
       >
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">
-            Storage &amp; Snapshots
-          </span>
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-elevated text-text-muted border border-border-subtle">
-            <Icon name="database" size={14} />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-elevated text-text-muted">
+              <Icon name="database" size={14} />
+            </div>
+            <span className="text-xs font-medium text-text-muted">
+              Storage &amp; Snapshots
+            </span>
           </div>
-        </div>
-
-        <div className="my-1.5 flex items-baseline gap-2">
-          <span className="font-mono text-2xl font-bold tabular-nums text-text-primary">
+          <span className="font-mono text-xl font-bold tabular-nums text-text-primary">
             {telemetry.storageUsedGb.toFixed(1)} GB
           </span>
-          <span className="text-xs font-medium text-text-muted">
-            World &amp; Backup Data
-          </span>
         </div>
 
-        <div className="flex items-center justify-between border-t border-border-subtle/50 pt-2 text-[11px]">
-          <span className="truncate text-text-muted" title="Last backup: 4h ago · Git Engine Ready">
-            Last: {telemetry.lastBackupRelative} · Git Engine
-          </span>
-          <Link
-            to="/backups"
-            className="shrink-0 rounded-md bg-surface-elevated px-2 py-0.5 text-xs font-semibold text-accent-primary border border-border-subtle hover:bg-surface-hover hover:border-border-default transition-colors"
-          >
-            Run Backup
-          </Link>
+        <div>
+          <div className="my-2.5 flex h-1.5 w-full overflow-hidden rounded-full bg-surface-elevated">
+            <div
+              style={{ width: `${Math.min(100, (telemetry.storageUsedGb / 100) * 100)}%` }}
+              className="bg-accent-primary transition-all duration-300"
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-text-muted">
+            <span className="truncate" title={`Last: ${telemetry.lastBackupRelative} · Git Engine`}>
+              Last: {telemetry.lastBackupRelative} · Git Engine
+            </span>
+            <Link
+              to="/backups"
+              className="shrink-0 font-medium text-accent-primary hover:underline transition-colors"
+            >
+              Run Backup
+            </Link>
+          </div>
         </div>
       </div>
     </div>

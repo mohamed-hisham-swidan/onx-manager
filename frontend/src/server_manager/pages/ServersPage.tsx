@@ -19,7 +19,7 @@ import { TableSkeleton } from "@/components/Skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Pagination } from "@/components/ui/Pagination";
 import { ViewModeToggle, type ViewMode } from "@/components/ui/ViewModeToggle";
-import { ServerBanner } from "@/components/ui/ServerBanner";
+import { ServerIcon } from "@/server_manager/components/ServerIcon";
 import { toast } from "@/stores/toastStore";
 import { ProvisioningProgress } from "@/server_manager/components/ProvisioningProgress";
 import { StartingMonitorBanner } from "@/server_manager/components/StartingMonitorBanner";
@@ -391,59 +391,58 @@ export function ServersPage() {
             <div className="space-y-6">
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {paginatedServers.map((s) => {
-                  const isRunning = s.status === "running";
                   return (
                     <div
                       key={s.server_id}
                       onClick={() => navigate(`/servers/${s.server_id}/console`)}
-                      className="group relative flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-card shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
+                      className="group relative flex flex-col justify-between overflow-hidden rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-border-default hover:bg-surface-hover/30 hover:shadow-md cursor-pointer"
                     >
-                      {/* Banner Cover with Vignette */}
-                      <ServerBanner seed={s.name} height={124}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 rounded-md border border-border-subtle/40 bg-surface-card/80 px-2 py-0.5 backdrop-blur-xs">
-                            <LoaderBadge loader={s.server_type} />
-                            <span className="font-mono text-[11px] text-text-secondary">
-                              {s.minecraft_version}
-                            </span>
-                          </div>
-                          <StatusBadge status={s.status} />
-                        </div>
-                      </ServerBanner>
-
-                      {/* Card Body */}
-                      <div className="flex flex-1 flex-col p-4">
-                        <div className="flex items-start justify-between gap-2">
-                          <Link
-                            to={`/servers/${s.server_id}/console`}
-                            title={s.name}
-                            onClick={(e) => e.stopPropagation()}
-                            className="truncate text-base font-bold text-text-primary group-hover:text-accent-primary"
-                          >
-                            {s.name}
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={(e) => handleCopyPort(s.port, s.server_id, e)}
-                            className="inline-flex items-center gap-1 rounded border border-border-subtle bg-surface-elevated px-1.5 py-0.5 font-mono text-[11px] text-text-muted hover:border-border-default hover:text-text-primary"
-                            title="Click to copy port"
-                          >
-                            <span>:{s.port}</span>
-                            {copiedPortId === s.server_id && (
-                              <span className="text-status-success font-semibold">✓</span>
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Instance Config Well */}
-                        <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg border border-border-subtle bg-surface-elevated/70 p-2.5 text-center">
-                          <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Port</div>
-                            <div className="mt-0.5 font-mono text-xs tabular-nums text-text-primary">
-                              {s.port}
+                      <div>
+                        {/* Card Header Row */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <ServerIcon serverId={s.server_id} name={s.name} size={40} />
+                            <div className="min-w-0">
+                              <Link
+                                to={`/servers/${s.server_id}/console`}
+                                title={s.name}
+                                onClick={(e) => e.stopPropagation()}
+                                className="block truncate text-base font-bold text-text-primary group-hover:text-accent-primary"
+                              >
+                                {s.name}
+                              </Link>
+                              {/* Loader + version chip under the name, along with copyable port chip */}
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                <div className="inline-flex items-center gap-1.5 rounded-md bg-surface-muted px-2 py-0.5">
+                                  <LoaderBadge loader={s.server_type} />
+                                  <span className="font-mono text-[11px] text-text-secondary">
+                                    {s.minecraft_version}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleCopyPort(s.port, s.server_id, e)}
+                                  className="inline-flex shrink-0 items-center gap-1 rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-text-muted hover:text-text-primary"
+                                  title="Click to copy port"
+                                  aria-label={`Copy port ${s.port}`}
+                                >
+                                  <span>:{s.port}</span>
+                                  {copiedPortId === s.server_id && (
+                                    <span className="text-status-success font-semibold">✓</span>
+                                  )}
+                                </button>
+                              </div>
                             </div>
                           </div>
-                          <div className="border-x border-border-subtle">
+
+                          <div className="shrink-0">
+                            <StatusBadge status={s.status} />
+                          </div>
+                        </div>
+
+                        {/* Instance Config Well: 2 columns (Mode & Max Players) */}
+                        <div className="mt-4 grid grid-cols-2 divide-x divide-border-subtle rounded-lg bg-surface-muted/50 p-2.5 text-center">
+                          <div>
                             <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Mode</div>
                             <div className="mt-0.5 font-mono text-xs capitalize text-text-primary">
                               {s.gamemode || "survival"}
@@ -456,79 +455,77 @@ export function ServersPage() {
                             </div>
                           </div>
                         </div>
+                      </div>
 
-                        {/* Footer & Actions */}
-                        <div className="mt-4 flex items-center justify-between border-t border-border-subtle/60 pt-3">
-                          <span className="text-[11px] text-text-muted">
-                            {isRunning ? "Active now" : "Offline"}
-                          </span>
+                      {/* Footer & Actions */}
+                      <div className="mt-4 flex items-center justify-between border-t border-border-subtle/60 pt-3">
+                        <span className="text-[11px] text-text-muted" />
 
-                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            {["stopped", "created", "crashed", "provisioning"].includes(s.status) && (
-                              <button
-                                type="button"
-                                onClick={(e) => handleStart(s, e)}
-                                disabled={
-                                  isBusy ||
-                                  (startCooldowns[s.server_id] !== undefined &&
-                                    now < startCooldowns[s.server_id]) ||
-                                  s.status === "starting" ||
-                                  s.status === "provisioning"
-                                }
-                                aria-label={`Start ${s.name}`}
-                                title="Start"
-                                className="rounded-lg p-1.5 text-status-success transition-colors hover:bg-status-success-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                              >
-                                <Icon name="play" size={16} />
-                              </button>
-                            )}
-
-                            {["running", "starting"].includes(s.status) && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleStop(s, e)}
-                                  disabled={isBusy}
-                                  aria-label={`Stop ${s.name}`}
-                                  title="Stop"
-                                  className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                                >
-                                  <Icon name="stop" size={16} />
-                                </button>
-                                {s.status === "running" && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => handleRestart(s, e)}
-                                    disabled={isBusy}
-                                    aria-label={`Restart ${s.name}`}
-                                    title="Restart"
-                                    className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                                  >
-                                    <Icon name="restart" size={16} />
-                                  </button>
-                                )}
-                              </>
-                            )}
-
-                            <Link
-                              to={`/servers/${s.server_id}/console`}
-                              className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
-                              title="Open Console"
-                            >
-                              <Icon name="console" size={16} />
-                            </Link>
-
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          {["stopped", "created", "crashed", "provisioning"].includes(s.status) && (
                             <button
                               type="button"
-                              onClick={(e) => handleDeleteClick(s, e)}
-                              disabled={deleteServer.isPending}
-                              aria-label={`Delete ${s.name}`}
-                              title="Delete"
-                              className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
+                              onClick={(e) => handleStart(s, e)}
+                              disabled={
+                                isBusy ||
+                                (startCooldowns[s.server_id] !== undefined &&
+                                  now < startCooldowns[s.server_id]) ||
+                                s.status === "starting" ||
+                                s.status === "provisioning"
+                              }
+                              aria-label={`Start ${s.name}`}
+                              title="Start"
+                              className="rounded-lg p-1.5 text-status-success transition-colors hover:bg-status-success-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
                             >
-                              <Icon name="trash" size={16} />
+                              <Icon name="play" size={16} />
                             </button>
-                          </div>
+                          )}
+
+                          {["running", "starting"].includes(s.status) && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => handleStop(s, e)}
+                                disabled={isBusy}
+                                aria-label={`Stop ${s.name}`}
+                                title="Stop"
+                                className="rounded-lg p-1.5 text-status-danger transition-colors hover:bg-status-danger-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
+                              >
+                                <Icon name="stop" size={16} />
+                              </button>
+                              {s.status === "running" && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleRestart(s, e)}
+                                  disabled={isBusy}
+                                  aria-label={`Restart ${s.name}`}
+                                  title="Restart"
+                                  className="rounded-lg p-1.5 text-status-warning transition-colors hover:bg-status-warning-bg disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
+                                >
+                                  <Icon name="restart" size={16} />
+                                </button>
+                              )}
+                            </>
+                          )}
+
+                          <Link
+                            to={`/servers/${s.server_id}/console`}
+                            className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+                            title="Open Console"
+                          >
+                            <Icon name="console" size={16} />
+                          </Link>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteClick(s, e)}
+                            disabled={deleteServer.isPending}
+                            aria-label={`Delete ${s.name}`}
+                            title="Delete"
+                            className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
+                          >
+                            <Icon name="trash" size={16} />
+                          </button>
                         </div>
                       </div>
                     </div>

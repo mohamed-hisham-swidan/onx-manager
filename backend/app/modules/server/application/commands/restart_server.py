@@ -28,13 +28,20 @@ from app.modules.server.application.logging_utils import (
     shutdown_timeline,
     startup_timeline,
 )
-from app.modules.server.application.runtime_ownership import RuntimeOwnershipManager
+from app.modules.server.application.runtime_ownership import (
+    RuntimeOwnershipManager,
+    _port_is_listening,
+    _wait_for_port_free,
+)
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
-from app.modules.server.domain.value_objects import default_provider_for_platform
+from app.modules.server.domain.value_objects import (
+    build_server_handle,
+    default_provider_for_platform,
+)
 from app.modules.server.infrastructure.providers import provider_factory
-from app.modules.server.infrastructure.providers.base import ServerHandle, ServerRuntimeStatus
+from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
 
@@ -42,6 +49,8 @@ logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.restart_serve
 
 # TODO(STARTING-001-CFG): hardcoded for now; shares the future config system with the OQ-2 15-min supervisor startup timeout
 _BACKUP_WAIT_CAP_S: float = 30.0
+_GRACEFUL_STOP_TIMEOUT: float = 50.0
+_FORCE_STOP_TIMEOUT: float = 15.0
 
 
 class RestartServerCommand(Command):
@@ -87,15 +96,20 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
             repo: ServerRepository = SQLServerRepository(uow.session)
             server = await repo.get(server_id)
             server_name = server.name
-            if server.status not in (ServerStatus.RUNNING, ServerStatus.STARTING):
+            if server.status not in (
+                ServerStatus.RUNNING,
+                ServerStatus.STARTING,
+                ServerStatus.STOPPING,
+            ):
                 raise ServerNotRunningError(sid)
-            server.stop(reason="restart")
-            server.mark_stopped()
-            await repo.save(server)
-            for event in server.collect_events():
-                uow.add_event(event)
-                logger.info("EVENT %s", format_event(event, server_name))
-            await uow.commit()
+
+            if server.status in (ServerStatus.RUNNING, ServerStatus.STARTING):
+                server.stop(reason="restart")
+                await repo.save(server)
+                for event in server.collect_events():
+                    uow.add_event(event)
+                    logger.info("EVENT %s", format_event(event, server_name))
+                await uow.commit()
 
         logger.info(
             'Server "%s" restarting — server_id=%s',
@@ -104,78 +118,141 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
         )
 
         stop_errors: list[str] = []
+        status: ServerRuntimeStatus | None = None
+        server_dir = server.deployment.server_directory() if server.deployment else None
+        provider_type = (
+            server.runtime.provider
+            if (server.runtime and server.runtime.provider)
+            else default_provider_for_platform()
+        )
+        provider = provider_factory.get(provider_type)
+        handle = build_server_handle(server, provider_type, server_dir=server_dir)
+
+        has_runtime_handle = bool(
+            server.runtime
+            and server.runtime.external_id
+            and (provider_type != "local_windows" or server.runtime.pid is not None)
+        )
 
         with shutdown_timeline(server_name, sid):
             add_timeline_milestone(None, "Phase 1/2: Stop started", server_name, sid)
             await RuntimeSupervisor.stop_for(sid)
 
-            if server.runtime and server.runtime.external_id:
-                provider = provider_factory.get(server.runtime.provider)
-                handle = ServerHandle(
-                    provider=server.runtime.provider,
-                    server_id=sid,
-                    external_id=server.runtime.external_id,
-                    metadata={"server_name": server_name},
-                )
-
+            if not has_runtime_handle:
+                stop_errors.append("Cannot verify stop: server has no runtime handle")
+            else:
                 try:
                     with progress_phase("Restart — stop", 1, 2, server_name, sid):
-                        await asyncio.wait_for(provider.stop(handle), timeout=15)
-                        status = await asyncio.wait_for(provider.status(handle), timeout=5)
-                        if status != ServerRuntimeStatus.STOPPED:
-                            stop_errors.append(f"Runtime still {status.value} after stop")
+                        await asyncio.wait_for(
+                            provider.stop(handle), timeout=_GRACEFUL_STOP_TIMEOUT
+                        )
                 except TimeoutError:
-                    stop_errors.append("Stop timed out")
+                    stop_errors.append(f"Stop timed out after {_GRACEFUL_STOP_TIMEOUT:.0f}s")
                     try:
-                        await asyncio.wait_for(provider.stop(handle, force=True), timeout=10)
+                        await asyncio.wait_for(
+                            provider.stop(handle, force=True), timeout=_FORCE_STOP_TIMEOUT
+                        )
                     except Exception as exc:
                         stop_errors.append(f"Force stop failed: {exc}")
                 except Exception as exc:
                     stop_errors.append(f"Stop failed: {exc}")
                     with contextlib.suppress(Exception):
-                        await asyncio.wait_for(provider.stop(handle, force=True), timeout=10)
+                        await asyncio.wait_for(
+                            provider.stop(handle, force=True), timeout=_FORCE_STOP_TIMEOUT
+                        )
 
                 try:
-                    server_port = (
-                        server.properties.port.value
-                        if hasattr(server.properties, "port")
-                        else 25565
-                    )
-                    from app.modules.server.application.runtime_ownership import (
-                        _port_is_listening,
-                        _wait_for_port_free,
-                    )
+                    status = await asyncio.wait_for(provider.status(handle), timeout=5)
+                    if status != ServerRuntimeStatus.STOPPED:
+                        stop_errors.append(f"Runtime still {status.value} after stop")
+                except Exception as exc:
+                    stop_errors.append(f"Provider status check failed after stop: {exc}")
 
-                    if _port_is_listening(server_port):
-                        released = _wait_for_port_free(server_port, timeout=5.0)
-                        if released:
-                            logger.info(
-                                'Port %d released during restart — server="%s" server_id=%s',
-                                server_port,
-                                server_name,
-                                sid,
-                            )
-                        else:
-                            stop_errors.append(f"Port {server_port} still listening after stop")
-                    else:
+            server_port = (
+                server.properties.port.value
+                if hasattr(server.properties, "port")
+                and hasattr(server.properties.port, "value")
+                else (server.runtime.port if server.runtime and server.runtime.port else 0)
+            )
+
+            port_free = True
+            if server_port > 0:
+                if _port_is_listening(server_port):
+                    released = _wait_for_port_free(server_port, timeout=5.0)
+                    if released:
                         logger.info(
-                            'Port %d already free — server="%s" server_id=%s',
+                            'Port %d released during restart — server="%s" server_id=%s',
                             server_port,
                             server_name,
                             sid,
                         )
-                except Exception as port_exc:
-                    stop_errors.append(f"Port verification failed: {port_exc}")
+                    else:
+                        port_free = False
+                        stop_errors.append(f"Port {server_port} still listening after stop")
+                else:
+                    logger.info(
+                        'Port %d already free — server="%s" server_id=%s',
+                        server_port,
+                        server_name,
+                        sid,
+                    )
 
             add_timeline_milestone(None, "Phase 1/2: Stop complete", server_name, sid)
 
-        if stop_errors:
-            logger.warning(
-                'Server "%s" restart stop phase had %d issues — server_id=%s',
+        stop_confirmed = (
+            has_runtime_handle
+            and len(stop_errors) == 0
+            and status == ServerRuntimeStatus.STOPPED
+            and port_free
+        )
+
+        if not stop_confirmed:
+            async with UnitOfWork(self._event_bus) as uow:
+                repo = SQLServerRepository(uow.session)
+                server = await repo.get(server_id)
+                if status == ServerRuntimeStatus.RUNNING or not port_free:
+                    if server.status == ServerStatus.STOPPING:
+                        server.revert_to_running()
+                        await repo.save(server)
+                        for event in server.collect_events():
+                            uow.add_event(event)
+                        await uow.commit()
+                else:
+                    if server.status == ServerStatus.STOPPING:
+                        server.mark_stop_unknown(reason="; ".join(stop_errors))
+                        await repo.save(server)
+                        for event in server.collect_events():
+                            uow.add_event(event)
+                        await uow.commit()
+
+            logger.error(
+                'Server "%s" restart failed during stop phase — server_id=%s errors=%s',
                 server_name,
-                len(stop_errors),
                 sid,
+                "; ".join(stop_errors),
             )
+            return CommandResult(
+                success=False,
+                error="; ".join(stop_errors) or "Stop phase unconfirmed during restart",
+                error_code="RESTART_STOP_FAILED",
+                data={"stop_errors": stop_errors},
+            )
+
+        # Once stop is confirmed, mark stopped in DB and clean up container if docker
+        async with UnitOfWork(self._event_bus) as uow:
+            repo = SQLServerRepository(uow.session)
+            server = await repo.get(server_id)
+            server.mark_stopped()
+            await repo.save(server)
+            for event in server.collect_events():
+                uow.add_event(event)
+            await uow.commit()
+
+        if provider_type == "docker":
+            try:
+                await provider.destroy(handle)
+            except Exception as exc:
+                logger.warning("Error destroying stopped container for restart %s: %s", sid, exc)
 
         # A restore deferred while the server was running must be applied now
         # that the process is confirmed down, before the new process spawns.
@@ -235,12 +312,6 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     error_code="NO_DEPLOYMENT",
                 )
 
-            provider_type = (
-                server.runtime.provider
-                if (server.runtime and server.runtime.provider)
-                else default_provider_for_platform()
-            )
-            provider = provider_factory.get(provider_type)
             server.start()
             await repo.save(server)
             for event in server.collect_events():
@@ -307,10 +378,37 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                     server_name,
                     sid,
                 )
+                cleanup_handle = build_server_handle(
+                    server,
+                    provider_type,
+                    server_dir=server.deployment.server_directory() if server.deployment else None,
+                )
+                try:
+                    await provider.stop(cleanup_handle, force=True)
+                except Exception as exc:
+                    logger.warning("Error stopping timed-out server %s: %s", sid, exc)
+                try:
+                    await provider.destroy(cleanup_handle)
+                except Exception as exc:
+                    logger.warning("Error destroying timed-out server %s: %s", sid, exc)
+
+                still_running = False
+                try:
+                    st = await provider.status(cleanup_handle)
+                    if st == ServerRuntimeStatus.RUNNING:
+                        still_running = True
+                except Exception:
+                    pass
+                if server_port > 0 and _port_is_listening(server_port):
+                    still_running = True
+
                 async with UnitOfWork(self._event_bus) as uow:
                     repo = SQLServerRepository(uow.session)
                     server = await repo.get(server_id)
-                    server.mark_stopped()
+                    if still_running:
+                        server.crash(reason="Restart start timed out and runtime cleanup failed")
+                    else:
+                        server.mark_stopped()
                     await repo.save(server)
                     for event in server.collect_events():
                         uow.add_event(event)
@@ -378,15 +476,10 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
                 sid,
             )
 
-            handle = ServerHandle(
-                provider=provider_type,
-                server_id=sid,
-                external_id=external_id,
-                metadata={
-                    "pid": result.pid,
-                    "port": result.port,
-                    "server_name": server_name,
-                },
+            handle = build_server_handle(
+                server,
+                provider_type,
+                server_dir=server.deployment.server_directory() if server.deployment else None,
             )
 
             RuntimeSupervisor.start_for(

@@ -9,6 +9,7 @@ from app.modules.server.application.services.installer_provisioner import (
     INSTALL_TIMEOUT_SECONDS,
     MIN_FREE_DISK_MB,
     InstallerProvisioner,
+    ProvisioningRegistry,
 )
 from app.modules.server.application.services.jar_service import (
     neoforge_installer_url,
@@ -41,6 +42,7 @@ def provision_neoforge_server(
     """Spawn the NeoForge auto-install step off the create-request path."""
     provisioner = NeoForgeProvisioner(event_bus=event_bus)
     task = asyncio.create_task(provisioner.provision(server_id, minecraft_version))
+    ProvisioningRegistry.register_task(str(server_id), task)
     _track_background_task(task)
     return task
 

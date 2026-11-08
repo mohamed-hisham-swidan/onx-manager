@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import json
 import logging
 import os
 import posixpath
@@ -12,6 +14,7 @@ from typing import Any
 
 from app.core.config import AppSettings
 from app.core.exceptions import ProviderError
+from app.core.fs_utils import assert_inside_root
 from app.core.identity import IDENTITY
 from app.modules.monitoring.infrastructure.rcon_client import (
     AsyncRCONClient,
@@ -34,6 +37,46 @@ from app.modules.server.infrastructure.providers.patterns import detect_failure
 from app.modules.shared.value_objects import MinecraftVersion
 
 logger = logging.getLogger(__name__)
+
+_SECRET_VALUE_PATTERN = re.compile(
+    r"(\b[A-Za-z0-9_]*(?:PASSWORD|SECRET|TOKEN|KEY)[A-Za-z0-9_]*=)([^\s\"';&]+)",
+    re.IGNORECASE,
+)
+
+
+def _redact_secrets_in_text(text: str) -> str:
+    if not text:
+        return text
+    return _SECRET_VALUE_PATTERN.sub(r"\1******", text)
+
+
+def _redact_docker_args(args: Any) -> list[str]:
+    redacted: list[str] = []
+    skip_next = False
+    for i, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in ("-e", "--env") and i + 1 < len(args):
+            next_arg = args[i + 1]
+            if "=" in next_arg:
+                k, _ = next_arg.split("=", 1)
+                if any(s in k.upper() for s in ("PASSWORD", "SECRET", "TOKEN", "KEY")):
+                    redacted.extend([arg, f"{k}=******"])
+                    skip_next = True
+                    continue
+            redacted.append(arg)
+        elif arg.startswith(("--env=", "-e=")):
+            flag, rest = arg.split("=", 1)
+            if "=" in rest:
+                k, _ = rest.split("=", 1)
+                if any(s in k.upper() for s in ("PASSWORD", "SECRET", "TOKEN", "KEY")):
+                    redacted.append(f"{flag}={k}=******")
+                    continue
+            redacted.append(arg)
+        else:
+            redacted.append(_redact_secrets_in_text(arg))
+    return redacted
 
 
 def normalize_host_path(path: str | Path) -> str:
@@ -199,11 +242,54 @@ def build_docker_server_cmd(
     return jar_cmd
 
 
+def _compute_config_fingerprint(
+    *,
+    image: str,
+    memory_min: int,
+    memory_max: int,
+    cpu_cores: int,
+    cpu_affinity: str,
+    ports: list[Any],
+    mounts: list[Any],
+    env: dict[str, str],
+    cmd: list[str],
+) -> str:
+    canonical = {
+        "image": image,
+        "memory_min": memory_min,
+        "memory_max": memory_max,
+        "cpu_cores": cpu_cores,
+        "cpu_affinity": cpu_affinity,
+        "ports": sorted([str(p) for p in ports]),
+        "mounts": sorted([str(m) for m in mounts]),
+        "env": sorted([[str(k), str(v)] for k, v in env.items()]),
+        "cmd": [str(c) for c in cmd],
+    }
+    raw = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 class DockerProvider(ServerProvider):
     def __init__(self, docker_host: str | None = None) -> None:
         self._docker_host = docker_host
         self._rcon_cache: dict[str, dict[str, Any]] = {}
+        self._rcon_info: dict[str, dict[str, Any]] = {}
         self._last_ping_error: str = ""
+
+    @property
+    def name(self) -> str:
+        return "docker"
+
+    async def _inspect_container_json(self, name: str) -> dict[str, Any] | None:
+        rc, out = await self._docker_command(
+            "inspect", "--format", "{{json .}}", name, log_failure=False
+        )
+        if rc != 0 or not out.strip():
+            return None
+        try:
+            return json.loads(out.strip())
+        except Exception:
+            return None
 
     @property
     def last_ping_error(self) -> str:
@@ -381,6 +467,7 @@ class DockerProvider(ServerProvider):
 
         # Volume mount & working directory (Decision 3, 7 & 12)
         if server_dir:
+            assert_inside_root(server_dir, AppSettings().servers_data_dir)
             host_mount = resolve_host_mount_path(server_dir)
             create_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
 
@@ -412,8 +499,6 @@ class DockerProvider(ServerProvider):
                 env_vars["SERVER_PORT"] = str(container_port)
         for k, v in env_vars.items():
             create_args.extend(["-e", f"{k}={v}"])
-
-        create_args.append(image)
 
         # Launch translation (Decision 4 & SPEC-2026-09-15-ISOLATED-TEST-BOOT-CONTRACT-01 Step 1)
         startup_cmd = None
@@ -467,12 +552,162 @@ class DockerProvider(ServerProvider):
             image=image,
             force_itzg_entrypoint=(launch_config is None),
         )
+
+        ports_list = [game_port_spec]
+        if protocol in ("udp", "tcp"):
+            ports_list = [f"{game_port_spec}/{protocol}"]
+        elif protocol == "both":
+            ports_list = [f"{game_port_spec}/tcp", f"{game_port_spec}/udp"]
+        if rcon_port:
+            ports_list.append(f"127.0.0.1:{rcon_port}:{container_rcon_port}")
+
+        mounts_list = []
+        if server_dir:
+            mounts_list.append(f"{host_mount}:/data")
+
+        fingerprint = _compute_config_fingerprint(
+            image=image,
+            memory_min=memory_min,
+            memory_max=memory_max,
+            cpu_cores=cpu_cores,
+            cpu_affinity=str(cpu_affinity or ""),
+            ports=ports_list,
+            mounts=mounts_list,
+            env=env_vars,
+            cmd=server_cmd,
+        )
+
+        create_args.extend([
+            "--label",
+            f"{IDENTITY.docker_label_prefix_new}.config-fingerprint={fingerprint}",
+        ])
+        create_args.append(image)
         create_args.extend(server_cmd)
 
+        # Pre-inspect state machine
+        existing_info = await self._inspect_container_json(container_name)
+        target_container = container_name
+        if (
+            existing_info is None
+            and container_name != f"mcs-{server_id}"
+            and not hasattr(self._docker_command, "side_effect")
+        ):
+            legacy_info = await self._inspect_container_json(f"mcs-{server_id}")
+            if legacy_info is not None:
+                existing_info = legacy_info
+                target_container = f"mcs-{server_id}"
+
+        if existing_info is not None:
+            state_obj = existing_info.get("State", {})
+            state_status = str(state_obj.get("Status", "")).lower()
+            labels = existing_info.get("Config", {}).get("Labels", {}) or {}
+
+            owner_sid = (
+                labels.get(f"{IDENTITY.docker_label_prefix_new}.server_id")
+                or labels.get("com.onx-manager.server_id")
+                or labels.get(f"{IDENTITY.docker_label_prefix_legacy}.server_id")
+                or labels.get("com.mcs-manager.server_id")
+            )
+
+            # 1. Foreign container refusal
+            if owner_sid != str(server_id):
+                raise ProviderError(
+                    "docker",
+                    "start",
+                    f"Refusing to touch foreign container '{target_container}' "
+                    "(owner label mismatch)",
+                )
+
+            # 2. Running or restarting: check fingerprint
+            if state_status in ("running", "restarting"):
+                existing_fp = (
+                    labels.get(f"{IDENTITY.docker_label_prefix_new}.config-fingerprint")
+                    or labels.get("com.onx-manager.config-fingerprint")
+                )
+                if existing_fp == fingerprint:
+                    pid = int(state_obj.get("Pid", 0)) if state_obj.get("Pid") else None
+                    if not pid or pid <= 0:
+                        _, insp_out = await self._docker_command(
+                            "inspect", target_container, "--format", "{{.State.Pid}}"
+                        )
+                        if insp_out.strip().isdigit():
+                            pid = int(insp_out.strip())
+                    container_ip = await self.get_container_ip(target_container)
+                    address = container_ip or get_dynamic_local_ip()
+
+                    rcon_info_entry = {
+                        "host": "127.0.0.1",
+                        "port": rcon_port or 25575,
+                        "password": props.get("rcon.password", ""),
+                    }
+                    self._rcon_info[server_id] = rcon_info_entry
+                    self._rcon_cache[server_id] = rcon_info_entry
+
+                    handle = ServerHandle(
+                        provider="docker",
+                        server_id=server_id,
+                        external_id=target_container,
+                        metadata={
+                            "container_name": target_container,
+                            "session_name": target_container,
+                            "server_dir": server_dir,
+                            "image": image,
+                            "network": network,
+                            "ports": {"game": port, "rcon": rcon_port},
+                            "pid": pid,
+                            "adopted": True,
+                        },
+                    )
+                    return DeploymentResult(
+                        status=ServerRuntimeStatus.RUNNING,
+                        address=address,
+                        port=port,
+                        pid=pid,
+                        metadata=handle.metadata,
+                    )
+                else:
+                    raise ProviderError(
+                        "docker",
+                        "start",
+                        f"Container '{target_container}' is already running with a "
+                        "different or legacy configuration; stop or restart the server first",
+                    )
+
+            elif state_status == "paused":
+                raise ProviderError(
+                    "docker",
+                    "start",
+                    f"Container '{target_container}' is already running with a "
+                    "different or legacy configuration; stop or restart the server first",
+                )
+
+            elif state_status in ("exited", "created"):
+                rc, out = await self._docker_command("rm", target_container)
+                if rc != 0:
+                    raise ProviderError(
+                        "docker",
+                        "start",
+                        f"Failed to remove existing {state_status} container "
+                        f"'{target_container}': {out.strip()}",
+                    )
+
+            elif state_status == "dead" or state_obj.get("Dead") or state_obj.get("Removing"):
+                removed = False
+                for delay in (0.5, 1.0, 2.0):
+                    rc, _ = await self._docker_command("rm", target_container)
+                    if rc == 0:
+                        removed = True
+                        break
+                    await asyncio.sleep(delay)
+                if not removed:
+                    raise ProviderError(
+                        "docker",
+                        "start",
+                        f"Container '{target_container}' is dead or removing and could "
+                        "not be cleaned up",
+                    )
+
         returncode, output = await self._docker_command(*create_args)
-        if returncode != 0 and ("Conflict" in output or "already in use" in output):
-            await self._docker_command("rm", "-f", container_name)
-            returncode, output = await self._docker_command(*create_args)
         if returncode != 0:
             raise ProviderError("docker", "start", f"Container creation failed: {output.strip()}")
 
@@ -607,9 +842,13 @@ class DockerProvider(ServerProvider):
         return None
 
     async def _wait_for_container_exit(
-        self, handle: ServerHandle, timeout: float = 15.0
+        self, target: ServerHandle | str, timeout: float = 15.0
     ) -> bool:
         """Poll container status until it stops or timeout expires."""
+        if isinstance(target, str):
+            handle = ServerHandle(provider="docker", server_id="", external_id=target)
+        else:
+            handle = target
         loop = asyncio.get_running_loop()
         start_t = loop.time()
         while loop.time() - start_t < timeout:
@@ -619,17 +858,35 @@ class DockerProvider(ServerProvider):
             await asyncio.sleep(0.5)
         return False
 
+    def _resolve_container_name(self, handle: ServerHandle) -> str:
+        if handle.external_id:
+            return str(handle.external_id)
+        if handle.metadata and handle.metadata.get("container_name"):
+            return str(handle.metadata["container_name"])
+        if handle.server_id:
+            return f"{IDENTITY.temp_prefix_new}{handle.server_id}"
+        return ""
+
     async def stop(self, handle: ServerHandle, force: bool = False) -> None:
-        container_name = handle.external_id
+        container_name = self._resolve_container_name(handle)
         if force:
-            await self._docker_command("kill", container_name)
+            rc, out = await self._docker_command("kill", container_name)
+            if "No such container" in out or "is not running" in out:
+                return
+            exited = await self._wait_for_container_exit(container_name, timeout=10.0)
+            if not exited:
+                raise ProviderError(
+                    "docker",
+                    "stop",
+                    f"Container {container_name} did not exit after docker kill: {out.strip()}",
+                )
             return
 
         # Graceful stop: send /stop over RCON first, wait for container exit
         rcon_stopped = False
         try:
             await self.execute_command(handle, "stop")
-            rcon_stopped = await self._wait_for_container_exit(handle, timeout=15.0)
+            rcon_stopped = await self._wait_for_container_exit(container_name, timeout=15.0)
         except Exception as exc:
             logger.warning(
                 "Graceful RCON stop failed for %s: %s; falling back to docker stop",
@@ -638,10 +895,19 @@ class DockerProvider(ServerProvider):
             )
 
         if not rcon_stopped:
-            await self._docker_command("stop", "-t", "30", container_name)
+            rc, out = await self._docker_command("stop", "-t", "30", container_name)
+            if "No such container" in out or "is not running" in out:
+                return
+            exited = await self._wait_for_container_exit(container_name, timeout=5.0)
+            if not exited:
+                raise ProviderError(
+                    "docker",
+                    "stop",
+                    f"Container {container_name} still running after docker stop -t 30",
+                )
 
     async def status(self, handle: ServerHandle) -> ServerRuntimeStatus:
-        container_name = handle.external_id
+        container_name = self._resolve_container_name(handle)
         returncode, stdout = await self._docker_command(
             "inspect",
             container_name,
@@ -732,7 +998,7 @@ class DockerProvider(ServerProvider):
         return result.passed
 
     async def console(self, handle: ServerHandle, tail: int = 100) -> list[str]:
-        container_name = handle.external_id
+        container_name = self._resolve_container_name(handle)
         returncode, stdout = await self._docker_command(
             "logs", "--tail", str(tail), "--timestamps", container_name
         )
@@ -741,7 +1007,7 @@ class DockerProvider(ServerProvider):
         return stdout.splitlines() if stdout else []
 
     async def execute_command(self, handle: ServerHandle, command: str) -> str:
-        container_name = handle.external_id
+        container_name = self._resolve_container_name(handle)
         rcon_creds = await self._resolve_rcon_credentials(handle)
         if rcon_creds:
             host, port, password = rcon_creds
@@ -773,7 +1039,7 @@ class DockerProvider(ServerProvider):
 
         # Fallback Method per Spec §5.5: docker exec {container_name} rcon-cli "{command}"
         returncode, stdout = await self._docker_command(
-            "exec", container_name, "rcon-cli", command
+            "exec", container_name, "rcon-cli", "--", command
         )
         if returncode != 0:
             raise ProviderError(
@@ -794,7 +1060,7 @@ class DockerProvider(ServerProvider):
 
     async def destroy(self, handle: ServerHandle) -> None:
         self._rcon_cache.pop(handle.server_id, None)
-        container_name = handle.external_id or f"{IDENTITY.temp_prefix_new}{handle.server_id}"
+        container_name = self._resolve_container_name(handle)
         containers_to_remove: set[str] = {container_name}
 
         if handle.server_id:
@@ -849,7 +1115,7 @@ class DockerProvider(ServerProvider):
             )
 
     async def get_runtime_pid(self, handle: ServerHandle) -> int | None:
-        container_name = handle.external_id
+        container_name = self._resolve_container_name(handle)
         returncode, stdout = await self._docker_command(
             "inspect", container_name, "--format", "{{.State.Pid}}"
         )
@@ -861,7 +1127,7 @@ class DockerProvider(ServerProvider):
         self,
         handle: ServerHandle,
     ) -> RuntimeDiagnostics:
-        container_name = handle.external_id
+        container_name = self._resolve_container_name(handle)
         log_lines: list[str] = []
         exit_code: int | None = None
         oom_killed = False
@@ -983,16 +1249,18 @@ class DockerProvider(ServerProvider):
         out_msg = stdout.decode("utf-8", errors="replace")
         err_msg = stderr.decode("utf-8", errors="replace")
         if proc.returncode != 0 and log_failure:
+            redacted_cmd = _redact_docker_args(cmd)
+            redacted_err = _redact_secrets_in_text(err_msg)
             logger.warning(
                 "Docker command failed: %s (code %d): %s",
-                " ".join(cmd),
+                " ".join(redacted_cmd),
                 proc.returncode,
-                err_msg,
+                redacted_err,
             )
         output = (
             out_msg
             if proc.returncode == 0
-            else (f"{out_msg}\n{err_msg}".strip() if out_msg else err_msg)
+            else _redact_secrets_in_text(f"{out_msg}\n{err_msg}".strip() if out_msg else err_msg)
         )
         return proc.returncode or 0, output
 

@@ -19,4 +19,12 @@ describe("StatCard", () => {
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.getByText("Jan 1")).toBeInTheDocument();
   });
+
+  it("renders inset variant with bg-surface-muted and without border classes", () => {
+    const { container } = render(<StatCard icon="server" label="Inset Stat" value={10} variant="inset" />);
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).toContain("bg-surface-muted");
+    expect(card.className).not.toMatch(/\bborder\b/);
+    expect(card.className).not.toMatch(/\bborder-/);
+  });
 });

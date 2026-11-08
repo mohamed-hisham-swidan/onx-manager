@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
+import shutil
+import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from app.core.command_bus import Command, CommandBus, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
-from app.core.exceptions import FilesystemOperationError, NotFoundError, ValidationError
+from app.core.exceptions import (
+    FilesystemOperationError,
+    NotFoundError,
+    ValidationError,
+)
+from app.core.fs_utils import assert_inside_root
 from app.modules.activity.domain.entities import ServerActivityLog
 from app.modules.activity.domain.repository import ActivityRepository
-from app.modules.backup.application.restore_service import _atomic_replace_dir
 from app.modules.server.application.commands.start_server import StartServerCommand
 from app.modules.server.application.commands.stop_server import StopServerCommand
 from app.modules.server.domain.aggregate import ServerStatus
@@ -21,6 +30,24 @@ from app.modules.versioning.infrastructure.test_runner import (
     TestExecutionRunner,
     TestHandle,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _is_stop_confirmed(result: CommandResult | None) -> bool:
+    """Return True iff StopServerCommand confirmed runtime & port stop without warnings."""
+    if result is None or not getattr(result, "success", False):
+        return False
+    data = getattr(result, "data", None)
+    if not isinstance(data, dict) or not data:
+        return False
+    if data.get("stop_confirmed") is False:
+        return False
+    if data.get("warnings") or data.get("provider_errors"):
+        return False
+    if "stop_confirmed" in data:
+        return data.get("stop_confirmed") is True
+    return data.get("status") == "stopped"
 
 
 class PromoteCommitCommand(Command):
@@ -179,34 +206,212 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
         test_dir = str(resolve_test_dir(server_dir, command.test_id))
 
         # 3. Stop production server if running
+        was_active = server.status in (
+            ServerStatus.RUNNING,
+            ServerStatus.STARTING,
+            ServerStatus.STOPPING,
+        )
         was_running = server.status in (ServerStatus.RUNNING, ServerStatus.STARTING)
-        if was_running and self._command_bus:
-            await self._command_bus.send(StopServerCommand(server_id=command.server_id))
+        if was_active:
+            stop_result: CommandResult | None = None
+            if self._command_bus:
+                try:
+                    stop_result = await self._command_bus.send(
+                        StopServerCommand(server_id=str(server.id))
+                    )
+                except Exception as exc:
+                    logger.warning("StopServerCommand raised exception during promote: %s", exc)
+                    stop_result = CommandResult(
+                        success=False,
+                        error=str(exc),
+                        error_code="STOP_FAILED",
+                        data={"error": str(exc)},
+                    )
 
-        # 4. Swap manifest configs & mods into production directory
-        manifest = commit.manifest
-        for rel_path, content in manifest.configs.items():
-            tgt_file = Path(server_dir) / rel_path
-            try:
-                self._fs.write_text_atomic(str(tgt_file), content, encoding="utf-8")
-            except OSError as exc:
-                raise FilesystemOperationError(str(tgt_file), "write", str(exc)) from exc
+            if not _is_stop_confirmed(stop_result):
+                return CommandResult(
+                    success=False,
+                    error="Cannot promote: production server could not be confirmed stopped",
+                    error_code="PROMOTE_STOP_NOT_CONFIRMED",
+                    details={"stop_result": stop_result.data if stop_result else None},
+                )
 
-        # Swap mods directory if present in test directory
-        test_mods = Path(test_dir) / "mods"
-        live_mods = Path(server_dir) / "mods"
-        if test_mods.is_dir():
-            _atomic_replace_dir(str(test_mods), str(live_mods))
+        # 4. Swap manifest configs, mods, and worlds with all-or-nothing rollback journal (§3.5)
+        server_path = Path(server_dir)
+        test_path = Path(test_dir)
+        tx_root = server_path.parent / f".onx-promote-tx-{server.id}-{uuid.uuid4().hex[:8]}"
+        staged_root = tx_root / "staged"
+        backup_root = tx_root / "backup"
+        staged_root.mkdir(parents=True, exist_ok=True)
+        backup_root.mkdir(parents=True, exist_ok=True)
 
-        # 5. Atomically swap world changes if requested
-        if command.keep_world_changes:
-            for w_name in ["world", "world_nether", "world_the_end"]:
-                t_world = Path(test_dir) / w_name
-                l_world = Path(server_dir) / w_name
-                if t_world.is_dir():
-                    _atomic_replace_dir(str(t_world), str(l_world))
+        applied_journal: list[Callable[[], None]] = []
+        rollback_ok = True
+        restart_attempted = False
+        restart_ok = False
+        restart_error_code: str | None = None
+        restart_error: str | None = None
 
-        # 6. Cleanup test container and directory
+        try:
+            # 4.1 Stage & apply configs
+            manifest = commit.manifest
+            if manifest and manifest.configs:
+                raw_configs = manifest.configs
+                if isinstance(raw_configs, dict):
+                    config_items = list(raw_configs.items())
+                elif isinstance(raw_configs, list):
+                    config_items = []
+                    for item in raw_configs:
+                        if hasattr(item, "path"):
+                            config_items.append((item.path, getattr(item, "content", "")))
+                        elif isinstance(item, dict):
+                            config_items.append((item.get("path", ""), item.get("content", "")))
+                else:
+                    config_items = []
+
+                # Pre-validate and stage into tx_root / staged / configs
+                staged_configs: list[tuple[Path, str, str]] = []
+                for rel_path, content in config_items:
+                    target_file = assert_inside_root(server_path / rel_path, server_path)
+                    staged_file = staged_root / "configs" / rel_path
+                    staged_file.parent.mkdir(parents=True, exist_ok=True)
+                    staged_file.write_text(content, encoding="utf-8")
+                    staged_configs.append((target_file, rel_path, content))
+
+                # Apply configs with backup & rollback closures
+                for target_file, rel_path, content in staged_configs:
+                    backup_file = backup_root / "configs" / rel_path
+                    backup_file.parent.mkdir(parents=True, exist_ok=True)
+                    had_file = target_file.exists()
+                    if had_file:
+                        shutil.copy2(target_file, backup_file)
+                        applied_journal.append(
+                            lambda tf=target_file, bf=backup_file: os.replace(bf, tf)
+                        )
+                    else:
+                        applied_journal.append(
+                            lambda tf=target_file: tf.unlink() if tf.exists() else None
+                        )
+
+                    try:
+                        self._fs.write_text_atomic(str(target_file), content, encoding="utf-8")
+                    except OSError as exc:
+                        raise FilesystemOperationError(str(target_file), "write", str(exc)) from exc
+
+            # 4.2 Stage & swap mods
+            test_mods = test_path / "mods"
+            if test_mods.is_dir():
+                staged_mods = staged_root / "mods"
+                shutil.copytree(test_mods, staged_mods, symlinks=True)
+                prod_mods = server_path / "mods"
+                backup_mods = backup_root / "mods"
+                had_mods = prod_mods.exists()
+                if had_mods:
+                    os.replace(prod_mods, backup_mods)
+
+                    def _restore_pre_swap_mods(bm=backup_mods, pm=prod_mods):
+                        if bm.exists():
+                            os.replace(bm, pm)
+
+                    applied_journal.append(_restore_pre_swap_mods)
+
+                os.replace(staged_mods, prod_mods)
+                if had_mods:
+                    applied_journal.pop()
+
+                def _rollback_mods(pm=prod_mods, bm=backup_mods, had_bak=had_mods):
+                    if pm.exists():
+                        if pm.is_dir() and not pm.is_symlink():
+                            shutil.rmtree(pm, ignore_errors=True)
+                        else:
+                            pm.unlink(missing_ok=True)
+                    if had_bak and bm.exists():
+                        os.replace(bm, pm)
+
+                applied_journal.append(_rollback_mods)
+
+            # 4.3 Stage & swap world* directories if keep_world_changes
+            if command.keep_world_changes and test_path.is_dir():
+                for world_dir in sorted(test_path.glob("world*")):
+                    if not world_dir.is_dir():
+                        continue
+                    w_name = world_dir.name
+                    staged_world = staged_root / "worlds" / w_name
+                    staged_world.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(world_dir, staged_world, symlinks=True)
+
+                    prod_world = server_path / w_name
+                    backup_world = backup_root / "worlds" / w_name
+                    backup_world.parent.mkdir(parents=True, exist_ok=True)
+
+                    had_world = prod_world.exists()
+                    if had_world:
+                        os.replace(prod_world, backup_world)
+
+                        def _restore_pre_swap_world(bw=backup_world, pw=prod_world):
+                            if bw.exists():
+                                os.replace(bw, pw)
+
+                        applied_journal.append(_restore_pre_swap_world)
+
+                    os.replace(staged_world, prod_world)
+                    if had_world:
+                        applied_journal.pop()
+
+                    def _rollback_world(pw=prod_world, bw=backup_world, had_bak=had_world):
+                        if pw.exists():
+                            if pw.is_dir() and not pw.is_symlink():
+                                shutil.rmtree(pw, ignore_errors=True)
+                            else:
+                                pw.unlink(missing_ok=True)
+                        if had_bak and bw.exists():
+                            os.replace(bw, pw)
+
+                    applied_journal.append(_rollback_world)
+
+        except Exception as exc:
+            logger.error("Promote failed during swap: %s. Initiating rollback...", exc)
+            rollback_ok = True
+            for rollback_fn in reversed(applied_journal):
+                try:
+                    rollback_fn()
+                except Exception as rb_err:
+                    logger.critical("Error during rollback action: %s", rb_err)
+                    rollback_ok = False
+
+            if rollback_ok:
+                shutil.rmtree(tx_root, ignore_errors=True)
+            else:
+                logger.critical("Rollback failed; transaction backup preserved at %s", backup_root)
+
+            # Do not clean up test_server
+            restart_attempted = was_running
+            restart_ok = False
+            if was_running and rollback_ok and self._command_bus:
+                try:
+                    restart_res = await self._command_bus.send(
+                        StartServerCommand(server_id=str(server.id))
+                    )
+                    restart_ok = bool(restart_res and restart_res.success)
+                except Exception as start_err:
+                    logger.error("Failed to restart server after promote rollback: %s", start_err)
+                    restart_ok = False
+
+            return CommandResult(
+                success=False,
+                error=f"Promote failed and was rolled back: {exc}",
+                error_code="PROMOTE_SWAP_ROLLED_BACK",
+                details={
+                    "rolled_back": rollback_ok,
+                    "restart_attempted": restart_attempted,
+                    "restart_ok": restart_ok,
+                },
+            )
+
+        # On success of all swaps:
+        shutil.rmtree(tx_root, ignore_errors=True)
+
+        # 5. Cleanup test container and directory
         handle = TestHandle(
             test_id=command.test_id,
             server_id=command.server_id,
@@ -219,9 +424,28 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
         )
         await self._test_runner.cleanup_test(handle, passed=True, server_dir=server_dir)
 
-        # 7. Restart production server if it was previously running
-        if was_running and self._command_bus:
-            await self._command_bus.send(StartServerCommand(server_id=command.server_id))
+        # 6. Restart production server if it was previously running
+        if was_running:
+            restart_attempted = True
+            start_res: CommandResult | None = None
+            if self._command_bus:
+                try:
+                    start_res = await self._command_bus.send(
+                        StartServerCommand(server_id=str(server.id))
+                    )
+                except Exception as exc:
+                    logger.error("Failed to restart server after promote: %s", exc)
+                    start_res = CommandResult(
+                        success=False, error=str(exc), error_code="START_FAILED"
+                    )
+
+            restart_ok = bool(start_res and start_res.success)
+            restart_error_code = (
+                start_res.error_code if start_res and not start_res.success else None
+            )
+            restart_error = (
+                start_res.error if start_res and not start_res.success else None
+            )
 
         from app.modules.versioning.domain.events import CommitPromotedEvent
 
@@ -249,5 +473,9 @@ class PromoteCommitHandler(CommandHandler[PromoteCommitCommand]):
                 "forced": command.force,
                 "force_reason": command.force_reason,
                 "promoted": True,
+                "restart_attempted": restart_attempted,
+                "restart_ok": restart_ok,
+                "restart_error_code": restart_error_code,
+                "restart_error": restart_error,
             },
         )

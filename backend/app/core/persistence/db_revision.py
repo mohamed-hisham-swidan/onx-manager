@@ -27,7 +27,8 @@ from app.core.identity import IDENTITY
 logger = logging.getLogger(__name__)
 
 #: Single authoritative declaration of the DB schema floor for onx-manager 0.1.0.
-RELEASE_MINIMUM_DB_REVISION = "b1e2100000022"
+RELEASE_MINIMUM_DB_REVISION = "b1e2100000023"
+EXPECTED_ALEMBIC_HEAD = "b1e2100000023"
 
 
 @dataclass(frozen=True)

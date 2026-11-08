@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { formatDateTime } from "@/server_manager/utils/format";
 import type { ServerCommit, ServerTag } from "@/server_manager/types";
@@ -23,8 +24,31 @@ export function CommitTimeline({
   onInspect,
   onRunTest,
 }: CommitTimelineProps) {
+  const [openMenuCommitId, setOpenMenuCommitId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openMenuCommitId) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest("[data-commit-actions-menu]")) {
+        setOpenMenuCommitId(null);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpenMenuCommitId(null);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openMenuCommitId]);
+
   return (
-    <div className="rounded-xl border border-border-subtle bg-surface-card dark:bg-gray-800 shadow-2xs overflow-hidden">
+    <div className="h-full rounded-xl border border-border-subtle bg-surface-card dark:bg-gray-800 shadow-2xs overflow-hidden flex flex-col">
       {/* Header */}
       <div className="border-b border-border-subtle px-5 py-3.5 flex items-center justify-between bg-surface-elevated/40">
         <div className="flex items-center gap-2">
@@ -47,7 +71,7 @@ export function CommitTimeline({
           No snapshot commits yet on branch &lsquo;{selectedBranch}&rsquo;. Click &ldquo;Create Snapshot Commit&rdquo; above to create your first commit.
         </div>
       ) : (
-        <div className="relative divide-y divide-border-subtle/50">
+        <div className="relative divide-y divide-border-subtle/50 flex-1">
           {commits.map((commit, index) => {
             const commitTags = tags.filter((t) => t.commit_id === commit.id);
             const parentId =
@@ -145,41 +169,71 @@ export function CommitTimeline({
                   </div>
 
                   {/* Action Toolbar */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => onTagCommit(commit.id)}
-                      className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
-                      title="Create immutable tag snapshot for this commit"
-                    >
-                      <Icon name="backup" size={12} />
-                      Tag
-                    </button>
-                    {parentId && (
+                  <div className="flex items-center justify-between gap-1.5 pt-1">
+                    {/* Secondary Actions Dropdown */}
+                    <div className="relative" data-commit-actions-menu>
                       <button
                         type="button"
-                        onClick={() => onDiff(parentId, commit.id)}
-                        className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
-                        title="View configuration and file differences against parent commit"
+                        aria-label="More commit actions"
+                        aria-expanded={openMenuCommitId === commit.id}
+                        onClick={() =>
+                          setOpenMenuCommitId((prev) => (prev === commit.id ? null : commit.id))
+                        }
+                        className="inline-flex items-center justify-center rounded-md border border-border-default bg-surface-elevated px-2 py-1 text-xs font-semibold text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
+                        title="More commit actions"
                       >
-                        <Icon name="activity" size={12} />
-                        Diff
+                        •••
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onInspect(commit)}
-                      className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
-                      title="Inspect captured configuration files, mod JARs, and SHA256 checksums"
-                    >
-                      <Icon name="file" size={12} />
-                      Inspect Manifest
-                    </button>
+                      {openMenuCommitId === commit.id && (
+                        <div className="absolute left-0 top-full mt-1 z-20 min-w-36 rounded-lg border border-border-default bg-surface-card p-1 shadow-lg text-xs space-y-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenMenuCommitId(null);
+                                onTagCommit(commit.id);
+                              }}
+                              className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer text-left"
+                              title="Create immutable tag snapshot for this commit"
+                            >
+                              <Icon name="backup" size={12} />
+                              <span>Tag</span>
+                            </button>
+                            {parentId && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenMenuCommitId(null);
+                                  onDiff(parentId, commit.id);
+                                }}
+                                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer text-left"
+                                title="View configuration and file differences against parent commit"
+                              >
+                                <Icon name="activity" size={12} />
+                                <span>Diff</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenMenuCommitId(null);
+                                onInspect(commit);
+                              }}
+                              className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer text-left"
+                              title="Inspect captured configuration files, mod JARs, and SHA256 checksums"
+                            >
+                              <Icon name="file" size={12} />
+                              <span>Inspect Manifest</span>
+                            </button>
+                          </div>
+                      )}
+                    </div>
+
+                    {/* Primary Action */}
                     <button
                       type="button"
                       onClick={() => onRunTest(commit.id)}
                       className="inline-flex items-center gap-1.5 rounded-md bg-accent-primary px-3 py-1 text-xs font-bold text-accent-contrast-text hover:bg-accent-hover transition-colors shadow-2xs cursor-pointer ml-auto"
-                      title="Spawn an isolated sidecar container and execute bot-driven dry-run verification"
+                      title="Spawn a safe test environment and execute bot-driven dry-run verification"
                     >
                       <Icon name="play" size={12} />
                       Run Isolated Test

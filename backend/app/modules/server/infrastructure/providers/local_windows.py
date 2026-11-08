@@ -12,11 +12,16 @@ import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from app.core.exceptions import ProviderError
 from app.core.identity import IDENTITY
-from app.core.process_utils import platform_kill_process_tree_async, platform_pid_alive
+from app.core.process_utils import (
+    platform_kill_process_tree_async,
+    platform_pid_alive,
+    verify_process_identity,
+)
 from app.modules.server.domain.diagnostics import RuntimeDiagnostics
 from app.modules.server.domain.value_objects import (
     CpuAllocation,
@@ -355,7 +360,12 @@ class LocalWindowsProvider(ServerProvider):
                 f"Process died immediately after spawn server={server_id} pid={pid}",
             )
 
-        start_time = int(time.time())
+        try:
+            import psutil
+
+            start_time = int(psutil.Process(pid).create_time())
+        except Exception:
+            start_time = int(time.time())
 
         logger.info(
             "Server process started — server=%s pid=%d start_time=%s port=%d",
@@ -398,12 +408,69 @@ class LocalWindowsProvider(ServerProvider):
         server_label = self._server_label(server_id, handle)
 
         if pid is None:
-            logger.debug(
-                "Stop called with no valid PID server=%s handle=%s",
+            logger.error(
+                "Cannot stop Windows server %s: missing runtime PID in handle",
                 server_label,
-                handle,
             )
-            return
+            raise ProviderError(
+                "local_windows",
+                "stop",
+                f"Cannot stop Windows server {server_id}: missing runtime PID in handle",
+            )
+
+        expected_create_time = (
+            handle.metadata.get("start_time") if handle.metadata else None
+        )
+        expected_server_dir = (
+            handle.metadata.get("server_dir") if handle.metadata else None
+        )
+
+        has_identity_constraints = bool(expected_create_time or expected_server_dir)
+        try:
+            import psutil
+
+            process_exists = psutil.pid_exists(pid)
+        except Exception:
+            process_exists = False
+
+        if process_exists or has_identity_constraints:
+            check = verify_process_identity(
+                pid,
+                expected_create_time=expected_create_time,
+                expected_server_dir=expected_server_dir,
+                allow_wrapper_shell=True,
+            )
+
+            if not check.verified:
+                if check.reason == "create_time_mismatch" or (
+                    check.reason == "no_such_process" and not platform_pid_alive(pid)
+                ):
+                    logger.warning(
+                        "Process %d for server %s is no longer active (%s); "
+                        "cleaning up handle without kill",
+                        pid,
+                        server_label,
+                        check.reason,
+                    )
+                    self._release_process_handles(self._processes.pop(server_id, None))
+                    return
+                if check.reason in (
+                    "cmdline_mismatch",
+                    "server_dir_mismatch",
+                    "servers_data_dir_mismatch",
+                ):
+                    logger.error(
+                        "Refusing to kill PID %d for server %s: process identity check failed (%s)",
+                        pid,
+                        server_label,
+                        check.reason,
+                    )
+                    raise ProviderError(
+                        "local_windows",
+                        "stop",
+                        f"Refusing to kill PID {pid}: "
+                        f"process identity check failed ({check.reason})",
+                    )
 
         if not force and platform_pid_alive(pid):
             logger.info("Graceful shutdown for server=%s pid=%d", server_label, pid)
@@ -434,11 +501,50 @@ class LocalWindowsProvider(ServerProvider):
                 server_label,
                 pid,
             )
-            await self._force_kill_process_tree(pid)
+            if expected_create_time or expected_server_dir:
+                await self._force_kill_process_tree(
+                    pid,
+                    expected_create_time=expected_create_time,
+                    expected_server_dir=expected_server_dir,
+                )
+            else:
+                await self._force_kill_process_tree(pid)
 
         self._release_process_handles(self._processes.pop(server_id, None))
 
-    async def _force_kill_process_tree(self, pid: int) -> None:
+    async def _force_kill_process_tree(
+        self,
+        pid: int,
+        *,
+        expected_create_time: int | float | None = None,
+        expected_server_dir: str | Path | None = None,
+    ) -> None:
+        has_identity_constraints = bool(expected_create_time or expected_server_dir)
+        try:
+            import psutil
+
+            process_exists = psutil.pid_exists(pid)
+        except Exception:
+            process_exists = False
+
+        if process_exists or has_identity_constraints:
+            check = verify_process_identity(
+                pid,
+                expected_create_time=expected_create_time,
+                expected_server_dir=expected_server_dir,
+                allow_wrapper_shell=True,
+            )
+            if not check.verified:
+                if process_exists:
+                    logger.error(
+                        "Refusing to force-kill PID %d: identity verification failed (%s)",
+                        pid,
+                        check.reason,
+                    )
+                    return
+                elif has_identity_constraints and check.reason == "no_such_process":
+                    return
+
         if sys.platform == "win32":
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -454,7 +560,12 @@ class LocalWindowsProvider(ServerProvider):
             except Exception as exc:
                 logger.warning("taskkill failed for pid=%d: %s", pid, exc)
         else:
-            await platform_kill_process_tree_async(pid)
+            if expected_create_time is not None:
+                await platform_kill_process_tree_async(
+                    pid, expected_create_time=expected_create_time
+                )
+            else:
+                await platform_kill_process_tree_async(pid)
 
     async def status(self, handle: ServerHandle) -> ServerRuntimeStatus:
         pid = await self.get_runtime_pid(handle)
@@ -471,12 +582,12 @@ class LocalWindowsProvider(ServerProvider):
         return platform_pid_alive(pid)
 
     async def get_runtime_pid(self, handle: ServerHandle) -> int | None:
-        if handle.metadata and "pid" in handle.metadata:
+        if handle.metadata and handle.metadata.get("pid") is not None:
             try:
                 return int(handle.metadata["pid"])
             except (ValueError, TypeError):
                 pass
-        if handle.external_id and handle.external_id.isdigit():
+        if handle.external_id and str(handle.external_id).isdigit():
             return int(handle.external_id)
         return None
 

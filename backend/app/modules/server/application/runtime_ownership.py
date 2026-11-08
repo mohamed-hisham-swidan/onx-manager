@@ -13,7 +13,7 @@ from enum import Enum
 from typing import Any, Literal
 
 from app.core.identity import IDENTITY
-from app.core.process_utils import platform_pid_alive
+from app.core.process_utils import platform_pid_alive, verify_process_identity
 from app.modules.server.application.ownership_verifier import (
     OwnershipStatus,
     log_ownership_decision,
@@ -312,6 +312,15 @@ class RuntimeOwnershipManager:
         self._repo = repo
         self._provider_factory = provider_factory or default_provider_factory
 
+    @property
+    def _servers_data_dir(self) -> str:
+        try:
+            from app.modules.server.application.ownership_verifier import _get_servers_data_dir
+
+            return _get_servers_data_dir()
+        except Exception:
+            return os.path.abspath("data/servers")
+
     async def discover_all(self) -> OwnershipSnapshot:
         servers = await self._repo.list()
         server_map: dict[str, Server] = {str(s.id): s for s in servers}
@@ -566,11 +575,25 @@ class RuntimeOwnershipManager:
                         provider=provider_type,
                         server_id=sid,
                         external_id=ext_id,
-                        metadata={"server_name": sname},
+                        metadata={
+                            "server_name": sname,
+                            "pid": (
+                                displaced_server.runtime.pid
+                                if displaced_server.runtime
+                                else None
+                            ),
+                            "start_time": (
+                                displaced_server.runtime.start_time
+                                if displaced_server.runtime
+                                else None
+                            ),
+                            "port": sport,
+                        },
                     )
                     await provider.stop(handle, force=True)
                     actions.append(
-                        f"Force-stopped displaced server '{sname}' ({sid}) via provider — {log_reason}"
+                        f"Force-stopped displaced server '{sname}' ({sid}) "
+                        f"via provider — {log_reason}"
                     )
                     resolved += 1
 
@@ -586,26 +609,46 @@ class RuntimeOwnershipManager:
                         )
 
                 if spid and _is_pid_alive(spid):
-                    killed, reason = _try_kill_process(spid)
-                    if killed:
-                        actions.append(
-                            f"Process PID {spid} terminated for displaced server '{sname}' ({sid}) — {reason}"
+                    s_start_time = (
+                        displaced_server.runtime.start_time
+                        if displaced_server.runtime
+                        else None
+                    )
+                    check = verify_process_identity(
+                        spid,
+                        expected_create_time=s_start_time,
+                        servers_data_dir=self._servers_data_dir,
+                        allow_wrapper_shell=True,
+                    )
+                    if not check.verified:
+                        warnings.append(
+                            f"Refusing to kill PID {spid} for displaced server "
+                            f"'{sname}' ({sid}): identity check failed ({check.reason})"
                         )
                     else:
-                        warnings.append(
-                            f"Could not terminate PID {spid} for '{sname}' ({sid}) — {reason}"
-                        )
-                        resolved += 1
+                        killed, reason = _try_kill_process(spid)
+                        if killed:
+                            actions.append(
+                                f"Process PID {spid} terminated for displaced "
+                                f"server '{sname}' ({sid}) — {reason}"
+                            )
+                        else:
+                            warnings.append(
+                                f"Could not terminate PID {spid} for '{sname}' ({sid}) — {reason}"
+                            )
+                            resolved += 1
 
                 displaced_server.crash(
                     exit_code=-1,
                     last_log_lines=[
-                        f"Displaced by runtime ownership claim from '{requesting_name}' ({requesting_server_id})"
+                        f"Displaced by runtime ownership claim from "
+                        f"'{requesting_name}' ({requesting_server_id})"
                     ],
                 )
                 await self._repo.save(displaced_server)
                 actions.append(
-                    f"DB record for displaced server '{sname}' ({sid}) marked CRASHED — {log_reason}"
+                    f"DB record for displaced server '{sname}' ({sid}) "
+                    f"marked CRASHED — {log_reason}"
                 )
                 resolved += 1
 
@@ -624,7 +667,17 @@ class RuntimeOwnershipManager:
             try:
                 reason = f"orphan tmux session {orphan.identifier} — no matching server in database"
                 if orphan.pid:
-                    ownership = verify_ownership(orphan.pid)
+                    orphan_start = getattr(orphan, "start_time", None) or (
+                        orphan.details.get("start_time")
+                        if hasattr(orphan, "details") and orphan.details
+                        else None
+                    )
+                    if orphan_start is not None:
+                        ownership = verify_ownership(
+                            orphan.pid, stored_start_time=orphan_start
+                        )
+                    else:
+                        ownership = verify_ownership(orphan.pid)
                     log_ownership_decision(
                         logger,
                         "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
@@ -658,7 +711,17 @@ class RuntimeOwnershipManager:
             try:
                 reason = f"orphan Minecraft process PID {orphan.pid} — not attached to any managed server"
                 if orphan.pid:
-                    ownership = verify_ownership(orphan.pid)
+                    orphan_start = getattr(orphan, "start_time", None) or (
+                        orphan.details.get("start_time")
+                        if hasattr(orphan, "details") and orphan.details
+                        else None
+                    )
+                    if orphan_start is not None:
+                        ownership = verify_ownership(
+                            orphan.pid, stored_start_time=orphan_start
+                        )
+                    else:
+                        ownership = verify_ownership(orphan.pid)
                     log_ownership_decision(
                         logger,
                         "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
@@ -693,25 +756,39 @@ class RuntimeOwnershipManager:
                 requesting_name,
             )
             if port_pid:
-                killed, info = _try_kill_process(port_pid)
-                if killed:
-                    actions.append(
-                        f"Killed process PID {port_pid} occupying port {requesting_port} — {info}"
+                port_check = verify_process_identity(
+                    port_pid, servers_data_dir=self._servers_data_dir
+                )
+                if not port_check.verified:
+                    logger.warning(
+                        "Refusing to kill process PID %s on port %d: identity verification failed (%s)",
+                        port_pid,
+                        requesting_port,
+                        port_check.reason,
                     )
-                    released = _wait_for_port_free(requesting_port, timeout=3.0)
-                    if released:
+                    warnings.append(
+                        f"Port {requesting_port} is occupied by PID {port_pid} which is not an ONX-managed Minecraft process ({port_check.reason}); refusing to kill"
+                    )
+                else:
+                    killed, info = _try_kill_process(port_pid)
+                    if killed:
                         actions.append(
-                            f"Port {requesting_port} verified free after killing occupant PID {port_pid}"
+                            f"Killed process PID {port_pid} occupying port {requesting_port} — {info}"
                         )
+                        released = _wait_for_port_free(requesting_port, timeout=3.0)
+                        if released:
+                            actions.append(
+                                f"Port {requesting_port} verified free after killing occupant PID {port_pid}"
+                            )
+                        else:
+                            warnings.append(
+                                f"Port {requesting_port} still occupied after killing PID {port_pid}"
+                            )
+                            resolved += 1
                     else:
                         warnings.append(
-                            f"Port {requesting_port} still occupied after killing PID {port_pid}"
+                            f"Could not kill PID {port_pid} occupying port {requesting_port} — {info}"
                         )
-                        resolved += 1
-                else:
-                    warnings.append(
-                        f"Could not kill PID {port_pid} occupying port {requesting_port} — {info}"
-                    )
             else:
                 warnings.append(
                     f"Port {requesting_port} is listening but owner PID could not be determined"
@@ -740,19 +817,30 @@ class RuntimeOwnershipManager:
         snapshot = await self.discover_all()
         cleanup_actions: list[dict[str, Any]] = []
         servers_data_dir: str | None = None
-        if scope == "project_owned":
-            try:
-                from app.modules.server.application.ownership_verifier import _get_servers_data_dir
+        try:
+            from app.modules.server.application.ownership_verifier import _get_servers_data_dir
 
-                servers_data_dir = _get_servers_data_dir()
-            except Exception:
-                pass
+            servers_data_dir = _get_servers_data_dir()
+        except Exception:
+            servers_data_dir = self._servers_data_dir
 
         for orphan in snapshot.orphan_tmux:
             try:
                 reason = f"orphan tmux session {orphan.identifier} — no matching DB server"
+                orphan_start = getattr(orphan, "start_time", None) or (
+                    orphan.details.get("start_time")
+                    if hasattr(orphan, "details") and orphan.details
+                    else None
+                )
                 if scope == "project_owned" and orphan.pid:
-                    ownership = verify_ownership(orphan.pid, servers_data_dir)
+                    if orphan_start is not None:
+                        ownership = verify_ownership(
+                            orphan.pid,
+                            servers_data_dir,
+                            stored_start_time=orphan_start,
+                        )
+                    else:
+                        ownership = verify_ownership(orphan.pid, servers_data_dir)
                     log_ownership_decision(
                         logger,
                         "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
@@ -769,6 +857,24 @@ class RuntimeOwnershipManager:
                                 "pid": orphan.pid,
                                 "action": "skipped",
                                 "reason": f"not verified as project-owned ({ownership.detail})",
+                            }
+                        )
+                        continue
+                elif scope == "system_wide" and orphan.pid:
+                    check = verify_process_identity(
+                        orphan.pid,
+                        expected_create_time=orphan_start,
+                        servers_data_dir=servers_data_dir or self._servers_data_dir,
+                        allow_wrapper_shell=True,
+                    )
+                    if not check.verified:
+                        cleanup_actions.append(
+                            {
+                                "type": "orphan_tmux",
+                                "identifier": orphan.identifier,
+                                "pid": orphan.pid,
+                                "action": "skipped",
+                                "reason": f"system_wide identity check failed ({check.reason})",
                             }
                         )
                         continue
@@ -813,8 +919,20 @@ class RuntimeOwnershipManager:
         for orphan in snapshot.orphan_processes:
             try:
                 reason = f"orphan Minecraft process PID {orphan.pid} — not attached to any managed server"
+                orphan_start = getattr(orphan, "start_time", None) or (
+                    orphan.details.get("start_time")
+                    if hasattr(orphan, "details") and orphan.details
+                    else None
+                )
                 if scope == "project_owned" and orphan.pid:
-                    ownership = verify_ownership(orphan.pid, servers_data_dir)
+                    if orphan_start is not None:
+                        ownership = verify_ownership(
+                            orphan.pid,
+                            servers_data_dir,
+                            stored_start_time=orphan_start,
+                        )
+                    else:
+                        ownership = verify_ownership(orphan.pid, servers_data_dir)
                     log_ownership_decision(
                         logger,
                         "KILL" if ownership.status == OwnershipStatus.VERIFIED else "SKIP",
@@ -830,6 +948,23 @@ class RuntimeOwnershipManager:
                                 "pid": orphan.pid,
                                 "action": "skipped",
                                 "reason": f"not verified as project-owned ({ownership.detail})",
+                            }
+                        )
+                        continue
+                elif scope == "system_wide" and orphan.pid:
+                    check = verify_process_identity(
+                        orphan.pid,
+                        expected_create_time=orphan_start,
+                        servers_data_dir=servers_data_dir or self._servers_data_dir,
+                        allow_wrapper_shell=True,
+                    )
+                    if not check.verified:
+                        cleanup_actions.append(
+                            {
+                                "type": "orphan_process",
+                                "pid": orphan.pid,
+                                "action": "skipped",
+                                "reason": f"system_wide identity check failed ({check.reason})",
                             }
                         )
                         continue

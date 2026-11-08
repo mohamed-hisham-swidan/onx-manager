@@ -202,14 +202,14 @@ export function DashboardPage() {
           />
 
           {/* C. Row 2: Main Split Workspace (12-Column Grid) */}
-          <div className="grid grid-cols-1 items-start gap-5 @5xl:grid-cols-12">
+          <div className="grid grid-cols-1 items-stretch gap-5 @5xl:grid-cols-12">
             {/* Left Panel: Interactive Server Fleet Table/Cards (col-span-8) */}
             <section className="@5xl:col-span-8 @container min-w-0">
               <CommandCenterFleetList servers={serverList} />
             </section>
 
             {/* Right Panel: Real-Time Event Stream & Quick Diagnostics (col-span-4) */}
-            <section className="@5xl:col-span-4 min-w-0">
+            <section className="@5xl:col-span-4 min-w-0 flex flex-col">
               <CommandCenterDaemonStream
                 initialLogs={initialLogs}
                 serverNames={serverNames}

@@ -45,6 +45,13 @@ export function ServerFilesPage() {
   const [newFolderName, setNewFolderName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [prevCurrentPath, setPrevCurrentPath] = useState(currentPath);
+  if (currentPath !== prevCurrentPath) {
+    setPrevCurrentPath(currentPath);
+    setSelectedPaths(new Set());
+  }
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editingFile = useMemo<FileItem | null>(() => {
@@ -169,6 +176,23 @@ export function ServerFilesPage() {
     },
   });
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (paths: string[]) => {
+      for (const p of paths) {
+        await api.deleteServerFile(serverId!, p);
+      }
+    },
+    onSuccess: () => {
+      toast("success", "Files deleted", `Successfully deleted ${selectedPaths.size} item(s).`);
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath) });
+      setSelectedPaths(new Set());
+      setShowBulkDelete(false);
+    },
+    onError: (err: Error) => {
+      handleMutationError("Failed to delete files", err);
+    },
+  });
+
   const uploadMutation = useMutation({
     mutationFn: (file: File) => api.uploadServerFile(serverId!, currentPath, file),
     onSuccess: () => {
@@ -250,12 +274,40 @@ export function ServerFilesPage() {
     return filteredFiles.slice(startIdx, startIdx + PAGE_SIZE);
   }, [filteredFiles, currentPage]);
 
+  const allSelectablePaths = useMemo(
+    () => paginatedFiles.map((f) => f.path),
+    [paginatedFiles],
+  );
+  const isAllSelected =
+    allSelectablePaths.length > 0 &&
+    allSelectablePaths.every((p) => selectedPaths.has(p));
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedPaths(new Set());
+    } else {
+      setSelectedPaths(new Set(allSelectablePaths));
+    }
+  };
+
+  const toggleSelect = (path: string) => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
   if (isLoading && !files) return <PageSkeleton />;
   if (error) return <ErrorState message={error.message} />;
 
   const pathParts = currentPath.split("/").filter(Boolean);
   const breadcrumbs = [
-    { name: "/files", path: "" },
+    { name: "root", path: "" },
     ...pathParts.map((part, index) => ({
       name: part,
       path: pathParts.slice(0, index + 1).join("/"),
@@ -290,7 +342,7 @@ export function ServerFilesPage() {
                   onClick={() => navigateToDirectory("")}
                   className="hover:text-accent-primary hover:underline cursor-pointer"
                 >
-                  /files
+                  root
                 </button>
                 {editorPathParts.map((part, index) => {
                   const pathUpTo = editorPathParts.slice(0, index + 1).join("/");
@@ -391,7 +443,7 @@ export function ServerFilesPage() {
 
   // File browser view
   return (
-    <div className="flex flex-col space-y-4">
+    <div className="flex flex-col flex-1 min-h-0 space-y-4">
       {isLoading && <LoadingBar />}
 
       {/* Toolbar & Breadcrumbs */}
@@ -449,6 +501,16 @@ export function ServerFilesPage() {
               e.target.value = "";
             }}
           />
+          {selectedPaths.size > 0 && (
+            <Button
+              variant="danger"
+              icon="trash"
+              loading={bulkDeleteMutation.isPending}
+              onClick={() => setShowBulkDelete(true)}
+            >
+              Delete Selected ({selectedPaths.size})
+            </Button>
+          )}
           <Button
             variant="secondary"
             icon="folder"
@@ -507,7 +569,7 @@ export function ServerFilesPage() {
       )}
 
       {/* File Browser Table */}
-      <div className="bg-surface-card rounded-xl shadow-sm border border-border-default overflow-hidden">
+      <div className="flex flex-col flex-1 min-h-0 bg-surface-card rounded-xl shadow-xs border border-border-default overflow-hidden">
         {files?.length === 0 && !currentPath ? (
           <EmptyState
             title="Empty Directory"
@@ -533,10 +595,19 @@ export function ServerFilesPage() {
             }}
           />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto flex-1 min-h-0 overflow-y-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs uppercase bg-surface-page/50 text-text-muted border-b border-border-subtle tracking-wider font-semibold">
                 <tr>
+                  <th scope="col" className="w-10 px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all"
+                      checked={isAllSelected}
+                      onChange={toggleSelectAll}
+                      className="rounded border-border-default accent-accent-primary cursor-pointer"
+                    />
+                  </th>
                   <th scope="col" className="px-4 py-2.5">Name</th>
                   <th scope="col" className="px-4 py-2.5 w-32">Size</th>
                   <th scope="col" className="px-4 py-2.5 w-32 text-right">Actions</th>
@@ -545,6 +616,7 @@ export function ServerFilesPage() {
               <tbody className="divide-y divide-border-subtle">
                 {currentPath && (
                   <tr className="hover:bg-surface-hover/50 transition-colors">
+                    <td className="w-10 px-4 py-2"></td>
                     <td className="px-4 py-2">
                       <button
                         type="button"
@@ -565,6 +637,15 @@ export function ServerFilesPage() {
                     key={file.path}
                     className="hover:bg-surface-hover/50 transition-colors group"
                   >
+                    <td className="w-10 px-4 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${file.name}`}
+                        checked={selectedPaths.has(file.path)}
+                        onChange={() => toggleSelect(file.path)}
+                        className="rounded border-border-default accent-accent-primary cursor-pointer"
+                      />
+                    </td>
                     <td className="px-4 py-2">
                       <button
                         type="button"
@@ -594,34 +675,55 @@ export function ServerFilesPage() {
                     </td>
                     <td className="px-4 py-2 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        {!file.is_dir && (
-                          <IconButton
-                            icon="download"
-                            aria-label="Download"
-                            title={`Download ${file.name}`}
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDownload(file)}
-                          />
+                        {file.is_dir ? (
+                          <>
+                            <IconButton
+                              icon="folder"
+                              aria-label={`Open ${file.name}`}
+                              title={`Open ${file.name}`}
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => navigateTo(file.name)}
+                            />
+                            <IconButton
+                              icon="trash"
+                              aria-label={`Delete ${file.name}`}
+                              title={`Delete ${file.name}`}
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setFileToDelete(file)}
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <IconButton
+                              icon="download"
+                              aria-label="Download"
+                              title={`Download ${file.name}`}
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDownload(file)}
+                            />
+                            {!isBinaryFile(file.name) && (
+                              <IconButton
+                                icon="edit"
+                                aria-label="Edit"
+                                title={`Edit ${file.name}`}
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openFileEditor(file)}
+                              />
+                            )}
+                            <IconButton
+                              icon="trash"
+                              aria-label="Delete"
+                              title={`Delete ${file.name}`}
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setFileToDelete(file)}
+                            />
+                          </>
                         )}
-                        {!file.is_dir && !isBinaryFile(file.name) && (
-                          <IconButton
-                            icon="edit"
-                            aria-label="Edit"
-                            title={`Edit ${file.name}`}
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => openFileEditor(file)}
-                          />
-                        )}
-                        <IconButton
-                          icon="trash"
-                          aria-label="Delete"
-                          title={`Delete ${file.name}`}
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setFileToDelete(file)}
-                        />
                       </div>
                     </td>
                   </tr>
@@ -642,6 +744,20 @@ export function ServerFilesPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={showBulkDelete}
+        title="Delete Selected Items"
+        description={`Are you sure you want to delete ${selectedPaths.size} selected item(s)? This action cannot be undone.`}
+        confirmLabel={bulkDeleteMutation.isPending ? "Deleting..." : "Delete"}
+        variant="danger"
+        isPending={bulkDeleteMutation.isPending}
+        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedPaths))}
+        onCancel={() => {
+          if (bulkDeleteMutation.isPending) return;
+          setShowBulkDelete(false);
+        }}
+      />
 
       <ConfirmDialog
         open={!!fileToDelete}

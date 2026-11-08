@@ -181,6 +181,10 @@ from app.modules.server.application import (
     UpdateServerConfigCommand,
     UpdateServerConfigHandler,
 )
+from app.modules.server.application.lifecycle_lock import (
+    ServerLifecycleLockMiddleware,
+    get_lifecycle_lease_manager,
+)
 from app.modules.versioning.application import (
     ArchiveBranchCommand,
     ArchiveBranchHandler,
@@ -332,6 +336,7 @@ def _register_event_handlers(event_bus: EventBus) -> None:
 def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> None:
     command_bus.add_middleware(IdempotencyMiddleware(get_idempotency_store()))
     command_bus.add_middleware(DatabaseBusyRetryMiddleware())
+    command_bus.add_middleware(ServerLifecycleLockMiddleware(get_lifecycle_lease_manager()))
     command_bus.register(CreateServerCommand, CreateServerHandler(event_bus))
     command_bus.register(DeleteServerCommand, DeleteServerHandler(event_bus))
     command_bus.register(StartServerCommand, StartServerHandler(event_bus))

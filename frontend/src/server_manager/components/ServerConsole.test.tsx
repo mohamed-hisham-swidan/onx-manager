@@ -424,4 +424,16 @@ describe("ServerConsole Component", () => {
     expect(screen.getAllByPlaceholderText("Enter a command...")).toHaveLength(1);
     expect(screen.getAllByTestId("console-search-input")).toHaveLength(1);
   });
+
+  it("renders log container with min-h-[420px] and calc(100dvh-33rem) height without h-[420px] or flex-1", async () => {
+    const { container } = renderConsole({ serverId: "srv-viewport" });
+    await screen.findByText(/Done \(2\.4s\)!/);
+
+    const logContainer = container.querySelector(".overflow-y-auto");
+    expect(logContainer).toBeInTheDocument();
+    expect(logContainer?.className).toContain("min-h-[420px]");
+    expect(logContainer?.className).toContain("calc(100dvh-33rem)");
+    expect(logContainer?.className).not.toContain("h-[420px]");
+    expect(logContainer?.className).not.toContain("flex-1");
+  });
 });

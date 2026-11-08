@@ -42,7 +42,7 @@ export function TestRunList({
   );
 
   return (
-    <div className="rounded-xl border border-border-subtle bg-surface-card dark:bg-gray-800 shadow-2xs overflow-hidden">
+    <div className="h-full rounded-xl border border-border-subtle bg-surface-card dark:bg-gray-800 shadow-2xs overflow-hidden flex flex-col">
       {/* Header */}
       <div className="border-b border-border-subtle px-5 py-3.5 flex items-center justify-between bg-surface-elevated/40">
         <div className="flex items-center gap-2">
@@ -90,7 +90,7 @@ export function TestRunList({
           No isolated test runs active or recorded. Launch a test from any commit on the timeline.
         </div>
       ) : (
-        <div className="divide-y divide-border-subtle/50">
+        <div className="divide-y divide-border-subtle/50 flex-1">
           {testRuns.map((run) => (
             <div
               key={run.id}
@@ -135,26 +135,41 @@ export function TestRunList({
                 </span>
               </div>
 
-              {/* 4-Step Visual Mini-Stepper */}
-              <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-elevated/60 p-2.5 text-[11px] font-mono">
+              {/* Clean Horizontal Stepper (without nested bordered boxes) */}
+              <div className="flex items-center justify-between rounded-lg bg-surface-muted/60 px-3 py-2 text-xs">
+                {/* 1. Clone */}
                 <div
-                  className="flex items-center gap-1 text-status-success font-semibold shrink-0"
-                  title="Zero-copy instant Btrfs/ZFS reflink clone of server directory and world snapshot"
+                  className="flex items-center gap-1.5 text-status-success font-medium shrink-0"
+                  title="Instant storage cloning via copy-on-write reflink / Btrfs / ZFS"
                 >
-                  <span>✓</span>
-                  <span>1. CoW Clone</span>
+                  <Icon name="check" size={12} />
+                  <span>Clone</span>
                 </div>
 
                 <div className="flex-1 mx-2 h-0.5 bg-status-success shrink" />
 
+                {/* 2. Boot */}
                 <div
-                  className={`flex items-center gap-1 font-semibold shrink-0 ${
-                    run.status !== "BOOTING" ? "text-status-success" : "text-status-warning animate-pulse"
+                  className={`flex items-center gap-1.5 font-medium shrink-0 ${
+                    run.status === "BOOTING"
+                      ? "text-status-warning animate-pulse"
+                      : run.status === "PENDING"
+                      ? "text-text-muted"
+                      : "text-status-success"
                   }`}
-                  title="Spin up isolated container/sandbox instance without network exposure to players"
+                  title="Safe test environment startup"
                 >
-                  <span>{run.status !== "BOOTING" ? "✓" : "▶"}</span>
-                  <span>2. Sidecar Boot</span>
+                  <Icon
+                    name={
+                      run.status === "BOOTING"
+                        ? "activity"
+                        : run.status === "PENDING"
+                        ? "clock"
+                        : "check"
+                    }
+                    size={12}
+                  />
+                  <span>Boot</span>
                 </div>
 
                 <div
@@ -165,18 +180,28 @@ export function TestRunList({
                   }`}
                 />
 
+                {/* 3. Swarm */}
                 <div
-                  className={`flex items-center gap-1 font-semibold shrink-0 ${
-                    run.status === "PASSED" || run.status === "FAILED"
-                      ? "text-status-success"
-                      : run.status === "RUNNING"
+                  className={`flex items-center gap-1.5 font-medium shrink-0 ${
+                    run.status === "RUNNING"
                       ? "text-status-info animate-pulse"
+                      : run.status === "PASSED" || run.status === "FAILED"
+                      ? "text-status-success"
                       : "text-text-muted"
                   }`}
-                  title="Connect automated bots to simulate gameplay, join stress, and generate world activity"
+                  title="Automated bot simulation and stress testing"
                 >
-                  <span>{run.status === "PASSED" || run.status === "FAILED" ? "✓" : run.status === "RUNNING" ? "▶" : "•"}</span>
-                  <span>3. Bot Swarm</span>
+                  <Icon
+                    name={
+                      run.status === "RUNNING"
+                        ? "activity"
+                        : run.status === "PASSED" || run.status === "FAILED"
+                        ? "check"
+                        : "clock"
+                    }
+                    size={12}
+                  />
+                  <span>Swarm</span>
                 </div>
 
                 <div
@@ -189,18 +214,22 @@ export function TestRunList({
                   }`}
                 />
 
+                {/* 4. Audit */}
                 <div
-                  className={`flex items-center gap-1 font-semibold shrink-0 ${
+                  className={`flex items-center gap-1.5 font-medium shrink-0 ${
                     run.status === "PASSED"
                       ? "text-status-success"
                       : run.status === "FAILED"
                       ? "text-status-danger"
                       : "text-text-muted"
                   }`}
-                  title="Evaluate crash dumps, tick rate (TPS), log assertions, and resource health"
+                  title="Health, TPS, and crash verification"
                 >
-                  <span>{run.status === "PASSED" ? "✓" : run.status === "FAILED" ? "×" : "•"}</span>
-                  <span>4. Audit</span>
+                  <Icon
+                    name={run.status === "PASSED" ? "check" : run.status === "FAILED" ? "x" : "clock"}
+                    size={12}
+                  />
+                  <span>Audit</span>
                 </div>
               </div>
 
@@ -222,7 +251,7 @@ export function TestRunList({
                 <span className="text-border-subtle">•</span>
                 <span>Duration: {run.duration_minutes}m</span>
                 <span className="text-border-subtle">•</span>
-                <span>Placement: {run.placement_mode}</span>
+                <span>Placement: {run.placement_mode === "sidecar" ? "Safe test environment" : run.placement_mode}</span>
                 {run.ephemeral_port && (
                   <>
                     <span className="text-border-subtle">•</span>
@@ -231,9 +260,13 @@ export function TestRunList({
                 )}
               </div>
 
+              {/* Failure / Blame Card - Toned down on bg-surface-muted */}
               {run.failure_reason && (
-                <div className="rounded-lg bg-status-danger-bg border border-status-danger-border p-2.5 text-xs text-status-danger">
-                  <span className="font-semibold">Failure / Blame:</span> {run.failure_reason}
+                <div className="rounded-lg bg-surface-muted border border-border-subtle p-2.5 text-xs text-status-danger flex items-start gap-2">
+                  <Icon name="alert" size={14} className="text-status-danger shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold">Failure / Blame:</span> {run.failure_reason}
+                  </div>
                 </div>
               )}
 

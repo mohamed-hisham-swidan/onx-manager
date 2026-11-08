@@ -36,7 +36,7 @@ export function ProjectCard({
       return (
         <span
           key={loader}
-          className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted"
+          className="inline-flex shrink-0 items-center gap-1 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-muted"
         >
           <Icon name={display.icon} size={11} className="shrink-0 text-text-muted" />
           <span>{display.label}</span>
@@ -46,7 +46,7 @@ export function ProjectCard({
     ...categories.map((category) => (
       <span
         key={category}
-        className="shrink-0 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted"
+        className="shrink-0 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-muted"
       >
         {category}
       </span>
@@ -54,7 +54,7 @@ export function ProjectCard({
     ...envs.map((env) => (
       <span
         key={env}
-        className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted"
+        className="inline-flex shrink-0 items-center gap-1 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-muted"
       >
         <Icon name="globe" size={11} className="shrink-0 text-text-muted" />
         <span>{env}</span>
@@ -82,10 +82,10 @@ export function ProjectCard({
                 <img
                   src={project.icon_url}
                   alt=""
-                  className="h-11 w-11 shrink-0 rounded-lg bg-surface-page object-cover border border-border-subtle"
+                  className="h-11 w-11 shrink-0 rounded-lg bg-surface-muted object-cover"
                 />
               ) : (
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-surface-page text-text-muted">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-surface-muted text-text-muted">
                   <Icon name="plugin" size={22} />
                 </div>
               )}
@@ -111,7 +111,7 @@ export function ProjectCard({
                 to={detailPath}
                 onClick={(e) => e.stopPropagation()}
                 aria-label={`${hiddenPillCount} more tags`}
-                className="shrink-0 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+                className="shrink-0 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
               >
                 +{hiddenPillCount}
               </Link>
@@ -165,13 +165,13 @@ export function ProjectCard({
           <Link
             to={detailPath}
             onClick={(e) => e.stopPropagation()}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-surface-page overflow-hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-surface-muted overflow-hidden"
           >
             {project.icon_url ? (
               <img
                 src={project.icon_url}
                 alt=""
-                className="h-11 w-11 shrink-0 rounded-lg bg-surface-page object-cover"
+                className="h-11 w-11 shrink-0 rounded-lg bg-surface-muted object-cover"
               />
             ) : (
               <div className="flex h-11 w-11 shrink-0 items-center justify-center text-text-muted">
@@ -218,7 +218,7 @@ export function ProjectCard({
               to={detailPath}
               onClick={(e) => e.stopPropagation()}
               aria-label={`${hiddenPillCount} more tags`}
-              className="shrink-0 rounded-[4px] border border-border-subtle bg-surface-page px-2 py-0.5 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+              className="shrink-0 rounded-[4px] bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
             >
               +{hiddenPillCount}
             </Link>

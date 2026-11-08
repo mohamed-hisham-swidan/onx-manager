@@ -3,7 +3,6 @@ import { useBackupsList, useRestoreBackup, useVerifyBackup, useDeleteBackup } fr
 import { useServersList } from "@/server_manager/hooks/useServers";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
-import { StatCard } from "@/components/ui/StatCard";
 import { EmptyState, ErrorState } from "@/components/ui/States";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TableSkeleton } from "@/components/Skeleton";
@@ -139,31 +138,40 @@ export function BackupListPage() {
         />
       ) : (
         <>
-          {/* 4-Card KPI Overview Strip */}
-          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard icon="backup" label="Total backups" value={stats.total} />
-            <StatCard icon="hard-drive" label="Total size" value={formatBytes(stats.totalBytes)} />
-            <StatCard
-              icon="check"
-              label="Last successful backup"
-              value={stats.lastCompleted ? serverMap.get(stats.lastCompleted.server_id) ?? "Server" : "None"}
-              sublabel={stats.lastCompleted ? formatDateTime(stats.lastCompleted.completed_at) : undefined}
-            />
-            <div className="flex items-center justify-between rounded-xl border border-border-subtle bg-surface-card p-4 shadow-2xs">
-              <div className="space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wider text-text-muted block">
-                  Snapshot Engine Status
+          {/* Slim Stat Strip */}
+          <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 bg-surface-card border border-border-subtle rounded-xl divide-y sm:divide-y-0 sm:divide-x divide-border-subtle shadow-2xs">
+            <div className="p-3.5 flex flex-col justify-center">
+              <span className="text-xs font-medium text-text-muted">Total backups</span>
+              <span className="mt-0.5 text-lg font-bold tabular-nums text-text-primary">{stats.total}</span>
+            </div>
+
+            <div className="p-3.5 flex flex-col justify-center">
+              <span className="text-xs font-medium text-text-muted">Total size</span>
+              <span className="mt-0.5 text-lg font-bold tabular-nums text-text-primary">{formatBytes(stats.totalBytes)}</span>
+            </div>
+
+            <div className="p-3.5 flex flex-col justify-center">
+              <span className="text-xs font-medium text-text-muted">Last successful backup</span>
+              <div className="mt-0.5 flex items-baseline gap-1.5 truncate">
+                <span className="text-sm font-bold text-text-primary truncate">
+                  {stats.lastCompleted ? serverMap.get(stats.lastCompleted.server_id) ?? "Server" : "None"}
                 </span>
-                <span className="font-mono text-sm font-bold text-status-success flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-status-success animate-pulse" />
-                  CoW / Archive Ready
-                </span>
-                <span className="text-[11px] text-text-muted block">
-                  Zero-copy reflink supported
-                </span>
+                {stats.lastCompleted?.completed_at && (
+                  <span className="text-xs text-text-muted truncate">
+                    {formatDateTime(stats.lastCompleted.completed_at)}
+                  </span>
+                )}
               </div>
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-status-success-bg text-status-success border border-status-success-border">
-                <Icon name="backup" size={20} />
+            </div>
+
+            <div className="p-3.5 flex flex-col justify-center">
+              <span className="text-xs font-medium text-text-muted">Snapshot Engine</span>
+              <div
+                className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-status-success cursor-help"
+                title="CoW / Archive ready - zero-copy reflink supported"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
+                <span>Instant copy available</span>
               </div>
             </div>
           </div>
@@ -269,7 +277,7 @@ export function BackupListPage() {
                               disabled={restoreBackup.isPending}
                               aria-label={`Restore ${b.backup_id}`}
                               title="Restore Backup"
-                              className="inline-flex items-center gap-1 rounded-md border border-accent-primary/30 bg-accent-primary/10 px-2 py-1 text-xs font-semibold text-accent-primary transition-colors hover:bg-accent-primary/20 disabled:opacity-40 cursor-pointer"
+                              className="inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2.5 py-1 text-xs font-semibold text-status-warning transition-colors hover:bg-status-warning/20 disabled:opacity-40 cursor-pointer"
                             >
                               <Icon name="restart" size={13} />
                               <span className="hidden sm:inline">Restore</span>
@@ -281,7 +289,7 @@ export function BackupListPage() {
                             disabled={verifyBackup.isPending}
                             aria-label={`Verify ${b.backup_id}`}
                             title={verifyResult[b.backup_id] ?? "Verify integrity"}
-                            className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 cursor-pointer"
+                            className="inline-flex items-center gap-1 rounded-md border border-border-default bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 cursor-pointer"
                           >
                             <Icon name="check" size={13} />
                             <span className="hidden sm:inline">{verifyResult[b.backup_id] ?? "Verify"}</span>
@@ -290,8 +298,8 @@ export function BackupListPage() {
                             type="button"
                             onClick={() => setDeleteTarget(b)}
                             disabled={deleteBackup.isPending}
-                            aria-label={`Delete ${b.backup_id}`}
-                            title="Delete"
+                            aria-label="Delete backup"
+                            title="Delete backup"
                             className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-status-danger-bg hover:text-status-danger disabled:opacity-40 cursor-pointer"
                           >
                             <Icon name="trash" size={15} />

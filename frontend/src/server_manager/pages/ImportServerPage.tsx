@@ -17,15 +17,12 @@ export function ImportServerPage() {
   const api = createAuthenticatedApi();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [mode, setMode] = useState<"upload" | "path">("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  const [path, setPath] = useState("");
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [scanning, setScanning] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [createdId, setCreatedId] = useState("");
@@ -88,28 +85,13 @@ export function ImportServerPage() {
     }
   };
 
-  const handleScan = async () => {
-    if (!path.trim()) return;
-    setError("");
-    setScanning(true);
-    try {
-      const result = await api.scanDirectory(path.trim());
-      setScanResult(result);
-      setStep("review");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to scan directory");
-    } finally {
-      setScanning(false);
-    }
-  };
-
   const handleImport = async () => {
     if (!scanResult) return;
     setError("");
     setImporting(true);
     try {
       const result = await api.importServer({
-        source_path: scanResult.path,
+        import_id: scanResult.import_id,
         name: scanResult.name,
         server_type: scanResult.server_type,
         minecraft_version: scanResult.minecraft_version || "1.20.4",
@@ -155,52 +137,27 @@ export function ImportServerPage() {
 
       {step === "input" && (
         <div className="space-y-6">
-          <div className="flex border-b border-border-subtle">
-            <button
-              type="button"
-              onClick={() => setMode("upload")}
-              className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors ${
-                mode === "upload"
-                  ? "border-accent-primary text-accent-primary"
-                  : "border-transparent text-text-muted hover:text-text-primary"
-              }`}
-            >
-              Upload Archive (.zip)
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("path")}
-              className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors ${
-                mode === "path"
-                  ? "border-accent-primary text-accent-primary"
-                  : "border-transparent text-text-muted hover:text-text-primary"
-              }`}
-            >
-              Host Path (Advanced)
-            </button>
-          </div>
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold text-text-primary mb-1">
+                Upload Server Archive
+              </h3>
+              <p className="text-sm text-text-muted">
+                Select or drag-and-drop a compressed .zip archive of your
+                Minecraft server from your device.
+                The archive will be safely uploaded, unpacked, and scanned on the server.
+              </p>
+            </div>
 
-          {mode === "upload" && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-lg font-semibold text-text-primary mb-1">
-                  Upload Server Archive
-                </h3>
-                <p className="text-sm text-text-muted">
-                  Select or drag-and-drop a compressed .zip archive of your Minecraft server from your device.
-                  The archive will be safely uploaded, unpacked, and scanned on the server.
-                </p>
-              </div>
-
-              <input
-                type="file"
-                aria-label="Choose server zip archive file"
-                ref={fileInputRef}
-                accept=".zip"
-                onChange={handleFileSelect}
-                className="hidden"
-                data-testid="zip-file-input"
-              />
+            <input
+              type="file"
+              aria-label="Choose server zip archive file"
+              ref={fileInputRef}
+              accept=".zip"
+              onChange={handleFileSelect}
+              className="hidden"
+              data-testid="zip-file-input"
+            />
 
               {!selectedFile ? (
                 <div
@@ -304,33 +261,7 @@ export function ImportServerPage() {
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {mode === "path" && (
-            <div>
-              <h3 className="text-lg font-semibold text-text-primary mb-2">Server Directory</h3>
-              <p className="text-sm text-text-muted mb-4">
-                Enter the absolute path to an existing Minecraft server directory on the host machine.
-                The application will scan it and detect the software, version, and configuration automatically.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  value={path}
-                  onChange={(e) => setPath(e.target.value)}
-                  placeholder="/opt/minecraft/survival"
-                  className="flex-1 px-3 py-2 rounded-lg border border-border-default bg-surface-card text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-border-focus"
-                />
-                <button
-                  onClick={handleScan}
-                  disabled={!path.trim() || scanning}
-                  className="px-4 py-2 rounded-lg bg-accent-primary hover:bg-accent-hover text-accent-contrast-text text-sm font-medium disabled:opacity-50"
-                >
-                  {scanning ? "Scanning..." : "Scan"}
-                </button>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       )}
 

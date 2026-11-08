@@ -1,12 +1,15 @@
 import asyncio
 import contextlib
 import logging
+from typing import Any
 
 from pydantic import Field
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.config import AppSettings
 from app.core.event_bus import EventBus
 from app.core.exceptions import ServerNotFoundError
+from app.core.fs_utils import assert_inside_root
 from app.core.idempotency import IdempotencyKey
 from app.core.identity import IDENTITY
 from app.core.persistence.unit_of_work import UnitOfWork
@@ -14,17 +17,22 @@ from app.modules.server.application.commands.stop_server import (
     StopServerCommand,
     StopServerHandler,
 )
+from app.modules.server.application.runtime_ownership import _port_is_listening
+from app.modules.server.application.services.installer_provisioner import ProvisioningRegistry
 from app.modules.server.application.supervisor import RuntimeSupervisor
 from app.modules.server.domain.aggregate import ServerStatus
 from app.modules.server.domain.repository import ServerRepository
-from app.modules.server.domain.value_objects import default_provider_for_platform
+from app.modules.server.domain.value_objects import (
+    build_server_handle,
+    default_provider_for_platform,
+)
 from app.modules.server.infrastructure.fs import local_fs
 from app.modules.server.infrastructure.providers import (
     provider_factory as default_provider_factory,
 )
 from app.modules.server.infrastructure.providers.base import (
     ProviderFactory,
-    ServerHandle,
+    ServerRuntimeStatus,
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
@@ -76,29 +84,29 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
                 if server.runtime and server.runtime.provider
                 else default_provider_for_platform()
             )
-            external_id = (
-                server.runtime.external_id
-                if server.runtime and server.runtime.external_id
-                else f"{IDENTITY.temp_prefix_new}{sid}"
-            )
+            handle = build_server_handle(server, provider_type, server_dir=server_dir)
+            if server_dir and "root_path" not in handle.metadata:
+                handle.metadata["root_path"] = server_dir
 
-        handle = ServerHandle(
-            provider=provider_type,
-            server_id=sid,
-            external_id=external_id,
-            metadata={"server_name": server_name, "root_path": server_dir},
-        )
+        # 2. Cancel and await provisioning if server is currently PROVISIONING
+        if server_status == ServerStatus.PROVISIONING:
+            logger.info("Server %s is PROVISIONING — cancelling provisioning task", sid)
+            await ProvisioningRegistry.cancel_and_wait(sid, timeout=15.0)
 
-        # 2. Stop running server if needed so JVM / supervisor processes are not orphaned (F050)
-        if server_status in (ServerStatus.RUNNING, ServerStatus.STARTING):
+        # 3. Stop running server if needed so JVM / supervisor processes are not orphaned (F050)
+        if server_status in (ServerStatus.RUNNING, ServerStatus.STARTING, ServerStatus.STOPPING):
             try:
                 stop_handler = StopServerHandler(self._event_bus)
                 await stop_handler.handle(
-                    StopServerCommand(server_id=command.server_id, reason="Server deletion")
+                    StopServerCommand(
+                        server_id=command.server_id,
+                        reason="Server deletion",
+                        force=True,
+                    )
                 )
             except Exception as e:
                 logger.warning(
-                    "Failed to gracefully stop server %s before delete: %s",
+                    "Failed to stop server %s before delete: %s",
                     command.server_id,
                     e,
                 )
@@ -106,35 +114,93 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
         with contextlib.suppress(Exception):
             await RuntimeSupervisor.stop_for(sid)
 
-        # 3. Teardown provider resources (containers, tmux sessions, process trees, caches)
-        factory = self._provider_factory or default_provider_factory
+        # 4. Resolve provider safely
+        provider: Any = None
+        provider_error: Exception | None = None
         try:
+            factory = self._provider_factory or default_provider_factory
             provider = factory.get(provider_type)
-            await asyncio.wait_for(
-                provider.destroy(handle),
-                timeout=DESTROY_TIMEOUT_SECONDS,
-            )
-            logger.info(
-                'Server "%s" provider resources destroyed — provider=%s server_id=%s',
-                server_name,
-                provider_type,
-                sid,
-            )
-        except TimeoutError:
-            logger.warning(
-                'Server "%s" provider destroy timed out after %ss — provider=%s server_id=%s',
-                server_name,
-                DESTROY_TIMEOUT_SECONDS,
-                provider_type,
-                sid,
-            )
         except Exception as e:
+            provider_error = e
             logger.warning(
-                'Failed to destroy provider resources for server "%s" (provider=%s): %s',
+                'Failed to resolve provider for server "%s" (provider=%s): %s',
                 server_name,
                 provider_type,
                 e,
             )
+
+        if provider is None and server_status in (
+            ServerStatus.RUNNING,
+            ServerStatus.STARTING,
+            ServerStatus.STOPPING,
+        ):
+            return CommandResult(
+                success=False,
+                error=(
+                    f"Cannot delete server: provider {provider_type} unavailable: "
+                    f"{provider_error}"
+                ),
+                error_code="PROVIDER_UNAVAILABLE",
+            )
+
+        if provider is not None:
+            # 5. Confirm container/process is NOT running BEFORE calling destroy (Spec F6)
+            runtime_running = False
+            try:
+                status = await provider.status(handle)
+                if status == ServerRuntimeStatus.RUNNING:
+                    runtime_running = True
+            except Exception:
+                pass
+
+            if runtime_running:
+                return CommandResult(
+                    success=False,
+                    error="Cannot delete server: runtime process/container could not be stopped",
+                    error_code="DELETE_STOP_NOT_CONFIRMED",
+                )
+
+        # 6. Re-check game port after stop confirmed
+        port_val = handle.metadata.get("port") if handle and handle.metadata else None
+        if port_val is not None:
+            try:
+                if _port_is_listening(int(port_val)):
+                    return CommandResult(
+                        success=False,
+                        error=f"Cannot delete server: port {port_val} is still occupied",
+                        error_code="DELETE_STOP_NOT_CONFIRMED",
+                    )
+            except Exception:
+                pass
+
+        # 7. Teardown provider resources (containers, tmux sessions, process trees, caches)
+        if provider is not None:
+            try:
+                await asyncio.wait_for(
+                    provider.destroy(handle),
+                    timeout=DESTROY_TIMEOUT_SECONDS,
+                )
+                logger.info(
+                    'Server "%s" provider resources destroyed — provider=%s server_id=%s',
+                    server_name,
+                    provider_type,
+                    sid,
+                )
+            except TimeoutError:
+                logger.warning(
+                    'Server "%s" provider destroy timed out after %ss — provider=%s server_id=%s',
+                    server_name,
+                    DESTROY_TIMEOUT_SECONDS,
+                    provider_type,
+                    sid,
+                )
+            except Exception as e:
+                logger.warning(
+                    'Failed to destroy provider resources for server "%s" (provider=%s): %s',
+                    server_name,
+                    provider_type,
+                    e,
+                )
 
         # 4. Mark deleted, delete record from repo and collect events
         async with UnitOfWork(self._event_bus) as uow:
@@ -168,6 +234,7 @@ class DeleteServerHandler(CommandHandler[DeleteServerCommand]):
 
         if server_dir:
             try:
+                assert_inside_root(server_dir, AppSettings().servers_data_dir)
                 local_fs.delete_dir(server_dir)
                 logger.info(
                     'Server "%s" filesystem directory removed — path=%s',

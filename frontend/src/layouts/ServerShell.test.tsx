@@ -370,4 +370,29 @@ describe("ServerShell", () => {
     await user.click(copyBtn);
     expect(writeTextSpy).toHaveBeenCalledWith("172.18.0.5:25565");
   });
+
+  it("renders server quick navigation tab bar with lg:hidden container class to avoid double navigation on desktop", () => {
+    renderServerShell("/servers/srv-123/console");
+    const quickNav = screen.getByRole("navigation", { name: "Server quick navigation" });
+    const quickNavContainer = quickNav.parentElement;
+    expect(quickNavContainer).not.toBeNull();
+    expect(quickNavContainer?.className).toContain("lg:hidden");
+  });
+
+  it("renders viewport flex column chain on main workspace and inner container", () => {
+    renderServerShell("/servers/srv-123/console");
+    const main = document.getElementById("main-content");
+    expect(main).not.toBeNull();
+    expect(main?.className).toContain("flex");
+    expect(main?.className).toContain("flex-col");
+    expect(main?.className).toContain("flex-1");
+    expect(main?.className).toContain("min-h-0");
+
+    const innerWrapper = main?.firstElementChild as HTMLElement;
+    expect(innerWrapper).not.toBeNull();
+    expect(innerWrapper.className).toContain("flex");
+    expect(innerWrapper.className).toContain("flex-col");
+    expect(innerWrapper.className).toContain("flex-1");
+    expect(innerWrapper.className).toContain("min-h-0");
+  });
 });

@@ -105,8 +105,8 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Rate Limiting & Security")).toBeInTheDocument();
-    expect(screen.getByText("Circuit Breaker")).toBeInTheDocument();
-    expect(screen.getByText("Event Bus & Sagas")).toBeInTheDocument();
+    expect(screen.getByText("Automatic Failure Protection")).toBeInTheDocument();
+    expect(screen.getByText("Background Tasks & Operations")).toBeInTheDocument();
     expect(screen.getByText("Monitoring & Performance")).toBeInTheDocument();
   });
 
@@ -318,23 +318,23 @@ describe("SettingsPage", () => {
     renderPage();
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Rate Limiting & Security")).toBeInTheDocument();
-    expect(screen.getByText("Circuit Breaker")).toBeInTheDocument();
+    expect(screen.getByText("Automatic Failure Protection")).toBeInTheDocument();
 
     // Click "Security & Throttling" category pill
     fireEvent.click(screen.getByRole("button", { name: "Security & Throttling" }));
     expect(screen.getByText("Rate Limiting & Security")).toBeInTheDocument();
     expect(screen.queryByText("General")).not.toBeInTheDocument();
-    expect(screen.queryByText("Circuit Breaker")).not.toBeInTheDocument();
+    expect(screen.queryByText("Automatic Failure Protection")).not.toBeInTheDocument();
 
     // Click "All Sections (6)" to restore all
     fireEvent.click(screen.getByRole("button", { name: "All Sections (6)" }));
     expect(screen.getByText("General")).toBeInTheDocument();
-    expect(screen.getByText("Circuit Breaker")).toBeInTheDocument();
+    expect(screen.getByText("Automatic Failure Protection")).toBeInTheDocument();
 
-    // Use search input
+    // Use search input (matches "circuit" keyword in failure protection section)
     const searchInput = screen.getByPlaceholderText("Filter system settings...");
     fireEvent.change(searchInput, { target: { value: "circuit" } });
-    expect(screen.getByText("Circuit Breaker")).toBeInTheDocument();
+    expect(screen.getByText("Automatic Failure Protection")).toBeInTheDocument();
     expect(screen.queryByText("General")).not.toBeInTheDocument();
     expect(screen.queryByText("Rate Limiting & Security")).not.toBeInTheDocument();
   });
@@ -378,5 +378,35 @@ describe("SettingsPage", () => {
 
     const logLevelSelect = screen.getByLabelText("Log Level") as HTMLSelectElement;
     expect(logLevelSelect.value).toBe("WARNING");
+  });
+
+  it("does not render raw backend key badges in rendered UI", () => {
+    const { container } = renderPage();
+    // Key pills like idempotency_ttl_hours, rate_limit_per_minute, saga_timeout_seconds should not be rendered
+    expect(screen.queryByText("idempotency_ttl_hours")).not.toBeInTheDocument();
+    expect(screen.queryByText("rate_limit_per_minute")).not.toBeInTheDocument();
+    expect(screen.queryByText("circuit_breaker_max_failures")).not.toBeInTheDocument();
+    expect(screen.queryByText("circuit_breaker_timeout_seconds")).not.toBeInTheDocument();
+    expect(screen.queryByText("event_bus_retry_attempts")).not.toBeInTheDocument();
+    expect(screen.queryByText("saga_timeout_seconds")).not.toBeInTheDocument();
+    expect(screen.queryByText("metrics_interval_seconds")).not.toBeInTheDocument();
+    expect(screen.queryByText("server_startup_timeout_seconds")).not.toBeInTheDocument();
+    expect(screen.queryByText("test_boot_timeout_seconds")).not.toBeInTheDocument();
+
+    // Check that no monospace code pills are rendered inside setting rows
+    const codePills = container.querySelectorAll("code");
+    expect(codePills.length).toBe(0);
+  });
+
+  it("renders plain explanations and tooltips for advanced settings", () => {
+    renderPage();
+    // Plain explanation for Idempotency TTL
+    expect(screen.getByText(/duplicate requests/i)).toBeInTheDocument();
+    // Plain explanation / tooltip for Circuit Breaker
+    expect(screen.getByText(/pausing calls|pausing requests/i)).toBeInTheDocument();
+    // Plain explanation / tooltip for Rate Limit
+    expect(screen.getByText(/maximum api requests/i)).toBeInTheDocument();
+    // Plain explanation / tooltip for Sagas
+    expect(screen.getAllByText(/multi-step workflows/i).length).toBeGreaterThan(0);
   });
 });

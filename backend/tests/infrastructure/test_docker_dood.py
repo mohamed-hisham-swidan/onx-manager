@@ -116,7 +116,10 @@ class TestDooDDockerProviderVolumeMount:
         host_dir = "/host/mount/servers"
 
         with (
-            patch.dict(os.environ, {"ONX_HOST_DATA_DIR": host_dir}),
+            patch.dict(
+                os.environ,
+                {"ONX_HOST_DATA_DIR": host_dir, "MCS_SERVERS_DATA_DIR": "/app/data/servers"},
+            ),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
         ):
@@ -147,7 +150,7 @@ class TestDooDDockerProviderVolumeMount:
         )
 
         with (
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, {"MCS_SERVERS_DATA_DIR": "/data/servers"}, clear=True),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
         ):

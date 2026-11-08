@@ -23,7 +23,7 @@ export function AppShell() {
 
   return (
     <div
-      className="min-h-screen bg-surface-page text-text-primary transition-colors"
+      className="min-h-screen bg-surface-page text-text-primary transition-colors flex flex-col"
       style={{ "--sidebar-width": "var(--sidebar-width, 224px)" } as React.CSSProperties}
     >
       <a
@@ -42,11 +42,11 @@ export function AppShell() {
       <main
         id="main-content"
         tabIndex={-1}
-        className={`min-h-[calc(100vh-3.5rem)] pt-14 overflow-y-auto pb-16 transition-all duration-200 outline-hidden ${
+        className={`min-h-[calc(100vh-3.5rem)] pt-14 overflow-y-auto pb-16 transition-all duration-200 outline-hidden flex flex-col flex-1 min-h-0 ${
           sidebarOpen ? "lg:pl-[var(--sidebar-width,14rem)]" : "lg:pl-0"
         }`}
       >
-        <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6 pb-16">
+        <div className="mx-auto w-full max-w-[1880px] p-4 sm:p-6 lg:px-8 lg:py-6 pb-16 flex flex-col flex-1 min-h-0">
           <ErrorBoundary>
             <Suspense fallback={<RouteFallback />}>
               <Outlet />
