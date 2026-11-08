@@ -328,5 +328,6 @@ async def test_docker_execute_command_escapes_single_quotes() -> None:
         "exec",
         "onx-s1",
         "rcon-cli",
+        "--",
         "say 'hello'; touch /tmp/pwned",
     ]
