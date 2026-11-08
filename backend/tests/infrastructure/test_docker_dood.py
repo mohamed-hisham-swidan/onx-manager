@@ -15,6 +15,21 @@ from app.modules.server.infrastructure.providers.docker import (
 )
 
 
+def _make_docker_command_fake(pid_ip: str = "1234 172.17.0.5\n"):
+    async def fake_docker_command(*args: object, **_kwargs: object):
+        if not args:
+            return (0, "")
+        cmd = args[0]
+        if cmd == "inspect":
+            if "--format" in args and "{{json .}}" in args:
+                return (1, "")
+            return (0, pid_ip)
+        if cmd in ("create", "start", "rm"):
+            return (0, "")
+        return (0, "")
+    return fake_docker_command
+
+
 class TestDooDHostPathResolution:
     """Test resolve_host_mount_path for DooD sibling container volume mounts."""
 
@@ -123,7 +138,7 @@ class TestDooDDockerProviderVolumeMount:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
         ):
-            mock_cmd.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_cmd.side_effect = _make_docker_command_fake()
             await provider.start(
                 server_id="dood-test-1",
                 config={"server_id": "dood-test-1", "port": 25565},
@@ -154,7 +169,7 @@ class TestDooDDockerProviderVolumeMount:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
         ):
-            mock_cmd.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_cmd.side_effect = _make_docker_command_fake()
             await provider.start(
                 server_id="native-test-1",
                 config={"server_id": "native-test-1", "port": 25565},
