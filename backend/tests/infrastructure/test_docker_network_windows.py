@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -7,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.core.exceptions import InvalidValueError
+from app.core.exceptions import InvalidValueError, PathContainmentError
 from app.modules.exposure.domain.aggregate import DENY_LIST_PORTS, ServerExposure
 from app.modules.exposure.domain.value_objects import ExposureMethod
 from app.modules.server.domain.value_objects import (
@@ -26,6 +27,25 @@ from app.modules.server.infrastructure.providers.docker import (
 )
 
 
+def _make_docker_command_fake(pid_ip: str = "1234\n"):
+    async def fake_docker_command(*args: object, **_kwargs: object):
+        if not args:
+            return (0, "")
+        cmd = args[0]
+        if cmd == "inspect":
+            if "--format" in args and "{{json .}}" in args:
+                return (1, "")
+            return (0, pid_ip)
+        if cmd in ("create", "start", "rm"):
+            return (0, "")
+        return (0, "")
+    return fake_docker_command
+
+
+def _get_create_args(mock_docker: AsyncMock) -> list[str]:
+    return list(next(c[0] for c in mock_docker.call_args_list if c[0] and c[0][0] == "create"))
+
+
 class TestDockerNetworkModel:
     """Decision 6: Bridge network model and host port publishing."""
 
@@ -42,11 +62,7 @@ class TestDockerNetworkModel:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [
-                (0, ""),  # create
-                (0, ""),  # start
-                (0, "1234\n"),  # inspect pid
-            ]
+            mock_docker.side_effect = _make_docker_command_fake()
             result = await provider.start(server_id="net-test-1", config=config)
 
         assert result.status == ServerRuntimeStatus.RUNNING
@@ -54,7 +70,7 @@ class TestDockerNetworkModel:
         assert result.port == 25565
         assert result.metadata["network"] == "bridge"
 
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         assert "--network" in create_args
         assert create_args[create_args.index("--network") + 1] == "bridge"
         assert "-p" in create_args
@@ -75,11 +91,7 @@ class TestDockerNetworkModel:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [
-                (0, ""),  # create
-                (0, ""),  # start
-                (0, "1234 172.17.0.5\n"),  # inspect pid and network ip
-            ]
+            mock_docker.side_effect = _make_docker_command_fake(pid_ip="1234 172.17.0.5\n")
             result = await provider.start(server_id="ip-test-1", config=config)
 
         assert result.status == ServerRuntimeStatus.RUNNING
@@ -109,11 +121,11 @@ class TestDockerNetworkModel:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             result = await provider.start(server_id="net-test-2", config=config)
 
         assert result.metadata["network"] == "onx-custom-bridge"
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         assert "--network" in create_args
         assert create_args[create_args.index("--network") + 1] == "onx-custom-bridge"
 
@@ -131,10 +143,10 @@ class TestDockerNetworkModel:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             await provider.start(server_id="net-test-3", config=config)
 
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         assert "-p" in create_args
         assert create_args[create_args.index("-p") + 1] == "127.0.0.1:25565:25565"
 
@@ -147,12 +159,12 @@ class TestDockerNetworkModel:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             await provider.start(
                 server_id="udp-srv",
                 config={"port": 19132, "container_port": 19132, "protocol": "udp"},
             )
-            create_args = list(mock_docker.call_args_list[0][0])
+            create_args = _get_create_args(mock_docker)
             assert "-p" in create_args
             assert create_args[create_args.index("-p") + 1] == "19132:19132/udp"
 
@@ -161,12 +173,12 @@ class TestDockerNetworkModel:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             await provider.start(
                 server_id="both-srv",
                 config={"port": 25565, "container_port": 25565, "protocol": "both"},
             )
-            create_args = list(mock_docker.call_args_list[0][0])
+            create_args = _get_create_args(mock_docker)
             p_indices = [i for i, val in enumerate(create_args) if val == "-p"]
             published = [create_args[i + 1] for i in p_indices]
             assert "25565:25565/tcp" in published
@@ -182,17 +194,21 @@ class TestDockerNetworkModel:
 
         provider = DockerProvider()
         with (
+            patch.dict(
+                os.environ,
+                {"MCS_SERVERS_DATA_DIR": str(tmp_path), "ONX_SERVERS_DATA_DIR": str(tmp_path)},
+            ),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             result = await provider.start(
                 server_id="props-srv",
                 config={"port": 25570, "server_dir": str(srv_dir)},
             )
 
         assert result.metadata["container_port"] == 25570
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         assert "-p" in create_args
         assert create_args[create_args.index("-p") + 1] == "25570:25570"
 
@@ -209,10 +225,10 @@ class TestDockerNetworkModel:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             await provider.start(server_id="itzg-srv", config=config)
 
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         assert "-e" in create_args
         e_indices = [i for i, val in enumerate(create_args) if val == "-e"]
         env_pairs = [create_args[i + 1] for i in e_indices]
@@ -235,10 +251,10 @@ class TestDockerRconLoopbackSecurity:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             await provider.start(server_id="sec-srv-1", config=config)
 
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         p_indices = [i for i, val in enumerate(create_args) if val == "-p"]
         published = [create_args[i + 1] for i in p_indices]
 
@@ -265,10 +281,10 @@ class TestDockerRconLoopbackSecurity:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             await provider.start(server_id="sec-srv-2", config=config)
 
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         p_indices = [i for i, val in enumerate(create_args) if val == "-p"]
         published = [create_args[i + 1] for i in p_indices]
 
@@ -285,16 +301,20 @@ class TestDockerRconLoopbackSecurity:
 
         provider = DockerProvider()
         with (
+            patch.dict(
+                os.environ,
+                {"MCS_SERVERS_DATA_DIR": str(tmp_path), "ONX_SERVERS_DATA_DIR": str(tmp_path)},
+            ),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             await provider.start(
                 server_id="no-rcon-srv",
                 config={"port": 25565, "server_dir": str(srv_dir)},
             )
 
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         p_indices = [i for i, val in enumerate(create_args) if val == "-p"]
         published = [create_args[i + 1] for i in p_indices]
         assert len(published) == 1
@@ -347,10 +367,11 @@ class TestDockerWindowsPolicyAndPathNormalization:
         )
 
         with (
+            patch("app.modules.server.infrastructure.providers.docker.assert_inside_root"),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             result = await provider.start(
                 server_id="win-srv",
                 deployment=deployment,
@@ -358,7 +379,7 @@ class TestDockerWindowsPolicyAndPathNormalization:
             )
 
         assert result.metadata["server_dir"] == "C:/minecraft/servers/win-srv"
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         assert "-v" in create_args
         assert create_args[create_args.index("-v") + 1] == "C:/minecraft/servers/win-srv:/data"
 
@@ -373,16 +394,53 @@ class TestDockerWindowsPolicyAndPathNormalization:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             await provider.start(
                 server_id="win-jar-srv",
                 launch_config=launch_config,
                 config={"port": 25565},
             )
 
-        create_args = list(mock_docker.call_args_list[0][0])
+        create_args = _get_create_args(mock_docker)
         assert "-jar" in create_args
         assert create_args[create_args.index("-jar") + 1] == "/data/custom-paper.jar"
+
+    @pytest.mark.asyncio
+    async def test_docker_start_containment_enforcement(self, tmp_path: Path) -> None:
+        """Containment contract: paths outside servers_data_dir raise PathContainmentError."""
+        provider = DockerProvider()
+        inside_dir = tmp_path / "inside-srv"
+        inside_dir.mkdir()
+        outside_dir = tmp_path.parent / "outside-srv"
+
+        # Inside path passes containment check
+        with (
+            patch.dict(
+                os.environ,
+                {"MCS_SERVERS_DATA_DIR": str(tmp_path), "ONX_SERVERS_DATA_DIR": str(tmp_path)},
+            ),
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+        ):
+            mock_docker.side_effect = _make_docker_command_fake()
+            result = await provider.start(
+                server_id="inside-srv",
+                config={"server_id": "inside-srv", "port": 25565, "server_dir": str(inside_dir)},
+            )
+            assert result.status == ServerRuntimeStatus.RUNNING
+
+        # Outside path raises PathContainmentError
+        with (
+            patch.dict(
+                os.environ,
+                {"MCS_SERVERS_DATA_DIR": str(tmp_path), "ONX_SERVERS_DATA_DIR": str(tmp_path)},
+            ),
+            pytest.raises(PathContainmentError),
+        ):
+            await provider.start(
+                server_id="outside-srv",
+                config={"server_id": "outside-srv", "port": 25565, "server_dir": str(outside_dir)},
+            )
 
 
 class TestDockerPingDiagnostics:
@@ -446,7 +504,7 @@ class TestExposureSupervisorCompatibility:
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [(0, ""), (0, ""), (0, "1234\n")]
+            mock_docker.side_effect = _make_docker_command_fake()
             result = await provider.start(
                 server_id="exp-srv",
                 config={"port": 25565, "container_port": 25565},

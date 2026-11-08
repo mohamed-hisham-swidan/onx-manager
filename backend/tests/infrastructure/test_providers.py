@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import socket
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -450,7 +452,7 @@ class TestLocalLinuxProviderStart:
         )
 
         flags_list = [
-            '-XX:OnOutOfMemoryError="kill -9 %p"',
+            '-Dcustom.opt="a b"',
             '-Dproperty="hello world"',
             "-Dcustom.msg=welcome to minecraft",
         ]
@@ -508,7 +510,7 @@ class TestLocalLinuxProviderStart:
 
         # Repeat with java_args as a single STRING with spaces to cover shlex.split branch
         flags_str = (
-            '-XX:OnOutOfMemoryError="kill -9 %p" '
+            '-Dcustom.opt="a b" '
             '-Dproperty="hello world" '
             '"-Dcustom.msg=welcome to minecraft"'
         )
@@ -1050,6 +1052,21 @@ class TestProviderCapabilities:
         assert wrapped.capabilities() == ["process", "console", "exec"]
 
 
+def _make_docker_command_fake(pid_ip: str = "1234\n"):
+    async def fake_docker_command(*args: object, **_kwargs: object):
+        if not args:
+            return (0, "")
+        cmd = args[0]
+        if cmd == "inspect":
+            if "--format" in args and "{{json .}}" in args:
+                return (1, "")
+            return (0, pid_ip)
+        if cmd in ("create", "start", "rm"):
+            return (0, "")
+        return (0, "")
+    return fake_docker_command
+
+
 class TestDockerProvider:
     @pytest.mark.asyncio
     async def test_start_creates_container_with_ownership_labels(self) -> None:
@@ -1061,21 +1078,20 @@ class TestDockerProvider:
             "memory_max_mb": 2048,
         }
 
-        with patch.object(provider, "_ensure_image", AsyncMock()) as mock_ensure:
-            with patch.object(provider, "_docker_command", AsyncMock()) as mock_docker:
-                mock_docker.side_effect = [
-                    (0, ""),  # create
-                    (0, ""),  # start
-                    (0, "12345\n"),  # inspect pid
-                ]
-                result = await provider.start(server_id="test-server-42", config=config)
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()) as mock_ensure,
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+        ):
+            mock_docker.side_effect = _make_docker_command_fake(pid_ip="12345 172.17.0.5\n")
+            result = await provider.start(server_id="test-server-42", config=config)
 
         assert result.status == ServerRuntimeStatus.RUNNING
         assert result.pid == 12345
         assert result.port == 25565
         mock_ensure.assert_awaited_once_with("itzg/minecraft-server:latest")
 
-        create_call_args = list(mock_docker.call_args_list[0][0])
+        create_call = next(c for c in mock_docker.call_args_list if c[0] and c[0][0] == "create")
+        create_call_args = list(create_call[0])
         assert create_call_args[0] == "create"
         assert "--name" in create_call_args
         name_idx = create_call_args.index("--name")
@@ -1086,28 +1102,31 @@ class TestDockerProvider:
         assert "com.onx-manager.runtime=docker" in create_call_args
 
     @pytest.mark.asyncio
-    async def test_docker_start_quotes_special_characters(self) -> None:
+    async def test_docker_start_quotes_special_characters(self, tmp_path: Path) -> None:
         provider = DockerProvider()
+        srv_dir = tmp_path / "my world's" / "dir"
+        srv_dir.mkdir(parents=True)
         config = {
             "image": "itzg/minecraft-server:latest",
-            "world_dir": "/data/my world's/dir",
+            "world_dir": str(srv_dir),
             "port": 25565,
             "memory_min_mb": 1024,
             "memory_max_mb": 2048,
         }
 
         with (
+            patch.dict(
+                os.environ,
+                {"MCS_SERVERS_DATA_DIR": str(tmp_path), "ONX_SERVERS_DATA_DIR": str(tmp_path)},
+            ),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [
-                (0, ""),  # create
-                (0, ""),  # start
-                (0, "12345\n"),  # inspect pid
-            ]
+            mock_docker.side_effect = _make_docker_command_fake(pid_ip="12345 172.17.0.5\n")
             await provider.start(server_id="srv 'special' 42", config=config)
 
-        create_call_args = list(mock_docker.call_args_list[0][0])
+        create_call = next(c for c in mock_docker.call_args_list if c[0] and c[0][0] == "create")
+        create_call_args = list(create_call[0])
         assert create_call_args[0] == "create"
         assert "--name" in create_call_args
         name_idx = create_call_args.index("--name")
@@ -1118,8 +1137,12 @@ class TestDockerProvider:
         assert "my world's/dir" in create_call_args[vol_idx + 1]
 
     @pytest.mark.asyncio
-    async def test_docker_start_accepts_four_kwargs_without_type_error(self) -> None:
+    async def test_docker_start_accepts_four_kwargs_without_type_error(
+        self, tmp_path: Path
+    ) -> None:
         provider = DockerProvider()
+        srv_dir = tmp_path / "docker-srv"
+        srv_dir.mkdir()
         config = {
             "image": "itzg/minecraft-server:latest",
             "port": 25565,
@@ -1128,7 +1151,7 @@ class TestDockerProvider:
         }
         deployment = ServerDeployment(
             location_type=LocationType.DOCKER,
-            root_path="/tmp/docker-srv",
+            root_path=str(srv_dir),
         )
         lc = LaunchConfiguration(
             java_executable="java",
@@ -1137,14 +1160,14 @@ class TestDockerProvider:
         )
 
         with (
+            patch.dict(
+                os.environ,
+                {"MCS_SERVERS_DATA_DIR": str(tmp_path), "ONX_SERVERS_DATA_DIR": str(tmp_path)},
+            ),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
         ):
-            mock_docker.side_effect = [
-                (0, ""),  # create
-                (0, ""),  # start
-                (0, "7890\n"),  # inspect pid
-            ]
+            mock_docker.side_effect = _make_docker_command_fake(pid_ip="7890 172.17.0.5\n")
             result = await provider.start(
                 server_id="docker-4-kwarg",
                 config=config,

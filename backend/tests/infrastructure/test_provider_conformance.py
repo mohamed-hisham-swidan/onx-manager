@@ -77,7 +77,9 @@ def provider(provider_name: str) -> ServerProvider:
 
 
 @pytest.fixture(autouse=True)
-def _mock_provider_io(request: pytest.FixtureRequest) -> Generator[None, None, None]:
+def _mock_provider_io(
+    request: pytest.FixtureRequest, tmp_path: Path
+) -> Generator[None, None, None]:
     """Universal I/O sandbox for provider conformance tests."""
     if "docker" in request.keywords and os.environ.get("RUN_DOCKER_TESTS") == "1":
         yield
@@ -97,9 +99,23 @@ def _mock_provider_io(request: pytest.FixtureRequest) -> Generator[None, None, N
         return_value=MagicMock(returncode=0, stdout=f"{dynamic_pid}\n", stderr="")
     )
 
+    async def _fake_docker_cmd(*args: object, **_kwargs: object) -> tuple[int, str]:
+        if not args:
+            return (0, "")
+        cmd = args[0]
+        if cmd == "inspect":
+            if "--format" in args and "{{json .}}" in args:
+                return (1, "")
+            return (0, f"{dynamic_pid} 172.17.0.5\n")
+        return (0, "linux\n")
+
     with (
+        patch.dict(
+            os.environ,
+            {"MCS_SERVERS_DATA_DIR": str(tmp_path), "ONX_SERVERS_DATA_DIR": str(tmp_path)},
+        ),
         patch("os.kill", side_effect=_record_kill),
-        patch.object(DockerProvider, "_docker_command", AsyncMock(return_value=(0, "linux\n"))),
+        patch.object(DockerProvider, "_docker_command", AsyncMock(side_effect=_fake_docker_cmd)),
         patch.object(DockerProvider, "_ensure_image", AsyncMock()),
         patch.object(
             LocalLinuxProvider,
