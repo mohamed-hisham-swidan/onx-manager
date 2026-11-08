@@ -202,7 +202,7 @@ class TestDockerProviderRCONExecution:
             out = await provider.execute_command(handle, "help")
 
         mock_docker.assert_awaited_once_with(
-            "exec", "onx-srv-fallback", "rcon-cli", "help"
+            "exec", "onx-srv-fallback", "rcon-cli", "--", "help"
         )
         assert "Output from rcon-cli" in out
 
@@ -234,7 +234,7 @@ class TestDockerProviderRCONExecution:
             out = await provider.execute_command(handle, "time set day")
 
         mock_docker.assert_awaited_once_with(
-            "exec", "onx-srv-conn-fail", "rcon-cli", "time set day"
+            "exec", "onx-srv-conn-fail", "rcon-cli", "--", "time set day"
         )
         assert "Fallback cli response" in out
 
@@ -310,6 +310,7 @@ class TestDockerProviderGracefulStop:
                 "execute_command",
                 AsyncMock(side_effect=ProviderError("docker", "execute_command", "failed")),
             ),
+            patch.object(provider, "_wait_for_container_exit", AsyncMock(return_value=True)),
             patch.object(
                 provider,
                 "_docker_command",
@@ -318,7 +319,7 @@ class TestDockerProviderGracefulStop:
         ):
             await provider.stop(handle, force=False)
 
-        mock_docker.assert_awaited_once_with("stop", "-t", "30", "onx-srv-fail-stop")
+        mock_docker.assert_any_await("stop", "-t", "30", "onx-srv-fail-stop")
 
     @pytest.mark.asyncio
     async def test_docker_stop_timeout_falls_back_to_docker_stop(self) -> None:
@@ -337,10 +338,11 @@ class TestDockerProviderGracefulStop:
                 "_docker_command",
                 AsyncMock(return_value=(0, "")),
             ) as mock_docker,
+            pytest.raises(ProviderError, match="still running after docker stop"),
         ):
             await provider.stop(handle, force=False)
 
-        mock_docker.assert_awaited_once_with("stop", "-t", "30", "onx-srv-timeout-stop")
+        mock_docker.assert_any_await("stop", "-t", "30", "onx-srv-timeout-stop")
 
 
 class TestBackupSaveAllWithDockerProvider:
