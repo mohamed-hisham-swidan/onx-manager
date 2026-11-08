@@ -99,7 +99,7 @@ class TestSQLServerRepository:
         complex_args = [
             "-Xmx4G",
             '-Dproperty="hello world"',
-            '-XX:OnOutOfMemoryError="kill -9 %p"',
+            '-Dcustom.opt="a b"',
             "-Dcustom.msg=welcome to minecraft",
         ]
         server = Server.create(

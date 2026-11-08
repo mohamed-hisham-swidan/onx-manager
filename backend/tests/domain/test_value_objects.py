@@ -381,12 +381,29 @@ class TestJavaArgumentsSecurity:
             "-XX:-OmitStackTraceInFastThrow",
             "-Dterminal.jline=false",
             "--add-opens=java.base/java.lang=ALL-UNNAMED",
-            "-javaagent:plugins/spark.jar",
-            r"-javaagent:C:\agents\spark.jar",
             "-Xlog:gc*:file=logs/gc-%t.log",
         ]
         ja = JavaArguments(legitimate)
         assert ja.as_list() == legitimate
+
+    @pytest.mark.parametrize(
+        "forbidden_flag",
+        [
+            "-XX:OnError=cmd",
+            "-XX:OnOutOfMemoryError=kill",
+            "-XX:Flags=flags.txt",
+            "-XX:VMOptionsFile=opts.txt",
+            "-javaagent:plugins/spark.jar",
+            "-agentpath:/path/to/lib",
+            "-agentlib:jdwp",
+            "-Xrunjdwp",
+        ],
+    )
+    def test_java_arguments_rejects_forbidden_jvm_hook_flags(self, forbidden_flag: str) -> None:
+        with pytest.raises(InvalidValueError) as exc_info:
+            JavaArguments([forbidden_flag])
+        assert exc_info.value.details.get("field") == "java_args"
+        assert "Disallowed JVM flag" in exc_info.value.details.get("reason", "")
 
     @pytest.mark.parametrize(
         "bad_arg",
