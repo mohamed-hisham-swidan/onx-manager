@@ -316,14 +316,14 @@ class TestAtomicFsInfrastructure:
             )
         )
 
-        orig_read_text = Path.read_text
+        orig_read_bytes = Path.read_bytes
 
-        def mock_read_text(path_obj: Path, *args, **kwargs) -> str:
+        def mock_read_bytes(path_obj: Path) -> bytes:
             if path_obj.name == "server.properties":
-                return "corrupted content"
-            return orig_read_text(path_obj, *args, **kwargs)
+                return b"corrupted content"
+            return orig_read_bytes(path_obj)
 
-        monkeypatch.setattr(Path, "read_text", mock_read_text)
+        monkeypatch.setattr(Path, "read_bytes", mock_read_bytes)
 
         with pytest.raises(RuntimeError, match="Post-write verify failed: content mismatch"):
             write_tree_to_dir(tree, dest_dir, verify=True)
