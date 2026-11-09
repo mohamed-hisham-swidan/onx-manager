@@ -906,11 +906,12 @@ def test_f2_reader_resets_to_zero_ignores_preceding_stale_marker(monkeypatch, tm
 
     # Case A: Shrink triggers reset to 0
     token_a = "tok-case-a"
-    log_file.write_text(
-        "stale line: Address already in use\n"
-        f"--- ONX LAUNCH ATTEMPT 2 [token:{token_a}] ---\n"
-        "clean current attempt log\n",
-        encoding="utf-8",
+    log_file.write_bytes(
+        (
+            "stale line: Address already in use\n"
+            f"--- ONX LAUNCH ATTEMPT 2 [token:{token_a}] ---\n"
+            "clean current attempt log\n"
+        ).encode()
     )
     shrunk_identity = (log_file.stat().st_dev, log_file.stat().st_ino, 99999)
     res_a = _read_backend_log_from(shrunk_identity, marker_token=token_a)
@@ -924,11 +925,12 @@ def test_f2_reader_resets_to_zero_ignores_preceding_stale_marker(monkeypatch, tm
 
     # Case B: Inode rotation to larger file triggers reset to 0
     token_b = "tok-case-b"
-    log_file.write_text(
-        "stale line: Address already in use\n"
-        f"--- ONX LAUNCH ATTEMPT 2 [token:{token_b}] ---\n"
-        "more clean log output\n",
-        encoding="utf-8",
+    log_file.write_bytes(
+        (
+            "stale line: Address already in use\n"
+            f"--- ONX LAUNCH ATTEMPT 2 [token:{token_b}] ---\n"
+            "more clean log output\n"
+        ).encode()
     )
     rotated_identity = (log_file.stat().st_dev, 1234567, 10)  # different inode, smaller saved_size
     res_b = _read_backend_log_from(rotated_identity, marker_token=token_b)
@@ -1048,8 +1050,8 @@ def test_read_backend_log_from_normal_append_not_reset(monkeypatch, tmp_path):
     assert marker_bytes is not None
 
     appended = "Server started successfully\nListening on port 8000\n"
-    with log_file.open("a", encoding="utf-8") as fh:
-        fh.write(appended)
+    with log_file.open("ab") as fh:
+        fh.write(appended.encode("utf-8"))
 
     # Bytes immediately before saved_size match marker_bytes -> no reset to 0
     res = _read_backend_log_from(identity, marker_token=token, marker_bytes=marker_bytes)
@@ -1075,8 +1077,8 @@ def test_read_backend_log_from_intact_marker_not_reset(monkeypatch, tmp_path):
     assert marker_bytes is not None
 
     clean_lines = "INFO: Application startup complete.\nINFO: Uvicorn running\n"
-    with log_file.open("a", encoding="utf-8") as fh:
-        fh.write(clean_lines)
+    with log_file.open("ab") as fh:
+        fh.write(clean_lines.encode("utf-8"))
 
     res = _read_backend_log_from(identity, marker_token=token, marker_bytes=marker_bytes)
     # Intact marker before saved_size ensures reader does not reset to 0
@@ -3749,6 +3751,27 @@ def test_retry_aborts_when_previous_owned_listener_cannot_be_stopped(
         monkeypatch.setattr(TerminalOpener, "open_backend", fake_open_backend)
         monkeypatch.setattr("launcher._wait_for_backend_attempt", lambda *_a, **_kw: "bind")
 
+        monkeypatch.setattr("launcher._capture_process_create_time", lambda _pid: 123.0)
+        monkeypatch.setattr(
+            PortManager,
+            "can_bind",
+            lambda p, *_a, **_kw: p != port1,
+        )
+        monkeypatch.setattr(
+            PortManager,
+            "get_pid_by_port",
+            lambda p: listener_proc.pid if p == port1 else None,
+        )
+        monkeypatch.setattr(PortManager, "belongs_to_project", lambda _pid: True)
+
+        def _fake_kill_on_port(port, *, expected_pid=None, expected_create_time=None):
+            _ = (port, expected_create_time)
+            if expected_pid is not None:
+                PIDManager.kill_tree(expected_pid)
+            return True
+
+        monkeypatch.setattr(PortManager, "kill_on_port", _fake_kill_on_port)
+
         killed_pids: list[int] = []
         monkeypatch.setattr(PIDManager, "kill_tree", killed_pids.append)
 
@@ -3995,6 +4018,11 @@ def test_status_uses_healthy_active_port_file(tmp_path, monkeypatch, free_port):
                 PortManager,
                 "get_pid_by_port",
                 lambda p: proc.pid if p == active_port else None,
+            )
+            monkeypatch.setattr(
+                PortManager,
+                "is_open",
+                lambda p: p == active_port,
             )
 
             info = StatusDisplay._collect_service(

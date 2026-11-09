@@ -58,7 +58,7 @@ def test_check_python_accepts_312():
          patch("launcher.find_backend_venv", return_value=Path("/fake/venv/bin/python")):
         ver, py_path = Validator.check_python()
         assert ver == "3.12.8"
-        assert py_path == "/fake/venv/bin/python"
+        assert py_path == str(Path("/fake/venv/bin/python"))
 
 
 def test_check_python_rejects_313_with_exact_text():

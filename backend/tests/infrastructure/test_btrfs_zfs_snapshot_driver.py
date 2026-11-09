@@ -26,8 +26,8 @@ def test_btrfs_zfs_driver_clone_world_invokes_reflink() -> None:
             assert args[0] == "cp"
             assert "--reflink=always" in args
             assert "-r" in args
-            assert str(world_dir) in args
-            assert str(dst / "world") in args
+            assert str(world_dir.resolve()) in args
+            assert str((dst / "world").resolve()) in args
 
 
 def test_btrfs_zfs_driver_clone_world_failure_raises_storage_cow_error() -> None:

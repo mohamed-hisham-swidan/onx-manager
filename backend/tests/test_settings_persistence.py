@@ -237,6 +237,9 @@ class TestSettingsAPIEndpoints:
     def test_persist_atomic_and_preserves_mode(self, tmp_path):
         import os
 
+        if os.name == "nt":
+            pytest.skip("Windows does not represent POSIX mode bits")
+
         from app.core.settings_store import _persist, get_live_settings
 
         target = tmp_path / "custom_settings.yaml"

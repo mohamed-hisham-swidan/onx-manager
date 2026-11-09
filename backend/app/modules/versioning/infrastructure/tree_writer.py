@@ -39,7 +39,7 @@ def write_tree_to_dir(
 
             dest_file = staging_dir / norm_rel
             dest_file.parent.mkdir(parents=True, exist_ok=True)
-            dest_file.write_text(content, encoding="utf-8")
+            dest_file.write_bytes(content.encode("utf-8"))
 
         # 2. Copy mod files if source server directory is accessible
         s_path = Path(server_dir).resolve() if server_dir else None
@@ -70,7 +70,7 @@ def write_tree_to_dir(
                     raise RuntimeError(
                         f"Post-write verify failed: missing expected file {rel_path}"
                     )
-                verified_content = verified_file.read_text(encoding="utf-8")
+                verified_content = verified_file.read_bytes().decode("utf-8")
                 if verified_content != content:
                     raise RuntimeError(
                         f"Post-write verify failed: content mismatch for {rel_path}"

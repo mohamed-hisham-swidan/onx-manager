@@ -482,7 +482,9 @@ class TestStartServerHandler:
         assert result.success is False
         assert result.error_code == "STARTUP_TIMEOUT"
         assert result.details["timeout_seconds"] == 30
-        assert result.details["provider"] == "local"
+        from app.modules.server.domain.value_objects import default_provider_for_platform
+
+        assert result.details["provider"] == default_provider_for_platform()
         loaded = await _get_server("test-start-tout-1")
         assert loaded.status.value == "stopped"
 
@@ -825,7 +827,9 @@ class TestRestartServerHandler:
         assert result.success is False
         assert result.error_code == "STARTUP_TIMEOUT"
         assert result.details["timeout_seconds"] == 30
-        assert result.details["provider"] == "local"
+        from app.modules.server.domain.value_objects import default_provider_for_platform
+
+        assert result.details["provider"] == default_provider_for_platform()
         loaded = await _get_server("test-restart-tout-1")
         assert loaded.status.value == "stopped"
 

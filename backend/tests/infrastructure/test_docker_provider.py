@@ -19,6 +19,7 @@ from app.modules.server.infrastructure.providers.base import (
 )
 from app.modules.server.infrastructure.providers.docker import (
     DockerProvider,
+    normalize_host_path,
     resolve_docker_image,
 )
 
@@ -90,7 +91,7 @@ class TestDockerProviderContract:
         assert result.pid == 4567
         assert result.port == 25565
         assert result.metadata["container_name"] == "onx-paper-srv"
-        assert result.metadata["server_dir"] == str(srv_dir)
+        assert result.metadata["server_dir"] == normalize_host_path(srv_dir)
         mock_ensure.assert_awaited_once_with("eclipse-temurin:21-jre-jammy")
 
         create_args = list([c[0] for c in mock_docker.call_args_list if c[0][0] == "create"][0])

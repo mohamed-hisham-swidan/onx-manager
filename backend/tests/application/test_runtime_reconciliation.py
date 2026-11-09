@@ -153,8 +153,8 @@ class TestReconcileServerRuntime:
                 return_value=_mock_provider(verify_process=True, tmux_pid=999),
             ),
             patch(
-                "app.modules.server.application.runtime_reconciliation.os.kill",
-                side_effect=ProcessLookupError,
+                "app.modules.server.application.runtime_reconciliation.platform_pid_alive",
+                return_value=False,
             ),
             patch(
                 "app.modules.server.application.runtime_reconciliation.RuntimeSupervisor.get_for",

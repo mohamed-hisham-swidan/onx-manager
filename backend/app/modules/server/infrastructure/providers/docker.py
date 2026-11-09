@@ -86,11 +86,14 @@ def normalize_host_path(path: str | Path) -> str:
     1. Windows backslashes ('\\') are converted to forward slashes ('/').
     2. Windows drive letters (e.g. 'C:/...' or 'd:/...') preserve forward slashes.
     3. Relative paths are resolved to absolute paths.
-    4. POSIX paths are resolved to absolute canonical paths.
+    4. POSIX-absolute paths are preserved as POSIX on every platform (never
+       re-anchored to the current Windows drive).
     """
     path_str = str(path).strip()
     if not path_str:
         return ""
+    if path_str.startswith("/"):
+        return posixpath.normpath(path_str)
     if sys.platform == "win32":
         return Path(path_str).resolve().as_posix()
     # On non-Windows platforms (e.g. Linux CI or test suites simulating Windows paths):
@@ -386,6 +389,7 @@ class DockerProvider(ServerProvider):
 
         if server_dir:
             server_dir = normalize_host_path(server_dir)
+            assert_inside_root(server_dir, AppSettings().servers_data_dir)
 
         # Read server.properties if available for port & RCON detection
         props: dict[str, str] = {}
@@ -467,7 +471,6 @@ class DockerProvider(ServerProvider):
 
         # Volume mount & working directory (Decision 3, 7 & 12)
         if server_dir:
-            assert_inside_root(server_dir, AppSettings().servers_data_dir)
             host_mount = resolve_host_mount_path(server_dir)
             create_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
 

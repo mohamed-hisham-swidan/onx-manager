@@ -457,8 +457,9 @@ async def test_promote_uses_atomic_text_writer_for_configs(test_setup) -> None:
     )
 
     assert res.is_success
+    resolved_srv_dir = Path(test_setup["srv_dir"]).resolve()
     expected = {
-        str(test_setup["srv_dir"] / rel_path): content
+        str(resolved_srv_dir / rel_path): content
         for rel_path, content in configs.items()
     }
     calls = {
@@ -533,8 +534,8 @@ async def test_promote_config_write_failure_on_second_file_raises_filesystem_err
     assert res.details.get("rolled_back") is True
 
     assert written == [
-        str(test_setup["srv_dir"] / "server.properties"),
-        str(test_setup["srv_dir"] / "ops.json"),
+        str(Path(test_setup["srv_dir"]).resolve() / "server.properties"),
+        str(Path(test_setup["srv_dir"]).resolve() / "ops.json"),
     ]
 
     test_setup["test_runner"].cleanup_test.assert_not_called()

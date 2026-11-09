@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 from datetime import UTC
 from unittest.mock import AsyncMock, patch
@@ -116,11 +117,13 @@ async def client(tmp_path) -> AsyncClient:
         await engine.dispose()
         database._engine = None
         database._session_factory = None
-        if db_file.exists():
-            db_file.unlink()
+        with contextlib.suppress(PermissionError):
+            if db_file.exists():
+                db_file.unlink()
         for extra in (tmp_path / f"{db_file.name}-wal", tmp_path / f"{db_file.name}-shm"):
-            if extra.exists():
-                extra.unlink()
+            with contextlib.suppress(PermissionError):
+                if extra.exists():
+                    extra.unlink()
         if old_data_dir is not None:
             os.environ["MCS_SERVERS_DATA_DIR"] = old_data_dir
         else:

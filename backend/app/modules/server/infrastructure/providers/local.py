@@ -126,6 +126,7 @@ class LocalLinuxProvider(ServerProvider):
         return found
 
     async def _kill_processes(self, pids: list[int]) -> None:
+        force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
         for pid in pids:
             try:
                 os.kill(pid, signal.SIGTERM)
@@ -134,7 +135,7 @@ class LocalLinuxProvider(ServerProvider):
         await asyncio.sleep(1)
         for pid in pids:
             try:
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, force_signal)
             except ProcessLookupError:
                 continue
 

@@ -435,6 +435,7 @@ class TestDockerWindowsPolicyAndPathNormalization:
                 os.environ,
                 {"MCS_SERVERS_DATA_DIR": str(tmp_path), "ONX_SERVERS_DATA_DIR": str(tmp_path)},
             ),
+            patch.object(provider, "_ensure_image", AsyncMock()),
             pytest.raises(PathContainmentError),
         ):
             await provider.start(
