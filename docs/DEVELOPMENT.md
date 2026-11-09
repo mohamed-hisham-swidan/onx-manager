@@ -78,8 +78,9 @@ state mismatches for tracked servers) and orphan cleanup (kills stale OS resourc
 
 By default, orphan cleanup uses **safe `project_owned` scope** — it will only
 kill processes that can be positively identified as belonging to this project
-(via `MCS_MANAGED=1` env marker or cwd inside `MCS_SERVERS_DATA_DIR`). An
-untracked real Minecraft server will not be touched.
+(via `ONX_MANAGED=1` / legacy `MCS_MANAGED=1` env marker or cwd inside
+`ONX_SERVERS_DATA_DIR` / legacy `MCS_SERVERS_DATA_DIR`). An untracked real
+Minecraft server will not be touched.
 
 To force legacy behavior (kill any `mcs-*` session or Minecraft PID not in DB):
 
@@ -121,32 +122,34 @@ Configuration via environment variables:
 |---|---|---|
 | `ONX_BACKEND_PORT` | `8000` (or `.onx/config.json`) | Preferred backend port (highest priority env override; range `1024..65535`) |
 | `MCS_BACKEND_PORT` | `8000` (or `.onx/config.json`) | Legacy backend port override (checked after `ONX_BACKEND_PORT`) |
-| `MCS_FRONTEND_PORT` | `5173` | Frontend port to check |
-| `MCS_PROJECT_ROOT` | auto-detected | Root dir for ownership checks |
+| `ONX_FRONTEND_PORT` | `5173` | Frontend port to check (primary override) |
+| `MCS_FRONTEND_PORT` | `5173` | Legacy frontend port override (checked after `ONX_FRONTEND_PORT`) |
+| `ONX_PROJECT_ROOT` | auto-detected | Root dir for ownership checks (primary override) |
+| `MCS_PROJECT_ROOT` | auto-detected | Legacy project root override (checked after `ONX_PROJECT_ROOT`) |
 
 > **Dynamic Backend Port Behavior & Persistence:**
-> - Preferred port precedence: `ONX_BACKEND_PORT` > `MCS_BACKEND_PORT` > `.onx/config.json` `configured_backend_port` > `8000`. Invalid or out-of-range (`1024..65535`) values log a warning and fall through to the next source.
+> - Preferred port precedence: `ONX_BACKEND_PORT` > `MCS_BACKEND_PORT` > `.onx/config.json` `backend_port` > `8000`. Invalid or out-of-range (`1024..65535`) values log a warning and fall through to the next source.
 > - Runtime active port is stored in `.onx/backend.port` (valid port range `1..65535`) upon successful health check; removed on stop or clean exit.
-> - `ConfigManager.save()` persists only `configured_backend_port` to `.onx/config.json`. Environment variable overrides are never written to config files.
+> - `ConfigManager.save()` persists the configured backend port under the key `backend_port` in `.onx/config.json`. Environment variable overrides are never written to config files.
 
 ## Available Scripts
 
-All scripts are in `scripts/` (symlinked from project root):
+All scripts are in `scripts/`:
 
 | Script | Command | Purpose |
 |---|---|---|
 | `scripts/bootstrap` | — | Install deps, create venv, run migrations |
-| `scripts/lint` | `ruff check .` | Python linting |
+| `scripts/lint` | `python3 scripts/check-ruff-baseline` | Python linting against ruff baseline |
 | `scripts/format` | `ruff format .` | Python code formatting |
 | `scripts/typecheck` | `pyright` | Python type checking |
 | `scripts/test` | `pytest` | Run Python test suite |
 | `scripts/build` | `docker build` + `npm run build` | Build production images |
-| `scripts/release` | `./scripts/release <version>` | Tag, build, push Docker image |
+| `scripts/release` | `./scripts/release <version>` | Tag, build, and push Docker image (push only when `IMAGE_REPO` set) |
 | `scripts/check` | lint + typecheck + test | Full pre-PR gate |
 
 ### Script Conventions
 
-- Every script runs from the project root (`cd "$(dirname "$0")/.."`)
+- Every script manages its own working directory (root or `backend/` as needed; e.g. `cd "$(dirname "$0")/.."` or `cd "$(dirname "$0")/../backend"`)
 - All are executable (`chmod +x`)
 - Follow `set -euo pipefail`
 - Standardized across all development tasks — never use ad-hoc commands
@@ -189,7 +192,7 @@ See [Database docs](architecture/DATABASE.md) for full schema reference.
 
 ```bash
 cd backend
-python -m pytest tests/ -q          # All tests (3,510 collected: 3,504 passed, 6 skipped)
+python -m pytest tests/ -q          # All tests (3,642 collected: 3,636 passed, 6 skipped, 249 test files; verified 2026-11-09 sequential run)
 python -m pytest tests/ -x -q       # Stop on first failure
 ```
 
@@ -225,7 +228,7 @@ cd frontend && npm test            # All frontend tests
 cd frontend && npm run test:watch  # Watch mode
 ```
 
-1,113 frontend tests across 125 files (measured 2026-11-07). Vitest with jsdom environment.
+1,178 frontend tests across 130 test files (verified 2026-11-09). Vitest with jsdom environment.
 
 ## Docker Development
 
@@ -236,7 +239,7 @@ docker compose build         # Rebuild images after dependency changes
 
 Both backend (uvicorn on :8000) and frontend (nginx on :80) are defined in
 `docker-compose.yml` at the repository root. Backend health checks are
-configured with a 30s interval and 5s timeout.
+configured with a 30s interval and 10s timeout.
 
 ## Verification & CI Quality Gates
 

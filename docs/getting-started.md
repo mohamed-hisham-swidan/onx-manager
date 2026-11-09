@@ -38,7 +38,7 @@ If you prefer to start components individually:
 python3 -m venv backend/.venv
 source backend/.venv/bin/activate
 pip install -r backend/requirements.txt
-alembic -c backend/alembic.ini upgrade head
+cd backend && alembic upgrade head && cd ..
 python -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Docker** ≥ 24.0 (with Compose plugin v2 or standalone `docker-compose`)
+- **Docker** ≥ 24.0 (with Compose plugin ≥ v2.24 supporting long `env_file` syntax)
 - **Git** (to clone the repo)
 
 Verify:
@@ -21,7 +21,7 @@ cd onx-manager
 
 # 2. Set up environment
 cp .env.example .env
-# Edit .env — at minimum change ONX_SECRET_KEY to a long random string
+# Edit .env to customize ports, database URL, or keys if desired
 
 # 3. Build and start
 docker compose up -d
@@ -36,23 +36,24 @@ curl http://localhost:80/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ONX_DATABASE_URL` (or `MCS_DATABASE_URL`) | `sqlite+aiosqlite:///data/onx.db` | Database connection string |
-| `ONX_SECRET_KEY` (or `MCS_SECRET_KEY`) | `change-me…` | App secret key (change in production!) |
+| `ONX_DATABASE_URL` (or `MCS_DATABASE_URL`) | `sqlite+aiosqlite:////app/data/onx.db` | Database connection string inside container |
 | `ONX_DEBUG` | `false` | Enable debug mode |
 | `ONX_LOG_LEVEL` | `INFO` | Logging level |
 | `ONX_FORCE_ASCII` | `0` | Set `1` to force ASCII console output |
-| `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) | *(auto-generated)* | PEM-encoded RSA private key for JWT signing. If omitted, a key is generated on first start and persisted to `config/jwt_private_key.pem` inside the container — all JWTs are invalidated if the container is recreated without preserving this file. |
+| `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) | *(auto-generated)* | PEM-encoded RSA private key for JWT signing. If omitted, a key is generated on first start and persisted to `/app/config/jwt_private_key.pem` inside the container (`onx-config` volume). |
+| `ONX_JWT_PRIVATE_KEY_PATH` (or `MCS_JWT_PRIVATE_KEY_PATH`) | No | Path to a PEM file to load instead of the env/auto-generated key |
 
 ## Persistent data
 
-Docker Compose creates two named volumes:
+Docker Compose creates three named volumes:
 
 | Volume | Mount point | Contents |
 |--------|-------------|----------|
 | `onx-db-data` | `/app/data/` | SQLite database (`onx.db`) |
 | `onx-server-data` | `/app/data/servers/` | Minecraft server files (worlds, JARs, plugins) |
+| `onx-config` | `/app/config/` | JWT signing key, backup encryption key, `settings.yaml` |
 
-Data survives container restarts and upgrades. To wipe everything (including the database):
+Data survives container restarts and upgrades. To wipe everything (including the database and persistent keys):
 
 ```bash
 docker compose down -v
@@ -151,7 +152,7 @@ in its container command and will not start against an incompatible schema
 ## Database migrations & compatibility floor
 
 **ONX Manager 0.1.0 requires DB compatibility with Alembic revision
-`b1e2100000022`.** The version-conditional floor is declared once in
+`b1e2100000023`.** The version-conditional floor is declared once in
 `backend/app/core/persistence/db_revision.py`
 (`RELEASE_MINIMUM_DB_REVISION`); it is **never auto-applied** and **never read
 from the DB URL config**.
@@ -166,7 +167,7 @@ alembic upgrade head
 
 # 2. Verify the database reached the required revision
 alembic current
-#   → should show b1e2100000022 (or a compatible descendant for later releases)
+#   → should show b1e2100000023 (or a compatible descendant for later releases)
 
 # 3. Start the application
 uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -177,7 +178,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
   performs **no** automatic migration.
 - **Startup fails closed.** On start the backend reads `alembic_version` from the
   live database and aborts if the revision is missing, unknown, **behind
-  `b1e2100000022`**, or on an incompatible branch. The error names the current
+  `b1e2100000023`**, or on an incompatible branch. The error names the current
   revision, the required minimum, and the fix (`alembic upgrade head`) — without
   exposing the database URL or credentials.
 - A fresh database migrated with `alembic upgrade head` starts normally; a
@@ -187,10 +188,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## Production considerations
 
-1. **Change `ONX_SECRET_KEY` (or `MCS_SECRET_KEY`)** in `.env` to a long (≥32 chars) random string.
-2. **Provide a JWT private key** — either set `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) in `.env`, or mount a PEM file and set `ONX_JWT_PRIVATE_KEY_PATH` (or `MCS_JWT_PRIVATE_KEY_PATH`). Without this, JWTs are invalidated on every container restart.
-3. **Back up the volumes** regularly — especially `onx-db-data` and `onx-server-data`.
-4. **Resource limits** — Minecraft servers can use significant RAM. Consider adding `deploy.resources.limits` in `docker-compose.yml` if running on constrained hardware.
+1. **Provide a persistent JWT private key** — set `ONX_JWT_PRIVATE_KEY` (or `MCS_JWT_PRIVATE_KEY`) in `.env`, or mount a PEM file and set `ONX_JWT_PRIVATE_KEY_PATH` (or `MCS_JWT_PRIVATE_KEY_PATH`). Alternatively, ensure the `onx-config` volume is preserved across deployments so auto-generated keys in `/app/config/` remain intact. JWTs are only invalidated if the `onx-config` volume is removed or recreated.
+2. **Back up the volumes** regularly — especially `onx-db-data`, `onx-server-data`, and `onx-config`.
+3. **Resource limits** — Minecraft servers can use significant RAM. Consider adding `deploy.resources.limits` in `docker-compose.yml` if running on constrained hardware.
 
 ## Local dev (non-Docker) alternative
 
@@ -243,11 +243,11 @@ daemon resolves volume paths against the host's filesystem, not internal contain
 
 To ensure sibling containers mount server files correctly:
 1. `docker-compose.dood.yml` replaces the named volume with a host bind mount:
-   `${ONX_HOST_DATA_DIR:-./data/servers}:/app/data/servers`
+   `${ONX_HOST_DATA_DIR:-./backend/data/servers}:/app/data/servers`
 2. Set the `ONX_HOST_DATA_DIR` environment variable to the absolute host directory where
    servers are stored:
    ```bash
-   export ONX_HOST_DATA_DIR=$(pwd)/data/servers
+   export ONX_HOST_DATA_DIR=$(pwd)/backend/data/servers
    ```
 3. `DockerProvider` translates internal `/app/data/servers/{server_id}` paths to
    `${ONX_HOST_DATA_DIR}/{server_id}` when issuing `docker run -v` commands to the host daemon.

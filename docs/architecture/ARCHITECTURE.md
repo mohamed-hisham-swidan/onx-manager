@@ -48,15 +48,22 @@ backend/app/
 │   ├── command_bus.py         # CQRS command bus
 │   ├── query_bus.py           # CQRS query bus
 │   ├── event_bus.py           # Async event bus with retry + DLQ
-│   ├── persistence/           # Database engine, Base ORM, UoW, reconciler
+│   ├── persistence/           # Database engine, Base ORM, UoW, reconciler, db_revision
 │   ├── saga.py                # Saga orchestrator
 │   ├── circuit_breaker.py     # Circuit breaker pattern
 │   ├── idempotency.py         # Idempotency keys
 │   ├── feature_flags.py       # Feature flag system
 │   ├── config.py              # Configuration (AppSettings)
-│   ├── exceptions.py          # MCSError hierarchy
+│   ├── settings_store.py      # Runtime dynamic settings store
+│   ├── identity.py            # Platform branding & path identity constants
+│   ├── timeutil.py            # UTC ISO-8601 time normalization
+│   ├── version.py             # Single-source app version
+│   ├── process_utils.py       # Cross-platform process inspection
+│   ├── security.py            # Hashing, token validation
+│   ├── security_files.py      # Secret file permission guards
+│   ├── exceptions.py          # MCSError / ONXError hierarchy
 │   └── logging.py             # Structured logging
-├── modules/                   # 13 DDD modules
+├── modules/                   # 13 DDD modules (10 full DDD + 3 flat support modules)
 │   ├── server/                # Minecraft server domain & lifecycle
 │   ├── versioning/            # Git-inspired branching, snapshotting, tags, materialization
 │   ├── operations/            # Multi-step asynchronous operations & recovery
@@ -66,9 +73,9 @@ backend/app/
 │   ├── health/                # Health monitoring & diagnostics
 │   ├── plugin/                # Plugin system domain
 │   ├── monitoring/            # Health & metrics domain
-│   ├── event_store/           # Event store module
-│   ├── shared/                # Shared value objects (IDs, permissions, versions)
-│   ├── storage/               # File storage backends (S3/local)
+│   ├── event_store/           # Event store module (flat support module)
+│   ├── shared/                # Shared value objects (flat support module)
+│   ├── storage/               # File storage backends (flat support module)
 │   └── exposure/              # Playit.gg network tunneling domain
 ├── services/                  # Cross-module orchestration
 ├── tasks/                     # Task queue + scheduling
@@ -95,6 +102,8 @@ core/ ────────────────────────�
 
 ### Each DDD Module
 
+Standard DDD modules (`server`, `versioning`, `operations`, `activity`, `backup`, `auth`, `health`, `plugin`, `monitoring`, `exposure`) follow hexagonal boundaries:
+
 ```
 module/
 ├── domain/              # Core business logic
@@ -108,6 +117,8 @@ module/
     ├── models.py        # SQLAlchemy ORM models
     └── repository.py    # SQL repository implementations
 ```
+
+*Note:* `event_store`, `shared`, and `storage` are flat support modules without layered subdirectories.
 
 ---
 
@@ -179,11 +190,11 @@ Both must be set together when running test/development backends. Because `setsi
 | Language | Python 3.12 (installer-pinned; `requires-python = ">=3.12"`; CI runs 3.12) |
 | Framework | FastAPI |
 | ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic (42 revisions, head `b1e2100000022`) |
+| Migrations | Alembic (43 revisions, head `b1e2100000023`) |
 | Version source | `backend/pyproject.toml` → `backend/app/core/version.py:get_app_version()` (runtime, OpenAPI, settings, health) |
 | Validation | Pydantic v2 |
 | Logging | structlog |
-| Message Queue | InProcessQueue (only implementation in use; Arq/Redis exists as unused code) |
+| Message Queue | InProcessQueue (in-process async queue; no Redis/Arq dependency) |
 | Event Bus | In-process async bus + dead letter queue |
 | WebSocket | FastAPI WebSocket + custom connection manager |
 
@@ -260,7 +271,7 @@ without a matching directory is stale.
 The service implements a 6-stage pipeline with strict separation:
 
 1. **FilesystemScanner** — list directories only
-2. **IdentityReader** — read/validate `.mcsmanager/server.json` per dir
+2. **IdentityReader** — read/validate `.onx-manager/server.json` per dir (with `.mcsmanager/server.json` legacy fallback)
 3. **MinecraftDetector** — reuse `scan_server_directory()` with `ScanCategory`
    (MINECRAFT_VALID / MINECRAFT_BROKEN / NOT_MINECRAFT / SCAN_FAILED)
 4. **ReconciliationPlanner** — pure logic, builds Plan, no I/O
@@ -310,7 +321,7 @@ Scheduler                 ← instantiated, given queue, started
 - No cron jobs fire (including `metrics_collect_every_0.5s` and
   `integrity_scan_hourly`)
 - `run_metrics_collection_task` is never called → no rows in `metric_points`
-- The Prometheus metrics registry (`/monitor/metrics`) never updates
+- The Prometheus metrics registry (`/metrics`) never updates
 - There is no second-chance wiring — if `lifespan()` doesn't do it, nothing
   does.
 
@@ -443,7 +454,7 @@ Test isolation: sandbox database + sandbox server directory, set via `MCS_DATABA
 
 - **Backend CI** (`.github/workflows/backend-tests.yml`): full `pytest`, DB
   compatibility-floor check (`scripts/check-db-revision`, minimum
-  `b1e2100000022`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
+  `b1e2100000023`), PowerShell BOM check (`scripts/check-ps1-bom`), stray DB check
   (`scripts/check-stray-db`), and Ruff baseline regression gate
   (`scripts/check-ruff-baseline`).
 - **Version propagation CI** (`.github/workflows/backend-version-ci.yml`):
@@ -458,7 +469,7 @@ Pyright is **advisory / local only** — not a CI gate.
 
 ### DB compatibility floor
 
-`0.1.0` pins minimum Alembic revision `b1e2100000022`
+`0.1.0` pins minimum Alembic revision `b1e2100000023`
 (`backend/app/core/persistence/db_revision.py`, `RELEASE_MINIMUM_DB_REVISION`).
 Startup fails closed if the live DB is below the floor; the application never
 auto-runs migrations (see `docs/VERSIONING.md` §4.3).

@@ -6,10 +6,10 @@
 
 > Cross-references: [Architecture](architecture/ARCHITECTURE.md), [Security](architecture/SECURITY.md), [Frontend](architecture/FRONTEND.md)
 >
-> This document is generated from the router code (`backend/app/api/v1/routers/`).
-> Every endpoint below was verified directly against its router function (the
-> 18 routers: `activity, auth, backups, exposure, files, health, invites, marketplace,
-> monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning`).
+> This document is maintained against the router code (`backend/app/api/v1/routers/`).
+> Verified and reconciled as of 2026-11-09 across the 18 routers:
+> `activity, auth, backups, exposure, files, health, invites, marketplace,
+> monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning`.
 
 ---
 
@@ -85,7 +85,8 @@ See [Users](#users) and [Setup & access mode](#setup--access-mode).
 
 Every other route requires a valid Bearer token.
 
-### Authorization model (verified 2026-08-19)
+<a id="authorization-model"></a>
+### Authorization model (verified 2026-08-19, reconciled 2026-11-09)
 
 Authorization is enforced at the route dependency layer in two forms:
 
@@ -106,7 +107,7 @@ Authorization is enforced at the route dependency layer in two forms:
 > The pre-Phase-4 state described in older revisions of this document — most
 > routes auth-only, Files API reads/downloads with an open **IDOR gap**, plugin
 > enable/disable ungated — is **resolved**. All 7 Files routes are gated on
-> `server.{id}.files` (download additionally allows `server.{id}.view`), plugin
+> `server.{id}.files` (download strictly requires `server.{id}.files`), plugin
 > enable/disable gate on `plugin:manage`, settings/schedules/alerts/health
 > routes gate on their permissions, and the runtime diagnostics routes gate on
 > `server.{id}.view` / `server:read`. The complete route→permission matrix is
@@ -169,7 +170,7 @@ following shape:
 Middleware-level responses are abbreviated and omit `timestamp`:
 
 - `401` (middleware): `{"error": "...", "error_code": "AUTHENTICATION_ERROR"}`
-- `415`: `{"error": "Content-Type must be application/json", "error_code": "VALIDATION_ERROR"}`
+- `415`: `{"error": "Content-Type must be application/json or multipart/form-data", "error_code": "VALIDATION_ERROR"}`
 - `429` (middleware): `{"error": "Rate limit exceeded", "error_code": "RATE_LIMIT_EXCEEDED", "detail": {"retry_after": 60}}` + `Retry-After` header
 
 Pydantic request-validation failures return FastAPI's default `422` shape
@@ -192,7 +193,7 @@ Pydantic request-validation failures return FastAPI's default `422` shape
 The `PERMISSION_DENIED` entry above is wired to a handler in
 `backend/app/api/errors.py` and is produced by the `require_permission`,
 `require_server_permission`, and `require_owner` dependencies on the enforced
-routes described in the [authorization model](#authorization-model-verified-2026-08-12)
+routes described in the [authorization model](#authorization-model)
 under Authentication.
 
 Domain error codes produced by command handlers (e.g. `SERVER_NOT_RUNNING`,
@@ -300,7 +301,9 @@ specific server enforce server-scoped RBAC via `require_server_permission(...)`
 | `POST` | `/api/v1/servers/{server_id}/start` | `server.{id}.power` | — | — | `200 dict` | Start the server |
 | `POST` | `/api/v1/servers/{server_id}/stop` | `server.{id}.power` | `ServerActionRequest` | — | `200 dict` | Stop; body `reason` (default `""`) |
 | `POST` | `/api/v1/servers/{server_id}/restart` | `server.{id}.power` | — | — | `200 dict` | Restart |
+| `POST` | `/api/v1/servers/{server_id}/retry-provisioning` | `server.{id}.write` | — | — | `200 dict` | Retry failed server provisioning |
 | `GET` | `/api/v1/servers/{server_id}/console` | `server.{id}.view` | — | `tail` (default `100`, 1–10000) | `200 ConsoleResponse` | Recent console lines |
+| `GET` | `/api/v1/servers/{server_id}/crash-reports` | `server.{id}.view` | — | `limit` (default `5`, 1–50) | `200 list[CrashReportSummaryResponse]` | Parsed server crash reports with blamed mod/stack snippet |
 | `POST` | `/api/v1/servers/{server_id}/command` | `server.{id}.console` | `CommandRequest` | — | `200 dict` | Sends a console command (`SERVER_NOT_RUNNING` if not running) |
 | `GET` | `/api/v1/servers/{server_id}/runtime` | `server.{id}.view` | — | — | `200 RuntimeDiagnosticsResponse` | Live runtime diagnostics |
 | `GET` | `/api/v1/servers/runtime/ownership` | `server:read` (global) | — | — | `200 RuntimeOwnershipResponse` | Orphan/conflict snapshot (host-wide PID/tmux data) |
@@ -342,21 +345,23 @@ specific server enforce server-scoped RBAC via `require_server_permission(...)`
 | `group_id` | string | `"default"` | |
 | `install_dir` | string | `null` | |
 
-`ServerUpdateRequest`: `properties` (dict, default `{}`), `min_memory_mb`
-(int\|null), `max_memory_mb` (int\|null).
+`ServerUpdateRequest`: `name` (string|null), `properties` (dict, default `{}`), `min_memory_mb`
+(int|null), `max_memory_mb` (int|null), `cpu_cores` (int|null), `cpu_affinity` (string|null),
+`java_args` (list[string]|null), `startup_timeout_seconds` (int|null, 30–1800).
 
 `ServerActionRequest`: `reason` (string, default `""`).
 
 `CommandRequest`: `command` (string, required, min 1).
 
 `ReconcileRequest`: `scope` (string, default `"project_owned"`, one of
-`project_owned`\|`system_wide`). `project_owned` only kills processes verified
+`project_owned`|`system_wide`). `project_owned` only kills processes verified
 owned; `system_wide` is the legacy heuristic behavior.
 
-`ScanDirectoryRequest`: `path` (string, required, 1–4096 chars).
+`ScanDirectoryRequest`: `import_id` (string, required, 16 hex chars matching staging import directory).
 
-`ImportServerRequest`: same field set as `ServerCreateRequest` plus
-`source_path` (required, 1–4096 chars).
+`ImportServerRequest`: `import_id` (string, required, 16 hex chars), `name` (string, required, 1–128 chars),
+`server_type` (string, default `"vanilla"`), `minecraft_version` (string, default `"latest"`),
+plus optional configuration overrides matching `ServerCreateRequest`.
 
 ### Response schemas
 
@@ -375,16 +380,22 @@ owned; `system_wide` is the legacy heuristic behavior.
   "gamemode": "survival",
   "difficulty": "easy",
   "created_at": "2026-08-01T12:00:00",
-  "updated_at": "2026-08-01T12:00:00"
+  "updated_at": "2026-08-01T12:00:00",
+  "provisioning_error": null,
+  "provisioning_retryable": false,
+  "startup_timeout_seconds": null
 }
 ```
 
 `ServerDetailResponse` = `ServerResponse` + `min_memory_mb`, `max_memory_mb`,
-`java_args` (string), `spawn_protection`, `pvp`, `enable_command_block`,
+`java_args` (string), `cpu_cores`, `cpu_affinity`, `raw_properties` (dict), `spawn_protection`, `pvp`, `enable_command_block`,
 `online_mode`, `whitelist`, `view_distance`, `simulation_distance`, and the
 nullable deployment fields `provider`, `deployment_host`, `deployment_port`,
 `deployment_pid`, `location_type`, `location_uri`, `root_path`,
 `working_directory`, `startup_jar`, `startup_command`, `primary_world`.
+
+`CrashReportSummaryResponse`: `filename`, `timestamp`, `failure_code`, `blamed_mod`,
+`stack_trace_snippet`, `suggested_remediation`, `raw_content`.
 
 `ConsoleResponse`: `{"server_id": "uuid", "lines": ["...", "..."]}`.
 
@@ -457,21 +468,24 @@ Prefix `/api/v1/servers/{server_id}/plugins`. All routes require a Bearer token.
 
 | Method | Path | Auth | Request body | Response | Notes |
 |---|---|---|---|---|---|
-| `GET` | `/api/v1/servers/{server_id}/plugins` | Bearer | — | `200 list[PluginResponse]` | **Triggers filesystem reconciliation first** — on-disk `.jar` files become `detected` rows, deleted files are pruned (auth-only) |
-| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/search` | `plugin:manage` | — | `200 PluginSearchResultsResponse` | Modrinth catalog search (`query`, `limit`, `offset` query params) — paginated envelope `{items, total_hits, offset, limit}` (Batch 1, SPEC-PLUGIN-PAGINATION-V3) |
-| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions` | `plugin:manage` | `limit`, `offset` | `200 PluginVersionsResponse` | Versions + best-version selection for the server (with `selected`, `notice`, `notice_kind`); optional `limit`/`offset` slicing, `total` = full count (Batch 1, SPEC-PLUGIN-PAGINATION-V3) |
-| `POST` | `/api/v1/servers/{server_id}/plugins/marketplace/install` | `plugin:manage` | `InstallModrinthPluginRequest` | `201 InstallModrinthPluginResponse` | Downloads the `.jar` (SHA-1/SHA-512 verified) into the server's `plugins/` folder |
-| `GET` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | Bearer | — | `200 PluginResponse` | Auth-only |
-| `DELETE` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | `plugin:manage` | — | `204` | Uninstall — sets `pending_deletion`; file removed on next server start/restart |
-| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/enable` | `plugin:manage` | — | `200 dict` | K4 resolved in Phase 4 (`a47daa8`) — now gated |
-| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/disable` | `plugin:manage` | — | `200 dict` | K4 resolved in Phase 4 (`a47daa8`) — now gated |
+| `GET` | `/api/v1/servers/{server_id}/plugins` | `server.{id}.plugins` or `server.{id}.view` | — | `200 list[PluginResponse]` | **Triggers filesystem reconciliation first** — on-disk `.jar` files become `detected` rows, deleted files are pruned |
+| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/search` | `plugin:manage` + `server.{id}.plugins`/`view` | — | `200 PluginSearchResultsResponse` | Modrinth catalog search (`query`, `limit`, `offset`, `loader` query params) — paginated envelope `{items, total_hits, offset, limit}` (Batch 1, SPEC-PLUGIN-PAGINATION-V3) |
+| `GET` | `/api/v1/servers/{server_id}/plugins/marketplace/projects/{project_id}/versions` | `plugin:manage` + `server.{id}.plugins`/`view` | `limit`, `offset` | `200 PluginVersionsResponse` | Versions + best-version selection for the server (with `selected`, `notice`, `notice_kind`); optional `limit`/`offset` slicing, `total` = full count (Batch 1, SPEC-PLUGIN-PAGINATION-V3) |
+| `POST` | `/api/v1/servers/{server_id}/plugins/marketplace/install` | `plugin:manage` + `server.{id}.plugins` | `InstallModrinthPluginRequest` | `201 InstallModrinthPluginResponse` | Downloads the `.jar` (SHA-1/SHA-512 verified) into the server's `plugins/` folder |
+| `GET` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | `server.{id}.plugins` or `server.{id}.view` | — | `200 PluginResponse` | Read single plugin details |
+| `DELETE` | `/api/v1/servers/{server_id}/plugins/{plugin_id}` | `plugin:manage` + `server.{id}.plugins` | — | `204` | Uninstall — sets `pending_deletion`; file removed on next server start/restart |
+| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/enable` | `plugin:manage` + `server.{id}.plugins` | — | `200 dict` | Enable plugin |
+| `POST` | `/api/v1/servers/{server_id}/plugins/{plugin_id}/disable` | `plugin:manage` + `server.{id}.plugins` | — | `200 dict` | Disable plugin |
+| `POST` | `/api/v1/servers/{server_id}/plugins/upload` | `plugin:manage` + `server.{id}.plugins` | `multipart/form-data` (`file`) | `201 dict` | Upload local `.jar` plugin/mod directly into server addon directory |
+| `POST` | `/api/v1/servers/{server_id}/plugins/toggle` | `plugin:manage` + `server.{id}.plugins` | `ToggleModStateRequest` | `200 dict` | Toggle plugin/mod enabled status |
 
-> **Note:** plugin lifecycle and marketplace routes (enable/disable/uninstall/
-> marketplace) gate on `plugin:manage` (K4 resolved in Phase 4, commit
-> `a47daa8`). The list/get routes remain **auth-only** (`get_current_user`).
+> **Note:** plugin mutation and marketplace routes require `plugin:manage` combined with
+> `server.{id}.plugins`. List and read routes require `server.{id}.plugins` or `server.{id}.view`.
 > See `docs/architecture/plugins-and-marketplace.md`.
 
 ### Schemas
+
+`ToggleModStateRequest`: `mod_id` (string|null), `plugin_id` (string|null), `enabled` (bool).
 
 `InstallModrinthPluginRequest`: `server_id`, `project_id` (required),
 `version_id` (optional), `minecraft_version` (optional).
@@ -520,7 +534,7 @@ All routes require a Bearer token and gate on `plugin:manage`.
 
 | Method | Path | Auth | Request body | Response | Notes |
 |---|---|---|---|---|---|
-| `GET` | `/api/v1/marketplace/search` | `plugin:manage` | — | `200 PluginSearchResultsResponse` | Modrinth catalog search (`query`, `limit`, `offset`, `project_type` query params). Paginated envelope `{items, total_hits, offset, limit}` (Batch 1, SPEC-PLUGIN-PAGINATION-V3). Global search distinct from the server-scoped one (K5, `useMarketplaceSearchGlobal`). |
+| `GET` | `/api/v1/marketplace/search` | `plugin:manage` | — | `200 PluginSearchResultsResponse` | Modrinth catalog search (`query`, `limit`, `offset`, `project_type`, `loader` query params). Paginated envelope `{items, total_hits, offset, limit}` (Batch 1, SPEC-PLUGIN-PAGINATION-V3). Global search distinct from the server-scoped one (K5, `useMarketplaceSearchGlobal`). |
 | `GET` | `/api/v1/marketplace/projects/{project_id}` | `plugin:manage` | — | `200 PluginProjectResponse` | Full project detail (`description`, `body` Markdown, `game_versions`, `loaders`, `client_side`, `server_side`, nullable `wiki_url`/`source_url`). Null-`wiki_url`/`source_url` no longer 500s (SPEC-PLUGIN-DETAIL-TABS-001). |
 | `GET` | `/api/v1/marketplace/projects/{project_id}/versions` | `plugin:manage` | `limit`, `offset` | `200 PluginVersionsResponse` | All versions for a project, raw and unsorted, **`selected` always `null`** (no server context, D1/D6). Accepts optional `limit` (default 20, max 50) / `offset` (default 0); `total` = full version count (Decision 6 fetch-all-then-slice). Recommended is computed client-side from the last-used server. Batch 1, SPEC-PLUGIN-PAGINATION-V3. |
 
@@ -642,27 +656,33 @@ routes enforce server-scoped RBAC via `require_server_permission(...)`.
 | Method | Path | Auth | Request body | Query params | Response | Notes |
 |---|---|---|---|---|---|---|
 | `GET` | `/api/v1/monitoring/metrics` | `server.{id}.view` | — | `server_id` (required), `limit` (default `100`, 1–10000) | `200 list[dict]` | Metric points: `tps`, `players`, `ram_used_mb`, `cpu_percent`, `timestamp` |
-| `POST` | `/api/v1/monitoring/alerts/{server_id}` | `server.{id}.settings` | `CreateAlertRuleRequest` | — | `201 dict` | Create an alert rule — `server_id` **path-based** (refactored to eliminate IDOR / parameter-pollution) |
-| `GET` | `/api/v1/monitoring/alerts` | Bearer | — | — | `200 list[dict]` | **Stub** — always returns `[]` |
-| `DELETE` | `/api/v1/monitoring/alerts/{alert_rule_id}` | `global.settings` | — | — | `204` | **Stub** — no-op |
+| `POST` | `/api/v1/monitoring/alerts/{server_id}` | `server.{id}.settings` | `CreateAlertRuleRequest` | — | `201 dict` | Create an alert rule — `server_id` path-based |
+| `GET` | `/api/v1/monitoring/alerts` | Bearer | — | `server_id` (optional) | `200 list[dict]` | DB-backed alert rules (`SQLAlertRuleRepository`) |
+| `DELETE` | `/api/v1/monitoring/alerts/{alert_rule_id}` | `global.settings` | — | — | `204` | Deletes stored alert rule |
 
-`CreateAlertRuleRequest` (defined inline in the router, not in `schemas/`):
-`server_id` (string, required), `metric_name` (string, required),
-`condition` (`"gt"` default), `threshold` (float, required), `severity`
-(`"warning"` default), `cooldown_minutes` (int, default `15`, ≥ 1).
+`CreateAlertRuleRequest` (defined inline in the router):
+`metric_name` (string, required), `condition` (`"gt"` default),
+`threshold` (float, required), `severity` (`"warning"` default),
+`cooldown_minutes` (int, default `15`, ≥ 1). Note: `server_id` is supplied in the URL path.
 
 ---
 
 ## Schedules
 
 Prefix `/api/v1/schedules`. Requires a Bearer token; mutating routes gate on
-`global.settings`. All three are **stubs** (see `docs/current-state.md` §4.5).
+`global.settings`. Schedules are persisted in the database via `CronJobModel` and
+registered with APScheduler.
 
-| Method | Path | Auth | Response | Notes |
-|---|---|---|---|---|
-| `GET` | `/api/v1/schedules` | Bearer | `200 list` | **Stub** — always returns `[]` |
-| `POST` | `/api/v1/schedules` | `global.settings` | `201 dict` | **Stub** — returns `{"success": true, "schedule_id": "stub-schedule-id"}` |
-| `DELETE` | `/api/v1/schedules/{schedule_id}` | `global.settings` | `204` | **Stub** — no-op |
+| Method | Path | Auth | Request body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/v1/schedules` | Bearer | — | `200 list[dict]` | List scheduled tasks (`id`, `name`, `cron_expression`, `task_name`, `params`, `enabled`, `last_run_at`, `created_at`) |
+| `POST` | `/api/v1/schedules` | `global.settings` | `CreateScheduleRequest` | `201 dict` | Creates a schedule and registers it with the running APScheduler |
+| `DELETE` | `/api/v1/schedules/{schedule_id}` | `global.settings` | — | `204` | Deletes schedule from DB and cancels running job in APScheduler |
+
+### Schemas
+
+`CreateScheduleRequest`: `name` (string|null), `cron_expression` (string, default `"0 0 * * *"`),
+`task_name` (string, default `"backup"`), `params` (dict, default `{}`), `enabled` (bool, default `true`).
 
 ---
 
@@ -673,7 +693,7 @@ Prefix `/api/v1/settings`. All routes require a Bearer token.
 | Method | Path | Auth | Response | Notes |
 |---|---|---|---|---|
 | `GET` | `/api/v1/settings` | `settings:read` | `200 dict` | Current live settings and `requires_restart` field list |
-| `PATCH` | `/api/v1/settings` | `settings:write` | `200 dict` | Persists updates to `config/settings.yaml`, updates live in-memory store, and hot-reloads running consumers |
+| `PATCH` | `/api/v1/settings` | `settings:write` | `200 dict` | Persists updates to `config/settings.yaml`, updates live in-memory store, hot-reloads metrics batcher/scheduler, and returns `{success, message, requires_restart, settings}` |
 
 `GET /api/v1/settings` returns:
 ```json
@@ -688,7 +708,11 @@ Prefix `/api/v1/settings`. All routes require a Bearer token.
   "circuit_breaker_timeout_seconds": 30,
   "event_bus_retry_attempts": 3,
   "saga_timeout_seconds": 300,
-  "requires_restart": ["app_name", "debug", "log_level"]
+  "panel_bind_host": "127.0.0.1",
+  "metrics_interval_seconds": 5,
+  "server_startup_timeout_seconds": 120,
+  "test_boot_timeout_seconds": 60,
+  "requires_restart": ["app_name", "debug", "log_level", "panel_bind_host"]
 }
 ```
 
@@ -708,10 +732,9 @@ Prefix `/api/v1/software`. All routes require a Bearer token.
 ## Files
 
 Prefix `/api/v1/servers/{server_id}/files`. All routes require a Bearer token
-**and** server-scoped authorization via `require_server_permission(...)`
-(owner, a member with the required role, or a global claim). A member with
-the `viewer` server role can download files (`server.{id}.view`) but cannot
-list/read/write/delete/upload/mkdir (those need `server.{id}.files`).
+**and** server-scoped authorization via `require_server_permission("server.{id}.files")`
+(owner, a member with the required role, or a global claim). All operations including
+download require `server.{id}.files`.
 
 > **Sensitive-file guard:** Secret configuration files (e.g. `.env`) are denied
 > access via `SENSITIVE_FILENAMES` / `_assert_not_sensitive` in `backend/app/api/v1/routers/files.py`.
@@ -725,7 +748,7 @@ list/read/write/delete/upload/mkdir (those need `server.{id}.files`).
 | `PUT` | `/api/v1/servers/{server_id}/files/content` | `server.{id}.files` | `WriteFileContentRequest` | `200 FileContentResponse` | Write text file content (`path` query param required) — uses atomic write |
 | `DELETE` | `/api/v1/servers/{server_id}/files` | `server.{id}.files` | — | `204` | Delete file or directory (`path` query param required); cannot delete server root |
 | `POST` | `/api/v1/servers/{server_id}/files/upload` | `server.{id}.files` | `multipart/form-data` | `201 FileEntryResponse` | Upload file (`file` form parameter, `path` query param default `""`) |
-| `GET` | `/api/v1/servers/{server_id}/files/download` | `server.{id}.files` **or** `server.{id}.view` | — | `200 FileResponse` | Download file as `application/octet-stream` (`path` query param required) |
+| `GET` | `/api/v1/servers/{server_id}/files/download` | `server.{id}.files` | — | `200 FileResponse` | Download file as `application/octet-stream` (`path` query param required) |
 | `POST` | `/api/v1/servers/{server_id}/files/mkdir` | `server.{id}.files` | — | `201 FileEntryResponse` | Create directory (`path` query param required) |
 
 ### Schemas
@@ -744,7 +767,8 @@ list/read/write/delete/upload/mkdir (those need `server.{id}.files`).
 ```json
 {
   "path": "server.properties",
-  "content": "motd=A Minecraft Server\n..."
+  "content": "motd=A Minecraft Server\n...",
+  "is_binary": false
 }
 ```
 
@@ -786,7 +810,7 @@ The access mode can be changed at any time after bootstrap via
 `BootstrapRequest`: `email`, `password` (min 8 chars), `display_name`,
 `access_mode` (default `"LOCAL"`).
 
-`AccessModeRequest`: `access_mode` (`"LOCAL"` or `"GLOBAL"`).
+`UpdateAccessModeRequest` (alias `AccessModeRequest`): `access_mode` (`"LOCAL"` or `"GLOBAL"`).
 
 `BootstrapResponse`: `success`, `message`, `user_id`, `access_token`,
 `refresh_token`, `token_type`, `expires_in` (900).
@@ -817,7 +841,7 @@ when the invite carries `server_id`/`server_role`, provisions the
 | `POST` | `/api/v1/invites` | `user:write` | `CreateInviteRequest` | `201 CreateInviteResponse` | Issue an invitation (can scope a global role and/or a server membership). Handler enforces Owner/Admin privilege checks on requested roles. |
 | `GET` | `/api/v1/invites` | `user:write` | — | `200 list[...]` | List invitations (token hash never returned). |
 | `DELETE` | `/api/v1/invites/{invite_id}` | `user:write` | — | `204` | Revoke an invitation (`status → REVOKED`). |
-| `POST` | `/api/v1/invites/verify` | Public | `VerifyInviteRequest` | `200 VerifyInviteResponse` | Pre-registration token validity check (returns the claimed role/display name so the InvitePage can render; no user account is created). |
+| `POST` | `/api/v1/invites/verify` | Public | `VerifyInviteRequest` | `200 VerifyInviteResponse` | Pre-registration token validity check (returns `{valid, email, expires_at}`; no user account is created). |
 | `POST` | `/api/v1/invites/accept` | Public | `AcceptInviteRequest` | `201 AcceptInviteResponse` | Redeem the token to register. Rejected for unknown/expired/revoked/used tokens. |
 
 > Invite tokens are stored as **SHA-256 hashes** (`InvitationModel.token_hash`)
@@ -828,7 +852,11 @@ when the invite carries `server_id`/`server_role`, provisions the
 
 `CreateInviteRequest`: `email` (optional), `global_role` (optional default
 `"member"`), `server_id` (optional), `server_role` (optional), `max_uses`
-(default `1`).
+(default `1`), `expires_in_hours` (optional int, default `48`).
+
+`VerifyInviteRequest`: `token` (string, required).
+
+`VerifyInviteResponse`: `valid` (bool), `email` (string|null), `expires_at` (string|null).
 
 `AcceptInviteRequest`: `token`, `email`, `password`, `display_name`.
 
@@ -925,124 +953,108 @@ before expiry.
 
 ## Exposure
 
-Public panel and game server network exposure management (Cloudflare Tunnels, Playit.gg agent daemon, and UPnP port forwarding).
+Public panel and game server network exposure management (Cloudflare Tunnels, Playit.gg agent daemon, and port forwarding). Defined in `backend/app/api/v1/routers/exposure.py`.
 
-### `GET /api/v1/exposure/panel`
+### Agent & Global Exposure
 
-Get current web panel public exposure status (Cloudflare Named Tunnel or Playit.gg tunnel).
+#### `GET /api/v1/exposure/agent`
+Get status of the host-level exposure daemon (Playit/Cloudflare runner).
+- **Auth:** Required (`exposure.credentials.manage`)
+- **Response `200 OK`:** `AgentStatusResponse` (`claimed`: bool, `process_status`: str, `desired_agent_running`: bool, `last_health_at`: datetime|null, `claim_active`: bool, `claim_expires_at`: datetime|null)
 
-- **Auth:** Required (`admin` role or `exposure:read`)
-- **Response `200 OK`:**
-  ```json
-  {
-    "provider": "cloudflare",
-    "is_enabled": true,
-    "public_url": "https://panel.example.com",
-    "status": "active"
-  }
-  ```
+#### `POST /api/v1/exposure/agent/claim`
+Generate a new Playit agent claim link code and URL.
+- **Auth:** Required (`require_owner()`)
+- **Response `201 Created`:** `ClaimResponse` (`claim_code`, `claim_url`, `expires_at`)
 
-### `POST /api/v1/exposure/panel/cloudflare`
+#### `POST /api/v1/exposure/agent/reset`
+Reset local agent state and daemon configuration.
+- **Auth:** Required (`require_owner()`)
+- **Response `200 OK`:** `AgentStatusResponse`
 
-Configure and enable Cloudflare Tunnel public exposure for the web panel.
+#### `POST /api/v1/exposure/agent/reconcile`
+Trigger exposure daemon and tunnel reconciliation.
+- **Auth:** Required (`exposure.credentials.manage`)
+- **Body:** `ReconcileRequest` (`scope`: `"server"` | `"all"`, default `"server"`)
+- **Response `200 OK`:** `dict`
 
-- **Auth:** Required (`owner` role)
-- **Body:**
-  ```json
-  {
-    "tunnel_token": "eyJhIjoi..."
-  }
-  ```
+#### `POST /api/v1/exposure/stop-all`
+Emergency stop and disable all active exposure tunnels across panel and servers.
+- **Auth:** Required (`require_owner()`)
+- **Response `200 OK`:** `StopAllResponse` (`disabled_count`: int)
 
-### `POST /api/v1/exposure/panel/playit`
+#### `POST /api/v1/exposure/credentials/remove`
+Remove stored global Playit agent credentials.
+- **Auth:** Required (`require_owner()`)
+- **Response `200 OK`:** `dict`
 
-Enable Playit.gg tunnel public exposure for the web panel.
+#### `GET /api/v1/exposure/panel`
+Get current web panel public exposure configuration and status.
+- **Auth:** Required (`require_owner()`)
+- **Response `200 OK`:** `PanelExposureResponse` (`method`, `desired_state`, `status`, `public_address`, `tls`, `protocol`, `external_port`, `cloudflare_tunnel_id`, `playit_tunnel_id`, `upnp_last_result`, `error_code`, `error_message`, `fix_hint`, `auto_fixed`, `security_advisory`)
 
-- **Auth:** Required (`owner` role)
+#### `PUT /api/v1/exposure/panel`
+Configure or update web panel exposure settings.
+- **Auth:** Required (`require_owner()`)
+- **Body:** `PanelExposureUpdateRequest` (`method`: `"none"`|`"cloudflare_tunnel"`|`"playit_http"`|`"port_forward"`, `desired_state`: `"ENABLED"`|`"DISABLED"`, `cloudflare_token`: str, `hostname`: str, `external_port`: int|null)
+- **Response `200 OK`:** `PanelExposureResponse`
 
-### `DELETE /api/v1/exposure/panel`
+### Server Exposure & Companion Ports
 
-Disable public panel exposure and terminate running tunnel agents.
+#### `GET /api/v1/servers/{server_id}/exposure`
+Get game server network exposure configuration, status, and active targets.
+- **Auth:** Required (`server.{id}.exposure.view`)
+- **Response `200 OK`:** `ServerExposureResponse` (`server_id`, `method`, `desired_state`, `aggregate_status`, `error_code`, `error_message`, `cloudflare_tunnel_id`, `has_cloudflare_credentials`, `targets`: list[`TargetResponse`])
 
-- **Auth:** Required (`owner` role)
+#### `PUT /api/v1/servers/{server_id}/exposure`
+Configure and update game server public exposure method.
+- **Auth:** Required (`server.{id}.exposure`)
+- **Body:** `ServerExposureUpdateRequest` (`method`: `"playit"`|`"port_forward"`|`"cloudflare_tcp"`, `desired_state`: `"ENABLED"`|`"DISABLED"`, `cloudflare_token`: str, `hostname`: str, `acknowledged_warning`: bool)
+- **Response `200 OK`:** `ServerExposureResponse`
 
-### `GET /api/v1/exposure/playit/claim`
+#### `PATCH /api/v1/servers/{server_id}/exposure`
+Toggle server exposure desired state (`ENABLED` or `DISABLED`).
+- **Auth:** Required (`server.{id}.exposure`)
+- **Body:** `ServerExposureStateUpdateRequest` (`desired_state`: `"ENABLED"`|`"DISABLED"`, `cloudflare_token`: str, `hostname`: str, `acknowledged_warning`: bool)
+- **Response `200 OK`:** `ServerExposureResponse`
 
-Generate or retrieve a Playit.gg account claim link.
+#### `DELETE /api/v1/servers/{server_id}/exposure`
+Disable and remove public exposure configuration for a server.
+- **Auth:** Required (`server.{id}.exposure`)
+- **Response `204 No Content`**
 
-- **Auth:** Required (`admin` role)
-- **Response `200 OK`:**
-  ```json
-  {
-    "claim_url": "https://playit.gg/claim/abc123xyz"
-  }
-  ```
+#### `GET /api/v1/servers/{server_id}/exposure/targets`
+List all exposure targets (game, voice, web maps) for a server.
+- **Auth:** Required (`server.{id}.exposure.view`)
+- **Response `200 OK`:** `list[TargetResponse]` (`id`, `exposure_id`, `protocol`, `service_type`, `local_port`, `public_address`, `status`, `error_code`, `error_message`, `dashboard_url`, `setup_instructions`)
 
-### `DELETE /api/v1/exposure/playit/credentials`
+#### `POST /api/v1/servers/{server_id}/exposure/targets`
+Create an exposure target for a companion service.
+- **Auth:** Required (`server.{id}.exposure`)
+- **Body:** `TargetCreateRequest` (`service_type`: `"java"`|`"bedrock"`|`"voice"`|`"bluemap"`, `protocol`: `"tcp"`|`"udp"`|null, `local_port`: int|null, `public_address`: str|null)
+- **Response `201 Created`:** `TargetResponse`
 
-Remove stored Playit.gg agent authentication credentials.
+#### `PUT /api/v1/servers/{server_id}/exposure/targets/{target_id}`
+Update target public address mapping.
+- **Auth:** Required (`server.{id}.exposure`)
+- **Body:** `TargetUpdateRequest` (`public_address`: str|null)
+- **Response `200 OK`:** `TargetResponse`
 
-- **Auth:** Required (`owner` role)
+#### `GET /api/v1/servers/{server_id}/ports`
+List registered companion ports for a server.
+- **Auth:** Required (`server.{id}.exposure.view`)
+- **Response `200 OK`:** `list[RegisteredPortResponse]` (`id`, `server_id`, `service_type`, `protocol`, `port`, `name`, `created_at`, `updated_at`)
 
-### `POST /api/v1/exposure/playit/reset`
+#### `POST /api/v1/servers/{server_id}/ports`
+Register a companion port (e.g. Bedrock UDP, Voice Chat, BlueMap).
+- **Auth:** Required (`server.{id}.exposure`)
+- **Body:** `RegisteredPortCreateRequest` (`service_type`: `"bedrock"`|`"voice"`|`"bluemap"`, `protocol`: `"tcp"`|`"udp"`, `port`: int, `name`: str|null)
+- **Response `201 Created`:** `RegisteredPortResponse`
 
-Reset local Playit daemon agent state.
-
-- **Auth:** Required (`owner` role)
-
-### `GET /api/v1/servers/{server_id}/exposure`
-
-Get game server network exposure configuration and active public address.
-
-- **Auth:** Required (`servers:read`)
-- **Response `200 OK`:**
-  ```json
-  {
-    "server_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "exposure_type": "playit",
-    "public_address": "auto-mc.playit.gg",
-    "public_port": 25565,
-    "is_active": true
-  }
-  ```
-
-### `POST /api/v1/servers/{server_id}/exposure/playit`
-
-Enable Playit.gg tunnel for a specific Minecraft server.
-
-- **Auth:** Required (`servers:write`)
-
-### `DELETE /api/v1/servers/{server_id}/exposure`
-
-Disable public exposure for a Minecraft server.
-
-- **Auth:** Required (`servers:write`)
-
-### `GET /api/v1/servers/{server_id}/exposure/ports`
-
-List additional forwarded companion ports (e.g. BlueMap, Dynmap, Voice Chat).
-
-- **Auth:** Required (`servers:read`)
-
-### `POST /api/v1/servers/{server_id}/exposure/ports`
-
-Add a companion port forwarding rule.
-
-- **Auth:** Required (`servers:write`)
-- **Body:**
-  ```json
-  {
-    "port": 8100,
-    "protocol": "tcp",
-    "label": "Dynmap Web"
-  }
-  ```
-
-### `DELETE /api/v1/servers/{server_id}/exposure/ports/{port_id}`
-
-Remove a companion port forwarding rule.
-
-- **Auth:** Required (`servers:write`)
+#### `DELETE /api/v1/servers/{server_id}/ports/{port_id}`
+Delete a registered companion port.
+- **Auth:** Required (`server.{id}.exposure`)
+- **Response `204 No Content`**
 
 ---
 
@@ -1062,13 +1074,13 @@ List all branches for the server.
 #### `POST /api/v1/servers/{server_id}/versioning/branches`
 Create a new branch pointing to an existing commit or revision.
 - **Auth:** Required (`server:version:commit`)
-- **Body:** `CreateBranchRequest` (`name`: string, `from_commit_id`: string | null)
+- **Body:** `CreateBranchRequest` (`name`: string, `head_commit_id`: string | null)
 - **Response `201 Created`:** `ServerBranchResponse`
 
 #### `GET /api/v1/servers/{server_id}/versioning/branches/{name}/history`
 Retrieve the commit history log for a specific branch.
 - **Auth:** Required (`server:version:read`)
-- **Query:** `limit` (int, default 50), `before` (string, optional commit ID)
+- **Query:** `limit` (int, default 100, 1–500)
 - **Response `200 OK`:** Array of `CommitResponse` objects.
 
 #### `POST /api/v1/servers/{server_id}/versioning/branches/{name}/archive`
@@ -1097,37 +1109,37 @@ Remove protection from a branch.
 #### `GET /api/v1/servers/{server_id}/versioning/commits`
 List commits in repository.
 - **Auth:** Required (`server:version:read`)
-- **Query:** `branch` (optional string), `limit` (int, default 50)
-- **Response `200 OK`:** Array of `CommitResponse` (`id`, `message`, `parent_ids`, `tree_hash`, `author`, `created_at`)
+- **Query:** `branch_id` (optional string), `limit` (int, default 50, 1–200)
+- **Response `200 OK`:** Array of `CommitResponse` (`id`, `server_id`, `branch_id`, `parent_commit_id`, `parent_commit_ids`, `author_id`, `message`, `manifest`, `world_snapshot_id`, `created_at`)
 
 #### `POST /api/v1/servers/{server_id}/versioning/commits`
-Create a new commit on a branch. If branch is protected, requires `allow_direct_commit: true` or `force: true` with administrative bypass permission.
+Create a new commit on a branch.
 - **Auth:** Required (`server:version:commit`)
-- **Body:** `CreateCommitRequest` (`branch`: string, `message`: string, `author`: string | null, `changes`: array | null, `force`: bool | null)
-- **Response `201 Created`:** `CommitResponse`
+- **Body:** `CreateCommitRequest` (`message`: string, `branch_name`: string default `"main"`, `author_id`: string | null, `force`: bool, `force_reason`: string | null)
+- **Response `201 Created`:** `dict` / `CommitResponse`
 
 #### `POST /api/v1/servers/{server_id}/versioning/commits/merge`
 Merge two branches or commits.
 - **Auth:** Required (`server:version:commit`)
-- **Body:** `MergeCommitsRequest` (`target_branch`: string, `source_ref`: string, `message`: string)
-- **Response `201 Created`:** `CommitResponse` (with multiple parent IDs)
+- **Body:** `MergeCommitsRequest` (`target_branch_name`: string, `parent_commit_ids`: list[string], `message`: string, `author_id`: string | null, `manifest`: dict | null)
+- **Response `201 Created`:** `CommitResponse`
 
 #### `GET /api/v1/servers/{server_id}/versioning/commits/diff`
 Compute file-level diff between two revisions, trees, or commits.
 - **Auth:** Required (`server:version:read`)
-- **Query:** `base_ref` (string), `target_ref` (string)
-- **Response `200 OK`:** `DiffResponse` (`base_commit_id`, `target_commit_id`, `files_changed`, `additions`, `deletions`, `diffs`: array of `FileDiff`)
+- **Query:** `from` (string commit ID), `to` (string commit ID)
+- **Response `200 OK`:** `DiffResponse` (`from_commit_id`, `to_commit_id`, `has_changes`, `server_type`, `minecraft_version`, `java_args`, `configs`, `env_vars`, `mods`)
 
 #### `GET /api/v1/servers/{server_id}/versioning/tags`
 List all tags in the repository.
 - **Auth:** Required (`server:version:read`)
-- **Response `200 OK`:** Array of `ServerTagResponse` (`id`, `server_id`, `name`, `commit_id`, `message`, `tagger`, `created_at`)
+- **Response `200 OK`:** Array of `TagResponse` (`id`, `server_id`, `name`, `commit_id`, `created_at`)
 
 #### `POST /api/v1/servers/{server_id}/versioning/tags`
-Create an immutable tag pointing to a commit or branch tip.
+Create an immutable tag pointing to a commit.
 - **Auth:** Required (`server:version:commit`)
-- **Body:** `CreateTagRequest` (`name`: string, `target_ref`: string, `message`: string | null)
-- **Response `201 Created`:** `ServerTagResponse`
+- **Body:** `CreateTagRequest` (`name`: string, `commit_id`: string)
+- **Response `201 Created`:** `TagResponse`
 
 #### `GET /api/v1/servers/{server_id}/versioning/tags/{name}`
 Get details of a single tag.
@@ -1229,7 +1241,7 @@ Update an existing test definition.
 #### `DELETE /api/v1/servers/{server_id}/versioning/test-definitions/{id}`
 Delete a test definition.
 - **Auth:** Required (`server:test:configure`)
-- **Response `204 No Content`**
+- **Response `200 OK`:** `dict` (`{"success": true, ...}`)
 
 #### `GET /api/v1/servers/{server_id}/versioning/tests`
 List test runs for the server.
@@ -1240,7 +1252,7 @@ List test runs for the server.
 #### `POST /api/v1/servers/{server_id}/versioning/tests`
 Trigger an isolated test run under admission control.
 - **Auth:** Required (`server:test:execute`)
-- **Body:** `RunTestRequest` (`branch_name`: string, `test_definition_id`: string | null, `runtime_id`: string | null)
+- **Body:** `RunIsolatedTestRequest` (`commit_id`: string | null, `bot_count`: int | null, `duration_minutes`: int | null, `placement_mode`: string | null, `bot_tech`: string | null, `test_definition_id`: string | null)
 - **Response `202 Accepted`:** `TestRunResponse` (`status: "queued"`)
 
 #### `GET /api/v1/servers/{server_id}/versioning/tests/{test_id}`
@@ -1279,7 +1291,7 @@ Update versioning settings for the server.
 #### `GET /api/v1/servers/{server_id}/versioning/preflight`
 Run preflight admission checks (verifies host RAM/CPU headroom, disk space, and provider capabilities).
 - **Auth:** Required (`server:version:read`)
-- **Response `200 OK`:** `PreflightCheckResponse` (`can_materialize`: bool, `can_run_tests`: bool, `available_ram_mb`: int, `reasons`: array of string)
+- **Response `200 OK`:** `PreflightResponse` (`reflink_supported`: bool, `available_ram_mb`: int, `available_cores`: int, `min_required_ram_mb`: int, `min_required_cores`: int, `passed`: bool, `error`: string | null)
 
 ---
 

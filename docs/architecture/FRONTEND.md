@@ -108,11 +108,17 @@ Default options: `staleTime: 10s`, `retry: 1`, `refetchOnWindowFocus: false`.
 
 ### Zustand — Client-Only State
 
-Three stores, all accessed via selector functions for optimal re-render:
+8 top-level stores plus a dedicated operations store, accessed via selector functions for optimal re-render:
 
-- **`authStore`** (`frontend/src/stores/authStore.ts`) — Access token, refresh token, `isAuthenticated`. Persisted to `localStorage` under `mcs_auth`. Auto-detects expiry on load. Provides `login`, `logout`, `setTokens`, and `getAccessToken`.
-- **`uiStore`** (`frontend/src/stores/uiStore.ts`) — Theme (`light`/`dark`, persisted to `localStorage` under `mcs_theme`, respects `prefers-color-scheme`), sidebar open/close state.
+- **`authStore`** (`frontend/src/stores/authStore.ts`) — Access token, refresh token, `isAuthenticated`. Persisted to `localStorage` under `onx_auth`. Auto-detects expiry on load. Provides `login`, `logout`, `setTokens`, and `getAccessToken`.
+- **`uiStore`** (`frontend/src/stores/uiStore.ts`) — Theme (`light`/`dark`), curated skin engine (6 skins / 12 palettes), accent swatch, density mode (`comfortable`/`compact`), persisted to `localStorage` under `onx_theme`, `onx_skin`, `onx_accent`, `onx_density`, respects `prefers-color-scheme`, sidebar open/close state.
 - **`wsStore`** (`frontend/src/stores/wsStore.ts`) — WebSocket `connectionState` and `connected` boolean.
+- **`activityStore`** (`frontend/src/stores/activityStore.ts`) — Server activity stream and notification logs.
+- **`lastUsedServerStore`** (`frontend/src/stores/lastUsedServerStore.ts`) — Remembers the active server context for marketplace searches and versioning.
+- **`marketplaceSourceStore`** (`frontend/src/stores/marketplaceSourceStore.ts`) — Selection between Modrinth marketplace and local addon upload views.
+- **`provisionProgressStore`** (`frontend/src/stores/provisionProgressStore.ts`) — Live stage and percentage tracking during server provisioning.
+- **`toastStore`** (`frontend/src/stores/toastStore.ts`) — Global toast notifications queue.
+- **`operationStore`** (`frontend/src/operations/stores/operationStore.ts`) — Multi-step operation state and step progress tracking.
 
 ### Forms
 
@@ -126,19 +132,28 @@ All forms use native React controlled components through TanStack Query mutation
 | `/login` | `LoginPage` | Email/password + "Remember me" → redirect to `/` |
 | `/register` | `RegisterPage` | User registration (direct open registration in `LOCAL` mode) |
 | `/invite/:token` | `InvitePage` | Invitation-token registration (required in `GLOBAL` mode) |
-| `/` (index) | `DashboardPage` | Overview cards (total/online/offline), recent servers, alerts |
-| `/servers` | `ServersPage` | Server list table, inline create, start/stop/delete |
-| `/servers/create` | `CreateServerPage` | Server creation form |
-| `/servers/import` | `ImportServerPage` | Import existing server from filesystem |
-| `/servers/:serverId` | `ServerShell` → `ServerDetailPage` | Console, metrics, actions, config editor |
-| `/servers/:serverId/files` | `ServerFilesPage` | File browser (list/content/edit/delete/upload/mkdir) |
-| `/servers/:serverId/mods` | `ServerModsPage` | Mod management |
-| `/backups` | `BackupListPage` | Backup table, create/restore/schedule |
-| `/plugins` | `PluginListPage` | Plugin table, install/enable/disable; Install → marketplace |
-| `/plugins/marketplace` | `PluginMarketplacePage` | Modrinth catalog: search, versions, install (reached with `?server=<id>`) |
-| `/marketplace` | `PluginMarketplacePage` | Alias for `/plugins/marketplace` (added for K5); renders the same catalog |
-| `/settings` | `SettingsPage` | Global application settings; hosts `AccessSection` (access-mode control) and `InvitationsSection` (invite management) |
-| `/settings/api-keys` | `ApiKeysPage` | API key management |
+| `/` (index) | `AppShell` → `DashboardPage` | Overview cards (total/online/offline), recent servers, alerts |
+| `/servers` | `AppShell` → `ServersPage` | Server list table, inline create, start/stop/delete |
+| `/servers/create` | `AppShell` → `CreateServerPage` | Server creation form |
+| `/servers/import` | `AppShell` → `ImportServerPage` | Import existing server from filesystem |
+| `/servers/:serverId` | `ServerShell` → `ServerDetailPage` | Server overview, console, live metrics, action buttons |
+| `/servers/:serverId/console` | `ServerShell` → `ServerDetailPage` | Direct link to server console tab |
+| `/servers/:serverId/files` | `ServerShell` → `ServerFilesPage` | File browser (list/content/edit/delete/upload/mkdir) |
+| `/servers/:serverId/network` | `ServerShell` → `ServerExposurePage` | Network tunnels & port exposure (Playit/Cloudflare) |
+| `/servers/:serverId/mods` | `ServerShell` → `ServerModsPage` | Mod management |
+| `/servers/:serverId/plugins` | `ServerShell` → `PluginListPage` | Plugin management |
+| `/servers/:serverId/versioning` | `ServerShell` → `ServerVersioningPage` | Branching, Git graph, isolated test runs, tags |
+| `/servers/:serverId/activity` | `ServerShell` → `ServerActivityPage` | Per-server activity audit log |
+| `/servers/:serverId/settings` | `ServerShell` → `ServerSettingsPage` | Per-server settings & deletion |
+| `/backups` | `AppShell` → `BackupListPage` | Backup table, create/restore/schedule |
+| `/plugins` | `AppShell` → `PluginListPage` | Global plugin view, install/enable/disable |
+| `/plugins/marketplace` | `AppShell` → `PluginMarketplacePage` | Modrinth catalog search & versions |
+| `/plugins/marketplace/:projectId` | `AppShell` → `PluginDetailPage` | Marketplace plugin details, versions, compatibility |
+| `/marketplace` | `AppShell` → `PluginMarketplacePage` | Alias for `/plugins/marketplace` |
+| `/marketplace/:projectId` | `AppShell` → `PluginDetailPage` | Alias for `/plugins/marketplace/:projectId` |
+| `/settings` | `AppShell` → `SettingsPage` | Global application settings, access mode, invitations |
+| `/settings/api-keys` | `AppShell` → `ApiKeysPage` | API key management |
+| `*` | `AppShell` → `NotFoundPage` | 404 catch-all error page |
 
 Guest routes (`/setup`, `/login`, `/register`, `/invite/:token`) are wrapped in
 `SystemStatusGuard` (`frontend/src/components/guards/SystemStatusGuard.tsx`),
@@ -259,7 +274,7 @@ Invalidation events are derived from domain event types: `ServerCreated`/`Server
 
 ### Channel Manager (`frontend/src/websocket/channels.ts`)
 
-- Valid prefix list (`VALID_CHANNEL_PREFIXES`): `server`, `backup`, `plugin`, `monitoring`, `metrics`, `auth`, `user` (matches the backend `validate_channel` set — no `health` prefix exists)
+- Valid prefix list (`VALID_CHANNEL_PREFIXES`): `server`, `test`, `backup`, `plugin`, `monitoring`, `metrics`, `auth`, `user`, `provision`, `operation` (matches backend `validate_channel` and authorization sets)
 - Max 50 simultaneous channels
 - Channel format: `<prefix>:<id>` or `<prefix>:*` for wildcard
 - Wildcard, server, backup, plugin, and monitoring helpers for type checking (`isMonitoringChannel` covers both `monitoring:` and `metrics:`)
@@ -311,7 +326,7 @@ Production builds use `window.location.host` for API and WS URLs.
 
 ## Testing
 
-730 frontend tests across 83 files (measured 2026-09-18). Test infrastructure:
+130 frontend test files on disk (1,178 tests passed 2026-11-09). Test infrastructure:
 - `vitest.config.ts` — jsdom environment, `@/` path alias, globals enabled
 - `test-setup.ts` — jsdom, localStorage mock, matchMedia mock
 - Testing libraries: `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`
@@ -322,9 +337,9 @@ Production builds use `window.location.host` for API and WS URLs.
 
 Frontend CI (`.github/workflows/frontend-ci.yml`) runs on every push/PR to
 `master` and gates on: `npm run typecheck`, `npm run lint`, `npm test`
-(730 / 83 files), and `npm run build`.
+(130 test files), and `npm run build`.
 
-Key test areas: `authStore` (9), `uiStore` (9), `api.ts` (11), `wsStore` (4), `AuthGuard` (2), `LoginPage` (5), `Sidebar` (4), `TopNav` (4), `AppLayout` (2), `WebSocketManager` (3), `ServersPage` (8), `DashboardPage` (7).
+Key test areas: `authStore`, `uiStore`, `api.ts`, `wsStore`, `AuthGuard`, `LoginPage`, `Sidebar`, `TopBar`, `AppShell`, `WebSocketManager`, `ServersPage`, `DashboardPage`.
 
 ### Version display source
 

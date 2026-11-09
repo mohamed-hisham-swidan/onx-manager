@@ -1,4 +1,4 @@
-## Current State (2026-11-07)
+## Current State (2026-11-09)
 
 **Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
 - Phase 0 (Ground Truth/Baseline Freeze): CLOSED
@@ -16,8 +16,10 @@
 - **Enterprise Branch Runtime — Stage G (Protected Branches): CLOSED (2026-09-18)** — `BranchProtectionPolicy` frozen dataclass (require_test_pass, allow_direct_commit, allow_force_bypass, prevent_deletion), `ServerBranch` lifecycle methods (`protect`, `unprotect`, `can_commit_directly`, `can_archive`), `BranchProtectedError` (HTTP 409), `CreateCommitCommand` protection enforcement with administrative emergency bypass permission and audit logging, strict `AutoCommitLiveChangesCommand` and `ArchiveBranchCommand` rejection, and 3 new REST endpoints; Alembic migration `b1e2100000019` advancing route contract to 150/150 routes; 2,906 backend tests passing / 6 skipped, 6/6 CI quality gates PASS. Commit `ba8b539`.
 - **Enterprise Branch Runtime — Frontend UI: CLOSED (2026-09-18)** — Complete user interfaces for Stages B, C, F, G: `BranchProtectionModal.tsx`, `TestDefinitionsModal.tsx`, `TestEvidenceModal.tsx`, `MaterializationBrowserModal.tsx`, `ImportReviewModal.tsx`, `ManageBranchesModal.tsx`, `CreateTagModal.tsx`, `CommitDiffModal.tsx`, and full page integration in `ServerVersioningPage.tsx`; all 22 versioning routes wired in `api.ts`; 0 TypeScript errors; 730 frontend tests passing across 83 test files (100% green); 6/6 CI quality gates PASS. Commit `8b219ba`.
 - **Phase 5.5 — Pre-Beta Reliability (Stages A & B): CLOSED (2026-09-29)** — Stage A Reliability Foundation (`Operation` aggregate, idempotency, WS projection) and Stage B Test Run Engine (`TestDefinition` execution without lossy division, standard `ValueError` terminal guards, `operation_id` column/index via migration `b1e2100000022`, unified assertion engine with `BaseVerifier`, canonical `TestCleanupPlan` with separator-safe `resolve_test_dir`). 3,145 backend collected / 3,139 passed / 6 skipped / 0 failed, 752 frontend passed across 89 files, 6/6 CI quality gates PASS.
-- **Frontend UX/IA Overhaul & Design Token System (2026-11-07; ADR-0021): CLOSED** — Comprehensive frontend architecture and UX overhaul: semantic token engine, multi-skin system (Graphite & Azure), 18 reusable primitives, unified AppShell/ServerShell, 7 standardized page templates (Fleet status bar, client-side files filter/paging, decomposed versioning & create server wizards), palette ratchet test, overlay ratchet test (100% overlay consolidation to Modal/ConfirmDialog, 0 bypassing overlays, 0 native confirm/alert/prompt dialogs), original brand identity (vortex mark, voxel banners, domain icons, legal disclaimer), motion/density controls, route-level code splitting (-68.3% initial bundle reduction across 39 JS chunks), and complete design documentation in `docs/design/frontend-overhaul/`. 1,113 frontend tests passing across 125 test files (100% green), typecheck clean, 0 ESLint errors and 0 ESLint warnings, production build green, 6/6 CI quality gates PASS.
-- **Next: Phase 6 (Final Installs / Wrap-up) — READY**: Installer polish, distribution packaging, first-run experience, documentation review.
+- **Frontend UX/IA Overhaul & Design Token System (2026-11-04 / 2026-11-07; ADR-0021): IMPLEMENTED_PENDING_REVIEW** — Comprehensive frontend architecture and UX overhaul: semantic token engine, multi-skin engine (6 curated skins / 12 palettes across Dark and Light modes, 7 accent colors), 18 reusable design system primitives in `components/ui/`, unified `AppShell` and `ServerShell` with `ServerContextHeader`, 7 standardized page templates, palette ratchet test, overlay ratchet test (100% overlay consolidation, 0 bypassing overlays, 0 native dialogs), original brand identity, motion/density controls, route-level code splitting (-68.3% initial bundle reduction across 39 JS chunks). Verified 2026-11-09: 1,178 frontend tests passing across 130 test files, typecheck clean, 0 ESLint errors and warnings, production build clean, 6/6 CI quality gates PASS. Pending independent reviews (R2, R3b, R4).
+- **Server Lifecycle Hardening (2026-11-08; SPEC-2026-11-08-SERVER-LIFECYCLE-HARDENING-01): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Multi-worker DB-backed per-server lifecycle lease (`server_lifecycle_leases` table in Alembic migration `b1e2100000023`, `ServerLifecycleLeaseManager` with 90s TTL, 25s heartbeat, reentrancy, jittered backoff), idempotent `StartServerHandler` inside lock, DockerProvider config fingerprint adoption (`com.onx-manager.config-fingerprint`), fail-closed `stop_confirmed` contract gating promote/restart/delete/restore, `PromoteCommitHandler` atomic sibling staging rollback journal (`.onx-promote-tx-*`), and canonical process identity revalidation. Verified 2026-11-07: 137/137 targeted tests pass + 157/159 ownership/reconciliation/provider tests pass, 6/6 CI quality gates PASS.
+- **Windows CI Failure Triage (2026-11-09; SPEC-2026-11-09-WINDOWS-CI-FAILURE-TRIAGE-01): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Addressed Windows CI failures: `normalize_host_path` preserves POSIX-absolute paths without drive re-anchoring, Docker containment assertion reordered before `_ensure_image`, `tree_writer` writes/verifies UTF-8 bytes avoiding CRLF translation, `LocalLinuxProvider` uses Win32 SIGKILL fallback, and deterministic launcher/teardown test hardening. Full suite Windows CI rerun pending.
+- **Next: Phase 6 (Final Installs / Wrap-up) — READY**: Installer polish, distribution packaging, first-run experience, documentation review (carried forward; Windows behavior UNVERIFIED pending green Windows CI run).
 
 
 **Resolved recently (for reference):**
@@ -31,7 +33,7 @@
   - Original brand identity: vector vortex logo mark (`BrandLogo.tsx`), isometric voxel banners (`VoxelBanner.tsx`), themed domain icons (`Icon.tsx`), and legal disclaimers.
   - Motion tokens (`--motion-duration-*`, `--motion-ease-standard`) with global `prefers-reduced-motion` override and density hierarchy tokens.
   - Production route code-splitting with `React.lazy` and `Suspense`, dropping initial JS payload from 1,251 kB to 396.68 kB (-68.3% across 39 JS chunks).
-  - Verified 2026-11-07: 1,113 frontend tests passing across 125 test files (0 failures); typecheck clean; 0 ESLint errors and 0 ESLint warnings; production build green; 6/6 CI quality gates PASS.
+  - Verified 2026-11-09: 1,178 frontend tests passing across 130 test files (0 failures); typecheck clean; 0 ESLint errors and 0 ESLint warnings; production build green; 6/6 CI quality gates PASS.
 - Test Signal Safety Guard (2026-10-04; Test Safety):
   - Hermetic autouse test fixture in `backend/tests/conftest.py` wrapping `os.kill` and `os.killpg` (and signal helpers) to raise `AssertionError` if target PID is not a verified descendant of the current pytest process.
   - Documented guard behavior: raises `AssertionError` (not `OSError`), noted `LocalLinuxProvider._is_pid_alive` exception fallback to `kill -0`, and documented Win32 residual (`ctypes.windll.kernel32.TerminateProcess` in `process_utils.py` not intercepted).
@@ -111,10 +113,10 @@
 # ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-11-07. Every claim below was verified against source code, the database,
-and a live test run.
+2026-11-09. Every claim below was verified against source code, the database,
+and test runs.
 
-**Last verified:** 2026-11-07
+**Last verified:** 2026-11-09
 **App version (code):** `0.1.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
@@ -123,49 +125,49 @@ and a live test run.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 412 | `backend/app/` (including domain aggregates, commands, queries, providers) |
-| Backend test files | 239 | `backend/tests/` (including dedicated test suites across versioning, reliability, and modules) |
-| Frontend test files | 125 | `find frontend/src -name "*.test.*"` |
+| Backend Python source files | 416 | `backend/app/` (including domain aggregates, commands, queries, providers) |
+| Backend test files | 249 | `backend/tests/` (249 `test_*.py` test files across versioning, reliability, and modules) |
+| Frontend test files | 130 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 18 | `activity, auth, backups, exposure, files, health, invites, marketplace, monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning` |
 | Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml`) |
-| Alembic migration revisions | 42 | `backend/alembic/versions/` (head `b1e2100000022`) |
-| Architecture Decision Records & Decisions | 33 | `docs/decisions/` (ADRs 0001–0021 + 12 formal DECISION records) |
+| Alembic migration revisions | 43 | `backend/alembic/versions/` (head `b1e2100000023`) |
+| Architecture Decision Records & Decisions | 38 | `docs/decisions/` (23 ADRs 0001–0023 + 12 formal DECISION records + README + Phase 5.5 design) |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 13 | `activity, auth, backup, event_store, exposure, health, monitoring, operations, plugin, server, shared, storage, versioning` |
 | CI workflows | 7 | `.github/workflows/{backend-tests.yml, docker-build-smoke.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml, windows-ci.yml}` — full backend pytest + DooD build smoke + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence; Windows CI |
 
 ---
 
-## 2. Test suite (measured 2026-11-07)
+## 2. Test suite (baseline provenance & verified metrics)
 
 ### Backend — `backend/` `python -m pytest tests/`
 
-| Metric | Value |
-|--------|-------|
-| Collected | **3510** |
-| Passed | **3504** |
-| Skipped | **6** |
-| Failed | **0** |
+| Metric | Value | Provenance |
+|--------|-------|------------|
+| Collected | **3642** | Verified 2026-11-09 full sequential test suite (`./scripts/test`) |
+| Passed | **3636** | Verified 2026-11-09 full sequential test suite |
+| Skipped | **6** | Verified 2026-11-09 full sequential test suite |
+| Failed | **0** | Verified 2026-11-09 full sequential test suite |
 
-Backend CI runs the full suite on every push/PR to `master`
+Backend CI runs the full suite on push/PR to `master`
 (`.github/workflows/backend-tests.yml`), followed by all 6 CI quality gates
 (`check-db-revision`, `check-route-contract`, `check-ruff-baseline`, `check-version-propagation`, `check-ps1-bom`, `check-stray-db`).
 
 ### Frontend — `frontend/` `npx vitest run`
 
-| Metric | Value |
-|--------|-------|
-| Test files | **125** |
-| Collected | **1113** |
-| Passed | **1113** across 125 test files |
-| Skipped | **0** |
-| Failed | **0** |
+| Metric | Value | Provenance |
+|--------|-------|------------|
+| Test files | **130** | Verified 2026-11-09 via `npm run test` (vitest run) |
+| Collected | **1178** | Verified 2026-11-09 via `npm run test` |
+| Passed | **1178** | Verified 2026-11-09 via `npm run test` |
+| Skipped | **0** | Verified 2026-11-09 via `npm run test` |
+| Failed | **0** | Verified 2026-11-09 via `npm run test` |
 
 ### Suite Totals
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
-on every push/PR to `master`. Total test metrics:
-- **Total collected**: **4,623** (3,510 backend + 1,113 frontend)
-- **Total passed**: **4,617** (3,504 backend + 1,113 frontend)
+on every push/PR to `master`. Total test metrics (baseline):
+- **Total collected**: **4,820** (3,642 backend + 1,178 frontend; verified 2026-11-09)
+- **Total passed**: **4,814** (3,636 backend + 1,178 frontend)
 - **Total skipped**: **6** (backend)
 - **Total failed**: **0**
 
@@ -177,10 +179,10 @@ on every push/PR to `master`. Total test metrics:
 
 | Property | Value |
 |----------|-------|
-| Alembic revision | `b1e2100000022` — **at head** |
-| Head revision | `b1e2100000022` (head == current) |
-| Revisions count | 42 migrations |
-| Refactor tables / columns | `server_commit_parents`, `server_tags`, `server_branches.status`, `server_branches.is_protected`, `server_branches.protection_policy`, `server_materializations`, `server_import_reviews`, `server_admission_leases`, `server_runtimes`, `server_test_definitions`, `server_test_runs.runtime_id`, `server_test_runs.test_definition_id`, `server_test_runs.evidence_bundle`, `server_test_runs.artifacts_purged`, `server_operations`, `server_test_runs.operation_id` |
+| Alembic revision | `b1e2100000023` — **at head** |
+| Head revision | `b1e2100000023` (head == current) |
+| Revisions count | 43 migrations |
+| Refactor tables / columns | `server_commit_parents`, `server_tags`, `server_branches.status`, `server_branches.is_protected`, `server_branches.protection_policy`, `server_materializations`, `server_import_reviews`, `server_admission_leases`, `server_runtimes`, `server_test_definitions`, `server_test_runs.runtime_id`, `server_test_runs.test_definition_id`, `server_test_runs.evidence_bundle`, `server_test_runs.artifacts_purged`, `operations`, `operation_steps`, `server_test_runs.operation_id`, `server_lifecycle_leases` |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` automatically inspects, backs up, and reconciles DB schema before services start |
 
 ---
@@ -198,7 +200,7 @@ on every push/PR to `master`. Total test metrics:
 - Runtime ownership verification (`reconcile_orphans` / `claim_localhost` /
   `cleanup_orphans`) with `MCS_MANAGED=1` marker + cwd + start_time checks
   (Batches 6–7).
-- Multi-runtime server providers (`ServerProvider` ABC): `LocalLinuxProvider` (tmux sessions on Linux/POSIX), `LocalWindowsProvider` (native Win32 detached process groups on Windows), and `DockerProvider` (isolated containers via async subprocess driver, bridge networking, dynamic IP resolution, loopback RCON, Windows WSL2 Linux container policy, opt-in DooD profile, ephemeral container provisioning for Forge/NeoForge, and volume-filter container cleanup).
+- Multi-runtime server providers (`ServerProvider` ABC): `LocalLinuxProvider` (tmux sessions on Linux/POSIX), `LocalWindowsProvider` (native Win32 detached process groups on Windows), and `DockerProvider` (isolated containers via async subprocess driver, bridge networking, dynamic IP resolution, loopback RCON, Windows WSL2 Linux container policy, opt-in DooD profile, ephemeral container provisioning for Forge/NeoForge, and volume-filter container cleanup). Note: Windows behavior following dynamic backend port, Python 3.12 pin, and lifecycle hardening carries UNVERIFIED status pending a dedicated green Windows CI run.
 - Authoritative server identity stamping (`identity_writer.py`): Atomically stamps `.onx-manager/server.json` upon creation and import.
 - Filesystem reconciliation service (`FilesystemReconciliationService`): Disk is the source of truth; runs at startup and via `POST /servers/refresh`. Resolves un-identified Minecraft directories via normalized `root_path` matching and deterministic candidate scoring (+100 active, +50 running/starting/created, +25 docker runtime, newest `updated_at` tiebreak) to heal identity in place (`ActionType.HEAL_IDENTITY`) without duplicate imports or row deletion; cleans associated provider containers on server deletion.
 
@@ -389,23 +391,24 @@ instead of trusting memory (Blueprint V5 §2.4):
 | Workflow | `.github/workflows/verification-cadence.yml` (job `re-verify`) |
 | Reuses existing checks | Yes — the exact authoritative scripts/gates, not a lightweight approximation |
 | Local twin | `scripts/reverify` — runs the identical command set |
-| Also runs on | push / pull_request to `master` for version files, `contracts/permissions.yaml`, the check scripts, `docs/**`, and the workflow itself |
+| Also runs on | Manual trigger via `workflow_dispatch` (push/pull_request triggers removed to optimize CI minutes) |
 
 Checks executed each run (identical locally via `scripts/reverify`):
 
 1. `python ../scripts/check-version-propagation` — pyproject.toml / package.json / runtime agree (0.1.0)
-2. `python ../scripts/check-db-revision` — database schema matches compatible migration head (`b1e2100000022`)
+2. `python ../scripts/check-db-revision` — database schema matches compatible migration head (`b1e2100000023`)
 3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
 4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 155 entries match 155 live routes
 5. `python ../scripts/check-ps1-bom` — PowerShell scripts UTF-8 BOM encoding
-6. `python -m pytest -q` (backend) — full suite 3,504 passed / 6 skipped (3,510 collected)
-7. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — 125 files / 1,113 tests passing, build succeeds
+6. `python -m pytest -q` (backend) — full suite execution
+7. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — typecheck, lint, test, build
 
 ### 7.3 Execution status
 
 - **Cadence mechanism: IMPLEMENTED / VERIFIED.** The scheduled workflow
   (`.github/workflows/verification-cadence.yml`) exists, is syntactically
-  valid, retains push/PR triggers, and was dry-run successfully on 2026-08-14
+  valid, runs on weekly schedule Monday 03:00 UTC plus manual `workflow_dispatch`,
+  and was dry-run successfully on 2026-08-14
   against the exact command set in §7.2 (all checks pass, locally and in the
   existing CI paths).
 - **Phase 6 §2.6 requirement: PENDING.** Blueprint V5 §2.6 acceptance requires

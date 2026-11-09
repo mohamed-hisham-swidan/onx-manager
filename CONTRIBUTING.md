@@ -21,7 +21,7 @@ Thanks for your interest in contributing to ONX Manager! This guide covers the d
 |---|---|
 | Runtime | Python 3.12 (exact for the launcher; `requires-python = ">=3.12"`) |
 | Linter | `ruff` — no new violations beyond baseline (`./scripts/check-ruff-baseline`) |
-| Type checker | `pyright` — strict mode, type hints everywhere (`./scripts/typecheck`) |
+| Type checker | `pyright` — type hints everywhere (`./scripts/typecheck`) |
 | Testing | `pytest` — TDD preferred, coverage ≥ 90% for new code |
 | Logging | `structlog` — never use `print()` in production code |
 | Error handling | Catch specific exception types — never bare `try/except` |
@@ -73,13 +73,13 @@ Before submitting a PR, verify all of the following:
 | Gate | Command | Requirement |
 |---|---|---|
 | Version Propagation | `python3 scripts/check-version-propagation` | All versions match `0.1.0` |
-| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000022` |
+| Database Revision | `python3 scripts/check-db-revision` | Database matches compatible head `b1e2100000023` |
 | Backend Lint Baseline | `python3 scripts/check-ruff-baseline` | Zero new violations beyond baseline |
 | Route/Permission Contract | `python3 scripts/check-route-contract` | 155 / 155 routes match `contracts/permissions.yaml` |
 | PowerShell UTF-8 BOM | `python3 scripts/check-ps1-bom` | All `.ps1` scripts have valid UTF-8 BOM |
 | Stray DB Check | `python3 scripts/check-stray-db` | No stray SQLite `.db` files at repo root or backend root |
-| Backend Tests | `cd backend && pytest` | All 3,504 passed (6 skipped, 0 failed, 3,510 collected) |
-| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test` | Typecheck, lint & tests passing (1,113 tests across 125 files) |
+| Backend Tests | `cd backend && pytest` | All 3,636 passed (6 skipped, 0 failed, 3,642 collected; verified 2026-11-09 sequential run) |
+| Frontend Quality | `cd frontend && npm run typecheck && npm run lint && npm test` | Typecheck, lint & tests passing (1,178 tests across 130 files; verified 2026-11-09) |
 
 ### PR Checklist
 

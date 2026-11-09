@@ -33,4 +33,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Frontend Dashboard & Design System**:
   - React 19 + TypeScript 5 + Tailwind CSS v4 SPA with route-level code splitting, semantic design tokens, and multi-skin theming (Graphite & Azure) with WCAG AA contrast validation.
   - Unified `AppShell` and `ServerShell` with quick server switcher, connectable IP/port copy widgets, and live console stream attachment.
-- **Zero-Config Unified Launcher**: Cross-platform `launcher.py`, `start.sh`, and `start.bat` with automatic Python 3.12 and Node.js 22 LTS prerequisite checks, preflight process reconciliation, and pre-backend database schema verification (`b1e2100000022`).
+- **Zero-Config Unified Launcher**: Cross-platform `launcher.py`, `start.sh`, and `start.bat` with automatic Python 3.12 and Node.js prerequisite checks (18+ supported; 22 LTS auto-installed), preflight process reconciliation, and pre-backend database schema verification (`b1e2100000023`).

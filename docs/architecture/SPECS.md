@@ -15,7 +15,7 @@ repository shape, code statistics, structure, specs, and features.**
 |---|---|
 | Name | ONX Manager (Development & Self-Hosted Environment) |
 | Version | `0.1.0` (single source: `backend/pyproject.toml:3` via `app/core/version.py`) |
-| Status | Phase 0–5 CLOSED — Phase 4 CLOSED — Enterprise Branch Runtime (Stages A–G & Frontend UI Batch) CLOSED — Phase 6 (Final Installs & Wrap-up) UP NEXT — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
+| Status | Phase 0–5 CLOSED — Phase 4 CLOSED — Enterprise Branch Runtime (Stages A–G & Frontend UI Batch) CLOSED — Phase 5.5 CLOSED — Phase 6 (Final Installs & Wrap-up) UP NEXT — Canonical Roadmap: `docs/roadmap/ROADMAP_v1.1.md` |
 | License | Apache 2.0 (`LICENSE`) |
 | Primary docs | `docs/architecture/ARCHITECTURE.md`, `docs/current-state.md`, `docs/API.md` |
 
@@ -32,7 +32,7 @@ repository shape, code statistics, structure, specs, and features.**
 | ASGI server | Uvicorn [`standard`] `>=0.30` |
 | ORM / DB access | SQLAlchemy 2.0 async (`sqlalchemy[asyncio] >=2.0.30`) |
 | DB dialect | SQLite (`aiosqlite`), PostgreSQL (`asyncpg`) |
-| Migrations | Alembic `>=1.13` (42 revisions, head `b1e2100000022`) |
+| Migrations | Alembic `>=1.13` (43 revisions, head `b1e2100000023`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (decoupled schema inspection, locks, and ACID backups) |
 | Validation / config | Pydantic v2 `>=2.5`, `pydantic-settings >=2.1` |
 | HTTP client | aiohttp `>=3.9` |
@@ -79,30 +79,30 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 
 ## 3. Repository shape — counts
 
-### Code size (measured 2026-10-02)
+### Code size (measured 2026-11-09)
 
 | Scope | Files | Lines | Command |
 |---|---|---|---|
-| Backend Python (app + tests + alembic) | 694 | **129,949** | `find backend/{app,tests,alembic} -name '*.py'` |
-| — `backend/app` (production) | 412 | 64,892 | `find backend/app -name '*.py'` |
-| — `backend/tests` | 239 | 62,129 | `find backend/tests -name '*.py'` |
-| — `backend/alembic` (env + versions) | 43 | 2,928 | `find backend/alembic -name '*.py'` |
-| Frontend `frontend/src` (TS + TSX + CSS) | 219 | **41,516** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
-| — `.tsx` | 156 | 32,829 | `find frontend/src -name '*.tsx'` |
-| — `.ts` | 62 | 8,656 | `find frontend/src -name '*.ts'` |
-| — `.css` | 1 | 31 | `find frontend/src -name '*.css'` |
-| **TOTAL (backend + frontend source)** | **913** | **171,465** | — |
-| Docs | 174 files | 43,680 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
+| Backend Python (app + tests + alembic) | 723 | **147,796** | `find backend/{app,tests,alembic} -name '*.py'` |
+| — `backend/app` (production) | 416 | 68,694 | `find backend/app -name '*.py'` |
+| — `backend/tests` (249 `test_*.py` files) | 263 | 76,130 | `find backend/tests -name '*.py'` |
+| — `backend/alembic` (env + versions) | 44 | 2,972 | `find backend/alembic -name '*.py'` |
+| Frontend `frontend/src` (TS + TSX + CSS) | 296 | **61,002** | `find frontend/src -name '*.ts*' -o -name '*.css'` |
+| — `.tsx` | 217 | 48,077 | `find frontend/src -name '*.tsx'` |
+| — `.ts` | 78 | 12,090 | `find frontend/src -name '*.ts'` |
+| — `.css` | 1 | 835 | `find frontend/src -name '*.css'` |
+| **TOTAL (backend + frontend source)** | **1,019** | **208,798** | — |
+| Docs | 129 files | 32,059 lines of Markdown (`docs/`) | `find docs -name '*.md'` |
 
 ### By language (source files, backend + frontend)
 
 | Extension | Files |
 |---|---|
-| `.py` | 694 |
-| `.tsx` | 156 |
-| `.ts` | 62 |
+| `.py` | 723 |
+| `.tsx` | 217 |
+| `.ts` | 78 |
 | `.css` | 1 |
-| **Total** | **913** |
+| **Total** | **1,019** |
 
 ### Backend DDD modules (`backend/app/modules/`)
 
@@ -122,13 +122,13 @@ Backend dev dependencies (`[project.optional-dependencies].dev`):
 | storage | 5 | 472 | Storage backends (local/S3/encryption) |
 | shared | 3 | 282 | Shared value objects / exceptions |
 
-### Tests (measured 2026-11-07)
+### Tests (measured 2026-11-09)
 
 | Suite | Count | Detail |
 |---|---|---|
-| Backend | **3,504 passed / 6 skipped** (3,510 collected) | 239 `test_*.py` files across `backend/tests/` |
-| Frontend | **1,113 passed across 125 test files** | `npm test` (`npx vitest run`) |
-| Total | **4,623 total (4,617 passed, 0 failed, 6 skipped)** | Full regression verification & 6/6 CI quality gates PASS |
+| Backend | **3,636 passed / 6 skipped** (3,642 collected) | 249 `test_*.py` files across `backend/tests/` |
+| Frontend | **1,178 passed across 130 test files** | `npm test` (`npx vitest run`) |
+| Total | **4,820 total (4,814 passed, 0 failed, 6 skipped)** | Full regression verification & 6/6 CI quality gates PASS |
 | Backend tests by area | — | `api`, `application`, `auth`, `core`, `domain`, `event_store`, `infrastructure`, `integration`, `monitoring`, `plugin`, `tasks`, `unit`, `versioning` |
 
 ---
@@ -151,7 +151,7 @@ backend/
 │   ├── websocket/            # /ws endpoint, handlers, connection registry
 │   ├── services/             # orchestrators (server, backup)
 │   └── registrations.py      # bus handler registration
-├── alembic/                  # 42 migration revisions (head b1e2100000022)
+├── alembic/                  # 43 migration revisions (head b1e2100000023)
 ├── tests/                    # api/ application/ auth/ core/ domain/ event_store/
 │                             #   infrastructure/ monitoring/ plugin/ tasks/ versioning/
 ├── config/                   # YAML settings
@@ -189,7 +189,7 @@ frontend/
 ```
 docs/
 ├── architecture/        # ARCHITECTURE, SPECS, DATABASE, FRONTEND, SECURITY, PROVISIONING, etc.
-├── decisions/           # 33 ADRs / DECISION records (0001–0021 + 12 DECISION records)
+├── decisions/           # 38 md = 23 ADRs (0001–0023) + 12 DECISION records + README + Phase 5.5 design
 ├── design/              # Design specs (incl. testing-system-refactor/ and frontend-overhaul/)
 ├── project-history/     # Historical feature design reviews and notes
 ├── roadmap/             # ROADMAP_v1.1.md
@@ -205,8 +205,7 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 
 ### Backend architecture / patterns
 
-- **Modular monolith** with DDD: 11 bounded modules, each with
-  `domain` / `application` / `infrastructure` layers (ADR `0001`, `0013`).
+- **Modular monolith** with DDD: 13 bounded modules (ADR `0001`, `0013`).
 - **CQRS**: `CommandBus`, `QueryBus`, `EventBus` (ADR `0002`); handlers in
   `application/commands|queries`; domain events drive sagas (backup, deployment,
   restart).
@@ -321,19 +320,19 @@ README.md, VERSIONING.md, current-state.md, getting-started.md, testing.md
 
 | Metric | Value |
 |---|---|
-| Source lines (backend + frontend) | **171,282** |
-| Source files (backend + frontend) | **913** |
-| Python files / lines | 694 / 129,766 |
-| TS+TSX files / lines | 218 / 41,485 |
-| REST endpoints / live routes | 155 live routes (16 routers + app routes; 155/155 contract gate) |
-| Alembic revisions | 42 (head `b1e2100000022`) |
+| Source lines (backend + frontend) | **208,798** |
+| Source files (backend + frontend) | **1,019** |
+| Python files / lines | 723 / 147,796 |
+| TS+TSX files / lines | 295 / 60,182 (+ 1 CSS file) |
+| REST endpoints / live routes | 155 live routes (18 routers + app routes; 155/155 contract gate) |
+| Alembic revisions | 43 (head `b1e2100000023`) |
 | DB tables | 40+ (default dev DB at head) |
 | CI workflows | 7 (backend-tests, docker-build-smoke, backend-version-ci, route-permission-ci, frontend-ci, verification-cadence, windows-ci) |
 | Contracts | 6 (`api.yaml`, `config.schema.json`, `events.yaml`, `permissions.yaml`, `plugin.yaml`, `README.md`) |
-| ADRs / Decisions | 28 (`0001`–`0016` + 12 formal `DECISION` records) |
-| Backend tests | 3,139 passed / 6 skipped (3,145 collected, 0 failed) |
-| Frontend tests | 752 passed across 89 test files (3,891 total tests across suites) |
-| Docs Markdown | 174 files / 43,680 lines |
+| ADRs / Decisions | 23 ADRs (`0001`–`0023`) + 12 formal `DECISION` records |
+| Backend test files | 249 `test_*.py` test files |
+| Frontend test files | 130 test files |
+| Docs Markdown | 129 files / 32,059 lines |
 
 ---
 

@@ -24,8 +24,8 @@ Tokens use RS256 (RSA Signature with SHA-256). The private key signs tokens; the
 
 | Token | TTL | Storage | Notes |
 |---|---|---|---|
-| Access token | 15 minutes | Persisted in the frontend `authStore` (localStorage key `mcs_auth`) | Short-lived, stateless |
-| Refresh token | 7 days | Returned in the login body and stored in the same frontend `authStore`; DB keeps only the SHA-256 hash | Individually revocable, rotated on use |
+| Access token | 15 minutes | Persisted in the frontend `authStore` (localStorage key `onx_auth`) | Short-lived, stateless |
+| Refresh token | 7 days | Returned in the login body and stored in the frontend `authStore`; DB keeps `token_hash`, `expires_at`, `is_revoked`, and `revoked_at` | Individually revocable, rotated on use |
 
 ### Refresh Token Rotation
 
@@ -207,7 +207,7 @@ through the generic evaluator.
 
 ### WebSocket channel authorization
 
-The WebSocket handshake validates the JWT **before** `accept()` (`backend/app/websocket/endpoint.py:51-62`), and per-channel authorization is checked at subscribe time (`ChannelAuthorizer.can_subscribe`). **WebSocket channel delivery is fully functional (Phase 3 resolved):** per-channel authorization enforces singular REST permissions (`server:read`, `backup:read`, etc.) with `admin:full` bypass (fixed in commit `b98da77`). Frontend `WebSocketManager` handles active channel subscriptions on route change (commit `d096f75`), and `MetricsBridgeHandler` flushes real-time metrics push events every ~2s over WebSocket (commit `db1889d`).
+The WebSocket handshake validates the JWT **before** `accept()` (`backend/app/websocket/endpoint.py:154-165`), and per-channel authorization is checked at subscribe time (`ChannelAuthorizer.can_subscribe`). **WebSocket channel delivery is fully functional (Phase 3 resolved):** per-channel authorization enforces singular REST permissions (`server:read`, `backup:read`, etc.) with `admin:full` bypass (fixed in commit `b98da77`). Frontend `WebSocketManager` handles active channel subscriptions on route change (commit `d096f75`), and `MetricsBridgeHandler` flushes real-time metrics push events every ~2s over WebSocket (commit `db1889d`).
 
 ---
 
@@ -263,7 +263,7 @@ There is currently **no audit query endpoint** — the `audit_log` table and its
 
 ### TLS
 
-All communications use TLS 1.3. Protocol downgrade is rejected at the reverse proxy level.
+TLS is not configured in the shipped Docker Compose stack (the bundled Nginx reverse proxy listens on HTTP port 80). In production environments exposed to public networks, TLS must be terminated externally (e.g. via Cloudflare Tunnel, an external reverse proxy like Caddy/Traefik, or an edge load balancer).
 
 ### Secrets Management
 
@@ -281,7 +281,7 @@ Rate limiting is a single `RateLimitMiddleware` keyed per `client_ip:path`:
 
 | Layer | Scope | Mechanism |
 |---|---|---|
-| Application (REST) | Per `client_ip:path` pair | In-memory sliding window — **60 requests per minute**, not configurable per route, no per-user/per-endpoint tiers |
+| Application (REST) | Per `client_ip:path` pair | In-memory sliding window — **default 60 requests per minute** (globally configurable via settings `rate_limit_per_minute`), no per-route or per-user tiers |
 | WebSocket | Per-connection message rate | 50 messages/second (`WSRateLimiter`) |
 
 There are no `X-RateLimit-*` headers. On exceeding the limit the middleware returns `429 Too Many Requests` with a `Retry-After` header.
@@ -297,7 +297,7 @@ The same behavior is described (and matches the implementation) in [`docs/API.md
 - One refresh token per active session
 - Stored as SHA-256 hash in the database
 - Rotated on each refresh — old token is revoked, new token is issued
-- Not bound to a user agent or IP: the `refresh_tokens` table stores only `token_hash`, `expires_at`, and `user_id` (IP/user-agent fields exist only on `audit_log`, for a different purpose)
+- Not bound to a user agent or IP: the `refresh_tokens` table stores `token_hash`, `expires_at`, `user_id`, `is_revoked`, and `revoked_at` (IP/user-agent fields exist only on `audit_log`, for a different purpose)
 
 ### Revocation
 

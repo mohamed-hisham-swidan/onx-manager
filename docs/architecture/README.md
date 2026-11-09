@@ -16,6 +16,7 @@ This directory contains the living architecture and system design specifications
 | [`PROVISIONING.md`](PROVISIONING.md) | Server creation and software provisioning architecture. |
 | [`SPEC-FORGE-PROVISIONING-001.md`](SPEC-FORGE-PROVISIONING-001.md) | Forge & NeoForge automated installer provisioning specification. |
 | [`plugins-and-marketplace.md`](plugins-and-marketplace.md) | Plugin manager and Modrinth catalog integration design. |
+| [`health-engine-design.md`](health-engine-design.md) | Multi-factor server health evaluation engine and status transition model. |
 
 ---
 

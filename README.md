@@ -13,7 +13,7 @@ Manage multiple servers, monitor them live, handle backups, browse plugins, and 
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](#)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-3510_backend_%7C_1113_frontend-brightgreen?style=flat-square)](docs/testing.md)
+[![Tests](https://img.shields.io/badge/Tests-3642_backend_%7C_1178_frontend-brightgreen?style=flat-square)](docs/testing.md)
 
 </div>
 
@@ -82,7 +82,7 @@ It's built for people who want full control over their servers without relying o
 
 ## Quick Start (Zero Config)
 
-**Automated Setup**: If Python 3.12 or Node.js 22 LTS is missing, the launcher will **automatically install** them with zero administrator rights required.
+**Automated Setup**: If Python 3.12 or Node.js is missing, the launcher will install them automatically (zero administrator rights required on Windows via portable runtimes; Linux/macOS uses package managers or uv; Node 18+ supported, Node 22 LTS auto-installed).
 
 ### Windows
 
@@ -101,8 +101,8 @@ cd onx-manager
 ```
 
 ### What the Launcher Does Automatically:
-1. **Prerequisite Gate**: Probes and verifies Python 3.12, Node.js 22 LTS, and npm upfront before starting any server.
-2. **Auto-Installation**: Automatically downloads and configures Python and portable Node.js 22 LTS if not present on your system.
+1. **Prerequisite Gate**: Probes and verifies Python 3.12, Node.js (18+ supported; 22 LTS auto-installed), and npm upfront before starting any server.
+2. **Auto-Installation**: Automatically downloads and configures Python and portable Node.js if not present on your system (zero administrator rights on Windows).
 3. **Dependency Management**: Creates the Python virtual environment and installs backend/frontend dependencies (`pip` & `npm install`).
 4. **Database Readiness**: Automatically reconciles and applies database schema migrations to the latest revision.
 5. **Service Lifecycle**: Starts the FastAPI async backend and React 19 frontend with real-time health checks.
@@ -116,7 +116,7 @@ On first run you'll be taken to the **setup wizard** to create your admin accoun
 ./start.sh --restart       # Restart backend and frontend
 ./start.sh --status        # View live process status & ports
 ./start.sh --logs          # View aggregated service logs
-./start.sh --install-node  # Install Node.js 22 LTS
+start.bat --install-node   # Install portable Node.js (Windows only)
 ./start.sh --swagger       # Open Swagger API docs
 ./start.sh --help          # Show all options
 ```

@@ -7,7 +7,7 @@
 | Primary database | SQLite 3 (`aiosqlite` async) default (`backend/data/onx.db`); PostgreSQL 16 (`asyncpg`) supported |
 | Cache | Redis 7 (declared in docs; **not used in the running system** — see note) |
 | ORM | SQLAlchemy 2.0 async (repository pattern) |
-| Migrations | Alembic (42 revisions, head `b1e2100000022`) |
+| Migrations | Alembic (43 revisions, head `b1e2100000023`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` (ACID backups & migration gate) |
 | Embedded mode | SQLite 3 (fallback via config) |
 
@@ -45,23 +45,36 @@ The central aggregate. Each row represents a single Minecraft server instance wi
 | `memory_min_mb` | `Integer` | 1024 | |
 | `memory_max_mb` | `Integer` | 2048 | |
 | `group_id` | `String(64)` | `"default"` | Logical grouping |
-| `status` | `String(16)` | `"created"` | created → installing → stopped → running |
+| `status` | `String(32)` | `"created"` | created → installing → stopped → running (widened to String(32) in `b1e2100000008`) |
 | `port` | `Integer` | 25565 | |
 | `provisioning_error` | `Text` | `None` | Nullable error summary when status is `provisioning_failed` |
 | `provisioning_retryable` | `Boolean` | `False` | True if transient error is auto-retryable |
 | `motd`, `max_players`, `gamemode`, `difficulty`, `pvp`, etc. | varied | — | Direct server.properties mapping |
-| `provider` | `String(32)` | `"local"` | local, docker, remote, local_windows |
+| `provider` | `String(32)` | `"local"` | local, docker, remote, local_windows (migration default is `"local"`; note: model default specifies `""`) |
 | `location_type` | `String(16)` | `"local"` | Filesystem placement |
 | `root_path`, `working_directory`, `startup_jar`, `startup_command` | varied | — | Deployment paths |
 | `launch_config_json` | `Text` | nullable | Full launch config snapshot |
 | `uptime_seconds` | `Float` | 0 | |
-| `running_start_time` | `DateTime` | nullable | Timestamp when server entered running state (`b1e2100000009`) |
+| `running_start_time` | `Float` | nullable | Timestamp (epoch float) when server entered running state (`b1e2100000009`) |
 | `cpu_cores` | `Integer` | 0 | Max logical processors (0 = unconstrained; `b1e2100000010`) |
 | `cpu_affinity` | `String(64)` | `""` | Core affinity string (e.g. "0-3"; `b1e2100000010`) |
 | `external_id` | `String(255)` | nullable | Cloud provider instance ID |
 | `missing_since` | `DateTime` | nullable | When server dir was detected missing (two-pass deletion) |
 
 Server config properties (motd, difficulty, etc.) map to `server.properties` fields. The `server_type` column was added in migration `5a50140d37df`; deployment columns in `003`; `launch_config_json` in `fcc7545db19e`; `external_id` in `902b076bfa36`; `missing_since` in `a1b2c3d4e5f6`; `running_start_time` in `b1e2100000009`; `cpu_cores` and `cpu_affinity` in `b1e2100000010`.
+
+`server_lifecycle_leases` — `backend/app/modules/server/infrastructure/models.py:99`
+
+Serializes multi-worker server lifecycle transitions (start, stop, promote) to prevent race conditions (`b1e2100000023`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `server_id` | `String(36)` PK | Scoped to individual server |
+| `holder` | `String(128)` | Process/worker identification |
+| `owner_token` | `String(64)` | Secret token for lease renewal and safe release |
+| `acquired_at` | `DateTime(timezone=True)` | Timestamp acquired |
+| `expires_at` | `DateTime(timezone=True)` | Timestamp expiration (heartbeat renewed) |
+| `updated_at` | `DateTime(timezone=True)` | Last lease update |
 
 ### Backups
 
@@ -70,7 +83,7 @@ Server config properties (motd, difficulty, etc.) map to `server.properties` fie
 | Column | Type | Notes |
 |---|---|---|
 | `id` | `String(36)` PK | UUID |
-| `server_id` | `String(36)` | Indexed, FK to servers |
+| `server_id` | `String(36)` | Indexed (no FK constraint in model) |
 | `backup_type` | `String(16)` | full, world, plugins |
 | `status` | `String(16)` | pending, running, completed, failed |
 | `size_bytes` | `Integer` | |
@@ -141,7 +154,7 @@ Integrity is verified by replaying the hash chain. Retention: 1 year (partitione
 | `dependencies` | `Text` | JSON list of dependent plugin IDs |
 | `status` | `String(16)` | installed, enabled, disabled, error |
 | `filename` | `String(255)` | On-disk `.jar` filename (filesystem reconciliation key) |
-| `source` | `String(16)` | `detected` (found on disk) or `modrinth` (marketplace) |
+| `source` | `String(16)` | `manual`, `upload`, `detected` (found on disk), or `modrinth` (marketplace) |
 | `external_project_id`, `external_version_id`, `external_url`, `checksum` | varied | Modrinth provenance for marketplace-installed plugins |
 | `pending_deletion` | `Boolean` | Deferred deletion — file removed on next server start/restart |
 
@@ -184,7 +197,32 @@ Introduced in Stages A–G and Phase 5.5 (`b1e2100000013` through `b1e2100000022
 - **`server_runtimes`** — 1:1 container/process execution binding (`b1e2100000018`).
   - Columns: `id` (PK), `server_id` (FK `servers.id`), `commit_id` (FK `server_commits.id`), `materialization_id`, `provider_type`, `container_id`, `pid`, `port`, `status` (`starting`, `running`, `stopped`, `crashed`), `exit_code`, `oom_killed`, `started_at`, `stopped_at`, `created_at`.
 - **`server_test_runs`** — Test run executions.
-  - Columns: `id` (PK), `server_id` (indexed), `commit_id` (indexed), `node_id`, `status`, `ephemeral_port`, `log_output`, `failure_reason`, `bot_count`, `duration_minutes`, `placement_mode`, `bot_tech`, `reserved_ram_mb`, `reserved_cores`, `runtime_id` (FK `server_runtimes.id`), `test_definition_id` (FK `server_test_definitions.id`), `evidence_bundle` (JSON), `artifacts_purged` (bool), `created_at`, `expires_at`.
+  - Columns: `id` (PK), `server_id` (indexed), `commit_id` (indexed), `node_id`, `status`, `ephemeral_port`, `log_output`, `failure_reason`, `bot_count`, `duration_minutes`, `placement_mode`, `bot_tech`, `reserved_ram_mb`, `reserved_cores`, `runtime_id` (FK `server_runtimes.id`), `test_definition_id` (FK `server_test_definitions.id`), `operation_id` (FK `operations.id`, `b1e2100000022`), `evidence_bundle` (JSON), `artifacts_purged` (bool), `created_at`, `expires_at`.
+
+### Operations Subsystem
+
+`backend/app/modules/operations/infrastructure/models.py`
+
+Introduced in Phase 5.5 (`b1e2100000021`) for persistent, multi-step asynchronous operation tracking:
+
+- **`operations`** — Top-level asynchronous operations (e.g. provisioning, test run pipelines).
+  - Columns: `id` (PK), `type` (indexed), `target_type`, `target_id`, `actor_id`, `status` (indexed), `idempotency_key`, `current_step_id`, `last_event_seq`, `failure_code`, `error_message`, `cancellation_requested`, `timeout_seconds`, `created_at` (indexed), `started_at`, `finished_at`, `metadata_json`.
+  - Indexes / Constraints: `(target_type, target_id)`, unique constraint `(target_type, target_id, idempotency_key)`.
+- **`operation_steps`** — Individual step status and logs within an operation.
+  - Columns: `id` (PK), `operation_id` (FK `operations.id`), `sequence` (int), `name`, `status`, `started_at`, `finished_at`, `error_code`, `error_message`, `result_json`.
+
+### Exposure Subsystem
+
+`backend/app/modules/exposure/infrastructure/models.py`
+
+Introduced in `b1e2100000001` through `b1e2100000006`:
+
+- **`host_playit_agent`** — Single-row host agent credential and claim state.
+- **`panel_exposure`** — Web panel exposure method (Cloudflare, Playit, port forward).
+- **`server_exposure`** — Per-server exposure configuration.
+- **`server_exposure_target`** — Forwarding targets mapping local service ports to public tunnels.
+- **`server_exposure_grants`** — Server exposure RBAC permissions (`id`, `server_id` FK, `user_id` FK, `can_manage`, `can_view`, unique `(server_id, user_id)`).
+- **`server_registered_ports`** — Registered companion ports (`id`, `server_id` FK, `service_type`, `protocol`, `port`, `name`).
 
 ### Infrastructure Tables
 
@@ -281,8 +319,9 @@ alembic downgrade -1
 | `b1e2100000018` | `b1e2100000017` | Stage F: `server_test_definitions`, `server_runtimes`, `runtime_id`, `test_definition_id`, `evidence_bundle`, `artifacts_purged` |
 | `b1e2100000019` | `b1e2100000018` | Stage G: `server_branches.is_protected`, `server_branches.protection_policy` |
 | `b1e2100000020` | `b1e2100000019` | `server_startup_timeout_seconds` on `servers` |
-| `b1e2100000021` | `b1e2100000020` | Phase 5.5 Stage A: `server_operations` table |
-| `b1e2100000022` | `b1e2100000021` | Phase 5.5 Stage B: `operation_id` on `server_test_runs` — **head** |
+| `b1e2100000021` | `b1e2100000020` | Phase 5.5 Stage A: `operations` and `operation_steps` tables |
+| `b1e2100000022` | `b1e2100000021` | Phase 5.5 Stage B: `operation_id` on `server_test_runs` |
+| `b1e2100000023` | `b1e2100000022` | Server Lifecycle Hardening: `server_lifecycle_leases` table — **head** |
 
 ### Per-release compatibility floor
 
@@ -291,7 +330,7 @@ the release minimum — **fail closed**, never auto-upgraded.
 
 | Release | Minimum DB revision |
 |---------|---------------------|
-| `0.1.0` | `b1e2100000022` (current head) |
+| `0.1.0` | `b1e2100000023` (current head) |
 
 - **Authoritative source:** `backend/app/core/persistence/db_revision.py`
   (`RELEASE_MINIMUM_DB_REVISION`).
@@ -403,6 +442,22 @@ alembic upgrade head
 | `b1e2100000005` | `server_registered_ports` table |
 | `b1e2100000006` | `server_exposure_target.playit_tunnel_id` |
 | `b1e2100000007` | `metric_points.tps` nullable |
+| `b1e2100000008` | `provisioning_error` & `provisioning_retryable` on servers |
+| `b1e2100000009` | `running_start_time` on servers |
+| `b1e2100000010` | `cpu_cores` and `cpu_affinity` on servers |
+| `b1e2100000011` | Hash chain unique constraints on `event_store` |
+| `b1e2100000012` | Custom mod support columns on `servers` |
+| `b1e2100000013` | Initial versioning tables: `server_branches`, `server_commits`, `server_test_runs`, `server_world_snapshots` |
+| `b1e2100000014` | `server_activity_logs` table |
+| `b1e2100000015` | Stage B: `server_tags`, `server_commit_parents`, `server_branches.status` |
+| `b1e2100000016` | Stage C: `server_materializations`, `server_import_reviews` |
+| `b1e2100000017` | Stage D: `server_admission_lease`, `reserved_ram_mb`, `reserved_cores` on `server_test_runs` |
+| `b1e2100000018` | Stage F: `server_test_definitions`, `server_runtimes`, `runtime_id`, `test_definition_id`, `evidence_bundle`, `artifacts_purged` |
+| `b1e2100000019` | Stage G: `server_branches.is_protected`, `server_branches.protection_policy` |
+| `b1e2100000020` | `server_startup_timeout_seconds` on `servers` |
+| `b1e2100000021` | Phase 5.5 Stage A: `operations` and `operation_steps` tables |
+| `b1e2100000022` | Phase 5.5 Stage B: `operation_id` on `server_test_runs` |
+| `b1e2100000023` | Server Lifecycle Hardening: `server_lifecycle_leases` table (head) |
 
 > \* `servers` is created by `003` on a fresh clone; `876be46160d3` is a
 > no-op for it when replaying existing history.

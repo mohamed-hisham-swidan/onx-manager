@@ -7,7 +7,7 @@ Authoritative scripts for quality gates, preflight cleanup, and development task
 | Script | Purpose |
 |---|---|
 | `scripts/check-version-propagation` | Verifies `pyproject.toml`, `package.json`, and runtime version match (`0.1.0`) |
-| `scripts/check-db-revision` | Verifies current database schema matches minimum compatibility revision (`b1e2100000022`) |
+| `scripts/check-db-revision` | Verifies current database schema matches minimum compatibility revision (`b1e2100000023`) |
 | `scripts/check-ruff-baseline` | Enforces zero-regression lint gate against `backend/ruff-baseline.json` baseline |
 | `scripts/check-route-contract` | Validates all 155 live FastAPI routes against `contracts/permissions.yaml` contract |
 | `scripts/check-ps1-bom` | Verifies all `.ps1` files contain valid UTF-8 BOM encoding |
