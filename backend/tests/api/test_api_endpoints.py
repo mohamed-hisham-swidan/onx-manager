@@ -56,7 +56,9 @@ def _override_deps(buses) -> None:
 @pytest.fixture
 async def client(tmp_path) -> AsyncClient:
     import os
+    from typing import Any
 
+    from sqlalchemy import event
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     from app.core.persistence.base import Base
@@ -64,7 +66,25 @@ async def client(tmp_path) -> AsyncClient:
 
     _reset_rate_limits()
 
-    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    db_file = tmp_path / "test_api.sqlite3"
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{db_file.as_posix()}",
+        echo=False,
+        connect_args={"timeout": 30.0, "check_same_thread": False},
+    )
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def set_sqlite_pragma(dbapi_connection: Any, _connection_record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            pass
+        finally:
+            cursor.close()
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -84,21 +104,27 @@ async def client(tmp_path) -> AsyncClient:
     test_servers_dir.mkdir(parents=True, exist_ok=True)
     os.environ["MCS_SERVERS_DATA_DIR"] = str(test_servers_dir)
 
-    transport = ASGITransport(app=app)
-    with patch(
-        "app.modules.server.application.services.jar_service.download_server_jar",
-        AsyncMock(return_value="/tmp/mock-jar/server.jar"),
-    ):
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            yield ac
-
-    await engine.dispose()
-    database._engine = None
-    database._session_factory = None
-    if old_data_dir is not None:
-        os.environ["MCS_SERVERS_DATA_DIR"] = old_data_dir
-    else:
-        os.environ.pop("MCS_SERVERS_DATA_DIR", None)
+    try:
+        transport = ASGITransport(app=app)
+        with patch(
+            "app.modules.server.application.services.jar_service.download_server_jar",
+            AsyncMock(return_value="/tmp/mock-jar/server.jar"),
+        ):
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
+                yield ac
+    finally:
+        await engine.dispose()
+        database._engine = None
+        database._session_factory = None
+        if db_file.exists():
+            db_file.unlink()
+        for extra in (tmp_path / f"{db_file.name}-wal", tmp_path / f"{db_file.name}-shm"):
+            if extra.exists():
+                extra.unlink()
+        if old_data_dir is not None:
+            os.environ["MCS_SERVERS_DATA_DIR"] = old_data_dir
+        else:
+            os.environ.pop("MCS_SERVERS_DATA_DIR", None)
 
 
 @pytest.fixture
