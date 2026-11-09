@@ -267,6 +267,11 @@ class TestProviderRuntimeExecutionContract:
         except NotImplementedError:
             # CloudProvider explicitly raises NotImplementedError for unprovisioned VMs
             assert isinstance(provider, (CloudProvider, CloudProviderStub))
+        except ProviderError:
+            # Platform-specific runtime failure (e.g. tmux unavailable for
+            # local_linux on win32) is acceptable; the contract under test is
+            # that the full kwarg signature is accepted without TypeError.
+            pass
 
     @pytest.mark.asyncio
     async def test_destroy_graceful_completion(
