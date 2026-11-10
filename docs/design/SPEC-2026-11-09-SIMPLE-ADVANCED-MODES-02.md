@@ -1,7 +1,7 @@
 # SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02
 
-Status: design specification v8.1 (owner-confirmed v5/v6/v7/v8 plus 2026-11-10 owner decisions
-OD-1..OD-8), CLOSED and READY FOR BUILD for P1-P5. P6 (D9) remains BLOCKED on a D2 (governance)
+Status: design specification v8.2 (owner-confirmed v5/v6/v7/v8 plus 2026-11-10 owner decisions
+OD-1..OD-9), CLOSED and READY FOR BUILD for P1-P5. P6 (D9) remains BLOCKED on a D2 (governance)
 decision record plus a superseding ADR before P6. Governance paperwork is waived for P1-P5; it returns
 for P6/D9.
 
@@ -57,6 +57,17 @@ reproducible in this repository; never restated as FACT).
 - OWNER-STATED (OD-6): `mods/*.jar` and mod configs are out of scope (Lane E); they fall to class E via catch-all. Supporting mod loaders in Advanced mode later will require promoting them to class A/B before enabling Advanced mode so clean export does not boot without mods. Optional modpack support for Simple servers is recorded as a separate Lane E idea.
 - OWNER-STATED (OD-7): header updated to closed and ready for build for P1-P5; P6 (D9) remains blocked on a D2 governance decision record plus a superseding ADR.
 - No existing FACT citation was changed and no owner decision was altered.
+
+## Revision log v8.1 -> v8.2 (owner decisions 2026-11-10)
+
+- OWNER-STATED (NOD-1/OD-9): `.gitattributes` is panel-generated at commit time (class-D-like), written into the repo by the panel with the D-K eol/filemode rules; it is never taken from the server directory. A `.gitattributes` found in the server tree is class E (catch-all) and is removed by the D-G sanitizer. It is not added to any allow-list regex. `CLASS_B_CONFIG_ALLOWLIST_REGEX` no longer contains `onx-jars.lock.json`; evaluation step 2 classifies it as the class-A lockfile.
+- OWNER-STATED (NOD-2): `*.dat` under `plugins/` stays class E (OD-2); text player data is class C and `playerdata` joins the class-C directory list.
+- OWNER-STATED (NOD-3): a `.jar` anywhere except root `*.jar` and `plugins/*.jar` is class E; `.class`, `.so`, `.dll`, `.nbt` are class E. Because E is evaluated before C, these are E even inside class-C subtrees.
+- OWNER-STATED (NOD-4): `server-icon.png` is class B and is tracked only below the oversized-binary threshold; the threshold remains Unknown I.
+- OWNER-STATED (NOD-5): `plugins/*/lib/*.jar` and other nested jars are class E (NOD-3); nested config directories under `config/` are class B.
+- OWNER-STATED (NOD-6): `.csv` is class E; `csv` is removed from the class-C file-name alternative and added to the class-E extension list. Any unknown extension is class E (catch-all).
+- OWNER-STATED (NOD-7): `server.properties` normalization discards all comments and keeps only sorted `key=value` lines. Real-boot validation remains OPEN.
+- No other owner decision, phase order, or FACT citation changed.
 
 ## Revision log v6 -> v7 (owner decisions 2026-11-09)
 
@@ -238,21 +249,26 @@ decisions in the next section supersede where they conflict.
     and source; the tracked pointer is `onx-jars.lock.json` (class-A lockfile, evaluation step 2;
     it is not a class-B user config). Replaced from `main` on live restart.
   - OWNER-STATED (D-A, class B user-edited config): for example `plugins/<name>/` configs the
-    plugin does not rewrite. In Git; replaced from `main` on restart.
+    plugin does not rewrite and root `server-icon.png`. In Git; replaced from `main` on restart.
+    `server-icon.png` is tracked only below the oversized-binary threshold (Unknown I).
   - OWNER-STATED (D-A, class C live-owned state): `ops.json`, `whitelist.json`, `banned-*.json`
     (Allow-list v1 regex enumerates `banned-players.json` and `banned-ips.json` until prototype 3
-    validates the list), `usercache.json`, plugin-rewritten configs/data. The live server owns it. A copy is synced
-    automatically into a dedicated non-main branch `live-state`. Restart NEVER overwrites it.
-    `main` never receives automatic commits; Save & Commit remains the only commit path to
-    `main`/branches. A developer must merge `live-state` into their branch before editing class-C
-    files.
+    validates the list), `usercache.json`, plugin-rewritten configs/data. Text player data under
+    `plugins/*/playerdata/` is class C. `*.dat` under `plugins/` remains class E (OD-2), so binary
+    player data is not synced to `live-state`; it is covered by backup and Data Templates. The live
+    server owns it. A copy is synced automatically into a dedicated non-main branch `live-state`.
+    Restart NEVER overwrites it. `main` never receives automatic commits; Save & Commit remains the
+    only commit path to `main`/branches. A developer must merge `live-state` into their branch before
+    editing class-C files.
   - OWNER-STATED (D-A, class D panel-owned settings): `server-port`, `rcon.port`, `rcon.password`,
     `query.port`, `enable-rcon`. Outside the repo; injected by the panel at run/export time; never
     tracked.
   - OWNER-STATED (D-A, class E never tracked): `world*`/custom level-name, logs, cache, libraries,
     crash-reports, `.paper-remapped`, DBs, map tiles, and plugin binary data (`*.db`, `*.sqlite`,
     `*.dat` and similar under `plugins/`). They are excluded from Git and live-state, covered by the
-    existing backup system, and included in optional Data Templates.
+    existing backup system, and included in optional Data Templates. Also class E: a `.jar` anywhere
+    except root `*.jar` and `plugins/*.jar` (including `plugins/*/lib/*.jar`), `.class`, `.so`,
+    `.dll`, `.nbt`, `.csv`, and a `.gitattributes` found in the server tree.
 - OWNER-STATED (2026-11-09, D-B): classification is an EXPLICIT ALLOW-LIST: ignore everything by
   default; track only what is explicitly allowed. Allow-list v1 is the normative list in "Allow-list
   v1 (normative)" (PROTOTYPE-REPORT). It was NOT derived from a real Paper boot; deriving and
@@ -263,11 +279,9 @@ decisions in the next section supersede where they conflict.
   strip the `Properties.store()` timestamp line matching
   `^#\s*(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\d{4}\s*$`,
   normalize CRLF to LF, remove the five class-D keys (`server-port`, `rcon.port`, `rcon.password`,
-  `query.port`, `enable-rcon`), and sort remaining `key=value` lines lexicographically. Other user
-  comments are discarded by normalization (the prototype report recipe is silent on comments other than
-  header and timestamp; UNVERIFIED whether other comments are preserved or discarded; resolve before
-  finalizing Save & Commit). This normalization is PROTOTYPE-REPORT (not yet validated against a real
-  Paper boot).
+  `query.port`, `enable-rcon`), and sort remaining `key=value` lines lexicographically. All comments
+  are discarded by normalization; only sorted `key=value` lines are kept (OWNER-STATED NOD-7, 2026-11-10).
+  This normalization is PROTOTYPE-REPORT (not yet validated against a real Paper boot).
 - OWNER-STATED (2026-11-09, D-D): `plugins/<name>/` defaults to class B. At restart, compare the
   live file to the last synced snapshot; if it differs, treat it as class C (do not overwrite,
   show a warning). The default override list is the built-in always-C path patterns in "Allow-list v1
@@ -298,8 +312,11 @@ decisions in the next section supersede where they conflict.
   (the Windows `NUL` variant of the hooks path is UNVERIFIED); isolated environment
   `GIT_CONFIG_GLOBAL=<isolated file>`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_TERMINAL_PROMPT=0`; leading-dash
   guard plus `git check-ref-format --branch <ref>`; nested `.git` dirs and `.git` pointer files and
-  symlinks removed before `git add`; `.gitattributes` driver lines matching
-  `(?:^|\s)(-?(?:filter|diff|merge)\s*=)` scrubbed in place. Use a private minimal Git config with
+  symlinks removed before `git add`; a `.gitattributes` found in the server tree is class E (catch-all)
+  and is removed before `git add`; `.gitattributes` driver lines matching
+  `(?:^|\s)(-?(?:filter|diff|merge)\s*=)` scrubbed in place on the panel-generated file. The panel
+  generates `.gitattributes` at commit time (class-D-like) with the D-K eol/filemode rules; it is never
+  taken from the server directory. Use a private minimal Git config with
   `safe.directory` for the one repo path only. Container user/uid is UNKNOWN: recon DockerProvider
   `--user`. ONX uses eclipse-temurin with its own launch, not the itzg image, so itzg-specific
   points do not apply.
@@ -324,8 +341,9 @@ decisions in the next section supersede where they conflict.
 - OWNER-STATED (2026-11-09, D-K): GitHub is the last stage of Advanced (P5), after core works.
   Poll via `git fetch` FIRST; webhook is optional because the server may sit behind NAT. Webhook:
   verify HMAC-SHA256 on the raw body, dedupe by `X-GitHub-Delivery` but allow operator redelivery.
-  Reject non-fast-forward updates to `main`. Add `.gitattributes` (`* text=auto eol=lf` for text
-  configs, `-text` for jars) and `core.filemode true`. Jars never go to GitHub as plain blobs (see
+  Reject non-fast-forward updates to `main`. The panel generates `.gitattributes` at commit time
+  (class-D-like; `* text=auto eol=lf` for text configs, `-text` for jars) and sets `core.filemode true`;
+  it is never taken from the server directory. Jars never go to GitHub as plain blobs (see
   D-A). Unknown J narrows to credential choice (App vs fine-grained token vs deploy key); Unknown I
   is resolved by D-A.
 - OWNER-STATED (2026-11-09, D-L): a runtime publishes a SET of host ports (game, rcon, query,
@@ -344,7 +362,7 @@ decisions in the next section supersede where they conflict.
 - PROTOTYPE-REPORT (D-B/D-D): Evaluation order (first match wins):
   1. **Dynamic Class-C overrides (`D-D`)**: Any path recorded in the per-server DB registry `dynamic-class-c` (from Snapshot Comparison; table schema/shape is an implementation choice per OD-4) -> **Class C**.
   2. **Class-A lockfile pointer (`OD-1`)**: Matching `^onx-jars\.lock\.json$` -> **Class A lockfile** (tracked in Git; points to CAS blobs).
-  3. **Class E Hard Denylist**: Matching `CLASS_E_DENYLIST_REGEX` -> **Class E** (never tracked in Git or CAS). Evaluated before Class A/B/C so `cache/*.jar`, `libraries/**/*.jar`, and plugin binary data are never misclassified.
+  3. **Class E Hard Denylist**: Matching `CLASS_E_DENYLIST_REGEX` -> **Class E** (never tracked in Git or CAS). Evaluated before Class A/B/C so `cache/*.jar`, `libraries/**/*.jar`, nested jars outside root/`plugins/*.jar`, binary extensions, `.csv`, and plugin binary data are never misclassified.
   4. **Class A Executable Jars**: Matching `CLASS_A_JAR_REGEX` -> **Class A** (stored in sha256 CAS, referenced by lockfile).
   5. **Class C Live-Owned State**: Matching `CLASS_C_LIVE_STATE_REGEX` -> **Class C** (synced to `live-state` branch; never overwritten by `main`).
   6. **Class B User-Edited Config Allow-List**: Matching `CLASS_B_CONFIG_ALLOWLIST_REGEX` -> **Class B** (tracked on `main` and feature branches).
@@ -358,22 +376,23 @@ CLASS_E_DENYLIST_REGEX = re.compile(
     r"|logs(?:/.*|$)|crash-reports(?:/.*|$)|cache(?:/.*|$)|libraries(?:/.*|$)|versions(?:/.*|$)"
     r"|\.paper-remapped(?:/.*|$)|\.mixin\.out(?:/.*|$)"
     r"|version_history\.json$|patched_[^/]+\.jar$"
-    r"|.*\.(?:db|sqlite|sqlite3|mv\.db|trace\.db|h2\.db|lock|lck|pid|log|gz|tar|zip|mca|mcr|dat|dat_old)$"
+    r"|(?!plugins/[^/]+\.jar$).*/[^/]+\.jar$"
+    r"|.*\.(?:db|sqlite|sqlite3|mv\.db|trace\.db|h2\.db|lock|lck|pid|log|gz|tar|zip|mca|mcr|dat|dat_old|class|so|dll|nbt|csv)$"
     r")"
 )
 CLASS_A_JAR_REGEX = re.compile(r"^(?:[^/]+\.jar|plugins/[^/]+\.jar)$")
 CLASS_C_LIVE_STATE_REGEX = re.compile(
     r"^(?:"
     r"ops\.json$|whitelist\.json$|banned-players\.json$|banned-ips\.json$|usercache\.json$"
-    r"|plugins/[^/]+/(?:userdata|data|players|storage|cache)/.*$"
-    r"|plugins/[^/]+/(?:data|players|userdata|database|storage)\.(?:yml|yaml|json|txt|csv)$"
+    r"|plugins/[^/]+/(?:userdata|data|players|playerdata|storage|cache)/.*$"
+    r"|plugins/[^/]+/(?:data|players|userdata|database|storage)\.(?:yml|yaml|json|txt)$"
     r")"
 )
 CLASS_B_CONFIG_ALLOWLIST_REGEX = re.compile(
     r"^(?:"
-    r"onx-jars\.lock\.json|server\.properties"
+    r"server\.properties|server-icon\.png"
     r"|bukkit\.yml|spigot\.yml|commands\.yml|help\.yml|permissions\.yml|pufferfish\.yml|purpur\.yml"
-    r"|config/[^/]+\.(?:yml|yaml|json|toml|properties|conf)"
+    r"|config/(?:[^/]+/)*[^/]+\.(?:yml|yaml|json|toml|properties|conf)"
     r"|plugins/[^/]+/(?:[^/]+/)*[^/]+\.(?:yml|yaml|json|toml|properties|conf|txt|lang)"
     r")$"
 )
@@ -381,12 +400,18 @@ CLASS_D_PANEL_KEYS = frozenset({"server-port", "rcon.port", "rcon.password", "qu
 ```
 
 - PROTOTYPE-REPORT (D-B/D-D): Classification rules:
-  - `plugins/*/{userdata,data,players,storage,cache}/**` and `plugins/*/{data,players,userdata,database,storage}.{yml,yaml,json,txt,csv}` are always class C (built-in default override list; contents are an implementation choice per "Owner-permitted implementation choices").
+  - `plugins/*/{userdata,data,players,playerdata,storage,cache}/**` and `plugins/*/{data,players,userdata,database,storage}.{yml,yaml,json,txt}` are always class C (built-in default override list; contents are an implementation choice per "Owner-permitted implementation choices").
   - The registry that records dynamic C reclassification (`dynamic-class-c`) lives in the per-server DB, never inside the server tree (OD-4).
   - A custom `level-name` world is class E through the default catch-all (the denylist explicitly names only `world`, `world_nether`, `world_the_end`).
   - Precedence order means every `*.db`, `*.sqlite`, `*.dat` under `plugins/` is class E even inside a class-C subtree (OD-2).
+  - Text player data under `plugins/*/playerdata/` is class C. `*.dat` under `plugins/` stays class E (OD-2); binary player data is therefore not synced to `live-state`, covered by backup and Data Templates.
+  - A `.jar` anywhere except root `*.jar` and `plugins/*.jar` is class E, including `plugins/*/lib/*.jar`; `.class`, `.so`, `.dll`, `.nbt`, and `.csv` are class E.
+  - `server-icon.png` is class B, tracked only below the oversized-binary threshold (Unknown I; no number is defined here).
+  - Nested config directories under `config/` are class B for `yml`, `yaml`, `json`, `toml`, `properties`, and `conf`.
+  - A `.gitattributes` found in the server tree is class E and is removed by the D-G sanitizer; the panel generates the repo `.gitattributes` at commit time (NOD-1).
+  - Any unknown extension is class E through the default catch-all.
 
-- PROTOTYPE-REPORT / OWNER-STATED (OD-2 consequence): Plugin binary data (`*.db`, `*.sqlite`, `*.dat` and similar under `plugins/`) is never tracked and never synced to `live-state`; it is covered by the existing backup system and is included in optional Data Templates (D-F overlays class-E paths).
+- PROTOTYPE-REPORT / OWNER-STATED (OD-2 consequence): Plugin binary data (`*.db`, `*.sqlite`, `*.dat` and similar under `plugins/`) is never tracked and never synced to `live-state`; it is covered by the existing backup system and is included in optional Data Templates (D-F overlays class-E paths). This includes binary player data (`*.dat` under `plugins/*/{userdata,players,playerdata}/**`); text player data under `playerdata/` is class C and is synced to `live-state`.
 
 - FACT (creation-time) / OWNER-STATED (OD-3): `eula.txt` is written at creation time by `write_eula` (`backend/app/modules/server/application/services/jar_service.py:987-1010`) which writes `eula=true`, called from `create_server.py:187`; test deployments write it at `backend/app/modules/versioning/infrastructure/config_writer.py:87-89`; backups already list it in `CONFIG_FILES` at `backend/app/services/backup_orchestrator.py:27-34`. Normative: `eula.txt` is panel-generated (class-D-like), never tracked; the P2 clean export must write it into the exported root.
 
@@ -717,13 +742,14 @@ mapping in P2.
   Other Git hosts remain out of scope.
 - Poll via `git fetch` FIRST; webhook optional (NAT). Webhook: HMAC-SHA256 on raw body; dedupe by
   `X-GitHub-Delivery`; allow operator redelivery. Handlers only enqueue; one repo write lock (D-J).
-- Reject non-fast-forward updates to `main`. Add `.gitattributes`: `* text=auto eol=lf` for text
-  configs, `-text` for jars; `core.filemode true`. Jars never go to GitHub as plain blobs (D-A).
+- Reject non-fast-forward updates to `main`. The panel generates `.gitattributes` at commit time:
+  `* text=auto eol=lf` for text configs, `-text` for jars; `core.filemode true`. Jars never go to GitHub
+  as plain blobs (D-A).
 - Unknown J narrows to credential choice: GitHub App vs fine-grained token vs deploy key. Unknown
   I is resolved by D-A (CAS + lockfile). The 2026-11-10 prototype report does NOT cover GitHub, so the
   100 MB push limit and jar-size handling remain ASSUMPTION (external, unverified).
 - **Files:** GitHub remote/auth/webhook, fetch/push, sync commands/queries, connection UI,
-  `.gitattributes` generation, contracts.
+  panel-generated `.gitattributes`, contracts.
 - **Migration:** remote/connection metadata. No existing-server data migration (D8).
 - **Rollback:** disconnect GitHub and disable webhook processing; keep local Git history.
 - **Not built:** other Git hosts, interactive conflict UI.
@@ -904,10 +930,17 @@ Test ideas only; no counts and no CI claims.
   `.git`/filters/symlinks stripped; branch create/delete maps to Git; one worktree per branch;
   Save & Commit validates/normalizes and commits; class-A jars resolve from CAS via lockfile;
   class-C/D/E files absent; `materialization_id` consumers updated; clean export has no `.git`.
-- Allow-list test matrix (positive + negative): `paper-1.21.1.jar`=A, `plugins/X.jar`=A, `cache/*.jar`=E,
-  `libraries/**/*.jar`=E, `plugins/X/data/*`=C, `plugins/X/config.yml`=B, `plugins/X/world.db`=E,
-  `server.properties`=B, `onx-jars.lock.json`=A(lockfile), `ops.json`=C, `plugins/X/storage/cache.dat`=E,
-  `myworld/**`=E, `eula.txt`=E, `mods/*.jar`=E, `ops.json.bak`=E, `version_history.json.bak`=E.
+- Allow-list test matrix (positive + negative): `paper-1.21.1.jar`=A, `plugins/X.jar`=A,
+  `plugins/X/lib/foo.jar`=E, `plugins/X/data/foo.jar`=E, `plugins/X/data/foo.class`=E,
+  `foo.so`=E, `foo.dll`=E, `foo.nbt`=E, `plugins/X/data/foo.csv`=E, `plugins/X/foo.csv`=E,
+  `cache/*.jar`=E, `libraries/**/*.jar`=E, `plugins/X/data/foo.yml`=C,
+  `plugins/X/playerdata/abc.yml`=C, `plugins/X/playerdata/abc.dat`=E,
+  `plugins/X/userdata/abc.json`=C, `plugins/X/config.yml`=B, `config/paper-global.yml`=B,
+  `config/nested/foo.yml`=B, `config/nested/deep/foo.toml`=B, `config/foo.conf`=B,
+  `server-icon.png`=B, `.gitattributes`=E, `plugins/X/world.db`=E,
+  `server.properties`=B, `onx-jars.lock.json`=A(lockfile; not matched by CLASS_B), `ops.json`=C,
+  `ops.json.bak`=E, `plugins/X/storage/cache.dat`=E, `myworld/**`=E, `eula.txt`=E,
+  `mods/*.jar`=E, `version_history.json.bak`=E.
 - P3: key-level merge for yml/json/properties/toml; parse failure leaves live untouched; no
   conflict markers in server dirs; native Git merge only for code class; class-C sync to
   `live-state`; restart snapshot compare makes changed plugin files class C; live refresh order
