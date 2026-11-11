@@ -130,6 +130,7 @@ async def create_server(
         install_dir=body.install_dir,
         provider=body.provider,
         startup_timeout_seconds=body.startup_timeout_seconds,
+        mode=body.mode,
     )
     result = await command_bus.send(cmd)
     return check_command_result(result)
@@ -299,6 +300,7 @@ async def import_server(
         whitelist=body.whitelist,
         view_distance=body.view_distance,
         simulation_distance=body.simulation_distance,
+        mode=body.mode,
     )
     result = await command_bus.send(cmd)
     return check_command_result(result)

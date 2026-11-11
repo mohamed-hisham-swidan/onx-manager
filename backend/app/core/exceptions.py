@@ -146,6 +146,25 @@ class BranchProtectedError(ConflictError):
         super().__init__(message or "Branch is protected")
 
 
+class ServerModeVersioningDisabledError(ConflictError):
+    def __init__(self, message: str = "") -> None:
+        MCSError.__init__(
+            self,
+            message or "Versioning operations are disabled for servers in simple mode",
+            code="SERVER_MODE_VERSIONING_DISABLED",
+            http_status=409,
+        )
+
+
+class GuardConfigurationError(MCSError):
+    def __init__(self, message: str = "") -> None:
+        super().__init__(
+            message or "Mode guard requires exactly one mode source",
+            code="GUARD_CONFIGURATION_ERROR",
+            http_status=500,
+        )
+
+
 class RateLimitExceeded(MCSError):
     def __init__(self, retry_after: int = 60) -> None:
         super().__init__(

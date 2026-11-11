@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from app.core.event_bus import EventBus
+from app.core.persistence.db import database
+from app.modules.server.application.commands.create_server import (
+    CreateServerCommand,
+    CreateServerHandler,
+)
+from app.modules.server.application.commands.import_server import (
+    ImportServerCommand,
+    ImportServerHandler,
+)
+from app.modules.server.infrastructure.repository import SQLServerRepository
+from app.modules.shared.value_objects import ServerId
+
+
+def _server_mode():
+    from app.modules.server.domain import value_objects
+
+    return value_objects.ServerMode
+
+
+async def _load_mode(server_id: str):
+    async with database.session_factory() as session:
+        server = await SQLServerRepository(session).get(ServerId(server_id))
+    return server.mode
+
+
+class TestCreateServerMode:
+    def test_command_defaults_to_simple(self) -> None:
+        cmd = CreateServerCommand(name="default-mode", minecraft_version="1.20.4")
+        assert cmd.mode == "simple"
+
+    @pytest.mark.asyncio
+    async def test_handler_persists_default_simple(self, tmp_path: Path) -> None:
+        handler = CreateServerHandler(EventBus())
+        srv_dir = tmp_path / "srv-default-mode"
+        cmd = CreateServerCommand(
+            name="default-mode",
+            minecraft_version="1.20.4",
+            provider="local",
+        )
+        with (
+            patch(
+                "app.modules.server.application.services.jar_service.download_server_jar",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.modules.server.application.services.jar_service.resolve_server_dir",
+                return_value=str(srv_dir),
+            ),
+        ):
+            result = await handler.handle(cmd)
+
+        assert result.success is True
+        assert await _load_mode(result.data["server_id"]) is _server_mode().SIMPLE
+
+    @pytest.mark.asyncio
+    async def test_handler_persists_explicit_advanced(self, tmp_path: Path) -> None:
+        handler = CreateServerHandler(EventBus())
+        srv_dir = tmp_path / "srv-advanced-mode"
+        cmd = CreateServerCommand(
+            name="advanced-mode",
+            minecraft_version="1.20.4",
+            provider="local",
+            mode="advanced",
+        )
+        with (
+            patch(
+                "app.modules.server.application.services.jar_service.download_server_jar",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.modules.server.application.services.jar_service.resolve_server_dir",
+                return_value=str(srv_dir),
+            ),
+        ):
+            result = await handler.handle(cmd)
+
+        assert result.success is True
+        assert await _load_mode(result.data["server_id"]) is _server_mode().ADVANCED
+
+
+class TestImportServerMode:
+    def test_command_defaults_to_simple(self) -> None:
+        cmd = ImportServerCommand(
+            name="default-import",
+            source_path="/tmp/x",
+            minecraft_version="1.20.4",
+        )
+        assert cmd.mode == "simple"
+
+    @pytest.mark.asyncio
+    async def test_handler_persists_explicit_advanced(self, tmp_path: Path) -> None:
+        source = tmp_path / "source-server"
+        source.mkdir()
+        (source / "server.jar").write_bytes(b"PK fake")
+        target = tmp_path / "imported-advanced"
+
+        handler = ImportServerHandler(EventBus())
+        cmd = ImportServerCommand(
+            name="imported-advanced",
+            source_path=str(source),
+            minecraft_version="1.20.4",
+            mode="advanced",
+        )
+        with patch(
+            "app.modules.server.application.commands.import_server.resolve_server_dir",
+            return_value=str(target),
+        ):
+            result = await handler.handle(cmd)
+
+        assert result.success is True
+        assert await _load_mode(result.data["server_id"]) is _server_mode().ADVANCED

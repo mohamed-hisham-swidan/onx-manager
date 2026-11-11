@@ -24,6 +24,7 @@ from app.modules.server.domain.value_objects import (
     MemoryAllocation,
     PortNumber,
     ServerDeployment,
+    ServerMode,
     ServerProperties,
     ServerType,
     default_provider_for_platform,
@@ -59,6 +60,7 @@ class ImportServerCommand(Command):
     min_memory_mb: int = 1024
     max_memory_mb: int = 2048
     group_id: str = "default"
+    mode: str = "simple"
 
 
 class ImportServerHandler(CommandHandler[ImportServerCommand]):
@@ -175,6 +177,7 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                     group_id=command.group_id,
                     deployment=deployment,
                     owner_id=command.creator_id,
+                    mode=ServerMode(command.mode),
                 )
                 await repo.save(server)
 

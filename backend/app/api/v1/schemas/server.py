@@ -39,6 +39,14 @@ class ServerCreateRequest(BaseModel):
     install_dir: str | None = None
     provider: str | None = Field(default=None)
     startup_timeout_seconds: int | None = Field(default=None, ge=30, le=1800)
+    mode: str = Field(default="simple")
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        if v not in ("simple", "advanced"):
+            raise ValueError(f"Invalid mode: {v!r}. Must be 'simple' or 'advanced'")
+        return v
 
 
 class ServerUpdateRequest(BaseModel):
@@ -75,6 +83,7 @@ class ServerResponse(BaseResponse):
     provisioning_error: str | None = None
     provisioning_retryable: bool = False
     startup_timeout_seconds: int | None = None
+    mode: str = "simple"
 
 
 class ServerDetailResponse(ServerResponse):

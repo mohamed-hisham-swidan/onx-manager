@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_command_bus, get_query_bus, require_permission
 from app.api.errors import check_command_result
+from app.api.v1.dependencies.server_mode import require_advanced_mode
 from app.api.v1.schemas.versioning import (
     AutoCommitLiveChangesRequest,
     AutoCommitLiveChangesResponse,
@@ -90,7 +91,11 @@ from app.modules.versioning.infrastructure.config_resolver import BotConfigResol
 from app.modules.versioning.infrastructure.resource_probe import ResourcePreflightProbe
 from app.modules.versioning.infrastructure.storage_probe import StorageCapabilityProbe
 
-router = APIRouter(prefix="/api/v1/servers/{server_id}/versioning", tags=["versioning"])
+router = APIRouter(
+    prefix="/api/v1/servers/{server_id}/versioning",
+    tags=["versioning"],
+    dependencies=[Depends(require_advanced_mode)],
+)
 
 __all__ = ["router"]
 
@@ -575,7 +580,7 @@ async def get_preflight_status(
         server_dir = server.root_path
         server_type = server.server_type
 
-    reflink_ok = StorageCapabilityProbe.probe_path(server_dir)
+    reflink_ok = StorageCapabilityProbe.probe_path(server_dir) if server_dir else False
 
     headroom = ResourcePreflightProbe.check_headroom(
         bot_count=bot_count,

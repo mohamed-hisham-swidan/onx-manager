@@ -20,6 +20,7 @@ from app.modules.server.domain.value_objects import (
     PortNumber,
     RuntimeInfo,
     ServerDeployment,
+    ServerMode,
     ServerProperties,
     ServerType,
     default_provider_for_platform,
@@ -56,6 +57,7 @@ class CreateServerCommand(Command):
     install_dir: str | None = None
     provider: str | None = None
     startup_timeout_seconds: int | None = None
+    mode: str = "simple"
 
 
 class CreateServerHandler(CommandHandler[CreateServerCommand]):
@@ -164,6 +166,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 runtime=runtime_info,
                 owner_id=command.creator_id,
                 startup_timeout_seconds=command.startup_timeout_seconds,
+                mode=ServerMode(command.mode),
             )
             if is_forge_installer or is_neoforge_installer:
                 server.begin_provisioning()

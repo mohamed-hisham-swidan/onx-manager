@@ -71,6 +71,7 @@ async def seed_stage_f_server(tmp_path: Path):
             root_path=str(server_dir),
             deployment_host="127.0.0.1",
             port=25565,
+            mode="advanced",
         )
         session.add(server)
 

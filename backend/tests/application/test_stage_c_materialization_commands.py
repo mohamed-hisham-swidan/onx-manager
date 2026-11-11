@@ -84,6 +84,7 @@ async def seed_env(tmp_path: Path):
             port=25565,
             java_args="-Xmx2G",
             bot_verification_settings={"bot_count": 5, "duration_minutes": 10},
+            mode="advanced",
         )
         session.add(server)
 

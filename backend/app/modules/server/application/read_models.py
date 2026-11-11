@@ -95,9 +95,11 @@ class ServerReadModel:
         provisioning_error: str | None = None,
         provisioning_retryable: bool = False,
         startup_timeout_seconds: int | None = None,
+        mode: str = "simple",
     ) -> None:
         self.server_id = server_id
         self.name = name
+        self.mode = mode
         self.server_type = server_type
         self.minecraft_version = minecraft_version
         self.status = status
@@ -132,6 +134,7 @@ class ServerReadModel:
             provisioning_error=server.provisioning_error,
             provisioning_retryable=server.provisioning_retryable,
             startup_timeout_seconds=server.startup_timeout_seconds,
+            mode=server.mode.value,
         )
 
 
@@ -178,6 +181,7 @@ class ServerDetailReadModel(ServerReadModel):
         provisioning_error: str | None = None,
         provisioning_retryable: bool = False,
         startup_timeout_seconds: int | None = None,
+        mode: str = "simple",
     ) -> None:
         super().__init__(
             server_id=server_id,
@@ -196,6 +200,7 @@ class ServerDetailReadModel(ServerReadModel):
             provisioning_error=provisioning_error,
             provisioning_retryable=provisioning_retryable,
             startup_timeout_seconds=startup_timeout_seconds,
+            mode=mode,
         )
         self.min_memory_mb = min_memory_mb
         self.max_memory_mb = max_memory_mb
@@ -267,4 +272,5 @@ class ServerDetailReadModel(ServerReadModel):
             provisioning_error=server.provisioning_error,
             provisioning_retryable=server.provisioning_retryable,
             startup_timeout_seconds=server.startup_timeout_seconds,
+            mode=server.mode.value,
         )
