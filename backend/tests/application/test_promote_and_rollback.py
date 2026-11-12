@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.command_bus import CommandBus
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServerNotFoundError
 from app.modules.server.domain.aggregate import Server, ServerStatus
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.server.domain.value_objects import ServerDeployment
@@ -324,7 +324,7 @@ async def test_promote_commit_with_keep_world_changes() -> None:
 @pytest.mark.asyncio
 async def test_promote_rejects_nonexistent_test_or_server() -> None:
     server_repo = AsyncMock(spec=ServerRepository)
-    server_repo.get.side_effect = Exception("Not found")
+    server_repo.get.side_effect = ServerNotFoundError("srv-missing")
     v_repo = InMemoryVersioningRepository()
     command_bus = AsyncMock(spec=CommandBus)
 
