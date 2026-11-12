@@ -17,6 +17,7 @@ class BackupJobModel(Base, TimestampMixin):
     error_message = Column(Text, nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     storage_path = Column(String(512), nullable=True)
+    pinned = Column(Boolean, nullable=False, default=False)
 
 
 class BackupPolicyModel(Base, TimestampMixin):

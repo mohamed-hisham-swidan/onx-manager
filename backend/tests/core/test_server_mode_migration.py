@@ -13,6 +13,7 @@ from app.core.persistence.db_revision import (
 from app.core.persistence.reconciler import DatabaseReconciler, ReconcileStatus
 
 PRIOR_HEAD = "b1e2100000023"
+MODE_REVISION = "b1e2100000024"
 
 
 def _sync_url(db_url: str) -> str:
@@ -45,8 +46,7 @@ def test_mode_migration_upgrade_and_downgrade(tmp_path: Path) -> None:
     heads = script.get_heads()
     assert len(heads) == 1
     head = heads[0]
-    revision = script.get_revision(head)
-    assert revision.down_revision == PRIOR_HEAD
+    assert script.get_revision(MODE_REVISION).down_revision == PRIOR_HEAD
     assert head == RELEASE_MINIMUM_DB_REVISION == EXPECTED_ALEMBIC_HEAD
 
     alembic_command.downgrade(cfg, PRIOR_HEAD)
