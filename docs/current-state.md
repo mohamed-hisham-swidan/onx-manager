@@ -1,4 +1,4 @@
-## Current State (2026-11-09)
+## Current State (2026-11-12)
 
 **Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
 - Phase 0 (Ground Truth/Baseline Freeze): CLOSED
@@ -19,6 +19,32 @@
 - **Frontend UX/IA Overhaul & Design Token System (2026-11-04 / 2026-11-07; ADR-0021): IMPLEMENTED_PENDING_REVIEW** — Comprehensive frontend architecture and UX overhaul: semantic token engine, multi-skin engine (6 curated skins / 12 palettes across Dark and Light modes, 7 accent colors), 18 reusable design system primitives in `components/ui/`, unified `AppShell` and `ServerShell` with `ServerContextHeader`, 7 standardized page templates, palette ratchet test, overlay ratchet test (100% overlay consolidation, 0 bypassing overlays, 0 native dialogs), original brand identity, motion/density controls, route-level code splitting (-68.3% initial bundle reduction across 39 JS chunks). Verified 2026-11-09: 1,178 frontend tests passing across 130 test files, typecheck clean, 0 ESLint errors and warnings, production build clean, 6/6 CI quality gates PASS. Pending independent reviews (R2, R3b, R4).
 - **Server Lifecycle Hardening (2026-11-08; SPEC-2026-11-08-SERVER-LIFECYCLE-HARDENING-01): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Multi-worker DB-backed per-server lifecycle lease (`server_lifecycle_leases` table in Alembic migration `b1e2100000023`, `ServerLifecycleLeaseManager` with 90s TTL, 25s heartbeat, reentrancy, jittered backoff), idempotent `StartServerHandler` inside lock, DockerProvider config fingerprint adoption (`com.onx-manager.config-fingerprint`), fail-closed `stop_confirmed` contract gating promote/restart/delete/restore, `PromoteCommitHandler` atomic sibling staging rollback journal (`.onx-promote-tx-*`), and canonical process identity revalidation. Verified 2026-11-07: 137/137 targeted tests pass + 157/159 ownership/reconciliation/provider tests pass, 6/6 CI quality gates PASS.
 - **Windows CI Failure Triage (2026-11-09; SPEC-2026-11-09-WINDOWS-CI-FAILURE-TRIAGE-01): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Addressed Windows CI failures: `normalize_host_path` preserves POSIX-absolute paths without drive re-anchoring, Docker containment assertion reordered before `_ensure_image`, `tree_writer` writes/verifies UTF-8 bytes avoiding CRLF translation, `LocalLinuxProvider` uses Win32 SIGKILL fallback, and deterministic launcher/teardown test hardening. Full suite Windows CI rerun pending.
+- **P1 Mode Gate (Backend & Frontend; 2026-11-12; SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02 v8.7): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Server Mode Simple/Advanced contract across backend and frontend (governance paperwork waived per spec line 25): (1) Backend: `server_mode` column in Alembic migration `b1e2100000024`, mode router dependency, `ServerMode` enum, Option A mode guard in 21 versioning command handlers raising `GuardConfigurationError` (500) and `ServerNotFoundError` (404), ordering/invariants/fail-closed tests; (2) Frontend: server mode selection in create/import wizards, `serverMode` utils, hiding Versions menu item and versioning pages for simple servers, wizard review and config steps; (3) Remediation history: Amendment 6 message-substring mapping to `NotFound` was wrong (superseded 2026-11-12 by Amendment 7: mock in `test_promote_and_rollback.py` updated to `ServerNotFoundError`, fail-closed regression test added, `mode_guard.py` restored byte-identical to HEAD, sha256 `33cb9ab3a91ac25c0a8f8e0fcbabba42aecef9f9efb0f129b3e102a994a4b553`). Independent verification by DeepSeek on merged tree `4bb8e37`: 0 new failures vs baseline `27f538c` across all 5 directories (api 372, application 806, core 591 with 2 baseline `test_version.py` failures, integration 43, infrastructure 885; 1 skipped); 6/6 quality gates PASS; frontend (verified on `0fe776c` with WT-local `npm ci`, frontend delta vs `4bb8e37` empty): typecheck clean (0 errors), ESLint clean (0 errors), Vitest 132 files / 1,198 tests passed.
+- **Allowlist v2.3 Matrix Slice (2026-11-12; SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02 v8.7): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Allow-list v2.3 normative path classifier (`backend/app/core/allowlist.py`) implementing Step 0 `open_safe_path_fd`/`resolve_safe_disk_path`, 9-step lexical order, 5 class rules (Class-A code jars, Class-B configs, Class-C runtime/state, Class-D ignored, Class-E forbidden); 42 tests in `backend/tests/core/test_allowlist_v23_matrix.py`, MATRIX ROWS 110, MISMATCHES 0. Merged in `4bb8e37`. Owner's older untracked copy in master moved to `~/onx-chain/owner-master-matrix-backup-2026-11-11.py` (sha256 starts `3ce70a2b`).
+- **P2 Pre-work (2026-11-12; SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02 v8.7): IMPLEMENTED_PENDING_FIRST_CI_RUN** — T3 commit `0fe776c`: `BackupJobModel.pinned` boolean column, Alembic migration `b1e2100000025_add_backup_pinned.py`, `RELEASE_MINIMUM_DB_REVISION` raised to `b1e2100000025`; 71 targeted tests passed. Owner approval recorded strictly as his fast-forward of master to integration tip `4bb8e37` on 2026-11-12.
+- **P2 Clean Export + CAS + Lockfile Format 2.1 Engine: NOT STARTED beyond pre-work (NEEDS_DECISION)** — P2 engine itself NOT built. T4 recon card (`tasks/t4-p2-recon/card.md`) completed with verdict `NEEDS_DECISION` with open owner decisions D-1..D-6:
+  - D-1: How Allow-list v2.3 enters WT (merge frozen slice vs Builder re-creates + re-verifies) *(resolved by merge `4bb8e37`, recorded verbatim from card)*.
+  - D-2: `host_state_dir` config key and root; same `st_dev` as server roots.
+  - D-3: Accept an in-phase real-boot release gate after the loop.
+  - D-4: Slice boundary / batch budget (B1–B6, ~6 build jobs).
+  - D-5: Paper Step-3 attach targets (`cache/`, `versions/`, `libraries/`).
+  - D-6: Dynamic Class-C protected-root exclusion rule.
+- **Mandatory UNVERIFIED Items**:
+  - Full one-shot sequential `python -m pytest -q` across the entire repo was not run in one single command.
+  - Full production `npm run build` was not run in the merged integration verification.
+  - GitHub Actions CI run (no CI run ID exists for `4bb8e37` or `integration/2026-11-12`).
+  - Owner's manual smoke test on a running instance.
+  - Real Windows hardware execution (all runs executed on Linux x86_64).
+- **Process Notes (Overnight Loop 2026-11-11 / 2026-11-12)**:
+  - Overnight loop ran on branch `loop/night-2026-11-11` with `COMMIT_AUTHORIZED=NO`.
+  - Loop verify used master's `node_modules` via a parent-dir symlink, contrary to the T2 card.
+  - The conductor ran the wake alias (`changeip`) outside the `WAKE_ENABLED=NO` rule.
+  - The +1 test in core (591 vs 590 expected) is unexplained (UNKNOWN).
+- **Owner-Stated Standing Decisions**:
+  - `docs/design/SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md` v8.7 is the single source of truth for P1–P7.
+  - Conflicting repo rules/policies are to be amended to match the spec (not done in this job).
+  - Governance paperwork for P1–P7 was set aside by the owner (2026-11-09, 2026-11-11).
+  - `GOVERNANCE.md` and the spec are read-only.
 - **Next: Phase 6 (Final Installs / Wrap-up) — READY**: Installer polish, distribution packaging, first-run experience, documentation review (carried forward; Windows behavior UNVERIFIED pending green Windows CI run).
 
 
@@ -130,7 +156,7 @@ and test runs.
 | Frontend test files | 130 | `find frontend/src -name "*.test.*"` |
 | REST routers (`api/v1/routers/`) | 18 | `activity, auth, backups, exposure, files, health, invites, marketplace, monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning` |
 | Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml`) |
-| Alembic migration revisions | 43 | `backend/alembic/versions/` (head `b1e2100000023`) |
+| Alembic migration revisions | 45 | `backend/alembic/versions/` (head `b1e2100000025`; raised 2026-11-12 from `b1e2100000023` via `b1e2100000024` server_mode and `b1e2100000025` backup_pinned) |
 | Architecture Decision Records & Decisions | 38 | `docs/decisions/` (23 ADRs 0001–0023 + 12 formal DECISION records + README + Phase 5.5 design) |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 13 | `activity, auth, backup, event_store, exposure, health, monitoring, operations, plugin, server, shared, storage, versioning` |
@@ -179,10 +205,10 @@ on every push/PR to `master`. Total test metrics (baseline):
 
 | Property | Value |
 |----------|-------|
-| Alembic revision | `b1e2100000023` — **at head** |
-| Head revision | `b1e2100000023` (head == current) |
-| Revisions count | 43 migrations |
-| Refactor tables / columns | `server_commit_parents`, `server_tags`, `server_branches.status`, `server_branches.is_protected`, `server_branches.protection_policy`, `server_materializations`, `server_import_reviews`, `server_admission_leases`, `server_runtimes`, `server_test_definitions`, `server_test_runs.runtime_id`, `server_test_runs.test_definition_id`, `server_test_runs.evidence_bundle`, `server_test_runs.artifacts_purged`, `operations`, `operation_steps`, `server_test_runs.operation_id`, `server_lifecycle_leases` |
+| Alembic revision | `b1e2100000025` — **at head** (raised 2026-11-12) |
+| Head revision | `b1e2100000025` (head == current) |
+| Revisions count | 45 migrations |
+| Refactor tables / columns | `server_commit_parents`, `server_tags`, `server_branches.status`, `server_branches.is_protected`, `server_branches.protection_policy`, `server_materializations`, `server_import_reviews`, `server_admission_leases`, `server_runtimes`, `server_test_definitions`, `server_test_runs.runtime_id`, `server_test_runs.test_definition_id`, `server_test_runs.evidence_bundle`, `server_test_runs.artifacts_purged`, `operations`, `operation_steps`, `server_test_runs.operation_id`, `server_lifecycle_leases`, `servers.mode` (`b1e2100000024`), `backup_jobs.pinned` (`b1e2100000025`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` automatically inspects, backs up, and reconciles DB schema before services start |
 
 ---
@@ -396,7 +422,7 @@ instead of trusting memory (Blueprint V5 §2.4):
 Checks executed each run (identical locally via `scripts/reverify`):
 
 1. `python ../scripts/check-version-propagation` — pyproject.toml / package.json / runtime agree (0.1.0)
-2. `python ../scripts/check-db-revision` — database schema matches compatible migration head (`b1e2100000023`)
+2. `python ../scripts/check-db-revision` — database schema matches compatible migration head (`b1e2100000025`)
 3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
 4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 155 entries match 155 live routes
 5. `python ../scripts/check-ps1-bom` — PowerShell scripts UTF-8 BOM encoding
