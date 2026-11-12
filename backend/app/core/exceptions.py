@@ -418,3 +418,252 @@ class BotRunnerUnavailableError(MCSError):
             details=details or {},
         )
 
+
+# --- P2 B2/B3 Lockfile Format 2.1 & SHA-256 CAS Exceptions ---
+
+
+class LockfileFormatError(ValidationError):
+    def __init__(
+        self,
+        message: str = "Lockfile format unsupported",
+        *,
+        field: str | None = "format",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        t_field = str(field)[:128] if field is not None else None
+        merged: dict[str, Any] | None = None
+        if details is not None:
+            merged = {
+                str(k)[:128]: (str(v)[:128] if isinstance(v, str) else v)
+                for k, v in details.items()
+            }
+        super().__init__(
+            message or "Lockfile format unsupported",
+            field=t_field,
+            details=merged,
+        )
+        self.code = "LOCKFILE_FORMAT_UNSUPPORTED"
+        self.http_status = 422
+
+
+class LockfileInvalidError(ValidationError):
+    def __init__(
+        self,
+        message: str = "Lockfile content is invalid",
+        *,
+        field: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        t_field = str(field)[:128] if field is not None else None
+        merged: dict[str, Any] | None = None
+        if details is not None:
+            merged = {
+                str(k)[:128]: (str(v)[:128] if isinstance(v, str) else v)
+                for k, v in details.items()
+            }
+        super().__init__(
+            message or "Lockfile content is invalid",
+            field=t_field,
+            details=merged,
+        )
+        self.code = "LOCKFILE_INVALID"
+        self.http_status = 422
+
+
+class CaseCollisionError(ValidationError):
+    def __init__(
+        self,
+        message: str = "Casefold collision detected",
+        *,
+        path_a: str = "",
+        path_b: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        t_path_a = str(path_a)[:128]
+        t_path_b = str(path_b)[:128]
+        merged = {"path_a": t_path_a, "path_b": t_path_b}
+        if details:
+            for k, v in details.items():
+                merged[str(k)[:128]] = str(v)[:128] if isinstance(v, str) else v
+        super().__init__(
+            message or "Casefold collision detected",
+            field="path",
+            details=merged,
+        )
+        self.code = "CASE_COLLISION"
+        self.http_status = 422
+        self.path_a = t_path_a
+        self.path_b = t_path_b
+
+
+class InsufficientStorageError(MCSError):
+    def __init__(
+        self,
+        message: str = "Insufficient storage space",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Insufficient storage space",
+            code="INSUFFICIENT_STORAGE",
+            http_status=507,
+            retryable=True,
+            details=details or {},
+        )
+
+
+class CasError(MCSError):
+    def __init__(
+        self,
+        message: str = "CAS operation failed",
+        *,
+        code: str = "CAS_ERROR",
+        http_status: int = 500,
+        retryable: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "CAS operation failed",
+            code=code,
+            http_status=http_status,
+            retryable=retryable,
+            details=details or {},
+        )
+
+
+class CasInvalidDigestError(CasError):
+    def __init__(
+        self,
+        message: str = "Invalid CAS digest",
+        *,
+        digest: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        truncated = str(digest)[:128]
+        merged = {"digest": truncated}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "Invalid CAS digest",
+            code="CAS_INVALID_DIGEST",
+            http_status=422,
+            details=merged,
+        )
+        self.digest = truncated
+
+
+class CasInvalidSourceError(CasError):
+    def __init__(
+        self,
+        message: str = "Invalid CAS source file",
+        *,
+        path: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        truncated = str(path)[:128]
+        merged = {"path": truncated}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "Invalid CAS source file",
+            code="CAS_INVALID_SOURCE",
+            http_status=422,
+            details=merged,
+        )
+        self.path = truncated
+
+
+class CasBlobNotFoundError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS blob not found",
+        *,
+        digest: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        truncated = str(digest)[:128]
+        merged = {"digest": truncated}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "CAS blob not found",
+            code="CAS_BLOB_NOT_FOUND",
+            http_status=404,
+            details=merged,
+        )
+        self.digest = truncated
+
+
+class CasCorruptionError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS blob corruption detected",
+        *,
+        digest: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        truncated = str(digest)[:128]
+        merged = {"digest": truncated}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "CAS blob corruption detected",
+            code="CAS_CORRUPTION",
+            http_status=500,
+            details=merged,
+        )
+        self.digest = truncated
+
+
+class CasContainmentError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS path containment violation",
+        *,
+        path: str = "",
+        root: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        t_path = str(path)[:128]
+        t_root = str(root)[:128]
+        merged = {"path": t_path, "root": t_root}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "CAS path containment violation",
+            code="CAS_PATH_CONTAINMENT",
+            http_status=403,
+            details=merged,
+        )
+        self.path = t_path
+        self.root = t_root
+
+
+class CasWriteError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS write operation failed",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "CAS write operation failed",
+            code="CAS_WRITE_FAILED",
+            http_status=500,
+            details=details or {},
+        )
+
+
+class CasUnsupportedPlatformError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS is not supported on this platform",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "CAS is not supported on this platform",
+            code="CAS_UNSUPPORTED_PLATFORM",
+            http_status=501,
+            details=details or {},
+        )
