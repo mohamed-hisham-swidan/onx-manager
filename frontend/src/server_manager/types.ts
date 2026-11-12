@@ -6,6 +6,8 @@ export interface SoftwareInfo {
   supports_versions: boolean;
 }
 
+export type ServerMode = "simple" | "advanced";
+
 export interface ServerResponse {
   server_id: string;
   name: string;
@@ -20,6 +22,7 @@ export interface ServerResponse {
   difficulty: string;
   created_at: string;
   updated_at: string;
+  mode?: ServerMode;
   provisioning_error?: string | null;
   provisioning_retryable?: boolean;
   startup_timeout_seconds?: number | null;
@@ -131,6 +134,29 @@ export interface ServerCreateRequest {
   group_id?: string;
   provider?: string;
   startup_timeout_seconds?: number | null;
+  mode?: ServerMode;
+}
+
+export interface ServerImportRequest {
+  import_id: string;
+  name: string;
+  server_type?: string;
+  minecraft_version?: string;
+  min_memory_mb?: number;
+  max_memory_mb?: number;
+  port?: number;
+  motd?: string;
+  max_players?: number;
+  gamemode?: string;
+  difficulty?: string;
+  spawn_protection?: number;
+  pvp?: boolean;
+  enable_command_block?: boolean;
+  online_mode?: boolean;
+  whitelist?: boolean;
+  view_distance?: number;
+  simulation_distance?: number;
+  mode?: ServerMode;
 }
 
 export interface ServerUpdateRequest {

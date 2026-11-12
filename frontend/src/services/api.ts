@@ -79,6 +79,7 @@ import type {
   ServerCommit,
   ServerCreateRequest,
   ServerDetailResponse,
+  ServerImportRequest,
   ServerResponse,
   ServerTag,
   ServerTestRun,
@@ -772,7 +773,7 @@ export function createApiClient(
         body: formData,
       });
     },
-    importServer: (body: Record<string, unknown>) =>
+    importServer: (body: ServerImportRequest) =>
       request<Record<string, unknown>>("/api/v1/servers/import", { method: "POST", body }),
 
     // Settings

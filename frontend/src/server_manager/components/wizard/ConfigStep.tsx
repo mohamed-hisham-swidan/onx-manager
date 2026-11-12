@@ -1,4 +1,5 @@
 import { type WizardData, RAM_PRESETS } from "./types";
+import { ServerModeChooser } from "./ServerModeChooser";
 
 interface RamStepperFieldProps {
   label: string;
@@ -102,6 +103,11 @@ export function ConfigStep({
             className="w-full px-3.5 py-2.5 rounded-lg border border-border-default bg-surface-page text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary shadow-xs"
           />
         </div>
+
+        <ServerModeChooser
+          value={data.mode}
+          onChange={(mode) => onChange({ mode })}
+        />
 
         <div>
           <label className="block text-sm font-medium text-text-secondary mb-1">

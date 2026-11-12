@@ -5,6 +5,8 @@ import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
 import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { useResizableWidth } from "@/hooks/useResizableWidth";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import type { ServerMode } from "@/server_manager/types";
+import { resolveServerMode } from "@/server_manager/utils/serverMode";
 
 export interface ServerContext {
   serverId: string;
@@ -12,6 +14,7 @@ export interface ServerContext {
   serverType?: string;
   supportsMods?: boolean;
   supportsPlugins?: boolean;
+  mode?: ServerMode;
 }
 
 export interface SidebarProps {
@@ -28,6 +31,7 @@ const GLOBAL_NAV_ITEMS: { to: string; label: string; icon: IconName; end?: boole
 
 export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
   const isServerContext = Boolean(serverContext);
+  const showVersioning = resolveServerMode(serverContext?.mode) === "advanced";
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
@@ -204,12 +208,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ serverContext }) => {
                     icon="activity"
                     onNavigate={handleNavigate}
                   />
-                  <ServerNavLink
-                    to={`/servers/${serverContext.serverId}/versioning`}
-                    label="Versions & Testing"
-                    icon="backup"
-                    onNavigate={handleNavigate}
-                  />
+                  {showVersioning && (
+                    <ServerNavLink
+                      to={`/servers/${serverContext.serverId}/versioning`}
+                      label="Versions & Testing"
+                      icon="backup"
+                      onNavigate={handleNavigate}
+                    />
+                  )}
                   <ServerNavLink
                     to={`/servers/${serverContext.serverId}/activity`}
                     label="Change History"

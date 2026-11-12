@@ -1,4 +1,5 @@
 import { FORGE_EDITION_LABELS, forgeEditionForVersion } from "@/server_manager/utils/forgeEdition";
+import { serverModeLabel } from "@/server_manager/utils/serverMode";
 import type { WizardData } from "./types";
 
 interface ReviewStepProps {
@@ -15,6 +16,7 @@ export function ReviewStep({ data, creating, onCreate, onBack }: ReviewStepProps
       <div className="bg-surface-card rounded-xl border border-border-default p-4 space-y-2 text-sm shadow-xs">
         {[
           ["Name", data.name],
+          ["Mode", serverModeLabel(data.mode)],
           ["Runtime Provider", data.provider === "docker" ? "Docker Container" : "Host Process"],
           ["Software", data.serverType],
           ...(data.serverType === "forge"

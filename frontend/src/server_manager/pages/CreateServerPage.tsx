@@ -117,6 +117,7 @@ export function CreateServerPage() {
         view_distance: Number(data.viewDistance) || 10,
         simulation_distance: Number(data.simulationDistance) || 10,
         provider: data.provider || undefined,
+        mode: data.mode,
       });
       setCreatedId(result.server_id as string);
       setStep("done");

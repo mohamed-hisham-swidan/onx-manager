@@ -1,7 +1,8 @@
 import { useState, useRef, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { createAuthenticatedApi } from "@/services/api";
-import type { ScanResult } from "@/server_manager/types";
+import type { ScanResult, ServerMode } from "@/server_manager/types";
+import { ServerModeChooser } from "@/server_manager/components/wizard/ServerModeChooser";
 import { Icon } from "@/components/ui/Icon";
 
 function formatBytes(bytes: number): string {
@@ -23,6 +24,7 @@ export function ImportServerPage() {
   const [isDragging, setIsDragging] = useState(false);
 
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [mode, setMode] = useState<ServerMode>("simple");
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [createdId, setCreatedId] = useState("");
@@ -86,7 +88,10 @@ export function ImportServerPage() {
   };
 
   const handleImport = async () => {
-    if (!scanResult) return;
+    if (!scanResult || !scanResult.import_id) {
+      setError("Missing import identifier from scan results.");
+      return;
+    }
     setError("");
     setImporting(true);
     try {
@@ -107,6 +112,7 @@ export function ImportServerPage() {
         whitelist: scanResult.properties.whitelist,
         view_distance: scanResult.properties.view_distance,
         simulation_distance: scanResult.properties.simulation_distance,
+        mode,
       });
       setCreatedId(result.server_id as string);
       setStep("done");
@@ -301,6 +307,8 @@ export function ImportServerPage() {
               <span className="text-text-primary font-medium">{scanResult.properties.port}</span>
             </div>
           </div>
+
+          <ServerModeChooser value={mode} onChange={setMode} />
 
           {scanResult.plugins.length > 0 && (
             <div>

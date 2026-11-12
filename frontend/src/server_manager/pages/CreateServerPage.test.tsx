@@ -315,6 +315,8 @@ describe("CreateServerPage Configuration step", () => {
     // Review step shows Runtime Provider as Docker Container
     expect(await screen.findByText("Review & Create")).toBeInTheDocument();
     expect(screen.getByText("Docker Container")).toBeInTheDocument();
+    expect(screen.getByText("Mode")).toBeInTheDocument();
+    expect(screen.getByText("Simple")).toBeInTheDocument();
 
     // Click Create Server
     await user.click(screen.getByRole("button", { name: "Create Server" }));
@@ -323,6 +325,7 @@ describe("CreateServerPage Configuration step", () => {
       expect.objectContaining({
         name: "Dockerized Server",
         provider: "docker",
+        mode: "simple",
       })
     );
   });
@@ -353,6 +356,8 @@ describe("CreateServerPage Configuration step", () => {
 
     expect(await screen.findByText("Review & Create")).toBeInTheDocument();
     expect(screen.getByText("Host Process")).toBeInTheDocument();
+    expect(screen.getByText("Mode")).toBeInTheDocument();
+    expect(screen.getByText("Simple")).toBeInTheDocument();
 
     // Click Create Server
     await user.click(screen.getByRole("button", { name: "Create Server" }));
@@ -361,8 +366,22 @@ describe("CreateServerPage Configuration step", () => {
       expect.objectContaining({
         name: "Host Process Server",
         provider: undefined,
+        mode: "simple",
       })
     );
+  });
+
+  it("renders Simple mode chooser and does not render Advanced mode in Configuration step", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    expect(await screen.findByText("Server Configuration")).toBeInTheDocument();
+    expect(screen.getByText("Server Mode")).toBeInTheDocument();
+    expect(screen.getByTestId("server-mode-simple")).toBeInTheDocument();
+    expect(screen.queryByTestId("server-mode-advanced")).not.toBeInTheDocument();
   });
 });
 

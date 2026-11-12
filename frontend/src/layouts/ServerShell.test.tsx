@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -394,5 +394,55 @@ describe("ServerShell", () => {
     expect(innerWrapper.className).toContain("flex-col");
     expect(innerWrapper.className).toContain("flex-1");
     expect(innerWrapper.className).toContain("min-h-0");
+  });
+
+  describe("mode-based navigation gating in ServerShell", () => {
+    it("hides both Versions quick nav pill and sidebar Versions & Testing when server mode is simple", () => {
+      vi.mocked(useServerDetail).mockReturnValue({
+        data: { ...mockServer, mode: "simple" },
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useServerDetail>);
+
+      renderServerShell("/servers/srv-123/console");
+
+      // Sidebar link
+      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
+
+      // Quick nav pill
+      const quickNav = screen.getByRole("navigation", { name: "Server quick navigation" });
+      expect(within(quickNav).queryByRole("link", { name: /Quick Versions/i })).not.toBeInTheDocument();
+    });
+
+    it("renders both Versions quick nav pill and sidebar Versions & Testing when server mode is advanced", () => {
+      vi.mocked(useServerDetail).mockReturnValue({
+        data: { ...mockServer, mode: "advanced" },
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useServerDetail>);
+
+      renderServerShell("/servers/srv-123/console");
+
+      // Sidebar link
+      expect(screen.getByRole("link", { name: /Versions & Testing/i })).toBeInTheDocument();
+
+      // Quick nav pill
+      const quickNav = screen.getByRole("navigation", { name: "Server quick navigation" });
+      expect(within(quickNav).getByRole("link", { name: /Quick Versions/i })).toBeInTheDocument();
+    });
+
+    it("treats missing mode or invalid mode as simple and hides both versions navigation elements", () => {
+      vi.mocked(useServerDetail).mockReturnValue({
+        data: { ...mockServer, mode: undefined },
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useServerDetail>);
+
+      renderServerShell("/servers/srv-123/console");
+
+      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
+      const quickNav = screen.getByRole("navigation", { name: "Server quick navigation" });
+      expect(within(quickNav).queryByRole("link", { name: /Quick Versions/i })).not.toBeInTheDocument();
+    });
   });
 });

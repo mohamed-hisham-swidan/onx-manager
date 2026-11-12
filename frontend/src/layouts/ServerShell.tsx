@@ -24,6 +24,7 @@ import {
   useRestartServer,
 } from "@/server_manager/hooks/useServers";
 import { getServerCapabilities } from "@/server_manager/utils/serverCapabilities";
+import { resolveServerMode } from "@/server_manager/utils/serverMode";
 
 function useSafeServersList() {
   const queryClient = useContext(QueryClientContext);
@@ -148,12 +149,16 @@ export function ServerShell() {
     location.pathname.split(`/servers/${effectiveServerId}/`)[1] ||
     (location.pathname.endsWith(`/servers/${effectiveServerId}`) ? "console" : location.pathname.split("/").pop() || "console");
 
+  const serverMode = resolveServerMode(server?.mode);
+
   const navPills = [
     { id: "console", label: "Console", path: `/servers/${effectiveServerId}/console`, icon: "dashboard" as const },
     { id: "files", label: "Files", path: `/servers/${effectiveServerId}/files`, icon: "folder" as const },
     ...(supportsPlugins ? [{ id: "plugins", label: "Plugins", path: `/servers/${effectiveServerId}/plugins`, icon: "plugin" as const }] : []),
     ...(supportsMods ? [{ id: "mods", label: "Mods", path: `/servers/${effectiveServerId}/mods`, icon: "plugin" as const }] : []),
-    { id: "versioning", label: "Versions", path: `/servers/${effectiveServerId}/versioning`, icon: "backup" as const },
+    ...(serverMode === "advanced"
+      ? [{ id: "versioning", label: "Versions", path: `/servers/${effectiveServerId}/versioning`, icon: "backup" as const }]
+      : []),
     { id: "network", label: "Network", path: `/servers/${effectiveServerId}/network`, icon: "activity" as const },
     { id: "activity", label: "Activity", path: `/servers/${effectiveServerId}/activity`, icon: "clock" as const },
     { id: "settings", label: "Settings", path: `/servers/${effectiveServerId}/settings`, icon: "settings" as const },
@@ -182,6 +187,7 @@ export function ServerShell() {
           serverType: server?.server_type,
           supportsMods,
           supportsPlugins,
+          mode: serverMode,
         }}
       />
 

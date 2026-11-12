@@ -4,6 +4,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "@/stores/uiStore";
 import { useMarketplaceSourceStore } from "@/stores/marketplaceSourceStore";
+import type { ServerMode } from "@/server_manager/types";
 
 function renderSidebar() {
   return render(
@@ -269,6 +270,73 @@ describe("Sidebar", () => {
 
       fireEvent.doubleClick(handle);
       expect(handle).toHaveAttribute("aria-valuenow", "224");
+    });
+  });
+
+  describe("mode-based navigation gating", () => {
+    it("hides Versions & Testing link when serverContext mode is simple", () => {
+      render(
+        <MemoryRouter>
+          <Sidebar
+            serverContext={{
+              serverId: "srv-simple",
+              serverName: "Simple Server",
+              mode: "simple",
+            }}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Network & Exposure/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Change History/i })).toBeInTheDocument();
+    });
+
+    it("renders Versions & Testing link when serverContext mode is advanced", () => {
+      render(
+        <MemoryRouter>
+          <Sidebar
+            serverContext={{
+              serverId: "srv-adv",
+              serverName: "Advanced Server",
+              mode: "advanced",
+            }}
+          />
+        </MemoryRouter>,
+      );
+
+      const versioningLink = screen.getByRole("link", { name: /Versions & Testing/i });
+      expect(versioningLink).toBeInTheDocument();
+      expect(versioningLink).toHaveAttribute("href", "/servers/srv-adv/versioning");
+    });
+
+    it("falls back to hiding Versions & Testing when mode is undefined or unknown", () => {
+      const { rerender } = render(
+        <MemoryRouter>
+          <Sidebar
+            serverContext={{
+              serverId: "srv-undef",
+              serverName: "Undefined Server",
+            }}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
+
+      rerender(
+        <MemoryRouter>
+          <Sidebar
+            serverContext={{
+              serverId: "srv-unknown",
+              serverName: "Unknown Mode Server",
+              mode: "invalid-mode" as unknown as ServerMode,
+            }}
+          />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
     });
   });
 });
