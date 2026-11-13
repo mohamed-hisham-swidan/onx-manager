@@ -77,6 +77,7 @@ export function RamStepperField({
 interface ConfigStepProps {
   data: WizardData;
   dockerAvailable?: boolean | null;
+  advancedEnabled?: boolean;
   onChange: (d: Partial<WizardData>) => void;
   onNext: () => void;
   onBack: () => void;
@@ -85,6 +86,7 @@ interface ConfigStepProps {
 export function ConfigStep({
   data,
   dockerAvailable,
+  advancedEnabled = false,
   onChange,
   onNext,
   onBack,
@@ -107,6 +109,7 @@ export function ConfigStep({
         <ServerModeChooser
           value={data.mode}
           onChange={(mode) => onChange({ mode })}
+          advancedEnabled={advancedEnabled}
         />
 
         <div>
