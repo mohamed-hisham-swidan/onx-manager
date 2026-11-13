@@ -5,11 +5,15 @@ from typing import Any
 
 from app.api.deps import build_backup_encryption, build_storage_backend
 from app.core.config import ConfigFactory
+from app.core.exceptions import CasUnsupportedPlatformError
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.core.saga import SagaOrchestrator
 from app.modules.backup.domain.aggregate import BackupType
 from app.modules.backup.infrastructure.repository import SQLBackupRepository
 from app.modules.shared.value_objects import BackupJobId, ServerId
+from app.modules.versioning.application.baseline_adoption import (
+    ensure_simple_baseline_lockfile,
+)
 from app.services.backup_orchestrator import (
     BackupCancelledError,
     BackupSaga,
@@ -31,6 +35,32 @@ async def run_backup_task(params: dict[str, Any]) -> dict[str, Any]:
     saga = BackupSaga(SagaOrchestrator())
 
     try:
+        try:
+            adoption = await ensure_simple_baseline_lockfile(str(server_id))
+            logger.info(
+                "Baseline adoption status=%s reason=%s files_count=%d cas_ingested=%d "
+                "for backup %s server %s",
+                adoption.status,
+                adoption.reason,
+                adoption.files_count,
+                adoption.cas_ingested,
+                backup_id,
+                server_id,
+            )
+            for quarantined_path in adoption.quarantined:
+                logger.warning(
+                    "Quarantined path during baseline adoption: %s for backup %s server %s",
+                    quarantined_path,
+                    backup_id,
+                    server_id,
+                )
+        except CasUnsupportedPlatformError:
+            logger.warning(
+                "adoption_skipped_unsupported_platform for backup %s server %s",
+                backup_id,
+                server_id,
+            )
+
         await saga.execute(
             backup_id=backup_id,
             server_id=server_id,
