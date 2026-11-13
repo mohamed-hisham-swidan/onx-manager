@@ -56,6 +56,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Host servers data directory for sibling container bind mounts
       - ${ONX_HOST_DATA_DIR:-./backend/data/servers}:/app/data/servers
+      # Host state directory for DooD sibling mounts and storage
+      - ${ONX_HOST_STATE_HOST_DIR:-./backend/data/host-state}:/app/data/host-state
     environment:
       # Informs DockerProvider of the host-side directory path for sibling mounts
       - ONX_HOST_DATA_DIR=${ONX_HOST_DATA_DIR:-./backend/data/servers}
+      - ONX_HOST_STATE_HOST_DIR=${ONX_HOST_STATE_HOST_DIR:-}
