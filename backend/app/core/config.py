@@ -64,6 +64,7 @@ class AppSettings(BaseSettings):
     test_artifact_retention_hours: float = 24.0
     server_startup_timeout_seconds: int = 120
     test_boot_timeout_seconds: int = 120
+    advanced_mode_enabled: bool = False
 
     model_config = {"env_prefix": "ONX_", "extra": "ignore"}
 

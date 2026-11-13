@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import Field
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.config import ConfigFactory
 from app.core.event_bus import EventBus
 from app.core.exceptions import ProvisioningError
 from app.core.idempotency import IdempotencyKey
@@ -65,6 +66,13 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
         self._event_bus = event_bus
 
     async def handle(self, command: CreateServerCommand) -> CommandResult:
+        if command.mode == "advanced" and not ConfigFactory.global_settings().advanced_mode_enabled:
+            return CommandResult(
+                success=False,
+                error="Advanced mode is not enabled on this instance",
+                error_code="VALIDATION_ERROR",
+            )
+
         from app.modules.server.application.services.jar_service import (
             download_server_jar,
             forge_requires_installer,

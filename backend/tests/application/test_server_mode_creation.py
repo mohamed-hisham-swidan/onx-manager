@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.core.config import AppSettings
 from app.core.event_bus import EventBus
 from app.core.persistence.db import database
 from app.modules.server.application.commands.create_server import (
@@ -61,7 +62,40 @@ class TestCreateServerMode:
         assert await _load_mode(result.data["server_id"]) is _server_mode().SIMPLE
 
     @pytest.mark.asyncio
-    async def test_handler_persists_explicit_advanced(self, tmp_path: Path) -> None:
+    async def test_handler_rejects_advanced_when_flag_disabled(self, tmp_path: Path) -> None:
+        handler = CreateServerHandler(EventBus())
+        srv_dir = tmp_path / "srv-advanced-disabled"
+        cmd = CreateServerCommand(
+            name="advanced-disabled",
+            minecraft_version="1.20.4",
+            provider="local",
+            mode="advanced",
+        )
+        with (
+            patch(
+                "app.core.config.ConfigFactory.global_settings",
+                return_value=AppSettings(advanced_mode_enabled=False),
+            ),
+            patch(
+                "app.modules.server.application.services.jar_service.resolve_server_dir",
+                return_value=str(srv_dir),
+            ),
+        ):
+            result = await handler.handle(cmd)
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert result.error == "Advanced mode is not enabled on this instance"
+        assert srv_dir.exists() is False
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            servers = await repo.list()
+            assert not any(s.name == "advanced-disabled" for s in servers)
+
+    @pytest.mark.asyncio
+    async def test_handler_persists_explicit_advanced_when_flag_enabled(
+        self, tmp_path: Path
+    ) -> None:
         handler = CreateServerHandler(EventBus())
         srv_dir = tmp_path / "srv-advanced-mode"
         cmd = CreateServerCommand(
@@ -71,6 +105,10 @@ class TestCreateServerMode:
             mode="advanced",
         )
         with (
+            patch(
+                "app.core.config.ConfigFactory.global_settings",
+                return_value=AppSettings(advanced_mode_enabled=True),
+            ),
             patch(
                 "app.modules.server.application.services.jar_service.download_server_jar",
                 new_callable=AsyncMock,
@@ -96,7 +134,30 @@ class TestImportServerMode:
         assert cmd.mode == "simple"
 
     @pytest.mark.asyncio
-    async def test_handler_persists_explicit_advanced(self, tmp_path: Path) -> None:
+    async def test_handler_persists_default_simple(self, tmp_path: Path) -> None:
+        source = tmp_path / "source-simple"
+        source.mkdir()
+        (source / "server.jar").write_bytes(b"PK fake")
+        target = tmp_path / "imported-simple"
+
+        handler = ImportServerHandler(EventBus())
+        cmd = ImportServerCommand(
+            name="imported-simple",
+            source_path=str(source),
+            minecraft_version="1.20.4",
+            mode="simple",
+        )
+        with patch(
+            "app.modules.server.application.commands.import_server.resolve_server_dir",
+            return_value=str(target),
+        ):
+            result = await handler.handle(cmd)
+
+        assert result.success is True
+        assert await _load_mode(result.data["server_id"]) is _server_mode().SIMPLE
+
+    @pytest.mark.asyncio
+    async def test_handler_rejects_explicit_advanced_unconditionally(self, tmp_path: Path) -> None:
         source = tmp_path / "source-server"
         source.mkdir()
         (source / "server.jar").write_bytes(b"PK fake")
@@ -115,5 +176,12 @@ class TestImportServerMode:
         ):
             result = await handler.handle(cmd)
 
-        assert result.success is True
-        assert await _load_mode(result.data["server_id"]) is _server_mode().ADVANCED
+        assert result.success is False
+        assert result.error_code == "CONFLICT"
+        assert result.error == "Advanced mode imports are not supported in this release"
+        assert result.details == {"mode": "advanced"}
+        assert target.exists() is False
+        async with database.session_factory() as session:
+            repo = SQLServerRepository(session)
+            servers = await repo.list()
+            assert not any(s.name == "imported-advanced" for s in servers)

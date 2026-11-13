@@ -68,6 +68,13 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
         self._event_bus = event_bus
 
     async def handle(self, command: ImportServerCommand) -> CommandResult:
+        if command.mode == "advanced":
+            return CommandResult(
+                success=False,
+                error="Advanced mode imports are not supported in this release",
+                error_code="CONFLICT",
+                details={"mode": "advanced"},
+            )
         source = Path(command.source_path).expanduser().resolve()
         is_zip = source.is_file() and source.name.lower().endswith(".zip")
         if not source.is_dir() and not is_zip:
