@@ -218,6 +218,32 @@ describe("createApiClient", () => {
     expect(result).toEqual({ path: "server.properties", content: "motd=Updated" });
   });
 
+  it("passes the selected branch to Files and Save & Commit requests", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([]));
+    await api.listServerFiles("s1", "config", "dev");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files?path=config&branch=dev",
+      expect.objectContaining({ method: "GET" }),
+    );
+
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ path: "config/app.yml", content: "a: 1" }));
+    await api.readServerFileContent("s1", "config/app.yml", "dev");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files/content?path=config%2Fapp.yml&branch=dev",
+      expect.objectContaining({ method: "GET" }),
+    );
+
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ commit_id: "abc" }));
+    await api.createServerCommit("s1", { message: "Save branch", branch_name: "dev" });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/commits",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ message: "Save branch", branch_name: "dev" }),
+      }),
+    );
+  });
+
   it("mkdirServerDirectory sends POST with joined full path query param and no body", async () => {
     vi.mocked(fetch).mockImplementationOnce(mockFetch({ name: "logs", path: "logs", is_dir: true, size: 0 }));
     await api.mkdirServerDirectory("s1", "", "logs");

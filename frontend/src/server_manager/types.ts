@@ -335,6 +335,8 @@ export interface ServerBranch {
   status?: string;
   is_protected?: boolean;
   protection_policy?: BranchProtectionPolicy | null;
+  worktree_path?: string | null;
+  worktree_locked?: boolean;
 }
 
 export interface CreateBranchRequest {

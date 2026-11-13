@@ -12,17 +12,24 @@ from app.api.v1.schemas.files import (
     FileEntryResponse,
     WriteFileContentRequest,
 )
+from app.core.allowlist import classify
 from app.core.config import AppSettings
 from app.core.query_bus import QueryBus
 from app.modules.server.application.queries.get_server import GetServerQuery
 from app.modules.server.infrastructure.fs import local_fs
+from app.modules.versioning.application import GetBranchFilesRootQuery
 
 router = APIRouter(prefix="/api/v1/servers/{server_id}/files", tags=["files"])
 
 __all__ = ["router"]
 
 SENSITIVE_FILENAMES: frozenset[str] = frozenset({".env"})
-PROTECTED_DIRNAMES: frozenset[str] = frozenset({".onx", ".onx-manager", ".mcsmanager"})
+PROTECTED_DIRNAMES: frozenset[str] = frozenset(
+    {".git", ".onx", ".onx-manager", ".mcsmanager"}
+)
+RESERVED_ROOT_WRITE_NAMES: frozenset[str] = frozenset(
+    {"onx-jars.lock.json", ".gitattributes"}
+)
 
 
 def _normalize_name(name: str) -> str:
@@ -61,13 +68,53 @@ def _assert_not_protected_path(relative_path: str, target_path: Path, root: Path
         raise HTTPException(status_code=403, detail="Access denied to protected server folder")
 
 
+def _assert_file_mutation_allowed(
+    relative_path: str,
+    read_only: bool,
+    *,
+    git_scoped: bool,
+    is_directory: bool = False,
+) -> None:
+    """Enforce branch write policy before any Files mutation.
+
+    ``main`` is protected saved state and must be edited through a working
+    branch. The authoritative lockfile and the panel-generated attributes file
+    are panel-managed even on feature branches. Inside a Git worktree only
+    Class-B allow-listed files are editable; Class-A/C/E paths are rejected
+    instead of becoming untracked or misclassified content.
+    """
+    if read_only:
+        raise HTTPException(
+            status_code=403,
+            detail="Branch 'main' is read-only; create a working branch to edit files",
+        )
+
+    parts = [part for part in relative_path.replace("\\", "/").split("/") if part]
+    if len(parts) == 1 and _normalize_name(parts[0]) in RESERVED_ROOT_WRITE_NAMES:
+        raise HTTPException(
+            status_code=403,
+            detail="This file is managed by the panel and cannot be modified through Files",
+        )
+
+    if git_scoped and not is_directory and classify(relative_path) != "B":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Only Class-B configuration files can be edited on an Advanced branch; "
+                "Class-A binaries use the CAS lockfile and Class-C live files have "
+                "their own view"
+            ),
+        )
+
+
 async def _resolve_server_file_path(
     server_id: str,
     relative_path: str,
     query_bus: QueryBus,
     must_exist: bool = False,
     follow_symlink: bool = True,
-) -> tuple[Path, Path, str]:
+    branch: str | None = None,
+) -> tuple[Path, Path, str, bool, bool]:
 
     server = await query_bus.ask(GetServerQuery(server_id=server_id))
     if server is None:
@@ -82,6 +129,16 @@ async def _resolve_server_file_path(
             status_code=400,
             detail="Server deployment root path is not configured",
         )
+
+    read_only = False
+    git_scoped = False
+    branch_root = await query_bus.ask(
+        GetBranchFilesRootQuery(server_id=server_id, branch=branch or None)
+    )
+    if branch_root is not None:
+        root_path = str(branch_root.root_path)
+        read_only = branch_root.read_only
+        git_scoped = True
 
     resolved_root = Path(root_path).resolve()
     clean_rel = relative_path.lstrip("/") if relative_path else ""
@@ -112,18 +169,19 @@ async def _resolve_server_file_path(
     if rel_str == ".":
         rel_str = ""
 
-    return resolved_root, target_path, rel_str
+    return resolved_root, target_path, rel_str, read_only, git_scoped
 
 
 @router.get("", response_model=list[FileEntryResponse])
 async def list_files(
     server_id: str,
     path: str = Query(default=""),
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> list[FileEntryResponse]:
-    resolved_root, target_path, _ = await _resolve_server_file_path(
-        server_id, path, query_bus, must_exist=True
+    resolved_root, target_path, _, _, _ = await _resolve_server_file_path(
+        server_id, path, query_bus, must_exist=True, branch=branch
     )
     if not target_path.is_dir():
         raise HTTPException(status_code=400, detail="Target path is a file, not a directory")
@@ -167,11 +225,12 @@ async def list_files(
 async def read_file_content(
     server_id: str,
     path: str = Query(...),
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> FileContentResponse:
-    _, target_path, rel_str = await _resolve_server_file_path(
-        server_id, path, query_bus, must_exist=True
+    _, target_path, rel_str, _, _ = await _resolve_server_file_path(
+        server_id, path, query_bus, must_exist=True, branch=branch
     )
     if target_path.is_dir():
         raise HTTPException(status_code=400, detail="Target path is a directory, not a file")
@@ -193,15 +252,17 @@ async def write_file_content(
     server_id: str,
     body: WriteFileContentRequest,
     path: str = Query(...),
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> FileContentResponse:
-    _, target_path, rel_str = await _resolve_server_file_path(
-        server_id, path, query_bus, must_exist=False
+    _, target_path, rel_str, read_only, git_scoped = await _resolve_server_file_path(
+        server_id, path, query_bus, must_exist=False, branch=branch
     )
     if target_path.exists() and target_path.is_dir():
         raise HTTPException(status_code=400, detail="Target path is a directory, not a file")
 
+    _assert_file_mutation_allowed(rel_str, read_only, git_scoped=git_scoped)
     _assert_not_sensitive(target_path)
 
     # Use write_binary_atomic to prevent partial file writes on failure
@@ -213,15 +274,29 @@ async def write_file_content(
 async def delete_file_or_dir(
     server_id: str,
     path: str = Query(...),
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> None:
-    resolved_root, target_path, _ = await _resolve_server_file_path(
-        server_id, path, query_bus, must_exist=True, follow_symlink=False
+    resolved_root, target_path, rel_str, read_only, git_scoped = (
+        await _resolve_server_file_path(
+            server_id,
+            path,
+            query_bus,
+            must_exist=True,
+            follow_symlink=False,
+            branch=branch,
+        )
     )
     if target_path == resolved_root:
         raise HTTPException(status_code=400, detail="Cannot delete server root directory")
 
+    _assert_file_mutation_allowed(
+        rel_str,
+        read_only,
+        git_scoped=git_scoped,
+        is_directory=target_path.is_dir(),
+    )
     _assert_not_sensitive(target_path)
 
     if target_path.is_symlink():
@@ -237,6 +312,7 @@ async def delete_file_or_dir(
 async def upload_file(
     server_id: str,
     path: str = Query(default=""),
+    branch: str | None = Query(default=None),
     file: UploadFile = File(...),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(require_server_permission("server.{id}.files")),
@@ -246,12 +322,15 @@ async def upload_file(
     filename = Path(filename).name
 
     dest_rel_path = f"{path.strip('/')}/{filename}" if path.strip("/") else filename
-    resolved_root, target_file_path, rel_str = await _resolve_server_file_path(
-        server_id, dest_rel_path, query_bus, must_exist=False
+    resolved_root, target_file_path, rel_str, read_only, git_scoped = (
+        await _resolve_server_file_path(
+            server_id, dest_rel_path, query_bus, must_exist=False, branch=branch
+        )
     )
     if target_file_path.exists() and target_file_path.is_dir():
         raise HTTPException(status_code=400, detail="Target path is a directory, not a file")
 
+    _assert_file_mutation_allowed(rel_str, read_only, git_scoped=git_scoped)
     _assert_not_sensitive(target_file_path)
 
     chunk_size = 64 * 1024
@@ -301,13 +380,16 @@ async def upload_file(
 async def download_file(
     server_id: str,
     path: str = Query(...),
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(
         require_server_permission("server.{id}.files")
     ),
 ) -> FileResponse:
 
-    _, target_path, _ = await _resolve_server_file_path(server_id, path, query_bus, must_exist=True)
+    _, target_path, _, _, _ = await _resolve_server_file_path(
+        server_id, path, query_bus, must_exist=True, branch=branch
+    )
     if target_path.is_dir():
         raise HTTPException(status_code=400, detail="Target path is a directory, not a file")
 
@@ -324,15 +406,19 @@ async def download_file(
 async def create_directory(
     server_id: str,
     path: str = Query(...),
+    branch: str | None = Query(default=None),
     query_bus: QueryBus = Depends(get_query_bus),
     _current_user: dict = Depends(require_server_permission("server.{id}.files")),
 ) -> FileEntryResponse:
 
-    _, target_path, rel_str = await _resolve_server_file_path(
-        server_id, path, query_bus, must_exist=False
+    _, target_path, rel_str, read_only, git_scoped = await _resolve_server_file_path(
+        server_id, path, query_bus, must_exist=False, branch=branch
     )
     if target_path.exists() and not target_path.is_dir():
         raise HTTPException(status_code=409, detail="A file already exists at this path")
+    _assert_file_mutation_allowed(
+        rel_str, read_only, git_scoped=git_scoped, is_directory=True
+    )
     try:
         local_fs.ensure_dir(str(target_path))
     except (FileExistsError, NotADirectoryError) as exc:

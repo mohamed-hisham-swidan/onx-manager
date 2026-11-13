@@ -57,8 +57,12 @@ export const queryKeys = {
   },
   files: {
     all: ["files"] as const,
-    list: (serverId: string, path: string) => ["files", "list", serverId, path] as const,
-    content: (serverId: string, path: string) => ["files", "content", serverId, path] as const,
+    list: (serverId: string, path: string, branch?: string) => ["files", "list", serverId, path, branch ?? null] as const,
+    content: (serverId: string, path: string, branch?: string) => ["files", "content", serverId, path, branch ?? null] as const,
+  },
+  versioning: {
+    branches: (serverId: string) => ["versioning", "branches", serverId] as const,
+    commits: (serverId: string) => ["versioning", "commits", serverId] as const,
   },
   exposure: {
     all: ["exposure"] as const,

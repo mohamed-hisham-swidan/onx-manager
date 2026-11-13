@@ -783,28 +783,28 @@ export function createApiClient(
       request<SettingsUpdateResponse>("/api/v1/settings", { method: "PATCH", body }),
 
     // Files
-    listServerFiles: (serverId: string, path?: string) =>
-      request<import("@/server_manager/types").FileItem[]>(`/api/v1/servers/${serverId}/files`, { params: { path } }),
-    readServerFileContent: (serverId: string, path: string) =>
-      request<import("@/server_manager/types").FileContentResponse>(`/api/v1/servers/${serverId}/files/content`, { params: { path } }),
-    writeServerFileContent: (serverId: string, path: string, content: string) =>
-      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/content`, { method: "PUT", params: { path }, body: { content } }),
-    deleteServerFile: (serverId: string, path: string) =>
-      request<void>(`/api/v1/servers/${serverId}/files`, { method: "DELETE", params: { path } }),
-    uploadServerFile: (serverId: string, path: string, file: File) => {
+    listServerFiles: (serverId: string, path?: string, branch?: string) =>
+      request<import("@/server_manager/types").FileItem[]>(`/api/v1/servers/${serverId}/files`, { params: { path, branch } }),
+    readServerFileContent: (serverId: string, path: string, branch?: string) =>
+      request<import("@/server_manager/types").FileContentResponse>(`/api/v1/servers/${serverId}/files/content`, { params: { path, branch } }),
+    writeServerFileContent: (serverId: string, path: string, content: string, branch?: string) =>
+      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/content`, { method: "PUT", params: { path, branch }, body: { content } }),
+    deleteServerFile: (serverId: string, path: string, branch?: string) =>
+      request<void>(`/api/v1/servers/${serverId}/files`, { method: "DELETE", params: { path, branch } }),
+    uploadServerFile: (serverId: string, path: string, file: File, branch?: string) => {
       const formData = new FormData();
       formData.append("file", file);
-      return request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/upload`, { method: "POST", params: { path }, body: formData });
+      return request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/upload`, { method: "POST", params: { path, branch }, body: formData });
     },
-    downloadServerFile: (serverId: string, path: string) =>
-      request<Blob>(`/api/v1/servers/${serverId}/files/download`, { params: { path }, responseType: "blob" }),
-    mkdirServerDirectory: (serverId: string, path: string, folderName?: string) => {
+    downloadServerFile: (serverId: string, path: string, branch?: string) =>
+      request<Blob>(`/api/v1/servers/${serverId}/files/download`, { params: { path, branch }, responseType: "blob" }),
+    mkdirServerDirectory: (serverId: string, path: string, folderName?: string, branch?: string) => {
       const fullPath = folderName
         ? (path ? `${path.replace(/\/+$/, "")}/${folderName.replace(/^\/+/, "")}` : folderName)
         : path;
       return request<Record<string, unknown>>(`/api/v1/servers/${serverId}/files/mkdir`, {
         method: "POST",
-        params: { path: fullPath },
+        params: { path: fullPath, branch },
       });
     },
 

@@ -235,6 +235,7 @@ route_permissions:
   # versioning
   "POST /api/v1/servers/{server_id}/versioning/branches": {permission: "server:version:commit", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/branches/{name}/archive": {permission: "server:version:commit", status: enforced}
+  "DELETE /api/v1/servers/{server_id}/versioning/branches/{name}": {permission: "server:version:commit", status: enforced}
   "PUT /api/v1/servers/{server_id}/versioning/branches/{name}/protection": {permission: "server:version:branch:protect", status: enforced}
   "DELETE /api/v1/servers/{server_id}/versioning/branches/{name}/protection": {permission: "server:version:branch:protect", status: enforced}
   "POST /api/v1/servers/{server_id}/versioning/commits": {permission: "server:version:commit", status: enforced}

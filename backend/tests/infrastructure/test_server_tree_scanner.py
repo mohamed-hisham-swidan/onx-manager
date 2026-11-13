@@ -100,16 +100,20 @@ class TestServerTreeScanner:
         (root / ".git" / "config").write_bytes(b"git-config")
         (root / "plugins" / "cache").mkdir()
         (root / "plugins" / "cache" / "temp.dat").write_bytes(b"cache-data")
+        (root / ".onx" / "worktrees" / "main").mkdir(parents=True)
+        (root / ".onx" / "worktrees" / "main" / "server.properties").write_bytes(b"motd=x")
 
         report = scan_server_tree(root)
 
         assert "libraries" in report.skipped_dirs
         assert ".git" in report.skipped_dirs
+        assert ".onx" in report.skipped_dirs
         assert "plugins/cache" in report.skipped_dirs
 
         scanned_paths = [f.path for f in report.files]
         assert not any(p.startswith("libraries/") for p in scanned_paths)
         assert not any(p.startswith(".git/") for p in scanned_paths)
+        assert not any(p.startswith(".onx/") for p in scanned_paths)
         assert not any(p.startswith("plugins/cache/") for p in scanned_paths)
 
     @pytest.mark.skipif(os.name != "posix", reason="POSIX symlinks only")

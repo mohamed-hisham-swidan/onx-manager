@@ -1,10 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ServerShell } from "./ServerShell";
 import { useServerDetail } from "@/server_manager/hooks/useServers";
+
+const getServerBranchesMock = vi.fn();
+
+vi.mock("@/services/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/api")>();
+  return {
+    ...actual,
+    createAuthenticatedApi: () => ({
+      getServerBranches: getServerBranchesMock,
+    }),
+  };
+});
 
 // Mock WebSocket hooks used in ServerDetailPage
 vi.mock("@/hooks/useWebSocket", () => ({
@@ -97,6 +109,8 @@ function renderServerShell(initialPath = "/servers/srv-123/console") {
 describe("ServerShell", () => {
   beforeEach(() => {
     mockStopMutate.mockClear();
+    getServerBranchesMock.mockReset();
+    getServerBranchesMock.mockResolvedValue([]);
     vi.mocked(useServerDetail).mockReturnValue({
       data: { ...mockServer, server_type: "fabric" },
       isLoading: false,
@@ -443,6 +457,83 @@ describe("ServerShell", () => {
       expect(screen.queryByRole("link", { name: /Versions & Testing/i })).not.toBeInTheDocument();
       const quickNav = screen.getByRole("navigation", { name: "Server quick navigation" });
       expect(within(quickNav).queryByRole("link", { name: /Quick Versions/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("branch selector", () => {
+    const branches = [
+      {
+        id: "b-main",
+        server_id: "srv-123",
+        name: "main",
+        head_commit_id: "a".repeat(40),
+        created_at: "2024-01-01T00:00:00Z",
+        is_protected: true,
+        worktree_path: "/data/.onx/worktrees/main",
+        worktree_locked: false,
+      },
+      {
+        id: "b-dev",
+        server_id: "srv-123",
+        name: "dev",
+        head_commit_id: "b".repeat(40),
+        created_at: "2024-01-01T00:00:00Z",
+        is_protected: false,
+        worktree_path: "/data/.onx/worktrees/dev",
+        worktree_locked: false,
+      },
+    ];
+
+    it("renders the branch selector for a Git-backed advanced server and selects a branch", async () => {
+      const user = userEvent.setup();
+      getServerBranchesMock.mockResolvedValue(branches);
+      vi.mocked(useServerDetail).mockReturnValue({
+        data: { ...mockServer, mode: "advanced" },
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useServerDetail>);
+
+      renderServerShell("/servers/srv-123/files?branch=dev");
+
+      const select = await screen.findByTestId("branch-switcher-select");
+      await waitFor(() => expect(select).toHaveValue("dev"));
+      expect(screen.getByTestId("branch-selector")).toHaveTextContent("Branch");
+      expect(within(select).getByRole("option", { name: "main" })).toBeInTheDocument();
+      expect(within(select).getByRole("option", { name: "dev" })).toBeInTheDocument();
+
+      await user.selectOptions(select, "main");
+      await waitFor(() => expect(select).toHaveValue("main"));
+    });
+
+    it("hides the branch selector for simple servers and DB-only advanced servers", () => {
+      vi.mocked(useServerDetail).mockReturnValue({
+        data: { ...mockServer, mode: "simple" },
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useServerDetail>);
+      const { unmount } = renderServerShell("/servers/srv-123/files");
+      expect(screen.queryByTestId("branch-selector")).not.toBeInTheDocument();
+      unmount();
+
+      getServerBranchesMock.mockResolvedValue([
+        {
+          id: "b-main",
+          server_id: "srv-123",
+          name: "main",
+          head_commit_id: null,
+          created_at: "2024-01-01T00:00:00Z",
+          worktree_path: null,
+          worktree_locked: false,
+        },
+      ]);
+      vi.mocked(useServerDetail).mockReturnValue({
+        data: { ...mockServer, mode: "advanced" },
+        isLoading: false,
+        error: null,
+      } as unknown as ReturnType<typeof useServerDetail>);
+
+      renderServerShell("/servers/srv-123/files");
+      expect(screen.queryByTestId("branch-selector")).not.toBeInTheDocument();
     });
   });
 });

@@ -202,6 +202,8 @@ from app.modules.versioning.application import (
     CreateTagHandler,
     CreateTestDefinitionCommand,
     CreateTestDefinitionHandler,
+    DeleteBranchCommand,
+    DeleteBranchHandler,
     DeleteTestDefinitionCommand,
     DeleteTestDefinitionHandler,
     DiffCommitsHandler,
@@ -210,6 +212,8 @@ from app.modules.versioning.application import (
     DiscardTestHandler,
     DismissImportReviewCommand,
     DismissImportReviewHandler,
+    GetBranchFilesRootHandler,
+    GetBranchFilesRootQuery,
     GetBranchHistoryHandler,
     GetBranchHistoryQuery,
     GetBranchProtectionHandler,
@@ -395,6 +399,7 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
 
     command_bus.register(CreateBranchCommand, CreateBranchHandler(event_bus=event_bus))
     command_bus.register(ArchiveBranchCommand, ArchiveBranchHandler(event_bus=event_bus))
+    command_bus.register(DeleteBranchCommand, DeleteBranchHandler(event_bus=event_bus))
     command_bus.register(CreateCommitCommand, CreateCommitHandler(event_bus=event_bus))
     command_bus.register(CreateTagCommand, CreateTagHandler(event_bus=event_bus))
     command_bus.register(MergeCommitsCommand, MergeCommitsHandler(event_bus=event_bus))
@@ -497,6 +502,7 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(ListInvitesQuery, ListInvitesHandler())
 
     query_bus.register(GetServerBranchesQuery, GetServerBranchesHandler())
+    query_bus.register(GetBranchFilesRootQuery, GetBranchFilesRootHandler())
     query_bus.register(GetBranchHistoryQuery, GetBranchHistoryHandler())
     query_bus.register(GetCommitHistoryQuery, GetCommitHistoryHandler())
     query_bus.register(GetServerTagsQuery, GetServerTagsHandler())

@@ -21,6 +21,8 @@ class BranchResponse(BaseResponse):
     status: str = "created"
     is_protected: bool = False
     protection_policy: dict[str, Any] | None = None
+    worktree_path: str | None = None
+    worktree_locked: bool = False
 
 
 class CreateCommitRequest(BaseModel):

@@ -129,6 +129,11 @@ class HostStateLayout:
         seg = validate_server_segment(server_id)
         return self.class_c_vault / seg
 
+    def repo_dir(self, server_id: str) -> Path:
+        """Return the per-server repository storage directory outside the server tree."""
+        seg = validate_server_segment(server_id)
+        return self.repos / seg
+
 
 def _ensure_directory(path: Path) -> None:
     """Ensure directory exists with 0700 on POSIX or default ACL on Windows.

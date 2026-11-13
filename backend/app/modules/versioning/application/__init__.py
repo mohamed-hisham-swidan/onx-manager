@@ -32,6 +32,10 @@ from app.modules.versioning.application.commands.create_tag import (
     CreateTagCommand,
     CreateTagHandler,
 )
+from app.modules.versioning.application.commands.delete_branch import (
+    DeleteBranchCommand,
+    DeleteBranchHandler,
+)
 from app.modules.versioning.application.commands.discard_test import (
     DiscardTestCommand,
     DiscardTestHandler,
@@ -84,6 +88,11 @@ from app.modules.versioning.application.commands.write_materialized_file import 
 from app.modules.versioning.application.queries.diff_commits import (
     DiffCommitsHandler,
     DiffCommitsQuery,
+)
+from app.modules.versioning.application.queries.get_branch_files_root import (
+    BranchFilesRoot,
+    GetBranchFilesRootHandler,
+    GetBranchFilesRootQuery,
 )
 from app.modules.versioning.application.queries.get_branch_history import (
     GetBranchHistoryHandler,
@@ -147,6 +156,7 @@ __all__ = [
     "ArchiveBranchHandler",
     "AutoCommitLiveChangesCommand",
     "AutoCommitLiveChangesHandler",
+    "BranchFilesRoot",
     "ConfirmImportReviewCommand",
     "ConfirmImportReviewHandler",
     "CreateBranchCommand",
@@ -159,6 +169,8 @@ __all__ = [
     "CreateTagHandler",
     "CreateTestDefinitionCommand",
     "CreateTestDefinitionHandler",
+    "DeleteBranchCommand",
+    "DeleteBranchHandler",
     "DeleteTestDefinitionCommand",
     "DeleteTestDefinitionHandler",
     "DiffCommitsHandler",
@@ -167,6 +179,8 @@ __all__ = [
     "DiscardTestHandler",
     "DismissImportReviewCommand",
     "DismissImportReviewHandler",
+    "GetBranchFilesRootHandler",
+    "GetBranchFilesRootQuery",
     "GetBranchHistoryHandler",
     "GetBranchHistoryQuery",
     "GetBranchProtectionHandler",

@@ -334,6 +334,7 @@ class TestServerSegmentValidation:
         assert layout.server_meta_dir(valid_id) == layout.server_meta / valid_id
         assert layout.quarantine_dir(valid_id) == layout.quarantine / valid_id
         assert layout.class_c_vault_dir(valid_id) == layout.class_c_vault / valid_id
+        assert layout.repo_dir(valid_id) == layout.repos / valid_id
 
     @pytest.mark.parametrize(
         "invalid_id",
@@ -380,6 +381,8 @@ class TestServerSegmentValidation:
             layout.quarantine_dir(invalid_id)
         with pytest.raises(InvalidValueError):
             layout.class_c_vault_dir(invalid_id)
+        with pytest.raises(InvalidValueError):
+            layout.repo_dir(invalid_id)
 
 
 class TestMarker:

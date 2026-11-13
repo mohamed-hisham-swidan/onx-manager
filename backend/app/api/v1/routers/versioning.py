@@ -57,6 +57,7 @@ from app.modules.versioning.application import (
     CreateMaterializationCommand,
     CreateTagCommand,
     CreateTestDefinitionCommand,
+    DeleteBranchCommand,
     DeleteTestDefinitionCommand,
     DiffCommitsQuery,
     DiscardTestCommand,
@@ -134,6 +135,18 @@ async def archive_branch(
     _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
 ) -> dict[str, Any]:
     cmd = ArchiveBranchCommand(server_id=server_id, name=name)
+    res = await command_bus.send(cmd)
+    return check_command_result(res)
+
+
+@router.delete("/branches/{name}", response_model=dict[str, Any])
+async def delete_branch(
+    server_id: str,
+    name: str,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> dict[str, Any]:
+    cmd = DeleteBranchCommand(server_id=server_id, name=name)
     res = await command_bus.send(cmd)
     return check_command_result(res)
 

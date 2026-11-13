@@ -22,6 +22,7 @@ let readServerFileContentMock: ReturnType<typeof vi.fn>;
 let writeServerFileContentMock: ReturnType<typeof vi.fn>;
 let mkdirServerDirectoryMock: ReturnType<typeof vi.fn>;
 let deleteServerFileMock: ReturnType<typeof vi.fn>;
+let createServerCommitMock: ReturnType<typeof vi.fn>;
 
 vi.mock("@/services/api", () => ({
   createAuthenticatedApi: () => ({
@@ -32,6 +33,7 @@ vi.mock("@/services/api", () => ({
     deleteServerFile: (...args: unknown[]) => deleteServerFileMock(...args),
     uploadServerFile: vi.fn().mockResolvedValue({}),
     downloadServerFile: vi.fn().mockResolvedValue(new Blob(["data"])),
+    createServerCommit: createServerCommitMock,
   }),
   ApiError: class ApiError extends Error {
     constructor(public status: number, public code: string, message: string) {
@@ -71,6 +73,11 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
     readServerFileContentMock = vi.fn().mockResolvedValue(mockFileContent);
     writeServerFileContentMock = vi.fn().mockResolvedValue({ path: "server.properties", content: "updated" });
     deleteServerFileMock = vi.fn().mockResolvedValue(undefined);
+    createServerCommitMock = vi.fn().mockResolvedValue({
+      commit_id: "c".repeat(40),
+      branch_name: "dev",
+      files: ["server.properties"],
+    });
     mkdirServerDirectoryMock = vi.fn().mockImplementation((_serverId, path) => {
       const name = path.split("/").pop();
       const newFolder: FileItem = { name, is_dir: true, size: 0, path };
@@ -376,5 +383,82 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
 
     expect(screen.getByRole("button", { name: "Open world" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete world" })).toBeInTheDocument();
+  });
+
+  it("scopes file listing and content reads to the selected branch", async () => {
+    renderPage("srv-1", ["/servers/srv-1/files?branch=dev"]);
+
+    expect(await screen.findByText("server.properties")).toBeInTheDocument();
+    expect(screen.getByTestId("branch-context-banner")).toHaveTextContent("dev");
+    expect(listServerFilesMock).toHaveBeenCalledWith("srv-1", "", "dev");
+
+    fireEvent.click(screen.getByText("server.properties"));
+    expect(await screen.findByText("Editing: server.properties")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(readServerFileContentMock).toHaveBeenCalledWith(
+        "srv-1",
+        "server.properties",
+        "dev",
+      );
+    });
+  });
+
+  it("writes branch-scoped file content with the branch parameter", async () => {
+    const user = userEvent.setup();
+    renderPage("srv-1", ["/servers/srv-1/files?branch=dev"]);
+
+    expect(await screen.findByText("server.properties")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("server.properties"));
+
+    const textarea = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    await user.clear(textarea);
+    await user.type(textarea, "motd=Branch Edit");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(writeServerFileContentMock).toHaveBeenCalledWith(
+        "srv-1",
+        "server.properties",
+        "motd=Branch Edit",
+        "dev",
+      );
+    });
+  });
+
+  it("saves and commits branch changes through the commit endpoint", async () => {
+    const user = userEvent.setup();
+    renderPage("srv-1", ["/servers/srv-1/files?branch=dev"]);
+
+    expect(await screen.findByText("server.properties")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /save & commit/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("Commit message"),
+      "Update properties",
+    );
+    await user.click(within(dialog).getByRole("button", { name: /^commit$/i }));
+
+    await waitFor(() => {
+      expect(createServerCommitMock).toHaveBeenCalledWith("srv-1", {
+        message: "Update properties",
+        branch_name: "dev",
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("marks main as read-only and hides mutating controls", async () => {
+    renderPage("srv-1", ["/servers/srv-1/files?branch=main"]);
+
+    expect(await screen.findByText("server.properties")).toBeInTheDocument();
+    expect(screen.getByTestId("branch-context-banner")).toHaveTextContent(/read-only/i);
+    expect(screen.queryByRole("button", { name: /new folder/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /upload file/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /save & commit/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 });

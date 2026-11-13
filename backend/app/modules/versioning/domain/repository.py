@@ -35,6 +35,10 @@ class VersioningRepository(ABC):
     async def save_branch(self, branch: ServerBranch) -> ServerBranch:
         pass
 
+    async def delete_branch(self, branch_id: str) -> bool:
+        _ = branch_id
+        return False
+
     @abstractmethod
     async def advance_branch_head_optimistic(
         self, branch_id: str, new_head: str, expected_head: str | None

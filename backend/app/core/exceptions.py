@@ -667,3 +667,236 @@ class CasUnsupportedPlatformError(CasError):
             http_status=501,
             details=details or {},
         )
+
+
+# --- P2-2 Native Git repository engine exceptions ---
+
+
+class GitError(MCSError):
+    """Base error for hardened native Git operations."""
+
+    def __init__(
+        self,
+        message: str = "Git operation failed",
+        *,
+        code: str = "GIT_ERROR",
+        http_status: int = 500,
+        retryable: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Git operation failed",
+            code=code,
+            http_status=http_status,
+            retryable=retryable,
+            details=details or {},
+        )
+
+
+class GitConfigurationError(GitError):
+    """Raised when the isolated Git configuration cannot be created or read."""
+
+    def __init__(
+        self,
+        message: str = "Git configuration error",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Git configuration error",
+            code="GIT_CONFIGURATION_ERROR",
+            http_status=500,
+            details=details or {},
+        )
+
+
+class GitUnsupportedPlatformError(GitError):
+    """Raised when native Git is requested on a platform the engine does not support."""
+
+    def __init__(
+        self,
+        message: str = "Native Git is not supported on this platform",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Native Git is not supported on this platform",
+            code="GIT_UNSUPPORTED_PLATFORM",
+            http_status=501,
+            details=details or {},
+        )
+
+
+class GitUnavailableError(GitError):
+    """Raised when the configured Git executable cannot be executed."""
+
+    def __init__(
+        self,
+        message: str = "Git executable is unavailable",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Git executable is unavailable",
+            code="GIT_UNAVAILABLE",
+            http_status=503,
+            retryable=True,
+            details=details or {},
+        )
+
+
+class GitCommandError(GitError):
+    """Raised when a Git command exits non-zero."""
+
+    def __init__(
+        self,
+        message: str = "Git command failed",
+        *,
+        command: str = "",
+        returncode: int | None = None,
+        stderr: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = dict(details or {})
+        if command:
+            merged["command"] = command[:256]
+        if returncode is not None:
+            merged["returncode"] = returncode
+        if stderr:
+            merged["stderr"] = stderr[:2000]
+        super().__init__(
+            message or "Git command failed",
+            code="GIT_COMMAND_FAILED",
+            http_status=500,
+            details=merged,
+        )
+        self.command = command
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+class GitTimeoutError(GitCommandError):
+    """Raised when a Git command exceeds its timeout."""
+
+    def __init__(
+        self,
+        message: str = "Git command timed out",
+        *,
+        command: str = "",
+        timeout_seconds: float = 0.0,
+        stderr: str = "",
+    ) -> None:
+        super().__init__(
+            message or "Git command timed out",
+            command=command,
+            stderr=stderr,
+            details={"timeout_seconds": timeout_seconds},
+        )
+        self.code = "GIT_TIMEOUT"
+        self.http_status = 504
+        self.retryable = True
+        self.timeout_seconds = timeout_seconds
+
+
+class GitRefValidationError(ValidationError):
+    """Raised when a branch name fails the hardened validation contract."""
+
+    def __init__(
+        self,
+        message: str = "Invalid Git branch name",
+        *,
+        ref: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Invalid Git branch name",
+            field="branch",
+            details={"ref": ref[:256], **(details or {})},
+        )
+        self.code = "GIT_REF_INVALID"
+        self.http_status = 422
+
+
+class GitRemoteUrlError(ValidationError):
+    """Raised when a Git remote URL does not match the approved GitHub forms."""
+
+    def __init__(
+        self,
+        message: str = "Invalid Git remote URL",
+        *,
+        url: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Invalid Git remote URL",
+            field="remote_url",
+            details={"url": url[:256], **(details or {})},
+        )
+        self.code = "GIT_REMOTE_URL_INVALID"
+        self.http_status = 422
+
+
+class GitRepositoryStateError(GitError):
+    """Raised when an existing repository or worktree is not in the expected state."""
+
+    def __init__(
+        self,
+        message: str = "Git repository state is invalid",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Git repository state is invalid",
+            code="GIT_REPOSITORY_STATE",
+            http_status=409,
+            details=details,
+        )
+
+
+class OversizedGitTrackedFileError(ValidationError):
+    """Raised when a Git-tracked Class-B file exceeds the 1 MiB cap."""
+
+    def __init__(
+        self,
+        path: str = "",
+        size_bytes: int = 0,
+        max_bytes: int = 1024 * 1024,
+    ) -> None:
+        super().__init__(
+            f"Git-tracked file '{path}' exceeds the {max_bytes} byte limit "
+            f"(actual: {size_bytes} bytes)",
+            field="path",
+            details={
+                "path": path[:128],
+                "size_bytes": size_bytes,
+                "max_bytes": max_bytes,
+            },
+        )
+        self.code = "GIT_TRACKED_FILE_TOO_LARGE"
+        self.http_status = 413
+
+
+class SecretFileInGitForbiddenError(ValidationError):
+    """Raised when staged Class-B content contains secret material.
+
+    ``findings`` must contain only kind/key metadata. Detected secret values are
+    never included in the error message or details.
+    """
+
+    def __init__(
+        self,
+        path: str = "",
+        *,
+        findings: list[dict[str, Any]] | None = None,
+    ) -> None:
+        safe_findings = [
+            {"kind": str(item.get("kind", "unknown"))[:64], "key": str(item.get("key", ""))[:128]}
+            for item in (findings or [])
+        ]
+        super().__init__(
+            f"File '{path}' contains secret material and cannot be committed",
+            field="path",
+            details={"path": path[:128], "findings": safe_findings},
+        )
+        self.code = "SECRET_FILE_IN_GIT_FORBIDDEN"
+        self.http_status = 422

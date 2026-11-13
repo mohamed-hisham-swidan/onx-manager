@@ -17,7 +17,12 @@ from app.core.exceptions import (
 )
 from app.modules.activity.domain.entities import ServerActivityLog
 from app.modules.activity.domain.repository import ActivityRepository
+from app.modules.server.domain.aggregate import Server
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.versioning.application.git_branch_adapter import (
+    GitBranchContext,
+    git_branch_context,
+)
 from app.modules.versioning.domain.entities import (
     ServerBranch,
     ServerCommit,
@@ -101,6 +106,54 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
 
         return res
 
+    async def _execute_native_git(
+        self,
+        command: CreateCommitCommand,
+        server: Server,
+        context: GitBranchContext,
+        events: list[DomainEvent] | None = None,
+    ) -> CommandResult:
+        """Run the native Git Save & Commit path for an Advanced repository."""
+        from app.modules.versioning.domain.events import CommitCreatedEvent
+        from app.modules.versioning.infrastructure.git_save_commit import (
+            GitSaveCommitService,
+        )
+
+        result = GitSaveCommitService(context.layout).save(
+            str(server.id),
+            context.server_root,
+            command.branch_name,
+            command.message,
+        )
+
+        event = CommitCreatedEvent(
+            server_id=command.server_id,
+            commit_id=result.commit_id,
+            message=command.message,
+            branch_name=result.branch_name,
+        )
+        if events is not None:
+            events.append(event)
+        elif self._event_bus is not None:
+            await self._event_bus.publish(event)
+
+        return CommandResult(
+            success=True,
+            entity_id=result.commit_id,
+            details={
+                "commit_id": result.commit_id,
+                "parent_commit_id": result.parent_commit_id,
+                "server_id": command.server_id,
+                "branch_name": result.branch_name,
+                "message": result.message,
+                "files": list(result.files),
+                "routed_to_cas": list(result.routed_to_cas),
+                "quarantined": list(result.quarantined),
+                "warnings": list(result.warnings),
+                "engine": "native-git",
+            },
+        )
+
     async def _execute(
         self,
         command: CreateCommitCommand,
@@ -116,6 +169,10 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
             server = await server_repo.get(ServerId(command.server_id))
         except Exception as exc:
             raise NotFoundError(f"Server '{command.server_id}' not found") from exc
+
+        git_context = git_branch_context(server)
+        if git_context is not None:
+            return await self._execute_native_git(command, server, git_context, events)
 
         server_dir = server.deployment.server_dir
         if not os.path.exists(server_dir):

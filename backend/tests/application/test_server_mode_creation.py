@@ -18,6 +18,7 @@ from app.modules.server.application.commands.import_server import (
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
+from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
 
 
 def _server_mode():
@@ -98,6 +99,7 @@ class TestCreateServerMode:
     ) -> None:
         handler = CreateServerHandler(EventBus())
         srv_dir = tmp_path / "srv-advanced-mode"
+        host_state_dir = tmp_path / "host-state"
         cmd = CreateServerCommand(
             name="advanced-mode",
             minecraft_version="1.20.4",
@@ -107,7 +109,11 @@ class TestCreateServerMode:
         with (
             patch(
                 "app.core.config.ConfigFactory.global_settings",
-                return_value=AppSettings(advanced_mode_enabled=True),
+                return_value=AppSettings(
+                    advanced_mode_enabled=True,
+                    host_state_dir=str(host_state_dir),
+                    servers_data_dir=str(tmp_path / "servers"),
+                ),
             ),
             patch(
                 "app.modules.server.application.services.jar_service.download_server_jar",
@@ -121,7 +127,21 @@ class TestCreateServerMode:
             result = await handler.handle(cmd)
 
         assert result.success is True
-        assert await _load_mode(result.data["server_id"]) is _server_mode().ADVANCED
+        server_id = result.data["server_id"]
+        assert await _load_mode(server_id) is _server_mode().ADVANCED
+
+        repo_git = host_state_dir / "repos" / server_id / "repo.git"
+        assert repo_git.is_dir()
+        main_worktree = srv_dir / ".onx" / "worktrees" / "main"
+        assert (main_worktree / "server.properties").is_file()
+        assert (main_worktree / "onx-jars.lock.json").is_file()
+        assert not (main_worktree / "eula.txt").exists()
+
+        async with database.session_factory() as session:
+            branch = await SQLVersioningRepository(session).get_branch_by_name(server_id, "main")
+        assert branch is not None
+        assert branch.is_protected is True
+        assert branch.status.value == "active"
 
 
 class TestImportServerMode:

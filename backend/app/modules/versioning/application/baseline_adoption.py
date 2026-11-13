@@ -56,7 +56,7 @@ class BaselineAdoptionResult:
     warnings: tuple[str, ...] = ()
 
 
-def _stage_and_ingest(
+def stage_and_ingest(
     server_root: Path,
     relpath: str,
     server_meta_dir: Path,
@@ -230,7 +230,7 @@ async def ensure_simple_baseline_lockfile(server_id: str) -> BaselineAdoptionRes
     cas_ingested = 0
 
     for scanned_file in target_files:
-        lf_file = _stage_and_ingest(server_root, scanned_file.path, server_meta_dir, cas)
+        lf_file = stage_and_ingest(server_root, scanned_file.path, server_meta_dir, cas)
         ingested_files.append(lf_file)
         cas_ingested += 1
 

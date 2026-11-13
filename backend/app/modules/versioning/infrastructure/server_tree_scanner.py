@@ -20,6 +20,7 @@ PRUNED_DIR_NAMES = frozenset({
     "versions",
     ".fabric",
     ".git",
+    ".onx",
     "logs",
     "crash-reports",
     "cache",
