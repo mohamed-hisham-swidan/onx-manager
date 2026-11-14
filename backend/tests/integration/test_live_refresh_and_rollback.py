@@ -43,9 +43,14 @@ from app.modules.versioning.application.refresh_orchestrator import (
     RefreshServerCommandHandler,
     ReleaseRefreshPinsCommand,
     ReleaseRefreshPinsCommandHandler,
+    RollbackRefreshCommand,
+    RollbackRefreshCommandHandler,
     TriadRollbackService,
     previous_tree_path,
     run_health_gate,
+)
+from app.modules.versioning.application.refresh_recovery import (
+    RefreshStartupReconciler,
 )
 from app.modules.versioning.application.repo_lease import (
     RepoLeaseManager,
@@ -166,6 +171,15 @@ class FakeRuntime:
 
     def ready(self) -> bool:
         return self.ready_ok
+
+
+@dataclass
+class StuckStopRuntime(FakeRuntime):
+    """stop() claims success but the container keeps running (B-2)."""
+
+    def stop(self) -> bool:
+        self.events.append("stop")
+        return True
 
 
 @dataclass
@@ -959,6 +973,113 @@ async def test_bumped_fencing_token_aborts_rollback_before_previous_tree_swap(
     assert stored.phase == "CARRIED"
     assert (previous / "server.properties").read_text(encoding="utf-8") == "motd=previous\n"
     assert (live / "server.properties").read_text(encoding="utf-8") == "motd=broken\n"
+
+
+async def test_crash_recovery_rollback_separates_lease_and_journal_tokens(
+    live_env: LiveEnv,
+) -> None:
+    """B-A1: startup recovery holds lease token 2 while the journal has token 1.
+
+    The journal compare-and-swap must keep using the journal row's token; only
+    the live-writer fence check may use the newly acquired lease token.
+    """
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    previous = previous_tree_path(live)
+    _write(live, "server.properties", f"motd={TARGET_SHA}\n")
+    _write(live, "world/level.dat", "new-world")
+    _write(previous, "server.properties", "motd=previous\n")
+
+    repo_lease = _repo_lease(env)
+    # The crashed refresh acquired the lease once (token 1) and died.
+    async with repo_lease.acquire(SERVER_ID, holder="crashed-refresh") as token:
+        assert token.fencing_token == 1
+
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=1,
+        live_path=live,
+        staging_path=env.servers_root / STAGING,
+        previous_path=previous,
+        phase="STARTING",
+        export_id="exp-1",
+        previous_main_sha=PREV_SHA,
+        target_main_sha=TARGET_SHA,
+    )
+
+    reconciler = RefreshStartupReconciler(
+        env.layout,
+        repository=env.repository,
+        servers_data_dir=env.servers_root,
+        repo_lease=repo_lease,
+    )
+    summary = await reconciler.reconcile()
+
+    recovered = env.repository.get_sync(created.journal_id)
+    assert recovered is not None
+    assert recovered.phase == "ROLLBACK_REQUIRED"
+    assert created.journal_id in summary.transitioned_journals
+
+    service = _service(
+        env,
+        runtime=FakeRuntime(running=False),
+        backup=FakeBackupService(),
+        exporter=FakeExporter(export_id="exp-prev"),
+        repo=repo_lease,
+    )
+    result = await RollbackRefreshCommandHandler(service)(
+        RollbackRefreshCommand(
+            server_id=SERVER_ID,
+            journal_id=created.journal_id,
+            reason="crash recovery",
+        )
+    )
+
+    # The rollback acquired token 2; the journal CAS used its recorded token 1.
+    assert result.journal.phase == "ROLLED_BACK"
+    assert result.journal.terminal is True
+    assert result.used_previous_tree is True
+    assert (live / "server.properties").read_text(encoding="utf-8") == "motd=previous\n"
+    assert not previous.exists()
+
+
+async def test_rollback_aborts_before_swap_when_runtime_survives_stop(
+    live_env: LiveEnv,
+) -> None:
+    """B-2: a stop claim without a dead container must not touch the live tree."""
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    previous = previous_tree_path(live)
+    _write(live, "server.properties", "motd=broken\n")
+    _write(previous, "server.properties", "motd=previous\n")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=3,
+        live_path=live,
+        staging_path=env.servers_root / STAGING,
+        previous_path=previous,
+        phase="STARTING",
+    )
+    runtime = StuckStopRuntime(running=True)
+    rollback = TriadRollbackService(
+        env.layout,
+        repository=env.repository,
+        runtime=runtime,
+        servers_data_dir=env.servers_root,
+    )
+
+    with pytest.raises(ConflictError, match="still running after stop"):
+        await rollback.rollback(SERVER_ID, created.journal_id, reason="test")
+
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "ROLLING_BACK"
+    assert runtime.events == ["stop"]
+    # Neither tree was swapped and the rollback artifact is untouched.
+    assert (live / "server.properties").read_text(encoding="utf-8") == "motd=broken\n"
+    assert (
+        previous / "server.properties"
+    ).read_text(encoding="utf-8") == "motd=previous\n"
 
 
 async def test_reexport_rollback_restores_carried_entries_when_swap_fails(

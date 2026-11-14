@@ -8,8 +8,11 @@ import uuid
 from dataclasses import dataclass, field
 
 from app.core.container_hardening import (
+    INTERNAL_TEST_NETWORK,
+    ensure_internal_network,
     hardening_args,
     validate_data_only_mounts,
+    validate_docker_image,
 )
 from app.core.exceptions import BotRunnerUnavailableError
 from app.core.settings_store import get_live_settings
@@ -95,11 +98,11 @@ class BotRunnerPool:
     async def acquire(
         self,
         image: str | None = None,
-        bridge_network: str = "bridge",
+        bridge_network: str = INTERNAL_TEST_NETWORK,
         timeout: float | None = None,
     ) -> PooledRunner:
         """Acquires an idle healthy runner, spinning up a new one if below max pool capacity."""
-        target_image = image or self.DEFAULT_SIDECAR_IMAGE
+        target_image = validate_docker_image(image or self.DEFAULT_SIDECAR_IMAGE)
         try:
             live = get_live_settings()
             pool_max = getattr(live, "bot_pool_max", 4)
@@ -117,6 +120,14 @@ class BotRunnerPool:
                 raise TimeoutError(f"Timed out acquiring bot runner after {timeout}s")
 
             attempts += 1
+            # H-3: sidecars and the isolated test server share one
+            # egress-locked network so plugins/bots have no LAN/internet route.
+            try:
+                await ensure_internal_network(bridge_network)
+            except Exception as exc:  # noqa: BLE001 - retried below
+                last_error = str(exc)
+                await asyncio.sleep(0.5)
+                continue
             # 1. Look for existing idle runner
             while True:
                 candidate = None

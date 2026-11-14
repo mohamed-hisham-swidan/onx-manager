@@ -356,6 +356,56 @@ class CleanExportService:
             if archive_dir is not None:
                 shutil.rmtree(archive_dir, ignore_errors=True)
 
+    def assert_no_unresolved_secrets(
+        self,
+        server_id: str,
+        server_root: str | os.PathLike[str],
+        commit_sha: str,
+    ) -> None:
+        """M-5 preflight: reject secret placeholders before the server stops.
+
+        The export adapter always substitutes from an empty secret map, so any
+        ``${ONX_SECRET_*}`` token in the committed tree is guaranteed to fail
+        later at ``STAGING``. Scanning the commit here lets the refresh abort
+        *before* ``_quiesce`` takes the server down.
+        """
+        if os.name != "posix":
+            raise ServerModeVersioningDisabledError(
+                "Advanced clean export requires POSIX; Windows is Simple-only"
+            )
+        segment = validate_server_segment(server_id)
+        root = validate_server_root(server_root)
+        runner = self._branch_service.open_runner(segment, root)
+        resolved = self._resolve_commit(runner, commit_sha)
+        result = runner.run(
+            "grep",
+            "-I",
+            "-l",
+            "-F",
+            "--",
+            "${ONX_SECRET_",
+            resolved,
+            check=False,
+        )
+        if result.returncode == 0:
+            files = [
+                line[:256] for line in result.stdout.splitlines() if line.strip()
+            ]
+            if files:
+                raise ValidationError(
+                    "Committed tree contains unresolved secret placeholders",
+                    field="secrets",
+                    details={"files": files[:10]},
+                )
+            return
+        if result.returncode == 1:
+            return
+        raise ValidationError(
+            "Unable to scan the committed tree for secret placeholders",
+            field="secrets",
+            details={"stderr": result.stderr.strip()[:256]},
+        )
+
     # ------------------------------------------------------------------
     # Destination and commit resolution
     # ------------------------------------------------------------------

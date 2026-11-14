@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from app.core.config import AppSettings
 from app.core.exceptions import (
     ConflictError,
     ServerModeVersioningDisabledError,
+    ServerNotRunningError,
     ValidationError,
 )
 from app.core.host_state import ensure_host_state_layout
@@ -31,6 +33,7 @@ from app.modules.versioning.domain.lockfile import (
     LoaderRef,
     LockfileV21,
 )
+from app.modules.versioning.infrastructure import runtime_adapters as runtime_adapters_module
 from app.modules.versioning.infrastructure.clean_export import CleanExportResult
 from app.modules.versioning.infrastructure.runtime_adapters import (
     CleanExportStageAdapter,
@@ -175,6 +178,208 @@ async def test_docker_runtime_adapter_start_failure_raises_conflict() -> None:
 
     with pytest.raises(ConflictError, match="boom"):
         await asyncio.to_thread(adapter.start)
+
+
+class _FakeDockerCli:
+    """Minimal stateful Docker CLI for container resolution and cleanup."""
+
+    def __init__(
+        self,
+        existing: dict[str, bool] | None = None,
+        *,
+        stop_effective: bool = True,
+    ) -> None:
+        self.state = dict(existing or {})
+        self.stop_effective = stop_effective
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args: list[str], _timeout: float) -> str:
+        self.calls.append(list(args))
+        if args[:2] == ["inspect", "--format"]:
+            name = args[-1]
+            if name not in self.state:
+                raise RuntimeError(f"no such container: {name}")
+            return json.dumps({"Running": self.state[name]})
+        if args[0] in ("kill", "stop"):
+            if self.stop_effective and args[-1] in self.state:
+                self.state[args[-1]] = False
+            return ""
+        if args[:2] == ["rm", "-f"]:
+            if self.stop_effective:
+                self.state[args[-1]] = False
+            return ""
+        return ""
+
+    def commands(self, verb: str) -> list[list[str]]:
+        return [call for call in self.calls if call and call[0] == verb]
+
+    def inspected_names(self) -> list[str]:
+        return [
+            call[-1] for call in self.calls if call[:2] == ["inspect", "--format"]
+        ]
+
+
+def _adapter_with_docker(
+    docker: _FakeDockerCli,
+    *,
+    container_name: str | None = None,
+    start_handler: Any = None,
+    stop_handler: Any = None,
+    command_timeout_seconds: float = 240.0,
+) -> DockerServerRuntimeAdapter:
+    async def default_start(_command: StartServerCommand) -> CommandResult:
+        return CommandResult(success=True)
+
+    async def default_stop(_command: StopServerCommand) -> CommandResult:
+        return CommandResult(success=True, data={"stop_confirmed": True})
+
+    return DockerServerRuntimeAdapter(
+        server_id=SERVER_ID,
+        loop=asyncio.get_running_loop(),
+        start_handler=start_handler or default_start,
+        stop_handler=stop_handler or default_stop,
+        server_dir=Path("/tmp"),
+        startup_timeout_seconds=30,
+        provider_name="docker",
+        container_name=container_name,
+        docker_command=docker,
+        command_timeout_seconds=command_timeout_seconds,
+    )
+
+
+@pytest.mark.asyncio
+async def test_stop_server_not_running_forces_kill_from_fresh_inspect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B-1: a DB-derived ServerNotRunningError must force-stop Docker."""
+
+    async def stop_handler(_command: StopServerCommand) -> CommandResult:
+        raise ServerNotRunningError(SERVER_ID)
+
+    container = f"onx-{SERVER_ID}"
+    docker = _FakeDockerCli({container: True}, stop_effective=True)
+    adapter = _adapter_with_docker(docker, stop_handler=stop_handler)
+    monkeypatch.setattr(
+        runtime_adapters_module, "DOCKER_STOP_VERIFY_TIMEOUT_SECONDS", 0.5
+    )
+
+    assert await asyncio.to_thread(adapter.stop) is True
+
+    assert docker.commands("kill") == [["kill", container]]
+    assert docker.commands("rm") == [["rm", "-f", container]]
+    assert docker.state[container] is False
+
+
+@pytest.mark.asyncio
+async def test_stop_returns_false_when_container_survives_force_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B-1: stop() must never report success from a stale/DB value."""
+
+    async def stop_handler(_command: StopServerCommand) -> CommandResult:
+        return CommandResult(success=True, data={"stop_confirmed": True})
+
+    container = f"onx-{SERVER_ID}"
+    docker = _FakeDockerCli({container: True}, stop_effective=False)
+    adapter = _adapter_with_docker(docker, stop_handler=stop_handler)
+    monkeypatch.setattr(
+        runtime_adapters_module, "DOCKER_STOP_VERIFY_TIMEOUT_SECONDS", 0.02
+    )
+    monkeypatch.setattr(
+        runtime_adapters_module, "DOCKER_STOP_POLL_INTERVAL_SECONDS", 0.001
+    )
+
+    assert await asyncio.to_thread(adapter.stop) is False
+
+    assert docker.commands("kill") == [["kill", container]]
+    assert docker.commands("rm") == [["rm", "-f", container]]
+    assert docker.state[container] is True
+
+
+@pytest.mark.asyncio
+async def test_start_failure_kills_and_removes_container() -> None:
+    """B-2: a failed start must not leave the new container running."""
+
+    async def start_handler(_command: StartServerCommand) -> CommandResult:
+        return CommandResult(success=False, error="boom")
+
+    container = f"onx-{SERVER_ID}"
+    docker = _FakeDockerCli({container: True}, stop_effective=True)
+    adapter = _adapter_with_docker(docker, start_handler=start_handler)
+    adapter.prepare_start("journal-own")
+
+    with pytest.raises(ConflictError, match="boom"):
+        await asyncio.to_thread(adapter.start)
+
+    assert docker.commands("kill") == [["kill", container]]
+    assert docker.commands("rm") == [["rm", "-f", container]]
+    assert docker.state[container] is False
+
+
+@pytest.mark.asyncio
+async def test_start_timeout_kills_and_removes_container() -> None:
+    """B-2: a timed-out start handler can still have created the container."""
+
+    async def start_handler(_command: StartServerCommand) -> CommandResult:
+        await asyncio.sleep(30)
+        return CommandResult(success=True)
+
+    container = f"onx-{SERVER_ID}"
+    docker = _FakeDockerCli({container: True}, stop_effective=True)
+    adapter = _adapter_with_docker(
+        docker,
+        start_handler=start_handler,
+        command_timeout_seconds=0.02,
+    )
+    adapter.prepare_start("journal-own")
+
+    with pytest.raises(TimeoutError):
+        await asyncio.to_thread(adapter.start)
+
+    assert docker.commands("kill") == [["kill", container]]
+    assert docker.commands("rm") == [["rm", "-f", container]]
+    assert docker.state[container] is False
+
+
+@pytest.mark.asyncio
+async def test_explicit_legacy_container_name_is_used() -> None:
+    """B-3: the DB external_id is authoritative, including legacy mcs- names."""
+    container = f"mcs-{SERVER_ID}"
+    docker = _FakeDockerCli({container: True})
+    adapter = _adapter_with_docker(docker, container_name=container)
+
+    assert await asyncio.to_thread(adapter.is_running) is True
+
+    # The explicit handle is probed first; the onx- fallback is still checked
+    # for legacy discovery, but never chosen while the handle exists.
+    inspected = docker.inspected_names()
+    assert inspected[0] == container
+    assert set(inspected) <= {container, f"onx-{SERVER_ID}"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_mcs_name_resolved_when_onx_name_missing() -> None:
+    """B-3: pre-rename containers stay operable via mcs-{server_id}."""
+    legacy = f"mcs-{SERVER_ID}"
+    docker = _FakeDockerCli({legacy: True})
+    adapter = _adapter_with_docker(docker)
+
+    assert await asyncio.to_thread(adapter.is_running) is True
+
+    inspected = docker.inspected_names()
+    assert inspected[0] == f"onx-{SERVER_ID}"
+    assert legacy in inspected
+
+
+@pytest.mark.asyncio
+async def test_explicit_name_docker_mismatch_fails_closed() -> None:
+    """B-3: never act on a different container than the recorded handle."""
+    # Docker only knows the default managed name while the DB recorded another.
+    docker = _FakeDockerCli({f"onx-{SERVER_ID}": True})
+    adapter = _adapter_with_docker(docker, container_name="onx-recorded-container")
+
+    with pytest.raises(ConflictError, match="mismatched container"):
+        await asyncio.to_thread(adapter.is_running)
 
 
 class _RecordingExportService:

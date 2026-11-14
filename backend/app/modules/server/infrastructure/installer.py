@@ -14,6 +14,7 @@ from app.core.container_hardening import (
     data_mount_args,
     hardening_args,
     validate_data_only_mounts,
+    validate_docker_image,
 )
 from app.core.process_utils import platform_kill_process_tree_async
 from app.modules.server.domain.installer import (
@@ -212,7 +213,7 @@ class ContainerInstallerRunner(InstallerRunner):
         image: str = "eclipse-temurin:21-jdk",
         docker_host: str | None = None,
     ) -> None:
-        self._image = image
+        self._image = validate_docker_image(image)
         self._docker_host = docker_host
 
     async def run(

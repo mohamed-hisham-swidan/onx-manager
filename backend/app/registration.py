@@ -334,6 +334,12 @@ async def _build_live_refresh_service(
         or get_live_settings().server_startup_timeout_seconds
     )
     lockfile = await asyncio.to_thread(LockfileService(layout).read, server_id)
+    runtime_record = server.runtime
+    container_name = (
+        str(runtime_record.external_id).strip()
+        if runtime_record is not None and runtime_record.external_id
+        else None
+    )
     runtime = DockerServerRuntimeAdapter(
         server_id=server_id,
         loop=loop,
@@ -342,6 +348,7 @@ async def _build_live_refresh_service(
         server_dir=server_root,
         startup_timeout_seconds=startup_timeout,
         provider_name=provider,
+        container_name=container_name,
     )
     stage_export = CleanExportStageAdapter(
         layout,

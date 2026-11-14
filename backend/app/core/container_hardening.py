@@ -11,28 +11,75 @@ installer containers, isolated test containers, and pooled bot runners:
 
 It also prepares recursive ``/data`` ownership before a non-root server
 container starts. When the panel process cannot ``chown`` the tree directly, a
-short-lived root helper container (``--rm``, mounting only the server directory
-at ``/data``) performs the change. Any failure fails closed with
-:class:`ContainerHardeningError`.
+short-lived named root helper container performs the change with only the
+capabilities ``chown`` needs, no network, and a bounded pid count. The helper is
+always removed (``docker rm -f``) on completion, timeout, or cancellation. Any
+failure fails closed with :class:`ContainerHardeningError`.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import errno
 import os
+import posixpath
+import re
+import subprocess
 import sys
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 
-from app.core.exceptions import ProviderError
+from app.core.exceptions import ProviderError, ValidationError
 
 CAP_DROP_ALL = "--cap-drop=ALL"
+CAP_DROP_ALL_VALUE = "ALL"
 NO_NEW_PRIVILEGES = "--security-opt=no-new-privileges:true"
+NO_NEW_PRIVILEGES_VALUE = "no-new-privileges:true"
 PIDS_LIMIT = 2048
 FALLBACK_UID = 1000
 FALLBACK_GID = 1000
 DATA_TARGET = "/data"
+
+OWNERSHIP_HELPER_PIDS_LIMIT = 64
+OWNERSHIP_HELPER_TIMEOUT_SECONDS = 300.0
+OWNERSHIP_HELPER_CLEANUP_TIMEOUT_SECONDS = 30.0
+OWNERSHIP_HELPER_NAME_PREFIX = "onx-chown-"
+OWNERSHIP_HELPER_CAP_ADD = ("CHOWN", "FOWNER", "DAC_OVERRIDE")
+
+INTERNAL_TEST_NETWORK = "onx-test-internal"
+ALLOWED_NETWORK_MODES = frozenset({"bridge", "none"})
+_NETWORK_NAME_RE = re.compile(r"\Aonx-[a-z0-9][a-z0-9_.-]*\Z")
+_IMAGE_TOKEN_RE = re.compile(r"\A[^\s\-][^\s]*\Z")
+
+# Host roots that must never be bind-mounted wholesale into an untrusted
+# container. Descendants of the truly sensitive trees are blocked as well;
+# panel data living under e.g. ``/home/<user>/...`` remains valid.
+_FORBIDDEN_MOUNT_ROOTS = frozenset(
+    {
+        "/",
+        "/bin",
+        "/boot",
+        "/dev",
+        "/etc",
+        "/home",
+        "/lib",
+        "/lib64",
+        "/media",
+        "/mnt",
+        "/opt",
+        "/proc",
+        "/root",
+        "/run",
+        "/sbin",
+        "/srv",
+        "/sys",
+        "/usr",
+        "/var",
+    }
+)
+_FORBIDDEN_MOUNT_DESCENDANTS = ("/boot", "/dev", "/etc", "/proc", "/root", "/sys")
 
 DockerRunner = Callable[[list[str]], Awaitable[tuple[int, str]]]
 
@@ -116,6 +163,100 @@ def hardening_args(
     ]
 
 
+def validate_docker_image(image: str) -> str:
+    """Return a safe single Docker image token or raise ``ValidationError``.
+
+    Rejects empty strings, whitespace (which would split into several argv
+    tokens), and leading ``-`` (which Docker would parse as a flag).
+    """
+    text = image.strip() if isinstance(image, str) else ""
+    if not text or not _IMAGE_TOKEN_RE.match(text):
+        raise ValidationError(
+            "Docker image must be a non-empty single token without leading '-'",
+            field="image",
+            details={"image": text[:128]},
+        )
+    return text
+
+
+def validate_network_mode(network: str) -> str:
+    """Return an allow-listed Docker network mode.
+
+    The closed allow-list is ``bridge``, ``none``, and panel-owned networks with
+    an ``onx-`` prefix. ``host`` and ``container:<id>`` (host namespace sharing)
+    are always rejected, as is any unknown user-supplied network.
+    """
+    value = str(network or "").strip()
+    if not value:
+        raise ValidationError(
+            "Docker network mode must be a non-empty value", field="network"
+        )
+    lowered = value.lower()
+    if lowered == "host" or lowered.startswith("container:"):
+        raise ValidationError(
+            f"Docker network mode '{value[:64]}' is forbidden",
+            field="network",
+        )
+    if lowered in ALLOWED_NETWORK_MODES:
+        return lowered
+    if _NETWORK_NAME_RE.match(lowered):
+        return lowered
+    raise ValidationError(
+        f"Docker network mode '{value[:64]}' is not allow-listed",
+        field="network",
+    )
+
+
+def _validate_host_mount_source(source: str) -> str:
+    text = source.strip()
+    if not text:
+        raise ContainerHardeningError("A /data bind mount requires a host source")
+    if "\x00" in text or text.startswith("-"):
+        raise ContainerHardeningError(
+            "Bind mount source contains a forbidden token",
+            details={"source": text[:512]},
+        )
+    normalized = text.replace("\\", "/")
+    drive_absolute = bool(re.match(r"\A[A-Za-z]:/", normalized))
+    if not (os.path.isabs(normalized) or drive_absolute):
+        raise ContainerHardeningError(
+            "Bind mount source must be an absolute host path",
+            details={"source": text[:512]},
+        )
+    if ".." in normalized.split("/"):
+        raise ContainerHardeningError(
+            "Bind mount source must not contain '..' traversal",
+            details={"source": text[:512]},
+        )
+    collapsed = posixpath.normpath(normalized)
+    if normalized.startswith("/"):
+        # POSIX normpath preserves exactly two leading slashes ("//etc"),
+        # which would bypass the root/descendant checks below. Linux treats
+        # "//" as "/", so collapse before comparing.
+        collapsed = "/" + collapsed.lstrip("/")
+    if (
+        collapsed in _FORBIDDEN_MOUNT_ROOTS
+        or not collapsed.strip("/")
+        or re.fullmatch(r"[A-Za-z]:/?", collapsed)
+    ):
+        raise ContainerHardeningError(
+            "Refusing to mount a sensitive host root at /data",
+            details={"source": text[:512]},
+        )
+    for root in _FORBIDDEN_MOUNT_DESCENDANTS:
+        if collapsed.startswith(root + "/"):
+            raise ContainerHardeningError(
+                "Refusing to mount a sensitive host tree at /data",
+                details={"source": text[:512]},
+            )
+    if "docker.sock" in collapsed.lower():
+        raise ContainerHardeningError(
+            "Refusing to mount the Docker socket",
+            details={"source": text[:512]},
+        )
+    return text
+
+
 def _validate_data_mount_spec(spec: str) -> str:
     source, separator, target = spec.rpartition(":/data")
     if not separator or target or not source:
@@ -123,12 +264,7 @@ def _validate_data_mount_spec(spec: str) -> str:
             "Only a single '<host>:/data' bind mount is allowed",
             details={"mount": spec[:512]},
         )
-    if source == "/":
-        raise ContainerHardeningError(
-            "Refusing to mount the host root at /data",
-            details={"mount": spec[:512]},
-        )
-    return source
+    return _validate_host_mount_source(source)
 
 
 def data_mount_args(
@@ -138,8 +274,6 @@ def data_mount_args(
 ) -> list[str]:
     """Validate and build the one allowed ``/data`` bind mount."""
     source = str(mount_source if mount_source is not None else local_source).strip()
-    if not source:
-        raise ContainerHardeningError("A /data bind mount requires a host source")
     _validate_data_mount_spec(f"{source}:{DATA_TARGET}")
     return ["-v", f"{source}:{DATA_TARGET}", "-w", DATA_TARGET]
 
@@ -186,27 +320,52 @@ def ownership_helper_args(
     uid: int,
     gid: int,
     image: str,
+    *,
+    name: str | None = None,
 ) -> list[str]:
-    """Build the short-lived root helper that fixes ``/data`` ownership."""
+    """Build the short-lived, capability-restricted root helper for ``/data``."""
     _validate_non_root_ids(uid, gid)
-    source = str(mount_source).strip()
-    if not source:
-        raise ContainerHardeningError("Ownership helper requires a /data source")
-    _validate_data_mount_spec(f"{source}:{DATA_TARGET}")
-    return [
+    helper_image = validate_docker_image(image)
+    source = _validate_data_mount_spec(f"{str(mount_source).strip()}:{DATA_TARGET}")
+    helper_name = name or f"{OWNERSHIP_HELPER_NAME_PREFIX}{uuid.uuid4().hex}"
+    args = [
         "run",
         "--rm",
+        "--name",
+        helper_name,
         "--user",
         "0:0",
-        "--entrypoint",
-        "chown",
-        "-v",
-        f"{source}:{DATA_TARGET}",
-        image,
-        "-R",
-        f"{uid}:{gid}",
-        DATA_TARGET,
+        CAP_DROP_ALL,
     ]
+    for capability in OWNERSHIP_HELPER_CAP_ADD:
+        args.extend(["--cap-add", capability])
+    args.extend(
+        [
+            NO_NEW_PRIVILEGES,
+            "--network",
+            "none",
+            f"--pids-limit={OWNERSHIP_HELPER_PIDS_LIMIT}",
+            "--entrypoint",
+            "chown",
+            "-v",
+            f"{source}:{DATA_TARGET}",
+            helper_image,
+            "-h",
+            "-R",
+            f"{uid}:{gid}",
+            DATA_TARGET,
+        ]
+    )
+    return args
+
+
+def _helper_name_from_args(args: Sequence[str]) -> str:
+    try:
+        return str(args[args.index("--name") + 1])
+    except (ValueError, IndexError) as exc:  # pragma: no cover - internal invariant
+        raise ContainerHardeningError(
+            "Ownership helper command is missing --name"
+        ) from exc
 
 
 def _chown_tree(root: Path, uid: int, gid: int) -> None:
@@ -237,6 +396,57 @@ async def _default_docker_runner(
     return proc.returncode or 0, output
 
 
+async def _subprocess_docker_runner(args: list[str]) -> tuple[int, str]:
+    """Run a Docker CLI command without an event-loop-blocking call."""
+    completed = await asyncio.to_thread(
+        subprocess.run,
+        ["docker", *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    output = f"{completed.stdout or ''}{completed.stderr or ''}".strip()
+    return completed.returncode or 0, output
+
+
+async def ensure_internal_network(
+    name: str = INTERNAL_TEST_NETWORK,
+    *,
+    run_docker: DockerRunner | None = None,
+) -> str:
+    """Create the egress-locked ``--internal`` Docker network when missing.
+
+    Isolated test servers and pooled bot runners share this network so they can
+    reach each other while having no route to the LAN or the internet.
+    """
+    network = validate_network_mode(name)
+    if not _NETWORK_NAME_RE.match(network):
+        raise ValidationError(
+            "Internal test network must be a panel-owned 'onx-' network",
+            field="network",
+        )
+    runner = run_docker or _subprocess_docker_runner
+    returncode, _ = await runner(["network", "inspect", network])
+    if returncode == 0:
+        return network
+    returncode, output = await runner(["network", "create", "--internal", network])
+    if returncode == 0 or "already exists" in output.lower():
+        return network
+    raise ContainerHardeningError(
+        f"Unable to create internal Docker network '{network}': "
+        f"{(output or 'docker network create failed')[:256]}"
+    )
+
+
+async def _remove_ownership_helper(runner: DockerRunner, helper_name: str) -> None:
+    """Best-effort ``docker rm -f`` for a helper that may outlive its run."""
+    with contextlib.suppress(Exception, asyncio.CancelledError):
+        await asyncio.wait_for(
+            runner(["rm", "-f", helper_name]),
+            timeout=OWNERSHIP_HELPER_CLEANUP_TIMEOUT_SECONDS,
+        )
+
+
 async def prepare_data_ownership(
     root: str | os.PathLike[str],
     *,
@@ -250,8 +460,9 @@ async def prepare_data_ownership(
     """Recursively prepare ``/data`` for the container's non-root uid/gid.
 
     Direct ``chown`` is attempted first. ``EPERM``/``EACCES`` falls back to a
-    short-lived root helper container that mounts only this server directory at
-    ``/data``. Every other failure (including a non-zero helper exit) raises
+    short-lived, named root helper container that mounts only this server
+    directory at ``/data``. The helper is time-limited to 300 s and is removed
+    on success, failure, timeout, and cancellation. Every failure raises
     :class:`ContainerHardeningError`.
     """
     _validate_non_root_ids(uid, gid)
@@ -277,6 +488,7 @@ async def prepare_data_ownership(
             ) from exc
 
     helper_args = ownership_helper_args(mount_source or path, uid, gid, image)
+    helper_name = _helper_name_from_args(helper_args)
     if run_docker is None:
 
         async def default_runner(args: list[str]) -> tuple[int, str]:
@@ -286,7 +498,21 @@ async def prepare_data_ownership(
     else:
         runner = run_docker
 
-    returncode, output = await runner(helper_args)
+    try:
+        try:
+            returncode, output = await asyncio.wait_for(
+                runner(helper_args),
+                timeout=OWNERSHIP_HELPER_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            raise ContainerHardeningError(
+                "Root ownership helper timed out after "
+                f"{OWNERSHIP_HELPER_TIMEOUT_SECONDS:g}s",
+                details={"path": str(path)[:512], "helper": helper_name},
+            ) from exc
+    finally:
+        await _remove_ownership_helper(runner, helper_name)
+
     if returncode != 0:
         raise ContainerHardeningError(
             "Root ownership helper failed: "
@@ -296,17 +522,29 @@ async def prepare_data_ownership(
 
 
 __all__ = [
+    "ALLOWED_NETWORK_MODES",
     "CAP_DROP_ALL",
+    "CAP_DROP_ALL_VALUE",
     "DATA_TARGET",
     "FALLBACK_GID",
     "FALLBACK_UID",
+    "INTERNAL_TEST_NETWORK",
     "NO_NEW_PRIVILEGES",
+    "NO_NEW_PRIVILEGES_VALUE",
+    "OWNERSHIP_HELPER_CAP_ADD",
+    "OWNERSHIP_HELPER_CLEANUP_TIMEOUT_SECONDS",
+    "OWNERSHIP_HELPER_NAME_PREFIX",
+    "OWNERSHIP_HELPER_PIDS_LIMIT",
+    "OWNERSHIP_HELPER_TIMEOUT_SECONDS",
     "PIDS_LIMIT",
     "ContainerHardeningError",
     "data_mount_args",
+    "ensure_internal_network",
     "hardening_args",
     "ownership_helper_args",
     "prepare_data_ownership",
     "resolve_non_root_user",
     "validate_data_only_mounts",
+    "validate_docker_image",
+    "validate_network_mode",
 ]

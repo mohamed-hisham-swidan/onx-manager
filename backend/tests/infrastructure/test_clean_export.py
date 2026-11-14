@@ -346,6 +346,27 @@ def test_existing_destination_is_rejected(
 
 
 @POSIX_ONLY
+def test_preflight_scans_committed_tree_for_unresolved_secrets(
+    repo: tuple[HostStateLayout, Path, str],
+    tmp_path: Path,
+) -> None:
+    """M-5: reject placeholders before quiesce, and allow clean commits."""
+    layout, root, sha = repo
+    service = CleanExportService(layout)
+
+    with pytest.raises(ValidationError, match="unresolved secret placeholders"):
+        service.assert_no_unresolved_secrets(SERVER_ID, root, sha)
+
+    clean_id = "srv-clean-export-clean"
+    clean_root = tmp_path / "servers" / clean_id
+    clean_root.mkdir(parents=True)
+    _write(clean_root, "server.properties", "motd=clean\n")
+    clean = GitRepositoryService(layout).initialize(clean_id, clean_root, _lockfile())
+
+    service.assert_no_unresolved_secrets(clean_id, clean_root, clean.main_sha)
+
+
+@POSIX_ONLY
 def test_unresolved_secret_fails_and_removes_export(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,

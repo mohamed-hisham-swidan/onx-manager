@@ -1298,11 +1298,16 @@ class TriadRollbackService:
                 f"Refresh journal {record.journal_id} is terminal ({record.phase}) "
                 "and cannot be rolled back"
             )
-        token = record.fencing_token if fencing_token is None else fencing_token
-        self._assert_fence(segment, token)
+        # B-A1: the newly acquired lease token proves this writer is live, but
+        # journal CAS transitions must use the *journal row's* token. A crash
+        # recovery rollback holds lease token 2 while the journal still records
+        # the crashed refresh's token 1.
+        lease_token = record.fencing_token if fencing_token is None else fencing_token
+        journal_token = record.fencing_token
+        self._assert_fence(segment, lease_token)
         journal = await self._repository.transition(
             record.journal_id,
-            fencing_token=token,
+            fencing_token=journal_token,
             phase="ROLLING_BACK",
             error=reason or None,
         )
@@ -1313,14 +1318,16 @@ class TriadRollbackService:
             raise ValidationError(
                 "live_path is not a plain directory", field="live_path"
             )
-        self._assert_fence(segment, token)
+        self._assert_fence(segment, lease_token)
         await self._stop_runtime()
         _assert_no_session_lock(live)
 
-        used_previous = await self._restore_class_ab(segment, journal, live, token)
+        used_previous = await self._restore_class_ab(
+            segment, journal, live, lease_token
+        )
         restored_class_c = False
         if journal.class_c_snapshot_id:
-            self._assert_fence(segment, token)
+            self._assert_fence(segment, lease_token)
             await asyncio.to_thread(
                 self._class_c.restore_snapshot,
                 segment,
@@ -1335,23 +1342,23 @@ class TriadRollbackService:
                     "Class-E restore requires a backup service",
                     field="pre_upgrade_backup_id",
                 )
-            self._assert_fence(segment, token)
+            self._assert_fence(segment, lease_token)
             await self._backup.restore_backup(
                 segment, journal.pre_upgrade_backup_id, live
             )
             restored_backup = True
         if self._reset_main_ref is not None and journal.previous_main_sha:
-            self._assert_fence(segment, token)
+            self._assert_fence(segment, lease_token)
             await asyncio.to_thread(
                 self._reset_main_ref, segment, journal.previous_main_sha
             )
 
-        self._assert_fence(segment, token)
+        self._assert_fence(segment, lease_token)
         await self._repository.mark_previous_tree_cleaned(journal.journal_id)
-        self._assert_fence(segment, token)
+        self._assert_fence(segment, lease_token)
         final = await self._repository.transition(
             journal.journal_id,
-            fencing_token=token,
+            fencing_token=journal.fencing_token,
             phase="ROLLED_BACK",
             error=reason or "refresh rolled back",
         )
@@ -1520,6 +1527,14 @@ class TriadRollbackService:
                 raise ConflictError(
                     "Server runtime did not confirm stop during rollback"
                 )
+        # B-2: never swap the live tree under a container that a fresh inspect
+        # still reports running. The journal stays ROLLING_BACK and the caller
+        # fails closed for operator reconciliation.
+        if await asyncio.to_thread(runtime.is_running):
+            raise ConflictError(
+                "Server runtime is still running after stop during rollback; "
+                "refusing to touch the live tree"
+            )
 
     async def _load(
         self, server_id: str, journal_id: str | None
@@ -1775,6 +1790,16 @@ class LiveRefreshService:
                 retained_prev_tree_bytes=request.retained_prev_tree_bytes,
                 rollback_headroom=request.rollback_headroom,
             )
+            # M-5: scan the committed tree before _quiesce stops the server.
+            # An unresolved ${ONX_SECRET_*} would otherwise fail at STAGING,
+            # after downtime has already begun.
+            preflight_secrets = getattr(
+                self._stage_export, "assert_no_unresolved_secrets", None
+            )
+            if callable(preflight_secrets):
+                await asyncio.to_thread(
+                    preflight_secrets, segment, live, request.target_main_sha
+                )
             await self._orchestrator.prepare_prior_previous_tree(
                 segment, retention_policy=policy
             )

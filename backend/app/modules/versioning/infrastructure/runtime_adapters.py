@@ -20,9 +20,11 @@ thread. A non-Docker runtime provider fails closed with
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import subprocess
 import threading
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -56,6 +58,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 240.0
 DEFAULT_DOCKER_TIMEOUT_SECONDS = 15.0
+DOCKER_STOP_VERIFY_TIMEOUT_SECONDS = 10.0
+DOCKER_STOP_POLL_INTERVAL_SECONDS = 0.2
 
 
 def require_docker_provider(provider: str | None) -> str:
@@ -106,7 +110,13 @@ class DockerServerRuntimeAdapter:
         self._stop_handler = stop_handler
         self._server_dir = Path(server_dir)
         self._startup_timeout_seconds = float(startup_timeout_seconds)
-        self._container_name = container_name or f"{IDENTITY.temp_prefix_new}{server_id}"
+        explicit_name = str(container_name).strip() if container_name else ""
+        self._explicit_container_name = explicit_name
+        self._configured_container_name = (
+            explicit_name or f"{IDENTITY.temp_prefix_new}{server_id}"
+        )
+        self._container_name = self._configured_container_name
+        self._resolved_container_name: str | None = None
         self._docker_command = docker_command or _default_docker_command
         self._command_timeout_seconds = float(command_timeout_seconds)
         self._refresh_start: datetime | None = None
@@ -162,10 +172,18 @@ class DockerServerRuntimeAdapter:
             server_id=self._server_id,
             allow_journal_id=self._allow_journal_id,
         )
-        result = self._dispatch(
-            self._start_handler(command), timeout=self._command_timeout_seconds
-        )
+        try:
+            result = self._dispatch(
+                self._start_handler(command), timeout=self._command_timeout_seconds
+            )
+        except BaseException:
+            # B-2: a cancelled/timed-out handler may already have executed
+            # ``docker start``. Never leave the failed new container running
+            # with the new tree bind-mounted.
+            self._cleanup_failed_start()
+            raise
         if not result.success:
+            self._cleanup_failed_start()
             raise ConflictError(
                 result.error
                 or f"Server '{self._server_id}' failed to start after the swap"
@@ -174,19 +192,38 @@ class DockerServerRuntimeAdapter:
 
     def stop(self) -> bool:
         self._assert_worker_thread()
+        container_name = self._active_container_name()
         command = StopServerCommand(server_id=self._server_id, reason="live refresh")
+        confirmed = False
         try:
             result = self._dispatch(
                 self._stop_handler(command), timeout=self._command_timeout_seconds
             )
+            confirmed = is_stop_confirmed(result)
         except ServerNotRunningError:
+            # B-1: the handler derives this from DB status only. Docker may
+            # still be running, so fall through to a fresh inspect + force kill.
+            confirmed = False
+        except TimeoutError:
+            confirmed = False
+
+        if confirmed and not self._is_container_running(container_name):
             return True
-        return is_stop_confirmed(result)
+
+        if self._is_container_running(container_name):
+            logger.warning(
+                "Stop command did not stop container %s; forcing kill/remove",
+                container_name,
+            )
+            self._force_remove_container(container_name)
+        return not self._is_container_running(container_name)
 
     def ready(self) -> bool:
         self._assert_worker_thread()
         if self._refresh_start is None:
             return False
+        # Resolve/cache the real container name here, off the event loop.
+        self._active_container_name()
         future = asyncio.run_coroutine_threadsafe(self._ready_async(), self._loop)
         try:
             return bool(
@@ -212,29 +249,122 @@ class DockerServerRuntimeAdapter:
             future.cancel()
             raise
 
-    def _container_running_unchecked(self) -> bool:
+    def _container_candidates(self) -> list[str]:
+        candidates = [self._configured_container_name]
+        for name in (
+            f"{IDENTITY.temp_prefix_new}{self._server_id}",
+            f"{IDENTITY.temp_prefix_legacy}{self._server_id}",
+        ):
+            if name not in candidates:
+                candidates.append(name)
+        return candidates
+
+    def _inspect_state(self, name: str) -> dict[str, Any] | None:
+        """Return Docker's ``State`` object for ``name``, or ``None`` if absent."""
+        if not name:
+            return None
         try:
             output = self._docker_command(
-                [
-                    "inspect",
-                    "--format",
-                    "{{.State.Running}}",
-                    self._container_name,
-                ],
+                ["inspect", "--format", "{{json .State}}", name],
                 DEFAULT_DOCKER_TIMEOUT_SECONDS,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - absent container is a valid state
+            return None
+        text = output.strip().strip("'\"")
+        if not text:
+            return None
+        if text.lower() in ("true", "false"):
+            return {"Running": text.lower() == "true"}
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError):
+            return None
+        if isinstance(parsed, bool):
+            return {"Running": parsed}
+        if isinstance(parsed, dict):
+            return cast(dict[str, Any], parsed)
+        return None
+
+    def _is_container_running(self, name: str) -> bool:
+        state = self._inspect_state(name)
+        return bool(state and state.get("Running"))
+
+    def _active_container_name(self) -> str:
+        """Resolve the real container name, honouring legacy ``mcs-`` names.
+
+        B-3: the DB handle (``server.runtime.external_id``) is authoritative.
+        When Docker only knows a different managed name, fail closed instead of
+        acting on a container that is not the one the panel recorded.
+        """
+        if self._resolved_container_name is not None:
+            return self._resolved_container_name
+        found = [
+            name
+            for name in self._container_candidates()
+            if self._inspect_state(name) is not None
+        ]
+        if found:
+            if self._explicit_container_name:
+                if self._explicit_container_name not in found:
+                    raise ConflictError(
+                        f"Server '{self._server_id}' runtime handle points at "
+                        f"'{self._explicit_container_name}' but Docker only knows "
+                        f"'{found[0]}'; refusing to act on a mismatched container"
+                    )
+                chosen = self._explicit_container_name
+            else:
+                chosen = found[0]
+        else:
+            chosen = self._configured_container_name
+        self._resolved_container_name = chosen
+        self._container_name = chosen
+        return chosen
+
+    def _run_docker_quiet(self, args: list[str]) -> bool:
+        try:
+            self._docker_command(args, DEFAULT_DOCKER_TIMEOUT_SECONDS)
+            return True
+        except Exception as exc:  # noqa: BLE001 - cleanup is best effort
+            logger.debug("docker %s failed during cleanup: %s", " ".join(args[:2]), exc)
             return False
-        return output.strip().strip("'\"").lower() == "true"
+
+    def _wait_until_not_running(self, name: str) -> bool:
+        deadline = time.monotonic() + DOCKER_STOP_VERIFY_TIMEOUT_SECONDS
+        while True:
+            if not self._is_container_running(name):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(DOCKER_STOP_POLL_INTERVAL_SECONDS)
+
+    def _force_remove_container(self, name: str) -> None:
+        if self._is_container_running(name):
+            self._run_docker_quiet(["kill", name])
+        self._run_docker_quiet(["rm", "-f", name])
+        self._wait_until_not_running(name)
+
+    def _cleanup_failed_start(self) -> None:
+        """B-2: provider-level kill/rm after a failed or timed-out start."""
+        try:
+            name = self._active_container_name()
+        except ConflictError:
+            name = self._configured_container_name
+        self._force_remove_container(name)
+        # A later start may create the container afresh; re-resolve next time.
+        self._resolved_container_name = None
+
+    def _container_running_unchecked(self) -> bool:
+        return self._is_container_running(self._active_container_name())
 
     async def _container_running_async(self) -> bool:
         return await asyncio.to_thread(self._container_running_unchecked)
 
     def _docker_logs(self, since: datetime | None) -> str:
+        container_name = self._active_container_name()
         args = ["logs", "--tail", "200"]
         if since is not None:
             args.extend(["--since", since.astimezone(UTC).isoformat()])
-        args.extend(["--timestamps", self._container_name])
+        args.extend(["--timestamps", container_name])
         return self._docker_command(args, DEFAULT_DOCKER_TIMEOUT_SECONDS)
 
     async def _ready_async(self) -> bool:
@@ -299,6 +429,18 @@ class CleanExportStageAdapter:
             commit_sha,
             export_id,
             fencing_verifier,
+        )
+
+    def assert_no_unresolved_secrets(
+        self,
+        server_id: str,
+        server_root: str | Path,
+        commit_sha: str,
+    ) -> None:
+        """M-5: fail before quiesce when the committed tree has placeholders."""
+        _assert_off_loop(self._loop_thread_id, "CleanExportStageAdapter")
+        self._service.assert_no_unresolved_secrets(
+            server_id, server_root, commit_sha
         )
 
     def _stage_sync(

@@ -13,11 +13,14 @@ from pathlib import Path
 from typing import Any
 
 from app.core.container_hardening import (
+    INTERNAL_TEST_NETWORK,
     data_mount_args,
+    ensure_internal_network,
     hardening_args,
     prepare_data_ownership,
     resolve_non_root_user,
     validate_data_only_mounts,
+    validate_docker_image,
 )
 from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyzer
 from app.modules.server.application.services.jar_service import generate_rcon_password
@@ -674,6 +677,16 @@ class DockerTestExecutionRunner(TestExecutionRunner):
                 spec, "pre-launch", unexpected_exc, test_dir_str
             )
 
+        # M-A2 + H-3: reject unsafe image tokens and launch the isolated test
+        # server on the egress-locked internal network.
+        try:
+            image = validate_docker_image(image)
+            await ensure_internal_network()
+        except Exception as exc:
+            return await self._handle_prelaunch_fatal_failure(
+                spec, "container network/image preflight", exc, test_dir_str
+            )
+
         # Memory budget: 2 GB min / 4 GB max, with 512 MB Docker headroom.
         memory_max_mb = 4096
         container_uid, container_gid = resolve_non_root_user()
@@ -684,7 +697,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             "--name",
             container_name,
             "--network",
-            "bridge",
+            INTERNAL_TEST_NETWORK,
         ]
         docker_cmd.extend(data_mount_args(test_dir_str, mount_source=host_mount))
         docker_cmd.extend([
