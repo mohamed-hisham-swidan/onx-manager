@@ -290,7 +290,7 @@ async def test_hour_policy_records_previous_tree_expiry(
         now=moment,
     )
 
-    assert result.journal.retention_policy == "until_health_gate"
+    assert result.journal.retention_policy == "2h"
     assert result.journal.previous_tree_expires_at == moment + timedelta(hours=2)
 
 

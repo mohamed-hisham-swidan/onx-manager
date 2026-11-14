@@ -385,6 +385,9 @@ class ServerLifecycleLockMiddleware:
         "DeleteServerCommand",
         "PromoteCommitCommand",
         "RetryProvisioningCommand",
+        "RefreshServerCommand",
+        "RollbackRefreshCommand",
+        "ConfirmUpgradeCommand",
     }
 
     def __init__(self, manager: ServerLifecycleLeaseManager | None = None) -> None:

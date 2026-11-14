@@ -479,3 +479,81 @@ def test_path_safety_rejects_out_of_root_previous_tree_before_rmtree(
     stored = env.repository.get_sync(created.journal_id)
     assert stored is not None
     assert stored.previous_tree_retained is True
+
+
+def test_interrupted_carrying_with_completed_swap_advances_to_swap_completed(
+    recovery_env: RecoveryEnv,
+) -> None:
+    env = recovery_env
+    live = env.servers_root / SERVER_ID
+    staging = env.servers_root / f"{SERVER_ID}.staging"
+    _write(live, "old.txt", "old")
+    _write(staging, "new.txt", "new")
+    _marker(staging, "export-carry")
+
+    if not rename_exchange(live, staging):
+        pytest.skip("filesystem does not support RENAME_EXCHANGE")
+
+    record = _swap_record(
+        env, SERVER_ID, PHASE_PREPARED, export_id="export-carry", keep_previous=True
+    )
+    _write_swap_journal(env, record)
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=5,
+        phase="CARRYING",
+        live_path=live,
+        staging_path=staging,
+        previous_path=live.with_name(live.name + ".prev"),
+        export_id="export-carry",
+    )
+
+    summary = _reconciler(env).reconcile_sync()
+
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "SWAP_COMPLETED"
+    assert stored.terminal is False
+    assert stored.used_exchange is True
+    assert (live / "new.txt").read_text() == "new"
+    assert created.journal_id in summary.transitioned_journals
+    assert not summary.errors
+
+
+def test_interrupted_carrying_without_swap_journal_fails_clean_and_unblocks(
+    recovery_env: RecoveryEnv,
+) -> None:
+    env = recovery_env
+    live = env.servers_root / SERVER_ID
+    staging = env.servers_root / f"{SERVER_ID}.staging"
+    _write(live, "server.properties", "motd=live\n")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=6,
+        phase="CARRYING",
+        live_path=live,
+        staging_path=staging,
+        previous_path=live.with_name(live.name + ".prev"),
+    )
+
+    summary = _reconciler(env).reconcile_sync()
+
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "FAILED_CLEAN"
+    assert stored.terminal is True
+    assert "complement carry" in stored.error
+    assert (live / "server.properties").read_text() == "motd=live\n"
+    assert created.journal_id in summary.transitioned_journals
+    assert not summary.errors
+
+    # The one-active-journal partial unique index is no longer wedged.
+    fresh = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=7,
+        phase="QUIESCED",
+        live_path=live,
+        staging_path=staging,
+        previous_path=live.with_name(live.name + ".prev"),
+    )
+    assert fresh.phase == "QUIESCED"

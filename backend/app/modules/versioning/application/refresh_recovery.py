@@ -280,7 +280,7 @@ class RefreshStartupReconciler:
     ) -> list[str]:
         transitioned: list[str] = []
         for record in records:
-            if record.phase not in ("QUIESCED", "STAGING", "SWAPPING"):
+            if record.phase not in ("QUIESCED", "STAGING", "CARRYING", "SWAPPING"):
                 continue
             result = swaps.get(record.server_id)
             if result is None or result.record is None:
@@ -309,6 +309,48 @@ class RefreshStartupReconciler:
             except Exception as exc:
                 logger.exception(
                     "Failed to record swap recovery for journal %s", record.journal_id
+                )
+                errors.append(f"{record.journal_id}: transition failed: {exc}")
+                continue
+            transitioned.append(record.journal_id)
+
+        # A crash during the complement carry happens before any swap journal
+        # exists. The live tree was never replaced, but the orphaned journal
+        # would otherwise wedge the one-active-journal partial unique index.
+        for record in records:
+            if record.phase != "CARRYING" or record.journal_id in transitioned:
+                continue
+            result = swaps.get(record.server_id)
+            if result is not None and result.record is not None:
+                # An unresolved swap journal needs operator reconciliation first.
+                continue
+            try:
+                live = self.validate_swap_path(
+                    record.server_id, record.live_path, field="live_path"
+                )
+            except ValidationError as exc:
+                errors.append(f"{record.journal_id}: unsafe live_path: {exc}")
+                continue
+            if not os.path.lexists(live) or live.is_symlink() or not live.is_dir():
+                errors.append(
+                    f"{record.journal_id}: interrupted CARRYING has no swap journal "
+                    "and the live tree is unavailable"
+                )
+                continue
+            try:
+                await self._repository.transition(
+                    record.journal_id,
+                    fencing_token=record.fencing_token,
+                    phase="FAILED_CLEAN",
+                    error=(
+                        "refresh interrupted during complement carry before the "
+                        "swap; live tree left intact"
+                    ),
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed to mark interrupted CARRYING journal %s as FAILED_CLEAN",
+                    record.journal_id,
                 )
                 errors.append(f"{record.journal_id}: transition failed: {exc}")
                 continue

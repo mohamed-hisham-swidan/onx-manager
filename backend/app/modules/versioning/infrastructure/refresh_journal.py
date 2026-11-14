@@ -45,12 +45,14 @@ TERMINAL_PHASES = frozenset(
 ACTIVE_PHASES = frozenset(
     {
         "QUIESCED",
+        "BACKED_UP",
         "STAGING",
         "CARRYING",
         "CARRIED",
         "SWAPPING",
         "STARTING",
         "HEALTH_CHECK",
+        "VERIFYING_HEALTH",
         "ROLLING_BACK",
         "SWAP_ROLLED_BACK",
         "SWAP_COMPLETED",
@@ -652,6 +654,9 @@ class RefreshJournalRepository:
         used_exchange: bool | None,
         carried_entries: Sequence[str] | None,
         export_id: str | None,
+        retention_policy: str | None,
+        pre_upgrade_backup_id: str | None,
+        class_c_snapshot_id: str | None,
         now: datetime,
     ) -> dict[str, Any]:
         _validate_phase(phase)
@@ -674,6 +679,17 @@ class RefreshJournalRepository:
             )
         if export_id is not None:
             values["export_id"] = export_id or None
+        if retention_policy is not None:
+            if not isinstance(retention_policy, str) or not retention_policy.strip():
+                raise ValidationError(
+                    "retention_policy must be a non-empty string",
+                    field="retention_policy",
+                )
+            values["retention_policy"] = retention_policy.strip()
+        if pre_upgrade_backup_id is not None:
+            values["pre_upgrade_backup_id"] = pre_upgrade_backup_id or None
+        if class_c_snapshot_id is not None:
+            values["class_c_snapshot_id"] = class_c_snapshot_id or None
         return values
 
     @staticmethod
@@ -699,6 +715,9 @@ class RefreshJournalRepository:
         used_exchange: bool | None = None,
         carried_entries: Sequence[str] | None = None,
         export_id: str | None = None,
+        retention_policy: str | None = None,
+        pre_upgrade_backup_id: str | None = None,
+        class_c_snapshot_id: str | None = None,
     ) -> RefreshJournalRecord:
         if not isinstance(journal_id, str) or not journal_id:
             raise ValidationError("journal_id must be a non-empty string", field="journal_id")
@@ -710,6 +729,9 @@ class RefreshJournalRepository:
             used_exchange=used_exchange,
             carried_entries=carried_entries,
             export_id=export_id,
+            retention_policy=retention_policy,
+            pre_upgrade_backup_id=pre_upgrade_backup_id,
+            class_c_snapshot_id=class_c_snapshot_id,
             now=_utcnow(),
         )
         factory = self._get_sync_factory()
@@ -750,6 +772,9 @@ class RefreshJournalRepository:
         used_exchange: bool | None = None,
         carried_entries: Sequence[str] | None = None,
         export_id: str | None = None,
+        retention_policy: str | None = None,
+        pre_upgrade_backup_id: str | None = None,
+        class_c_snapshot_id: str | None = None,
     ) -> RefreshJournalRecord:
         if not isinstance(journal_id, str) or not journal_id:
             raise ValidationError("journal_id must be a non-empty string", field="journal_id")
@@ -761,6 +786,9 @@ class RefreshJournalRepository:
             used_exchange=used_exchange,
             carried_entries=carried_entries,
             export_id=export_id,
+            retention_policy=retention_policy,
+            pre_upgrade_backup_id=pre_upgrade_backup_id,
+            class_c_snapshot_id=class_c_snapshot_id,
             now=_utcnow(),
         )
         factory = self._get_async_factory()
@@ -851,6 +879,40 @@ class RefreshJournalRepository:
                         RefreshJournalModel.server_id == segment,
                         RefreshJournalModel.terminal.is_(False),
                     )
+                    .order_by(RefreshJournalModel.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+        if row is not None:
+            return _record_from_values(_values_from_model(row))
+        return None
+
+    def get_latest_for_server_sync(self, server_id: str) -> RefreshJournalRecord | None:
+        """Return the newest journal for a server, terminal or not."""
+        segment = validate_server_segment(server_id)
+        factory = self._get_sync_factory()
+        with factory() as session:
+            row = session.execute(
+                select(RefreshJournalModel)
+                .where(RefreshJournalModel.server_id == segment)
+                .order_by(RefreshJournalModel.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        if row is not None:
+            return _record_from_values(_values_from_model(row))
+        return None
+
+    async def get_latest_for_server(
+        self, server_id: str
+    ) -> RefreshJournalRecord | None:
+        """Return the newest journal for a server, terminal or not."""
+        segment = validate_server_segment(server_id)
+        factory = self._get_async_factory()
+        async with factory() as session:
+            row = (
+                await session.execute(
+                    select(RefreshJournalModel)
+                    .where(RefreshJournalModel.server_id == segment)
                     .order_by(RefreshJournalModel.created_at.desc())
                     .limit(1)
                 )
@@ -982,6 +1044,44 @@ class RefreshJournalRepository:
             return False
         self._write_json(record)
         return True
+
+    async def mark_upgrade_confirmed(
+        self, journal_id: str, *, fencing_token: int | None = None
+    ) -> RefreshJournalRecord:
+        """Mark a COMPLETED journal (terminal) as UPGRADE_CONFIRMED."""
+        if not isinstance(journal_id, str) or not journal_id:
+            raise ValidationError(
+                "journal_id must be a non-empty string", field="journal_id"
+            )
+        factory = self._get_async_factory()
+        async with factory() as session:
+            conditions = [
+                RefreshJournalModel.journal_id == journal_id,
+                RefreshJournalModel.phase == "COMPLETED",
+            ]
+            if fencing_token is not None:
+                conditions.append(RefreshJournalModel.fencing_token == fencing_token)
+            result = await session.execute(
+                update(RefreshJournalModel)
+                .where(*conditions)
+                .values(
+                    phase="UPGRADE_CONFIRMED",
+                    terminal=True,
+                    updated_at=_utcnow(),
+                )
+                .execution_options(synchronize_session=False)
+            )
+            record = await self._aselect_record(session, journal_id)
+            await session.commit()
+        if not result.rowcount or record is None:
+            if record is not None and record.phase == "UPGRADE_CONFIRMED":
+                return record
+            raise ConflictError(
+                f"Refresh journal '{journal_id}' is not COMPLETED and cannot be "
+                "marked UPGRADE_CONFIRMED"
+            )
+        self._write_json(record)
+        return record
 
     async def mark_previous_tree_cleaned(self, journal_id: str) -> bool:
         factory = self._get_async_factory()
