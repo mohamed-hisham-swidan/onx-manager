@@ -13,6 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import AppSettings
+from app.core.container_hardening import (
+    data_mount_args,
+    hardening_args,
+    prepare_data_ownership,
+    resolve_non_root_user,
+    validate_data_only_mounts,
+)
 from app.core.exceptions import ProviderError
 from app.core.fs_utils import assert_inside_root
 from app.core.identity import IDENTITY
@@ -409,6 +416,7 @@ class DockerProvider(ServerProvider):
 
         await self._ensure_image(image)
 
+        container_uid, container_gid = resolve_non_root_user()
         create_args = ["create", "--name", container_name]
 
         # Explicit Docker bridge network model (Decision 6)
@@ -469,18 +477,22 @@ class DockerProvider(ServerProvider):
         if cpu_affinity:
             create_args.extend(["--cpuset-cpus", str(cpu_affinity)])
 
-        # Volume mount & working directory (Decision 3, 7 & 12)
+        # Volume mount & working directory (Decision 3, 7 & 12). Only one bind
+        # mount is allowed, and it must target /data.
+        host_mount = ""
         if server_dir:
             host_mount = resolve_host_mount_path(server_dir)
-            create_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
+            create_args.extend(data_mount_args(server_dir, mount_source=host_mount))
 
-        # Linux user permissions to prevent host file permission lockouts (Decision 3)
-        if hasattr(os, "getuid") and hasattr(os, "getgid") and sys.platform != "win32":
-            uid, gid = os.getuid(), os.getgid()
-            if "itzg" in image:
-                create_args.extend(["-e", f"PUID={uid}", "-e", f"PGID={gid}"])
-            else:
-                create_args.extend(["--user", f"{uid}:{gid}"])
+        # Non-root container identity + hardening (P2-6b). The itzg entrypoint
+        # still receives PUID/PGID alongside the explicit --user so its internal
+        # ownership checks stay aligned with the container user.
+        create_args.extend(hardening_args(container_uid, container_gid))
+        if "itzg" in image:
+            create_args.extend([
+                "-e", f"PUID={container_uid}",
+                "-e", f"PGID={container_gid}",
+            ])
 
         if cfg.get("auto_remove", False):
             create_args.append("--rm")
@@ -709,6 +721,19 @@ class DockerProvider(ServerProvider):
                         f"Container '{target_container}' is dead or removing and could "
                         "not be cleaned up",
                     )
+
+        # Prepare the /data ownership before the non-root container starts.
+        # A failed chown (or root-helper fallback) fails closed.
+        if server_dir:
+            await prepare_data_ownership(
+                server_dir,
+                uid=container_uid,
+                gid=container_gid,
+                image=image,
+                mount_source=host_mount,
+                run_docker=self._ownership_docker_runner,
+            )
+        validate_data_only_mounts(create_args, image=image)
 
         returncode, output = await self._docker_command(*create_args)
         if returncode != 0:
@@ -1270,6 +1295,10 @@ class DockerProvider(ServerProvider):
     async def _docker_command(self, *args: str, log_failure: bool = True) -> tuple[int, str]:
         """Subprocess execution entrypoint with discrete token arguments."""
         return await self._docker_exec(*args, log_failure=log_failure)
+
+    async def _ownership_docker_runner(self, args: list[str]) -> tuple[int, str]:
+        """Run the short-lived ownership helper through this provider's host."""
+        return await self._docker_command(*args)
 
     def _write_user_jvm_args(
         self,

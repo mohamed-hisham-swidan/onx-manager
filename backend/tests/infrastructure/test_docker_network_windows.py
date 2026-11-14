@@ -370,6 +370,10 @@ class TestDockerWindowsPolicyAndPathNormalization:
             patch("app.modules.server.infrastructure.providers.docker.assert_inside_root"),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+            patch(
+                "app.modules.server.infrastructure.providers.docker.prepare_data_ownership",
+                AsyncMock(),
+            ),
         ):
             mock_docker.side_effect = _make_docker_command_fake()
             result = await provider.start(

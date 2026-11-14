@@ -7,12 +7,18 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.core.container_hardening import (
+    data_mount_args,
+    hardening_args,
+    prepare_data_ownership,
+    resolve_non_root_user,
+    validate_data_only_mounts,
+)
 from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyzer
 from app.modules.server.application.services.jar_service import generate_rcon_password
 from app.modules.server.infrastructure.providers.docker import (
@@ -670,6 +676,7 @@ class DockerTestExecutionRunner(TestExecutionRunner):
 
         # Memory budget: 2 GB min / 4 GB max, with 512 MB Docker headroom.
         memory_max_mb = 4096
+        container_uid, container_gid = resolve_non_root_user()
         docker_cmd = [
             "docker",
             "run",
@@ -678,24 +685,15 @@ class DockerTestExecutionRunner(TestExecutionRunner):
             container_name,
             "--network",
             "bridge",
-            "-v",
-            f"{host_mount}:/data",
-            "-w",
-            "/data",
+        ]
+        docker_cmd.extend(data_mount_args(test_dir_str, mount_source=host_mount))
+        docker_cmd.extend([
             "--memory",
             f"{memory_max_mb + 512}m",
-            # Host UID mapping (Must-Fix 5): match the regular-server launch contract
-            # (docker.py --user uid:gid) so container writes land on disk as the
-            # host user. Without this, a root-owned boot (e.g. auto-created
-            # plugins/) denies later host-side writes (PermissionError, run 61d84dd5).
-            # Must precede IMAGE: everything after IMAGE is the container CMD,
-            # and a misplaced --user there kills the entrypoint (run 6f354058).
-            *(
-                ["--user", f"{os.getuid()}:{os.getgid()}"]
-                if hasattr(os, "getuid") and hasattr(os, "getgid") and sys.platform != "win32"
-                else []
-            ),
-        ]
+        ])
+        # P2-6b hardening: non-root user, no caps, no privilege escalation, and
+        # a bounded pid count. All flags precede IMAGE.
+        docker_cmd.extend(hardening_args(container_uid, container_gid))
         for env_k, env_v in container_env.items():
             docker_cmd.extend(["-e", f"{env_k}={env_v}"])
 
@@ -705,6 +703,14 @@ class DockerTestExecutionRunner(TestExecutionRunner):
 
         docker_cmd.append(image)
         docker_cmd.extend(server_cmd)
+        validate_data_only_mounts(docker_cmd, image=image)
+        await prepare_data_ownership(
+            test_dir_str,
+            uid=container_uid,
+            gid=container_gid,
+            image=image,
+            mount_source=host_mount,
+        )
 
         try:
             res = await asyncio.to_thread(

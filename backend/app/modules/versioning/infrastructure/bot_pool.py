@@ -7,6 +7,10 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from app.core.container_hardening import (
+    hardening_args,
+    validate_data_only_mounts,
+)
 from app.core.exceptions import BotRunnerUnavailableError
 from app.core.settings_store import get_live_settings
 
@@ -151,10 +155,12 @@ class BotRunnerPool:
                         bridge_network,
                         "--restart",
                         "no",
+                        *hardening_args(),
                         target_image,
                         "sleep",
                         "infinity",
                     ]
+                    validate_data_only_mounts(cmd, image=target_image)
                     try:
                         res = await asyncio.to_thread(
                             subprocess.run, cmd, capture_output=True, text=True, timeout=30

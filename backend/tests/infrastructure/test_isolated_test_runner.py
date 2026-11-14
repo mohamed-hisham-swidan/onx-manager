@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.core.container_hardening import resolve_non_root_user
 from app.modules.server.infrastructure.providers.docker import build_docker_server_cmd
 from app.modules.versioning.domain.entities import ServerCommit
 from app.modules.versioning.domain.value_objects import (
@@ -487,10 +488,14 @@ async def test_test_container_launch_includes_user_uid_gid() -> None:
         docker_runs = [c for c in captured_cmds if c[:2] == ["docker", "run"]]
         assert docker_runs, "expected a docker run invocation to be captured"
         run_cmd = docker_runs[0]
-        expected = f"{os.getuid()}:{os.getgid()}"
+        expected = ":".join(str(v) for v in resolve_non_root_user())
         assert "--user" in run_cmd, "test launch must include --user flag"
         user_idx = run_cmd.index("--user")
         assert run_cmd[user_idx + 1] == expected
+        assert expected != "0:0"
+        assert "--cap-drop=ALL" in run_cmd
+        assert "--security-opt=no-new-privileges:true" in run_cmd
+        assert "--pids-limit=2048" in run_cmd
         # POSITION (run 6f354058): --user must precede IMAGE. Everything after
         # IMAGE is the container CMD — a post-image --user is passed to the
         # entrypoint as an argument (exec: --: invalid option, exit 2).

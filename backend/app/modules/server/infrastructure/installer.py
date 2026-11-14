@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 import re
 import shlex
 import shutil
@@ -11,6 +10,11 @@ import sys
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from app.core.container_hardening import (
+    data_mount_args,
+    hardening_args,
+    validate_data_only_mounts,
+)
 from app.core.process_utils import platform_kill_process_tree_async
 from app.modules.server.domain.installer import (
     InstallerResult,
@@ -222,14 +226,13 @@ class ContainerInstallerRunner(InstallerRunner):
         if self._docker_host:
             exec_args.extend(["-H", self._docker_host])
         exec_args.extend(["run", "--rm", "-i"])
+        exec_args.extend(hardening_args())
 
         if cwd:
             host_mount = resolve_host_mount_path(cwd)
-            exec_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
+            exec_args.extend(data_mount_args(cwd, mount_source=host_mount))
 
-        if hasattr(os, "getuid") and hasattr(os, "getgid") and sys.platform != "win32":
-            exec_args.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
-
+        validate_data_only_mounts(exec_args, image=self._image)
         exec_args.append(self._image)
         if command:
             exec_args.extend(shlex.split(command))

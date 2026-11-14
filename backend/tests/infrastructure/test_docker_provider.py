@@ -6,6 +6,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.core.container_hardening import (
+    ContainerHardeningError,
+    resolve_non_root_user,
+)
 from app.core.exceptions import ProviderError
 from app.modules.server.domain.diagnostics import FailureCode
 from app.modules.server.domain.value_objects import (
@@ -110,6 +114,14 @@ class TestDockerProviderContract:
         assert "-w" in create_args
         assert create_args[create_args.index("-w") + 1] == "/data"
 
+        # P2-6b hardening: non-root user, no caps, no new privileges, pid cap.
+        assert "--cap-drop=ALL" in create_args
+        assert "--security-opt=no-new-privileges:true" in create_args
+        assert "--pids-limit=2048" in create_args
+        expected_user = ":".join(str(v) for v in resolve_non_root_user())
+        assert create_args[create_args.index("--user") + 1] == expected_user
+        assert expected_user != "0:0"
+
         # Environment
         assert "-e" in create_args
         assert "CUSTOM_ENV=123" in create_args
@@ -126,6 +138,38 @@ class TestDockerProviderContract:
         assert "-jar" in cmd_tokens
         assert cmd_tokens[cmd_tokens.index("-jar") + 1] == "/data/paper-1.20.4.jar"
         assert cmd_tokens[-1] == "nogui"
+
+    @pytest.mark.asyncio
+    async def test_docker_start_fails_closed_when_data_ownership_fails(
+        self, tmp_path: Path
+    ) -> None:
+        provider = DockerProvider()
+        srv_dir = tmp_path / "test_servers" / "srv-ownership"
+        srv_dir.mkdir()
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path=str(srv_dir),
+            startup_jar="server.jar",
+        )
+
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+            patch(
+                "app.modules.server.infrastructure.providers.docker.prepare_data_ownership",
+                AsyncMock(side_effect=ContainerHardeningError("chown failed")),
+            ),
+        ):
+            mock_docker.return_value = (1, "No such container")
+            with pytest.raises(ContainerHardeningError):
+                await provider.start(
+                    server_id="ownership-fail",
+                    config={"image": "eclipse-temurin:21-jre-jammy", "port": 25565},
+                    deployment=deployment,
+                )
+
+        create_calls = [c for c in mock_docker.call_args_list if c[0] and c[0][0] == "create"]
+        assert create_calls == []
 
     @pytest.mark.asyncio
     async def test_docker_start_with_forge_script(self, tmp_path: Path) -> None:
@@ -214,9 +258,11 @@ class TestDockerProviderContract:
     @pytest.mark.asyncio
     async def test_docker_start_cpu_allocation_and_affinity(self, tmp_path: Path) -> None:
         provider = DockerProvider()
+        srv_dir = tmp_path / "test_servers" / "srv-cpu"
+        srv_dir.mkdir(parents=True)
         deployment = ServerDeployment(
             location_type=LocationType.DOCKER,
-            root_path=str(tmp_path / "test_servers" / "srv-cpu"),
+            root_path=str(srv_dir),
         )
         config: dict[str, Any] = {
             "image": "eclipse-temurin:21-jre-jammy",
