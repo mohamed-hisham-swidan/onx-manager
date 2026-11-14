@@ -38,7 +38,7 @@ class TestBatch4ADbRevision:
     def test_release_minimum_db_revision_format(self) -> None:
         from app.core.persistence.db_revision import RELEASE_MINIMUM_DB_REVISION
 
-        assert RELEASE_MINIMUM_DB_REVISION == "b1e2100000025"
+        assert RELEASE_MINIMUM_DB_REVISION == "b1e2100000026"
         assert len(RELEASE_MINIMUM_DB_REVISION) == 13
 
 

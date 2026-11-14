@@ -156,6 +156,31 @@ class ServerModeVersioningDisabledError(ConflictError):
         )
 
 
+class FencingTokenMismatchError(ConflictError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        server_id: str | None = None,
+        expected_token: int | None = None,
+        actual_token: int | None = None,
+    ) -> None:
+        details: dict[str, Any] = {}
+        if server_id is not None:
+            details["server_id"] = server_id
+        if expected_token is not None:
+            details["expected_token"] = expected_token
+        if actual_token is not None:
+            details["actual_token"] = actual_token
+        MCSError.__init__(
+            self,
+            message or "Fencing token mismatch",
+            code="FENCING_TOKEN_MISMATCH",
+            http_status=409,
+            details=details,
+        )
+
+
 class GuardConfigurationError(MCSError):
     def __init__(self, message: str = "") -> None:
         super().__init__(

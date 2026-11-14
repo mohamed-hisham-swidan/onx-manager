@@ -11,10 +11,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 
 from app.core.persistence.base import Base
@@ -207,4 +209,56 @@ class ServerImportReviewModel(Base):
     revert_commit_id = Column(String(36), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+class ServerRepoLeaseModel(Base):
+    """Per-server lease guarding repo refresh/rollback mutations (P2-5)."""
+
+    __tablename__ = "server_repo_leases"
+
+    server_id = Column(String(36), primary_key=True)
+    holder = Column(String(128), nullable=True)
+    fencing_token = Column(BigInteger, nullable=False, default=0)
+    previous_tree_retention = Column(String(32), nullable=False, default="until_health_gate")
+    acquired_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+class RefreshJournalModel(Base):
+    """Durable journal for atomic refresh/rollback with one active row per server."""
+
+    __tablename__ = "refresh_journals"
+
+    journal_id = Column(String(36), primary_key=True)
+    server_id = Column(String(36), nullable=False, index=True)
+    export_id = Column(String(36), nullable=True)
+    fencing_token = Column(BigInteger, nullable=False)
+    phase = Column(String(64), nullable=False, index=True)
+    terminal = Column(Boolean, nullable=False, default=False)
+    previous_main_sha = Column(String(64), nullable=True)
+    target_main_sha = Column(String(64), nullable=True)
+    pre_upgrade_backup_id = Column(String(36), nullable=True)
+    class_c_snapshot_id = Column(String(36), nullable=True)
+    live_path = Column(Text, nullable=False)
+    staging_path = Column(Text, nullable=False)
+    previous_path = Column(Text, nullable=True)
+    used_exchange = Column(Boolean, nullable=False, default=False)
+    carried_entries_json = Column(Text, nullable=False, default="[]")
+    retention_policy = Column(String(32), nullable=False, default="until_health_gate")
+    previous_tree_retained = Column(Boolean, nullable=False, default=False)
+    previous_tree_expires_at = Column(DateTime(timezone=True), nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (
+        Index(
+            "ix_refresh_journals_server_active",
+            "server_id",
+            unique=True,
+            sqlite_where=text("terminal = 0"),
+            postgresql_where=text("terminal = false"),
+        ),
+    )
 

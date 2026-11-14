@@ -66,7 +66,7 @@ def test_upgrade_adds_pinned_and_preserves_legacy_rows(
     finally:
         sync_engine.dispose()
 
-    # 3. Upgrade to head (b1e2100000025)
+    # 3. Upgrade to head (b1e2100000026)
     alembic_command.upgrade(cfg, "head")
 
     # 4. Inspect columns and verify pinned definition
@@ -106,11 +106,10 @@ def test_upgrade_adds_pinned_and_preserves_legacy_rows(
     # 7. Check revision head alignment
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == [PINNED_REVISION]
-    head = heads[0]
-    rev = script.get_revision(head)
+    assert len(heads) == 1
+    rev = script.get_revision(PINNED_REVISION)
     assert rev.down_revision == PRIOR_HEAD
-    assert head == RELEASE_MINIMUM_DB_REVISION == EXPECTED_ALEMBIC_HEAD
+    assert heads[0] == RELEASE_MINIMUM_DB_REVISION == EXPECTED_ALEMBIC_HEAD
 
 
 def test_downgrade_removes_pinned_and_preserves_rows(
@@ -185,7 +184,7 @@ def test_revision_chain_is_linear(monkeypatch: pytest.MonkeyPatch) -> None:
     script = ScriptDirectory.from_config(cfg)
 
     heads = script.get_heads()
-    assert heads == [PINNED_REVISION]
+    assert len(heads) == 1
 
     current = script.get_revision(PINNED_REVISION)
     assert current.down_revision == PRIOR_HEAD
