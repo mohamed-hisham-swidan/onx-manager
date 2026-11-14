@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from app.core.config import AppSettings
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ServerModeVersioningDisabledError, ValidationError
 from app.core.host_state import HostStateLayout, ensure_host_state_layout
 from app.modules.versioning.domain.lockfile import (
     EnvServer,
@@ -34,7 +34,7 @@ from app.modules.versioning.infrastructure.runtime_adapters import (
     CleanExportStageAdapter,
 )
 
-pytestmark = pytest.mark.skipif(
+POSIX_ONLY = pytest.mark.skipif(
     os.name != "posix",
     reason="P2 Advanced-mode clean export is POSIX-only; Windows remains Simple-only",
 )
@@ -158,6 +158,33 @@ def _prepare_overlays(tmp_path: Path) -> tuple[Path, Path]:
     return template, class_c
 
 
+def test_export_non_posix_fails_closed_with_versioning_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows/Simple mode must fail closed before touching the export tree."""
+    settings = AppSettings(
+        host_state_dir=str(tmp_path / "host-state"),
+        servers_data_dir=str(tmp_path / "servers"),
+    )
+    layout = ensure_host_state_layout(settings)
+    root = tmp_path / "servers" / SERVER_ID
+    root.mkdir(parents=True)
+    destination = tmp_path / "export"
+    service = CleanExportService(layout)
+    request = _request(layout, root, "0" * 40, destination=destination)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(os, "name", "nt")
+        with pytest.raises(ServerModeVersioningDisabledError) as exc_info:
+            service.export(request)
+
+    assert exc_info.value.code == "SERVER_MODE_VERSIONING_DISABLED"
+    assert exc_info.value.http_status == 409
+    assert not destination.exists()
+
+
+@POSIX_ONLY
 def test_export_composes_five_steps_and_writes_marker(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -236,6 +263,7 @@ def test_export_composes_five_steps_and_writes_marker(
     assert all(path.stat().st_nlink == 1 for path in all_files)
 
 
+@POSIX_ONLY
 def test_optional_missing_class_a_is_skipped(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -263,6 +291,7 @@ def test_optional_missing_class_a_is_skipped(
     assert result.marker_path.is_file()
 
 
+@POSIX_ONLY
 def test_mandatory_missing_class_a_fails_and_removes_export(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -291,6 +320,7 @@ def test_mandatory_missing_class_a_fails_and_removes_export(
     assert not destination.exists()
 
 
+@POSIX_ONLY
 def test_invalid_commit_fails_and_removes_export(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -302,6 +332,7 @@ def test_invalid_commit_fails_and_removes_export(
     assert not destination.exists()
 
 
+@POSIX_ONLY
 def test_existing_destination_is_rejected(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -314,6 +345,7 @@ def test_existing_destination_is_rejected(
     assert destination.is_dir()
 
 
+@POSIX_ONLY
 def test_unresolved_secret_fails_and_removes_export(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -334,6 +366,7 @@ def test_unresolved_secret_fails_and_removes_export(
     assert not destination.exists()
 
 
+@POSIX_ONLY
 def test_stage_export_adapter_fails_closed_on_unresolved_secret(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -367,6 +400,7 @@ def test_stage_export_adapter_fails_closed_on_unresolved_secret(
     assert not destination.exists()
 
 
+@POSIX_ONLY
 def test_symlink_in_data_template_is_rejected(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -393,6 +427,7 @@ def test_symlink_in_data_template_is_rejected(
     assert not destination.exists()
 
 
+@POSIX_ONLY
 def test_data_template_without_marker_is_rejected(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -415,6 +450,7 @@ def test_data_template_without_marker_is_rejected(
     assert not destination.exists()
 
 
+@POSIX_ONLY
 def test_data_template_rejects_non_class_e_paths(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -438,6 +474,7 @@ def test_data_template_rejects_non_class_e_paths(
     assert not destination.exists()
 
 
+@POSIX_ONLY
 def test_class_c_overlay_rejects_non_class_c_paths(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -461,6 +498,7 @@ def test_class_c_overlay_rejects_non_class_c_paths(
     assert not destination.exists()
 
 
+@POSIX_ONLY
 def test_plain_copy_fallback_is_used_when_reflink_is_unavailable(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -499,6 +537,7 @@ def test_plain_copy_fallback_is_used_when_reflink_is_unavailable(
     assert (result.root / "server.jar").stat().st_nlink == 1
 
 
+@POSIX_ONLY
 def test_forge_lec_requires_non_empty_unix_args(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -540,6 +579,7 @@ def test_forge_lec_requires_non_empty_unix_args(
     assert (result.root / FORGE_ARGS_RELPATH).read_text() == "-p libraries/forge.jar\n"
 
 
+@POSIX_ONLY
 def test_archive_symlink_and_traversal_are_rejected(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,
@@ -571,6 +611,7 @@ def test_archive_symlink_and_traversal_are_rejected(
     "member_name",
     ["run.sh", "run.bat", "user_jvm_args.txt", "libraries/net/x.jar", ".fabric/server/x.jar"],
 )
+@POSIX_ONLY
 def test_archive_reserved_paths_are_rejected(
     repo: tuple[HostStateLayout, Path, str],
     tmp_path: Path,

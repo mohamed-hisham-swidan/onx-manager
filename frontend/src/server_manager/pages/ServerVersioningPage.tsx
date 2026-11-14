@@ -347,6 +347,55 @@ export function ServerVersioningPage() {
         </div>
       </div>
 
+      {/* P3 preview controls (D-P26-4): visible but intentionally disabled. */}
+      <div className="flex flex-wrap items-center gap-2" data-testid="p3-coming-soon">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          P3 preview
+        </span>
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          aria-label="Live Refresh (Coming soon)"
+          title="P3 Live Refresh is coming soon"
+          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-text-muted/70"
+        >
+          <Icon name="activity" size={13} />
+          <span>Live Refresh</span>
+          <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
+            Coming soon
+          </span>
+        </button>
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          aria-label="Rollback (Coming soon)"
+          title="P3 Rollback is coming soon"
+          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-text-muted/70"
+        >
+          <Icon name="restart" size={13} />
+          <span>Rollback</span>
+          <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
+            Coming soon
+          </span>
+        </button>
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          aria-label="Confirm Upgrade (Coming soon)"
+          title="P3 Confirm Upgrade is coming soon"
+          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-text-muted/70"
+        >
+          <Icon name="check" size={13} />
+          <span>Confirm Upgrade</span>
+          <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
+            Coming soon
+          </span>
+        </button>
+      </div>
+
       {/* Interactive 3-Step Visual Workflow Guide Banner */}
       <section
         aria-label="Guided Versioning & Testing Workflow"

@@ -99,14 +99,30 @@ export function BackupListPage() {
         description="Protect, restore, and verify your Minecraft world snapshots"
         icon="backup"
         actions={
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-2 text-sm font-bold text-accent-contrast-text hover:bg-accent-hover shadow-2xs transition-colors cursor-pointer"
-          >
-            <Icon name="plus" size={16} />
-            <span>New Backup</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              aria-label="Class-C Secret Vault (Coming soon)"
+              title="P3 Class-C Secret Vault / extraction is coming soon"
+              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-3.5 py-2 text-sm font-medium text-text-muted/70"
+            >
+              <Icon name="lock" size={16} />
+              <span>Secret Vault</span>
+              <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
+                Coming soon
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-2 text-sm font-bold text-accent-contrast-text hover:bg-accent-hover shadow-2xs transition-colors cursor-pointer"
+            >
+              <Icon name="plus" size={16} />
+              <span>New Backup</span>
+            </button>
+          </div>
         }
       />
 
