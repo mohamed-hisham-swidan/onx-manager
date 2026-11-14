@@ -23,9 +23,9 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import CursorResult, Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Session, sessionmaker
@@ -289,7 +289,7 @@ class RepoLeaseManager:
                     text(self._acquire_update_sql(dialect, returning=False)), params
                 )
                 row = None
-                if result.rowcount:
+                if cast(CursorResult[Any], result).rowcount:
                     row = session.execute(
                         text(
                             "SELECT fencing_token, acquired_at, expires_at "
@@ -324,7 +324,7 @@ class RepoLeaseManager:
                 },
             )
             session.commit()
-        return (result.rowcount or 0) > 0
+        return (cast(CursorResult[Any], result).rowcount or 0) > 0
 
     def assert_fencing_token_sync(self, server_id: str, fencing_token: int) -> None:
         sid = validate_server_segment(server_id)
@@ -364,7 +364,7 @@ class RepoLeaseManager:
                 {"sid": token.server_id, "token": token.fencing_token},
             )
             session.commit()
-        return (result.rowcount or 0) > 0
+        return (cast(CursorResult[Any], result).rowcount or 0) > 0
 
     # ------------------------------------------------------------------
     # Async primitives
@@ -408,7 +408,7 @@ class RepoLeaseManager:
                     text(self._acquire_update_sql(dialect, returning=False)), params
                 )
                 row = None
-                if result.rowcount:
+                if cast(CursorResult[Any], result).rowcount:
                     row = (
                         await session.execute(
                             text(
@@ -445,7 +445,7 @@ class RepoLeaseManager:
                 },
             )
             await session.commit()
-        return (result.rowcount or 0) > 0
+        return (cast(CursorResult[Any], result).rowcount or 0) > 0
 
     async def assert_fencing_token(self, server_id: str, fencing_token: int) -> None:
         sid = validate_server_segment(server_id)
@@ -487,7 +487,7 @@ class RepoLeaseManager:
                 {"sid": token.server_id, "token": token.fencing_token},
             )
             await session.commit()
-        return (result.rowcount or 0) > 0
+        return (cast(CursorResult[Any], result).rowcount or 0) > 0
 
     # ------------------------------------------------------------------
     # Per-server kernel flock

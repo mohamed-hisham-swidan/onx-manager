@@ -1,3 +1,4 @@
+import errno
 import io
 import os
 import tarfile
@@ -8,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.core.exceptions import InsufficientStorageError
 from app.core.persistence.db import database
 from app.modules.backup.application.restore_service import (
     RestoreError,
@@ -39,10 +41,12 @@ class FakeStorage(StorageBackend):
     async def exists(self, path: str) -> bool:
         return path in self._store
 
-    async def list_files(self, _prefix: str) -> list:
+    async def list_files(self, prefix: str) -> list:
+        del prefix
         return []
 
-    async def info(self, _path: str):
+    async def info(self, path: str):
+        del path
         return None
 
     async def copy(self, source: str, destination: str) -> StorageResult:
@@ -416,6 +420,106 @@ class TestPerformSafeRestore:
         assert (server_dir / "plugins" / "new.jar").read_text() == "new-plugin"
         assert (server_dir / "server.properties").read_text() == "new-motd"
         assert (server_dir / "eula.txt").read_text() == "new-eula"
+
+    @pytest.mark.asyncio
+    async def test_level_name_property_restores_custom_world(self, tmp_path) -> None:
+        """M-4: server.properties level-name selects the world folder to restore."""
+        server_dir = tmp_path / "server"
+        _write(server_dir, "server.properties", "motd=x\nlevel-name=mypvp\n")
+        _write(server_dir, "mypvp/level.dat", "old-custom")
+
+        source = tmp_path / "src"
+        _write(source, "mypvp/level.dat", "new-custom")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source), ["mypvp"]
+        )
+        await _seed_job("res-svc-level-name", "srv-1", path, size, checksum)
+
+        restored = await perform_safe_restore(
+            BackupJobId("res-svc-level-name"),
+            str(server_dir),
+            storage=storage,
+            encryption=encryption,
+        )
+
+        assert restored == ["mypvp"]
+        assert (server_dir / "mypvp" / "level.dat").read_text() == "new-custom"
+
+    @pytest.mark.asyncio
+    async def test_level_name_traversal_falls_back_to_world(self, tmp_path) -> None:
+        """M-4: a traversal-shaped level-name is ignored (default world)."""
+        server_dir = tmp_path / "server"
+        _write(server_dir, "server.properties", "level-name=../escape\n")
+        _write(server_dir, "world/level.dat", "old-world")
+
+        source = tmp_path / "src"
+        _write(source, "world/level.dat", "new-world")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source), ["world"]
+        )
+        await _seed_job("res-svc-level-traversal", "srv-1", path, size, checksum)
+
+        restored = await perform_safe_restore(
+            BackupJobId("res-svc-level-traversal"),
+            str(server_dir),
+            storage=storage,
+            encryption=encryption,
+        )
+
+        assert restored == ["world"]
+        assert (server_dir / "world" / "level.dat").read_text() == "new-world"
+        assert not (tmp_path / "escape").exists()
+
+    @pytest.mark.asyncio
+    async def test_enospc_mid_restore_rolls_back_applied_dimensions(
+        self, tmp_path
+    ) -> None:
+        """M-4/MINOR 2: a mid-loop ENOSPC restores items from temp_dir/prev."""
+        server_dir = tmp_path / "server"
+        _write(server_dir, "world/level.dat", "old-world")
+        _write(server_dir, "world_nether/DIM1.dat", "old-nether")
+
+        source = tmp_path / "src"
+        _write(source, "world/level.dat", "new-world")
+        _write(source, "world_nether/DIM1.dat", "new-nether")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source), ["world", "world_nether"]
+        )
+        await _seed_job("res-svc-enospc", "srv-1", path, size, checksum)
+
+        from app.modules.backup.application import restore_service as restore_module
+
+        real_replace = restore_module._atomic_replace_dir
+        applied: list[str] = []
+
+        def flaky_replace(
+            src: str, dst: str, backup_dir: str | None = None
+        ) -> str | None:
+            if applied:
+                raise OSError(errno.ENOSPC, "injected disk full")
+            applied.append(dst)
+            return real_replace(src, dst, backup_dir)
+
+        with (
+            patch.object(
+                restore_module, "_atomic_replace_dir", side_effect=flaky_replace
+            ),
+            pytest.raises(InsufficientStorageError) as excinfo,
+        ):
+            await perform_safe_restore(
+                BackupJobId("res-svc-enospc"),
+                str(server_dir),
+                storage=storage,
+                encryption=encryption,
+            )
+
+        assert excinfo.value.http_status == 507
+        assert applied == [os.path.join(str(server_dir), "world")]
+        assert (server_dir / "world" / "level.dat").read_text() == "old-world"
+        assert (server_dir / "world_nether" / "DIM1.dat").read_text() == "old-nether"
 
 
 @pytest.mark.usefixtures("init_test_db")

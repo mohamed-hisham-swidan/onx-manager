@@ -21,9 +21,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn, cast
 
-from sqlalchemy import Engine, create_engine, delete, select, update
+from sqlalchemy import CursorResult, Engine, create_engine, delete, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Session, sessionmaker
@@ -734,7 +734,7 @@ class RefreshJournalRepository:
     def _raise_mismatch(
         session_row: dict[str, Any] | None,
         fencing_token: int,
-    ) -> None:
+    ) -> NoReturn:
         raise FencingTokenMismatchError(
             server_id=None if session_row is None else str(session_row["server_id"]),
             expected_token=fencing_token,
@@ -789,7 +789,7 @@ class RefreshJournalRepository:
                     RefreshJournalModel.journal_id == journal_id
                 )
             ).scalar_one_or_none()
-            if not result.rowcount or row is None:
+            if not cast(CursorResult[Any], result).rowcount or row is None:
                 self._raise_mismatch(
                     None if row is None else _values_from_model(row), fencing_token
                 )
@@ -848,7 +848,7 @@ class RefreshJournalRepository:
                     )
                 )
             ).scalar_one_or_none()
-            if not result.rowcount or row is None:
+            if not cast(CursorResult[Any], result).rowcount or row is None:
                 self._raise_mismatch(
                     None if row is None else _values_from_model(row), fencing_token
                 )
@@ -1078,7 +1078,7 @@ class RefreshJournalRepository:
             )
             record = self._select_record(session, journal_id)
             session.commit()
-        if not result.rowcount or record is None:
+        if not cast(CursorResult[Any], result).rowcount or record is None:
             return False
         self._write_json(record)
         return True
@@ -1111,7 +1111,7 @@ class RefreshJournalRepository:
             )
             record = await self._aselect_record(session, journal_id)
             await session.commit()
-        if not result.rowcount or record is None:
+        if not cast(CursorResult[Any], result).rowcount or record is None:
             if record is not None and record.phase == "UPGRADE_CONFIRMED":
                 return record
             raise ConflictError(
@@ -1136,10 +1136,25 @@ class RefreshJournalRepository:
             )
             record = await self._aselect_record(session, journal_id)
             await session.commit()
-        if not result.rowcount or record is None:
+        if not cast(CursorResult[Any], result).rowcount or record is None:
             return False
         self._write_json(record)
         return True
+
+
+def _is_missing_refresh_journal_table(exc: OperationalError) -> bool:
+    """Return True only for an actually-missing ``refresh_journals`` table.
+
+    SQLite reports ``no such table: refresh_journals``; Postgres reports SQLSTATE
+    ``42P01`` (undefined_table). Generic ``... does not exist`` messages are not
+    trusted, so a broken deployment still fails closed.
+    """
+    orig = getattr(exc, "orig", None)
+    sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    if sqlstate == "42P01":
+        return True
+    message = str(exc).lower()
+    return "refresh_journals" in message and "no such table" in message
 
 
 async def assert_no_unresolved_refresh(
@@ -1160,10 +1175,7 @@ async def assert_no_unresolved_refresh(
         try:
             record = await repo.get_active_for_server(server_id)
         except OperationalError as exc:
-            message = str(exc).lower()
-            if "refresh_journals" in message and (
-                "no such table" in message or "does not exist" in message
-            ):
+            if _is_missing_refresh_journal_table(exc):
                 return
             raise
     finally:

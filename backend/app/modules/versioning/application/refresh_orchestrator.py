@@ -41,6 +41,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.exceptions import (
     ConflictError,
     FencingTokenMismatchError,
@@ -1908,10 +1909,10 @@ class LiveRefreshService:
                 return
             try:
                 if current.carried_entries and os.path.lexists(current.staging_path):
-                    live = self._path_guard.validate_swap_path(
+                    live = self._orchestrator._path_guard.validate_swap_path(
                         current.server_id, current.live_path, field="live_path"
                     )
-                    staging = self._path_guard.validate_swap_path(
+                    staging = self._orchestrator._path_guard.validate_swap_path(
                         current.server_id, current.staging_path, field="staging_path"
                     )
                     await asyncio.to_thread(
@@ -2082,24 +2083,21 @@ class LiveRefreshService:
 # ----------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class RefreshServerCommand:
+class RefreshServerCommand(Command):
     """Command wrapper for a seven-step live refresh."""
 
     server_id: str
     request: LiveRefreshRequest
 
 
-@dataclass(frozen=True)
-class ConfirmUpgradeCommand:
+class ConfirmUpgradeCommand(Command):
     """Command wrapper for the explicit confirm/unpin step."""
 
     server_id: str
     journal_id: str | None = None
 
 
-@dataclass(frozen=True)
-class RollbackRefreshCommand:
+class RollbackRefreshCommand(Command):
     """Command wrapper for a manual triad rollback."""
 
     server_id: str
@@ -2107,8 +2105,7 @@ class RollbackRefreshCommand:
     reason: str = ""
 
 
-@dataclass(frozen=True)
-class ReleaseRefreshPinsCommand:
+class ReleaseRefreshPinsCommand(Command):
     """Command wrapper for explicitly unpinning a rolled-back journal."""
 
     server_id: str
@@ -2122,9 +2119,12 @@ def _resolve_refresh_service(service: RefreshServiceFactory) -> LiveRefreshServi
     return service() if callable(service) else service
 
 
-class RefreshServerCommandHandler:
+class RefreshServerCommandHandler(CommandHandler[RefreshServerCommand]):
     def __init__(self, service: RefreshServiceFactory) -> None:
         self._service = service
+
+    async def handle(self, command: RefreshServerCommand) -> CommandResult:
+        return CommandResult(success=True, data=await self(command))
 
     async def __call__(self, command: RefreshServerCommand) -> LiveRefreshResult:
         if command.request.server_id != command.server_id:
@@ -2135,9 +2135,12 @@ class RefreshServerCommandHandler:
         return await _resolve_refresh_service(self._service).refresh(command.request)
 
 
-class ConfirmUpgradeCommandHandler:
+class ConfirmUpgradeCommandHandler(CommandHandler[ConfirmUpgradeCommand]):
     def __init__(self, service: RefreshServiceFactory) -> None:
         self._service = service
+
+    async def handle(self, command: ConfirmUpgradeCommand) -> CommandResult:
+        return CommandResult(success=True, data=await self(command))
 
     async def __call__(self, command: ConfirmUpgradeCommand) -> RefreshJournalRecord:
         return await _resolve_refresh_service(self._service).confirm_upgrade_unpin(
@@ -2145,9 +2148,12 @@ class ConfirmUpgradeCommandHandler:
         )
 
 
-class RollbackRefreshCommandHandler:
+class RollbackRefreshCommandHandler(CommandHandler[RollbackRefreshCommand]):
     def __init__(self, service: RefreshServiceFactory) -> None:
         self._service = service
+
+    async def handle(self, command: RollbackRefreshCommand) -> CommandResult:
+        return CommandResult(success=True, data=await self(command))
 
     async def __call__(self, command: RollbackRefreshCommand) -> RollbackResult:
         return await _resolve_refresh_service(self._service).rollback(
@@ -2155,9 +2161,12 @@ class RollbackRefreshCommandHandler:
         )
 
 
-class ReleaseRefreshPinsCommandHandler:
+class ReleaseRefreshPinsCommandHandler(CommandHandler[ReleaseRefreshPinsCommand]):
     def __init__(self, service: RefreshServiceFactory) -> None:
         self._service = service
+
+    async def handle(self, command: ReleaseRefreshPinsCommand) -> CommandResult:
+        return CommandResult(success=True, data=await self(command))
 
     async def __call__(self, command: ReleaseRefreshPinsCommand) -> RefreshJournalRecord:
         return await _resolve_refresh_service(self._service).release_pins(

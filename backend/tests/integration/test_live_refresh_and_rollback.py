@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from sqlalchemy import create_engine
@@ -44,7 +46,10 @@ from app.modules.versioning.application.refresh_orchestrator import (
     previous_tree_path,
     run_health_gate,
 )
-from app.modules.versioning.application.repo_lease import RepoLeaseManager
+from app.modules.versioning.application.repo_lease import (
+    RepoLeaseManager,
+    RepoLeaseToken,
+)
 from app.modules.versioning.infrastructure.refresh_journal import (
     RefreshJournalRecord,
     RefreshJournalRepository,
@@ -330,9 +335,9 @@ def _service(
     runtime: FakeRuntime,
     backup: FakeBackupService,
     exporter: FakeExporter,
-    lifecycle: object | None = None,
-    repo: object | None = None,
-    reset_main_ref: object | None = None,
+    lifecycle: Any | None = None,
+    repo: Any | None = None,
+    reset_main_ref: Callable[[str, str], None] | None = None,
     now: datetime | None = None,
 ) -> LiveRefreshService:
     return LiveRefreshService(
@@ -792,11 +797,45 @@ async def test_lost_repo_lease_aborts_before_any_mutation(live_env: LiveEnv) -> 
 def test_fencing_guard_rejects_lost_token() -> None:
     guard = FencingGuard(
         SERVER_ID,
-        SimpleNamespace(fencing_token=3, is_lost=True),
+        cast(RepoLeaseToken, SimpleNamespace(fencing_token=3, is_lost=True)),
         None,
     )
     with pytest.raises(FencingTokenMismatchError):
         guard.check()
+
+
+async def test_compensate_carrying_uses_orchestrator_path_guard(
+    live_env: LiveEnv,
+) -> None:
+    """Regression: _compensate must resolve validate_swap_path on the orchestrator."""
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    staging = env.servers_root / STAGING
+    _write(live, "server.properties", "motd=live\n")
+    _write(staging, "world/level.dat", "carried-world")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=1,
+        phase="CARRYING",
+        live_path=live,
+        staging_path=staging,
+        previous_path=previous_tree_path(live),
+        carried_entries=["world"],
+    )
+    service = _service(
+        env,
+        runtime=FakeRuntime(),
+        backup=FakeBackupService(),
+        exporter=FakeExporter(),
+    )
+
+    await service._compensate(created, 1, RuntimeError("simulated carry failure"))
+
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "FAILED_CLEAN"
+    assert (live / "world" / "level.dat").read_text(encoding="utf-8") == "carried-world"
+    assert not (staging / "world").exists()
 
 
 async def test_bumped_fencing_token_aborts_rollback_before_previous_tree_swap(

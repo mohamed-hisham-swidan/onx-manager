@@ -7,18 +7,18 @@ import os
 import random
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import text
+from sqlalchemy import CursorResult, text
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.command_bus import CommandResult
+from app.core.command_bus import Command, CommandResult, Middleware
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ class ServerLifecycleLeaseManager:
                     },
                 )
                 await session.commit()
-                return (res.rowcount or 0) > 0
+                return (cast(CursorResult[Any], res).rowcount or 0) > 0
             except Exception as exc:
                 await session.rollback()
                 logger.debug("Lease renewal failed for %s: %s", token.server_id, exc)
@@ -249,7 +249,7 @@ class ServerLifecycleLeaseManager:
                     {"now": now, "sid": token.server_id, "tok": token.owner_token},
                 )
                 await session.commit()
-                return (res.rowcount or 0) > 0
+                return (cast(CursorResult[Any], res).rowcount or 0) > 0
             except Exception as exc:
                 await session.rollback()
                 logger.debug("Lease release failed for %s: %s", token.server_id, exc)
@@ -379,7 +379,7 @@ def set_lifecycle_lease_manager(manager: ServerLifecycleLeaseManager | None) -> 
     _global_lease_manager = manager
 
 
-class ServerLifecycleLockMiddleware:
+class ServerLifecycleLockMiddleware(Middleware):
     LOCKED_COMMAND_NAMES = {
         "StartServerCommand",
         "StopServerCommand",
@@ -390,6 +390,7 @@ class ServerLifecycleLockMiddleware:
         "RefreshServerCommand",
         "RollbackRefreshCommand",
         "ConfirmUpgradeCommand",
+        "ReleaseRefreshPinsCommand",
     }
 
     def __init__(self, manager: ServerLifecycleLeaseManager | None = None) -> None:
@@ -403,22 +404,19 @@ class ServerLifecycleLockMiddleware:
 
     async def __call__(
         self,
-        command: Any,
-        next_handler: Callable[[Any], Awaitable[CommandResult]],
+        command: Command,
+        next_middleware: Any,
     ) -> CommandResult:
         cmd_name = command.__class__.__name__
-        if (
-            cmd_name in self.LOCKED_COMMAND_NAMES
-            and hasattr(command, "server_id")
-            and command.server_id
-        ):
-            server_id = str(command.server_id)
+        server_id_attr = getattr(command, "server_id", None)
+        if cmd_name in self.LOCKED_COMMAND_NAMES and server_id_attr:
+            server_id = str(server_id_attr)
             holder = f"{cmd_name}:{os.getpid()}"
             try:
                 async with self.manager.acquire(
                     server_id, holder=holder, wait_timeout=60.0
                 ) as token:
-                    result = await next_handler(command)
+                    result = await next_middleware(command)
                     if token.is_lost:
                         logger.error(
                             "Lifecycle lock for server %s was lost during %s execution",
@@ -442,4 +440,4 @@ class ServerLifecycleLockMiddleware:
                     error="Another lifecycle operation is already in progress for this server",
                     error_code="OPERATION_CONCURRENCY_CONFLICT",
                 )
-        return await next_handler(command)
+        return await next_middleware(command)
