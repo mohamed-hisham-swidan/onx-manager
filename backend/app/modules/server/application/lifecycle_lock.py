@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 _held_leases: ContextVar[dict[str, str] | None] = ContextVar("_held_leases", default=None)
 
 
+def _assert_repo_lock_order() -> None:
+    """Global lock order is lifecycle -> repo; a held repo lease forbids this."""
+    from app.modules.versioning.application.repo_lease import assert_no_repo_lease_held
+
+    assert_no_repo_lease_held()
+
+
 @dataclass
 class LeaseToken:
     server_id: str
@@ -88,6 +95,7 @@ class ServerLifecycleLeaseManager:
         ttl_seconds: float = DEFAULT_TTL_SECONDS,
     ) -> LeaseToken | None:
         """Atomically acquire an unheld or expired lease row for `server_id`."""
+        _assert_repo_lock_order()
         factory = self._get_session_factory()
         now = datetime.now(UTC)
         expires_at = now + timedelta(seconds=ttl_seconds)
@@ -297,6 +305,7 @@ class ServerLifecycleLeaseManager:
         ttl_seconds: float = DEFAULT_TTL_SECONDS,
     ) -> AsyncIterator[LeaseToken]:
         """Acquire per-server lease with jittered polling, ContextVar reentrancy, and renewal."""
+        _assert_repo_lock_order()
         # 1. ContextVar reentrancy check
         current_held = _held_leases.get() or {}
         if server_id in current_held:

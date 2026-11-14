@@ -27,7 +27,7 @@ import shutil
 import stat
 import tarfile
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -267,7 +267,12 @@ class CleanExportService:
         self._branch_service = branch_service or GitBranchService(layout)
         self._cas = cas or ArtifactCas(layout.cas)
 
-    def export(self, request: CleanExportRequest) -> CleanExportResult:
+    def export(
+        self,
+        request: CleanExportRequest,
+        *,
+        fencing_verifier: Callable[[], None] | None = None,
+    ) -> CleanExportResult:
         if os.name != "posix":
             raise StorageCowUnavailableError(str(request.destination))
         server_id = validate_server_segment(request.server_id)
@@ -310,6 +315,8 @@ class CleanExportService:
                 )
             self._inject_class_d(destination, request)
             file_count, total_bytes = self._measure_export(destination)
+            if fencing_verifier is not None:
+                fencing_verifier()
             marker_path = self._write_marker(destination, file_count, total_bytes)
             return CleanExportResult(
                 root=destination,

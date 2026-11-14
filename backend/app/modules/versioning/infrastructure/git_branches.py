@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -236,6 +237,8 @@ class GitBranchService:
         server_root: str | os.PathLike[str],
         name: str,
         start_point: str = MAIN_BRANCH,
+        *,
+        fencing_verifier: Callable[[], None] | None = None,
     ) -> GitBranchInfo:
         """Create a branch from an existing local branch and check it out."""
         segments = _validate_branch_path_name(name)
@@ -249,6 +252,8 @@ class GitBranchService:
         runner = self._open_repository(server_id, root)
         runner.validate_branch_name(name)
         runner.validate_branch_name(start_point)
+        if fencing_verifier is not None:
+            fencing_verifier()
 
         start_sha = self._resolve_branch(runner, start_point)
         if start_sha is None:
@@ -310,6 +315,8 @@ class GitBranchService:
         server_id: str,
         server_root: str | os.PathLike[str],
         name: str,
+        *,
+        fencing_verifier: Callable[[], None] | None = None,
     ) -> GitBranchRemovalResult:
         """Retire a branch: remove its worktree, keep the ref and history."""
         _validate_branch_path_name(name)
@@ -319,6 +326,8 @@ class GitBranchService:
 
         runner = self._open_repository(server_id, root)
         runner.validate_branch_name(name)
+        if fencing_verifier is not None:
+            fencing_verifier()
         ref = f"refs/heads/{name}"
         sha = self._resolve_ref(runner, ref)
         if sha is None:
@@ -355,6 +364,8 @@ class GitBranchService:
         server_id: str,
         server_root: str | os.PathLike[str],
         name: str,
+        *,
+        fencing_verifier: Callable[[], None] | None = None,
     ) -> GitBranchRemovalResult:
         """Delete a fully merged branch after removing its clean worktree."""
         _validate_branch_path_name(name)
@@ -364,6 +375,8 @@ class GitBranchService:
 
         runner = self._open_repository(server_id, root)
         runner.validate_branch_name(name)
+        if fencing_verifier is not None:
+            fencing_verifier()
         ref = f"refs/heads/{name}"
         sha = self._resolve_ref(runner, ref)
         if sha is None:
