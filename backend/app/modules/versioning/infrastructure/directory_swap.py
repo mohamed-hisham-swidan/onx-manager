@@ -50,6 +50,9 @@ SwapPhase = Literal[
     "SWAP_ROLLED_BACK",
 ]
 SwapRecoveryStatus = Literal["none", "unchanged", "completed", "rolled_back"]
+SwapClassificationState = Literal["unchanged", "already_swapped", "completed", "rolled_back"]
+
+_EXPORT_MARKER_NAME = ".onx-complete.json"
 
 _PHASES = frozenset(
     {
@@ -154,6 +157,8 @@ class SwapJournalRecord:
     target_main_sha: str = ""
     pre_upgrade_backup_id: str = ""
     class_c_snapshot_id: str = ""
+    export_id: str = ""
+    keep_previous: bool = False
     used_exchange: bool = False
     error: str = ""
     updated_at: str = ""
@@ -174,6 +179,10 @@ class SwapJournalRecord:
                 _validated_digest(value, name)
         if type(self.used_exchange) is not bool:
             raise ValidationError("used_exchange must be a boolean", field="used_exchange")
+        if type(self.keep_previous) is not bool:
+            raise ValidationError("keep_previous must be a boolean", field="keep_previous")
+        if not isinstance(self.export_id, str):
+            raise ValidationError("export_id must be a string", field="export_id")
 
 
 class DirectorySwapJournal:
@@ -246,6 +255,8 @@ class DirectorySwapJournal:
                 target_main_sha=str(data.get("target_main_sha", "")),
                 pre_upgrade_backup_id=str(data.get("pre_upgrade_backup_id", "")),
                 class_c_snapshot_id=str(data.get("class_c_snapshot_id", "")),
+                export_id=str(data.get("export_id", "")),
+                keep_previous=bool(data.get("keep_previous", False)),
                 used_exchange=bool(data.get("used_exchange", False)),
                 error=str(data.get("error", "")),
                 updated_at=str(data.get("updated_at", "")),
@@ -269,6 +280,60 @@ class SwapResult:
 class SwapRecoveryResult:
     status: SwapRecoveryStatus
     record: SwapJournalRecord | None = None
+
+
+@dataclass(frozen=True)
+class SwapClassification:
+    """Disk-state classification for a possibly interrupted swap."""
+
+    state: SwapClassificationState
+    live_marker: dict[str, object] | None = None
+    staging_marker: dict[str, object] | None = None
+
+
+def _read_export_marker(directory: Path) -> dict[str, object] | None:
+    marker = directory / _EXPORT_MARKER_NAME
+    if not os.path.lexists(marker):
+        return None
+    if marker.is_symlink() or not marker.is_file():
+        return None
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def classify_swap_state(record: SwapJournalRecord) -> SwapClassification:
+    """Classify disk state for a journal record without touching any tree.
+
+    ``already_swapped`` is the critical post-``rename_exchange`` case: the live
+    tree already carries the staged export's completion marker, but the journal
+    may still say ``PREPARED`` because the process crashed before the
+    ``SWAP_COMPLETED`` write. Callers must treat ``staging_path`` as the old
+    live tree and never delete it as an unfinalized staging directory.
+    """
+    live = _declared_path(record.live_path, "live_path")
+    staging = _declared_path(record.staging_path, "staging_path")
+    live_marker = _read_export_marker(live)
+    staging_marker = _read_export_marker(staging)
+
+    if record.phase == PHASE_SWAP_COMPLETED:
+        state: SwapClassificationState = "completed"
+    elif record.phase == PHASE_SWAP_ROLLED_BACK:
+        state = "rolled_back"
+    elif (
+        record.export_id
+        and record.phase in (PHASE_PREPARED, PHASE_SWAPPING_IN_STAGING)
+        and live_marker is not None
+        and live_marker.get("export_id") == record.export_id
+    ):
+        state = "already_swapped"
+    else:
+        state = "unchanged"
+    return SwapClassification(
+        state=state, live_marker=live_marker, staging_marker=staging_marker
+    )
 
 
 def _validate_pair(live: Path, staging: Path) -> Path:
@@ -365,13 +430,17 @@ def swap_directories(
     target_main_sha: str = "",
     pre_upgrade_backup_id: str = "",
     class_c_snapshot_id: str = "",
+    export_id: str = "",
+    keep_previous: bool = False,
     exchange_supported: bool | None = None,
 ) -> SwapResult:
     """Atomically replace ``live_dir`` with ``staging_dir``.
 
     ``exchange_supported=False`` forces the journaled fallback. The caller
     owns the old tree afterwards: it is at ``staging_dir`` after an exchange
-    and at ``<live_dir>.prev`` after a fallback.
+    and at ``<live_dir>.prev`` after a fallback. This module never deletes a
+    tree. ``keep_previous`` records the caller's intent to retain the old tree
+    so crash recovery cannot mistake it for an unfinalized staging directory.
     """
     segment = validate_server_segment(server_id)
     live = _existing_directory(live_dir, "live_dir")
@@ -397,6 +466,8 @@ def swap_directories(
             target_main_sha=target_main_sha,
             pre_upgrade_backup_id=pre_upgrade_backup_id,
             class_c_snapshot_id=class_c_snapshot_id,
+            export_id=export_id,
+            keep_previous=keep_previous,
             used_exchange=used_exchange,
             error=error[:256],
             updated_at=_utc_now(),
@@ -480,6 +551,7 @@ def recover_interrupted_swap(
         status: SwapRecoveryStatus,
         *,
         error: str = "",
+        used_exchange: bool | None = None,
     ) -> SwapRecoveryResult:
         updated = SwapJournalRecord(
             journal_id=record.journal_id,
@@ -492,7 +564,11 @@ def recover_interrupted_swap(
             target_main_sha=record.target_main_sha,
             pre_upgrade_backup_id=record.pre_upgrade_backup_id,
             class_c_snapshot_id=record.class_c_snapshot_id,
-            used_exchange=record.used_exchange,
+            export_id=record.export_id,
+            keep_previous=record.keep_previous,
+            used_exchange=(
+                record.used_exchange if used_exchange is None else used_exchange
+            ),
             error=error[:256],
             updated_at=_utc_now(),
         )
@@ -506,6 +582,11 @@ def recover_interrupted_swap(
         )
 
     if record.phase == PHASE_PREPARED:
+        classification = classify_swap_state(record)
+        if classification.state == "already_swapped":
+            # The exchange happened but the process died before the journal
+            # recorded SWAP_COMPLETED. The old live tree is now at staging.
+            return finish(PHASE_SWAP_COMPLETED, "completed", used_exchange=True)
         if live_exists:
             return SwapRecoveryResult(status="unchanged", record=record)
         if previous_exists:
@@ -553,9 +634,11 @@ __all__ = [
     "PHASE_SWAP_ROLLED_BACK",
     "PHASE_SWAPPING_IN_STAGING",
     "PHASE_SWAPPING_OUT_LIVE",
+    "SwapClassification",
     "SwapJournalRecord",
     "SwapRecoveryResult",
     "SwapResult",
+    "classify_swap_state",
     "recover_interrupted_swap",
     "rename_exchange",
     "swap_directories",

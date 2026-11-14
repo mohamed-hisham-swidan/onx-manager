@@ -27,6 +27,7 @@ import shutil
 import stat
 import tarfile
 import tempfile
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -118,6 +119,7 @@ class CleanExportRequest:
     class_c_overlay_dir: str | os.PathLike[str] | None = None
     lec_root: str | os.PathLike[str] | None = None
     joinable_test_container: bool = False
+    export_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
 @dataclass(frozen=True)
@@ -128,10 +130,22 @@ class CleanExportResult:
     marker_path: Path
     file_count: int
     total_bytes: int
+    export_id: str = ""
 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+_EXPORT_ID_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,35}\Z")
+
+
+def _validated_export_id(value: str) -> str:
+    if not isinstance(value, str) or not _EXPORT_ID_RE.match(value):
+        raise ValidationError(
+            "export_id must be 1-36 safe characters", field="export_id"
+        )
+    return value
 
 
 def _write_all(fd: int, data: bytes) -> None:
@@ -278,6 +292,7 @@ class CleanExportService:
         server_id = validate_server_segment(request.server_id)
         server_root = validate_server_root(request.server_root)
         destination = self._prepare_destination(request.destination)
+        export_id = _validated_export_id(request.export_id)
         archive_dir: Path | None = None
         try:
             runner = self._branch_service.open_runner(server_id, server_root)
@@ -317,12 +332,13 @@ class CleanExportService:
             file_count, total_bytes = self._measure_export(destination)
             if fencing_verifier is not None:
                 fencing_verifier()
-            marker_path = self._write_marker(destination, file_count, total_bytes)
+            marker_path = self._write_marker(destination, file_count, total_bytes, export_id)
             return CleanExportResult(
                 root=destination,
                 marker_path=marker_path,
                 file_count=file_count,
                 total_bytes=total_bytes,
+                export_id=export_id,
             )
         except BaseException:
             shutil.rmtree(destination, ignore_errors=True)
@@ -942,11 +958,12 @@ class CleanExportService:
         return file_count, total_bytes
 
     @staticmethod
-    def _write_marker(root: Path, file_count: int, total_bytes: int) -> Path:
+    def _write_marker(root: Path, file_count: int, total_bytes: int, export_id: str) -> Path:
         payload = {
             "completed_at": _utc_now(),
             "total_bytes": total_bytes,
             "file_count": file_count,
+            "export_id": export_id,
         }
         data = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
         try:

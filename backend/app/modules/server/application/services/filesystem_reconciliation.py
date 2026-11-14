@@ -265,8 +265,15 @@ class FilesystemReconciliationService:
             return []
         entries: list[FsEntry] = []
         for entry in sorted(data_path.iterdir()):
+            name = entry.name
+            if (
+                name.endswith(".staging")
+                or name.endswith(".prev")
+                or name.startswith(".onx-")
+            ):
+                continue
             if entry.is_dir():
-                entries.append(FsEntry(path=str(entry), name=entry.name))
+                entries.append(FsEntry(path=str(entry), name=name))
         return entries
 
     # ------------------------------------------------------------------
@@ -586,9 +593,11 @@ class FilesystemReconciliationService:
             if server.deployment and server.deployment.root_path:
                 try:
                     norm_path = str(Path(server.deployment.root_path).resolve())
-                    if norm_path not in claimed_paths:
-                        if Path(norm_path).is_dir() or self._fs.is_dir(norm_path):
-                            continue
+                    if (
+                        norm_path not in claimed_paths
+                        and (Path(norm_path).is_dir() or self._fs.is_dir(norm_path))
+                    ):
+                        continue
                 except (ValueError, OSError):
                     pass
             if server.missing_since is not None:
@@ -970,7 +979,11 @@ class FilesystemReconciliationService:
                         provider.destroy(handle),
                         timeout=DESTROY_TIMEOUT_SECONDS,
                     )
-                    logger.info("Destroyed provider resources for deleted server %s (%s)", server.name, sid)
+                    logger.info(
+                        "Destroyed provider resources for deleted server %s (%s)",
+                        server.name,
+                        sid,
+                    )
                 except Exception as e:
                     logger.warning(
                         "Failed to destroy provider resources for deleted server %s: %s",
@@ -988,7 +1001,10 @@ class FilesystemReconciliationService:
                 )
                 logger.info("Deleted MISSING server %s (%s) — second pass", server.name, sid)
         except ServerLifecycleLockTimeoutError:
-            logger.info("Server %s is locked by an active operation; skipping reconciliation delete", sid)
+            logger.info(
+                "Server %s is locked by an active operation; skipping reconciliation delete",
+                sid,
+            )
             return
 
     async def _handle_unchanged(self, pa: PlanAction, result: ReconciliationResult) -> None:
