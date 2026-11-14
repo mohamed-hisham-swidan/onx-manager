@@ -305,8 +305,9 @@ class ServerLifecycleLeaseManager:
         ttl_seconds: float = DEFAULT_TTL_SECONDS,
     ) -> AsyncIterator[LeaseToken]:
         """Acquire per-server lease with jittered polling, ContextVar reentrancy, and renewal."""
-        _assert_repo_lock_order()
-        # 1. ContextVar reentrancy check
+        # 1. ContextVar reentrancy check. Re-entering lifecycle while already
+        # holding it is legal even when a repo lease is also held; only a new
+        # lifecycle acquisition must obey lifecycle -> repo ordering.
         current_held = _held_leases.get() or {}
         if server_id in current_held:
             token = LeaseToken(
@@ -320,6 +321,7 @@ class ServerLifecycleLeaseManager:
             yield token
             return
 
+        _assert_repo_lock_order()
         # 2. Polling acquisition
         token: LeaseToken | None = None
         if wait_timeout <= 0:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,7 +17,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import AppSettings
-from app.core.exceptions import ConflictError, ValidationError
+from app.core.exceptions import (
+    ConflictError,
+    FencingTokenMismatchError,
+    ValidationError,
+)
 from app.core.host_state import HostStateLayout, ensure_host_state_layout
 from app.core.persistence.reconciler import DatabaseReconciler, ReconcileStatus
 from app.modules.versioning.application.refresh_orchestrator import (
@@ -26,16 +31,20 @@ from app.modules.versioning.application.refresh_orchestrator import (
     STEP_STABILITY,
     ConfirmUpgradeCommand,
     ConfirmUpgradeCommandHandler,
+    FencingGuard,
     HealthGateEvaluator,
     LiveRefreshRequest,
     LiveRefreshService,
     RefreshOrchestrator,
     RefreshServerCommand,
     RefreshServerCommandHandler,
+    ReleaseRefreshPinsCommand,
+    ReleaseRefreshPinsCommandHandler,
     TriadRollbackService,
     previous_tree_path,
     run_health_gate,
 )
+from app.modules.versioning.application.repo_lease import RepoLeaseManager
 from app.modules.versioning.infrastructure.refresh_journal import (
     RefreshJournalRecord,
     RefreshJournalRepository,
@@ -264,6 +273,57 @@ def _request(
     )
 
 
+def _repo_lease(env: LiveEnv) -> RepoLeaseManager:
+    return RepoLeaseManager(
+        locks_dir=env.layout.locks,
+        session_factory=env.async_factory,
+        sync_session_factory=env.sync_factory,
+        wait_timeout_seconds=5.0,
+    )
+
+
+class LoggingRepoLeaseManager(RepoLeaseManager):
+    """Real fenced repo lease that records acquire/exit ordering."""
+
+    def __init__(self, log: list[str], **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._log = log
+
+    @asynccontextmanager
+    async def acquire(
+        self,
+        server_id: str,
+        *,
+        holder: str,
+        wait_timeout: float | None = None,
+        ttl_seconds: float | None = None,
+    ):
+        self._log.append("repo:enter")
+        try:
+            async with super().acquire(
+                server_id,
+                holder=holder,
+                wait_timeout=wait_timeout,
+                ttl_seconds=ttl_seconds,
+            ) as token:
+                yield token
+        finally:
+            self._log.append("repo:exit")
+
+
+class LostRepoLeaseManager:
+    """Lease manager returning an already-lost token."""
+
+    def __init__(self) -> None:
+        self.acquired = 0
+
+    @asynccontextmanager
+    async def acquire(self, server_id: str, *, holder: str, wait_timeout=None):
+        del server_id, holder, wait_timeout
+        self.acquired += 1
+        yield SimpleNamespace(fencing_token=7, is_lost=True)
+
+
 def _service(
     env: LiveEnv,
     *,
@@ -282,7 +342,7 @@ def _service(
         backup_service=backup,
         stage_export=exporter,
         lifecycle_lease=lifecycle,
-        repo_lease=repo,
+        repo_lease=repo if repo is not None else _repo_lease(env),
         reset_main_ref=reset_main_ref,
         servers_data_dir=env.servers_root,
         now=(lambda: now) if now is not None else None,
@@ -637,7 +697,13 @@ async def test_lifecycle_lease_is_acquired_before_repo_lease(live_env: LiveEnv) 
     _populate_live(env.servers_root / SERVER_ID)
     log: list[str] = []
     lifecycle = FakeLeaseManager(log, "lifecycle", token=1)
-    repo = FakeLeaseManager(log, "repo", token=42)
+    repo = LoggingRepoLeaseManager(
+        log,
+        locks_dir=env.layout.locks,
+        session_factory=env.async_factory,
+        sync_session_factory=env.sync_factory,
+        wait_timeout_seconds=5.0,
+    )
 
     result = await _service(
         env,
@@ -649,7 +715,7 @@ async def test_lifecycle_lease_is_acquired_before_repo_lease(live_env: LiveEnv) 
     ).refresh(_request(env))
 
     assert log == ["lifecycle:enter", "repo:enter", "repo:exit", "lifecycle:exit"]
-    assert result.journal.fencing_token == 42
+    assert result.journal.fencing_token >= 1
 
 
 async def test_refresh_command_handler_delegates(live_env: LiveEnv) -> None:
@@ -680,3 +746,249 @@ async def test_refresh_command_handler_delegates(live_env: LiveEnv) -> None:
     )
     with pytest.raises(ValidationError):
         await handler(RefreshServerCommand(server_id=SERVER_ID, request=mismatch))
+
+
+# ----------------------------------------------------------------------
+# P2-5d3 red-team remediation
+# ----------------------------------------------------------------------
+
+
+class RejectingRepoLease:
+    """Lease manager whose token was bumped by another writer."""
+
+    def assert_fencing_token_sync(self, server_id: str, fencing_token: int) -> None:
+        raise FencingTokenMismatchError(
+            server_id=server_id,
+            expected_token=fencing_token,
+            actual_token=fencing_token + 1,
+        )
+
+
+async def test_lost_repo_lease_aborts_before_any_mutation(live_env: LiveEnv) -> None:
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    _populate_live(live)
+    backup = FakeBackupService()
+    exporter = FakeExporter()
+    lost = LostRepoLeaseManager()
+
+    with pytest.raises(FencingTokenMismatchError):
+        await _service(
+            env,
+            runtime=FakeRuntime(),
+            backup=backup,
+            exporter=exporter,
+            repo=lost,
+        ).refresh(_request(env))
+
+    assert lost.acquired == 1
+    assert backup.created == []
+    assert exporter.calls == []
+    assert not (env.servers_root / STAGING).exists()
+    assert await env.repository.get_active_for_server(SERVER_ID) is None
+    assert (live / "server.properties").read_text(encoding="utf-8") == "motd=live\n"
+
+
+def test_fencing_guard_rejects_lost_token() -> None:
+    guard = FencingGuard(
+        SERVER_ID,
+        SimpleNamespace(fencing_token=3, is_lost=True),
+        None,
+    )
+    with pytest.raises(FencingTokenMismatchError):
+        guard.check()
+
+
+async def test_bumped_fencing_token_aborts_rollback_before_previous_tree_swap(
+    live_env: LiveEnv,
+) -> None:
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    previous = previous_tree_path(live)
+    _write(live, "server.properties", "motd=broken\n")
+    _write(previous, "server.properties", "motd=previous\n")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=11,
+        live_path=live,
+        staging_path=env.servers_root / STAGING,
+        previous_path=previous,
+        phase="CARRIED",
+    )
+    rollback = TriadRollbackService(
+        env.layout,
+        repository=env.repository,
+        runtime=FakeRuntime(running=False),
+        servers_data_dir=env.servers_root,
+        repo_lease=RejectingRepoLease(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(FencingTokenMismatchError):
+        await rollback.rollback(SERVER_ID, created.journal_id, reason="tampered")
+
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "CARRIED"
+    assert (previous / "server.properties").read_text(encoding="utf-8") == "motd=previous\n"
+    assert (live / "server.properties").read_text(encoding="utf-8") == "motd=broken\n"
+
+
+async def test_reexport_rollback_restores_carried_entries_when_swap_fails(
+    live_env: LiveEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.modules.versioning.application.refresh_orchestrator as refresh_module
+
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    staging = env.servers_root / STAGING
+    _write(live, "server.properties", f"motd={TARGET_SHA}\n")
+    _write(live, "world/level.dat", "new-world")
+    _write(live, ".onx/worktrees/feature/notes.txt", "uncommitted\n")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=5,
+        live_path=live,
+        staging_path=staging,
+        previous_path=previous_tree_path(live),
+        phase="CARRIED",
+        export_id="exp-1",
+        previous_main_sha=PREV_SHA,
+        target_main_sha=TARGET_SHA,
+    )
+
+    def failing_swap(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("simulated swap failure")
+
+    monkeypatch.setattr(refresh_module, "swap_directories", failing_swap)
+    rollback = TriadRollbackService(
+        env.layout,
+        repository=env.repository,
+        runtime=FakeRuntime(running=False),
+        stage_export=FakeExporter(export_id="exp-prev"),
+        servers_data_dir=env.servers_root,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated swap failure"):
+        await rollback.rollback(SERVER_ID, created.journal_id, reason="test")
+
+    # The journaled carry plan was restored to live before the error escaped.
+    assert (live / "world" / "level.dat").read_text(encoding="utf-8") == "new-world"
+    assert (live / ".onx" / "worktrees" / "feature" / "notes.txt").is_file()
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "ROLLING_BACK"
+    assert "world" in stored.carried_entries
+
+
+async def test_until_health_gate_marks_completed_before_previous_cleanup(
+    live_env: LiveEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    _populate_live(live)
+    service = _service(
+        env,
+        runtime=FakeRuntime(),
+        backup=FakeBackupService(),
+        exporter=FakeExporter(),
+    )
+    observed: list[str] = []
+    original = service._orchestrator.clean_previous_tree
+
+    def wrapper(record: RefreshJournalRecord) -> bool:
+        stored = env.repository.get_sync(record.journal_id)
+        assert stored is not None
+        observed.append(stored.phase)
+        return original(record)
+
+    monkeypatch.setattr(service._orchestrator, "clean_previous_tree", wrapper)
+
+    result = await service.refresh(_request(env))
+
+    assert observed == ["COMPLETED"]
+    assert result.journal.phase == "COMPLETED"
+    assert not _retained_tree(result.journal).exists()
+
+
+async def test_prepare_prior_previous_tree_refuses_non_terminal_retained_tree(
+    live_env: LiveEnv,
+) -> None:
+    """F1: a stuck journal's rollback artifact is never deleted by a refresh."""
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    previous = env.servers_root / f"{SERVER_ID}.prev"
+    _write(live, "server.properties", "motd=live\n")
+    _write(previous, "old.txt", "old")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=1,
+        phase="CARRIED",
+        live_path=live,
+        staging_path=env.servers_root / STAGING,
+        previous_path=previous,
+    )
+    env.repository.transition_sync(
+        created.journal_id,
+        fencing_token=1,
+        phase="ROLLBACK_REQUIRED",
+        retention_policy="1h",
+        previous_tree_retained=True,
+        previous_tree_expires_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+    orchestrator = RefreshOrchestrator(
+        env.layout,
+        repository=env.repository,
+        servers_data_dir=env.servers_root,
+    )
+
+    with pytest.raises(ConflictError, match=created.journal_id) as blocked:
+        await orchestrator.prepare_prior_previous_tree(SERVER_ID)
+
+    assert blocked.value.http_status == 409
+    assert (previous / "old.txt").read_text(encoding="utf-8") == "old"
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "ROLLBACK_REQUIRED"
+    assert stored.previous_tree_retained is True
+
+
+async def test_release_pins_unpins_rolled_back_artifacts(live_env: LiveEnv) -> None:
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    _populate_live(live)
+    backup = FakeBackupService()
+    service = _service(
+        env,
+        runtime=FakeRuntime(log="Exception in server tick loop"),
+        backup=backup,
+        exporter=FakeExporter(),
+    )
+
+    result = await service.refresh(_request(env))
+    assert result.journal.phase == "ROLLED_BACK"
+    assert backup.pinned[BACKUP_ID] is True
+    snapshot_id = result.journal.class_c_snapshot_id
+    assert _snapshot_manifest(env, snapshot_id)["pinned"] is True
+
+    handler = ReleaseRefreshPinsCommandHandler(service)
+    released = await handler(
+        ReleaseRefreshPinsCommand(server_id=SERVER_ID, journal_id=result.journal.journal_id)
+    )
+
+    assert released.phase == "ROLLED_BACK"
+    assert backup.pinned[BACKUP_ID] is False
+    assert backup.unpinned == [BACKUP_ID]
+    assert _snapshot_manifest(env, snapshot_id)["pinned"] is False
+
+
+def test_live_refresh_request_generates_export_id(live_env: LiveEnv) -> None:
+    import re
+
+    request = LiveRefreshRequest(
+        server_id=SERVER_ID,
+        live_dir=live_env.servers_root / SERVER_ID,
+        staging_dir=live_env.servers_root / STAGING,
+        export_bytes=0,
+    )
+
+    assert re.fullmatch(r"[0-9a-f]{32}", request.export_id)

@@ -31,6 +31,7 @@ from pathlib import Path
 from app.core.config import AppSettings
 from app.core.exceptions import ValidationError
 from app.core.host_state import HostStateLayout, validate_server_segment
+from app.modules.versioning.application.repo_lease import RepoLeaseManager
 from app.modules.versioning.infrastructure.directory_swap import (
     PHASE_SWAP_COMPLETED,
     PHASE_SWAP_ROLLED_BACK,
@@ -39,6 +40,7 @@ from app.modules.versioning.infrastructure.directory_swap import (
     recover_interrupted_swap,
 )
 from app.modules.versioning.infrastructure.refresh_journal import (
+    TERMINAL_PHASES,
     RefreshJournalRecord,
     RefreshJournalRepository,
 )
@@ -47,6 +49,26 @@ logger = logging.getLogger(__name__)
 
 EXPORT_MARKER_NAME = ".onx-complete.json"
 STAGING_SUFFIX = ".staging"
+
+# Phases that can be failed clean: the live tree was never replaced (or the
+# swap itself rolled back), so only the orphaned journal needs closing.
+_FAILED_CLEAN_PHASES = frozenset(
+    {"QUIESCED", "BACKED_UP", "STAGING", "SWAP_ROLLED_BACK"}
+)
+# Phases where the new tree may be live or a rollback may be half-applied.
+# They are never auto-failed: an operator must roll back or confirm first.
+_ROLLBACK_REQUIRED_PHASES = frozenset(
+    {
+        "CARRIED",
+        "SWAPPING",
+        "SWAP_COMPLETED",
+        "STARTING",
+        "HEALTH_CHECK",
+        "VERIFYING_HEALTH",
+        "ROLLING_BACK",
+    }
+)
+_PRUNE_SAFE_PHASES = frozenset({"COMPLETED", "UPGRADE_CONFIRMED"})
 
 
 @dataclass(frozen=True)
@@ -116,6 +138,7 @@ class RefreshStartupReconciler:
         *,
         repository: RefreshJournalRepository | None = None,
         servers_data_dir: str | os.PathLike[str] | None = None,
+        repo_lease: RepoLeaseManager | None = None,
         now: datetime | None = None,
     ) -> None:
         self._layout = layout
@@ -123,6 +146,7 @@ class RefreshStartupReconciler:
         self._servers_root = _resolved_root(
             servers_data_dir or AppSettings().servers_data_dir
         )
+        self._repo_lease = repo_lease
         self._now = now
 
     # ------------------------------------------------------------------
@@ -140,6 +164,7 @@ class RefreshStartupReconciler:
         errors: list[str] = []
 
         swaps, changed_swaps = self._recover_swap_journals(errors)
+        await self._reconcile_disk_only_journals(errors)
         records = await self._repository.list_incomplete()
         transitioned = await self._advance_refresh_phases(records, swaps, errors)
         records = await self._repository.list_incomplete()
@@ -272,6 +297,58 @@ class RefreshStartupReconciler:
                     changed.add(server_id)
         return recovered, changed
 
+    async def _reconcile_disk_only_journals(self, errors: list[str]) -> None:
+        """Re-create DB rows for active journals that exist only on disk.
+
+        The JSON mirror is fsynced before the first mutation, so a crash that
+        loses the DB row must never silently orphan the journal: an unblocked
+        ``StartServerCommand`` would then boot a half-refreshed tree.
+        """
+        try:
+            disk_records = await asyncio.to_thread(self._repository.iter_disk_journals)
+        except Exception as exc:
+            logger.exception("Failed to enumerate on-disk refresh journals")
+            errors.append(f"on-disk journal scan failed: {exc}")
+            return
+        for disk in disk_records:
+            if disk.phase in TERMINAL_PHASES:
+                continue
+            try:
+                existing = await self._repository.get(disk.journal_id)
+            except Exception as exc:
+                logger.exception("Failed to read refresh journal %s", disk.journal_id)
+                errors.append(f"{disk.journal_id}: lookup failed: {exc}")
+                continue
+            if existing is not None:
+                continue
+            try:
+                await self._repository.create(
+                    server_id=disk.server_id,
+                    fencing_token=disk.fencing_token,
+                    live_path=disk.live_path,
+                    staging_path=disk.staging_path,
+                    previous_path=disk.previous_path or None,
+                    export_id=disk.export_id or None,
+                    phase=disk.phase,
+                    journal_id=disk.journal_id,
+                    carried_entries=disk.carried_entries,
+                    previous_tree_expires_at=disk.previous_tree_expires_at,
+                    previous_main_sha=disk.previous_main_sha,
+                    target_main_sha=disk.target_main_sha,
+                    pre_upgrade_backup_id=disk.pre_upgrade_backup_id,
+                    class_c_snapshot_id=disk.class_c_snapshot_id,
+                    used_exchange=disk.used_exchange,
+                    retention_policy=disk.retention_policy,
+                    previous_tree_retained=disk.previous_tree_retained,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed to re-create disk-only refresh journal %s", disk.journal_id
+                )
+                errors.append(
+                    f"{disk.journal_id}: disk-only journal could not be restored: {exc}"
+                )
+
     async def _advance_refresh_phases(
         self,
         records: list[RefreshJournalRecord],
@@ -316,46 +393,199 @@ class RefreshStartupReconciler:
 
         # A crash during the complement carry happens before any swap journal
         # exists. The live tree was never replaced, but the orphaned journal
-        # would otherwise wedge the one-active-journal partial unique index.
+        # would otherwise wedge the one-active-journal partial unique index and
+        # a later start would boot the new (incomplete) tree.
         for record in records:
             if record.phase != "CARRYING" or record.journal_id in transitioned:
                 continue
-            result = swaps.get(record.server_id)
-            if result is not None and result.record is not None:
-                # An unresolved swap journal needs operator reconciliation first.
+            if os.path.lexists(
+                self._layout.journal / record.server_id / "swap.json"
+            ):
+                # An unresolved swap journal needs operator reconciliation.
                 continue
-            try:
-                live = self.validate_swap_path(
-                    record.server_id, record.live_path, field="live_path"
-                )
-            except ValidationError as exc:
-                errors.append(f"{record.journal_id}: unsafe live_path: {exc}")
+            await self._recover_interrupted_carrying(record, errors, transitioned)
+
+        # Every remaining non-terminal phase gets an explicit disposition. A
+        # phase left non-terminal without a planned action would wedge the
+        # server forever (B-7).
+        for record in records:
+            if record.journal_id in transitioned:
                 continue
-            if not os.path.lexists(live) or live.is_symlink() or not live.is_dir():
+            if record.phase in _FAILED_CLEAN_PHASES:
+                await self._fail_clean_if_live_intact(record, errors, transitioned)
+                continue
+            if record.phase in _ROLLBACK_REQUIRED_PHASES:
+                try:
+                    await self._repository.transition(
+                        record.journal_id,
+                        fencing_token=record.fencing_token,
+                        phase="ROLLBACK_REQUIRED",
+                        error=(
+                            f"startup recovery found phase {record.phase}; "
+                            "roll back or confirm before starting the server"
+                        ),
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "Failed to mark journal %s as ROLLBACK_REQUIRED",
+                        record.journal_id,
+                    )
+                    errors.append(f"{record.journal_id}: transition failed: {exc}")
+                    continue
+                transitioned.append(record.journal_id)
+        return transitioned
+
+    async def _recover_interrupted_carrying(
+        self,
+        record: RefreshJournalRecord,
+        errors: list[str],
+        transitioned: list[str],
+    ) -> None:
+        """Restore the journaled carry plan before marking CARRYING clean.
+
+        The carry list is persisted before the first rename, so recovery can
+        always return a partially carried tree to live. If any entry cannot be
+        restored, the journal stays unresolved as ``ROLLBACK_REQUIRED``.
+        """
+        from app.modules.versioning.application.refresh_orchestrator import (
+            assert_carried_entries_present,
+            restore_carried_entries,
+        )
+
+        try:
+            live = self.validate_swap_path(
+                record.server_id, record.live_path, field="live_path"
+            )
+        except ValidationError as exc:
+            errors.append(f"{record.journal_id}: unsafe live_path: {exc}")
+            return
+        if not os.path.lexists(live) or live.is_symlink() or not live.is_dir():
+            errors.append(
+                f"{record.journal_id}: interrupted CARRYING has no swap journal "
+                "and the live tree is unavailable"
+            )
+            return
+
+        carried = tuple(record.carried_entries)
+        try:
+            staging = self.validate_swap_path(
+                record.server_id, record.staging_path, field="staging_path"
+            )
+        except ValidationError as exc:
+            errors.append(f"{record.journal_id}: unsafe staging_path: {exc}")
+            return
+
+        if carried and os.path.lexists(staging):
+            if staging.is_symlink() or not staging.is_dir():
                 errors.append(
-                    f"{record.journal_id}: interrupted CARRYING has no swap journal "
-                    "and the live tree is unavailable"
+                    f"{record.journal_id}: staging tree is not a plain directory"
                 )
-                continue
+                return
             try:
-                await self._repository.transition(
-                    record.journal_id,
-                    fencing_token=record.fencing_token,
-                    phase="FAILED_CLEAN",
-                    error=(
-                        "refresh interrupted during complement carry before the "
-                        "swap; live tree left intact"
-                    ),
+                await asyncio.to_thread(
+                    restore_carried_entries, live, staging, carried
                 )
             except Exception as exc:
                 logger.exception(
-                    "Failed to mark interrupted CARRYING journal %s as FAILED_CLEAN",
+                    "Failed to restore carried entries for journal %s",
                     record.journal_id,
                 )
-                errors.append(f"{record.journal_id}: transition failed: {exc}")
-                continue
-            transitioned.append(record.journal_id)
-        return transitioned
+                errors.append(
+                    f"{record.journal_id}: carried entries could not be restored: {exc}"
+                )
+                await self._mark_rollback_required(record, errors, transitioned)
+                return
+        if carried:
+            try:
+                await asyncio.to_thread(
+                    assert_carried_entries_present, live, carried
+                )
+            except Exception as exc:
+                errors.append(
+                    f"{record.journal_id}: carried entries are missing from live: {exc}"
+                )
+                await self._mark_rollback_required(record, errors, transitioned)
+                return
+
+        try:
+            await self._repository.transition(
+                record.journal_id,
+                fencing_token=record.fencing_token,
+                phase="FAILED_CLEAN",
+                error=(
+                    "refresh interrupted during complement carry before the "
+                    "swap; live tree left intact"
+                ),
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to mark interrupted CARRYING journal %s as FAILED_CLEAN",
+                record.journal_id,
+            )
+            errors.append(f"{record.journal_id}: transition failed: {exc}")
+            return
+        transitioned.append(record.journal_id)
+
+    async def _fail_clean_if_live_intact(
+        self,
+        record: RefreshJournalRecord,
+        errors: list[str],
+        transitioned: list[str],
+    ) -> None:
+        try:
+            live = self.validate_swap_path(
+                record.server_id, record.live_path, field="live_path"
+            )
+        except ValidationError as exc:
+            errors.append(f"{record.journal_id}: unsafe live_path: {exc}")
+            return
+        if not os.path.lexists(live) or live.is_symlink() or not live.is_dir():
+            errors.append(
+                f"{record.journal_id}: phase {record.phase} has no intact live tree"
+            )
+            await self._mark_rollback_required(record, errors, transitioned)
+            return
+        try:
+            await self._repository.transition(
+                record.journal_id,
+                fencing_token=record.fencing_token,
+                phase="FAILED_CLEAN",
+                error=(
+                    f"startup recovery closed interrupted {record.phase} before "
+                    "the live tree was replaced"
+                ),
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to mark journal %s as FAILED_CLEAN", record.journal_id
+            )
+            errors.append(f"{record.journal_id}: transition failed: {exc}")
+            return
+        transitioned.append(record.journal_id)
+
+    async def _mark_rollback_required(
+        self,
+        record: RefreshJournalRecord,
+        errors: list[str],
+        transitioned: list[str],
+    ) -> None:
+        try:
+            await self._repository.transition(
+                record.journal_id,
+                fencing_token=record.fencing_token,
+                phase="ROLLBACK_REQUIRED",
+                error=(
+                    f"startup recovery could not safely clean phase {record.phase}; "
+                    "operator rollback required"
+                ),
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to mark journal %s as ROLLBACK_REQUIRED", record.journal_id
+            )
+            errors.append(f"{record.journal_id}: transition failed: {exc}")
+            return
+        transitioned.append(record.journal_id)
 
     # ------------------------------------------------------------------
     # Staging and previous-tree cleanup
@@ -374,9 +604,13 @@ class RefreshStartupReconciler:
                 )
             except ValidationError:
                 continue
-            if (record.previous_tree_retained and record.used_exchange) or (
+            # Any non-terminal journal owns its staging tree: it may hold the
+            # journaled carry plan or the only copy of the old live tree after
+            # an exchange swap. Never sweep it out from under recovery.
+            if (
                 not record.terminal
-                and (record.used_exchange or self._live_marker_matches(record))
+                or (record.previous_tree_retained and record.used_exchange)
+                or self._live_marker_matches(record)
             ):
                 protected.add(os.path.realpath(staging))
         return protected
@@ -408,6 +642,17 @@ class RefreshStartupReconciler:
             return removed
         protected = self._protected_staging(records, retained)
 
+        known_export_ids: set[str] = {
+            record.export_id for record in [*records, *retained] if record.export_id
+        }
+        try:
+            known_export_ids.update(
+                disk.export_id for disk in self._repository.iter_disk_journals()
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Unable to read disk journals for marker validation: %s", exc)
+        known_export_ids.discard("")
+
         for entry in entries:
             name = entry.name
             if not name.endswith(STAGING_SUFFIX):
@@ -428,7 +673,10 @@ class RefreshStartupReconciler:
                 continue
             if os.path.realpath(staging) in protected:
                 continue
-            if os.path.lexists(staging / EXPORT_MARKER_NAME):
+            marker_export_id = _read_marker_export_id(staging)
+            if marker_export_id is not None and marker_export_id in known_export_ids:
+                # A completed export owned by a known journal: never delete it
+                # on marker presence alone, only when its id is recognized.
                 continue
             try:
                 shutil.rmtree(staging)
@@ -451,6 +699,44 @@ class RefreshStartupReconciler:
             return pruned
 
         for record in expired:
+            try:
+                fresh = await self._repository.get(record.journal_id)
+            except Exception as exc:
+                logger.exception("Failed to re-read refresh journal %s", record.journal_id)
+                errors.append(f"{record.journal_id}: re-read failed: {exc}")
+                continue
+            if fresh is None:
+                errors.append(
+                    f"{record.journal_id}: journal vanished before previous-tree prune"
+                )
+                continue
+            if fresh.phase not in _PRUNE_SAFE_PHASES:
+                # Never race an active refresh/rollback that still owns the
+                # retained tree.
+                logger.warning(
+                    "Skipping previous-tree prune for %s: phase is %s",
+                    fresh.journal_id,
+                    fresh.phase,
+                )
+                continue
+            if self._repo_lease is not None:
+                try:
+                    # A newer lease acquisition bumps the fencing token, which
+                    # proves another writer may already own this server.
+                    await self._repo_lease.assert_fencing_token(
+                        fresh.server_id, fresh.fencing_token
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Skipping previous-tree prune for %s: %s",
+                        fresh.journal_id,
+                        exc,
+                    )
+                    errors.append(
+                        f"{fresh.journal_id}: previous-tree prune skipped: {exc}"
+                    )
+                    continue
+            record = fresh
             candidate = record.staging_path if record.used_exchange else record.previous_path
             if not candidate:
                 await self._mark_cleaned(record, errors)

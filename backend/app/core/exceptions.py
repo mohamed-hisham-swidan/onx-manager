@@ -156,6 +156,34 @@ class ServerModeVersioningDisabledError(ConflictError):
         )
 
 
+class RefreshRecoveryRequiredError(ConflictError):
+    """A non-terminal refresh journal must be reconciled before boot."""
+
+    def __init__(
+        self,
+        server_id: str,
+        *,
+        journal_id: str = "",
+        phase: str = "",
+    ) -> None:
+        details: dict[str, Any] = {"server_id": server_id}
+        if journal_id:
+            details["journal_id"] = journal_id
+        if phase:
+            details["phase"] = phase
+        MCSError.__init__(
+            self,
+            (
+                f"Server '{server_id}' has an unresolved refresh journal"
+                f"{f' ({phase})' if phase else ''}; run refresh recovery/rollback "
+                "before starting the server"
+            ),
+            code="REFRESH_RECOVERY_REQUIRED",
+            http_status=409,
+            details=details,
+        )
+
+
 class FencingTokenMismatchError(ConflictError):
     def __init__(
         self,

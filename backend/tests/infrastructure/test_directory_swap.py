@@ -270,6 +270,60 @@ def test_recover_swapping_in_staging_marks_completed_when_live_exists(
     assert _latest_phase(journal) == PHASE_SWAP_COMPLETED
 
 
+def test_recover_failed_rollback_write_classifies_as_rolled_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B-1: live restored + staging still present + no .prev is a rollback."""
+    live = tmp_path / "live"
+    previous = tmp_path / "live.prev"
+    staging = tmp_path / "staging"
+    _tree(live, "old.txt", "old")
+    _tree(staging, "new.txt", "new")
+    journal = _journal(tmp_path)
+
+    real_write = journal.write
+    real_rename = os.rename
+
+    def flaky_write(record: SwapJournalRecord) -> None:
+        if record.phase == PHASE_SWAP_ROLLED_BACK:
+            raise OSError(errno.EIO, "injected SWAP_ROLLED_BACK journal write failure")
+        real_write(record)
+
+    def flaky_rename(src: object, dst: object) -> None:
+        if Path(str(src)) == staging and Path(str(dst)) == live:
+            raise OSError(errno.EIO, "injected staging -> live rename failure")
+        real_rename(src, dst)
+
+    monkeypatch.setattr(journal, "write", flaky_write)
+    monkeypatch.setattr(os, "rename", flaky_rename)
+
+    with pytest.raises(OSError, match="staging -> live"):
+        swap_directories(
+            live,
+            staging,
+            journal,
+            server_id=SERVER_ID,
+            exchange_supported=False,
+        )
+
+    # Crash image: live holds the old tree again, staging still holds the new
+    # tree, .prev is gone, and the journal never received SWAP_ROLLED_BACK.
+    assert _latest_phase(journal) == PHASE_SWAPPING_IN_STAGING
+    assert (live / "old.txt").read_text() == "old"
+    assert (staging / "new.txt").read_text() == "new"
+    assert not previous.exists()
+
+    monkeypatch.setattr(journal, "write", real_write)
+    monkeypatch.setattr(os, "rename", real_rename)
+
+    result = recover_interrupted_swap(journal)
+
+    assert result.status == "rolled_back"
+    assert _latest_phase(journal) == PHASE_SWAP_ROLLED_BACK
+    assert result.record is not None
+    assert result.record.phase == PHASE_SWAP_ROLLED_BACK
+
+
 def test_recover_prepared_swap_leaves_live_untouched(tmp_path: Path) -> None:
     live = tmp_path / "live"
     staging = tmp_path / "staging"

@@ -18,10 +18,19 @@ from app.core.config import AppSettings
 from app.core.exceptions import (
     ConflictError,
     FencingTokenMismatchError,
+    RefreshRecoveryRequiredError,
     ValidationError,
 )
 from app.core.host_state import HostStateLayout, ensure_host_state_layout
 from app.core.persistence.reconciler import DatabaseReconciler, ReconcileStatus
+from app.modules.server.application.commands.restart_server import (
+    RestartServerCommand,
+    RestartServerHandler,
+)
+from app.modules.server.application.commands.start_server import (
+    StartServerCommand,
+    StartServerHandler,
+)
 from app.modules.server.application.services.filesystem_reconciliation import (
     FilesystemReconciliationService,
 )
@@ -40,7 +49,10 @@ from app.modules.versioning.infrastructure.directory_swap import (
     rename_exchange,
 )
 from app.modules.versioning.infrastructure.refresh_journal import (
+    JOURNAL_FILENAME,
+    RefreshJournalRecord,
     RefreshJournalRepository,
+    assert_no_unresolved_refresh,
 )
 
 pytestmark = pytest.mark.skipif(
@@ -313,7 +325,14 @@ def test_scan_filesystem_ignores_internal_swap_directories(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     servers_root = tmp_path / "servers"
-    for name in ("alpha", "alpha.staging", "alpha.prev", ".onx-work"):
+    for name in (
+        "alpha",
+        "alpha.staging",
+        "alpha.prev",
+        "alpha.rollback",
+        "alpha.rollback-prev",
+        ".onx-work",
+    ):
         (servers_root / name).mkdir(parents=True)
     (servers_root / "readme.txt").write_text("not a server", encoding="utf-8")
     monkeypatch.setenv("ONX_SERVERS_DATA_DIR", str(servers_root))
@@ -557,3 +576,283 @@ def test_interrupted_carrying_without_swap_journal_fails_clean_and_unblocks(
         previous_path=live.with_name(live.name + ".prev"),
     )
     assert fresh.phase == "QUIESCED"
+
+
+# ----------------------------------------------------------------------
+# P2-5d3 red-team remediation
+# ----------------------------------------------------------------------
+
+
+def test_carrying_crash_restores_journaled_entries_before_failed_clean(
+    recovery_env: RecoveryEnv,
+) -> None:
+    """B-2: a mid-CARRY crash never strands carried entries in .staging."""
+    env = recovery_env
+    live = env.servers_root / SERVER_ID
+    staging = env.servers_root / f"{SERVER_ID}.staging"
+    _write(live, "server.properties", "motd=live\n")
+    (staging / "world").mkdir(parents=True)
+    (staging / "world" / "level.dat").write_text("carried-world", encoding="utf-8")
+    (staging / ".onx" / "worktrees" / "feature").mkdir(parents=True)
+    (staging / ".onx" / "worktrees" / "feature" / "notes.txt").write_text(
+        "uncommitted\n", encoding="utf-8"
+    )
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=6,
+        phase="QUIESCED",
+        live_path=live,
+        staging_path=staging,
+        previous_path=live.with_name(live.name + ".prev"),
+    )
+    env.repository.transition_sync(
+        created.journal_id,
+        fencing_token=6,
+        phase="CARRYING",
+        carried_entries=["world", ".onx"],
+    )
+
+    summary = _reconciler(env).reconcile_sync()
+
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "FAILED_CLEAN"
+    assert stored.terminal is True
+    assert (live / "world" / "level.dat").read_text() == "carried-world"
+    assert (live / ".onx" / "worktrees" / "feature" / "notes.txt").is_file()
+    assert not staging.exists()
+    assert created.journal_id in summary.transitioned_journals
+    assert not summary.errors
+
+
+def test_carrying_crash_with_missing_journaled_entry_requires_rollback(
+    recovery_env: RecoveryEnv,
+) -> None:
+    """B-2: unrecoverable carry plans stay unresolved and block start."""
+    env = recovery_env
+    live = env.servers_root / SERVER_ID
+    staging = env.servers_root / f"{SERVER_ID}.staging"
+    _write(live, "server.properties", "motd=live\n")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=6,
+        phase="CARRYING",
+        live_path=live,
+        staging_path=staging,
+        previous_path=live.with_name(live.name + ".prev"),
+        carried_entries=["world"],
+    )
+
+    summary = _reconciler(env).reconcile_sync()
+
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "ROLLBACK_REQUIRED"
+    assert stored.terminal is False
+    assert summary.errors
+    with pytest.raises(RefreshRecoveryRequiredError):
+        asyncio.run(assert_no_unresolved_refresh(SERVER_ID, repository=env.repository))
+
+
+@pytest.mark.parametrize(
+    ("phase", "expected"),
+    [
+        ("QUIESCED", "FAILED_CLEAN"),
+        ("BACKED_UP", "FAILED_CLEAN"),
+        ("STAGING", "FAILED_CLEAN"),
+        ("STARTING", "ROLLBACK_REQUIRED"),
+        ("VERIFYING_HEALTH", "ROLLBACK_REQUIRED"),
+        ("ROLLING_BACK", "ROLLBACK_REQUIRED"),
+        ("SWAP_COMPLETED", "ROLLBACK_REQUIRED"),
+        ("CARRIED", "ROLLBACK_REQUIRED"),
+    ],
+)
+def test_every_non_terminal_phase_gets_explicit_recovery(
+    recovery_env: RecoveryEnv, phase: str, expected: str
+) -> None:
+    """B-7: no non-terminal phase can wedge the one-active-journal index."""
+    env = recovery_env
+    live = env.servers_root / SERVER_ID
+    _write(live, "server.properties", "motd=live\n")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=8,
+        phase=phase,
+        live_path=live,
+        staging_path=env.servers_root / f"{SERVER_ID}.staging",
+        previous_path=live.with_name(live.name + ".prev"),
+    )
+
+    _reconciler(env).reconcile_sync()
+
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == expected
+    assert stored.terminal is (expected == "FAILED_CLEAN")
+
+
+def test_disk_only_non_terminal_journal_is_restored_to_db(
+    recovery_env: RecoveryEnv,
+) -> None:
+    """B-7: a DB-absent journal mirror must never be silently orphaned."""
+    env = recovery_env
+    live = env.servers_root / SERVER_ID
+    staging = env.servers_root / f"{SERVER_ID}.staging"
+    _write(live, "server.properties", "motd=live\n")
+    record = RefreshJournalRecord(
+        journal_id="disk-only-1",
+        server_id=SERVER_ID,
+        fencing_token=9,
+        phase="STAGING",
+        live_path=str(live),
+        staging_path=str(staging),
+        previous_path=str(live.with_name(live.name + ".prev")),
+    )
+    journal_dir = env.layout.journal / SERVER_ID
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    (journal_dir / JOURNAL_FILENAME).write_text(
+        json.dumps(record.to_dict()), encoding="utf-8"
+    )
+
+    summary = _reconciler(env).reconcile_sync()
+
+    stored = env.repository.get_sync("disk-only-1")
+    assert stored is not None
+    assert stored.phase == "FAILED_CLEAN"
+    assert stored.terminal is True
+    assert "disk-only-1" in summary.transitioned_journals
+    assert not summary.errors
+
+
+def test_unknown_marker_export_id_is_treated_as_unfinalized_staging(
+    recovery_env: RecoveryEnv,
+) -> None:
+    """L-5: marker presence alone never protects an orphaned staging tree."""
+    env = recovery_env
+    unknown = env.servers_root / "srv-unknown.staging"
+    _marker(unknown, "exp-unknown")
+    _write(unknown, "partial.txt", "partial")
+
+    summary = _reconciler(env).reconcile_sync()
+
+    assert not unknown.exists()
+    assert str(unknown) in summary.removed_staging
+
+
+def test_known_marker_export_id_is_not_deleted_as_unfinalized_staging(
+    recovery_env: RecoveryEnv,
+) -> None:
+    """L-5: only a marker whose id matches a known journal is trusted."""
+    env = recovery_env
+    kept = env.servers_root / f"{SERVER_ID}.staging"
+    _marker(kept, "exp-known")
+    _write(kept, "staged.txt", "staged")
+    live = env.servers_root / SERVER_ID
+    _write(live, "server.properties", "motd=live\n")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=3,
+        phase="QUIESCED",
+        live_path=live,
+        staging_path=kept,
+        previous_path=live.with_name(live.name + ".prev"),
+        export_id="exp-known",
+    )
+    env.repository.transition_sync(
+        created.journal_id, fencing_token=3, phase="COMPLETED"
+    )
+
+    summary = _reconciler(env).reconcile_sync()
+
+    assert (kept / "staged.txt").read_text() == "staged"
+    assert str(kept) not in summary.removed_staging
+
+
+def test_expired_previous_tree_is_not_pruned_while_not_terminal(
+    recovery_env: RecoveryEnv,
+) -> None:
+    """M-2: re-read the journal and never race an active rollback."""
+    env = recovery_env
+    live = env.servers_root / SERVER_ID
+    previous = env.servers_root / f"{SERVER_ID}.prev"
+    _write(live, "server.properties", "motd=live\n")
+    _write(previous, "old.txt", "old")
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=4,
+        phase="ROLLING_BACK",
+        live_path=live,
+        staging_path=env.servers_root / f"{SERVER_ID}.staging",
+        previous_path=previous,
+    )
+    env.repository.transition_sync(
+        created.journal_id,
+        fencing_token=4,
+        phase="ROLLING_BACK",
+        previous_tree_retained=True,
+        previous_tree_expires_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+
+    summary = _reconciler(env).reconcile_sync()
+
+    assert (previous / "old.txt").read_text() == "old"
+    assert not summary.pruned_previous_trees
+    stored = env.repository.get_sync(created.journal_id)
+    assert stored is not None
+    assert stored.phase == "ROLLBACK_REQUIRED"
+
+
+def test_assert_no_unresolved_refresh_fails_closed_until_terminal(
+    recovery_env: RecoveryEnv,
+) -> None:
+    """B-3: the start/restart guard reports 409 while a journal is active."""
+    env = recovery_env
+    live = env.servers_root / SERVER_ID
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=1,
+        phase="QUIESCED",
+        live_path=live,
+        staging_path=env.servers_root / f"{SERVER_ID}.staging",
+    )
+
+    with pytest.raises(RefreshRecoveryRequiredError) as blocked:
+        asyncio.run(
+            assert_no_unresolved_refresh(SERVER_ID, repository=env.repository)
+        )
+    assert blocked.value.http_status == 409
+    assert blocked.value.code == "REFRESH_RECOVERY_REQUIRED"
+
+    env.repository.transition_sync(
+        created.journal_id, fencing_token=1, phase="FAILED_CLEAN"
+    )
+    asyncio.run(assert_no_unresolved_refresh(SERVER_ID, repository=env.repository))
+
+
+async def test_start_and_restart_handlers_block_before_any_process_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B-3: both handlers call the guard before touching the runtime."""
+    import app.modules.server.application.commands.restart_server as restart_module
+    import app.modules.server.application.commands.start_server as start_module
+
+    calls: list[str] = []
+
+    async def blocked(server_id: str) -> None:
+        calls.append(server_id)
+        raise RefreshRecoveryRequiredError(server_id, phase="VERIFYING_HEALTH")
+
+    monkeypatch.setattr(start_module, "assert_no_unresolved_refresh", blocked)
+    monkeypatch.setattr(restart_module, "assert_no_unresolved_refresh", blocked)
+
+    from app.core.event_bus import EventBus
+
+    with pytest.raises(RefreshRecoveryRequiredError):
+        await StartServerHandler(EventBus()).handle(
+            StartServerCommand(server_id=SERVER_ID)
+        )
+    with pytest.raises(RefreshRecoveryRequiredError):
+        await RestartServerHandler(EventBus()).handle(
+            RestartServerCommand(server_id=SERVER_ID)
+        )
+    assert calls == [SERVER_ID, SERVER_ID]

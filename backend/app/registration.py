@@ -267,6 +267,36 @@ from app.modules.versioning.application import (
     WriteMaterializedFileCommand,
     WriteMaterializedFileHandler,
 )
+from app.modules.versioning.application.refresh_orchestrator import (
+    ConfirmUpgradeCommand,
+    ConfirmUpgradeCommandHandler,
+    LiveRefreshService,
+    RefreshServerCommand,
+    RefreshServerCommandHandler,
+    ReleaseRefreshPinsCommand,
+    ReleaseRefreshPinsCommandHandler,
+    RollbackRefreshCommand,
+    RollbackRefreshCommandHandler,
+    Tier1BackupServiceAdapter,
+)
+from app.modules.versioning.application.repo_lease import RepoLeaseManager
+
+
+def _build_live_refresh_service() -> LiveRefreshService:
+    """Lazily construct the refresh service from the process-wide database.
+
+    The runtime and stage-export ports remain injected by the caller because
+    the server module owns provider lifecycle; this wiring deliberately adds
+    no HTTP route.
+    """
+    from app.core.host_state import ensure_host_state_layout
+
+    layout = ensure_host_state_layout()
+    return LiveRefreshService(
+        layout,
+        repo_lease=RepoLeaseManager(locks_dir=layout.locks),
+        backup_service=Tier1BackupServiceAdapter(),
+    )
 
 
 def init_infrastructure() -> None:
@@ -464,6 +494,21 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(
         RemoveBranchProtectionCommand,
         RemoveBranchProtectionHandler(),
+    )
+    command_bus.register(
+        RefreshServerCommand, RefreshServerCommandHandler(_build_live_refresh_service)
+    )
+    command_bus.register(
+        RollbackRefreshCommand,
+        RollbackRefreshCommandHandler(_build_live_refresh_service),
+    )
+    command_bus.register(
+        ConfirmUpgradeCommand,
+        ConfirmUpgradeCommandHandler(_build_live_refresh_service),
+    )
+    command_bus.register(
+        ReleaseRefreshPinsCommand,
+        ReleaseRefreshPinsCommandHandler(_build_live_refresh_service),
     )
     op_service = get_operation_service(event_bus=event_bus)
     command_bus.register(CreateOperationCommand, CreateOperationHandler(op_service))

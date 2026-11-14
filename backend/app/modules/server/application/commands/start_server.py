@@ -44,6 +44,9 @@ from app.modules.server.infrastructure.providers.base import (
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
+from app.modules.versioning.infrastructure.refresh_journal import (
+    assert_no_unresolved_refresh,
+)
 
 if TYPE_CHECKING:
     from app.modules.server.application.lifecycle_lock import ServerLifecycleLeaseManager
@@ -68,6 +71,9 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
         self._lifecycle_lease = lifecycle_lease
 
     async def handle(self, command: StartServerCommand) -> CommandResult:
+        # Fail closed before stopping, claiming, or spawning anything when a
+        # refresh/rollback journal is still unresolved.
+        await assert_no_unresolved_refresh(command.server_id)
         if self._lifecycle_lease is not None:
             async with self._lifecycle_lease.acquire(
                 command.server_id,

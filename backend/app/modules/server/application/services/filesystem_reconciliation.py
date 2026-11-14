@@ -222,7 +222,7 @@ class FilesystemReconciliationService:
     ) -> ReconciliationResult:
         started_at = datetime.now(UTC)
         start_ms = time.monotonic()
-        entries = self._scan_filesystem()
+        entries = self._scan_filesystem(await self._active_refresh_names())
         if not entries:
             logger.info("data/servers/ does not exist or is empty — nothing to reconcile")
             return ReconciliationResult()
@@ -258,7 +258,44 @@ class FilesystemReconciliationService:
     # Stage 1 — Scan filesystem directories
     # ------------------------------------------------------------------
 
-    def _scan_filesystem(self) -> list[FsEntry]:
+    async def _active_refresh_names(self) -> set[str]:
+        """Directory names referenced by non-terminal refresh journals.
+
+        A live refresh owns its staging/previous trees while its journal is
+        active; treating them as servers would let reconciliation delete or
+        import a tree mid-swap. Failures here are non-fatal: the suffix filter
+        below still excludes the standard swap tree names.
+        """
+        try:
+            from app.core.host_state import resolve_host_state_layout
+            from app.modules.versioning.infrastructure.refresh_journal import (
+                RefreshJournalRepository,
+            )
+
+            repository = RefreshJournalRepository(resolve_host_state_layout())
+            try:
+                records = await repository.list_incomplete()
+            finally:
+                repository.close()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Unable to read active refresh journals: %s", exc)
+            return set()
+        names: set[str] = set()
+        for record in records:
+            for raw in (record.staging_path, record.previous_path):
+                if raw:
+                    names.add(Path(raw).name)
+            for suffix in (
+                ".rollback",
+                ".rollback-prev",
+                ".staging",
+                ".prev",
+            ):
+                names.add(f"{record.server_id}{suffix}")
+        return names
+
+    def _scan_filesystem(self, excluded_names: set[str] | None = None) -> list[FsEntry]:
+        excluded = excluded_names or set()
         data_dir = AppSettings().servers_data_dir
         data_path = Path(data_dir)
         if not data_path.is_dir():
@@ -269,7 +306,10 @@ class FilesystemReconciliationService:
             if (
                 name.endswith(".staging")
                 or name.endswith(".prev")
+                or name.endswith(".rollback")
+                or name.endswith(".rollback-prev")
                 or name.startswith(".onx-")
+                or name in excluded
             ):
                 continue
             if entry.is_dir():

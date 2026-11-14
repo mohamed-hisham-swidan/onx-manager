@@ -24,16 +24,21 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Engine, create_engine, delete, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import (
     ConflictError,
     FencingTokenMismatchError,
+    RefreshRecoveryRequiredError,
     ValidationError,
 )
-from app.core.host_state import HostStateLayout, validate_server_segment
+from app.core.host_state import (
+    HostStateLayout,
+    resolve_host_state_layout,
+    validate_server_segment,
+)
 from app.modules.versioning.infrastructure.fs_atomic import atomic_write_private
 from app.modules.versioning.infrastructure.models import RefreshJournalModel
 
@@ -54,6 +59,7 @@ ACTIVE_PHASES = frozenset(
         "HEALTH_CHECK",
         "VERIFYING_HEALTH",
         "ROLLING_BACK",
+        "ROLLBACK_REQUIRED",
         "SWAP_ROLLED_BACK",
         "SWAP_COMPLETED",
     }
@@ -408,6 +414,38 @@ class RefreshJournalRepository:
                 field="refresh_journal",
             )
         return record
+
+    def iter_disk_journals(self) -> list[RefreshJournalRecord]:
+        """Return every readable ``refresh.json`` mirror under the journal root.
+
+        Unreadable or foreign directories are skipped so startup reconciliation
+        never fails on a stray file.
+        """
+        records: list[RefreshJournalRecord] = []
+        root = self._layout.journal
+        try:
+            if root.is_symlink() or not root.is_dir():
+                return records
+            entries = sorted(root.iterdir())
+        except OSError:
+            return records
+        for entry in entries:
+            if entry.is_symlink() or not entry.is_dir():
+                continue
+            try:
+                validate_server_segment(entry.name)
+            except Exception:
+                continue
+            if not os.path.lexists(entry / JOURNAL_FILENAME):
+                continue
+            try:
+                record = self._read_json(entry.name)
+            except ValidationError:
+                logger.warning("Skipping unreadable refresh journal at %s", entry)
+                continue
+            if record is not None:
+                records.append(record)
+        return records
 
     # ------------------------------------------------------------------
     # Create
@@ -1104,6 +1142,41 @@ class RefreshJournalRepository:
         return True
 
 
+async def assert_no_unresolved_refresh(
+    server_id: str,
+    *,
+    repository: RefreshJournalRepository | None = None,
+) -> None:
+    """Fail closed when ``server_id`` still has a non-terminal refresh journal.
+
+    Start/restart must never replace a tree while a refresh/rollback is
+    unresolved. The check is best-effort only for a database whose schema has
+    not been created yet (bare unit-test fixtures); every other error
+    propagates so boot stays fail-closed.
+    """
+    owned = repository is None
+    repo = repository or RefreshJournalRepository(resolve_host_state_layout())
+    try:
+        try:
+            record = await repo.get_active_for_server(server_id)
+        except OperationalError as exc:
+            message = str(exc).lower()
+            if "refresh_journals" in message and (
+                "no such table" in message or "does not exist" in message
+            ):
+                return
+            raise
+    finally:
+        if owned:
+            repo.close()
+    if record is not None:
+        raise RefreshRecoveryRequiredError(
+            server_id,
+            journal_id=record.journal_id,
+            phase=record.phase,
+        )
+
+
 __all__ = [
     "ACTIVE_PHASES",
     "ALL_PHASES",
@@ -1111,4 +1184,5 @@ __all__ = [
     "RefreshJournalRecord",
     "RefreshJournalRepository",
     "TERMINAL_PHASES",
+    "assert_no_unresolved_refresh",
 ]

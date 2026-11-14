@@ -541,7 +541,7 @@ def recover_interrupted_swap(
         return SwapRecoveryResult(status="none")
 
     live = _declared_path(record.live_path, "live_path")
-    _declared_path(record.staging_path, "staging_path")
+    staging = _declared_path(record.staging_path, "staging_path")
     previous = _declared_path(record.previous_path, "previous_path")
     live_exists = os.path.lexists(live)
     previous_exists = os.path.lexists(previous)
@@ -612,14 +612,27 @@ def recover_interrupted_swap(
         )
 
     if record.phase == PHASE_SWAPPING_IN_STAGING:
-        if live_exists:
-            # The staging rename completed before the crash, or the live tree
-            # was already restored by an earlier recovery pass.
+        staging_exists = os.path.lexists(staging)
+        if live_exists and previous_exists:
+            # Both the new live tree and .prev exist. A present staging tree
+            # means the staging rename never consumed it (or rollback restored
+            # live), so the swap did not complete; otherwise the swap finished
+            # and only the .prev cleanup is outstanding.
+            if staging_exists:
+                return finish(PHASE_SWAP_ROLLED_BACK, "rolled_back")
             return finish(PHASE_SWAP_COMPLETED, "completed")
         if previous_exists:
             os.rename(previous, live)
             _fsync_parent(live)
             return finish(PHASE_SWAP_ROLLED_BACK, "rolled_back")
+        if live_exists:
+            # The staging rename completed before the crash (staging gone), or
+            # the failure path renamed .prev back to live before the journal
+            # write of SWAP_ROLLED_BACK failed. In the latter case the staging
+            # tree is still present, proving the new tree was never installed.
+            if staging_exists:
+                return finish(PHASE_SWAP_ROLLED_BACK, "rolled_back")
+            return finish(PHASE_SWAP_COMPLETED, "completed")
         raise ValidationError(
             "Swap journal lost both the live and previous trees", field="journal_path"
         )

@@ -141,6 +141,15 @@ class RepoLeaseManager:
         self._wait_timeout_seconds = wait_timeout_seconds
         self._owned_engine: Engine | None = None
         self._factory_lock = threading.Lock()
+        # Fail at construction, not inside the heartbeat thread where the
+        # exception would be logged and the lease would silently run unfenced.
+        if sync_session_factory is None and session_factory is not None:
+            bind = session_factory.kw.get("bind")
+            if bind is not None and bind.dialect.name != "sqlite":
+                raise RuntimeError(
+                    "RepoLeaseManager requires sync_session_factory for non-SQLite "
+                    "backends"
+                )
 
     # ------------------------------------------------------------------
     # Session factories and dialect

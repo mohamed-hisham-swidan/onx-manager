@@ -7,6 +7,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -307,6 +308,14 @@ def test_lock_order_rejects_lifecycle_after_repo(lease_env, tmp_path: Path) -> N
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_non_sqlite_async_factory_without_sync_factory_fails_fast() -> None:
+    fake_bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    fake_factory = SimpleNamespace(kw={"bind": fake_bind})
+
+    with pytest.raises(RuntimeError, match="sync_session_factory"):
+        RepoLeaseManager(session_factory=fake_factory)  # type: ignore[arg-type]
 
 
 def test_clean_export_fails_closed_on_stale_fencing_token(

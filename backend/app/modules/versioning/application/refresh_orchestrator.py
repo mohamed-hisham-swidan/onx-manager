@@ -28,11 +28,13 @@ import asyncio
 import contextlib
 import errno
 import inspect
+import logging
 import math
 import os
 import re
 import shutil
 import threading
+import uuid
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -41,6 +43,7 @@ from typing import Any, Protocol
 
 from app.core.exceptions import (
     ConflictError,
+    FencingTokenMismatchError,
     InsufficientStorageError,
     NotFoundError,
     ValidationError,
@@ -48,6 +51,10 @@ from app.core.exceptions import (
 from app.core.host_state import HostStateLayout, validate_server_segment
 from app.modules.versioning.application.refresh_recovery import (
     RefreshStartupReconciler,
+)
+from app.modules.versioning.application.repo_lease import (
+    RepoLeaseManager,
+    RepoLeaseToken,
 )
 from app.modules.versioning.infrastructure.class_c_snapshot import (
     ClassCSnapshotResult,
@@ -72,6 +79,8 @@ ROLLBACK_SOURCE_SUFFIX = ".rollback-prev"
 SWAP_JOURNAL_FILENAME = "swap.json"
 ROLLBACK_SWAP_JOURNAL_FILENAME = "swap-rollback.json"
 SESSION_LOCK_FILENAME = "session.lock"
+
+logger = logging.getLogger(__name__)
 
 RETENTION_UNTIL_HEALTH_GATE = "until_health_gate"
 RETENTION_UNTIL_CONFIRM = "until_confirm"
@@ -523,15 +532,21 @@ def restore_carried_entries(
 def carry_complement_entries(
     live_dir: str | os.PathLike[str],
     staging_dir: str | os.PathLike[str],
+    entries: Iterable[str] | None = None,
 ) -> list[str]:
     """Move every non-export-owned live entry into staging, atomically per entry.
 
-    On any failure the already-moved entries are returned to live before the
-    error propagates; ``ENOSPC`` becomes :class:`InsufficientStorageError`.
+    ``entries`` may be a pre-persisted carry plan; when omitted the complement
+    is discovered here. On any failure the already-moved entries are returned
+    to live before the error propagates; ``ENOSPC`` becomes
+    :class:`InsufficientStorageError`.
     """
     live = _existing_plain_directory(live_dir, "live_dir")
     staging = _existing_plain_directory(staging_dir, "staging_dir")
-    entries = discover_complement_entries(live, staging)
+    if entries is None:
+        entries = discover_complement_entries(live, staging)
+    else:
+        entries = sorted(_validate_relative_entry(raw) for raw in entries)
     moved: list[str] = []
     try:
         for relpath in entries:
@@ -713,6 +728,18 @@ class RefreshOrchestrator:
                     f"requested policy {requested}"
                 )
 
+        # A non-terminal journal still owns its previous tree as the operator's
+        # rollback artifact. Deleting it here (then failing on the one-active
+        # journal index) would degrade rollback to a re-export that may not even
+        # be possible (F1).
+        for record in retained:
+            if not record.terminal:
+                raise ConflictError(
+                    f"A non-terminal refresh journal {record.journal_id} "
+                    f"({record.phase}) owns a retained previous tree; roll back "
+                    "or resolve it before refreshing"
+                )
+
         removed: list[str] = []
         for record in retained:
             candidate = record.staging_path if record.used_exchange else record.previous_path
@@ -771,10 +798,13 @@ class RefreshOrchestrator:
         retention_policy: str | int | None = None,
         exchange_supported: bool | None = None,
         now: datetime | None = None,
+        guard: FencingGuard | None = None,
     ) -> CarrySwapResult:
         """Journal CARRYING, carry the complement, swap, then journal CARRIED.
 
-        The carry and swap run in a worker thread awaited through
+        The carry plan is discovered and persisted **before** the first rename,
+        so recovery can always return a partially carried tree to live. The
+        carry and swap run in a worker thread awaited through
         :func:`run_thread_shielded`; the thread is joined before any
         cancellation or exception escapes. The previous tree is retained and
         its expiry recorded for hour-based policies.
@@ -796,13 +826,24 @@ class RefreshOrchestrator:
             fencing_token=token,
             phase="CARRYING",
         )
+        planned = await asyncio.to_thread(discover_complement_entries, live, staging)
+        carrying = await self._repository.transition(
+            journal.journal_id,
+            fencing_token=token,
+            phase="CARRYING",
+            carried_entries=planned,
+        )
         swap_journal = DirectorySwapJournal(
             self._layout.journal / carrying.server_id / SWAP_JOURNAL_FILENAME
         )
 
         def worker() -> tuple[list[str], SwapResult]:
-            carried = carry_complement_entries(live, staging)
+            if guard is not None:
+                guard.check()
+            carried = carry_complement_entries(live, staging, entries=planned)
             try:
+                if guard is not None:
+                    guard.check()
                 swap = swap_directories(
                     live,
                     staging,
@@ -994,6 +1035,80 @@ class BackupServicePort(Protocol):
     ) -> None: ...
 
 
+class Tier1BackupServiceAdapter:
+    """Default :class:`BackupServicePort` backed by the SQL backup saga.
+
+    The runtime/export adapters stay injected at call time because the server
+    module owns provider lifecycle; this adapter covers the Class-E tier that
+    the versioning module can construct without crossing module boundaries.
+    """
+
+    async def create_pinned_backup(self, server_id: str, live_dir: Path) -> str:
+        del live_dir  # The backup saga resolves the tree via the server provider.
+        from app.api.deps import build_backup_encryption, build_storage_backend
+        from app.core.config import ConfigFactory
+        from app.core.persistence.db import database
+        from app.core.saga import SagaOrchestrator
+        from app.modules.backup.domain.aggregate import BackupJob, BackupType
+        from app.modules.backup.infrastructure.repository import SQLBackupRepository
+        from app.modules.shared.value_objects import BackupJobId, ServerId
+        from app.services.backup_orchestrator import BackupSaga
+
+        backup_id = BackupJobId()
+        async with database.session_factory() as session:
+            repo = SQLBackupRepository(session)
+            job = BackupJob.create(
+                backup_id=backup_id,
+                server_id=ServerId(server_id),
+                backup_type=BackupType.FULL,
+                pinned=True,
+            )
+            await repo.save_job(job)
+            await session.commit()
+        settings = ConfigFactory.global_settings()
+        try:
+            await BackupSaga(SagaOrchestrator()).execute(
+                backup_id=backup_id,
+                server_id=ServerId(server_id),
+                storage=build_storage_backend(settings),
+                encryption=build_backup_encryption(
+                    settings.backup_encryption_key_path
+                ),
+                backup_type=BackupType.FULL,
+            )
+        except Exception:
+            async with database.session_factory() as session:
+                repo = SQLBackupRepository(session)
+                failed = await repo.get_job(backup_id)
+                failed.mark_failed("Tier-1 refresh backup failed")
+                await repo.save_job(failed)
+                await session.commit()
+            raise
+        return str(backup_id)
+
+    async def restore_backup(
+        self, server_id: str, backup_id: str, live_dir: Path
+    ) -> None:
+        from app.modules.backup.application.restore_service import perform_safe_restore
+        from app.modules.shared.value_objects import BackupJobId
+
+        del server_id  # The artifact itself is the authority for restore.
+        await perform_safe_restore(BackupJobId(backup_id), str(live_dir))
+
+    async def set_pinned(
+        self, server_id: str, backup_id: str, pinned: bool
+    ) -> None:
+        from app.core.persistence.db import database
+        from app.modules.backup.infrastructure.repository import SQLBackupRepository
+        from app.modules.shared.value_objects import BackupJobId
+
+        del server_id
+        async with database.session_factory() as session:
+            repo = SQLBackupRepository(session)
+            await repo.set_pinned(BackupJobId(backup_id), pinned)
+            await session.commit()
+
+
 def _assert_no_session_lock(live: Path) -> None:
     lock = live / SESSION_LOCK_FILENAME
     if os.path.lexists(lock):
@@ -1005,6 +1120,43 @@ def _assert_no_session_lock(live: Path) -> None:
 
 def _as_awaitable(result: Any) -> Any:
     return result if inspect.isawaitable(result) else None
+
+
+@dataclass
+class FencingGuard:
+    """Fail-closed liveness/fencing check for one refresh or rollback mutation."""
+
+    server_id: str
+    token: RepoLeaseToken
+    repo_lease: RepoLeaseManager | None
+
+    def _lost(self) -> bool:
+        return bool(getattr(self.token, "is_lost", False))
+
+    def check(self) -> None:
+        """Synchronous check for use inside the swap/carry worker thread."""
+        if self._lost():
+            raise FencingTokenMismatchError(
+                server_id=self.server_id,
+                expected_token=self.token.fencing_token,
+                actual_token=None,
+            )
+        if self.repo_lease is not None:
+            self.repo_lease.assert_fencing_token_sync(
+                self.server_id, self.token.fencing_token
+            )
+
+    async def assert_live(self) -> None:
+        if self._lost():
+            raise FencingTokenMismatchError(
+                server_id=self.server_id,
+                expected_token=self.token.fencing_token,
+                actual_token=None,
+            )
+        if self.repo_lease is not None:
+            await self.repo_lease.assert_fencing_token(
+                self.server_id, self.token.fencing_token
+            )
 
 
 # ----------------------------------------------------------------------
@@ -1040,6 +1192,7 @@ class TriadRollbackService:
         runtime: ServerRuntimePort | None = None,
         stage_export: Callable[[Path, str], Any] | None = None,
         reset_main_ref: Callable[[str, str], None] | None = None,
+        repo_lease: RepoLeaseManager | None = None,
         servers_data_dir: str | os.PathLike[str] | None = None,
     ) -> None:
         self._layout = layout
@@ -1054,6 +1207,12 @@ class TriadRollbackService:
         self._runtime = runtime
         self._stage_export = stage_export
         self._reset_main_ref = reset_main_ref
+        self._repo_lease = repo_lease
+
+    def _assert_fence(self, server_id: str, token: int) -> None:
+        """Abort before a mutation if this writer no longer owns the lease."""
+        if self._repo_lease is not None:
+            self._repo_lease.assert_fencing_token_sync(server_id, token)
 
     async def rollback(
         self,
@@ -1079,6 +1238,7 @@ class TriadRollbackService:
                 "and cannot be rolled back"
             )
         token = record.fencing_token if fencing_token is None else fencing_token
+        self._assert_fence(segment, token)
         journal = await self._repository.transition(
             record.journal_id,
             fencing_token=token,
@@ -1092,12 +1252,14 @@ class TriadRollbackService:
             raise ValidationError(
                 "live_path is not a plain directory", field="live_path"
             )
+        self._assert_fence(segment, token)
         await self._stop_runtime()
         _assert_no_session_lock(live)
 
-        used_previous = await self._restore_class_ab(segment, journal, live)
+        used_previous = await self._restore_class_ab(segment, journal, live, token)
         restored_class_c = False
         if journal.class_c_snapshot_id:
+            self._assert_fence(segment, token)
             await asyncio.to_thread(
                 self._class_c.restore_snapshot,
                 segment,
@@ -1112,16 +1274,20 @@ class TriadRollbackService:
                     "Class-E restore requires a backup service",
                     field="pre_upgrade_backup_id",
                 )
+            self._assert_fence(segment, token)
             await self._backup.restore_backup(
                 segment, journal.pre_upgrade_backup_id, live
             )
             restored_backup = True
         if self._reset_main_ref is not None and journal.previous_main_sha:
+            self._assert_fence(segment, token)
             await asyncio.to_thread(
                 self._reset_main_ref, segment, journal.previous_main_sha
             )
 
+        self._assert_fence(segment, token)
         await self._repository.mark_previous_tree_cleaned(journal.journal_id)
+        self._assert_fence(segment, token)
         final = await self._repository.transition(
             journal.journal_id,
             fencing_token=token,
@@ -1140,6 +1306,7 @@ class TriadRollbackService:
         segment: str,
         journal: RefreshJournalRecord,
         live: Path,
+        token: int,
     ) -> bool:
         try:
             previous = self._orchestrator.previous_tree_for(journal)
@@ -1147,10 +1314,10 @@ class TriadRollbackService:
             previous = None
         if previous is not None and os.path.lexists(previous):
             await asyncio.to_thread(
-                self._swap_previous_tree, segment, journal, live, previous
+                self._swap_previous_tree, segment, journal, live, previous, token
             )
             return True
-        await self._reexport_previous_tree(segment, journal, live)
+        await self._reexport_previous_tree(segment, journal, live, token)
         return False
 
     def _swap_previous_tree(
@@ -1159,12 +1326,14 @@ class TriadRollbackService:
         journal: RefreshJournalRecord,
         live: Path,
         previous: Path,
+        token: int,
     ) -> None:
         if previous.is_symlink() or not previous.is_dir():
             raise ValidationError(
                 "Retained previous tree is not a plain directory",
                 field="previous_path",
             )
+        self._assert_fence(segment, token)
         rollback_source = live.with_name(live.name + ROLLBACK_SOURCE_SUFFIX)
         if os.path.lexists(rollback_source):
             raise ConflictError(
@@ -1175,6 +1344,7 @@ class TriadRollbackService:
             self._layout.journal / segment / ROLLBACK_SWAP_JOURNAL_FILENAME
         )
         try:
+            self._assert_fence(segment, token)
             swap = swap_directories(
                 live,
                 rollback_source,
@@ -1195,6 +1365,7 @@ class TriadRollbackService:
                 raise ValidationError(
                     "Broken tree is not a plain directory", field="previous_path"
                 )
+            self._assert_fence(segment, token)
             carry_complement_entries(broken, live)
             shutil.rmtree(broken)
 
@@ -1203,6 +1374,7 @@ class TriadRollbackService:
         segment: str,
         journal: RefreshJournalRecord,
         live: Path,
+        token: int,
     ) -> None:
         if self._stage_export is None:
             raise ValidationError(
@@ -1231,19 +1403,39 @@ class TriadRollbackService:
             raise ValidationError(
                 "Re-export did not produce a staging directory", field="staging_path"
             )
-        carry_complement_entries(live, staging)
-        swap_journal = DirectorySwapJournal(
-            self._layout.journal / segment / ROLLBACK_SWAP_JOURNAL_FILENAME
+        self._assert_fence(segment, token)
+        carried = discover_complement_entries(live, staging)
+        # Persist the inverse-carry plan before the first rename so a crash is
+        # recoverable even when the swap never reaches its journal.
+        await self._repository.transition(
+            journal.journal_id,
+            fencing_token=journal.fencing_token,
+            phase="ROLLING_BACK",
+            carried_entries=carried,
         )
-        swap = swap_directories(
-            live,
-            staging,
-            swap_journal,
-            server_id=segment,
-            previous_main_sha=journal.previous_main_sha,
-            target_main_sha=journal.target_main_sha,
-            keep_previous=False,
-        )
+        try:
+            carry_complement_entries(live, staging, entries=carried)
+            self._assert_fence(segment, token)
+            swap_journal = DirectorySwapJournal(
+                self._layout.journal / segment / ROLLBACK_SWAP_JOURNAL_FILENAME
+            )
+            swap = swap_directories(
+                live,
+                staging,
+                swap_journal,
+                server_id=segment,
+                previous_main_sha=journal.previous_main_sha,
+                target_main_sha=journal.target_main_sha,
+                keep_previous=False,
+            )
+        except BaseException:
+            # Match carry_and_swap: return every moved entry to live before the
+            # error escapes, otherwise the only copy would be stranded in the
+            # .rollback tree.
+            if os.path.lexists(staging):
+                with contextlib.suppress(Exception):
+                    restore_carried_entries(live, staging, carried)
+            raise
         broken = swap.previous_tree_path
         if os.path.lexists(broken):
             if broken.is_symlink() or not broken.is_dir():
@@ -1312,6 +1504,10 @@ class LiveRefreshRequest:
     def __post_init__(self) -> None:
         validate_server_segment(self.server_id)
         parse_retention_policy(self.retention_policy)
+        # An empty export id disables already-swapped exchange recovery, so
+        # every request always gets a durable, non-empty identity.
+        if not self.export_id:
+            object.__setattr__(self, "export_id", uuid.uuid4().hex)
 
 
 @dataclass(frozen=True)
@@ -1323,6 +1519,14 @@ class LiveRefreshResult:
     class_c_snapshot_id: str
     pre_upgrade_backup_id: str
     rolled_back: bool = False
+
+
+@dataclass(frozen=True)
+class _LeaseHandle:
+    """The live lease token plus the fencing guard bound to it."""
+
+    fencing_token: int
+    guard: FencingGuard | None
 
 
 class LiveRefreshService:
@@ -1342,7 +1546,7 @@ class LiveRefreshService:
         stage_export: Callable[[Path, str], Any] | None = None,
         reset_main_ref: Callable[[str, str], None] | None = None,
         lifecycle_lease: Any | None = None,
-        repo_lease: Any | None = None,
+        repo_lease: RepoLeaseManager,
         servers_data_dir: str | os.PathLike[str] | None = None,
         stability_window: float = 0.0,
         fencing_token: int = 1,
@@ -1350,6 +1554,11 @@ class LiveRefreshService:
         holder: str | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
+        if repo_lease is None:
+            raise ValidationError(
+                "A repo lease manager is required for live refresh",
+                field="repo_lease",
+            )
         self._layout = layout
         self._repository = repository or RefreshJournalRepository(layout)
         self._orchestrator = orchestrator or RefreshOrchestrator(
@@ -1378,6 +1587,7 @@ class LiveRefreshService:
             runtime=runtime,
             stage_export=stage_export,
             reset_main_ref=reset_main_ref,
+            repo_lease=repo_lease,
             servers_data_dir=servers_data_dir,
         )
 
@@ -1386,30 +1596,49 @@ class LiveRefreshService:
     # ------------------------------------------------------------------
 
     @contextlib.asynccontextmanager
-    async def _lease_context(self, server_id: str) -> AsyncIterator[int]:
+    async def _lease_context(self, server_id: str) -> AsyncIterator[_LeaseHandle]:
         lifecycle = self._lifecycle_lease
         repo = self._repo_lease
         timeout = self._lease_wait_timeout
         holder = self._holder
-        if lifecycle is None and repo is None:
-            yield self._fencing_token
-            return
+
+        def handle(token: RepoLeaseToken) -> _LeaseHandle:
+            fencing_token = int(getattr(token, "fencing_token", self._fencing_token))
+            return _LeaseHandle(
+                fencing_token=fencing_token,
+                guard=FencingGuard(server_id, token, repo),
+            )
+
         if lifecycle is None:
             async with repo.acquire(
                 server_id, holder=holder, wait_timeout=timeout
             ) as token:
-                yield int(getattr(token, "fencing_token", self._fencing_token))
+                yield handle(token)
             return
-        async with lifecycle.acquire(
-            server_id, holder=holder, wait_timeout=timeout
-        ) as _lifecycle_token:
-            if repo is None:
-                yield self._fencing_token
-                return
-            async with repo.acquire(
+        async with (
+            lifecycle.acquire(
                 server_id, holder=holder, wait_timeout=timeout
-            ) as token:
-                yield int(getattr(token, "fencing_token", self._fencing_token))
+            ) as _lifecycle_token,
+            repo.acquire(
+                server_id, holder=holder, wait_timeout=timeout
+            ) as token,
+        ):
+            yield handle(token)
+
+    async def _transition(
+        self,
+        journal_id: str,
+        *,
+        guard: FencingGuard | None,
+        token: int,
+        phase: str,
+        **kwargs: Any,
+    ) -> RefreshJournalRecord:
+        if guard is not None:
+            await guard.assert_live()
+        return await self._repository.transition(
+            journal_id, fencing_token=token, phase=phase, **kwargs
+        )
 
     def _require_runtime(self) -> ServerRuntimePort:
         if self._runtime is None:
@@ -1452,7 +1681,9 @@ class LiveRefreshService:
         policy, delta = parse_retention_policy(request.retention_policy)
         live = _existing_plain_directory(request.live_dir, "live_dir")
         staging = _absolute_path(request.staging_dir, "staging_dir")
-        async with self._lease_context(segment) as token:
+        async with self._lease_context(segment) as lease:
+            token = lease.fencing_token
+            guard = lease.guard
             self._orchestrator.preflight(
                 segment,
                 live_dir=live,
@@ -1466,13 +1697,23 @@ class LiveRefreshService:
             await self._orchestrator.prepare_prior_previous_tree(
                 segment, retention_policy=policy
             )
-            journal = await self._quiesce(segment, request, live, staging, policy, token)
+            journal = await self._quiesce(
+                segment, request, live, staging, policy, token, guard
+            )
             try:
                 return await self._refresh_locked(
-                    segment, request, live, staging, journal, policy, delta, token
+                    segment,
+                    request,
+                    live,
+                    staging,
+                    journal,
+                    policy,
+                    delta,
+                    token,
+                    guard,
                 )
             except BaseException as exc:
-                await self._compensate(journal, token, exc)
+                await self._compensate(journal, token, exc, guard)
                 raise
 
     async def _quiesce(
@@ -1483,7 +1724,10 @@ class LiveRefreshService:
         staging: Path,
         policy: str,
         token: int,
+        guard: FencingGuard | None = None,
     ) -> RefreshJournalRecord:
+        if guard is not None:
+            await guard.assert_live()
         runtime = self._require_runtime()
         if await asyncio.to_thread(runtime.is_running):
             confirmed = await asyncio.to_thread(runtime.stop)
@@ -1492,6 +1736,8 @@ class LiveRefreshService:
                     f"Server '{segment}' did not confirm stop; refresh aborted"
                 )
         _assert_no_session_lock(live)
+        if guard is not None:
+            await guard.assert_live()
         return await self._repository.create(
             server_id=segment,
             fencing_token=token,
@@ -1515,26 +1761,34 @@ class LiveRefreshService:
         policy: str,
         delta: timedelta | None,
         token: int,
+        guard: FencingGuard | None = None,
     ) -> LiveRefreshResult:
         backup = self._require_backup()
         stage_export = self._require_stage_export()
         runtime = self._require_runtime()
 
+        if guard is not None:
+            await guard.assert_live()
         snapshot: ClassCSnapshotResult = await asyncio.to_thread(
             self._class_c.create_snapshot, segment, live, pinned=True
         )
+        if guard is not None:
+            await guard.assert_live()
         backup_id = await backup.create_pinned_backup(segment, live)
-        journal = await self._repository.transition(
+        journal = await self._transition(
             journal.journal_id,
-            fencing_token=token,
+            guard=guard,
+            token=token,
             phase="BACKED_UP",
             pre_upgrade_backup_id=backup_id,
             class_c_snapshot_id=snapshot.snapshot_id,
         )
 
-        journal = await self._repository.transition(
-            journal.journal_id, fencing_token=token, phase="STAGING"
+        journal = await self._transition(
+            journal.journal_id, guard=guard, token=token, phase="STAGING"
         )
+        if guard is not None:
+            await guard.assert_live()
         with staging_enospc_guard(staging, live_dir=live):
             staged = stage_export(staging, request.target_main_sha)
             awaitable = _as_awaitable(staged)
@@ -1546,16 +1800,17 @@ class LiveRefreshService:
             fencing_token=token,
             retention_policy=policy,
             now=self._now(),
+            guard=guard,
         )
         journal = carried.journal
 
-        journal = await self._repository.transition(
-            journal.journal_id, fencing_token=token, phase="STARTING"
+        journal = await self._transition(
+            journal.journal_id, guard=guard, token=token, phase="STARTING"
         )
         if not await asyncio.to_thread(runtime.start):
             raise ConflictError(f"Server '{segment}' failed to start after the swap")
-        journal = await self._repository.transition(
-            journal.journal_id, fencing_token=token, phase="VERIFYING_HEALTH"
+        journal = await self._transition(
+            journal.journal_id, guard=guard, token=token, phase="VERIFYING_HEALTH"
         )
         health = await self._evaluator(runtime).evaluate()
         if not health.passed:
@@ -1574,25 +1829,32 @@ class LiveRefreshService:
             )
 
         if policy == RETENTION_UNTIL_HEALTH_GATE:
-            await self._clean_previous(journal)
-            journal = await self._repository.transition(
+            # Record COMPLETED (terminal) before deleting the previous tree so a
+            # crash can never leave a terminal-less VERIFYING_HEALTH journal
+            # pointing at a tree that no longer exists.
+            journal = await self._transition(
                 journal.journal_id,
-                fencing_token=token,
+                guard=guard,
+                token=token,
                 phase="COMPLETED",
-                previous_tree_retained=False,
+                previous_tree_retained=True,
             )
+            await self._clean_previous(journal, guard)
+            journal = await self._repository.get(journal.journal_id) or journal
         elif policy == RETENTION_UNTIL_CONFIRM:
-            journal = await self._repository.transition(
+            journal = await self._transition(
                 journal.journal_id,
-                fencing_token=token,
+                guard=guard,
+                token=token,
                 phase="COMPLETED",
                 previous_tree_retained=True,
             )
         else:
             expires_at = self._now() + (delta or timedelta(0))
-            journal = await self._repository.transition(
+            journal = await self._transition(
                 journal.journal_id,
-                fencing_token=token,
+                guard=guard,
+                token=token,
                 phase="COMPLETED",
                 previous_tree_retained=True,
                 previous_tree_expires_at=expires_at,
@@ -1605,11 +1867,18 @@ class LiveRefreshService:
         )
 
     async def _compensate(
-        self, journal: RefreshJournalRecord, token: int, exc: BaseException
+        self,
+        journal: RefreshJournalRecord,
+        token: int,
+        exc: BaseException,
+        guard: FencingGuard | None = None,
     ) -> None:
         current = await self._repository.get(journal.journal_id)
         if current is None or current.terminal:
             return
+        if guard is not None:
+            # Never mutate a tree for a lease this writer no longer owns.
+            await guard.assert_live()
         if current.phase in ("CARRIED", "STARTING", "HEALTH_CHECK", "VERIFYING_HEALTH"):
             with contextlib.suppress(Exception):
                 await self._rollback.rollback(
@@ -1619,7 +1888,56 @@ class LiveRefreshService:
                     fencing_token=token,
                 )
             return
-        if current.phase in ("QUIESCED", "BACKED_UP", "STAGING"):
+        if current.phase == "CARRYING":
+            # The swap journal proves whether a swap may have happened; only
+            # the no-swap-journal case is safe to fail clean after restoring
+            # every journaled carried entry.
+            swap_path = (
+                self._layout.journal
+                / current.server_id
+                / SWAP_JOURNAL_FILENAME
+            )
+            if os.path.lexists(swap_path):
+                with contextlib.suppress(Exception):
+                    await self._rollback.rollback(
+                        journal.server_id,
+                        journal.journal_id,
+                        reason=f"refresh failed during carry/swap: {exc}"[:200],
+                        fencing_token=token,
+                    )
+                return
+            try:
+                if current.carried_entries and os.path.lexists(current.staging_path):
+                    live = self._path_guard.validate_swap_path(
+                        current.server_id, current.live_path, field="live_path"
+                    )
+                    staging = self._path_guard.validate_swap_path(
+                        current.server_id, current.staging_path, field="staging_path"
+                    )
+                    await asyncio.to_thread(
+                        restore_carried_entries,
+                        live,
+                        staging,
+                        current.carried_entries,
+                    )
+                    await asyncio.to_thread(
+                        assert_carried_entries_present,
+                        live,
+                        current.carried_entries,
+                    )
+                await self._repository.transition(
+                    journal.journal_id,
+                    fencing_token=token,
+                    phase="FAILED_CLEAN",
+                    error=f"refresh aborted during complement carry: {exc}"[:200],
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to clean interrupted CARRYING journal %s",
+                    journal.journal_id,
+                )
+            return
+        if current.phase in ("QUIESCED", "BACKED_UP", "STAGING", "ROLLBACK_REQUIRED"):
             with contextlib.suppress(Exception):
                 await self._repository.transition(
                     journal.journal_id,
@@ -1628,7 +1946,11 @@ class LiveRefreshService:
                     error=f"refresh aborted before the swap: {exc}"[:200],
                 )
 
-    async def _clean_previous(self, journal: RefreshJournalRecord) -> bool:
+    async def _clean_previous(
+        self, journal: RefreshJournalRecord, guard: FencingGuard | None = None
+    ) -> bool:
+        if guard is not None:
+            await guard.assert_live()
         removed = await asyncio.to_thread(
             self._orchestrator.clean_previous_tree, journal
         )
@@ -1644,7 +1966,10 @@ class LiveRefreshService:
     ) -> RefreshJournalRecord:
         """Unpin the backup and Class-C snapshot and mark ``UPGRADE_CONFIRMED``."""
         segment = validate_server_segment(server_id)
-        async with self._lease_context(segment):
+        async with self._lease_context(segment) as lease:
+            guard = lease.guard
+            if guard is not None:
+                await guard.assert_live()
             record = await self._load(segment, journal_id)
             if record.phase == "UPGRADE_CONFIRMED":
                 return record
@@ -1655,20 +1980,63 @@ class LiveRefreshService:
                 )
             if record.pre_upgrade_backup_id:
                 backup = self._require_backup()
+                if guard is not None:
+                    await guard.assert_live()
                 await backup.set_pinned(
                     segment, record.pre_upgrade_backup_id, False
                 )
             if record.class_c_snapshot_id:
+                if guard is not None:
+                    await guard.assert_live()
                 await asyncio.to_thread(
                     self._class_c.unpin_snapshot,
                     segment,
                     record.class_c_snapshot_id,
                 )
             if record.retention_policy == RETENTION_UNTIL_CONFIRM:
-                await self._clean_previous(record)
+                await self._clean_previous(record, guard)
+            if guard is not None:
+                await guard.assert_live()
             return await self._repository.mark_upgrade_confirmed(
                 record.journal_id, fencing_token=record.fencing_token
             )
+
+    async def release_pins(
+        self, server_id: str, journal_id: str | None = None
+    ) -> RefreshJournalRecord:
+        """Explicitly unpin a rolled-back/failed journal's backup and snapshot.
+
+        ``ROLLED_BACK`` and ``FAILED_CLEAN`` journals deliberately keep their
+        recovery artifacts pinned; an operator releases them only after
+        deciding not to retry the refresh.
+        """
+        segment = validate_server_segment(server_id)
+        async with self._lease_context(segment) as lease:
+            guard = lease.guard
+            if guard is not None:
+                await guard.assert_live()
+            record = await self._load(segment, journal_id)
+            if record.phase not in ("ROLLED_BACK", "FAILED_CLEAN"):
+                raise ConflictError(
+                    f"Refresh journal {record.journal_id} is {record.phase}; "
+                    "pins can only be released for ROLLED_BACK or FAILED_CLEAN"
+                )
+            if record.pre_upgrade_backup_id:
+                backup = self._require_backup()
+                if guard is not None:
+                    await guard.assert_live()
+                await backup.set_pinned(
+                    segment, record.pre_upgrade_backup_id, False
+                )
+            if record.class_c_snapshot_id:
+                if guard is not None:
+                    await guard.assert_live()
+                await asyncio.to_thread(
+                    self._class_c.unpin_snapshot,
+                    segment,
+                    record.class_c_snapshot_id,
+                )
+            return record
 
     async def rollback(
         self,
@@ -1679,12 +2047,12 @@ class LiveRefreshService:
     ) -> RollbackResult:
         """Roll back while holding the lifecycle then repo lease."""
         segment = validate_server_segment(server_id)
-        async with self._lease_context(segment) as token:
+        async with self._lease_context(segment) as lease:
             return await self._rollback.rollback(
                 segment,
                 journal_id,
                 reason=reason,
-                fencing_token=token,
+                fencing_token=lease.fencing_token,
             )
 
     async def _load(
@@ -1739,8 +2107,23 @@ class RollbackRefreshCommand:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class ReleaseRefreshPinsCommand:
+    """Command wrapper for explicitly unpinning a rolled-back journal."""
+
+    server_id: str
+    journal_id: str | None = None
+
+
+RefreshServiceFactory = LiveRefreshService | Callable[[], LiveRefreshService]
+
+
+def _resolve_refresh_service(service: RefreshServiceFactory) -> LiveRefreshService:
+    return service() if callable(service) else service
+
+
 class RefreshServerCommandHandler:
-    def __init__(self, service: LiveRefreshService) -> None:
+    def __init__(self, service: RefreshServiceFactory) -> None:
         self._service = service
 
     async def __call__(self, command: RefreshServerCommand) -> LiveRefreshResult:
@@ -1749,26 +2132,36 @@ class RefreshServerCommandHandler:
                 "command server_id does not match the refresh request",
                 field="server_id",
             )
-        return await self._service.refresh(command.request)
+        return await _resolve_refresh_service(self._service).refresh(command.request)
 
 
 class ConfirmUpgradeCommandHandler:
-    def __init__(self, service: LiveRefreshService) -> None:
+    def __init__(self, service: RefreshServiceFactory) -> None:
         self._service = service
 
     async def __call__(self, command: ConfirmUpgradeCommand) -> RefreshJournalRecord:
-        return await self._service.confirm_upgrade_unpin(
+        return await _resolve_refresh_service(self._service).confirm_upgrade_unpin(
             command.server_id, command.journal_id
         )
 
 
 class RollbackRefreshCommandHandler:
-    def __init__(self, service: LiveRefreshService) -> None:
+    def __init__(self, service: RefreshServiceFactory) -> None:
         self._service = service
 
     async def __call__(self, command: RollbackRefreshCommand) -> RollbackResult:
-        return await self._service.rollback(
+        return await _resolve_refresh_service(self._service).rollback(
             command.server_id, command.journal_id, reason=command.reason
+        )
+
+
+class ReleaseRefreshPinsCommandHandler:
+    def __init__(self, service: RefreshServiceFactory) -> None:
+        self._service = service
+
+    async def __call__(self, command: ReleaseRefreshPinsCommand) -> RefreshJournalRecord:
+        return await _resolve_refresh_service(self._service).release_pins(
+            command.server_id, command.journal_id
         )
 
 
@@ -1789,6 +2182,7 @@ __all__ = [
     "CarrySwapResult",
     "ConfirmUpgradeCommand",
     "ConfirmUpgradeCommandHandler",
+    "FencingGuard",
     "HealthGateEvaluator",
     "HealthGateResult",
     "LiveRefreshRequest",
@@ -1797,10 +2191,14 @@ __all__ = [
     "RefreshOrchestrator",
     "RefreshServerCommand",
     "RefreshServerCommandHandler",
+    "RefreshServiceFactory",
+    "ReleaseRefreshPinsCommand",
+    "ReleaseRefreshPinsCommandHandler",
     "RollbackRefreshCommand",
     "RollbackRefreshCommandHandler",
     "RollbackResult",
     "ServerRuntimePort",
+    "Tier1BackupServiceAdapter",
     "TriadRollbackService",
     "assert_carried_entries_present",
     "carry_complement_entries",

@@ -44,6 +44,9 @@ from app.modules.server.infrastructure.providers import provider_factory
 from app.modules.server.infrastructure.providers.base import ServerRuntimeStatus
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
+from app.modules.versioning.infrastructure.refresh_journal import (
+    assert_no_unresolved_refresh,
+)
 
 logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.restart_server")
 
@@ -65,6 +68,9 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
     async def handle(self, command: RestartServerCommand) -> CommandResult:
         server_id = ServerId(command.server_id)
         sid = str(server_id)
+
+        # Never stop or replace a tree while a refresh/rollback is unresolved.
+        await assert_no_unresolved_refresh(sid)
 
         # Check for active backups for this server and wait up to _BACKUP_WAIT_CAP_S
         backup_deadline = time.monotonic() + _BACKUP_WAIT_CAP_S
