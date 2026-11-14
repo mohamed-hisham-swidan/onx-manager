@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.backup.domain.aggregate import BackupJob, BackupPolicy, BackupStatus, BackupType
@@ -48,13 +48,88 @@ class SQLBackupRepository(BackupRepository):
         model.storage_path = job.storage_path or None
         model.error_message = job.error_message or None
         model.completed_at = job.completed_at
+        model.pinned = bool(job.pinned)
         await self._session.flush()
 
     async def delete_job(self, backup_id: BackupJobId) -> None:
         model = await self._session.get(BackupJobModel, str(backup_id))
-        if model:
-            await self._session.delete(model)
-            await self._session.flush()
+        if model is None:
+            return
+        if bool(model.pinned):
+            from app.core.exceptions import BackupPinnedError
+
+            raise BackupPinnedError(str(backup_id))
+        await self._session.delete(model)
+        await self._session.flush()
+
+    async def set_pinned(self, backup_id: BackupJobId, pinned: bool) -> BackupJob:
+        model = await self._session.get(BackupJobModel, str(backup_id))
+        if model is None:
+            from app.core.exceptions import NotFoundError
+
+            raise NotFoundError(f"Backup job '{backup_id}' not found")
+        model.pinned = bool(pinned)
+        await self._session.flush()
+        return self._job_model_to_domain(model)
+
+    async def prune_old_backups(
+        self,
+        server_id: ServerId,
+        *,
+        max_backups: int | None = None,
+        retention_days: int | None = None,
+        now: datetime | None = None,
+    ) -> list[str]:
+        from app.core.exceptions import ValidationError
+
+        if max_backups is not None and max_backups < 0:
+            raise ValidationError("max_backups must be non-negative", field="max_backups")
+        if retention_days is not None and retention_days < 0:
+            raise ValidationError("retention_days must be non-negative", field="retention_days")
+
+        if max_backups is None and retention_days is None:
+            policy = await self._session.get(BackupPolicyModel, str(server_id))
+            if policy is None:
+                return []
+            max_backups = policy.max_backups
+            retention_days = policy.retention_days
+
+        result = await self._session.execute(
+            select(BackupJobModel)
+            .where(BackupJobModel.server_id == str(server_id))
+            .order_by(BackupJobModel.created_at.desc())
+        )
+        rows = [row for row in result.scalars().all() if not bool(row.pinned)]
+        moment = now or datetime.now(UTC)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        cutoff = (
+            moment - timedelta(days=retention_days) if retention_days is not None else None
+        )
+
+        to_delete: set[str] = set()
+        if cutoff is not None:
+            for row in rows:
+                created_at = row.created_at
+                if created_at is None:
+                    continue
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=UTC)
+                if created_at < cutoff:
+                    to_delete.add(row.id)
+
+        if max_backups is not None:
+            survivors = [row for row in rows if row.id not in to_delete]
+            for row in survivors[max_backups:]:
+                to_delete.add(row.id)
+
+        if not to_delete:
+            return []
+        await self._session.execute(
+            delete(BackupJobModel).where(BackupJobModel.id.in_(to_delete))
+        )
+        await self._session.flush()
+        return sorted(to_delete)
 
     async def get_policy(self, server_id: ServerId) -> BackupPolicy | None:
         model = await self._session.get(BackupPolicyModel, str(server_id))
@@ -128,4 +203,5 @@ class SQLBackupRepository(BackupRepository):
             error_message=model.error_message or "",
             created_at=model.created_at,
             completed_at=model.completed_at,
+            pinned=bool(model.pinned),
         )

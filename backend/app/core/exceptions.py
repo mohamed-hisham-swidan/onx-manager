@@ -181,6 +181,17 @@ class FencingTokenMismatchError(ConflictError):
         )
 
 
+class BackupPinnedError(ConflictError):
+    def __init__(self, backup_id: str, message: str = "") -> None:
+        MCSError.__init__(
+            self,
+            message or f"Backup '{backup_id}' is pinned and cannot be deleted",
+            code="BACKUP_PINNED",
+            http_status=409,
+            details={"backup_id": backup_id},
+        )
+
+
 class GuardConfigurationError(MCSError):
     def __init__(self, message: str = "") -> None:
         super().__init__(

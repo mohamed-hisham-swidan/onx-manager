@@ -19,6 +19,7 @@ class CreateBackupCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
     backup_type: str = "full"
+    pinned: bool = False
 
 
 class CreateBackupHandler(CommandHandler[CreateBackupCommand]):
@@ -36,6 +37,7 @@ class CreateBackupHandler(CommandHandler[CreateBackupCommand]):
                 backup_id=backup_id,
                 server_id=server_id,
                 backup_type=backup_type,
+                pinned=command.pinned,
             )
             await repo.save_job(job)
             for event in job.collect_events():
