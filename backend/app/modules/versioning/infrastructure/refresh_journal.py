@@ -310,6 +310,28 @@ class RefreshJournalRepository:
         self._sync_session_factory = sync_session_factory
         self._owned_engine: Engine | None = None
 
+    @property
+    def dialect_name(self) -> str:
+        """Best-effort SQL dialect of the journal's session binding.
+
+        Returns ``""`` when no binding can be resolved; callers that require a
+        specific dialect must treat that as fail-closed.
+        """
+        for factory in (self._session_factory, self._sync_session_factory):
+            if factory is None:
+                continue
+            bind = factory.kw.get("bind")
+            if bind is not None:
+                return str(bind.dialect.name)
+        if self._owned_engine is not None:
+            return str(self._owned_engine.dialect.name)
+        from app.core.persistence.db import database
+
+        try:
+            return str(database.engine.dialect.name)
+        except RuntimeError:
+            return ""
+
     # ------------------------------------------------------------------
     # Session factories
     # ------------------------------------------------------------------
@@ -1161,13 +1183,17 @@ async def assert_no_unresolved_refresh(
     server_id: str,
     *,
     repository: RefreshJournalRepository | None = None,
+    allow_journal_id: str | None = None,
 ) -> None:
     """Fail closed when ``server_id`` still has a non-terminal refresh journal.
 
     Start/restart must never replace a tree while a refresh/rollback is
-    unresolved. The check is best-effort only for a database whose schema has
-    not been created yet (bare unit-test fixtures); every other error
-    propagates so boot stays fail-closed.
+    unresolved. ``allow_journal_id`` exempts exactly one journal: the active
+    refresh/rollback's own id. A different unresolved journal still blocks.
+
+    The check is best-effort only for a database whose schema has not been
+    created yet (bare unit-test fixtures); every other error propagates so boot
+    stays fail-closed.
     """
     owned = repository is None
     repo = repository or RefreshJournalRepository(resolve_host_state_layout())
@@ -1181,7 +1207,7 @@ async def assert_no_unresolved_refresh(
     finally:
         if owned:
             repo.close()
-    if record is not None:
+    if record is not None and record.journal_id != allow_journal_id:
         raise RefreshRecoveryRequiredError(
             server_id,
             journal_id=record.journal_id,

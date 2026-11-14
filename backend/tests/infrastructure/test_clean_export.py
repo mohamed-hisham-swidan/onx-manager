@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import os
@@ -29,6 +30,9 @@ from app.modules.versioning.infrastructure.clean_export import (
     CleanExportService,
 )
 from app.modules.versioning.infrastructure.git_repository import GitRepositoryService
+from app.modules.versioning.infrastructure.runtime_adapters import (
+    CleanExportStageAdapter,
+)
 
 pytestmark = pytest.mark.skipif(
     os.name != "posix",
@@ -327,6 +331,39 @@ def test_unresolved_secret_fails_and_removes_export(
                 secrets={},
             )
         )
+    assert not destination.exists()
+
+
+def test_stage_export_adapter_fails_closed_on_unresolved_secret(
+    repo: tuple[HostStateLayout, Path, str],
+    tmp_path: Path,
+) -> None:
+    """P2-6a2: the adapter always forwards ``secrets={}`` and fails closed."""
+    layout, root, sha = repo
+    _prepare_lec(layout)
+    destination = tmp_path / "adapter-export"
+
+    async def run() -> None:
+        adapter = CleanExportStageAdapter(
+            layout,
+            server_id=SERVER_ID,
+            server_root=root,
+            lockfile=_lockfile(lec=LecRef(key=PAPER_LEC_KEY)),
+            loop=asyncio.get_running_loop(),
+            panel_properties={
+                "rcon.password": "${ONX_SECRET_RCON_PASSWORD}",
+            },
+            jvm_args="",
+        )
+        with pytest.raises(ValidationError, match="Unresolved secret"):
+            await adapter(
+                destination,
+                sha,
+                export_id="exp-adapter",
+                fencing_verifier=lambda: None,
+            )
+
+    asyncio.run(run())
     assert not destination.exists()
 
 

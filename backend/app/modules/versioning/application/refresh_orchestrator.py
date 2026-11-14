@@ -35,11 +35,17 @@ import re
 import shutil
 import threading
 import uuid
-from collections.abc import AsyncIterator, Callable, Iterable, Iterator
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    Iterator,
+)
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.exceptions import (
@@ -47,6 +53,7 @@ from app.core.exceptions import (
     FencingTokenMismatchError,
     InsufficientStorageError,
     NotFoundError,
+    ServerModeVersioningDisabledError,
     ValidationError,
 )
 from app.core.host_state import HostStateLayout, validate_server_segment
@@ -916,6 +923,7 @@ class HealthGateEvaluator:
         boot_log: Callable[[], str] | None = None,
         ready: Callable[[], bool] | None = None,
         stability_window: float = 0.0,
+        timeout: float | None = None,
         sleep: Callable[[float], Any] | None = None,
     ) -> None:
         if not callable(process_alive):
@@ -932,11 +940,26 @@ class HealthGateEvaluator:
             raise ValidationError(
                 "stability_window must be non-negative", field="stability_window"
             )
+        if timeout is not None:
+            if not isinstance(timeout, (int, float)) or isinstance(timeout, bool):
+                raise ValidationError(
+                    "timeout must be a number", field="timeout"
+                )
+            if float(timeout) <= 0:
+                raise ValidationError(
+                    "timeout must be positive", field="timeout"
+                )
         self._process_alive = process_alive
         self._boot_log = boot_log
         self._ready = ready
         self._stability_window = float(stability_window)
+        self._timeout = None if timeout is None else float(timeout)
         self._sleep = sleep or asyncio.sleep
+
+    @property
+    def timeout(self) -> float | None:
+        """Configured readiness timeout in seconds, when bounded."""
+        return self._timeout
 
     async def evaluate(self) -> HealthGateResult:
         """Run all four steps, stopping at the first failure."""
@@ -957,12 +980,29 @@ class HealthGateEvaluator:
                 return HealthGateResult(
                     passed=False, failed_step=STEP_BOOT_LOG, reason=reason
                 )
-        if self._ready is not None and not await asyncio.to_thread(self._ready):
-            return HealthGateResult(
-                passed=False,
-                failed_step=STEP_READINESS,
-                reason="server did not report ready",
-            )
+        if self._ready is not None:
+            timeout = self._timeout
+            try:
+                ready_call = asyncio.to_thread(self._ready)
+                if timeout is None:
+                    ready = await ready_call
+                else:
+                    ready = await asyncio.wait_for(ready_call, timeout=timeout)
+            except TimeoutError:
+                return HealthGateResult(
+                    passed=False,
+                    failed_step=STEP_READINESS,
+                    reason=(
+                        "server did not report ready within "
+                        f"{(timeout or 0.0):.0f}s"
+                    ),
+                )
+            if not ready:
+                return HealthGateResult(
+                    passed=False,
+                    failed_step=STEP_READINESS,
+                    reason="server did not report ready",
+                )
         if self._stability_window > 0:
             await self._sleep(self._stability_window)
         if not await asyncio.to_thread(self._process_alive):
@@ -988,6 +1028,7 @@ async def run_health_gate(
     boot_log: Callable[[], str] | None = None,
     ready: Callable[[], bool] | None = None,
     stability_window: float = 0.0,
+    timeout: float | None = None,
     sleep: Callable[[float], Any] | None = None,
 ) -> HealthGateResult:
     """Convenience wrapper around :class:`HealthGateEvaluator`."""
@@ -996,6 +1037,7 @@ async def run_health_gate(
         boot_log=boot_log,
         ready=ready,
         stability_window=stability_window,
+        timeout=timeout,
         sleep=sleep,
     )
     return await evaluator.evaluate()
@@ -1034,6 +1076,24 @@ class BackupServicePort(Protocol):
     async def set_pinned(
         self, server_id: str, backup_id: str, pinned: bool
     ) -> None: ...
+
+
+class StageExportPort(Protocol):
+    """Clean-export surface; adapters run the blocking work off the loop."""
+
+    def __call__(
+        self,
+        staging: Path,
+        commit_sha: str,
+        *,
+        export_id: str,
+        fencing_verifier: Callable[[], None],
+    ) -> Awaitable[Any] | Any: ...
+
+
+def _noop_fencing_verifier() -> None:
+    """Fencing check used only when the caller holds no repo lease token."""
+    return None
 
 
 class Tier1BackupServiceAdapter:
@@ -1191,7 +1251,7 @@ class TriadRollbackService:
         class_c_service: ClassCSnapshotService | None = None,
         backup_service: BackupServicePort | None = None,
         runtime: ServerRuntimePort | None = None,
-        stage_export: Callable[[Path, str], Any] | None = None,
+        stage_export: StageExportPort | None = None,
         reset_main_ref: Callable[[str, str], None] | None = None,
         repo_lease: RepoLeaseManager | None = None,
         servers_data_dir: str | os.PathLike[str] | None = None,
@@ -1391,7 +1451,12 @@ class TriadRollbackService:
         if os.path.lexists(staging):
             raise ConflictError(f"A stale rollback tree blocks rollback: {staging}")
         try:
-            result = self._stage_export(staging, journal.previous_main_sha)
+            result = self._stage_export(
+                staging,
+                journal.previous_main_sha,
+                export_id=journal.export_id or journal.journal_id,
+                fencing_verifier=lambda: self._assert_fence(segment, token),
+            )
             awaitable = _as_awaitable(result)
             if awaitable is not None:
                 await awaitable
@@ -1544,7 +1609,7 @@ class LiveRefreshService:
         backup_service: BackupServicePort | None = None,
         runtime: ServerRuntimePort | None = None,
         health_gate: HealthGateEvaluator | None = None,
-        stage_export: Callable[[Path, str], Any] | None = None,
+        stage_export: StageExportPort | None = None,
         reset_main_ref: Callable[[str, str], None] | None = None,
         lifecycle_lease: Any | None = None,
         repo_lease: RepoLeaseManager,
@@ -1562,6 +1627,12 @@ class LiveRefreshService:
             )
         self._layout = layout
         self._repository = repository or RefreshJournalRepository(layout)
+        dialect = getattr(self._repository, "dialect_name", None)
+        if isinstance(dialect, str) and dialect.lower() != "sqlite":
+            raise ServerModeVersioningDisabledError(
+                "Live refresh is SQLite-only until the Postgres sync driver "
+                f"and CI job are approved; this database uses '{dialect or 'unknown'}'"
+            )
         self._orchestrator = orchestrator or RefreshOrchestrator(
             layout,
             repository=self._repository,
@@ -1655,7 +1726,7 @@ class LiveRefreshService:
             )
         return self._backup
 
-    def _require_stage_export(self) -> Callable[[Path, str], Any]:
+    def _require_stage_export(self) -> StageExportPort:
         if self._stage_export is None:
             raise ValidationError(
                 "An export runner is required for live refresh", field="stage_export"
@@ -1665,11 +1736,20 @@ class LiveRefreshService:
     def _evaluator(self, runtime: ServerRuntimePort) -> HealthGateEvaluator:
         if self._health_gate is not None:
             return self._health_gate
+        raw_timeout = getattr(runtime, "startup_timeout_seconds", None)
+        timeout = (
+            float(raw_timeout)
+            if isinstance(raw_timeout, (int, float))
+            and not isinstance(raw_timeout, bool)
+            and raw_timeout > 0
+            else None
+        )
         return HealthGateEvaluator(
             process_alive=runtime.process_alive,
             boot_log=getattr(runtime, "boot_log", None),
             ready=getattr(runtime, "ready", None),
             stability_window=self._stability_window,
+            timeout=timeout,
         )
 
     # ------------------------------------------------------------------
@@ -1791,7 +1871,14 @@ class LiveRefreshService:
         if guard is not None:
             await guard.assert_live()
         with staging_enospc_guard(staging, live_dir=live):
-            staged = stage_export(staging, request.target_main_sha)
+            staged = stage_export(
+                staging,
+                request.target_main_sha,
+                export_id=journal.export_id or request.export_id,
+                fencing_verifier=(
+                    guard.check if guard is not None else _noop_fencing_verifier
+                ),
+            )
             awaitable = _as_awaitable(staged)
             if awaitable is not None:
                 await awaitable
@@ -1808,6 +1895,12 @@ class LiveRefreshService:
         journal = await self._transition(
             journal.journal_id, guard=guard, token=token, phase="STARTING"
         )
+        mark_refresh_start = getattr(runtime, "mark_refresh_start", None)
+        if callable(mark_refresh_start):
+            mark_refresh_start(self._now())
+        prepare_start = getattr(runtime, "prepare_start", None)
+        if callable(prepare_start):
+            prepare_start(journal.journal_id)
         if not await asyncio.to_thread(runtime.start):
             raise ConflictError(f"Server '{segment}' failed to start after the swap")
         journal = await self._transition(
@@ -2112,11 +2205,22 @@ class ReleaseRefreshPinsCommand(Command):
     journal_id: str | None = None
 
 
-RefreshServiceFactory = LiveRefreshService | Callable[[], LiveRefreshService]
+RefreshServiceFactory = (
+    LiveRefreshService
+    | Callable[[str], Awaitable[LiveRefreshService] | LiveRefreshService]
+)
 
 
-def _resolve_refresh_service(service: RefreshServiceFactory) -> LiveRefreshService:
-    return service() if callable(service) else service
+async def _resolve_refresh_service(
+    service: RefreshServiceFactory, server_id: str
+) -> LiveRefreshService:
+    """Resolve a per-request service, awaiting an async factory when supplied."""
+    if isinstance(service, LiveRefreshService):
+        return service
+    result = service(server_id)
+    if inspect.isawaitable(result):
+        return await cast(Awaitable[LiveRefreshService], result)
+    return cast(LiveRefreshService, result)
 
 
 class RefreshServerCommandHandler(CommandHandler[RefreshServerCommand]):
@@ -2132,7 +2236,8 @@ class RefreshServerCommandHandler(CommandHandler[RefreshServerCommand]):
                 "command server_id does not match the refresh request",
                 field="server_id",
             )
-        return await _resolve_refresh_service(self._service).refresh(command.request)
+        service = await _resolve_refresh_service(self._service, command.server_id)
+        return await service.refresh(command.request)
 
 
 class ConfirmUpgradeCommandHandler(CommandHandler[ConfirmUpgradeCommand]):
@@ -2143,7 +2248,8 @@ class ConfirmUpgradeCommandHandler(CommandHandler[ConfirmUpgradeCommand]):
         return CommandResult(success=True, data=await self(command))
 
     async def __call__(self, command: ConfirmUpgradeCommand) -> RefreshJournalRecord:
-        return await _resolve_refresh_service(self._service).confirm_upgrade_unpin(
+        service = await _resolve_refresh_service(self._service, command.server_id)
+        return await service.confirm_upgrade_unpin(
             command.server_id, command.journal_id
         )
 
@@ -2156,7 +2262,8 @@ class RollbackRefreshCommandHandler(CommandHandler[RollbackRefreshCommand]):
         return CommandResult(success=True, data=await self(command))
 
     async def __call__(self, command: RollbackRefreshCommand) -> RollbackResult:
-        return await _resolve_refresh_service(self._service).rollback(
+        service = await _resolve_refresh_service(self._service, command.server_id)
+        return await service.rollback(
             command.server_id, command.journal_id, reason=command.reason
         )
 
@@ -2169,9 +2276,8 @@ class ReleaseRefreshPinsCommandHandler(CommandHandler[ReleaseRefreshPinsCommand]
         return CommandResult(success=True, data=await self(command))
 
     async def __call__(self, command: ReleaseRefreshPinsCommand) -> RefreshJournalRecord:
-        return await _resolve_refresh_service(self._service).release_pins(
-            command.server_id, command.journal_id
-        )
+        service = await _resolve_refresh_service(self._service, command.server_id)
+        return await service.release_pins(command.server_id, command.journal_id)
 
 
 __all__ = [
@@ -2207,6 +2313,7 @@ __all__ = [
     "RollbackRefreshCommandHandler",
     "RollbackResult",
     "ServerRuntimePort",
+    "StageExportPort",
     "Tier1BackupServiceAdapter",
     "TriadRollbackService",
     "assert_carried_entries_present",

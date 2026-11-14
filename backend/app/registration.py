@@ -1,4 +1,11 @@
-from app.core.command_bus import CommandBus, DatabaseBusyRetryMiddleware
+import asyncio
+from typing import cast
+
+from app.core.command_bus import (
+    CommandBus,
+    DatabaseBusyRetryMiddleware,
+    Middleware,
+)
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyMiddleware, get_idempotency_store
 from app.core.query_bus import QueryBus
@@ -282,20 +289,73 @@ from app.modules.versioning.application.refresh_orchestrator import (
 from app.modules.versioning.application.repo_lease import RepoLeaseManager
 
 
-def _build_live_refresh_service() -> LiveRefreshService:
-    """Lazily construct the refresh service from the process-wide database.
+async def _build_live_refresh_service(
+    server_id: str,
+    *,
+    event_bus: EventBus,
+) -> LiveRefreshService:
+    """Construct a fresh per-request refresh service and runtime/export adapters.
 
-    The runtime and stage-export ports remain injected by the caller because
-    the server module owns provider lifecycle; this wiring deliberately adds
-    no HTTP route.
+    Capturing the running loop and loading the server row happens at async
+    handler entry. The adapters stay immutable for the rest of the request and
+    every blocking half is dispatched with ``asyncio.to_thread``.
     """
+    from app.core.exceptions import ValidationError
     from app.core.host_state import ensure_host_state_layout
+    from app.core.persistence.unit_of_work import UnitOfWork
+    from app.core.settings_store import get_live_settings
+    from app.modules.server.application.commands.start_server import (
+        StartServerHandler,
+    )
+    from app.modules.server.application.commands.stop_server import StopServerHandler
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+    from app.modules.shared.value_objects import ServerId
+    from app.modules.versioning.application.lockfile_service import LockfileService
+    from app.modules.versioning.infrastructure.runtime_adapters import (
+        CleanExportStageAdapter,
+        DockerServerRuntimeAdapter,
+        require_docker_provider,
+    )
 
+    loop = asyncio.get_running_loop()
     layout = ensure_host_state_layout()
+    async with UnitOfWork() as uow:
+        server = await SQLServerRepository(uow.session).get(ServerId(server_id))
+    if server.deployment is None:
+        raise ValidationError(
+            "Live refresh requires a deployed server directory", field="server_id"
+        )
+    server_root = server.deployment.server_directory()
+    provider = require_docker_provider(
+        server.runtime.provider if server.runtime else None
+    )
+    startup_timeout = float(
+        server.startup_timeout_seconds
+        or get_live_settings().server_startup_timeout_seconds
+    )
+    lockfile = await asyncio.to_thread(LockfileService(layout).read, server_id)
+    runtime = DockerServerRuntimeAdapter(
+        server_id=server_id,
+        loop=loop,
+        start_handler=StartServerHandler(event_bus).handle,
+        stop_handler=StopServerHandler(event_bus).handle,
+        server_dir=server_root,
+        startup_timeout_seconds=startup_timeout,
+        provider_name=provider,
+    )
+    stage_export = CleanExportStageAdapter(
+        layout,
+        server_id=server_id,
+        server_root=server_root,
+        lockfile=lockfile,
+        loop=loop,
+    )
     return LiveRefreshService(
         layout,
         repo_lease=RepoLeaseManager(locks_dir=layout.locks),
         backup_service=Tier1BackupServiceAdapter(),
+        runtime=runtime,
+        stage_export=stage_export,
     )
 
 
@@ -368,7 +428,9 @@ def _register_event_handlers(event_bus: EventBus) -> None:
 
 
 def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> None:
-    command_bus.add_middleware(IdempotencyMiddleware(get_idempotency_store()))
+    command_bus.add_middleware(
+        cast(Middleware, IdempotencyMiddleware(get_idempotency_store()))
+    )
     command_bus.add_middleware(DatabaseBusyRetryMiddleware())
     command_bus.add_middleware(ServerLifecycleLockMiddleware(get_lifecycle_lease_manager()))
     command_bus.register(CreateServerCommand, CreateServerHandler(event_bus))
@@ -495,20 +557,24 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
         RemoveBranchProtectionCommand,
         RemoveBranchProtectionHandler(),
     )
+
+    async def build_refresh_service(server_id: str) -> LiveRefreshService:
+        return await _build_live_refresh_service(server_id, event_bus=event_bus)
+
     command_bus.register(
-        RefreshServerCommand, RefreshServerCommandHandler(_build_live_refresh_service)
+        RefreshServerCommand, RefreshServerCommandHandler(build_refresh_service)
     )
     command_bus.register(
         RollbackRefreshCommand,
-        RollbackRefreshCommandHandler(_build_live_refresh_service),
+        RollbackRefreshCommandHandler(build_refresh_service),
     )
     command_bus.register(
         ConfirmUpgradeCommand,
-        ConfirmUpgradeCommandHandler(_build_live_refresh_service),
+        ConfirmUpgradeCommandHandler(build_refresh_service),
     )
     command_bus.register(
         ReleaseRefreshPinsCommand,
-        ReleaseRefreshPinsCommandHandler(_build_live_refresh_service),
+        ReleaseRefreshPinsCommandHandler(build_refresh_service),
     )
     op_service = get_operation_service(event_bus=event_bus)
     command_bus.register(CreateOperationCommand, CreateOperationHandler(op_service))

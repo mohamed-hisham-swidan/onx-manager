@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -73,6 +75,25 @@ def test_check_crash_reports_with_report(tmp_path: Path) -> None:
     assert "Server crashed during boot" in reason
 
 
+def test_check_crash_reports_ignores_reports_before_since(tmp_path: Path) -> None:
+    crash_dir = tmp_path / "crash-reports"
+    crash_dir.mkdir()
+    crash_file = crash_dir / "crash-2026-09-23_12.00.00-server.txt"
+    crash_file.write_text(
+        "---- Minecraft Crash Report ----\n"
+        "Description: Exception in server tick loop\n",
+        encoding="utf-8",
+    )
+    old = datetime.now(UTC) - timedelta(hours=1)
+    os.utime(crash_file, (old.timestamp(), old.timestamp()))
+
+    assert check_crash_reports(crash_dir, since=datetime.now(UTC))[0] is False
+    assert (
+        check_crash_reports(crash_dir, since=old - timedelta(seconds=1))[0]
+        is True
+    )
+
+
 @pytest.mark.asyncio
 async def test_check_container_liveness() -> None:
     with patch("subprocess.run") as mock_run:
@@ -123,6 +144,71 @@ async def test_poll_boot_signals_marker_success() -> None:
 
 
 @pytest.mark.asyncio
+async def test_poll_boot_signals_ignores_stale_latest_log(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "logs" / "latest.log"
+    log_path.parent.mkdir(parents=True)
+    log_path.write_text("[INFO] Done (1.0s)!\n", encoding="utf-8")
+    old = datetime.now(UTC) - timedelta(hours=1)
+    os.utime(log_path, (old.timestamp(), old.timestamp()))
+
+    since_calls: list[datetime] = []
+
+    async def get_logs_since(since: datetime) -> list[str]:
+        since_calls.append(since)
+        return ["[INFO] Loading worlds..."]
+
+    async def get_logs() -> list[str]:
+        raise AssertionError("since-aware polling must not use stale get_logs")
+
+    result = await poll_boot_signals(
+        timeout=0.05,
+        poll_interval=0.01,
+        log_path=log_path,
+        log_since=datetime.now(UTC),
+        get_logs=get_logs,
+        get_logs_since=get_logs_since,
+    )
+
+    assert result.passed is False
+    assert since_calls
+
+
+@pytest.mark.asyncio
+async def test_poll_boot_signals_accepts_fresh_latest_log(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "logs" / "latest.log"
+    log_path.parent.mkdir(parents=True)
+    log_path.write_text("[INFO] Done (1.0s)!\n", encoding="utf-8")
+
+    result = await poll_boot_signals(
+        timeout=0.05,
+        poll_interval=0.01,
+        log_path=log_path,
+        log_since=datetime.now(UTC) - timedelta(minutes=1),
+    )
+
+    assert result.passed is True
+
+
+@pytest.mark.asyncio
+async def test_poll_boot_signals_does_not_fall_back_to_unfiltered_logs() -> None:
+    async def get_logs() -> list[str]:
+        return ["[INFO] Done (1.0s)!"]
+
+    result = await poll_boot_signals(
+        timeout=0.05,
+        poll_interval=0.01,
+        log_since=datetime.now(UTC),
+        get_logs=get_logs,
+    )
+
+    assert result.passed is False
+
+
+@pytest.mark.asyncio
 async def test_poll_boot_signals_liveness_failure() -> None:
     call_count = 0
 
@@ -163,7 +249,6 @@ async def test_poll_boot_signals_crash_detected(tmp_path: Path) -> None:
         timeout=5.0,
         poll_interval=0.01,
         crash_dir=crash_dir,
-        get_logs=lambda: iter([]),
     )
 
     assert result.passed is False

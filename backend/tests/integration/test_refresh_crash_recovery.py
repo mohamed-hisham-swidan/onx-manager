@@ -829,6 +829,40 @@ def test_assert_no_unresolved_refresh_fails_closed_until_terminal(
     asyncio.run(assert_no_unresolved_refresh(SERVER_ID, repository=env.repository))
 
 
+def test_assert_no_unresolved_refresh_allows_only_its_own_journal(
+    recovery_env: RecoveryEnv,
+) -> None:
+    """P2-6a2: only the active refresh/rollback journal is exempt."""
+    env = recovery_env
+    live = env.servers_root / SERVER_ID
+    created = env.repository.create_sync(
+        server_id=SERVER_ID,
+        fencing_token=1,
+        phase="QUIESCED",
+        live_path=live,
+        staging_path=env.servers_root / f"{SERVER_ID}.staging",
+    )
+
+    asyncio.run(
+        assert_no_unresolved_refresh(
+            SERVER_ID,
+            repository=env.repository,
+            allow_journal_id=created.journal_id,
+        )
+    )
+
+    with pytest.raises(RefreshRecoveryRequiredError) as blocked:
+        asyncio.run(
+            assert_no_unresolved_refresh(
+                SERVER_ID,
+                repository=env.repository,
+                allow_journal_id="different-journal",
+            )
+        )
+    assert blocked.value.http_status == 409
+    assert blocked.value.code == "REFRESH_RECOVERY_REQUIRED"
+
+
 async def test_start_and_restart_handlers_block_before_any_process_work(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -836,10 +870,12 @@ async def test_start_and_restart_handlers_block_before_any_process_work(
     import app.modules.server.application.commands.restart_server as restart_module
     import app.modules.server.application.commands.start_server as start_module
 
-    calls: list[str] = []
+    calls: list[tuple[str, str | None]] = []
 
-    async def blocked(server_id: str) -> None:
-        calls.append(server_id)
+    async def blocked(
+        server_id: str, *, allow_journal_id: str | None = None
+    ) -> None:
+        calls.append((server_id, allow_journal_id))
         raise RefreshRecoveryRequiredError(server_id, phase="VERIFYING_HEALTH")
 
     monkeypatch.setattr(start_module, "assert_no_unresolved_refresh", blocked)
@@ -849,10 +885,13 @@ async def test_start_and_restart_handlers_block_before_any_process_work(
 
     with pytest.raises(RefreshRecoveryRequiredError):
         await StartServerHandler(EventBus()).handle(
-            StartServerCommand(server_id=SERVER_ID)
+            StartServerCommand(server_id=SERVER_ID, allow_journal_id="own-journal")
         )
     with pytest.raises(RefreshRecoveryRequiredError):
         await RestartServerHandler(EventBus()).handle(
-            RestartServerCommand(server_id=SERVER_ID)
+            RestartServerCommand(server_id=SERVER_ID, allow_journal_id="own-journal")
         )
-    assert calls == [SERVER_ID, SERVER_ID]
+    assert calls == [
+        (SERVER_ID, "own-journal"),
+        (SERVER_ID, "own-journal"),
+    ]

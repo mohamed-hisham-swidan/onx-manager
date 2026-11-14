@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -127,6 +128,9 @@ class FakeRuntime:
     log: str = "Done (1.234s)! For help, type help"
     ready_ok: bool = True
     events: list[str] = field(default_factory=list)
+    start_hooks: list[str] = field(default_factory=list)
+    refresh_start: datetime | None = None
+    prepared_journal: str | None = None
 
     def is_running(self) -> bool:
         return self.running
@@ -140,10 +144,19 @@ class FakeRuntime:
 
     def start(self) -> bool:
         self.events.append("start")
+        self.start_hooks.append("start")
         if not self.start_ok:
             return False
         self.running = True
         return True
+
+    def mark_refresh_start(self, started_at: datetime) -> None:
+        self.refresh_start = started_at
+        self.start_hooks.append("mark_refresh_start")
+
+    def prepare_start(self, journal_id: str) -> None:
+        self.prepared_journal = journal_id
+        self.start_hooks.append(f"prepare:{journal_id}")
 
     def process_alive(self) -> bool:
         return self.alive
@@ -190,9 +203,24 @@ class FakeExporter:
         self.export_id = export_id
         self.ops = ops
         self.calls: list[tuple[Path, str]] = []
+        self.kwargs: list[dict[str, Any]] = []
+        self.fencing_calls = 0
 
-    async def __call__(self, staging: Path, commit_sha: str) -> None:
+    async def __call__(
+        self,
+        staging: Path,
+        commit_sha: str,
+        *,
+        export_id: str = "",
+        fencing_verifier: Callable[[], None] | None = None,
+    ) -> None:
         self.calls.append((Path(staging), commit_sha))
+        self.kwargs.append(
+            {"export_id": export_id, "fencing_verifier": fencing_verifier}
+        )
+        if fencing_verifier is not None:
+            fencing_verifier()
+            self.fencing_calls += 1
         staging.mkdir(parents=True, exist_ok=False)
         (staging / "server.properties").write_text(
             f"motd={commit_sha}\n", encoding="utf-8"
@@ -397,6 +425,16 @@ async def test_until_health_gate_refresh_completes_and_cleans_previous(
     assert journal.previous_tree_retained is False
     assert journal.retention_policy == "until_health_gate"
     assert exporter.calls[0][1] == TARGET_SHA
+    assert exporter.kwargs[0]["export_id"] == "exp-1"
+    assert exporter.kwargs[0]["fencing_verifier"] is not None
+    assert exporter.fencing_calls == 1
+    assert runtime.refresh_start is not None
+    assert runtime.prepared_journal == journal.journal_id
+    assert runtime.start_hooks == [
+        "mark_refresh_start",
+        f"prepare:{journal.journal_id}",
+        "start",
+    ]
 
     assert (live / "server.properties").read_text(encoding="utf-8") == f"motd={TARGET_SHA}\n"
     assert (live / "world" / "level.dat").read_text(encoding="utf-8") == "live-world"
@@ -558,6 +596,21 @@ async def test_health_gate_stability_window_rechecks_process() -> None:
     )
     assert result.passed is False
     assert result.failed_step == STEP_STABILITY
+
+
+async def test_health_gate_readiness_timeout_uses_configured_bound() -> None:
+    def slow_ready() -> bool:
+        time.sleep(0.2)
+        return True
+
+    result = await HealthGateEvaluator(
+        process_alive=lambda: True,
+        ready=slow_ready,
+        timeout=0.01,
+    ).evaluate()
+    assert result.passed is False
+    assert result.failed_step == STEP_READINESS
+    assert "within" in (result.reason or "")
 
 
 async def test_health_gate_rejects_negative_window() -> None:
@@ -751,6 +804,42 @@ async def test_refresh_command_handler_delegates(live_env: LiveEnv) -> None:
     )
     with pytest.raises(ValidationError):
         await handler(RefreshServerCommand(server_id=SERVER_ID, request=mismatch))
+
+
+class _StubRefreshService:
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.requests: list[LiveRefreshRequest] = []
+
+    async def refresh(self, request: LiveRefreshRequest) -> Any:
+        self.requests.append(request)
+        return SimpleNamespace(label=self.label)
+
+
+async def test_refresh_command_handler_builds_a_fresh_service_per_request(
+    live_env: LiveEnv,
+) -> None:
+    env = live_env
+    built: list[_StubRefreshService] = []
+
+    async def factory(server_id: str) -> Any:
+        assert server_id == SERVER_ID
+        service = _StubRefreshService(f"svc-{len(built) + 1}")
+        built.append(service)
+        return service
+
+    handler = RefreshServerCommandHandler(cast(Any, factory))
+    request = _request(env)
+
+    first = await handler(RefreshServerCommand(server_id=SERVER_ID, request=request))
+    second = await handler(RefreshServerCommand(server_id=SERVER_ID, request=request))
+
+    assert cast(Any, first).label == "svc-1"
+    assert cast(Any, second).label == "svc-2"
+    assert len(built) == 2
+    assert built[0] is not built[1]
+    assert built[0].requests == [request]
+    assert built[1].requests == [request]
 
 
 # ----------------------------------------------------------------------

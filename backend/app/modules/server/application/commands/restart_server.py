@@ -59,6 +59,9 @@ _FORCE_STOP_TIMEOUT: float = 15.0
 class RestartServerCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
+    # Only the active refresh/rollback may exempt its own journal from the boot
+    # guard; every other unresolved journal still blocks with HTTP 409.
+    allow_journal_id: str | None = None
 
 
 class RestartServerHandler(CommandHandler[RestartServerCommand]):
@@ -70,7 +73,9 @@ class RestartServerHandler(CommandHandler[RestartServerCommand]):
         sid = str(server_id)
 
         # Never stop or replace a tree while a refresh/rollback is unresolved.
-        await assert_no_unresolved_refresh(sid)
+        await assert_no_unresolved_refresh(
+            sid, allow_journal_id=command.allow_journal_id
+        )
 
         # Check for active backups for this server and wait up to _BACKUP_WAIT_CAP_S
         backup_deadline = time.monotonic() + _BACKUP_WAIT_CAP_S

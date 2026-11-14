@@ -13,6 +13,7 @@ import logging
 import subprocess
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from app.modules.health.infrastructure.crash_analyzer import PatternCrashAnalyzer
@@ -48,10 +49,25 @@ def check_log_markers(
     return any(marker in log_content for marker in markers)
 
 
+def _mtime_at_or_after(path: Path, since: datetime | None) -> bool:
+    """Return True when *path* was modified at/after *since* (or no cutoff)."""
+    if since is None:
+        return True
+    try:
+        return path.stat().st_mtime >= since.timestamp()
+    except OSError:
+        return False
+
+
 def check_crash_reports(
     crash_dir: Path | str,
+    *,
+    since: datetime | None = None,
 ) -> tuple[bool, str | None, str | None]:
     """Check for crash reports in the specified directory.
+
+    When *since* is supplied only reports modified at/after that timestamp are
+    considered, so a pre-refresh crash report cannot fail a new refresh.
 
     Returns:
         (has_crashed, failure_reason, blamed_mod)
@@ -60,7 +76,9 @@ def check_crash_reports(
     if not path.exists() or not path.is_dir():
         return False, None, None
 
-    crash_files = sorted(path.glob("crash-*.txt"))
+    crash_files = sorted(
+        file for file in path.glob("crash-*.txt") if _mtime_at_or_after(file, since)
+    )
     if not crash_files:
         return False, None, None
 
@@ -132,8 +150,15 @@ async def poll_boot_signals(
     log_path: Path | str | None = None,
     get_logs: Callable[[], Awaitable[str | list[str]]] | None = None,
     on_log: Callable[[str], None] | None = None,
+    log_since: datetime | None = None,
+    get_logs_since: Callable[[datetime], Awaitable[str | list[str]]] | None = None,
 ) -> BootSignalResult:
     """Poll for server boot completion using the crash / liveness / marker signal triple.
+
+    When *log_since* is supplied, pre-refresh crash reports and a stale
+    ``logs/latest.log`` (mtime older than the cutoff) are ignored, and
+    *get_logs_since* is used to fetch only container log lines produced after
+    the refresh started (for Docker this maps to ``docker logs --since``).
 
     Exits early when:
     - Crash report detected -> returns passed=False with blamed mod / failure reason.
@@ -162,7 +187,9 @@ async def poll_boot_signals(
     while True:
         # 1. Crash correlation check
         if crash_dir is not None:
-            crashed, failure_reason, blamed_mod = check_crash_reports(crash_dir)
+            crashed, failure_reason, blamed_mod = check_crash_reports(
+                crash_dir, since=log_since
+            )
             if crashed:
                 _log(f"[BOOT-GATE] {failure_reason}")
                 elapsed = loop.time() - start_time
@@ -202,7 +229,7 @@ async def poll_boot_signals(
         marker_found = False
         if log_path is not None:
             p = Path(log_path)
-            if p.exists() and p.is_file():
+            if p.exists() and p.is_file() and _mtime_at_or_after(p, log_since):
                 try:
                     content = p.read_text(encoding="utf-8", errors="replace")
                     if check_log_markers(content, markers):
@@ -210,14 +237,23 @@ async def poll_boot_signals(
                 except Exception as read_err:
                     logger.debug("Error reading log file %s: %s", log_path, read_err)
 
-        # Fallback or additional check via get_logs callable
-        if not marker_found and get_logs is not None:
+        # Fallback or additional check via logs callable. A since-aware callable
+        # is preferred so pre-refresh container lines cannot satisfy the marker;
+        # when a cutoff is required, never fall back to unfiltered logs.
+        dynamic_logs: str | list[str] | None = None
+        if not marker_found and log_since is not None:
+            if get_logs_since is not None:
+                try:
+                    dynamic_logs = await get_logs_since(log_since)
+                except Exception as get_err:
+                    logger.debug("Error retrieving since-filtered logs: %s", get_err)
+        elif not marker_found and get_logs is not None:
             try:
                 dynamic_logs = await get_logs()
-                if check_log_markers(dynamic_logs, markers):
-                    marker_found = True
             except Exception as get_err:
                 logger.debug("Error retrieving dynamic logs: %s", get_err)
+        if dynamic_logs is not None and check_log_markers(dynamic_logs, markers):
+            marker_found = True
 
         if marker_found:
             _log("[BOOT-GATE] Server boot confirmed (expected marker found in logs).")
