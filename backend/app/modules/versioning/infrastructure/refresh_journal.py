@@ -46,6 +46,8 @@ ACTIVE_PHASES = frozenset(
     {
         "QUIESCED",
         "STAGING",
+        "CARRYING",
+        "CARRIED",
         "SWAPPING",
         "STARTING",
         "HEALTH_CHECK",

@@ -49,7 +49,7 @@ from app.core.allowlist import (
 from app.core.exceptions import (
     ConflictError,
     InsufficientStorageError,
-    StorageCowUnavailableError,
+    ServerModeVersioningDisabledError,
     ValidationError,
 )
 from app.core.host_state import HostStateLayout, validate_server_segment
@@ -288,7 +288,9 @@ class CleanExportService:
         fencing_verifier: Callable[[], None] | None = None,
     ) -> CleanExportResult:
         if os.name != "posix":
-            raise StorageCowUnavailableError(str(request.destination))
+            raise ServerModeVersioningDisabledError(
+                "Advanced clean export requires POSIX; Windows is Simple-only"
+            )
         server_id = validate_server_segment(request.server_id)
         server_root = validate_server_root(request.server_root)
         destination = self._prepare_destination(request.destination)
@@ -340,6 +342,13 @@ class CleanExportService:
                 total_bytes=total_bytes,
                 export_id=export_id,
             )
+        except OSError as exc:
+            shutil.rmtree(destination, ignore_errors=True)
+            if exc.errno == errno.ENOSPC:
+                raise InsufficientStorageError(
+                    details={"path": str(destination)}
+                ) from exc
+            raise
         except BaseException:
             shutil.rmtree(destination, ignore_errors=True)
             raise
