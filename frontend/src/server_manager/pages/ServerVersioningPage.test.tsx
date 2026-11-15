@@ -119,6 +119,28 @@ describe("ServerVersioningPage", () => {
     expect(screen.getByText("c-111222")).toBeInTheDocument();
   });
 
+  it("renders disabled P3 preview controls with Coming soon tooltips", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument();
+    });
+
+    const liveRefresh = screen.getByRole("button", { name: "Live Refresh (Coming soon)" });
+    const rollback = screen.getByRole("button", { name: "Rollback (Coming soon)" });
+    const confirmUpgrade = screen.getByRole("button", { name: "Confirm Upgrade (Coming soon)" });
+
+    for (const control of [liveRefresh, rollback, confirmUpgrade]) {
+      expect(control).toBeDisabled();
+      expect(control).toHaveAttribute("aria-disabled", "true");
+      expect(control).toHaveTextContent("Coming soon");
+    }
+
+    expect(liveRefresh).toHaveAttribute("title", "P3 Live Refresh is coming soon");
+    expect(rollback).toHaveAttribute("title", "P3 Rollback is coming soon");
+    expect(confirmUpgrade).toHaveAttribute("title", "P3 Confirm Upgrade is coming soon");
+  });
+
   it("displays warning state when instant storage cloning is unavailable", async () => {
     vi.mocked(mockApi.getPreflightStatus).mockResolvedValue({
       ...mockPreflight,

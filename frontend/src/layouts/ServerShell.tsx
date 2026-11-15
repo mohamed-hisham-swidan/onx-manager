@@ -1,6 +1,6 @@
-import { useEffect, useState, Suspense, useContext, useMemo } from "react";
+import { useEffect, useState, Suspense, useContext, useMemo, useCallback } from "react";
 import { Outlet, useLocation, useParams, Link, useNavigate } from "react-router-dom";
-import { QueryClientContext } from "@tanstack/react-query";
+import { QueryClientContext, useQuery } from "@tanstack/react-query";
 import { TopBar } from "@/components/layout/TopBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { LoadingBar } from "@/components/ui/LoadingBar";
@@ -24,6 +24,10 @@ import {
   useRestartServer,
 } from "@/server_manager/hooks/useServers";
 import { getServerCapabilities } from "@/server_manager/utils/serverCapabilities";
+import { resolveServerMode } from "@/server_manager/utils/serverMode";
+import { createAuthenticatedApi } from "@/services/api";
+import { queryKeys } from "@/services/queryClient";
+import { ServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 
 function useSafeServersList() {
   const queryClient = useContext(QueryClientContext);
@@ -56,6 +60,65 @@ export function ServerShell() {
 
   const { data: server } = useServerDetail(serverId!);
   const { supportsMods, supportsPlugins } = getServerCapabilities(server?.server_type);
+  const serverMode = resolveServerMode(server?.mode);
+
+  const api = useMemo(() => createAuthenticatedApi(), []);
+  const branchesQuery = useQuery({
+    queryKey: queryKeys.versioning.branches(serverId ?? ""),
+    queryFn: () => api.getServerBranches(serverId!),
+    enabled: !!serverId && serverMode === "advanced",
+  });
+  const branches = useMemo(() => branchesQuery.data ?? [], [branchesQuery.data]);
+  const gitBacked = branches.some((branch) => branch.worktree_path != null);
+
+  const urlBranch = new URLSearchParams(location.search).get("branch");
+  const persistedBranch =
+    typeof window !== "undefined" && serverId
+      ? window.localStorage.getItem(`onx.selectedBranch.${serverId}`)
+      : null;
+  const candidateBranch = urlBranch || persistedBranch || "main";
+  const selectedBranch =
+    gitBacked &&
+    branches.length > 0 &&
+    !branches.some((branch) => branch.name === candidateBranch)
+      ? "main"
+      : candidateBranch;
+
+  const selectBranch = useCallback(
+    (nextBranch: string) => {
+      if (typeof window !== "undefined" && serverId) {
+        try {
+          window.localStorage.setItem(
+            `onx.selectedBranch.${serverId}`,
+            nextBranch,
+          );
+        } catch {
+          // Storage can be unavailable in privacy-restricted contexts.
+        }
+      }
+      const params = new URLSearchParams(location.search);
+      if (nextBranch === "main") {
+        params.delete("branch");
+      } else {
+        params.set("branch", nextBranch);
+      }
+      const search = params.toString();
+      navigate(
+        { pathname: location.pathname, search: search ? `?${search}` : "" },
+        { replace: true },
+      );
+    },
+    [location.pathname, location.search, navigate, serverId],
+  );
+
+  const branchContextValue = useMemo(
+    () => ({
+      branch: selectedBranch,
+      setBranch: selectBranch,
+      gitBacked,
+    }),
+    [selectedBranch, selectBranch, gitBacked],
+  );
 
   const startMutation = useStartServer();
   const stopMutation = useStopServer();
@@ -153,7 +216,9 @@ export function ServerShell() {
     { id: "files", label: "Files", path: `/servers/${effectiveServerId}/files`, icon: "folder" as const },
     ...(supportsPlugins ? [{ id: "plugins", label: "Plugins", path: `/servers/${effectiveServerId}/plugins`, icon: "plugin" as const }] : []),
     ...(supportsMods ? [{ id: "mods", label: "Mods", path: `/servers/${effectiveServerId}/mods`, icon: "plugin" as const }] : []),
-    { id: "versioning", label: "Versions", path: `/servers/${effectiveServerId}/versioning`, icon: "backup" as const },
+    ...(serverMode === "advanced"
+      ? [{ id: "versioning", label: "Versions", path: `/servers/${effectiveServerId}/versioning`, icon: "backup" as const }]
+      : []),
     { id: "network", label: "Network", path: `/servers/${effectiveServerId}/network`, icon: "activity" as const },
     { id: "activity", label: "Activity", path: `/servers/${effectiveServerId}/activity`, icon: "clock" as const },
     { id: "settings", label: "Settings", path: `/servers/${effectiveServerId}/settings`, icon: "settings" as const },
@@ -182,6 +247,7 @@ export function ServerShell() {
           serverType: server?.server_type,
           supportsMods,
           supportsPlugins,
+          mode: serverMode,
         }}
       />
 
@@ -307,6 +373,34 @@ export function ServerShell() {
                         <Icon name="chevron-down" size={12} />
                       </span>
                     </div>
+
+                    {gitBacked && (
+                      <div
+                        className="relative inline-flex items-center gap-1.5"
+                        data-testid="branch-selector"
+                      >
+                        <Icon name="backup" size={12} className="text-text-muted" />
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+                          Branch
+                        </span>
+                        <select
+                          aria-label="Switch branch"
+                          data-testid="branch-switcher-select"
+                          value={selectedBranch}
+                          onChange={(e) => selectBranch(e.target.value)}
+                          className="appearance-none bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-text-primary text-xs font-medium py-1 pl-2.5 pr-7 rounded-lg border border-border-default cursor-pointer transition-colors focus:outline-hidden focus:ring-1 focus:ring-border-focus"
+                        >
+                          {branches.map((branch) => (
+                            <option key={branch.name} value={branch.name}>
+                              {branch.name}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="pointer-events-none absolute right-2 text-text-muted">
+                          <Icon name="chevron-down" size={12} />
+                        </span>
+                      </div>
+                    )}
 
                     <StatusBadge status={server?.status || "stopped"} />
                     {server?.server_type && <LoaderBadge loader={server.server_type} />}
@@ -488,7 +582,9 @@ export function ServerShell() {
 
           <ErrorBoundary>
             <Suspense fallback={<RouteFallback />}>
-              <Outlet />
+              <ServerBranchContext.Provider value={branchContextValue}>
+                <Outlet />
+              </ServerBranchContext.Provider>
             </Suspense>
           </ErrorBoundary>
         </div>

@@ -214,6 +214,11 @@ class ServerType(str, Enum):
         return mapping.get(value, value.capitalize())
 
 
+class ServerMode(str, Enum):  # noqa: UP042
+    SIMPLE = "simple"
+    ADVANCED = "advanced"
+
+
 class LocationType(str, Enum):
     LOCAL = "local"
     DOCKER = "docker"

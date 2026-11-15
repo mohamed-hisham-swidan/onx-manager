@@ -24,6 +24,7 @@ from app.modules.server.domain.value_objects import (
     MemoryAllocation,
     PortNumber,
     ServerDeployment,
+    ServerMode,
     ServerProperties,
     ServerType,
     default_provider_for_platform,
@@ -59,6 +60,7 @@ class ImportServerCommand(Command):
     min_memory_mb: int = 1024
     max_memory_mb: int = 2048
     group_id: str = "default"
+    mode: str = "simple"
 
 
 class ImportServerHandler(CommandHandler[ImportServerCommand]):
@@ -66,6 +68,13 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
         self._event_bus = event_bus
 
     async def handle(self, command: ImportServerCommand) -> CommandResult:
+        if command.mode == "advanced":
+            return CommandResult(
+                success=False,
+                error="Advanced mode imports are not supported in this release",
+                error_code="CONFLICT",
+                details={"mode": "advanced"},
+            )
         source = Path(command.source_path).expanduser().resolve()
         is_zip = source.is_file() and source.name.lower().endswith(".zip")
         if not source.is_dir() and not is_zip:
@@ -175,6 +184,7 @@ class ImportServerHandler(CommandHandler[ImportServerCommand]):
                     group_id=command.group_id,
                     deployment=deployment,
                     owner_id=command.creator_id,
+                    mode=ServerMode(command.mode),
                 )
                 await repo.save(server)
 

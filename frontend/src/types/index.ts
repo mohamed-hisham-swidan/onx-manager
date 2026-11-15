@@ -267,6 +267,7 @@ export interface SystemStatusResponse {
   access_mode: "LOCAL" | "GLOBAL";
   user_count: number;
   version: string;
+  advanced_mode_enabled?: boolean;
 }
 
 export interface BootstrapRequest {

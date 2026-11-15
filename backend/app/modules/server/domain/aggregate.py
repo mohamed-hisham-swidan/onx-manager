@@ -24,6 +24,7 @@ from app.modules.server.domain.value_objects import (
     MemoryAllocation,
     RuntimeInfo,
     ServerDeployment,
+    ServerMode,
     ServerProperties,
     ServerType,
     build_server_handle,
@@ -118,10 +119,12 @@ class Server(AggregateRoot):
         provisioning_retryable: bool = False,
         cpu: CpuAllocation | None = None,
         startup_timeout_seconds: int | None = None,
+        mode: ServerMode = ServerMode.SIMPLE,
     ) -> None:
         super().__init__()
         self._id = server_id
         self._name = name
+        self._mode = mode
         self._server_type = server_type
         self._minecraft_version = minecraft_version
         self._memory = memory
@@ -154,6 +157,10 @@ class Server(AggregateRoot):
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def mode(self) -> ServerMode:
+        return self._mode
 
     @property
     def server_type(self) -> ServerType:
@@ -275,6 +282,7 @@ class Server(AggregateRoot):
         cpu: CpuAllocation | None = None,
         runtime: RuntimeInfo | None = None,
         startup_timeout_seconds: int | None = None,
+        mode: ServerMode = ServerMode.SIMPLE,
     ) -> Server:
         server = cls(
             server_id=server_id,
@@ -290,6 +298,7 @@ class Server(AggregateRoot):
             cpu=cpu,
             runtime=runtime,
             startup_timeout_seconds=startup_timeout_seconds,
+            mode=mode,
         )
         server._add_event(
             ServerCreatedEvent(

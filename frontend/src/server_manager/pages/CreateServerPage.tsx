@@ -37,6 +37,20 @@ export function CreateServerPage() {
   const [error, setError] = useState("");
   const [createdId, setCreatedId] = useState("");
   const [dockerAvailable, setDockerAvailable] = useState<boolean | null>(null);
+  const [advancedEnabled, setAdvancedEnabled] = useState(false);
+
+  useEffect(() => {
+    if (api.getSetupStatus) {
+      api
+        .getSetupStatus()
+        .then((s) => {
+          setAdvancedEnabled(s?.advanced_mode_enabled === true);
+        })
+        .catch(() => {
+          setAdvancedEnabled(false);
+        });
+    }
+  }, [api]);
 
   useEffect(() => {
     api
@@ -117,6 +131,7 @@ export function CreateServerPage() {
         view_distance: Number(data.viewDistance) || 10,
         simulation_distance: Number(data.simulationDistance) || 10,
         provider: data.provider || undefined,
+        mode: data.mode,
       });
       setCreatedId(result.server_id as string);
       setStep("done");
@@ -229,6 +244,7 @@ export function CreateServerPage() {
         <ConfigStep
           data={data}
           dockerAvailable={dockerAvailable}
+          advancedEnabled={advancedEnabled}
           onChange={update}
           onNext={() => setStep("properties")}
           onBack={() => setStep("version")}

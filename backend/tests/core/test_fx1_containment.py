@@ -66,7 +66,9 @@ def _handler(mat: Materialization) -> RemoveMaterializationHandler:
     repo = MagicMock()
     repo.get_materialization = AsyncMock(return_value=mat)
     repo.save_materialization = AsyncMock()
-    return RemoveMaterializationHandler(server_repo=MagicMock(), versioning_repo=repo)
+    server_repo = MagicMock()
+    server_repo.get = AsyncMock(return_value=SimpleNamespace(mode="advanced"))
+    return RemoveMaterializationHandler(server_repo=server_repo, versioning_repo=repo)
 
 
 @pytest.mark.asyncio

@@ -1,17 +1,23 @@
+import errno
 import io
 import os
 import tarfile
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
+from app.core.exceptions import InsufficientStorageError
 from app.core.persistence.db import database
 from app.modules.backup.application.restore_service import (
     RestoreError,
+    _ensure_extract_space,
     _safe_extract_tar,
+    _validate_tar_member_link,
+    _validate_tar_member_name,
     consume_pending_restore,
     perform_safe_restore,
 )
@@ -39,10 +45,12 @@ class FakeStorage(StorageBackend):
     async def exists(self, path: str) -> bool:
         return path in self._store
 
-    async def list_files(self, _prefix: str) -> list:
+    async def list_files(self, prefix: str) -> list:
+        del prefix
         return []
 
-    async def info(self, _path: str):
+    async def info(self, path: str):
+        del path
         return None
 
     async def copy(self, source: str, destination: str) -> StorageResult:
@@ -55,6 +63,22 @@ def _make_archive(source_dir: str, names: list[str]) -> bytes:
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for name in names:
             tar.add(os.path.join(source_dir, name), arcname=name)
+    return buf.getvalue()
+
+
+def _raw_tar(members: list[tuple[str, bytes | None]]) -> bytes:
+    """Build a .tar.gz from ``(name, data)`` pairs; ``data is None`` means directory."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, data in members:
+            info = tarfile.TarInfo(name=name)
+            if data is None:
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+                tar.addfile(info)
+            else:
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
     return buf.getvalue()
 
 
@@ -417,6 +441,155 @@ class TestPerformSafeRestore:
         assert (server_dir / "server.properties").read_text() == "new-motd"
         assert (server_dir / "eula.txt").read_text() == "new-eula"
 
+    @pytest.mark.asyncio
+    async def test_level_name_property_restores_custom_world(self, tmp_path) -> None:
+        """M-4: server.properties level-name selects the world folder to restore."""
+        server_dir = tmp_path / "server"
+        _write(server_dir, "server.properties", "motd=x\nlevel-name=mypvp\n")
+        _write(server_dir, "mypvp/level.dat", "old-custom")
+
+        source = tmp_path / "src"
+        _write(source, "mypvp/level.dat", "new-custom")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source), ["mypvp"]
+        )
+        await _seed_job("res-svc-level-name", "srv-1", path, size, checksum)
+
+        restored = await perform_safe_restore(
+            BackupJobId("res-svc-level-name"),
+            str(server_dir),
+            storage=storage,
+            encryption=encryption,
+        )
+
+        assert restored == ["mypvp"]
+        assert (server_dir / "mypvp" / "level.dat").read_text() == "new-custom"
+
+    @pytest.mark.asyncio
+    async def test_level_name_traversal_falls_back_to_world(self, tmp_path) -> None:
+        """M-4: a traversal-shaped level-name is ignored (default world)."""
+        server_dir = tmp_path / "server"
+        _write(server_dir, "server.properties", "level-name=../escape\n")
+        _write(server_dir, "world/level.dat", "old-world")
+
+        source = tmp_path / "src"
+        _write(source, "world/level.dat", "new-world")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source), ["world"]
+        )
+        await _seed_job("res-svc-level-traversal", "srv-1", path, size, checksum)
+
+        restored = await perform_safe_restore(
+            BackupJobId("res-svc-level-traversal"),
+            str(server_dir),
+            storage=storage,
+            encryption=encryption,
+        )
+
+        assert restored == ["world"]
+        assert (server_dir / "world" / "level.dat").read_text() == "new-world"
+        assert not (tmp_path / "escape").exists()
+
+    @pytest.mark.asyncio
+    async def test_enospc_mid_restore_rolls_back_applied_dimensions(
+        self, tmp_path
+    ) -> None:
+        """M-4/MINOR 2: a mid-loop ENOSPC restores items from temp_dir/prev."""
+        server_dir = tmp_path / "server"
+        _write(server_dir, "world/level.dat", "old-world")
+        _write(server_dir, "world_nether/DIM1.dat", "old-nether")
+
+        source = tmp_path / "src"
+        _write(source, "world/level.dat", "new-world")
+        _write(source, "world_nether/DIM1.dat", "new-nether")
+
+        storage, encryption, path, size, checksum = await self._build_artifact(
+            str(source), ["world", "world_nether"]
+        )
+        await _seed_job("res-svc-enospc", "srv-1", path, size, checksum)
+
+        from app.modules.backup.application import restore_service as restore_module
+
+        real_replace = restore_module._atomic_replace_dir
+        applied: list[str] = []
+
+        def flaky_replace(
+            src: str, dst: str, backup_dir: str | None = None
+        ) -> str | None:
+            if applied:
+                raise OSError(errno.ENOSPC, "injected disk full")
+            applied.append(dst)
+            return real_replace(src, dst, backup_dir)
+
+        with (
+            patch.object(
+                restore_module, "_atomic_replace_dir", side_effect=flaky_replace
+            ),
+            pytest.raises(InsufficientStorageError) as excinfo,
+        ):
+            await perform_safe_restore(
+                BackupJobId("res-svc-enospc"),
+                str(server_dir),
+                storage=storage,
+                encryption=encryption,
+            )
+
+        assert excinfo.value.http_status == 507
+        assert applied == [os.path.join(str(server_dir), "world")]
+        assert (server_dir / "world" / "level.dat").read_text() == "old-world"
+        assert (server_dir / "world_nether" / "DIM1.dat").read_text() == "old-nether"
+
+    @pytest.mark.asyncio
+    async def test_trailing_dot_member_fails_closed_before_live_dir_changes(
+        self, tmp_path
+    ) -> None:
+        """Reject an anomalous legacy archive before the live server dir is touched."""
+        server_dir = tmp_path / "server"
+        _write(server_dir, "world/level.dat", "old-world")
+
+        source = tmp_path / "src"
+        _write(source, "world/level.dat", "new-world")
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            tar.add(os.path.join(str(source), "world"), arcname="world")
+            info = tarfile.TarInfo(name="plugins/bad.yml.")
+            data = b"bad"
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        plaintext = buf.getvalue()
+
+        encryption = BackupEncryption()
+        encrypted = encryption.encrypt(plaintext)
+        storage = FakeStorage()
+        path = "bad-member.tar.gz.enc"
+        await storage.write(path, encrypted)
+        await _seed_job(
+            "res-svc-bad-member",
+            "srv-1",
+            path,
+            len(encrypted),
+            encryption.checksum(encrypted),
+        )
+
+        with pytest.raises(
+            RestoreError,
+            match="Unsafe or trailing-dot/space member path in backup archive",
+        ):
+            await perform_safe_restore(
+                BackupJobId("res-svc-bad-member"),
+                str(server_dir),
+                storage=storage,
+                encryption=encryption,
+            )
+
+        assert (server_dir / "world" / "level.dat").read_text() == "old-world"
+        assert not (server_dir / "plugins").exists()
+        assert not list(tmp_path.glob("onx-restore-*"))
+        assert not list(tmp_path.glob("mcs-restore-*"))
+
 
 @pytest.mark.usefixtures("init_test_db")
 class TestConsumePendingRestore:
@@ -518,6 +691,85 @@ class TestConsumePendingRestore:
         assert pending[0] == "res-consume-fail"
 
 
+class TestEnsureExtractSpace:
+    """Cross-platform regression coverage for ``shutil.disk_usage`` preflight."""
+
+    def _tar_with_size(self, size: int) -> tarfile.TarFile:
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            info = tarfile.TarInfo(name="world/level.dat")
+            info.size = size
+            tar.addfile(info, io.BytesIO(b"x" * size))
+        buf.seek(0)
+        return tarfile.open(fileobj=buf, mode="r:gz")
+
+    def test_routes_free_space_through_disk_usage(self, tmp_path: Path, monkeypatch) -> None:
+        """Windows has no os.statvfs; the preflight must call shutil.disk_usage."""
+        from app.modules.backup.application import restore_service as restore_module
+
+        def _forbidden(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("os.statvfs must not be used directly")
+
+        calls: list[str] = []
+        monkeypatch.setattr(os, "statvfs", _forbidden, raising=False)
+        monkeypatch.setattr(
+            restore_module.shutil,
+            "disk_usage",
+            lambda path: calls.append(str(path)) or SimpleNamespace(free=10**12),
+        )
+        tar = self._tar_with_size(1)
+        try:
+            _ensure_extract_space(str(tmp_path), tar)
+        finally:
+            tar.close()
+
+        assert calls == [str(tmp_path)]
+
+    @pytest.mark.skipif(
+        os.name == "posix",
+        reason="POSIX shutil.disk_usage itself calls os.statvfs",
+    )
+    def test_works_on_native_windows_without_statvfs(self, tmp_path: Path) -> None:
+        assert not hasattr(os, "statvfs")
+        tar = self._tar_with_size(1)
+        try:
+            _ensure_extract_space(str(tmp_path), tar)
+        finally:
+            tar.close()
+
+    def test_insufficient_space_raises(self, tmp_path: Path, monkeypatch) -> None:
+        from app.modules.backup.application import restore_service as restore_module
+
+        monkeypatch.delattr(os, "statvfs", raising=False)
+        monkeypatch.setattr(
+            restore_module.shutil,
+            "disk_usage",
+            lambda _path: SimpleNamespace(free=1000),
+        )
+        tar = self._tar_with_size(1000)
+        try:
+            with pytest.raises(InsufficientStorageError) as excinfo:
+                _ensure_extract_space(str(tmp_path), tar)
+        finally:
+            tar.close()
+
+        assert excinfo.value.http_status == 507
+        assert excinfo.value.details == {"needed_bytes": 1000, "free_bytes": 1000}
+
+    def test_disk_usage_oserror_passes_through(self, tmp_path: Path, monkeypatch) -> None:
+        from app.modules.backup.application import restore_service as restore_module
+
+        def _raise(_path: str):
+            raise OSError(errno.ENOENT, "missing mount")
+
+        monkeypatch.setattr(restore_module.shutil, "disk_usage", _raise)
+        tar = self._tar_with_size(1000)
+        try:
+            _ensure_extract_space(str(tmp_path), tar)
+        finally:
+            tar.close()
+
+
 class TestSafeTarExtract:
     def test_tar_slip_relative_path_traversal_raises_restore_error(self, tmp_path) -> None:
         target_dir = tmp_path / "extract_target"
@@ -574,6 +826,205 @@ class TestSafeTarExtract:
         with (
             tarfile.open(fileobj=buf, mode="r:gz") as tar,
             pytest.raises(RestoreError, match="Symlink traversal detected in backup archive"),
+        ):
+            _safe_extract_tar(tar, str(target_dir))
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        [
+            "plugins/bad.yml.",
+            "plugins/bad./ok.yml",
+            "plugins/bad.yml ",
+            "plugins/bad /ok.yml",
+        ],
+    )
+    def test_rejects_trailing_dot_or_space_members(
+        self, tmp_path: Path, bad_name: str
+    ) -> None:
+        """Trailing dot/space fails for files AND intermediate dirs on every platform."""
+        target_dir = tmp_path / "extract_target"
+        target_dir.mkdir()
+
+        payload = _raw_tar([(bad_name, b"bad")])
+        with (
+            tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar,
+            pytest.raises(
+                RestoreError,
+                match="Unsafe or trailing-dot/space member path in backup archive",
+            ),
+        ):
+            _safe_extract_tar(tar, str(target_dir))
+
+        assert list(target_dir.iterdir()) == []
+
+    def test_rejects_backslash_and_nul_member_names(self, tmp_path: Path) -> None:
+        target_dir = tmp_path / "extract_target"
+        target_dir.mkdir()
+
+        payload = _raw_tar([("plugins/evil\\name.yml", b"bad")])
+        with (
+            tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar,
+            pytest.raises(RestoreError, match="Unsafe member path"),
+        ):
+            _safe_extract_tar(tar, str(target_dir))
+
+        with pytest.raises(RestoreError, match="Unsafe member path"):
+            _validate_tar_member_name(tarfile.TarInfo(name="plugins/evil\x00name.yml"))
+
+        assert list(target_dir.iterdir()) == []
+
+    @pytest.mark.parametrize("root_name", [".", "./"])
+    def test_benign_root_directory_member_extracts_siblings(
+        self, tmp_path: Path, root_name: str
+    ) -> None:
+        """A benign archive root entry (``.`` / ``./``) must not block valid siblings."""
+        target_dir = tmp_path / "extract_target"
+        target_dir.mkdir()
+
+        payload = _raw_tar([(root_name, None), ("plugins/ok.yml", b"ok")])
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
+            _safe_extract_tar(tar, str(target_dir))
+
+        assert (target_dir / "plugins" / "ok.yml").read_bytes() == b"ok"
+
+    def test_root_named_regular_file_member_rejected(self, tmp_path: Path) -> None:
+        """Only directory entries may use the benign root/empty name form."""
+        target_dir = tmp_path / "extract_target"
+        target_dir.mkdir()
+
+        payload = _raw_tar([(".", b"not-a-directory")])
+        with (
+            tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar,
+            pytest.raises(
+                RestoreError,
+                match="Unsafe or trailing-dot/space member path in backup archive",
+            ),
+        ):
+            _safe_extract_tar(tar, str(target_dir))
+
+    def test_link_target_with_parent_reference_inside_root_allowed(self) -> None:
+        """A ``../`` link that still resolves inside the extraction root must not fail."""
+        member = tarfile.TarInfo(name="config/link.yml")
+        member.type = tarfile.SYMTYPE
+        member.linkname = "../plugins/ok.yml"
+
+        _validate_tar_member_link(member)
+
+    def test_hardlink_root_relative_target_inside_root_allowed(self) -> None:
+        """M-1: LNKTYPE targets are archive-root-relative inside the extraction root."""
+        member = tarfile.TarInfo(name="plugins/a/b/hard.yml")
+        member.type = tarfile.LNKTYPE
+        member.linkname = "world/level.dat"
+
+        _validate_tar_member_link(member)
+
+    @pytest.mark.parametrize("link_type", [tarfile.SYMTYPE, tarfile.LNKTYPE])
+    @pytest.mark.parametrize("linkname", ["../plugins/bad.", "../plugins/bad "])
+    def test_link_target_with_trailing_dot_or_space_rejected(
+        self, link_type: bytes, linkname: str
+    ) -> None:
+        """B-1: trailing dot/space must fail before any host path normalization."""
+        member = tarfile.TarInfo(name="plugins/a/link.yml")
+        member.type = link_type
+        member.linkname = linkname
+
+        with pytest.raises(
+            RestoreError,
+            match="Unsafe or trailing-dot/space link target in backup archive",
+        ):
+            _validate_tar_member_link(member)
+
+    def test_link_target_with_collapsing_bad_segment_rejected(self) -> None:
+        """M-1: ``bad./..`` must not let normpath hide the non-canonical segment."""
+        member = tarfile.TarInfo(name="config/link.yml")
+        member.type = tarfile.SYMTYPE
+        member.linkname = "bad./../ok.yml"
+
+        with pytest.raises(
+            RestoreError,
+            match="Unsafe or trailing-dot/space link target in backup archive",
+        ):
+            _validate_tar_member_link(member)
+
+    def test_link_validation_does_not_use_host_abspath(self) -> None:
+        """B-1: Windows abspath strips trailing dot/space, so it must not be used."""
+        from app.modules.backup.application import restore_service as restore_module
+
+        class _PathProxy:
+            def __getattr__(self, name: str):
+                return getattr(os.path, name)
+
+            def abspath(self, _path: object) -> str:
+                raise AssertionError("os.path.abspath must not be used for link validation")
+
+        class _OsProxy:
+            def __init__(self) -> None:
+                self.path = _PathProxy()
+
+            def __getattr__(self, name: str):
+                return getattr(os, name)
+
+        member = tarfile.TarInfo(name="plugins/a/link.yml")
+        member.type = tarfile.SYMTYPE
+        member.linkname = "../plugins/bad."
+
+        with (
+            patch.object(restore_module, "os", _OsProxy()),
+            pytest.raises(
+                RestoreError,
+                match="Unsafe or trailing-dot/space link target in backup archive",
+            ),
+        ):
+            _validate_tar_member_link(member)
+
+    @pytest.mark.parametrize("linkname", ["", "."])
+    def test_empty_or_dot_link_target_rejected(self, linkname: str) -> None:
+        """L-2: empty and ``.`` link targets are rejected up front."""
+        member = tarfile.TarInfo(name="plugins/a/link.yml")
+        member.type = tarfile.SYMTYPE
+        member.linkname = linkname
+
+        with pytest.raises(
+            RestoreError, match="Unsafe or empty link target in backup archive"
+        ):
+            _validate_tar_member_link(member)
+
+    def test_hardlink_root_relative_escape_rejected(self, tmp_path: Path) -> None:
+        """M-1: LNKTYPE targets are root-relative; ``../ok.yml`` escapes the root."""
+        target_dir = tmp_path / "extract_target"
+        target_dir.mkdir()
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            info = tarfile.TarInfo(name="plugins/a/b/hard.yml")
+            info.type = tarfile.LNKTYPE
+            info.linkname = "../ok.yml"
+            tar.addfile(info)
+
+        with (
+            tarfile.open(fileobj=io.BytesIO(buf.getvalue()), mode="r:gz") as tar,
+            pytest.raises(
+                RestoreError, match="Symlink traversal detected in backup archive"
+            ),
+        ):
+            _safe_extract_tar(tar, str(target_dir))
+
+    def test_commonpath_value_error_is_restore_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """L-2: Windows cross-drive names make commonpath raise ValueError."""
+        target_dir = tmp_path / "extract_target"
+        target_dir.mkdir()
+
+        def _raise(_paths: object) -> str:
+            raise ValueError("Paths don't have the same drive")
+
+        monkeypatch.setattr(os.path, "commonpath", _raise)
+
+        payload = _raw_tar([("plugins/ok.yml", b"ok")])
+        with (
+            tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar,
+            pytest.raises(RestoreError, match="Path traversal detected in backup archive"),
         ):
             _safe_extract_tar(tar, str(target_dir))
 

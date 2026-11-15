@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import get_command_bus, get_query_bus, require_owner
 from app.api.errors import check_command_result
 from app.core.command_bus import CommandBus
+from app.core.config import ConfigFactory
 from app.core.query_bus import QueryBus
 from app.core.version import get_app_version
 from app.modules.auth.application import (
@@ -22,6 +23,7 @@ class SystemStatusResponse(BaseModel):
     access_mode: str
     user_count: int
     version: str = get_app_version()
+    advanced_mode_enabled: bool = False
 
 
 class BootstrapRequest(BaseModel):
@@ -47,16 +49,17 @@ class BootstrapResponse(BaseModel):
 
 @router.get("/status", response_model=SystemStatusResponse)
 async def get_setup_status(
-    query_bus: QueryBus = Depends(get_query_bus),
+    query_bus: QueryBus = Depends(get_query_bus),  # noqa: B008
 ) -> SystemStatusResponse:
-    data = await query_bus.ask(GetSystemStatusQuery())
+    data = dict(await query_bus.ask(GetSystemStatusQuery()))
+    data["advanced_mode_enabled"] = ConfigFactory.global_settings().advanced_mode_enabled
     return SystemStatusResponse(**data)
 
 
 @router.post("/bootstrap", response_model=BootstrapResponse, status_code=201)
 async def bootstrap_instance(
     body: BootstrapRequest,
-    command_bus: CommandBus = Depends(get_command_bus),
+    command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
 ) -> BootstrapResponse:
     result = await command_bus.send(
         BootstrapInstanceCommand(
@@ -73,8 +76,8 @@ async def bootstrap_instance(
 @router.put("/access-mode", response_model=SystemStatusResponse)
 async def update_access_mode(
     body: UpdateAccessModeRequest,
-    current_user: dict = Depends(require_owner()),
-    command_bus: CommandBus = Depends(get_command_bus),
+    current_user: dict = Depends(require_owner()),  # noqa: B008
+    command_bus: CommandBus = Depends(get_command_bus),  # noqa: B008
 ) -> SystemStatusResponse:
     result = await command_bus.send(
         UpdateAccessModeCommand(
@@ -83,5 +86,6 @@ async def update_access_mode(
             requester_permissions=current_user.get("permissions", []),
         )
     )
-    data = check_command_result(result)
+    data = dict(check_command_result(result))
+    data["advanced_mode_enabled"] = ConfigFactory.global_settings().advanced_mode_enabled
     return SystemStatusResponse(**data)

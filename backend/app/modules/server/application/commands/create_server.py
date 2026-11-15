@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import logging
+import os
+import uuid
 from pathlib import Path
 
 from pydantic import Field
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
+from app.core.config import ConfigFactory
 from app.core.event_bus import EventBus
-from app.core.exceptions import ProvisioningError
+from app.core.exceptions import MCSError, ProvisioningError
 from app.core.idempotency import IdempotencyKey
 from app.core.persistence.unit_of_work import UnitOfWork
 from app.modules.server.application.services.identity_writer import write_server_identity
@@ -20,6 +23,7 @@ from app.modules.server.domain.value_objects import (
     PortNumber,
     RuntimeInfo,
     ServerDeployment,
+    ServerMode,
     ServerProperties,
     ServerType,
     default_provider_for_platform,
@@ -56,6 +60,7 @@ class CreateServerCommand(Command):
     install_dir: str | None = None
     provider: str | None = None
     startup_timeout_seconds: int | None = None
+    mode: str = "simple"
 
 
 class CreateServerHandler(CommandHandler[CreateServerCommand]):
@@ -63,6 +68,13 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
         self._event_bus = event_bus
 
     async def handle(self, command: CreateServerCommand) -> CommandResult:
+        if command.mode == "advanced" and not ConfigFactory.global_settings().advanced_mode_enabled:
+            return CommandResult(
+                success=False,
+                error="Advanced mode is not enabled on this instance",
+                error_code="VALIDATION_ERROR",
+            )
+
         from app.modules.server.application.services.jar_service import (
             download_server_jar,
             forge_requires_installer,
@@ -71,6 +83,29 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             write_eula,
             write_server_properties,
         )
+
+        if command.mode == "advanced" and os.name != "posix":
+            return CommandResult(
+                success=False,
+                error="Advanced mode is only supported on POSIX hosts in this release",
+                error_code="VALIDATION_ERROR",
+            )
+
+        is_forge_installer = command.server_type == "forge" and forge_requires_installer(
+            command.minecraft_version
+        )
+        is_neoforge_installer = command.server_type == "neoforge" and neoforge_requires_installer(
+            command.minecraft_version
+        )
+        if command.mode == "advanced" and (is_forge_installer or is_neoforge_installer):
+            return CommandResult(
+                success=False,
+                error=(
+                    "Advanced mode creation for installer-based Forge/NeoForge servers "
+                    "is not available in this release"
+                ),
+                error_code="VALIDATION_ERROR",
+            )
 
         provider_type = command.provider
         if provider_type == "docker":
@@ -105,12 +140,6 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
             )
 
         server_id = ServerId()
-        is_forge_installer = command.server_type == "forge" and forge_requires_installer(
-            command.minecraft_version
-        )
-        is_neoforge_installer = command.server_type == "neoforge" and neoforge_requires_installer(
-            command.minecraft_version
-        )
         server_dir_path = resolve_server_dir(
             server_id=str(server_id),
             name=command.name,
@@ -164,6 +193,7 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                 runtime=runtime_info,
                 owner_id=command.creator_id,
                 startup_timeout_seconds=command.startup_timeout_seconds,
+                mode=ServerMode(command.mode),
             )
             if is_forge_installer or is_neoforge_installer:
                 server.begin_provisioning()
@@ -204,7 +234,37 @@ class CreateServerHandler(CommandHandler[CreateServerCommand]):
                     },
                     deployment=deployment,
                 )
+
+                if server.mode == ServerMode.ADVANCED:
+                    from app.modules.versioning.application.advanced_initialization import (
+                        initialize_advanced_server,
+                    )
+                    from app.modules.versioning.domain.entities import (
+                        BranchProtectionPolicy,
+                        ServerBranch,
+                    )
+                    from app.modules.versioning.domain.value_objects import BranchStatus
+                    from app.modules.versioning.infrastructure.repository import (
+                        SQLVersioningRepository,
+                    )
+
+                    initialize_advanced_server(server)
+                    versioning_repo = SQLVersioningRepository(uow.session)
+                    if await versioning_repo.get_branch_by_name(str(server_id), "main") is None:
+                        await versioning_repo.save_branch(
+                            ServerBranch(
+                                id=str(uuid.uuid4()),
+                                server_id=str(server_id),
+                                name="main",
+                                status=BranchStatus.ACTIVE,
+                                is_protected=True,
+                                protection_policy=BranchProtectionPolicy(),
+                            )
+                        )
             except ProvisioningError:
+                local_fs.delete_dir(server_dir_path)
+                raise
+            except MCSError:
                 local_fs.delete_dir(server_dir_path)
                 raise
             except Exception as e:

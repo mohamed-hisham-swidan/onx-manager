@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import suppress
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.versioning.application.git_branch_adapter import git_branch_context
 from app.modules.versioning.domain.entities import ServerBranch
 from app.modules.versioning.domain.events import BranchCreatedEvent
 from app.modules.versioning.domain.repository import VersioningRepository
+
+MAX_DB_BRANCH_NAME_LENGTH = 64
 
 
 class CreateBranchCommand(Command):
@@ -32,9 +36,13 @@ class CreateBranchHandler(CommandHandler[CreateBranchCommand]):
     async def handle(self, command: CreateBranchCommand) -> CommandResult:
         from app.core.persistence.db import database
         from app.modules.server.infrastructure.repository import SQLServerRepository
+        from app.modules.versioning.application.mode_guard import ensure_versioning_allowed
         from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
 
         events: list[DomainEvent] = []
+
+        if self._server_repo is not None:
+            await ensure_versioning_allowed(command.server_id, server_repo=self._server_repo)
 
         if self._server_repo is not None and self._versioning_repo is not None:
             res = await self._execute(command, self._server_repo, self._versioning_repo, events)
@@ -43,6 +51,7 @@ class CreateBranchHandler(CommandHandler[CreateBranchCommand]):
             for attempt in range(max_retries):
                 try:
                     async with database.session_factory() as session:
+                        await ensure_versioning_allowed(command.server_id, session=session)
                         server_repo = self._server_repo or SQLServerRepository(session)
                         versioning_repo = self._versioning_repo or SQLVersioningRepository(session)
                         events.clear()
@@ -73,9 +82,15 @@ class CreateBranchHandler(CommandHandler[CreateBranchCommand]):
 
         # Verify server exists
         try:
-            await server_repo.get(ServerId(command.server_id))
+            server = await server_repo.get(ServerId(command.server_id))
         except Exception as exc:
             raise NotFoundError(f"Server '{command.server_id}' not found") from exc
+
+        if len(command.name) > MAX_DB_BRANCH_NAME_LENGTH:
+            raise ValidationError(
+                f"Branch name must be at most {MAX_DB_BRANCH_NAME_LENGTH} characters",
+                field="name",
+            )
 
         # Check existing branch with same name
         existing = await versioning_repo.get_branch_by_name(command.server_id, command.name)
@@ -94,14 +109,45 @@ class CreateBranchHandler(CommandHandler[CreateBranchCommand]):
 
         from app.modules.versioning.domain.value_objects import BranchStatus
 
-        branch = ServerBranch(
-            id=str(uuid.uuid4()),
-            server_id=command.server_id,
-            name=command.name,
-            head_commit_id=command.head_commit_id,
-            status=BranchStatus.ACTIVE if command.head_commit_id else BranchStatus.CREATED,
-        )
-        await versioning_repo.save_branch(branch)
+        git_context = git_branch_context(server)
+        if git_context is not None:
+            if command.head_commit_id:
+                raise ValidationError(
+                    "head_commit_id is not supported for Git-backed branches; "
+                    "branches start from main",
+                    field="head_commit_id",
+                )
+            git_context.service.create_branch(
+                command.server_id,
+                git_context.server_root,
+                command.name,
+            )
+            branch = ServerBranch(
+                id=str(uuid.uuid4()),
+                server_id=command.server_id,
+                name=command.name,
+                head_commit_id=None,
+                status=BranchStatus.ACTIVE,
+            )
+            try:
+                await versioning_repo.save_branch(branch)
+            except Exception:
+                with suppress(Exception):
+                    git_context.service.delete_branch(
+                        command.server_id,
+                        git_context.server_root,
+                        command.name,
+                    )
+                raise
+        else:
+            branch = ServerBranch(
+                id=str(uuid.uuid4()),
+                server_id=command.server_id,
+                name=command.name,
+                head_commit_id=command.head_commit_id,
+                status=BranchStatus.ACTIVE if command.head_commit_id else BranchStatus.CREATED,
+            )
+            await versioning_repo.save_branch(branch)
 
         event = BranchCreatedEvent(
             server_id=command.server_id,

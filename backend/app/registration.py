@@ -1,4 +1,12 @@
-from app.core.command_bus import CommandBus, DatabaseBusyRetryMiddleware
+import asyncio
+import os
+from typing import cast
+
+from app.core.command_bus import (
+    CommandBus,
+    DatabaseBusyRetryMiddleware,
+    Middleware,
+)
 from app.core.event_bus import EventBus
 from app.core.idempotency import IdempotencyMiddleware, get_idempotency_store
 from app.core.query_bus import QueryBus
@@ -202,6 +210,8 @@ from app.modules.versioning.application import (
     CreateTagHandler,
     CreateTestDefinitionCommand,
     CreateTestDefinitionHandler,
+    DeleteBranchCommand,
+    DeleteBranchHandler,
     DeleteTestDefinitionCommand,
     DeleteTestDefinitionHandler,
     DiffCommitsHandler,
@@ -210,6 +220,8 @@ from app.modules.versioning.application import (
     DiscardTestHandler,
     DismissImportReviewCommand,
     DismissImportReviewHandler,
+    GetBranchFilesRootHandler,
+    GetBranchFilesRootQuery,
     GetBranchHistoryHandler,
     GetBranchHistoryQuery,
     GetBranchProtectionHandler,
@@ -263,6 +275,106 @@ from app.modules.versioning.application import (
     WriteMaterializedFileCommand,
     WriteMaterializedFileHandler,
 )
+from app.modules.versioning.application.refresh_orchestrator import (
+    ConfirmUpgradeCommand,
+    ConfirmUpgradeCommandHandler,
+    LiveRefreshService,
+    RefreshServerCommand,
+    RefreshServerCommandHandler,
+    ReleaseRefreshPinsCommand,
+    ReleaseRefreshPinsCommandHandler,
+    RollbackRefreshCommand,
+    RollbackRefreshCommandHandler,
+    Tier1BackupServiceAdapter,
+)
+from app.modules.versioning.application.repo_lease import RepoLeaseManager
+
+
+async def _build_live_refresh_service(
+    server_id: str,
+    *,
+    event_bus: EventBus,
+) -> LiveRefreshService:
+    """Construct a fresh per-request refresh service and runtime/export adapters.
+
+    Capturing the running loop and loading the server row happens at async
+    handler entry. The adapters stay immutable for the rest of the request and
+    every blocking half is dispatched with ``asyncio.to_thread``.
+    """
+    from app.core.exceptions import (
+        ServerModeVersioningDisabledError,
+        ValidationError,
+    )
+    from app.core.host_state import ensure_host_state_layout
+    from app.core.persistence.unit_of_work import UnitOfWork
+    from app.core.settings_store import get_live_settings
+    from app.modules.server.application.commands.start_server import (
+        StartServerHandler,
+    )
+    from app.modules.server.application.commands.stop_server import StopServerHandler
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+    from app.modules.shared.value_objects import ServerId
+    from app.modules.versioning.application.lockfile_service import LockfileService
+    from app.modules.versioning.application.mode_guard import ensure_versioning_allowed
+    from app.modules.versioning.infrastructure.runtime_adapters import (
+        CleanExportStageAdapter,
+        DockerServerRuntimeAdapter,
+        require_docker_provider,
+    )
+
+    if os.name != "posix":
+        raise ServerModeVersioningDisabledError(
+            "Live refresh is only supported on POSIX hosts in this release"
+        )
+
+    loop = asyncio.get_running_loop()
+    layout = ensure_host_state_layout()
+    async with UnitOfWork() as uow:
+        server = await SQLServerRepository(uow.session).get(ServerId(server_id))
+    await ensure_versioning_allowed(server)
+    if server.deployment is None:
+        raise ValidationError(
+            "Live refresh requires a deployed server directory", field="server_id"
+        )
+    server_root = server.deployment.server_directory()
+    provider = require_docker_provider(
+        server.runtime.provider if server.runtime else None
+    )
+    startup_timeout = float(
+        server.startup_timeout_seconds
+        or get_live_settings().server_startup_timeout_seconds
+    )
+    lockfile = await asyncio.to_thread(LockfileService(layout).read, server_id)
+    runtime_record = server.runtime
+    container_name = (
+        str(runtime_record.external_id).strip()
+        if runtime_record is not None and runtime_record.external_id
+        else None
+    )
+    runtime = DockerServerRuntimeAdapter(
+        server_id=server_id,
+        loop=loop,
+        start_handler=StartServerHandler(event_bus).handle,
+        stop_handler=StopServerHandler(event_bus).handle,
+        server_dir=server_root,
+        startup_timeout_seconds=startup_timeout,
+        provider_name=provider,
+        container_name=container_name,
+    )
+    stage_export = CleanExportStageAdapter(
+        layout,
+        server_id=server_id,
+        server_root=server_root,
+        lockfile=lockfile,
+        loop=loop,
+    )
+    return LiveRefreshService(
+        layout,
+        repo_lease=RepoLeaseManager(locks_dir=layout.locks),
+        backup_service=Tier1BackupServiceAdapter(),
+        runtime=runtime,
+        stage_export=stage_export,
+    )
 
 
 def init_infrastructure() -> None:
@@ -334,7 +446,9 @@ def _register_event_handlers(event_bus: EventBus) -> None:
 
 
 def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> None:
-    command_bus.add_middleware(IdempotencyMiddleware(get_idempotency_store()))
+    command_bus.add_middleware(
+        cast(Middleware, IdempotencyMiddleware(get_idempotency_store()))
+    )
     command_bus.add_middleware(DatabaseBusyRetryMiddleware())
     command_bus.add_middleware(ServerLifecycleLockMiddleware(get_lifecycle_lease_manager()))
     command_bus.register(CreateServerCommand, CreateServerHandler(event_bus))
@@ -395,6 +509,7 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
 
     command_bus.register(CreateBranchCommand, CreateBranchHandler(event_bus=event_bus))
     command_bus.register(ArchiveBranchCommand, ArchiveBranchHandler(event_bus=event_bus))
+    command_bus.register(DeleteBranchCommand, DeleteBranchHandler(event_bus=event_bus))
     command_bus.register(CreateCommitCommand, CreateCommitHandler(event_bus=event_bus))
     command_bus.register(CreateTagCommand, CreateTagHandler(event_bus=event_bus))
     command_bus.register(MergeCommitsCommand, MergeCommitsHandler(event_bus=event_bus))
@@ -460,6 +575,25 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
         RemoveBranchProtectionCommand,
         RemoveBranchProtectionHandler(),
     )
+
+    async def build_refresh_service(server_id: str) -> LiveRefreshService:
+        return await _build_live_refresh_service(server_id, event_bus=event_bus)
+
+    command_bus.register(
+        RefreshServerCommand, RefreshServerCommandHandler(build_refresh_service)
+    )
+    command_bus.register(
+        RollbackRefreshCommand,
+        RollbackRefreshCommandHandler(build_refresh_service),
+    )
+    command_bus.register(
+        ConfirmUpgradeCommand,
+        ConfirmUpgradeCommandHandler(build_refresh_service),
+    )
+    command_bus.register(
+        ReleaseRefreshPinsCommand,
+        ReleaseRefreshPinsCommandHandler(build_refresh_service),
+    )
     op_service = get_operation_service(event_bus=event_bus)
     command_bus.register(CreateOperationCommand, CreateOperationHandler(op_service))
     command_bus.register(CancelOperationCommand, CancelOperationHandler(op_service))
@@ -497,6 +631,7 @@ def _register_query_handlers(query_bus: QueryBus) -> None:
     query_bus.register(ListInvitesQuery, ListInvitesHandler())
 
     query_bus.register(GetServerBranchesQuery, GetServerBranchesHandler())
+    query_bus.register(GetBranchFilesRootQuery, GetBranchFilesRootHandler())
     query_bus.register(GetBranchHistoryQuery, GetBranchHistoryHandler())
     query_bus.register(GetCommitHistoryQuery, GetCommitHistoryHandler())
     query_bus.register(GetServerTagsQuery, GetServerTagsHandler())

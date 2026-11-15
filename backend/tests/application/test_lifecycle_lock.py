@@ -145,6 +145,7 @@ class TestLifecycleLock:
                 {"sid": sid},
             )
             row = res.fetchone()
+            assert row is not None
             assert row[0] == "new_worker"
             assert row[1] == token.owner_token
 
@@ -254,7 +255,8 @@ class TestLifecycleLock:
             bus.add_middleware(ServerLifecycleLockMiddleware(mgr))
 
             class FakeStartHandler(CommandHandler[StartServerCommand]):
-                async def handle(self, _cmd: StartServerCommand) -> CommandResult:
+                async def handle(self, command: StartServerCommand) -> CommandResult:
+                    del command
                     return CommandResult(success=True)
 
             bus.register(StartServerCommand, FakeStartHandler())
@@ -366,7 +368,8 @@ class TestLifecycleLock:
         mgr.acquire = tracking_acquire  # type: ignore[assignment]
 
         class DelayedHandler(CommandHandler[StartServerCommand]):
-            async def handle(self, _cmd: StartServerCommand) -> CommandResult:
+            async def handle(self, command: StartServerCommand) -> CommandResult:
+                del command
                 assert active_token is not None
                 active_token.is_lost = True
                 return CommandResult(success=True)
@@ -378,4 +381,11 @@ class TestLifecycleLock:
         assert result.success is False
         assert result.error_code == "OPERATION_CONCURRENCY_CONFLICT"
         assert "Lifecycle lock was lost" in (result.error or "")
+
+
+def test_release_refresh_pins_command_is_lifecycle_locked() -> None:
+    assert (
+        "ReleaseRefreshPinsCommand"
+        in ServerLifecycleLockMiddleware.LOCKED_COMMAND_NAMES
+    )
 

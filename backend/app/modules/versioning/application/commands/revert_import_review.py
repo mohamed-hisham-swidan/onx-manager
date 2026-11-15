@@ -40,7 +40,11 @@ class RevertImportReviewHandler(CommandHandler[RevertImportReviewCommand]):
     async def handle(self, command: RevertImportReviewCommand) -> CommandResult:
         from app.core.persistence.db import database
         from app.modules.server.infrastructure.repository import SQLServerRepository
+        from app.modules.versioning.application.mode_guard import ensure_versioning_allowed
         from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
+
+        if self._server_repo is not None:
+            await ensure_versioning_allowed(command.server_id, server_repo=self._server_repo)
 
         if self._server_repo is not None and self._versioning_repo is not None:
             return await self._execute(command, self._server_repo, self._versioning_repo)
@@ -49,6 +53,7 @@ class RevertImportReviewHandler(CommandHandler[RevertImportReviewCommand]):
         for attempt in range(max_retries):
             try:
                 async with database.session_factory() as session:
+                    await ensure_versioning_allowed(command.server_id, session=session)
                     server_repo = self._server_repo or SQLServerRepository(session)
                     versioning_repo = self._versioning_repo or SQLVersioningRepository(session)
                     res = await self._execute(command, server_repo, versioning_repo)

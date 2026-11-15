@@ -10,14 +10,16 @@ name: windows-ci
 # Windows runner (the test suite mocks sys.platform=="win32" on Linux,
 # which is not the same as actually running on Windows).
 #
-# Trigger is broad (push/PR to master) for now rather than mirroring each
-# original workflow's path-based trigger — safer starting point given zero
-# prior Windows coverage. Consider splitting to match the per-concern
-# triggers once this is confirmed stable.
+# P2-6c / D-P26-4: manual dispatch only. The owner runs this once on GitHub
+# to verify Windows Simple-mode behavior; it must never block PRs or pushes.
+# backend-windows runs the full backend suite and also calls out the Windows
+# Simple-mode lifecycle and non-POSIX clean-export coverage explicitly.
 
 on:
-  schedule:
-    - cron: "0 2 * * 1"
+  # TEMPORARY - remove after the first green run (D-P26-8)
+  push:
+    branches:
+      - slice/p2-6g-windows-ci-fixes
   workflow_dispatch: {}
 
 concurrency:
@@ -56,6 +58,13 @@ jobs:
         # (19 passed, then ~39 min silence in TestServers::test_stop_server
         # with zero diagnostics). It cannot hang the run itself.
         run: python -m pytest -v --tb=short --durations=10 -o faulthandler_timeout=600
+
+      - name: Run Windows Simple-mode + non-POSIX clean-export tests
+        working-directory: backend
+        # Explicitly re-run the Windows-only contract tests even though the
+        # full suite above includes them, so the intent survives future suite
+        # path filters or marker changes.
+        run: python -m pytest -v --tb=short tests/test_windows_lifecycle_w01.py tests/infrastructure/test_clean_export.py
 
       - name: check-db-revision
         working-directory: backend

@@ -21,6 +21,19 @@ class BackupRepository(ABC):
     async def delete_job(self, backup_id: BackupJobId) -> None: ...
 
     @abstractmethod
+    async def set_pinned(self, backup_id: BackupJobId, pinned: bool) -> BackupJob: ...
+
+    @abstractmethod
+    async def prune_old_backups(
+        self,
+        server_id: ServerId,
+        *,
+        max_backups: int | None = None,
+        retention_days: int | None = None,
+        now: datetime | None = None,
+    ) -> list[str]: ...
+
+    @abstractmethod
     async def get_policy(self, server_id: ServerId) -> BackupPolicy | None: ...
 
     @abstractmethod

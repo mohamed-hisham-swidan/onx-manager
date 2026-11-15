@@ -146,6 +146,89 @@ class BranchProtectedError(ConflictError):
         super().__init__(message or "Branch is protected")
 
 
+class ServerModeVersioningDisabledError(ConflictError):
+    def __init__(self, message: str = "") -> None:
+        MCSError.__init__(
+            self,
+            message or "Versioning operations are disabled for servers in simple mode",
+            code="SERVER_MODE_VERSIONING_DISABLED",
+            http_status=409,
+        )
+
+
+class RefreshRecoveryRequiredError(ConflictError):
+    """A non-terminal refresh journal must be reconciled before boot."""
+
+    def __init__(
+        self,
+        server_id: str,
+        *,
+        journal_id: str = "",
+        phase: str = "",
+    ) -> None:
+        details: dict[str, Any] = {"server_id": server_id}
+        if journal_id:
+            details["journal_id"] = journal_id
+        if phase:
+            details["phase"] = phase
+        MCSError.__init__(
+            self,
+            (
+                f"Server '{server_id}' has an unresolved refresh journal"
+                f"{f' ({phase})' if phase else ''}; run refresh recovery/rollback "
+                "before starting the server"
+            ),
+            code="REFRESH_RECOVERY_REQUIRED",
+            http_status=409,
+            details=details,
+        )
+
+
+class FencingTokenMismatchError(ConflictError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        server_id: str | None = None,
+        expected_token: int | None = None,
+        actual_token: int | None = None,
+    ) -> None:
+        details: dict[str, Any] = {}
+        if server_id is not None:
+            details["server_id"] = server_id
+        if expected_token is not None:
+            details["expected_token"] = expected_token
+        if actual_token is not None:
+            details["actual_token"] = actual_token
+        MCSError.__init__(
+            self,
+            message or "Fencing token mismatch",
+            code="FENCING_TOKEN_MISMATCH",
+            http_status=409,
+            details=details,
+        )
+
+
+class BackupPinnedError(ConflictError):
+    def __init__(self, backup_id: str, message: str = "") -> None:
+        MCSError.__init__(
+            self,
+            message or f"Backup '{backup_id}' is pinned and cannot be deleted",
+            code="BACKUP_PINNED",
+            http_status=409,
+            details={"backup_id": backup_id},
+        )
+
+
+class GuardConfigurationError(MCSError):
+    def __init__(self, message: str = "") -> None:
+        super().__init__(
+            message or "Mode guard requires exactly one mode source",
+            code="GUARD_CONFIGURATION_ERROR",
+            http_status=500,
+        )
+
+
 class RateLimitExceeded(MCSError):
     def __init__(self, retry_after: int = 60) -> None:
         super().__init__(
@@ -399,3 +482,485 @@ class BotRunnerUnavailableError(MCSError):
             details=details or {},
         )
 
+
+# --- P2 B2/B3 Lockfile Format 2.1 & SHA-256 CAS Exceptions ---
+
+
+class LockfileFormatError(ValidationError):
+    def __init__(
+        self,
+        message: str = "Lockfile format unsupported",
+        *,
+        field: str | None = "format",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        t_field = str(field)[:128] if field is not None else None
+        merged: dict[str, Any] | None = None
+        if details is not None:
+            merged = {
+                str(k)[:128]: (str(v)[:128] if isinstance(v, str) else v)
+                for k, v in details.items()
+            }
+        super().__init__(
+            message or "Lockfile format unsupported",
+            field=t_field,
+            details=merged,
+        )
+        self.code = "LOCKFILE_FORMAT_UNSUPPORTED"
+        self.http_status = 422
+
+
+class LockfileInvalidError(ValidationError):
+    def __init__(
+        self,
+        message: str = "Lockfile content is invalid",
+        *,
+        field: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        t_field = str(field)[:128] if field is not None else None
+        merged: dict[str, Any] | None = None
+        if details is not None:
+            merged = {
+                str(k)[:128]: (str(v)[:128] if isinstance(v, str) else v)
+                for k, v in details.items()
+            }
+        super().__init__(
+            message or "Lockfile content is invalid",
+            field=t_field,
+            details=merged,
+        )
+        self.code = "LOCKFILE_INVALID"
+        self.http_status = 422
+
+
+class CaseCollisionError(ValidationError):
+    def __init__(
+        self,
+        message: str = "Casefold collision detected",
+        *,
+        path_a: str = "",
+        path_b: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        t_path_a = str(path_a)[:128]
+        t_path_b = str(path_b)[:128]
+        merged = {"path_a": t_path_a, "path_b": t_path_b}
+        if details:
+            for k, v in details.items():
+                merged[str(k)[:128]] = str(v)[:128] if isinstance(v, str) else v
+        super().__init__(
+            message or "Casefold collision detected",
+            field="path",
+            details=merged,
+        )
+        self.code = "CASE_COLLISION"
+        self.http_status = 422
+        self.path_a = t_path_a
+        self.path_b = t_path_b
+
+
+class InsufficientStorageError(MCSError):
+    def __init__(
+        self,
+        message: str = "Insufficient storage space",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Insufficient storage space",
+            code="INSUFFICIENT_STORAGE",
+            http_status=507,
+            retryable=True,
+            details=details or {},
+        )
+
+
+class CasError(MCSError):
+    def __init__(
+        self,
+        message: str = "CAS operation failed",
+        *,
+        code: str = "CAS_ERROR",
+        http_status: int = 500,
+        retryable: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "CAS operation failed",
+            code=code,
+            http_status=http_status,
+            retryable=retryable,
+            details=details or {},
+        )
+
+
+class CasInvalidDigestError(CasError):
+    def __init__(
+        self,
+        message: str = "Invalid CAS digest",
+        *,
+        digest: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        truncated = str(digest)[:128]
+        merged = {"digest": truncated}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "Invalid CAS digest",
+            code="CAS_INVALID_DIGEST",
+            http_status=422,
+            details=merged,
+        )
+        self.digest = truncated
+
+
+class CasInvalidSourceError(CasError):
+    def __init__(
+        self,
+        message: str = "Invalid CAS source file",
+        *,
+        path: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        truncated = str(path)[:128]
+        merged = {"path": truncated}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "Invalid CAS source file",
+            code="CAS_INVALID_SOURCE",
+            http_status=422,
+            details=merged,
+        )
+        self.path = truncated
+
+
+class CasBlobNotFoundError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS blob not found",
+        *,
+        digest: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        truncated = str(digest)[:128]
+        merged = {"digest": truncated}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "CAS blob not found",
+            code="CAS_BLOB_NOT_FOUND",
+            http_status=404,
+            details=merged,
+        )
+        self.digest = truncated
+
+
+class CasCorruptionError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS blob corruption detected",
+        *,
+        digest: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        truncated = str(digest)[:128]
+        merged = {"digest": truncated}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "CAS blob corruption detected",
+            code="CAS_CORRUPTION",
+            http_status=500,
+            details=merged,
+        )
+        self.digest = truncated
+
+
+class CasContainmentError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS path containment violation",
+        *,
+        path: str = "",
+        root: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        t_path = str(path)[:128]
+        t_root = str(root)[:128]
+        merged = {"path": t_path, "root": t_root}
+        if details:
+            merged.update(details)
+        super().__init__(
+            message or "CAS path containment violation",
+            code="CAS_PATH_CONTAINMENT",
+            http_status=403,
+            details=merged,
+        )
+        self.path = t_path
+        self.root = t_root
+
+
+class CasWriteError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS write operation failed",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "CAS write operation failed",
+            code="CAS_WRITE_FAILED",
+            http_status=500,
+            details=details or {},
+        )
+
+
+class CasUnsupportedPlatformError(CasError):
+    def __init__(
+        self,
+        message: str = "CAS is not supported on this platform",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "CAS is not supported on this platform",
+            code="CAS_UNSUPPORTED_PLATFORM",
+            http_status=501,
+            details=details or {},
+        )
+
+
+# --- P2-2 Native Git repository engine exceptions ---
+
+
+class GitError(MCSError):
+    """Base error for hardened native Git operations."""
+
+    def __init__(
+        self,
+        message: str = "Git operation failed",
+        *,
+        code: str = "GIT_ERROR",
+        http_status: int = 500,
+        retryable: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Git operation failed",
+            code=code,
+            http_status=http_status,
+            retryable=retryable,
+            details=details or {},
+        )
+
+
+class GitConfigurationError(GitError):
+    """Raised when the isolated Git configuration cannot be created or read."""
+
+    def __init__(
+        self,
+        message: str = "Git configuration error",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Git configuration error",
+            code="GIT_CONFIGURATION_ERROR",
+            http_status=500,
+            details=details or {},
+        )
+
+
+class GitUnsupportedPlatformError(GitError):
+    """Raised when native Git is requested on a platform the engine does not support."""
+
+    def __init__(
+        self,
+        message: str = "Native Git is not supported on this platform",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Native Git is not supported on this platform",
+            code="GIT_UNSUPPORTED_PLATFORM",
+            http_status=501,
+            details=details or {},
+        )
+
+
+class GitUnavailableError(GitError):
+    """Raised when the configured Git executable cannot be executed."""
+
+    def __init__(
+        self,
+        message: str = "Git executable is unavailable",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Git executable is unavailable",
+            code="GIT_UNAVAILABLE",
+            http_status=503,
+            retryable=True,
+            details=details or {},
+        )
+
+
+class GitCommandError(GitError):
+    """Raised when a Git command exits non-zero."""
+
+    def __init__(
+        self,
+        message: str = "Git command failed",
+        *,
+        command: str = "",
+        returncode: int | None = None,
+        stderr: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = dict(details or {})
+        if command:
+            merged["command"] = command[:256]
+        if returncode is not None:
+            merged["returncode"] = returncode
+        if stderr:
+            merged["stderr"] = stderr[:2000]
+        super().__init__(
+            message or "Git command failed",
+            code="GIT_COMMAND_FAILED",
+            http_status=500,
+            details=merged,
+        )
+        self.command = command
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+class GitTimeoutError(GitCommandError):
+    """Raised when a Git command exceeds its timeout."""
+
+    def __init__(
+        self,
+        message: str = "Git command timed out",
+        *,
+        command: str = "",
+        timeout_seconds: float = 0.0,
+        stderr: str = "",
+    ) -> None:
+        super().__init__(
+            message or "Git command timed out",
+            command=command,
+            stderr=stderr,
+            details={"timeout_seconds": timeout_seconds},
+        )
+        self.code = "GIT_TIMEOUT"
+        self.http_status = 504
+        self.retryable = True
+        self.timeout_seconds = timeout_seconds
+
+
+class GitRefValidationError(ValidationError):
+    """Raised when a branch name fails the hardened validation contract."""
+
+    def __init__(
+        self,
+        message: str = "Invalid Git branch name",
+        *,
+        ref: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Invalid Git branch name",
+            field="branch",
+            details={"ref": ref[:256], **(details or {})},
+        )
+        self.code = "GIT_REF_INVALID"
+        self.http_status = 422
+
+
+class GitRemoteUrlError(ValidationError):
+    """Raised when a Git remote URL does not match the approved GitHub forms."""
+
+    def __init__(
+        self,
+        message: str = "Invalid Git remote URL",
+        *,
+        url: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Invalid Git remote URL",
+            field="remote_url",
+            details={"url": url[:256], **(details or {})},
+        )
+        self.code = "GIT_REMOTE_URL_INVALID"
+        self.http_status = 422
+
+
+class GitRepositoryStateError(GitError):
+    """Raised when an existing repository or worktree is not in the expected state."""
+
+    def __init__(
+        self,
+        message: str = "Git repository state is invalid",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Git repository state is invalid",
+            code="GIT_REPOSITORY_STATE",
+            http_status=409,
+            details=details,
+        )
+
+
+class OversizedGitTrackedFileError(ValidationError):
+    """Raised when a Git-tracked Class-B file exceeds the 1 MiB cap."""
+
+    def __init__(
+        self,
+        path: str = "",
+        size_bytes: int = 0,
+        max_bytes: int = 1024 * 1024,
+    ) -> None:
+        super().__init__(
+            f"Git-tracked file '{path}' exceeds the {max_bytes} byte limit "
+            f"(actual: {size_bytes} bytes)",
+            field="path",
+            details={
+                "path": path[:128],
+                "size_bytes": size_bytes,
+                "max_bytes": max_bytes,
+            },
+        )
+        self.code = "GIT_TRACKED_FILE_TOO_LARGE"
+        self.http_status = 413
+
+
+class SecretFileInGitForbiddenError(ValidationError):
+    """Raised when staged Class-B content contains secret material.
+
+    ``findings`` must contain only kind/key metadata. Detected secret values are
+    never included in the error message or details.
+    """
+
+    def __init__(
+        self,
+        path: str = "",
+        *,
+        findings: list[dict[str, Any]] | None = None,
+    ) -> None:
+        safe_findings = [
+            {"kind": str(item.get("kind", "unknown"))[:64], "key": str(item.get("key", ""))[:128]}
+            for item in (findings or [])
+        ]
+        super().__init__(
+            f"File '{path}' contains secret material and cannot be committed",
+            field="path",
+            details={"path": path[:128], "findings": safe_findings},
+        )
+        self.code = "SECRET_FILE_IN_GIT_FORBIDDEN"
+        self.http_status = 422

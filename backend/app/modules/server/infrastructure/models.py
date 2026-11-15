@@ -45,6 +45,7 @@ class ServerModel(Base, TimestampMixin):
     whitelist_enabled = Column(Boolean, nullable=False, default=False)
     view_distance = Column(Integer, nullable=False, default=10)
     simulation_distance = Column(Integer, nullable=False, default=10)
+    mode = Column(String(16), nullable=False, default="simple")
 
     provider = Column(String(32), nullable=False, default="")
     deployment_host = Column(String(255), nullable=True)

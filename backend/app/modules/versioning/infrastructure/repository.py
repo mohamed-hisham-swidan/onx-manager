@@ -108,6 +108,14 @@ class SQLVersioningRepository(VersioningRepository):
         await self._session.flush()
         return branch
 
+    async def delete_branch(self, branch_id: str) -> bool:
+        model = await self._session.get(ServerBranchModel, branch_id)
+        if model is None:
+            return False
+        await self._session.delete(model)
+        await self._session.flush()
+        return True
+
     async def advance_branch_head_optimistic(
         self, branch_id: str, new_head: str, expected_head: str | None
     ) -> bool:

@@ -226,7 +226,7 @@ async def test_files_upload_oversized_returns_413_and_cleans_up(tmp_path: Path) 
         patch("app.api.v1.routers.files.AppSettings") as settings_cls,
         patch(
             "app.api.v1.routers.files._resolve_server_file_path",
-            return_value=(server_dir, server_dir / "huge.bin", "huge.bin"),
+            return_value=(server_dir, server_dir / "huge.bin", "huge.bin", False, False),
         ),
     ):
         settings_cls.return_value.files_max_upload_size_mb = 0.00001

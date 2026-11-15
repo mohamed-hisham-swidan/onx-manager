@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef, useMemo, useEffect } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAuthenticatedApi, ApiError } from "@/services/api";
@@ -6,6 +6,7 @@ import { queryKeys } from "@/services/queryClient";
 import { Icon } from "@/components/ui/Icon";
 import { Button, IconButton } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
 import { EmptyState, ErrorState } from "@/components/ui/States";
 import { LoadingBar } from "@/components/ui/LoadingBar";
@@ -13,6 +14,7 @@ import { PageSkeleton } from "@/components/Skeleton";
 import { toast } from "@/stores/toastStore";
 import type { FileItem } from "@/server_manager/types";
 import { CodeEditor } from "@/components/CodeEditor";
+import { useServerBranchContext } from "@/server_manager/context/ServerBranchContext";
 
 const PAGE_SIZE = 50;
 
@@ -36,6 +38,14 @@ function formatBytes(bytes: number) {
 export function ServerFilesPage() {
   const { serverId } = useParams<{ serverId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const branchContext = useServerBranchContext();
+  const urlBranch = searchParams.get("branch") || undefined;
+  const activeBranch = branchContext
+    ? branchContext.gitBacked
+      ? urlBranch || branchContext.branch
+      : undefined
+    : urlBranch;
+  const readOnlyBranch = activeBranch === "main";
   const currentPath = searchParams.get("path") || "";
   const fileParam = searchParams.get("file") || searchParams.get("edit");
   const [editContent, setEditContent] = useState("");
@@ -47,11 +57,32 @@ export function ServerFilesPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [showCommitDialog, setShowCommitDialog] = useState(false);
+  const [commitMessage, setCommitMessage] = useState("");
   const [prevCurrentPath, setPrevCurrentPath] = useState(currentPath);
   if (currentPath !== prevCurrentPath) {
     setPrevCurrentPath(currentPath);
     setSelectedPaths(new Set());
   }
+  const previousBranchRef = useRef(activeBranch);
+
+  useEffect(() => {
+    if (previousBranchRef.current === activeBranch) return;
+    previousBranchRef.current = activeBranch;
+    setUserEdited(false);
+    setEditContent("");
+    setSelectedPaths(new Set());
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("file");
+        next.delete("edit");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [activeBranch, setSearchParams]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editingFile = useMemo<FileItem | null>(() => {
@@ -135,15 +166,20 @@ export function ServerFilesPage() {
   const queryClient = useQueryClient();
 
   const { data: files, isLoading, error } = useQuery({
-    queryKey: queryKeys.files.list(serverId!, currentPath),
-    queryFn: () => api.listServerFiles(serverId!, currentPath),
+    queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch),
+    queryFn: () =>
+      activeBranch
+        ? api.listServerFiles(serverId!, currentPath, activeBranch)
+        : api.listServerFiles(serverId!, currentPath),
     enabled: !!serverId,
   });
 
   const { data: fileContentData, isLoading: isContentLoading, error: fileContentError } = useQuery({
-    queryKey: queryKeys.files.content(serverId!, editingFile?.path ?? ""),
+    queryKey: queryKeys.files.content(serverId!, editingFile?.path ?? "", activeBranch),
     queryFn: async () => {
-      const res = await api.readServerFileContent(serverId!, editingFile!.path);
+      const res = activeBranch
+        ? await api.readServerFileContent(serverId!, editingFile!.path, activeBranch)
+        : await api.readServerFileContent(serverId!, editingFile!.path);
       return typeof res === "string"
         ? { path: editingFile!.path, content: res, is_binary: false }
         : res;
@@ -165,10 +201,13 @@ export function ServerFilesPage() {
   };
 
   const deleteMutation = useMutation({
-    mutationFn: (path: string) => api.deleteServerFile(serverId!, path),
+    mutationFn: (path: string) =>
+      activeBranch
+        ? api.deleteServerFile(serverId!, path, activeBranch)
+        : api.deleteServerFile(serverId!, path),
     onSuccess: () => {
       toast("success", "File deleted");
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
       setFileToDelete(null);
     },
     onError: (err: Error) => {
@@ -179,12 +218,16 @@ export function ServerFilesPage() {
   const bulkDeleteMutation = useMutation({
     mutationFn: async (paths: string[]) => {
       for (const p of paths) {
-        await api.deleteServerFile(serverId!, p);
+        if (activeBranch) {
+          await api.deleteServerFile(serverId!, p, activeBranch);
+        } else {
+          await api.deleteServerFile(serverId!, p);
+        }
       }
     },
     onSuccess: () => {
       toast("success", "Files deleted", `Successfully deleted ${selectedPaths.size} item(s).`);
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
       setSelectedPaths(new Set());
       setShowBulkDelete(false);
     },
@@ -194,10 +237,13 @@ export function ServerFilesPage() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => api.uploadServerFile(serverId!, currentPath, file),
+    mutationFn: (file: File) =>
+      activeBranch
+        ? api.uploadServerFile(serverId!, currentPath, file, activeBranch)
+        : api.uploadServerFile(serverId!, currentPath, file),
     onSuccess: () => {
       toast("success", "File uploaded");
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
     },
     onError: (err: Error) => {
       handleMutationError("Failed to upload file", err);
@@ -207,11 +253,13 @@ export function ServerFilesPage() {
   const mkdirMutation = useMutation({
     mutationFn: (folderName: string) => {
       const fullPath = currentPath ? `${currentPath}/${folderName}` : folderName;
-      return api.mkdirServerDirectory(serverId!, fullPath);
+      return activeBranch
+        ? api.mkdirServerDirectory(serverId!, fullPath, undefined, activeBranch)
+        : api.mkdirServerDirectory(serverId!, fullPath);
     },
     onSuccess: () => {
       toast("success", "Folder created");
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
       setShowNewFolder(false);
       setNewFolderName("");
     },
@@ -221,10 +269,13 @@ export function ServerFilesPage() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: () => api.writeServerFileContent(serverId!, editingFile!.path, displayedContent),
+    mutationFn: () =>
+      activeBranch
+        ? api.writeServerFileContent(serverId!, editingFile!.path, displayedContent, activeBranch)
+        : api.writeServerFileContent(serverId!, editingFile!.path, displayedContent),
     onSuccess: () => {
       toast("success", "File saved");
-      queryClient.invalidateQueries({ queryKey: queryKeys.files.content(serverId!, editingFile!.path) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.content(serverId!, editingFile!.path, activeBranch) });
       handleCloseEditor();
     },
     onError: (err: Error) => {
@@ -232,9 +283,38 @@ export function ServerFilesPage() {
     },
   });
 
+  const commitMutation = useMutation({
+    mutationFn: () =>
+      api.createServerCommit(serverId!, {
+        message: commitMessage.trim(),
+        branch_name: activeBranch,
+      }),
+    onSuccess: (result) => {
+      const commitId =
+        typeof result.commit_id === "string" ? result.commit_id.slice(0, 12) : "new commit";
+      const routed = Array.isArray(result.routed_to_cas) ? result.routed_to_cas.length : 0;
+      const quarantined = Array.isArray(result.quarantined) ? result.quarantined.length : 0;
+      const suffix =
+        routed || quarantined
+          ? ` · ${routed} routed to CAS · ${quarantined} quarantined`
+          : "";
+      toast("success", "Changes committed", `${commitId} on ${activeBranch}${suffix}`);
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.content(serverId!, editingFile?.path ?? "", activeBranch) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.versioning.branches(serverId!) });
+      setShowCommitDialog(false);
+      setCommitMessage("");
+    },
+    onError: (err: Error) => {
+      handleMutationError("Failed to commit changes", err);
+    },
+  });
+
   const handleDownload = async (file: FileItem) => {
     try {
-      const blob = await api.downloadServerFile(serverId!, file.path);
+      const blob = activeBranch
+        ? await api.downloadServerFile(serverId!, file.path, activeBranch)
+        : await api.downloadServerFile(serverId!, file.path);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -377,7 +457,7 @@ export function ServerFilesPage() {
             >
               Cancel
             </button>
-            {!isBinary && (
+            {!isBinary && !readOnlyBranch && (
               <Button
                 variant="primary"
                 onClick={() => saveMutation.mutate()}
@@ -446,6 +526,26 @@ export function ServerFilesPage() {
     <div className="flex flex-col flex-1 min-h-0 space-y-4">
       {isLoading && <LoadingBar />}
 
+      {activeBranch && (
+        <div
+          data-testid="branch-context-banner"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-border-default bg-surface-card px-4 py-2.5 text-xs text-text-secondary"
+        >
+          <Icon name="backup" size={14} className="text-accent-primary" />
+          <span>
+            Branch: <strong className="font-mono text-text-primary">{activeBranch}</strong>
+          </span>
+          <span className="text-border-subtle">•</span>
+          {readOnlyBranch ? (
+            <span className="text-status-warning">
+              Saved state is read-only. Select a working branch to edit files.
+            </span>
+          ) : (
+            <span>Changes stay uncommitted until Save &amp; Commit.</span>
+          )}
+        </div>
+      )}
+
       {/* Toolbar & Breadcrumbs */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface-card rounded-xl shadow-sm border border-border-default">
         <div className="flex items-center overflow-x-auto whitespace-nowrap text-sm font-medium text-text-secondary">
@@ -501,7 +601,7 @@ export function ServerFilesPage() {
               e.target.value = "";
             }}
           />
-          {selectedPaths.size > 0 && (
+          {selectedPaths.size > 0 && !readOnlyBranch && (
             <Button
               variant="danger"
               icon="trash"
@@ -511,21 +611,34 @@ export function ServerFilesPage() {
               Delete Selected ({selectedPaths.size})
             </Button>
           )}
-          <Button
-            variant="secondary"
-            icon="folder"
-            onClick={() => setShowNewFolder(true)}
-          >
-            New Folder
-          </Button>
-          <Button
-            variant="primary"
-            icon="upload"
-            loading={uploadMutation.isPending}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Upload File
-          </Button>
+          {activeBranch && !readOnlyBranch && (
+            <Button
+              variant="secondary"
+              icon="save"
+              onClick={() => setShowCommitDialog(true)}
+            >
+              Save &amp; Commit
+            </Button>
+          )}
+          {!readOnlyBranch && (
+            <>
+              <Button
+                variant="secondary"
+                icon="folder"
+                onClick={() => setShowNewFolder(true)}
+              >
+                New Folder
+              </Button>
+              <Button
+                variant="primary"
+                icon="upload"
+                loading={uploadMutation.isPending}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Upload File
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -575,7 +688,7 @@ export function ServerFilesPage() {
             title="Empty Directory"
             description="No files found in this folder."
             icon="folder"
-            action={{
+            action={readOnlyBranch ? undefined : {
               label: "Upload File",
               icon: "upload",
               onClick: () => fileInputRef.current?.click(),
@@ -685,14 +798,16 @@ export function ServerFilesPage() {
                               variant="ghost"
                               onClick={() => navigateTo(file.name)}
                             />
-                            <IconButton
-                              icon="trash"
-                              aria-label={`Delete ${file.name}`}
-                              title={`Delete ${file.name}`}
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setFileToDelete(file)}
-                            />
+                            {!readOnlyBranch && (
+                              <IconButton
+                                icon="trash"
+                                aria-label={`Delete ${file.name}`}
+                                title={`Delete ${file.name}`}
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setFileToDelete(file)}
+                              />
+                            )}
                           </>
                         ) : (
                           <>
@@ -704,7 +819,7 @@ export function ServerFilesPage() {
                               variant="ghost"
                               onClick={() => handleDownload(file)}
                             />
-                            {!isBinaryFile(file.name) && (
+                            {!readOnlyBranch && !isBinaryFile(file.name) && (
                               <IconButton
                                 icon="edit"
                                 aria-label="Edit"
@@ -714,14 +829,16 @@ export function ServerFilesPage() {
                                 onClick={() => openFileEditor(file)}
                               />
                             )}
-                            <IconButton
-                              icon="trash"
-                              aria-label="Delete"
-                              title={`Delete ${file.name}`}
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setFileToDelete(file)}
-                            />
+                            {!readOnlyBranch && (
+                              <IconButton
+                                icon="trash"
+                                aria-label="Delete"
+                                title={`Delete ${file.name}`}
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setFileToDelete(file)}
+                              />
+                            )}
                           </>
                         )}
                       </div>
@@ -744,6 +861,69 @@ export function ServerFilesPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        open={showCommitDialog}
+        onClose={() => {
+          if (!commitMutation.isPending) setShowCommitDialog(false);
+        }}
+        title="Save & Commit"
+        description={
+          activeBranch
+            ? `Commit validated Class-B changes on branch "${activeBranch}".`
+            : "Commit validated Class-B changes."
+        }
+        size="sm"
+        closeOnBackdrop={!commitMutation.isPending}
+        closeOnEscape={!commitMutation.isPending}
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (commitMessage.trim() && !commitMutation.isPending) {
+              commitMutation.mutate();
+            }
+          }}
+        >
+          <label
+            htmlFor="commit-message"
+            className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-muted"
+          >
+            Commit message
+          </label>
+          <input
+            id="commit-message"
+            type="text"
+            aria-label="Commit message"
+            placeholder="Describe this change"
+            value={commitMessage}
+            onChange={(e) => setCommitMessage(e.target.value)}
+            autoFocus
+            maxLength={500}
+            disabled={commitMutation.isPending}
+            className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+          />
+          <div className="mt-4 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowCommitDialog(false)}
+              disabled={commitMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              icon="save"
+              loading={commitMutation.isPending}
+              disabled={!commitMessage.trim()}
+            >
+              Commit
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <ConfirmDialog
         open={showBulkDelete}

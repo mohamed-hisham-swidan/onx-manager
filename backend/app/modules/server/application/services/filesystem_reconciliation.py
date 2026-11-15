@@ -222,7 +222,7 @@ class FilesystemReconciliationService:
     ) -> ReconciliationResult:
         started_at = datetime.now(UTC)
         start_ms = time.monotonic()
-        entries = self._scan_filesystem()
+        entries = self._scan_filesystem(await self._active_refresh_names())
         if not entries:
             logger.info("data/servers/ does not exist or is empty — nothing to reconcile")
             return ReconciliationResult()
@@ -258,15 +258,62 @@ class FilesystemReconciliationService:
     # Stage 1 — Scan filesystem directories
     # ------------------------------------------------------------------
 
-    def _scan_filesystem(self) -> list[FsEntry]:
+    async def _active_refresh_names(self) -> set[str]:
+        """Directory names referenced by non-terminal refresh journals.
+
+        A live refresh owns its staging/previous trees while its journal is
+        active; treating them as servers would let reconciliation delete or
+        import a tree mid-swap. Failures here are non-fatal: the suffix filter
+        below still excludes the standard swap tree names.
+        """
+        try:
+            from app.core.host_state import resolve_host_state_layout
+            from app.modules.versioning.infrastructure.refresh_journal import (
+                RefreshJournalRepository,
+            )
+
+            repository = RefreshJournalRepository(resolve_host_state_layout())
+            try:
+                records = await repository.list_incomplete()
+            finally:
+                repository.close()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Unable to read active refresh journals: %s", exc)
+            return set()
+        names: set[str] = set()
+        for record in records:
+            for raw in (record.staging_path, record.previous_path):
+                if raw:
+                    names.add(Path(raw).name)
+            for suffix in (
+                ".rollback",
+                ".rollback-prev",
+                ".staging",
+                ".prev",
+            ):
+                names.add(f"{record.server_id}{suffix}")
+        return names
+
+    def _scan_filesystem(self, excluded_names: set[str] | None = None) -> list[FsEntry]:
+        excluded = excluded_names or set()
         data_dir = AppSettings().servers_data_dir
         data_path = Path(data_dir)
         if not data_path.is_dir():
             return []
         entries: list[FsEntry] = []
         for entry in sorted(data_path.iterdir()):
+            name = entry.name
+            if (
+                name.endswith(".staging")
+                or name.endswith(".prev")
+                or name.endswith(".rollback")
+                or name.endswith(".rollback-prev")
+                or name.startswith(".onx-")
+                or name in excluded
+            ):
+                continue
             if entry.is_dir():
-                entries.append(FsEntry(path=str(entry), name=entry.name))
+                entries.append(FsEntry(path=str(entry), name=name))
         return entries
 
     # ------------------------------------------------------------------
@@ -586,9 +633,11 @@ class FilesystemReconciliationService:
             if server.deployment and server.deployment.root_path:
                 try:
                     norm_path = str(Path(server.deployment.root_path).resolve())
-                    if norm_path not in claimed_paths:
-                        if Path(norm_path).is_dir() or self._fs.is_dir(norm_path):
-                            continue
+                    if (
+                        norm_path not in claimed_paths
+                        and (Path(norm_path).is_dir() or self._fs.is_dir(norm_path))
+                    ):
+                        continue
                 except (ValueError, OSError):
                     pass
             if server.missing_since is not None:
@@ -970,7 +1019,11 @@ class FilesystemReconciliationService:
                         provider.destroy(handle),
                         timeout=DESTROY_TIMEOUT_SECONDS,
                     )
-                    logger.info("Destroyed provider resources for deleted server %s (%s)", server.name, sid)
+                    logger.info(
+                        "Destroyed provider resources for deleted server %s (%s)",
+                        server.name,
+                        sid,
+                    )
                 except Exception as e:
                     logger.warning(
                         "Failed to destroy provider resources for deleted server %s: %s",
@@ -988,7 +1041,10 @@ class FilesystemReconciliationService:
                 )
                 logger.info("Deleted MISSING server %s (%s) — second pass", server.name, sid)
         except ServerLifecycleLockTimeoutError:
-            logger.info("Server %s is locked by an active operation; skipping reconciliation delete", sid)
+            logger.info(
+                "Server %s is locked by an active operation; skipping reconciliation delete",
+                sid,
+            )
             return
 
     async def _handle_unchanged(self, pa: PlanAction, result: ReconciliationResult) -> None:

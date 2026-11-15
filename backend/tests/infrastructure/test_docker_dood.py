@@ -137,6 +137,10 @@ class TestDooDDockerProviderVolumeMount:
             ),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
+            patch(
+                "app.modules.server.infrastructure.providers.docker.prepare_data_ownership",
+                AsyncMock(),
+            ),
         ):
             mock_cmd.side_effect = _make_docker_command_fake()
             await provider.start(
@@ -168,6 +172,10 @@ class TestDooDDockerProviderVolumeMount:
             patch.dict(os.environ, {"MCS_SERVERS_DATA_DIR": "/data/servers"}, clear=True),
             patch.object(provider, "_ensure_image", AsyncMock()),
             patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
+            patch(
+                "app.modules.server.infrastructure.providers.docker.prepare_data_ownership",
+                AsyncMock(),
+            ),
         ):
             mock_cmd.side_effect = _make_docker_command_fake()
             await provider.start(

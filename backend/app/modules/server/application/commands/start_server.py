@@ -44,6 +44,9 @@ from app.modules.server.infrastructure.providers.base import (
 )
 from app.modules.server.infrastructure.repository import SQLServerRepository
 from app.modules.shared.value_objects import ServerId
+from app.modules.versioning.infrastructure.refresh_journal import (
+    assert_no_unresolved_refresh,
+)
 
 if TYPE_CHECKING:
     from app.modules.server.application.lifecycle_lock import ServerLifecycleLeaseManager
@@ -54,6 +57,9 @@ logger = logging.getLogger(f"{IDENTITY.logger_prefix_new}.commands.start_server"
 class StartServerCommand(Command):
     idempotency_key: IdempotencyKey = Field(default_factory=IdempotencyKey)
     server_id: str
+    # Only the active refresh/rollback may exempt its own journal from the boot
+    # guard; every other unresolved journal still blocks with HTTP 409.
+    allow_journal_id: str | None = None
 
 
 class StartServerHandler(CommandHandler[StartServerCommand]):
@@ -68,6 +74,11 @@ class StartServerHandler(CommandHandler[StartServerCommand]):
         self._lifecycle_lease = lifecycle_lease
 
     async def handle(self, command: StartServerCommand) -> CommandResult:
+        # Fail closed before stopping, claiming, or spawning anything when a
+        # refresh/rollback journal is still unresolved.
+        await assert_no_unresolved_refresh(
+            command.server_id, allow_journal_id=command.allow_journal_id
+        )
         if self._lifecycle_lease is not None:
             async with self._lifecycle_lease.acquire(
                 command.server_id,

@@ -418,6 +418,7 @@ async def test_run_isolated_test_timeout_budget_covers_full_run(tmp_path):
             deployment=SimpleNamespace(server_dir=str(tmp_path)),
             bot_verification_settings=None,
             startup_timeout_seconds=None,
+            mode="advanced",
         )
         commit = SimpleNamespace(
             id="commit-1",

@@ -11,6 +11,7 @@ const listSoftwareMock = vi.fn();
 const listSoftwareVersionsMock = vi.fn();
 const getAvailablePortMock = vi.fn();
 const healthMock = vi.fn().mockResolvedValue({ docker: true });
+const getSetupStatusMock = vi.fn().mockResolvedValue({ advanced_mode_enabled: false });
 const mutateAsyncMock = vi.fn().mockResolvedValue({ server_id: "new-srv" });
 
 vi.mock("@/services/api", async () => {
@@ -22,6 +23,7 @@ vi.mock("@/services/api", async () => {
       listSoftwareVersions: listSoftwareVersionsMock,
       getAvailablePort: getAvailablePortMock,
       health: healthMock,
+      getSetupStatus: getSetupStatusMock,
     }),
   };
 });
@@ -49,6 +51,7 @@ describe("CreateServerPage version step", () => {
     ]);
     listSoftwareVersionsMock.mockResolvedValue([]);
     getAvailablePortMock.mockResolvedValue({ port: 25565 });
+    getSetupStatusMock.mockResolvedValue({ advanced_mode_enabled: false });
   });
 
   it("shows a distinct error message when the versions fetch fails", async () => {
@@ -315,6 +318,8 @@ describe("CreateServerPage Configuration step", () => {
     // Review step shows Runtime Provider as Docker Container
     expect(await screen.findByText("Review & Create")).toBeInTheDocument();
     expect(screen.getByText("Docker Container")).toBeInTheDocument();
+    expect(screen.getByText("Mode")).toBeInTheDocument();
+    expect(screen.getByText("Simple")).toBeInTheDocument();
 
     // Click Create Server
     await user.click(screen.getByRole("button", { name: "Create Server" }));
@@ -323,6 +328,7 @@ describe("CreateServerPage Configuration step", () => {
       expect.objectContaining({
         name: "Dockerized Server",
         provider: "docker",
+        mode: "simple",
       })
     );
   });
@@ -353,6 +359,8 @@ describe("CreateServerPage Configuration step", () => {
 
     expect(await screen.findByText("Review & Create")).toBeInTheDocument();
     expect(screen.getByText("Host Process")).toBeInTheDocument();
+    expect(screen.getByText("Mode")).toBeInTheDocument();
+    expect(screen.getByText("Simple")).toBeInTheDocument();
 
     // Click Create Server
     await user.click(screen.getByRole("button", { name: "Create Server" }));
@@ -361,8 +369,22 @@ describe("CreateServerPage Configuration step", () => {
       expect.objectContaining({
         name: "Host Process Server",
         provider: undefined,
+        mode: "simple",
       })
     );
+  });
+
+  it("renders Simple mode chooser and does not render Advanced mode in Configuration step", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Paper/i }));
+    await user.click(await screen.findByRole("button", { name: "1.21.1" }));
+
+    expect(await screen.findByText("Server Configuration")).toBeInTheDocument();
+    expect(screen.getByText("Server Mode")).toBeInTheDocument();
+    expect(screen.getByTestId("server-mode-simple")).toBeInTheDocument();
+    expect(screen.queryByTestId("server-mode-advanced")).not.toBeInTheDocument();
   });
 });
 
@@ -430,5 +452,68 @@ describe("CreateServerPage error handling", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/fill-data\.papermc\.io/)).not.toBeInTheDocument();
+  });
+});
+
+describe("CreateServerPage advanced mode flag gating", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listSoftwareMock.mockResolvedValue([
+      { type: "vanilla", name: "Vanilla", description: "Official" },
+    ]);
+    listSoftwareVersionsMock.mockResolvedValue(["1.20.4"]);
+    getAvailablePortMock.mockResolvedValue({ port: 25565 });
+  });
+
+  it("calls getSetupStatus once on mount and shows Advanced card when advanced_mode_enabled is true", async () => {
+    getSetupStatusMock.mockResolvedValue({ advanced_mode_enabled: true });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Vanilla/i }));
+    await user.click(await screen.findByRole("button", { name: "1.20.4" }));
+
+    expect(await screen.findByTestId("server-mode-advanced")).toBeInTheDocument();
+    expect(getSetupStatusMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show Advanced card when advanced_mode_enabled is false", async () => {
+    getSetupStatusMock.mockResolvedValue({ advanced_mode_enabled: false });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Vanilla/i }));
+    await user.click(await screen.findByRole("button", { name: "1.20.4" }));
+
+    expect(await screen.findByTestId("server-mode-simple")).toBeInTheDocument();
+    expect(screen.queryByTestId("server-mode-advanced")).not.toBeInTheDocument();
+  });
+
+  it("does not show Advanced card when advanced_mode_enabled is omitted from status", async () => {
+    getSetupStatusMock.mockResolvedValue({ initialized: true, access_mode: "LOCAL" });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Vanilla/i }));
+    await user.click(await screen.findByRole("button", { name: "1.20.4" }));
+
+    expect(await screen.findByTestId("server-mode-simple")).toBeInTheDocument();
+    expect(screen.queryByTestId("server-mode-advanced")).not.toBeInTheDocument();
+  });
+
+  it("does not show Advanced card when getSetupStatus rejects and wizard still works", async () => {
+    getSetupStatusMock.mockRejectedValue(new Error("Network failure"));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Vanilla/i }));
+    await user.click(await screen.findByRole("button", { name: "1.20.4" }));
+
+    expect(await screen.findByTestId("server-mode-simple")).toBeInTheDocument();
+    expect(screen.queryByTestId("server-mode-advanced")).not.toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("My Awesome Server"), "Test Server");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Game Properties")).toBeInTheDocument();
   });
 });

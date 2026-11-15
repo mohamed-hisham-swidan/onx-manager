@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_command_bus, get_query_bus, require_permission
 from app.api.errors import check_command_result
+from app.api.v1.dependencies.server_mode import require_advanced_mode
 from app.api.v1.schemas.versioning import (
     AutoCommitLiveChangesRequest,
     AutoCommitLiveChangesResponse,
@@ -56,6 +57,7 @@ from app.modules.versioning.application import (
     CreateMaterializationCommand,
     CreateTagCommand,
     CreateTestDefinitionCommand,
+    DeleteBranchCommand,
     DeleteTestDefinitionCommand,
     DiffCommitsQuery,
     DiscardTestCommand,
@@ -90,7 +92,11 @@ from app.modules.versioning.infrastructure.config_resolver import BotConfigResol
 from app.modules.versioning.infrastructure.resource_probe import ResourcePreflightProbe
 from app.modules.versioning.infrastructure.storage_probe import StorageCapabilityProbe
 
-router = APIRouter(prefix="/api/v1/servers/{server_id}/versioning", tags=["versioning"])
+router = APIRouter(
+    prefix="/api/v1/servers/{server_id}/versioning",
+    tags=["versioning"],
+    dependencies=[Depends(require_advanced_mode)],
+)
 
 __all__ = ["router"]
 
@@ -129,6 +135,18 @@ async def archive_branch(
     _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
 ) -> dict[str, Any]:
     cmd = ArchiveBranchCommand(server_id=server_id, name=name)
+    res = await command_bus.send(cmd)
+    return check_command_result(res)
+
+
+@router.delete("/branches/{name}", response_model=dict[str, Any])
+async def delete_branch(
+    server_id: str,
+    name: str,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> dict[str, Any]:
+    cmd = DeleteBranchCommand(server_id=server_id, name=name)
     res = await command_bus.send(cmd)
     return check_command_result(res)
 
@@ -575,7 +593,7 @@ async def get_preflight_status(
         server_dir = server.root_path
         server_type = server.server_type
 
-    reflink_ok = StorageCapabilityProbe.probe_path(server_dir)
+    reflink_ok = StorageCapabilityProbe.probe_path(server_dir) if server_dir else False
 
     headroom = ResourcePreflightProbe.check_headroom(
         bot_count=bot_count,

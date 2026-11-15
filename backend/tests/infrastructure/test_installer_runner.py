@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.core.container_hardening import resolve_non_root_user
 from app.modules.server.domain.installer import (
     InstallerResult,
     InstallerRunner,
@@ -267,6 +268,12 @@ async def test_container_installer_runner_command_construction() -> None:
     assert call_args[vol_idx + 1].endswith(":/data")
     assert "-w" in call_args
     assert call_args[call_args.index("-w") + 1] == "/data"
+    assert "--cap-drop=ALL" in call_args
+    assert "--security-opt=no-new-privileges:true" in call_args
+    assert "--pids-limit=2048" in call_args
+    expected_user = ":".join(str(v) for v in resolve_non_root_user())
+    assert call_args[call_args.index("--user") + 1] == expected_user
+    assert expected_user != "0:0"
     assert "eclipse-temurin:21-jdk" in call_args
     assert "java" in call_args
     assert "--installServer" in call_args

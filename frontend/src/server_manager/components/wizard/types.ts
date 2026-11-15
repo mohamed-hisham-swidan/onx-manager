@@ -1,3 +1,5 @@
+import type { ServerMode } from "../../types";
+
 export type Step = "software" | "version" | "config" | "properties" | "review" | "done";
 
 export const STEPS: { key: Step; label: string }[] = [
@@ -12,6 +14,7 @@ export interface WizardData {
   serverType: string;
   minecraftVersion: string;
   name: string;
+  mode: ServerMode;
   port: number | "";
   maxPlayers: number | "";
   minMemoryMb: number | "";
@@ -33,6 +36,7 @@ export const INITIAL_DATA: WizardData = {
   serverType: "",
   minecraftVersion: "",
   name: "",
+  mode: "simple",
   port: 25565,
   maxPlayers: 20,
   minMemoryMb: 1024,

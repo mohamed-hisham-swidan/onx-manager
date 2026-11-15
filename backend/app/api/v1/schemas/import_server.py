@@ -111,3 +111,11 @@ class ImportServerRequest(BaseModel):
     whitelist: bool = False
     view_distance: int = Field(default=10, ge=2, le=32)
     simulation_distance: int = Field(default=10, ge=2, le=32)
+    mode: str = Field(default="simple")
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        if v not in ("simple", "advanced"):
+            raise ValueError(f"Invalid mode: {v!r}. Must be 'simple' or 'advanced'")
+        return v

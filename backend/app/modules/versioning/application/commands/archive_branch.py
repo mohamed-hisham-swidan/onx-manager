@@ -6,8 +6,10 @@ from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
 from app.core.exceptions import BranchProtectedError, NotFoundError
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.versioning.application.git_branch_adapter import git_branch_context
 from app.modules.versioning.domain.events import BranchArchivedEvent
 from app.modules.versioning.domain.repository import VersioningRepository
+from app.modules.versioning.infrastructure.git_repository import MAIN_BRANCH
 
 
 class ArchiveBranchCommand(Command):
@@ -29,9 +31,13 @@ class ArchiveBranchHandler(CommandHandler[ArchiveBranchCommand]):
     async def handle(self, command: ArchiveBranchCommand) -> CommandResult:
         from app.core.persistence.db import database
         from app.modules.server.infrastructure.repository import SQLServerRepository
+        from app.modules.versioning.application.mode_guard import ensure_versioning_allowed
         from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
 
         events: list[DomainEvent] = []
+
+        if self._server_repo is not None:
+            await ensure_versioning_allowed(command.server_id, server_repo=self._server_repo)
 
         if self._server_repo is not None and self._versioning_repo is not None:
             res = await self._execute(command, self._server_repo, self._versioning_repo, events)
@@ -40,6 +46,7 @@ class ArchiveBranchHandler(CommandHandler[ArchiveBranchCommand]):
             for attempt in range(max_retries):
                 try:
                     async with database.session_factory() as session:
+                        await ensure_versioning_allowed(command.server_id, session=session)
                         server_repo = self._server_repo or SQLServerRepository(session)
                         versioning_repo = self._versioning_repo or SQLVersioningRepository(session)
                         events.clear()
@@ -69,7 +76,7 @@ class ArchiveBranchHandler(CommandHandler[ArchiveBranchCommand]):
         from app.modules.shared.value_objects import ServerId
 
         try:
-            await server_repo.get(ServerId(command.server_id))
+            server = await server_repo.get(ServerId(command.server_id))
         except Exception as exc:
             raise NotFoundError(f"Server '{command.server_id}' not found") from exc
 
@@ -79,10 +86,21 @@ class ArchiveBranchHandler(CommandHandler[ArchiveBranchCommand]):
                 f"Branch '{command.name}' not found on server '{command.server_id}'"
             )
 
+        if branch.name == MAIN_BRANCH:
+            raise BranchProtectedError("Branch 'main' is protected and cannot be archived")
+
         if branch.is_protected and not branch.can_archive():
             raise BranchProtectedError(
                 f"Cannot archive protected branch '{branch.name}'. "
                 "Unprotect the branch before archiving."
+            )
+
+        git_context = git_branch_context(server)
+        if git_context is not None:
+            git_context.service.archive_branch(
+                command.server_id,
+                git_context.server_root,
+                command.name,
             )
 
         branch.archive()

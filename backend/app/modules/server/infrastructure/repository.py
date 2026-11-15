@@ -20,6 +20,7 @@ from app.modules.server.domain.value_objects import (
     PortNumber,
     RuntimeInfo,
     ServerDeployment,
+    ServerMode,
     ServerProperties,
     ServerType,
     default_provider_for_platform,
@@ -62,6 +63,7 @@ class SQLServerRepository(ServerRepository):
             self._session.add(model)
 
         model.name = server.name
+        model.mode = server.mode.value
         model.server_type = server.server_type.value
         model.minecraft_version = str(server.minecraft_version)
         model.memory_min_mb = server.memory.min_mb
@@ -223,6 +225,7 @@ class SQLServerRepository(ServerRepository):
                 affinity=model.cpu_affinity or "",
             ),
             startup_timeout_seconds=model.startup_timeout_seconds,
+            mode=ServerMode(model.mode or "simple"),
         )
 
         from app.modules.server.domain.aggregate import ServerStatus

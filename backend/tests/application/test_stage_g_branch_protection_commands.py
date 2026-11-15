@@ -65,6 +65,7 @@ async def init_test_db(tmp_path):
             port=25565,
             java_args="-Xmx2G",
             bot_verification_settings={"bot_count": 5, "duration_minutes": 10},
+            mode="advanced",
         )
         session.add(server)
         await session.commit()

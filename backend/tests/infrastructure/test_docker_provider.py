@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.core.exceptions import ProviderError
+from app.core.container_hardening import (
+    ContainerHardeningError,
+    resolve_non_root_user,
+)
+from app.core.exceptions import ProviderError, ValidationError
 from app.modules.server.domain.diagnostics import FailureCode
 from app.modules.server.domain.value_objects import (
     LaunchConfiguration,
@@ -110,6 +114,14 @@ class TestDockerProviderContract:
         assert "-w" in create_args
         assert create_args[create_args.index("-w") + 1] == "/data"
 
+        # P2-6b hardening: non-root user, no caps, no new privileges, pid cap.
+        assert "--cap-drop=ALL" in create_args
+        assert "--security-opt=no-new-privileges:true" in create_args
+        assert "--pids-limit=2048" in create_args
+        expected_user = ":".join(str(v) for v in resolve_non_root_user())
+        assert create_args[create_args.index("--user") + 1] == expected_user
+        assert expected_user != "0:0"
+
         # Environment
         assert "-e" in create_args
         assert "CUSTOM_ENV=123" in create_args
@@ -126,6 +138,38 @@ class TestDockerProviderContract:
         assert "-jar" in cmd_tokens
         assert cmd_tokens[cmd_tokens.index("-jar") + 1] == "/data/paper-1.20.4.jar"
         assert cmd_tokens[-1] == "nogui"
+
+    @pytest.mark.asyncio
+    async def test_docker_start_fails_closed_when_data_ownership_fails(
+        self, tmp_path: Path
+    ) -> None:
+        provider = DockerProvider()
+        srv_dir = tmp_path / "test_servers" / "srv-ownership"
+        srv_dir.mkdir()
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path=str(srv_dir),
+            startup_jar="server.jar",
+        )
+
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_docker,
+            patch(
+                "app.modules.server.infrastructure.providers.docker.prepare_data_ownership",
+                AsyncMock(side_effect=ContainerHardeningError("chown failed")),
+            ),
+        ):
+            mock_docker.return_value = (1, "No such container")
+            with pytest.raises(ContainerHardeningError):
+                await provider.start(
+                    server_id="ownership-fail",
+                    config={"image": "eclipse-temurin:21-jre-jammy", "port": 25565},
+                    deployment=deployment,
+                )
+
+        create_calls = [c for c in mock_docker.call_args_list if c[0] and c[0][0] == "create"]
+        assert create_calls == []
 
     @pytest.mark.asyncio
     async def test_docker_start_with_forge_script(self, tmp_path: Path) -> None:
@@ -214,9 +258,11 @@ class TestDockerProviderContract:
     @pytest.mark.asyncio
     async def test_docker_start_cpu_allocation_and_affinity(self, tmp_path: Path) -> None:
         provider = DockerProvider()
+        srv_dir = tmp_path / "test_servers" / "srv-cpu"
+        srv_dir.mkdir(parents=True)
         deployment = ServerDeployment(
             location_type=LocationType.DOCKER,
-            root_path=str(tmp_path / "test_servers" / "srv-cpu"),
+            root_path=str(srv_dir),
         )
         config: dict[str, Any] = {
             "image": "eclipse-temurin:21-jre-jammy",
@@ -819,6 +865,7 @@ class TestDockerDestroy:
             force_itzg_entrypoint=True,
         )
         host_mount = resolve_host_mount_path(str(srv_dir))
+        expected_user = ":".join(str(v) for v in resolve_non_root_user())
         fp = _compute_config_fingerprint(
             image="eclipse-temurin:21-jre-jammy",
             memory_min=1024,
@@ -829,15 +876,26 @@ class TestDockerDestroy:
             mounts=[f"{host_mount}:/data"],
             env={},
             cmd=server_cmd,
+            user=expected_user,
+            cap_drop=["ALL"],
+            security_opt=["no-new-privileges:true"],
+            pids_limit=2048,
         )
 
         running_inspect = {
             "State": {"Status": "running", "Pid": 7777},
             "Config": {
+                "User": expected_user,
                 "Labels": {
                     "com.onx-manager.server_id": "adopt-srv",
                     "com.onx-manager.config-fingerprint": fp,
-                }
+                },
+            },
+            "HostConfig": {
+                "CapDrop": ["ALL"],
+                "SecurityOpt": ["no-new-privileges:true"],
+                "PidsLimit": 2048,
+                "NetworkMode": "bridge",
             },
             "NetworkSettings": {"Networks": {"bridge": {"IPAddress": "172.17.0.2"}}},
         }
@@ -1098,6 +1156,7 @@ class TestDockerDestroy:
             force_itzg_entrypoint=True,
         )
         host_mount = resolve_host_mount_path(str(srv_dir))
+        expected_user = ":".join(str(v) for v in resolve_non_root_user())
         fp = _compute_config_fingerprint(
             image="eclipse-temurin:21-jre-jammy",
             memory_min=1024,
@@ -1108,15 +1167,26 @@ class TestDockerDestroy:
             mounts=[f"{host_mount}:/data"],
             env={},
             cmd=server_cmd,
+            user=expected_user,
+            cap_drop=["ALL"],
+            security_opt=["no-new-privileges:true"],
+            pids_limit=2048,
         )
 
         running_inspect = {
             "State": {"Status": "running", "Pid": 9999},
             "Config": {
+                "User": expected_user,
                 "Labels": {
                     "com.onx-manager.server_id": "srv-f1",
                     "com.onx-manager.config-fingerprint": fp,
-                }
+                },
+            },
+            "HostConfig": {
+                "CapDrop": ["ALL"],
+                "SecurityOpt": ["no-new-privileges:true"],
+                "PidsLimit": 2048,
+                "NetworkMode": "bridge",
             },
             "NetworkSettings": {"Networks": {"bridge": {"IPAddress": "172.17.0.5"}}},
         }
@@ -1173,3 +1243,186 @@ class TestDockerDestroy:
 
 
 
+
+    @pytest.mark.asyncio
+    async def test_docker_unhardened_running_container_is_not_adopted(
+        self, tmp_path: Path
+    ) -> None:
+        """P2-6c2 / H-A1: a 0:0 full-cap container is never silently adopted."""
+        import json
+
+        from app.modules.server.infrastructure.providers.docker import (
+            _compute_config_fingerprint,
+            build_docker_server_cmd,
+            resolve_host_mount_path,
+        )
+
+        provider = DockerProvider()
+        srv_dir = tmp_path / "test_servers" / "srv-unhardened"
+        srv_dir.mkdir(parents=True)
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path=str(srv_dir),
+            startup_jar="server.jar",
+        )
+        expected_user = ":".join(str(v) for v in resolve_non_root_user())
+        server_cmd = build_docker_server_cmd(
+            startup_command=None,
+            startup_jar="server.jar",
+            jvm_flags=None,
+            memory_min_mb=1024,
+            memory_max_mb=2048,
+            cpu_cores=0,
+            image="eclipse-temurin:21-jre-jammy",
+            force_itzg_entrypoint=True,
+        )
+        host_mount = resolve_host_mount_path(str(srv_dir))
+        fp = _compute_config_fingerprint(
+            image="eclipse-temurin:21-jre-jammy",
+            memory_min=1024,
+            memory_max=2048,
+            cpu_cores=0,
+            cpu_affinity="",
+            ports=["25565:25565"],
+            mounts=[f"{host_mount}:/data"],
+            env={},
+            cmd=server_cmd,
+            user=expected_user,
+            cap_drop=["ALL"],
+            security_opt=["no-new-privileges:true"],
+            pids_limit=2048,
+        )
+        unhardened_inspect = {
+            "State": {"Status": "running", "Pid": 4242},
+            "Config": {
+                "User": "0:0",
+                "Labels": {
+                    "com.onx-manager.server_id": "srv-unhardened",
+                    "com.onx-manager.config-fingerprint": fp,
+                },
+            },
+            "HostConfig": {
+                "CapDrop": [],
+                "SecurityOpt": [],
+                "PidsLimit": 0,
+                "NetworkMode": "bridge",
+            },
+        }
+
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", AsyncMock()) as mock_cmd,
+        ):
+            mock_cmd.return_value = (0, json.dumps(unhardened_inspect))
+            with pytest.raises(ProviderError, match="hardening contract"):
+                await provider.start(
+                    server_id="srv-unhardened",
+                    deployment=deployment,
+                    config={"image": "eclipse-temurin:21-jre-jammy", "port": 25565},
+                )
+            assert not [
+                c for c in mock_cmd.call_args_list if c[0] and c[0][0] in ("create", "rm")
+            ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("network", ["host", "container:abc123"])
+    async def test_docker_rejects_host_namespace_network(
+        self, tmp_path: Path, network: str
+    ) -> None:
+        """P2-6c2 / H-3: host and container namespace sharing are forbidden."""
+        provider = DockerProvider()
+        srv_dir = tmp_path / "test_servers" / f"srv-net-{network[:6]}"
+        srv_dir.mkdir(parents=True)
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path=str(srv_dir),
+            startup_jar="server.jar",
+        )
+
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            pytest.raises(ValidationError, match="network"),
+        ):
+            await provider.start(
+                server_id="srv-net",
+                deployment=deployment,
+                config={
+                    "image": "eclipse-temurin:21-jre-jammy",
+                    "network": network,
+                },
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("image", ["", "-rm", "bad image"])
+    async def test_docker_start_rejects_unsafe_image_token(
+        self, tmp_path: Path, image: str
+    ) -> None:
+        """P2-6c2 / M-A2: flag-like or whitespace images are rejected."""
+        provider = DockerProvider()
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path=str(tmp_path / "test_servers" / "srv-img"),
+            startup_jar="server.jar",
+        )
+
+        with pytest.raises(ValidationError, match="image"):
+            await provider.start(
+                server_id="srv-img",
+                deployment=deployment,
+                config={"image": image},
+            )
+
+    @pytest.mark.asyncio
+    async def test_docker_user_env_cannot_override_puid_pgid(
+        self, tmp_path: Path
+    ) -> None:
+        """P2-6c2 / M-3: panel-controlled PUID/PGID are appended last."""
+        provider = DockerProvider()
+        srv_dir = tmp_path / "test_servers" / "srv-puid"
+        srv_dir.mkdir(parents=True)
+        deployment = ServerDeployment(
+            location_type=LocationType.DOCKER,
+            root_path=str(srv_dir),
+            startup_jar="server.jar",
+        )
+        expected_user = ":".join(str(v) for v in resolve_non_root_user())
+        create_args: tuple[str, ...] = ()
+
+        async def fake_docker(*args: Any, **_kwargs: Any) -> tuple[int, str]:
+            nonlocal create_args
+            if args and args[0] == "create":
+                create_args = args
+                return 0, ""
+            if args and args[0] == "start":
+                return 0, ""
+            if args and args[0] == "inspect":
+                return 0, "1234 172.17.0.2"
+            return 0, ""
+
+        with (
+            patch.object(provider, "_ensure_image", AsyncMock()),
+            patch.object(provider, "_docker_command", side_effect=fake_docker),
+            patch(
+                "app.modules.server.infrastructure.providers.docker.prepare_data_ownership",
+                AsyncMock(),
+            ),
+        ):
+            await provider.start(
+                server_id="srv-puid",
+                deployment=deployment,
+                config={
+                    "image": "itzg/minecraft-server:java21",
+                    "port": 25565,
+                    "env_vars": {"PUID": "0", "PGID": "0"},
+                },
+            )
+
+        env_values = [
+            create_args[i + 1]
+            for i, token in enumerate(create_args)
+            if token == "-e"
+        ]
+        assert "PUID=0" not in env_values
+        assert "PGID=0" not in env_values
+        assert f"PUID={expected_user.split(':')[0]}" in env_values
+        assert f"PGID={expected_user.split(':')[1]}" in env_values

@@ -121,6 +121,38 @@ async def lifespan(_app: FastAPI):
             except Exception as exc:
                 logger.warning("Windows provider migration failed: %s", exc)
 
+        try:
+            from app.core.host_state import ensure_host_state_layout
+            from app.modules.versioning.application.refresh_recovery import (
+                RefreshStartupReconciler,
+            )
+            from app.modules.versioning.infrastructure.refresh_journal import (
+                RefreshJournalRepository,
+            )
+
+            layout = ensure_host_state_layout(settings)
+            journal_repository = RefreshJournalRepository(
+                layout, session_factory=database.session_factory
+            )
+            recovery = await RefreshStartupReconciler(
+                layout,
+                repository=journal_repository,
+                servers_data_dir=settings.servers_data_dir,
+            ).reconcile()
+            if recovery.changed:
+                logger.info(
+                    "Refresh startup recovery: %d swap(s), %d journal(s), "
+                    "%d staging dir(s), %d previous tree(s)",
+                    len(recovery.recovered_swaps),
+                    len(recovery.transitioned_journals),
+                    len(recovery.removed_staging),
+                    len(recovery.pruned_previous_trees),
+                )
+            if recovery.errors:
+                logger.warning("Refresh startup recovery errors: %s", recovery.errors)
+        except Exception:
+            logger.exception("Refresh startup recovery failed")
+
         repo = SQLServerRepository(session)
         try:
             from app.modules.server.application.services.import_service import (

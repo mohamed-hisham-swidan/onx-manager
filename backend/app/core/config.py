@@ -59,9 +59,12 @@ class AppSettings(BaseSettings):
         "itzg/minecraft-server:java25@sha256:dc7913a69c878594ff7b568862b2cd5541fac6e409d1dc86f0313b1ef7a4d9d4"
     )
     host_data_dir: str = ""
+    host_state_dir: str = ""
+    host_state_host_dir: str = ""
     test_artifact_retention_hours: float = 24.0
     server_startup_timeout_seconds: int = 120
     test_boot_timeout_seconds: int = 120
+    advanced_mode_enabled: bool = False
 
     model_config = {"env_prefix": "ONX_", "extra": "ignore"}
 

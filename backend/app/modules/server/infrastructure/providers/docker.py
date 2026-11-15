@@ -13,6 +13,18 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import AppSettings
+from app.core.container_hardening import (
+    CAP_DROP_ALL_VALUE,
+    NO_NEW_PRIVILEGES_VALUE,
+    PIDS_LIMIT,
+    data_mount_args,
+    hardening_args,
+    prepare_data_ownership,
+    resolve_non_root_user,
+    validate_data_only_mounts,
+    validate_docker_image,
+    validate_network_mode,
+)
 from app.core.exceptions import ProviderError
 from app.core.fs_utils import assert_inside_root
 from app.core.identity import IDENTITY
@@ -158,12 +170,12 @@ def resolve_docker_image(
     - Explicit config['image'] takes absolute priority.
     """
     cfg = config or {}
-    if cfg.get("image"):
-        return str(cfg["image"])
+    if cfg.get("image") is not None:
+        return validate_docker_image(str(cfg["image"]))
 
     version_val = cfg.get("minecraft_version") or minecraft_version
     if not version_val:
-        return AppSettings().docker_default_image
+        return validate_docker_image(AppSettings().docker_default_image)
 
     major = 0
     minor = 0
@@ -180,15 +192,15 @@ def resolve_docker_image(
             patch = int(match.group(3) or 0)
 
     if major >= 26:
-        return "eclipse-temurin:25-jre"
+        return validate_docker_image("eclipse-temurin:25-jre")
     if major == 1:
         if minor > 20 or (minor == 20 and patch >= 5):
-            return "eclipse-temurin:21-jre-jammy"
+            return validate_docker_image("eclipse-temurin:21-jre-jammy")
         if minor >= 17:
-            return "eclipse-temurin:17-jre-jammy"
-        return "eclipse-temurin:8-jre-jammy"
+            return validate_docker_image("eclipse-temurin:17-jre-jammy")
+        return validate_docker_image("eclipse-temurin:8-jre-jammy")
 
-    return AppSettings().docker_default_image
+    return validate_docker_image(AppSettings().docker_default_image)
 
 
 def build_docker_server_cmd(
@@ -256,6 +268,10 @@ def _compute_config_fingerprint(
     mounts: list[Any],
     env: dict[str, str],
     cmd: list[str],
+    user: str,
+    cap_drop: list[str],
+    security_opt: list[str],
+    pids_limit: int,
 ) -> str:
     canonical = {
         "image": image,
@@ -267,9 +283,54 @@ def _compute_config_fingerprint(
         "mounts": sorted([str(m) for m in mounts]),
         "env": sorted([[str(k), str(v)] for k, v in env.items()]),
         "cmd": [str(c) for c in cmd],
+        # P2-6c2 / H-A1: the hardening contract is part of the identity so a
+        # pre-hardening container is never silently adopted.
+        "user": str(user),
+        "cap_drop": sorted(str(c) for c in cap_drop),
+        "security_opt": sorted(str(s) for s in security_opt),
+        "pids_limit": int(pids_limit),
     }
     raw = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _inspect_hardening_compliance(
+    info: dict[str, Any],
+    *,
+    expected_user: str,
+    expected_network: str,
+) -> tuple[bool, str]:
+    """Return whether a running container satisfies the P2-6b contract."""
+    config = info.get("Config") or {}
+    host = info.get("HostConfig") or {}
+
+    actual_user = str(config.get("User") or "").strip()
+    if actual_user != expected_user:
+        return False, f"user={actual_user or '<unset>'}"
+
+    cap_drop = {str(cap).upper() for cap in (host.get("CapDrop") or [])}
+    if CAP_DROP_ALL_VALUE.upper() not in cap_drop:
+        return False, "cap-drop=ALL missing"
+
+    security_opt = {str(opt).lower() for opt in (host.get("SecurityOpt") or [])}
+    if NO_NEW_PRIVILEGES_VALUE.lower() not in security_opt:
+        return False, "no-new-privileges missing"
+
+    raw_pids = host.get("PidsLimit")
+    try:
+        pids_limit = int(raw_pids) if raw_pids is not None else -1
+    except (TypeError, ValueError):
+        pids_limit = -1
+    if pids_limit != PIDS_LIMIT:
+        return False, f"pids-limit={pids_limit}"
+
+    network_mode = str(host.get("NetworkMode") or "").strip().lower()
+    if network_mode == "default":
+        network_mode = "bridge"
+    if network_mode != expected_network.lower():
+        return False, f"network={network_mode or '<unset>'}"
+
+    return True, "ok"
 
 
 class DockerProvider(ServerProvider):
@@ -409,10 +470,16 @@ class DockerProvider(ServerProvider):
 
         await self._ensure_image(image)
 
+        container_uid, container_gid = resolve_non_root_user()
         create_args = ["create", "--name", container_name]
 
-        # Explicit Docker bridge network model (Decision 6)
-        network = str(cfg.get("network", "bridge"))
+        # Explicit Docker bridge network model (Decision 6). P2-6c2 / H-3:
+        # only bridge, none, and panel-owned onx-* networks are accepted so a
+        # config can never share the host or another container's namespace.
+        raw_network = cfg.get("network")
+        network = validate_network_mode(
+            "bridge" if raw_network in (None, "") else str(raw_network)
+        )
         create_args.extend(["--network", network])
 
         # Ownership labels
@@ -469,18 +536,15 @@ class DockerProvider(ServerProvider):
         if cpu_affinity:
             create_args.extend(["--cpuset-cpus", str(cpu_affinity)])
 
-        # Volume mount & working directory (Decision 3, 7 & 12)
+        # Volume mount & working directory (Decision 3, 7 & 12). Only one bind
+        # mount is allowed, and it must target /data.
+        host_mount = ""
         if server_dir:
             host_mount = resolve_host_mount_path(server_dir)
-            create_args.extend(["-v", f"{host_mount}:/data", "-w", "/data"])
+            create_args.extend(data_mount_args(server_dir, mount_source=host_mount))
 
-        # Linux user permissions to prevent host file permission lockouts (Decision 3)
-        if hasattr(os, "getuid") and hasattr(os, "getgid") and sys.platform != "win32":
-            uid, gid = os.getuid(), os.getgid()
-            if "itzg" in image:
-                create_args.extend(["-e", f"PUID={uid}", "-e", f"PGID={gid}"])
-            else:
-                create_args.extend(["--user", f"{uid}:{gid}"])
+        # Non-root container identity + hardening (P2-6b).
+        create_args.extend(hardening_args(container_uid, container_gid))
 
         if cfg.get("auto_remove", False):
             create_args.append("--rm")
@@ -489,6 +553,11 @@ class DockerProvider(ServerProvider):
         env_vars: dict[str, str] = dict(cfg.get("env_vars") or {})
         if launch_config and launch_config.environment:
             env_vars.update(launch_config.environment)
+        # P2-6c2 / M-3: a user-supplied PUID/PGID must never win over the
+        # panel-controlled non-root identity. Strip every case variant here and
+        # append the authoritative values last (below).
+        for key in [k for k in env_vars if str(k).upper() in ("PUID", "PGID")]:
+            env_vars.pop(key, None)
         if "itzg" in image:
             if "VERSION" not in env_vars and cfg.get("minecraft_version"):
                 env_vars["VERSION"] = str(cfg["minecraft_version"])
@@ -500,6 +569,9 @@ class DockerProvider(ServerProvider):
                 env_vars["EULA"] = "TRUE"
             if "SERVER_PORT" not in env_vars:
                 env_vars["SERVER_PORT"] = str(container_port)
+            # Panel-controlled and appended last so it cannot be overridden.
+            env_vars["PUID"] = str(container_uid)
+            env_vars["PGID"] = str(container_gid)
         for k, v in env_vars.items():
             create_args.extend(["-e", f"{k}={v}"])
 
@@ -578,6 +650,10 @@ class DockerProvider(ServerProvider):
             mounts=mounts_list,
             env=env_vars,
             cmd=server_cmd,
+            user=f"{container_uid}:{container_gid}",
+            cap_drop=[CAP_DROP_ALL_VALUE],
+            security_opt=[NO_NEW_PRIVILEGES_VALUE],
+            pids_limit=PIDS_LIMIT,
         )
 
         create_args.extend([
@@ -628,6 +704,19 @@ class DockerProvider(ServerProvider):
                     or labels.get("com.onx-manager.config-fingerprint")
                 )
                 if existing_fp == fingerprint:
+                    compliant, reason = _inspect_hardening_compliance(
+                        existing_info,
+                        expected_user=f"{container_uid}:{container_gid}",
+                        expected_network=network,
+                    )
+                    if not compliant:
+                        raise ProviderError(
+                            "docker",
+                            "start",
+                            f"Container '{target_container}' is running without the "
+                            f"required hardening contract ({reason}); stop or restart "
+                            "the server first",
+                        )
                     pid = int(state_obj.get("Pid", 0)) if state_obj.get("Pid") else None
                     if not pid or pid <= 0:
                         _, insp_out = await self._docker_command(
@@ -709,6 +798,19 @@ class DockerProvider(ServerProvider):
                         f"Container '{target_container}' is dead or removing and could "
                         "not be cleaned up",
                     )
+
+        # Prepare the /data ownership before the non-root container starts.
+        # A failed chown (or root-helper fallback) fails closed.
+        if server_dir:
+            await prepare_data_ownership(
+                server_dir,
+                uid=container_uid,
+                gid=container_gid,
+                image=image,
+                mount_source=host_mount,
+                run_docker=self._ownership_docker_runner,
+            )
+        validate_data_only_mounts(create_args, image=image)
 
         returncode, output = await self._docker_command(*create_args)
         if returncode != 0:
@@ -1201,6 +1303,7 @@ class DockerProvider(ServerProvider):
 
     async def ensure_image(self, image: str, timeout: float = 300.0) -> None:
         """Ensure the Docker image exists locally; pull it if missing under a dedicated timeout."""
+        image = validate_docker_image(image)
         returncode, _ = await self._docker_command("image", "inspect", image, log_failure=False)
         if returncode == 0:
             return
@@ -1270,6 +1373,10 @@ class DockerProvider(ServerProvider):
     async def _docker_command(self, *args: str, log_failure: bool = True) -> tuple[int, str]:
         """Subprocess execution entrypoint with discrete token arguments."""
         return await self._docker_exec(*args, log_failure=log_failure)
+
+    async def _ownership_docker_runner(self, args: list[str]) -> tuple[int, str]:
+        """Run the short-lived ownership helper through this provider's host."""
+        return await self._docker_command(*args)
 
     def _write_user_jvm_args(
         self,

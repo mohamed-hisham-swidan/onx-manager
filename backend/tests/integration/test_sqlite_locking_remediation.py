@@ -87,6 +87,7 @@ async def test_create_branch_post_commit_with_activity_subscriber() -> None:
             status="STOPPED",
             root_path=f"/tmp/servers/{server_id}",
             port=25565,
+            mode="advanced",
         )
         sess.add(server)
         await sess.commit()
@@ -137,6 +138,7 @@ async def test_create_commit_post_commit_with_activity_subscriber(tmp_path) -> N
             status="STOPPED",
             root_path=str(server_dir),
             port=25565,
+            mode="advanced",
         )
         sess.add(server)
         await sess.commit()

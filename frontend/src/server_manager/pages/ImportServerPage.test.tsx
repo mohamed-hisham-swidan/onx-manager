@@ -98,6 +98,8 @@ describe("ImportServerPage", () => {
     // Review step
     expect(await screen.findByRole("heading", { name: "Scan Results" })).toBeInTheDocument();
     expect(screen.getByText("survival-world")).toBeInTheDocument();
+    expect(screen.getByTestId("server-mode-simple")).toBeInTheDocument();
+    expect(screen.queryByTestId("server-mode-advanced")).not.toBeInTheDocument();
 
     const importBtn = screen.getByRole("button", { name: "Import Server" });
     await user.click(importBtn);
@@ -108,6 +110,7 @@ describe("ImportServerPage", () => {
         name: "survival-world",
         server_type: "paper",
         minecraft_version: "1.20.4",
+        mode: "simple",
       }),
     );
 
@@ -174,5 +177,47 @@ describe("ImportServerPage", () => {
     const fileInput = screen.getByLabelText("Choose server zip archive file");
     expect(fileInput).toBeInTheDocument();
     expect(fileInput).toHaveAttribute("type", "file");
+  });
+
+  it("renders Simple mode chooser and hides Advanced mode in scan review step", async () => {
+    mockUploadImportZip.mockResolvedValueOnce(sampleScanResult);
+    const user = userEvent.setup();
+    renderPage();
+
+    const fileInput = screen.getByTestId("zip-file-input");
+    const file = new File(["dummy zip bytes"], "my-server.zip", { type: "application/zip" });
+    await user.upload(fileInput, file);
+
+    const uploadBtn = screen.getByRole("button", { name: "Upload & Scan Server" });
+    await user.click(uploadBtn);
+
+    expect(await screen.findByRole("heading", { name: "Scan Results" })).toBeInTheDocument();
+    expect(screen.getByText("Server Mode")).toBeInTheDocument();
+    expect(screen.getByTestId("server-mode-simple")).toBeInTheDocument();
+    expect(screen.queryByTestId("server-mode-advanced")).not.toBeInTheDocument();
+  });
+
+  it("shows error when scan result is missing import_id", async () => {
+    mockUploadImportZip.mockResolvedValueOnce({
+      ...sampleScanResult,
+      import_id: "" as unknown as string,
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const fileInput = screen.getByTestId("zip-file-input");
+    const file = new File(["dummy zip bytes"], "my-server.zip", { type: "application/zip" });
+    await user.upload(fileInput, file);
+
+    const uploadBtn = screen.getByRole("button", { name: "Upload & Scan Server" });
+    await user.click(uploadBtn);
+
+    const importBtn = await screen.findByRole("button", { name: "Import Server" });
+    await user.click(importBtn);
+
+    expect(
+      await screen.findByText("Missing import identifier from scan results."),
+    ).toBeInTheDocument();
+    expect(mockImportServer).not.toHaveBeenCalled();
   });
 });

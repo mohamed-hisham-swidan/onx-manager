@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,6 +24,11 @@ from app.modules.versioning.domain.value_objects import (
 )
 from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
 from app.registration import register_handlers
+
+pytestmark = pytest.mark.skipif(
+    os.name != "posix",
+    reason="P2 Advanced versioning routes require a POSIX host; Windows remains Simple-only",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -69,6 +75,7 @@ async def seed_api_server(tmp_path: Path):
             port=25565,
             java_args="-Xmx2G",
             bot_verification_settings={"bot_count": 5, "duration_minutes": 10},
+            mode="advanced",
         )
         session.add(server)
 

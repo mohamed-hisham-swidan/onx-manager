@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -196,6 +197,7 @@ async def test_create_commit_real_db_stale_head_conflict_two_engines(tmp_path: P
                 status="STOPPED",
                 root_path=str(srv_dir),
                 port=25565,
+                mode="advanced",
             )
             branch_model = ServerBranchModel(
                 id="br-cas",
@@ -257,24 +259,37 @@ async def test_create_commit_real_db_stale_head_conflict_two_engines(tmp_path: P
                 )
             )
 
-            # Wait until handler B has read the branch with head=c-initial
-            await read_done.wait()
+            try:
+                # Wait until handler B has read the branch with head=c-initial
+                try:
+                    await asyncio.wait_for(read_done.wait(), timeout=30)
+                except TimeoutError:
+                    if task_b.done() and not task_b.cancelled():
+                        exc = task_b.exception()
+                        if exc is not None:
+                            raise exc from None
+                    raise
 
-            # Handler A completes first
-            res_a = await handler_a.handle(
-                CreateCommitCommand(server_id=server_id, message="Commit A", branch_name="main")
-            )
-            assert res_a.success is True
-            commit_a = res_a.entity_id
-            await session_a.commit()
-            await session_a.close()
+                # Handler A completes first
+                res_a = await handler_a.handle(
+                    CreateCommitCommand(server_id=server_id, message="Commit A", branch_name="main")
+                )
+                assert res_a.success is True
+                commit_a = res_a.entity_id
+                await session_a.commit()
+                await session_a.close()
 
-            # Release gate for handler B
-            gate.set()
+                # Release gate for handler B
+                gate.set()
 
-            with pytest.raises(ConflictError) as exc_info:
-                await task_b
-            assert exc_info.value.http_status == 409
+                with pytest.raises(ConflictError) as exc_info:
+                    await task_b
+                assert exc_info.value.http_status == 409
+            finally:
+                if not task_b.done():
+                    task_b.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await task_b
 
         await session_b.close()
 
@@ -585,6 +600,7 @@ async def test_archived_branch_named_locked_main_is_not_retried(tmp_path: Path) 
             status="STOPPED",
             root_path=str(srv_dir),
             port=25565,
+            mode="advanced",
         )
         branch = ServerBranchModel(
             id=f"br-{uuid.uuid4().hex[:6]}",
@@ -638,6 +654,7 @@ async def test_merge_archived_branch_named_locked_main_is_not_retried() -> None:
             status="STOPPED",
             root_path="/tmp/null",
             port=25565,
+            mode="advanced",
         )
         branch = ServerBranchModel(
             id=f"br-{uuid.uuid4().hex[:6]}",
