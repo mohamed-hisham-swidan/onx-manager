@@ -267,6 +267,10 @@ def _make_live_tree(live: Path) -> None:
         (live / "ops-link.json").symlink_to(live / "ops.json")
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Class-C snapshot dir-fd store; Windows = Simple-only",
+)
 class TestClassCSnapshotService:
     def test_create_snapshot_writes_manifest_marker_and_only_class_c(
         self, tmp_path: Path, snapshot_env: tuple[ClassCSnapshotService, HostStateLayout]

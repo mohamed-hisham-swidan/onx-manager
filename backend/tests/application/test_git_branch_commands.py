@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -103,6 +104,10 @@ def _git_branches(root: Path) -> list[str]:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Git branch/worktree operations; Windows = Simple-only",
+)
 async def test_create_archive_delete_map_to_git_refs_and_db(
     tmp_path: Path, git_buses: tuple[CommandBus, QueryBus]
 ) -> None:
@@ -145,6 +150,10 @@ async def test_create_archive_delete_map_to_git_refs_and_db(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Git branch/worktree operations; Windows = Simple-only",
+)
 async def test_main_is_not_archivable_or_deletable(
     tmp_path: Path, git_buses: tuple[CommandBus, QueryBus]
 ) -> None:
@@ -164,6 +173,10 @@ async def test_main_is_not_archivable_or_deletable(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Git branch/worktree operations; Windows = Simple-only",
+)
 async def test_delete_refuses_unmerged_branch(
     tmp_path: Path, git_buses: tuple[CommandBus, QueryBus]
 ) -> None:
@@ -214,6 +227,10 @@ async def test_db_only_advanced_server_keeps_legacy_branch_lifecycle(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Git branch/worktree operations; Windows = Simple-only",
+)
 async def test_invalid_git_branch_name_leaves_no_db_row(
     tmp_path: Path, git_buses: tuple[CommandBus, QueryBus]
 ) -> None:

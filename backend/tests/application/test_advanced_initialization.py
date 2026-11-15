@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
-from app.core.exceptions import SecretFileInGitForbiddenError, ValidationError
+from app.core.exceptions import (
+    CasUnsupportedPlatformError,
+    SecretFileInGitForbiddenError,
+    ValidationError,
+)
 from app.core.host_state import ensure_host_state_layout
 from app.modules.server.domain.aggregate import (
     Server,
@@ -74,6 +79,10 @@ def _populate(root: Path) -> None:
     _write(root, "world/level.dat", b"level")
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Advanced Git/CAS initialization; Windows = Simple-only",
+)
 def test_initialize_creates_lockfile_repo_and_main_worktree(
     tmp_path: Path, _host_state: Path
 ) -> None:
@@ -112,6 +121,10 @@ def test_initialize_creates_lockfile_repo_and_main_worktree(
     assert lockfile.loader.id == "paper"
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Advanced Git/CAS initialization; Windows = Simple-only",
+)
 def test_initialize_is_idempotent_and_skips_reingest(tmp_path: Path, _host_state: Path) -> None:
     root = tmp_path / "server"
     root.mkdir()
@@ -127,6 +140,10 @@ def test_initialize_is_idempotent_and_skips_reingest(tmp_path: Path, _host_state
     assert second.files_count == first.files_count
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Advanced Git/CAS initialization; Windows = Simple-only",
+)
 def test_initialize_blocks_secret_before_repository_exists(
     tmp_path: Path, _host_state: Path
 ) -> None:
@@ -151,3 +168,18 @@ def test_initialize_rejects_simple_server(tmp_path: Path) -> None:
 
     with pytest.raises(ValidationError):
         initialize_advanced_server(server)
+
+
+def test_initialize_fails_closed_on_non_posix_host(
+    tmp_path: Path, _host_state: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows = Simple-only: Advanced initialization must fail closed before Git/CAS."""
+    root = tmp_path / "server"
+    root.mkdir()
+    _populate(root)
+    server = _make_server(root)
+
+    monkeypatch.setattr(os, "name", "nt")
+    with pytest.raises(CasUnsupportedPlatformError, match="POSIX"):
+        initialize_advanced_server(server)
+    assert not (_host_state / "repos" / "srv-adv-init" / "repo.git").exists()

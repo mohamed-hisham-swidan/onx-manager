@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,6 +18,11 @@ from app.modules.auth.infrastructure.jwt import create_access_token
 from app.modules.server.infrastructure.models import ServerModel
 from app.modules.versioning.domain.value_objects import TestRunStatus
 from app.registration import register_handlers
+
+pytestmark = pytest.mark.skipif(
+    os.name != "posix",
+    reason="P2 Advanced versioning routes require a POSIX host; Windows remains Simple-only",
+)
 
 
 @pytest.fixture(autouse=True)

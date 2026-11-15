@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -108,18 +110,26 @@ async def test_authenticated_nonowner_simple_409_advanced_not_409() -> None:
         assert r_simple_mutate.status_code == 409
         assert r_simple_mutate.json().get("code") == "SERVER_MODE_VERSIONING_DISABLED"
 
-        # Advanced server versioning read and mutate do not return 409
+        # Advanced versioning routes are POSIX-only in this release: on POSIX they
+        # do not return 409; on non-POSIX hosts require_advanced_mode fails closed.
         r_adv_read = await client.get(
             f"/api/v1/servers/{ADVANCED_SERVER_ID}/versioning/branches", headers=headers
         )
-        assert r_adv_read.status_code != 409
 
         r_adv_mutate = await client.post(
             f"/api/v1/servers/{ADVANCED_SERVER_ID}/versioning/branches",
             headers=headers,
             json={"name": "feature-test"},
         )
-        assert r_adv_mutate.status_code != 409
+
+        if os.name == "posix":
+            assert r_adv_read.status_code != 409
+            assert r_adv_mutate.status_code != 409
+        else:
+            assert r_adv_read.status_code == 409
+            assert r_adv_read.json().get("code") == "SERVER_MODE_VERSIONING_DISABLED"
+            assert r_adv_mutate.status_code == 409
+            assert r_adv_mutate.json().get("code") == "SERVER_MODE_VERSIONING_DISABLED"
 
         # Non-versioning read: verify status not in (401, 409) per Card Amendment 1
         # Observed contract is 200 (server exists, user authenticated)

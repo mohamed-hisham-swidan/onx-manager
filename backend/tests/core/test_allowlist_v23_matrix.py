@@ -151,6 +151,10 @@ def test_quarantine_rows_match_hostile_executable_regex() -> None:
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink unsupported")
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only O_DIRECTORY dir-fd operations; Windows = Simple-only",
+)
 def test_dir_fd_containment(tmp_path: Path) -> None:
     allowlist = _allowlist_module()
     root = tmp_path / "root"
@@ -256,6 +260,10 @@ def test_class_regex_invariants() -> None:
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink unsupported")
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only O_DIRECTORY dir-fd operations; Windows = Simple-only",
+)
 def test_dir_fd_root_is_symlink(tmp_path: Path) -> None:
     allowlist = _allowlist_module()
     real_root = tmp_path / "real-root"
@@ -270,6 +278,10 @@ def test_dir_fd_root_is_symlink(tmp_path: Path) -> None:
         allowlist.resolve_safe_disk_path(root_link, "file.txt")
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only O_DIRECTORY dir-fd operations; Windows = Simple-only",
+)
 def test_dir_fd_root_identity_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     allowlist = _allowlist_module()
     root = tmp_path / "root"
@@ -302,12 +314,18 @@ def test_dir_fd_root_identity_change(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink unsupported")
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only O_DIRECTORY dir-fd operations; Windows = Simple-only",
+)
 def test_dir_fd_casefold_swapped_escape(tmp_path: Path) -> None:
     allowlist = _allowlist_module()
     root = tmp_path / "Server"
     root.mkdir()
     (root / "file.txt").write_text("ok", encoding="utf-8")
-    outside = tmp_path / "server"  # casefold-equal to the root basename
+    outside_parent = tmp_path / "alt"
+    outside_parent.mkdir()
+    outside = outside_parent / "server"  # casefold-equal to the root basename
     outside.mkdir()
     (outside / "secret.txt").write_text("secret", encoding="utf-8")
     assert root.name != outside.name and root.name.casefold() == outside.name.casefold()
@@ -320,6 +338,10 @@ def test_dir_fd_casefold_swapped_escape(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink unsupported")
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only O_DIRECTORY dir-fd operations; Windows = Simple-only",
+)
 def test_dir_fd_allow_create_parents(tmp_path: Path) -> None:
     allowlist = _allowlist_module()
     root = tmp_path / "root"

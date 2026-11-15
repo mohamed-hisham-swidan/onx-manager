@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,13 @@ def test_zero_host_ids_use_non_root_fallback(monkeypatch: pytest.MonkeyPatch) ->
     assert resolve_non_root_user() == (FALLBACK_UID, FALLBACK_GID)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX UID/GID and chown root helper tests are Linux-only "
+        "(covered by Linux CI); cancel test hangs on Windows"
+    ),
+)
 def test_valid_host_ids_are_reused(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.core.container_hardening._current_uid", lambda: 1234
@@ -128,6 +136,13 @@ def test_validate_data_only_mounts_rejects_multiple_or_mount_flag() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX UID/GID and chown root helper tests are Linux-only "
+        "(covered by Linux CI); cancel test hangs on Windows"
+    ),
+)
 async def test_prepare_data_ownership_direct_chown_succeeds(
     tmp_path: Path,
 ) -> None:
@@ -158,6 +173,13 @@ async def test_prepare_data_ownership_direct_chown_succeeds(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX UID/GID and chown root helper tests are Linux-only "
+        "(covered by Linux CI); cancel test hangs on Windows"
+    ),
+)
 async def test_prepare_data_ownership_permission_error_uses_root_helper(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -197,6 +219,13 @@ async def test_prepare_data_ownership_permission_error_uses_root_helper(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX UID/GID and chown root helper tests are Linux-only "
+        "(covered by Linux CI); cancel test hangs on Windows"
+    ),
+)
 async def test_prepare_data_ownership_helper_failure_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -225,6 +254,13 @@ async def test_prepare_data_ownership_helper_failure_fails_closed(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX UID/GID and chown root helper tests are Linux-only "
+        "(covered by Linux CI); cancel test hangs on Windows"
+    ),
+)
 async def test_prepare_data_ownership_non_permission_error_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -256,6 +292,13 @@ async def test_prepare_data_ownership_non_permission_error_fails_closed(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX UID/GID and chown root helper tests are Linux-only "
+        "(covered by Linux CI); cancel test hangs on Windows"
+    ),
+)
 async def test_prepare_data_ownership_missing_directory_fails_closed(
     tmp_path: Path,
 ) -> None:
@@ -299,6 +342,13 @@ def test_ownership_helper_is_capability_restricted_and_named() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX UID/GID and chown root helper tests are Linux-only "
+        "(covered by Linux CI); cancel test hangs on Windows"
+    ),
+)
 async def test_prepare_data_ownership_helper_timeout_removes_named_helper(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -337,6 +387,13 @@ async def test_prepare_data_ownership_helper_timeout_removes_named_helper(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "POSIX UID/GID and chown root helper tests are Linux-only "
+        "(covered by Linux CI); cancel test hangs on Windows"
+    ),
+)
 async def test_prepare_data_ownership_cancel_removes_named_helper(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

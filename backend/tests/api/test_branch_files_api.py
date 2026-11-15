@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,8 @@ async def advanced_server(
     created_user: dict,
     host_state: Path,
 ) -> tuple[Path, Path, dict[str, str]]:
+    if os.name != "posix":
+        pytest.skip("POSIX-only Git branch/worktree fixture; Windows = Simple-only")
     root = host_state / "server"
     root.mkdir()
     (root / "server.properties").write_text(
@@ -88,6 +91,10 @@ async def advanced_server(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Git branch/worktree API tests; Windows = Simple-only",
+)
 async def test_main_is_read_only_and_git_entry_is_hidden(
     client: AsyncClient,
     advanced_server: tuple[Path, Path, dict[str, str]],
@@ -142,6 +149,10 @@ async def test_main_is_read_only_and_git_entry_is_hidden(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Git branch/worktree API tests; Windows = Simple-only",
+)
 async def test_feature_branch_reads_and_writes_its_worktree(
     client: AsyncClient,
     advanced_server: tuple[Path, Path, dict[str, str]],
@@ -196,6 +207,10 @@ async def test_feature_branch_reads_and_writes_its_worktree(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Git branch/worktree API tests; Windows = Simple-only",
+)
 async def test_only_class_b_files_are_editable_on_a_branch(
     client: AsyncClient,
     advanced_server: tuple[Path, Path, dict[str, str]],
@@ -215,6 +230,10 @@ async def test_only_class_b_files_are_editable_on_a_branch(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Git branch/worktree API tests; Windows = Simple-only",
+)
 async def test_reserved_root_files_cannot_be_modified_on_branches(
     client: AsyncClient,
     advanced_server: tuple[Path, Path, dict[str, str]],
@@ -253,6 +272,10 @@ async def test_reserved_root_files_cannot_be_modified_on_branches(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Git branch/worktree API tests; Windows = Simple-only",
+)
 async def test_unknown_or_archived_branch_is_rejected(
     client: AsyncClient,
     advanced_server: tuple[Path, Path, dict[str, str]],

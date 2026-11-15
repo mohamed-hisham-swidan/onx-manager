@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -94,6 +95,10 @@ class TestCreateServerMode:
             assert not any(s.name == "advanced-disabled" for s in servers)
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="Advanced server creation is POSIX-only in this release; Windows = Simple-only",
+    )
     async def test_handler_persists_explicit_advanced_when_flag_enabled(
         self, tmp_path: Path
     ) -> None:
@@ -142,6 +147,34 @@ class TestCreateServerMode:
         assert branch is not None
         assert branch.is_protected is True
         assert branch.status.value == "active"
+
+    @pytest.mark.asyncio
+    async def test_handler_rejects_advanced_on_non_posix_host(self, tmp_path: Path) -> None:
+        """Windows = Simple-only: advanced creation fails closed even with the flag enabled."""
+        handler = CreateServerHandler(EventBus())
+        srv_dir = tmp_path / "srv-advanced-non-posix"
+        cmd = CreateServerCommand(
+            name="advanced-non-posix",
+            minecraft_version="1.20.4",
+            provider="local",
+            mode="advanced",
+        )
+        with (
+            patch(
+                "app.core.config.ConfigFactory.global_settings",
+                return_value=AppSettings(advanced_mode_enabled=True),
+            ),
+            patch(
+                "app.modules.server.application.commands.create_server.os.name",
+                "nt",
+            ),
+        ):
+            result = await handler.handle(cmd)
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert result.error == "Advanced mode is only supported on POSIX hosts in this release"
+        assert srv_dir.exists() is False
 
 
 class TestImportServerMode:

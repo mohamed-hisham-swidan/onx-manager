@@ -11,6 +11,7 @@ Verifies:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,11 @@ from app.modules.versioning.domain.entities import Runtime, ServerTestRun
 from app.modules.versioning.domain.value_objects import RuntimeStatus, TestRunStatus
 from app.modules.versioning.infrastructure.repository import SQLVersioningRepository
 from app.registration import register_handlers
+
+pytestmark = pytest.mark.skipif(
+    os.name != "posix",
+    reason="P2 Advanced versioning routes require a POSIX host; Windows remains Simple-only",
+)
 
 
 @pytest.fixture(autouse=True)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -324,6 +325,10 @@ def _write(root: Path, relpath: str, data: str) -> None:
     path.write_text(data, encoding="utf-8")
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only GitRepositoryService.initialize integration; Windows = Simple-only",
+)
 def test_initial_commit_blocks_secret_before_creating_repo(
     layout_and_root: tuple[HostStateLayout, Path],
 ) -> None:
@@ -339,6 +344,10 @@ def test_initial_commit_blocks_secret_before_creating_repo(
     assert not (root / ".onx" / "worktrees" / "main").exists()
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only GitRepositoryService.initialize integration; Windows = Simple-only",
+)
 def test_initial_commit_allows_secret_placeholders(
     layout_and_root: tuple[HostStateLayout, Path],
 ) -> None:

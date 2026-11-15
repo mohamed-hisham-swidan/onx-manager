@@ -19,7 +19,7 @@ on:
   # TEMPORARY - remove after the first green run (D-P26-8)
   push:
     branches:
-      - slice/p2-6f-windows-ci-temp-trigger
+      - slice/p2-6g-windows-ci-fixes
   workflow_dispatch: {}
 
 concurrency:

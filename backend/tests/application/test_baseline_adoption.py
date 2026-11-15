@@ -97,6 +97,10 @@ async def _seed_test_server(
 
 class TestBaselineAdoption:
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only CAS baseline adoption ingest; Windows = Simple-only",
+    )
     async def test_simple_paper_server_created_successfully(self, tmp_path: Path) -> None:
         server_dir = tmp_path / "server_data"
         server_dir.mkdir()
@@ -144,6 +148,10 @@ class TestBaselineAdoption:
             assert lf_file.sha256 == expected_hash
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only CAS baseline adoption ingest; Windows = Simple-only",
+    )
     async def test_rerun_returns_already_present_without_rescanning(self, tmp_path: Path) -> None:
         server_dir = tmp_path / "server_data"
         server_dir.mkdir()
@@ -221,6 +229,10 @@ class TestBaselineAdoption:
         assert res.reason == "no_deployment"
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only CAS baseline adoption ingest; Windows = Simple-only",
+    )
     async def test_working_directory_honoured(self, tmp_path: Path) -> None:
         raw_root = tmp_path / "raw_root"
         raw_root.mkdir()
@@ -248,6 +260,10 @@ class TestBaselineAdoption:
         assert [f.path for f in lockfile.files] == ["server.jar"]
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only CAS baseline adoption ingest; Windows = Simple-only",
+    )
     async def test_quarantined_evil_jar_recorded_and_excluded(self, tmp_path: Path) -> None:
         server_dir = tmp_path / "server_data"
         server_dir.mkdir()
@@ -349,6 +365,10 @@ class TestBaselineAdoption:
         assert service.exists(server_id) is False
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only CAS baseline adoption ingest; Windows = Simple-only",
+    )
     async def test_cas_ingest_failure_leaves_no_lockfile_or_tmp(self, tmp_path: Path) -> None:
         server_dir = tmp_path / "server_data"
         server_dir.mkdir()

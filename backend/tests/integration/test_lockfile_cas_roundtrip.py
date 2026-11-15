@@ -20,6 +20,10 @@ from app.modules.versioning.domain.lockfile import (
 from app.modules.versioning.infrastructure.artifact_cas import ArtifactCas
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only CAS/lockfile roundtrip; Windows = Simple-only",
+)
 def test_lockfile_cas_roundtrip(tmp_path: Path) -> None:
     cas_dir = tmp_path / "cas"
     cas = ArtifactCas(cas_dir)

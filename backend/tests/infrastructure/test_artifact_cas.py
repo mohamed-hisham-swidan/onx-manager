@@ -20,6 +20,7 @@ from app.core.exceptions import (
     CasCorruptionError,
     CasInvalidDigestError,
     CasInvalidSourceError,
+    CasUnsupportedPlatformError,
     CasWriteError,
     InsufficientStorageError,
 )
@@ -61,6 +62,10 @@ def test_digest_validation_methods(tmp_path: Path, bad_digest: Any) -> None:
 # --- 2. Put Bytes and File ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_put_bytes_and_file_known_sha(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     digest = cas.put_bytes(HELLO_BYTES)
@@ -76,6 +81,10 @@ def test_put_bytes_and_file_known_sha(tmp_path: Path) -> None:
     assert digest_f == HELLO_SHA256
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_put_zero_byte_file(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     empty_src = tmp_path / "empty.txt"
@@ -88,6 +97,10 @@ def test_put_zero_byte_file(tmp_path: Path) -> None:
         assert f.read() == b""
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_put_5mib_file(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     data = b"X" * (5 * 1024 * 1024)
@@ -108,6 +121,10 @@ def test_put_5mib_file(tmp_path: Path) -> None:
 # --- 3. Deduplication and Idempotency ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_dedupe_put_twice(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     digest1 = cas.put_bytes(HELLO_BYTES)
@@ -133,6 +150,10 @@ def test_dedupe_put_twice(tmp_path: Path) -> None:
 # --- 4. Atomicity ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_atomicity_replace_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cas = ArtifactCas(tmp_path / "cas")
 
@@ -148,6 +169,10 @@ def test_atomicity_replace_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert len(list((cas.root / ".tmp").glob("*.part"))) == 0
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_atomicity_fsync_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cas = ArtifactCas(tmp_path / "cas")
 
@@ -165,6 +190,10 @@ def test_atomicity_fsync_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 # --- 5. Disk Full (ENOSPC) ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_enospc_handling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cas = ArtifactCas(tmp_path / "cas")
 
@@ -183,6 +212,10 @@ def test_enospc_handling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 # --- 6. Concurrency ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_concurrent_same_payload(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     payload = b"CONCURRENT_CONTENT_" * 1000
@@ -200,6 +233,10 @@ def test_concurrent_same_payload(tmp_path: Path) -> None:
     assert len(list((cas.root / ".tmp").glob("*.part"))) == 0
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_concurrent_different_payloads(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
 
@@ -220,6 +257,10 @@ def test_concurrent_different_payloads(tmp_path: Path) -> None:
 # --- 7. Corruption and Quarantine ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_corruption_detection_and_quarantine(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     digest = cas.put_bytes(HELLO_BYTES)
@@ -257,6 +298,10 @@ def test_corruption_detection_and_quarantine(tmp_path: Path) -> None:
 # --- 8. Containment and Symlinks ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_symlinked_root_rejected(tmp_path: Path) -> None:
     real_root = tmp_path / "real_cas"
     real_root.mkdir()
@@ -274,6 +319,10 @@ def test_symlinked_root_rejected(tmp_path: Path) -> None:
         cas.has(HELLO_SHA256)
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_symlink_final_blob_rejected(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     digest = HELLO_SHA256
@@ -297,6 +346,10 @@ def test_symlink_final_blob_rejected(tmp_path: Path) -> None:
     assert outside.read_bytes() == b"secret file"
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_missing_root_behavior(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "nonexistent_cas")
     assert cas.has(HELLO_SHA256) is False
@@ -304,6 +357,10 @@ def test_missing_root_behavior(tmp_path: Path) -> None:
         cas.open_blob(HELLO_SHA256)
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_root_is_a_file_rejected(tmp_path: Path) -> None:
     file_root = tmp_path / "file_root"
     file_root.write_bytes(b"not a dir")
@@ -313,6 +370,10 @@ def test_root_is_a_file_rejected(tmp_path: Path) -> None:
         cas.put_bytes(HELLO_BYTES)
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_put_file_symlink_rejected(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     real_src = tmp_path / "real.txt"
@@ -327,6 +388,10 @@ def test_put_file_symlink_rejected(tmp_path: Path) -> None:
 # --- 9. Permissions ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_permissions_enforced(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     digest = cas.put_bytes(HELLO_BYTES)
@@ -350,6 +415,10 @@ def test_permissions_enforced(tmp_path: Path) -> None:
 # --- 10. Stale Temp Cleanup ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_stale_temp_cleanup(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     cas.put_bytes(HELLO_BYTES)
@@ -382,6 +451,10 @@ def test_stale_temp_cleanup(tmp_path: Path) -> None:
 # --- 11. Streaming ---
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_streaming_chunk_size(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     monkeypatch.setattr(cas_module, "_CHUNK_SIZE", 7)
@@ -407,13 +480,29 @@ def test_constructor_no_disk_io(tmp_path: Path) -> None:
     assert cas.root.is_absolute()
 
 
-def test_error_secrecy_cas() -> None:
+def test_error_secrecy_cas(tmp_path: Path) -> None:
     bad_digest = "g" * 64
-    cas = ArtifactCas(Path("/tmp/nonexistent"))
+    cas = ArtifactCas(tmp_path / "nonexistent")
     with pytest.raises(CasInvalidDigestError) as exc_info:
         cas.has(bad_digest)
     assert exc_info.value.digest == "g" * 64
     assert exc_info.value.details["digest"] == "g" * 64
+
+
+def test_non_posix_entrypoints_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows = Simple-only: CAS has/open_blob/put_bytes fail closed before disk I/O."""
+    cas = ArtifactCas(tmp_path / "cas")
+    monkeypatch.setattr(cas_module.os, "name", "nt")
+
+    with pytest.raises(CasUnsupportedPlatformError):
+        cas.has(HELLO_SHA256)
+    with pytest.raises(CasUnsupportedPlatformError):
+        cas.open_blob(HELLO_SHA256)
+    with pytest.raises(CasUnsupportedPlatformError):
+        cas.put_bytes(HELLO_BYTES)
+    assert not (tmp_path / "cas").exists()
 
 
 def test_invalid_digest_10k_chars_bounded(tmp_path: Path) -> None:
@@ -426,6 +515,10 @@ def test_invalid_digest_10k_chars_bounded(tmp_path: Path) -> None:
     assert len(str(exc_info.value)) < 1000
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_put_file_short_writes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     real_write = os.write
@@ -446,6 +539,10 @@ def test_put_file_short_writes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         assert f.read() == payload
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_write_zero_bytes_cleans_up_put_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -462,6 +559,10 @@ def test_write_zero_bytes_cleans_up_put_bytes(
     assert not (cas.root / "sha256" / HELLO_SHA256[:2] / HELLO_SHA256).exists()
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_write_zero_bytes_cleans_up_put_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -480,6 +581,10 @@ def test_write_zero_bytes_cleans_up_put_file(
     assert not (cas.root / "sha256" / HELLO_SHA256[:2] / HELLO_SHA256).exists()
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_put_file_source_mutated_during_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -536,6 +641,10 @@ def test_blob_path_symlinked_prefix_and_dangling_final(tmp_path: Path) -> None:
         cas.blob_path(digest)
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_root_under_symlinked_ancestor_rejected(tmp_path: Path) -> None:
     real_base = tmp_path / "real_base"
     real_base.mkdir()
@@ -549,6 +658,10 @@ def test_root_under_symlinked_ancestor_rejected(tmp_path: Path) -> None:
     assert not (real_base / "sub").exists()
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_cleanup_stale_temp_symlinked_tmp_raises(tmp_path: Path) -> None:
     cas = ArtifactCas(tmp_path / "cas")
     cas.put_bytes(HELLO_BYTES)
@@ -566,6 +679,10 @@ def test_cleanup_stale_temp_symlinked_tmp_raises(tmp_path: Path) -> None:
         cas.cleanup_stale_temp()
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_quarantine_replace_failure_leaves_corrupt_blob(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -619,6 +736,10 @@ def test_fifo_source_put_file_fails_closed_without_hanging(tmp_path: Path) -> No
         cas.put_file(fifo_src)
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_put_bytes_bytearray_mutation_resilient(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -640,6 +761,10 @@ def test_put_bytes_bytearray_mutation_resilient(
         assert f.read() == orig_snapshot
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only Artifact CAS dir-fd operations; Windows = Simple-only",
+)
 def test_umask_077_permissions(tmp_path: Path) -> None:
     old_umask = os.umask(0o077)
     try:
