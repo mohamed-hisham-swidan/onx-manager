@@ -16,6 +16,10 @@ name: windows-ci
 # Simple-mode lifecycle and non-POSIX clean-export coverage explicitly.
 
 on:
+  # TEMPORARY - remove after the first green run (D-P26-8)
+  push:
+    branches:
+      - slice/p2-6f-windows-ci-temp-trigger
   workflow_dispatch: {}
 
 concurrency:
