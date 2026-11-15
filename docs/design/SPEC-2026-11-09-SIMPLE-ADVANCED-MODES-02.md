@@ -4,7 +4,7 @@ Status: design specification **v8.7** (owner-confirmed v5/v6/v7/v8 plus 2026-11-
 OD-1..OD-9, 2026-11-11 decisions ND-1..ND-9, 2026-11-11 Red-Team hardening decisions
 OD-v8.4-1..OD-v8.4-11, second Red-Team remediation decisions OD-v8.5-1..OD-v8.5-8,
 2026-11-11 final closure decisions OD-v8.6-1..OD-v8.6-8, and 2026-11-11 Red-Team Round 3
-remediation decisions OD-v8.7-1..OD-v8.7-15 covering findings R1-R18), CLOSED, DESIGN-COMPLETE,
+remediation decisions OD-v8.7-1..OD-v8.7-16 covering findings R1-R18), CLOSED, DESIGN-COMPLETE,
 and READY FOR BUILD across all phases P1-P7 (including P5.5 and D7 conversion). Zero open unknowns
 and zero design blockers remain inside this specification. The normative classifier is
 **Allow-list v2.3**.
@@ -112,6 +112,12 @@ surgical strengthening of an already READY contract.
   chowned to the target non-root `uid:gid`. The zip ratio check applies only when
   `uncompressed > 16 MiB` (hard 4 GiB total and 100,000-entry caps stay). `KNOWN GAPS` records
   `RuntimeAdmissionScheduler` as FACT.
+- OWNER-STATED (OD-v8.7-16, 2026-11-15, fixes P2-6d Gate 6): the sensitive-key rule of the
+  Structured & Pattern Secret Scanner (OD-v8.7-3 item (iii)) matches the leaf of a key path:
+  `password`/`passwd`/`pwd` at any nesting depth is sensitive in addition to the token/secret keys
+  and the prefixed database keys; placeholder and `${ONX_SECRET_*}` values, booleans and empty
+  values are never findings. Reason: the real LuckPerms config stores its database password at
+  `data.password`, which the previous prefix-only rule missed.
 - Superseded in mechanism by v8.7: the v8.6 single-regex health gate (OD-v8.7-1);
   `os.replace` directory swaps (OD-v8.7-2); PEM-only secret scanning (OD-v8.7-3); Allow-list v2.2
   (OD-v8.7-4); the `/data`-resident Simple lockfile and P5.5-only baseline adoption (OD-v8.7-5);
@@ -844,11 +850,18 @@ decisions in the next section supersede where they conflict.
   webhook URLs (`https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+`), GitHub
   PATs (`gh[pousr]_[A-Za-z0-9_]{36,}` or `github_pat_[A-Za-z0-9_]{22,}`), or AWS access keys
   (`AKIA[0-9A-Z]{16}`);
-  (iii) a parsed YAML/JSON/TOML/Properties key whose final segment matches
-  `(?i)^(?:bot[-_]?token|auth[-_]?token|access[-_]?token|refresh[-_]?token|client[-_]?secret|api[-_]?key|secret[-_]?key|private[-_]?key|webhook[-_]?url|(?:mysql|mariadb|postgres|database|db|redis|rcon|smtp)[-_.]?(?:password|pass|pwd))$`
-  has a non-empty, non-placeholder literal value (not `""`, `"none"`, `"changeme"`, `"password"`, or
-  `${ONX_SECRET_*}`), or the staged path ends in `.pem`, `.key`, `.p12`, `.pfx`, `.jks`, or
-  `.keystore`. Such files must be classified Class C or use the substitution below, never committed.
+  (iii) a parsed YAML/JSON/TOML/Properties key is sensitive (OD-v8.7-16) when, comparing
+  case-insensitively with `-` and `_` interchangeable, with `leaf` = the final segment of its dotted
+  key path and `parent` = the segment immediately before it: (a) `leaf` matches
+  `^(?:bot[-_]?token|auth[-_]?token|access[-_]?token|refresh[-_]?token|client[-_]?secret|api[-_]?key|secret[-_]?key|private[-_]?key|webhook[-_]?url)$`;
+  or (b) `leaf` is exactly `password`, `passwd`, or `pwd`, at ANY nesting depth; or (c) `leaf`, or
+  `parent` and `leaf` joined by `.`, `-`, or `_`, matches
+  `^(?:mysql|mariadb|postgres|database|db|redis|rcon|smtp)[-_.]?(?:password|pass|pwd)$`. A sensitive
+  key raises when its value is a non-empty, non-placeholder literal (not `""`, `"none"`,
+  `"changeme"`, `"password"`, `null`, a boolean, or `${ONX_SECRET_*}`). Keys whose leaf merely
+  contains these words (for example `password-required`, `password-policy`) are not sensitive. A
+  staged path ending in `.pem`, `.key`, `.p12`, `.pfx`, `.jks`, or `.keystore` also raises. Such
+  files must be classified Class C or use the substitution below, never committed.
   **Secret substitution (OD-v8.7-3):** the error response offers "Extract Secret to Panel Vault",
   which replaces the literal with `${ONX_SECRET_<KEY_NAME>}`, stores the value in the per-server
   AES-256-GCM Class-D secret store, and substitutes it back into the exported Class-B file at Clean
@@ -2956,8 +2969,9 @@ mapping in P2.
 - Secret leakage (OD-v8.5-1, expanded by OD-v8.7-3): the Structured & Pattern Secret Scanner raises
   `SecretFileInGitForbiddenError` and blocks commit/D7/push for a private-key header, a Discord bot
   token, a Discord/Slack webhook URL, a GitHub PAT, an AWS access key, a non-placeholder sensitive
-  config value (bot/auth/access/refresh token, client/secret/api/private key, webhook URL, or
-  mysql/mariadb/postgres/database/db/redis/rcon/smtp password), or a staged
+  config value (bot/auth/access/refresh token, client/secret/api/private key, webhook URL, any
+  `password`/`passwd`/`pwd` key at any nesting depth, or a prefixed
+  mysql/mariadb/postgres/database/db/redis/rcon/smtp password key; OD-v8.7-16), or a staged
   `.pem`/`.key`/`.p12`/`.pfx`/`.jks`/`.keystore` path. The UI can replace the literal with
   `${ONX_SECRET_<KEY_NAME>}` (encrypted Class D, substituted at Clean Export Step 5).
 - Key material (OD-v8.5-1): `plugins/**/*.{pem,key,p12,pfx,jks,keystore}` and
@@ -3174,6 +3188,14 @@ custom_world/advancements/0000-0000.json	E
     `plugins/floodgate/key.pem` raises it on extension alone; a staged `voicechat/...properties`
     never reaches the staging path because it is Class C. "Extract Secret to Panel Vault" rewrites
     the value to `${ONX_SECRET_<KEY_NAME>}` and Clean Export Step 5 substitutes the stored secret.
+    OD-v8.7-16 vectors: raises for plugins/LuckPerms/config.yml with `storage-method: MySQL` and
+    literal `data.password: "S3cr3t-LuckPerms-Pass-2026"`, and for nested `data.mongo.password`,
+    `settings.database.password`, `rabbitmq.password`, `nats.password`, a YAML list of mappings
+    containing `password`, and `.properties` keys `db.password` and `storage.password`; does NOT
+    raise for the same files with `${ONX_SECRET_LUCKPERMS_DB_PASSWORD}`, nor for
+    `password-required: true`, `password-policy: "min length 8"`, `password: ""`, `password: false`,
+    `password: changeme`; and the error details contain only `kind`/`key` metadata, never the literal
+    value.
   - Cross-loader Health Gate tests (OD-v8.7-1): the regex matches Paper
     `[12:00:00 INFO]: Done (5.123s)! For help, type "help"`, Vanilla/Fabric
     `[12:00:00] [Server thread/INFO]: Done (5s)! For help, type "help"`, NeoForge

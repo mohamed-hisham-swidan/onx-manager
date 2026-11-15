@@ -1,9 +1,9 @@
 """Structured & Pattern Secret Scanner for Class-B Git content (P2-2/P2-5).
 
-Normative contract: ``SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02`` OD-v8.5-1 and
-OD-v8.7-3. The scanner runs before every Git write (repo initialization,
-Save & Commit, merge, conversion, push, and export). It reports only finding
-metadata; detected secret values are never included in errors or logs.
+Normative contract: ``SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02`` OD-v8.5-1,
+OD-v8.7-3, and OD-v8.7-16. The scanner runs before every Git write (repo
+initialization, Save & Commit, merge, conversion, push, and export). It reports only
+finding metadata; detected secret values are never included in errors or logs.
 """
 
 from __future__ import annotations
@@ -46,18 +46,22 @@ _PATTERN_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("aws-access-key", _AWS_ACCESS_KEY_RE),
 )
 
-_SENSITIVE_KEY_RE = re.compile(
+_TOKEN_KEY_RE = re.compile(
     r"^(?:"
-    r"bot[-_]?token|auth[-_]?token|access[-_]?token|refresh[-_]?token|"
-    r"client[-_]?secret|api[-_]?key|secret[-_]?key|private[-_]?key|webhook[-_]?url|"
-    r"(?:mysql|mariadb|postgres|database|db|redis|rcon|smtp)[-_.]?(?:password|pass|pwd)"
-    r")$",
-    re.IGNORECASE,
+    r"bot_?token|auth_?token|access_?token|refresh_?token|"
+    r"client_?secret|api_?key|secret_?key|private_?key|webhook_?url"
+    r")$"
 )
-_SECRET_PLACEHOLDER_RE = re.compile(r"\A\$\{ONX_SECRET_[A-Za-z0-9_]+\}\Z")
+_PREFIXED_DB_KEY_RE = re.compile(
+    r"^(?:mysql|mariadb|postgres|database|db|redis|rcon|smtp)[._]?(?:password|pass|pwd)$"
+)
+_SECRET_PLACEHOLDER_RE = re.compile(r"\A\$\{ONX_SECRET_[A-Za-z0-9_]+\}\Z", re.IGNORECASE)
 
+_BARE_PASSWORD_LEAVES = frozenset({"password", "passwd", "pwd"})
+_LIST_INDEX_SUFFIX_RE = re.compile(r"(?:\[\d+\])+$")
 _FORBIDDEN_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore")
 _PLACEHOLDER_VALUES = frozenset({"", "none", "changeme", "password", "null", "~"})
+_BOOLEAN_STRING_VALUES = frozenset({"true", "false"})
 
 
 @dataclass(frozen=True)
@@ -90,22 +94,52 @@ def _flatten(value: Any, path: tuple[str, ...]) -> list[tuple[str, Any]]:
             leaves.extend(_flatten(child, (*path, str(key))))
         return leaves
     if isinstance(value, (list, tuple)):
-        # A scalar list has no key of its own; list-of-object keys are not part
-        # of the normative scanner contract and are intentionally skipped.
-        return []
+        leaves = []
+        for index, child in enumerate(value):
+            indexed_path = (
+                (*path[:-1], f"{path[-1]}[{index}]") if path else (f"[{index}]",)
+            )
+            leaves.extend(_flatten(child, indexed_path))
+        return leaves
     return [(".".join(path), value)] if path else []
 
 
 def _is_placeholder(value: Any) -> bool:
+    if value is None or isinstance(value, bool):
+        return True
+    if isinstance(value, (dict, list, tuple, bytes)):
+        return True
     text = str(value).strip()
-    if text.lower() in _PLACEHOLDER_VALUES:
+    lowered = text.lower()
+    if lowered in _PLACEHOLDER_VALUES or lowered in _BOOLEAN_STRING_VALUES:
         return True
     return bool(_SECRET_PLACEHOLDER_RE.fullmatch(text))
 
 
+def _normalize_key_segment(segment: str, *, strip_list_index: bool = False) -> str:
+    if strip_list_index:
+        segment = _LIST_INDEX_SUFFIX_RE.sub("", segment)
+    return segment.lower().replace("-", "_")
+
+
 def _is_sensitive_key(key_path: str) -> bool:
-    leaf = key_path.rsplit(".", 1)[-1]
-    return bool(_SENSITIVE_KEY_RE.fullmatch(key_path) or _SENSITIVE_KEY_RE.fullmatch(leaf))
+    segments = key_path.split(".") if key_path else []
+    if not segments:
+        return False
+    leaf = _normalize_key_segment(segments[-1])
+    if _TOKEN_KEY_RE.fullmatch(leaf) or leaf in _BARE_PASSWORD_LEAVES:
+        return True
+    if _PREFIXED_DB_KEY_RE.fullmatch(leaf):
+        return True
+    if len(segments) < 2:
+        return False
+    parent = _normalize_key_segment(segments[-2], strip_list_index=True)
+    if not parent:
+        return False
+    return any(
+        _PREFIXED_DB_KEY_RE.fullmatch(f"{parent}{separator}{leaf}")
+        for separator in (".", "_")
+    )
 
 
 def _scan_structured_leaves(
@@ -122,21 +156,45 @@ def _scan_structured_leaves(
         _add(findings, "sensitive-key", key_path)
 
 
+def _strip_matching_quotes(text: str) -> str:
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        return text[1:-1]
+    return text
+
+
+def _split_properties_line(line: str) -> tuple[str, str]:
+    index = 0
+    key_end = len(line)
+    while index < len(line):
+        char = line[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char in "=:" or char.isspace():
+            key_end = index
+            break
+        index += 1
+    key = line[:key_end]
+    index = key_end
+    while index < len(line) and line[index].isspace():
+        index += 1
+    if index < len(line) and line[index] in "=:":
+        index += 1
+        while index < len(line) and line[index].isspace():
+            index += 1
+    return key, line[index:]
+
+
 def _parse_properties(text: str) -> list[tuple[str, Any]]:
     leaves: list[tuple[str, Any]] = []
     for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         line = raw_line.strip()
         if not line or line.startswith(("#", "!")):
             continue
-        if "=" in line:
-            key, value = line.split("=", 1)
-        elif ":" in line:
-            key, value = line.split(":", 1)
-        else:
-            continue
-        key = key.strip()
+        key, value = _split_properties_line(line)
+        key = _strip_matching_quotes(key.strip()).strip()
         if key:
-            leaves.append((key, value.strip()))
+            leaves.append((key, _strip_matching_quotes(value.strip()).strip()))
     return leaves
 
 

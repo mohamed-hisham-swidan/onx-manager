@@ -100,6 +100,188 @@ def test_placeholders_and_non_sensitive_values_are_allowed(path: str, text: str)
     assert scan_bytes(path, text.encode("utf-8")) == ()
 
 
+LUCKPERMS_SECRET = "S3cr3t-LuckPerms-Pass-2026"
+LUCKPERMS_CONFIG = (
+    "storage-method: MySQL\n"
+    "data:\n"
+    '  address: "localhost:3306"\n'
+    '  database: "luckperms"\n'
+    '  username: "luckperms"\n'
+    f'  password: "{LUCKPERMS_SECRET}"\n'
+)
+
+
+@pytest.mark.parametrize(
+    ("path", "text", "expected_key"),
+    [
+        ("plugins/LuckPerms/config.yml", LUCKPERMS_CONFIG, "data.password"),
+        (
+            "config/app.yml",
+            "data:\n  mongo:\n    password: nested-secret\n",
+            "data.mongo.password",
+        ),
+        (
+            "config/app.yml",
+            "settings:\n  database:\n    password: nested-secret\n",
+            "settings.database.password",
+        ),
+        ("config/app.yml", "rabbitmq:\n  password: broker-secret\n", "rabbitmq.password"),
+        ("config/app.yml", "nats:\n  password: broker-secret\n", "nats.password"),
+        (
+            "config/app.yml",
+            "accounts:\n  - name: one\n    password: list-secret\n",
+            "accounts[0].password",
+        ),
+        ("config/app.yml", "rcon:\n  - pass: rcon-secret\n", "rcon[0].pass"),
+        (
+            "config/app.json",
+            '[{"password": "top-level-array-secret"}]',
+            "[0].password",
+        ),
+        (
+            "config/app.json",
+            '{"items": [{"password": "nested-array-secret"}]}',
+            "items[0].password",
+        ),
+        ("config/app.toml", '[data]\npassword = "toml-secret"\n', "data.password"),
+        (
+            "config/app.toml",
+            '[[databases]]\npassword = "toml-array-secret"\n',
+            "databases[0].password",
+        ),
+        ("config/app.properties", "db.password=properties-secret\n", "db.password"),
+        (
+            "config/app.properties",
+            "storage.password=properties-secret\n",
+            "storage.password",
+        ),
+        ("config/app.yml", "data:\n  passwd: passwd-secret\n", "data.passwd"),
+        ("config/app.yml", "data:\n  pwd: pwd-secret\n", "data.pwd"),
+    ],
+)
+def test_od_v8_7_16_sensitive_key_vectors(
+    path: str, text: str, expected_key: str
+) -> None:
+    findings = scan_bytes(path, text.encode("utf-8"))
+    assert any(
+        finding.kind == "sensitive-key" and finding.key == expected_key
+        for finding in findings
+    ), findings
+
+
+@pytest.mark.parametrize(
+    ("path", "text"),
+    [
+        (
+            "plugins/LuckPerms/config.yml",
+            LUCKPERMS_CONFIG.replace(
+                f'"{LUCKPERMS_SECRET}"', '"${ONX_SECRET_LUCKPERMS_DB_PASSWORD}"'
+            ),
+        ),
+        ("config/app.yml", "password-required: true\n"),
+        ("config/app.yml", 'password-policy: "min length 8"\n'),
+        ("config/app.yml", 'password: ""\n'),
+        ("config/app.yml", "password: false\n"),
+        ("config/app.yml", "password: true\n"),
+        ("config/app.yml", "password: changeme\n"),
+        ("config/app.yml", 'password: "   "\n'),
+        ("config/app.yml", 'password: "null"\n'),
+        ("config/app.yml", 'password: "~"\n'),
+        ("config/app.yml", 'password: "NONE"\n'),
+        (
+            "config/app.yml",
+            "password: ${onx_secret_luckperms_db_password}\n",
+        ),
+        ("config/app.json", '{"password": true}'),
+        ("config/app.properties", "password=false\n"),
+        ("config/app.properties", "password-required true\n"),
+        ("config/app.properties", "password=   \n"),
+        ("config/app.properties", "password=${ONX_SECRET_DB_PASSWORD}\n"),
+        ("config/app.properties", 'password="none"\n'),
+    ],
+)
+def test_od_v8_7_16_placeholders_and_booleans_do_not_raise(
+    path: str, text: str
+) -> None:
+    assert scan_bytes(path, text.encode("utf-8")) == ()
+
+
+@pytest.mark.parametrize(
+    ("path", "text", "expected_keys"),
+    [
+        (
+            "config/case.yml",
+            "Password: Case-Secret\nPASSWORD: Upper-Secret\nBot_Token: Case-Token\n",
+            {"Password", "PASSWORD", "Bot_Token"},
+        ),
+        (
+            "config/quoted.yml",
+            '"password": Quoted-Secret\n\'data.password\': Quoted-Dot-Secret\n',
+            {"password", "data.password"},
+        ),
+        (
+            "config/app.properties",
+            '"db.password"=Quoted-Prop-Secret\n'
+            "'storage.password'=Quoted-Storage-Secret\n",
+            {"db.password", "storage.password"},
+        ),
+        (
+            "config/anchors.yml",
+            "defaults:\n  password: &pw Anchored-Secret\n"
+            "data:\n  password: *pw\n",
+            {"defaults.password", "data.password"},
+        ),
+        (
+            "config/merge.yml",
+            "defaults: &pw\n  password: Merged-Secret\n"
+            "data:\n  <<: *pw\n",
+            {"defaults.password", "data.password"},
+        ),
+        (
+            "config/whitespace.yml",
+            'password: "  padded secret  "\n',
+            {"password"},
+        ),
+        (
+            "config/app.properties",
+            "password=  padded secret  \n",
+            {"password"},
+        ),
+        (
+            "config/app.properties",
+            "password space-separated-secret\n",
+            {"password"},
+        ),
+        (
+            "config/quoted.toml",
+            '"password" = "toml-quoted-secret"\n',
+            {"password"},
+        ),
+    ],
+)
+def test_od_v8_7_16_bypass_attempts_are_detected(
+    path: str, text: str, expected_keys: set[str]
+) -> None:
+    findings = scan_bytes(path, text.encode("utf-8"))
+    found = {finding.key for finding in findings if finding.kind == "sensitive-key"}
+    assert expected_keys <= found, (expected_keys, findings)
+
+
+def test_od_v8_7_16_redaction_keeps_only_kind_and_key_metadata() -> None:
+    with pytest.raises(SecretFileInGitForbiddenError) as exc_info:
+        assert_no_secrets("plugins/LuckPerms/config.yml", LUCKPERMS_CONFIG.encode())
+
+    assert LUCKPERMS_SECRET not in str(exc_info.value)
+    assert LUCKPERMS_SECRET not in json.dumps(exc_info.value.details)
+    assert exc_info.value.details["findings"] == [
+        {"kind": "sensitive-key", "key": "data.password"}
+    ]
+    assert all(
+        set(finding) == {"kind", "key"}
+        for finding in exc_info.value.details["findings"]
+    )
+
+
 def test_malformed_structured_file_still_gets_pattern_scanning() -> None:
     assert any(
         finding.kind == "github-pat"
