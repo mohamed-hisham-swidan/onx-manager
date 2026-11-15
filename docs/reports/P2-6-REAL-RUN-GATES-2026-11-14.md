@@ -41,7 +41,7 @@
 | Vanilla cache seed | `cache/mojang_1.20.4.jar`, SHA-1 `8dd1a28015f51b1803213892b50b7b4fc76e594d` |
 | Unprivileged mount | `unshare -U -r -m` + `mount -t tmpfs -o size=10m` verified working (no `sudo`) |
 
-**Hash verification:** `scripts/gate1_sha256_verify.py` reads the 64-character SHA-256 pinned in `docs/decisions/DECISION-2026-11-12-001-p2-planning.md`, hashes `/tmp/onx-d3/paper-1.20.4-499.jar`, and prints `MATCH` (64/64 hex characters). Evidence: `.ai/orchestration/artifacts/p2-6e-evidence/gate1-sha256-verify.log`. No truncated hash literal is recorded in this report.
+**Hash verification:** the untracked main-checkout script `/mnt/D/workspace/onx-manager/.ai/orchestration/artifacts/p2-6e-evidence/scripts/gate1_sha256_verify.py` (not part of this branch) parses the `Paper jar SHA-256` table row in the untracked main-checkout decision file `/mnt/D/workspace/onx-manager/docs/decisions/DECISION-2026-11-12-001-p2-planning.md` (§2 D-3, line 56), hashes `/tmp/onx-d3/paper-1.20.4-499.jar`, and prints `MATCH` for `cabed3ae77cf55deba7c7d8722bc9cfd5e991201c211665f9265616d9fe5c77b` across 64/64 hex characters. The stale hash at `.ai/orchestration/STATE.md:72` is superseded by that decision row. Evidence: `.ai/orchestration/artifacts/p2-6e-evidence/gate1-sha256-verify.log`, refreshed in P2-6g with row-label extraction (no prefix-pinned regex).
 
 Paperclip needs to download the vanilla Mojang server jar unless it is pre-seeded. Both boots were run with `--network none`, so `cache/mojang_1.20.4.jar` was placed in the data directory before boot. This is the offline D-3 condition and is recorded in the boot logs (`Starting org.bukkit.craftbukkit.Main` / `Done (...)`).
 
@@ -73,7 +73,7 @@ Setup before boot: real Paper jar copied to `/data/server.jar`, vanilla cache pr
 
 Container start → `Done` took ~18–19 s per boot including JVM/Paperclip startup. `docker stop --time 60` on the first attempt produced a clean save but exit code `143` (SIGTERM semantics); that run is retained as supplementary evidence. Both acceptance runs used stdin `stop` and exited `0`.
 
-**SHA-256 verification (P2-6e):** the jar hash matches the 64-character value pinned in the P2 decision record; the automated comparison printed `MATCH` (see `gate1-sha256-verify.log`).
+**SHA-256 verification (P2-6e):** the measured jar hash matches the 64-character `Paper jar SHA-256` value pinned in the main-checkout untracked `DECISION-2026-11-12-001-p2-planning.md:56`; the automated comparison printed `MATCH` for `cabed3ae77cf55deba7c7d8722bc9cfd5e991201c211665f9265616d9fe5c77b` (see `gate1-sha256-verify.log`).
 
 **Evidence:** `gate1-offline-boot-1.log`, `gate1-offline-boot-2.log`, `gate1-boot1-exit.txt`, `gate1-offline-boot-1-sigterm-143.log`, `gate1-sha256-verify.log`.
 
@@ -289,7 +289,7 @@ skipped_dirs: ('logs',)
 | # | Condition | Status | Basis |
 |:-:|:----------|:------:|:------|
 | 5 | Clean export fixed 5-step order, no `.git`, no hardlinks, `.onx-complete.json` | **PASS (real-run evidence)** | Gate 7: commit/export separation, CAS materialization, marker, no `.git`, `st_nlink == 1` for every exported file. |
-| 6 | D-3 Paper 1.20.4/499 offline gate PASS with archived evidence | **PASS locally / archival pending** | Gate 1: two offline boots, `Done (...)`, clean exit `0`; automated SHA-256 `MATCH` against the 64-char decision hash; raw logs archived under the untracked evidence dir. The evidence is on disk but not committed (no commit authorized). |
+| 6 | D-3 Paper 1.20.4/499 offline gate PASS with archived evidence | **PASS locally / archival pending** | Gate 1: two offline boots, `Done (...)`, clean exit `0`; automated SHA-256 `MATCH` for `cabed3ae77cf55deba7c7d8722bc9cfd5e991201c211665f9265616d9fe5c77b` against the `Paper jar SHA-256` row (`DECISION-2026-11-12-001-p2-planning.md:56`, untracked in the main checkout); raw logs archived under the untracked evidence dir. The evidence is on disk but not committed (no commit authorized). |
 | 7 | Scanner blocks at repo init, Save & Commit, merge, D7, push, export | **PASS (current P2 scope)** | Gate 6 re-run PASS; repo init + Save & Commit scanning enforced; Clean Export Step 5 placeholder guard per OD-v8.5-1/D-8. Merge/conversion/D7/push are future paths per D-8 and are not claimed as exercised. |
 | 8 | Container hardening flags (non-root, `--cap-drop=ALL`, `no-new-privileges`, `--pids-limit=2048`, only `/data`) | **PASS** | Gate 2 raw `docker inspect` + assertions. |
 | 10 | Repo lease/fencing, crash recovery, stale cleanup, disk-full behavior tested | **PASS** | Gate 3 (crash + B-A1 fencing + cleanup) and Gate 4 (`ENOSPC` + typed error + no leftovers). |
