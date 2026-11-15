@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ import pytest
 
 from app.core.command_bus import CommandResult
 from app.core.config import AppSettings
+from app.core.event_bus import EventBus
 from app.core.exceptions import (
     ConflictError,
     ServerModeVersioningDisabledError,
@@ -21,11 +23,17 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.host_state import ensure_host_state_layout
+from app.core.persistence.db import database
 from app.modules.server.application.commands.start_server import StartServerCommand
 from app.modules.server.application.commands.stop_server import StopServerCommand
+from app.modules.server.infrastructure.models import ServerModel
+from app.modules.versioning.application import (
+    refresh_orchestrator as refresh_orchestrator_module,
+)
 from app.modules.versioning.application.refresh_orchestrator import (
     STEP_READINESS,
     HealthGateEvaluator,
+    LiveRefreshRequest,
     LiveRefreshService,
 )
 from app.modules.versioning.domain.lockfile import (
@@ -40,6 +48,7 @@ from app.modules.versioning.infrastructure.runtime_adapters import (
     DockerServerRuntimeAdapter,
     require_docker_provider,
 )
+from app.registration import _build_live_refresh_service
 
 SERVER_ID = "srv-adapters"
 LEC_KEY = "paper/1.20.4/499"
@@ -479,3 +488,106 @@ async def test_health_gate_timeout_bounds_readiness() -> None:
 
     assert result.passed is False
     assert result.failed_step == STEP_READINESS
+
+
+class _ExplodingLeaseManager:
+    """Fails the test if a fail-closed guard lets lease acquisition through."""
+
+    def acquire(self, *_args: object, **_kwargs: object) -> None:
+        raise AssertionError("repo lease must not be acquired on a non-POSIX host")
+
+
+def test_free_bytes_uses_shutil_disk_usage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delattr(os, "statvfs", raising=False)
+    monkeypatch.setattr(
+        refresh_orchestrator_module.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=4242),
+    )
+
+    assert refresh_orchestrator_module._free_bytes(tmp_path) == 4242
+
+
+def test_live_refresh_service_operations_fail_closed_on_non_posix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = _layout(tmp_path)
+    service = LiveRefreshService(
+        layout,
+        repository=cast(Any, _FakeRepo("sqlite")),
+        repo_lease=cast(Any, _ExplodingLeaseManager()),
+    )
+    request = LiveRefreshRequest(
+        server_id=SERVER_ID,
+        live_dir=tmp_path / "live",
+        staging_dir=tmp_path / "staging",
+        export_bytes=0,
+    )
+
+    def _forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("POSIX-only refresh path reached on a non-POSIX host")
+
+    monkeypatch.setattr(os, "statvfs", _forbidden, raising=False)
+    monkeypatch.setattr(refresh_orchestrator_module, "_free_bytes", _forbidden)
+    monkeypatch.setattr(os, "name", "nt")
+
+    async def run() -> None:
+        for call in (
+            lambda: service.refresh(request),
+            lambda: service.rollback(SERVER_ID),
+            lambda: service.confirm_upgrade_unpin(SERVER_ID),
+            lambda: service.release_pins(SERVER_ID),
+        ):
+            with pytest.raises(ServerModeVersioningDisabledError, match="POSIX hosts"):
+                await call()
+
+    asyncio.run(run())
+
+
+def test_build_live_refresh_service_fails_closed_on_non_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("layout must not be resolved on a non-POSIX host")
+
+    monkeypatch.setattr("app.core.host_state.ensure_host_state_layout", _forbidden)
+    monkeypatch.setattr(os, "name", "nt")
+
+    with pytest.raises(ServerModeVersioningDisabledError, match="POSIX hosts"):
+        asyncio.run(_build_live_refresh_service(SERVER_ID, event_bus=EventBus()))
+
+
+@pytest.mark.asyncio
+async def test_build_live_refresh_service_rejects_simple_mode_on_posix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = _layout(tmp_path)
+    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(
+        "app.core.host_state.ensure_host_state_layout",
+        lambda *_args, **_kwargs: layout,
+    )
+
+    def _forbidden(_provider: object) -> None:
+        raise AssertionError("Docker provider check must not run before the mode guard")
+
+    monkeypatch.setattr(runtime_adapters_module, "require_docker_provider", _forbidden)
+
+    async with database.session_factory() as session:
+        session.add(
+            ServerModel(
+                id="srv-simple-build",
+                name="simple-build",
+                server_type="vanilla",
+                minecraft_version="1.20.4",
+                status="STOPPED",
+                port=25565,
+                mode="simple",
+            )
+        )
+        await session.commit()
+
+    with pytest.raises(ServerModeVersioningDisabledError, match="simple mode"):
+        await _build_live_refresh_service("srv-simple-build", event_bus=EventBus())

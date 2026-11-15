@@ -23,6 +23,7 @@ from app.core.config import AppSettings
 from app.core.exceptions import (
     ConflictError,
     FencingTokenMismatchError,
+    ServerModeVersioningDisabledError,
     ValidationError,
 )
 from app.core.host_state import HostStateLayout, ensure_host_state_layout
@@ -1228,6 +1229,36 @@ async def test_release_pins_unpins_rolled_back_artifacts(live_env: LiveEnv) -> N
     assert backup.pinned[BACKUP_ID] is False
     assert backup.unpinned == [BACKUP_ID]
     assert _snapshot_manifest(env, snapshot_id)["pinned"] is False
+
+
+async def test_service_operations_fail_closed_on_non_posix(
+    live_env: LiveEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows is Simple-only: no live-refresh path may acquire leases or preflight."""
+    env = live_env
+    live = env.servers_root / SERVER_ID
+    _populate_live(live)
+    service = _service(
+        env,
+        runtime=FakeRuntime(),
+        backup=FakeBackupService(),
+        exporter=FakeExporter(),
+    )
+
+    def _forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("POSIX-only refresh path reached on a non-POSIX host")
+
+    monkeypatch.setattr(os, "statvfs", _forbidden, raising=False)
+    monkeypatch.setattr(os, "name", "nt")
+
+    with pytest.raises(ServerModeVersioningDisabledError, match="POSIX hosts"):
+        await service.refresh(_request(env))
+    with pytest.raises(ServerModeVersioningDisabledError, match="POSIX hosts"):
+        await service.rollback(SERVER_ID)
+    with pytest.raises(ServerModeVersioningDisabledError, match="POSIX hosts"):
+        await service.confirm_upgrade_unpin(SERVER_ID)
+    with pytest.raises(ServerModeVersioningDisabledError, match="POSIX hosts"):
+        await service.release_pins(SERVER_ID)
 
 
 def test_live_refresh_request_generates_export_id(live_env: LiveEnv) -> None:

@@ -145,9 +145,15 @@ def _st_dev(path: Path) -> int:
     return int(os.stat(path).st_dev)
 
 
+def _require_posix_live_refresh() -> None:
+    if os.name != "posix":
+        raise ServerModeVersioningDisabledError(
+            "Live refresh is only supported on POSIX hosts in this release"
+        )
+
+
 def _free_bytes(path: Path) -> int:
-    vfs = os.statvfs(path)
-    return int(vfs.f_bavail) * int(vfs.f_frsize)
+    return int(shutil.disk_usage(path).free)
 
 
 def previous_tree_path(live_dir: str | os.PathLike[str]) -> Path:
@@ -1773,6 +1779,7 @@ class LiveRefreshService:
 
     async def refresh(self, request: LiveRefreshRequest) -> LiveRefreshResult:
         """Run the seven-step refresh; roll back automatically on failure."""
+        _require_posix_live_refresh()
         segment = validate_server_segment(request.server_id)
         policy, delta = parse_retention_policy(request.retention_policy)
         live = _existing_plain_directory(request.live_dir, "live_dir")
@@ -2084,6 +2091,7 @@ class LiveRefreshService:
         self, server_id: str, journal_id: str | None = None
     ) -> RefreshJournalRecord:
         """Unpin the backup and Class-C snapshot and mark ``UPGRADE_CONFIRMED``."""
+        _require_posix_live_refresh()
         segment = validate_server_segment(server_id)
         async with self._lease_context(segment) as lease:
             guard = lease.guard
@@ -2129,6 +2137,7 @@ class LiveRefreshService:
         recovery artifacts pinned; an operator releases them only after
         deciding not to retry the refresh.
         """
+        _require_posix_live_refresh()
         segment = validate_server_segment(server_id)
         async with self._lease_context(segment) as lease:
             guard = lease.guard
@@ -2165,6 +2174,7 @@ class LiveRefreshService:
         reason: str = "",
     ) -> RollbackResult:
         """Roll back while holding the lifecycle then repo lease."""
+        _require_posix_live_refresh()
         segment = validate_server_segment(server_id)
         async with self._lease_context(segment) as lease:
             return await self._rollback.rollback(

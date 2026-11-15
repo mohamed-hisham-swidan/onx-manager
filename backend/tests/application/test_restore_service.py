@@ -5,6 +5,7 @@ import tarfile
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +14,7 @@ from app.core.exceptions import InsufficientStorageError
 from app.core.persistence.db import database
 from app.modules.backup.application.restore_service import (
     RestoreError,
+    _ensure_extract_space,
     _safe_extract_tar,
     consume_pending_restore,
     perform_safe_restore,
@@ -620,6 +622,85 @@ class TestConsumePendingRestore:
         pending = await _pending("srv-consume-fail")
         assert pending is not None
         assert pending[0] == "res-consume-fail"
+
+
+class TestEnsureExtractSpace:
+    """Cross-platform regression coverage for ``shutil.disk_usage`` preflight."""
+
+    def _tar_with_size(self, size: int) -> tarfile.TarFile:
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            info = tarfile.TarInfo(name="world/level.dat")
+            info.size = size
+            tar.addfile(info, io.BytesIO(b"x" * size))
+        buf.seek(0)
+        return tarfile.open(fileobj=buf, mode="r:gz")
+
+    def test_routes_free_space_through_disk_usage(self, tmp_path: Path, monkeypatch) -> None:
+        """Windows has no os.statvfs; the preflight must call shutil.disk_usage."""
+        from app.modules.backup.application import restore_service as restore_module
+
+        def _forbidden(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("os.statvfs must not be used directly")
+
+        calls: list[str] = []
+        monkeypatch.setattr(os, "statvfs", _forbidden, raising=False)
+        monkeypatch.setattr(
+            restore_module.shutil,
+            "disk_usage",
+            lambda path: calls.append(str(path)) or SimpleNamespace(free=10**12),
+        )
+        tar = self._tar_with_size(1)
+        try:
+            _ensure_extract_space(str(tmp_path), tar)
+        finally:
+            tar.close()
+
+        assert calls == [str(tmp_path)]
+
+    @pytest.mark.skipif(
+        os.name == "posix",
+        reason="POSIX shutil.disk_usage itself calls os.statvfs",
+    )
+    def test_works_on_native_windows_without_statvfs(self, tmp_path: Path) -> None:
+        assert not hasattr(os, "statvfs")
+        tar = self._tar_with_size(1)
+        try:
+            _ensure_extract_space(str(tmp_path), tar)
+        finally:
+            tar.close()
+
+    def test_insufficient_space_raises(self, tmp_path: Path, monkeypatch) -> None:
+        from app.modules.backup.application import restore_service as restore_module
+
+        monkeypatch.delattr(os, "statvfs", raising=False)
+        monkeypatch.setattr(
+            restore_module.shutil,
+            "disk_usage",
+            lambda _path: SimpleNamespace(free=1000),
+        )
+        tar = self._tar_with_size(1000)
+        try:
+            with pytest.raises(InsufficientStorageError) as excinfo:
+                _ensure_extract_space(str(tmp_path), tar)
+        finally:
+            tar.close()
+
+        assert excinfo.value.http_status == 507
+        assert excinfo.value.details == {"needed_bytes": 1000, "free_bytes": 1000}
+
+    def test_disk_usage_oserror_passes_through(self, tmp_path: Path, monkeypatch) -> None:
+        from app.modules.backup.application import restore_service as restore_module
+
+        def _raise(_path: str):
+            raise OSError(errno.ENOENT, "missing mount")
+
+        monkeypatch.setattr(restore_module.shutil, "disk_usage", _raise)
+        tar = self._tar_with_size(1000)
+        try:
+            _ensure_extract_space(str(tmp_path), tar)
+        finally:
+            tar.close()
 
 
 class TestSafeTarExtract:

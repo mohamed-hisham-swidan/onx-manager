@@ -23,7 +23,12 @@ from pathlib import Path
 from typing import Any
 
 from app.core.allowlist import classify, open_safe_path_fd, validate_canonical_relpath
-from app.core.exceptions import BackupPinnedError, ConflictError, ValidationError
+from app.core.exceptions import (
+    BackupPinnedError,
+    CasUnsupportedPlatformError,
+    ConflictError,
+    ValidationError,
+)
 from app.core.host_state import HostStateLayout, validate_server_segment
 from app.modules.versioning.infrastructure.fs_atomic import atomic_write_private
 
@@ -62,6 +67,11 @@ def _fsync_dir(path: Path) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def _require_posix_host() -> None:
+    if os.name != "posix":
+        raise CasUnsupportedPlatformError("Class-C snapshots require a POSIX host")
 
 
 def _mkdir_private(path: Path) -> None:
@@ -222,6 +232,7 @@ class ClassCSnapshotService:
         pinned: bool = True,
         snapshot_id: str | None = None,
     ) -> ClassCSnapshotResult:
+        _require_posix_host()
         segment = validate_server_segment(server_id)
         snapshot = validate_server_segment(snapshot_id or uuid.uuid4().hex)
         live = Path(live_dir)
@@ -396,6 +407,7 @@ class ClassCSnapshotService:
         snapshot_id: str,
         target_dir: str | os.PathLike[str],
     ) -> int:
+        _require_posix_host()
         _segment, snapshot, root, manifest = self._load_snapshot(
             server_id, snapshot_id, require_marker=True
         )
@@ -463,6 +475,7 @@ class ClassCSnapshotService:
     # ------------------------------------------------------------------
 
     def unpin_snapshot(self, server_id: str, snapshot_id: str) -> None:
+        _require_posix_host()
         _segment, _snapshot, root, manifest = self._load_snapshot(
             server_id, snapshot_id, require_marker=True
         )
@@ -472,6 +485,7 @@ class ClassCSnapshotService:
         )
 
     def delete_snapshot(self, server_id: str, snapshot_id: str) -> None:
+        _require_posix_host()
         _segment, snapshot, root, manifest = self._load_snapshot(
             server_id, snapshot_id, require_marker=False
         )

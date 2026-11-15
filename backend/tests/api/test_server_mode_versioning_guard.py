@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -124,8 +126,47 @@ async def test_simple_server_is_blocked_with_409(method: str, path: str, body: d
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="Advanced-mode versioning is POSIX-only in this release; Windows fails closed with 409",
+)
 @pytest.mark.parametrize(("method", "path", "body"), ROUTES, ids=ROUTE_IDS)
 async def test_advanced_server_is_not_blocked(method: str, path: str, body: dict | None) -> None:
     await _seed_server(mode="advanced")
     status, payload = await _request(method, path, body)
     assert not (status == 409 and payload.get("code") == "SERVER_MODE_VERSIONING_DISABLED")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("GET", "/branches", None),
+        ("POST", "/branches", {"name": "feature"}),
+        ("GET", "/preflight", None),
+    ],
+    ids=["GET branches", "POST branches", "GET preflight"],
+)
+async def test_advanced_server_is_blocked_with_409_on_non_posix(
+    method: str, path: str, body: dict | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _seed_server(mode="advanced")
+    monkeypatch.setattr(os, "name", "nt")
+
+    status, payload = await _request(method, path, body)
+
+    assert status == 409
+    assert payload.get("code") == "SERVER_MODE_VERSIONING_DISABLED"
+    assert "non-POSIX" in payload.get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_missing_server_keeps_404_on_non_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(os, "name", "nt")
+
+    status, payload = await _request("GET", "/branches", None)
+
+    assert status == 404
+    assert payload.get("code") == "NOT_FOUND"

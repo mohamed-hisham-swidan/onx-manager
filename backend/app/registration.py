@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import cast
 
 from app.core.command_bus import (
@@ -300,7 +301,10 @@ async def _build_live_refresh_service(
     handler entry. The adapters stay immutable for the rest of the request and
     every blocking half is dispatched with ``asyncio.to_thread``.
     """
-    from app.core.exceptions import ValidationError
+    from app.core.exceptions import (
+        ServerModeVersioningDisabledError,
+        ValidationError,
+    )
     from app.core.host_state import ensure_host_state_layout
     from app.core.persistence.unit_of_work import UnitOfWork
     from app.core.settings_store import get_live_settings
@@ -311,16 +315,23 @@ async def _build_live_refresh_service(
     from app.modules.server.infrastructure.repository import SQLServerRepository
     from app.modules.shared.value_objects import ServerId
     from app.modules.versioning.application.lockfile_service import LockfileService
+    from app.modules.versioning.application.mode_guard import ensure_versioning_allowed
     from app.modules.versioning.infrastructure.runtime_adapters import (
         CleanExportStageAdapter,
         DockerServerRuntimeAdapter,
         require_docker_provider,
     )
 
+    if os.name != "posix":
+        raise ServerModeVersioningDisabledError(
+            "Live refresh is only supported on POSIX hosts in this release"
+        )
+
     loop = asyncio.get_running_loop()
     layout = ensure_host_state_layout()
     async with UnitOfWork() as uow:
         server = await SQLServerRepository(uow.session).get(ServerId(server_id))
+    await ensure_versioning_allowed(server)
     if server.deployment is None:
         raise ValidationError(
             "Live refresh requires a deployed server directory", field="server_id"

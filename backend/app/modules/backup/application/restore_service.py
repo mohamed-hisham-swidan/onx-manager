@@ -73,10 +73,9 @@ def _level_name(server_dir: str, base_world: str) -> str:
 def _ensure_extract_space(server_dir: str, tar: tarfile.TarFile) -> None:
     """Refuse extraction when the archive cannot fit on the target filesystem."""
     try:
-        stats = os.statvfs(server_dir)
+        free_bytes = shutil.disk_usage(server_dir).free
     except OSError:  # pragma: no cover - defensive
         return
-    free_bytes = stats.f_bavail * stats.f_frsize
     needed = 0
     for member in tar.getmembers():
         if member.isfile():

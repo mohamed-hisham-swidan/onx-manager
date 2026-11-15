@@ -12,9 +12,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy import update
 
+import app.modules.versioning.infrastructure.class_c_snapshot as class_c_snapshot_module
+from app.core import allowlist as allowlist_module
 from app.core.config import AppSettings
 from app.core.event_bus import EventBus
-from app.core.exceptions import BackupPinnedError, ValidationError
+from app.core.exceptions import (
+    BackupPinnedError,
+    CasUnsupportedPlatformError,
+    ValidationError,
+)
 from app.core.host_state import HostStateLayout, ensure_host_state_layout
 from app.core.persistence.db import database
 from app.modules.backup.application.commands.create_backup import (
@@ -399,3 +405,44 @@ class TestClassCSnapshotService:
         service.delete_snapshot("srv-c", "snap-free")
 
         assert not root.exists()
+
+
+class TestClassCSnapshotNonPosixGuard:
+    """Windows is Simple-only: every Class-C entrypoint must fail closed."""
+
+    @pytest.mark.parametrize("operation", ["create", "restore", "unpin", "delete"])
+    def test_non_posix_fails_closed_before_allowlist(
+        self,
+        operation: str,
+        tmp_path: Path,
+        snapshot_env: tuple[ClassCSnapshotService, HostStateLayout],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        service, layout = snapshot_env
+        live = tmp_path / "live"
+        _make_live_tree(live)
+
+        def _forbidden(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError(
+                f"{operation} reached the POSIX-only allowlist on a non-POSIX host"
+            )
+
+        monkeypatch.setattr(class_c_snapshot_module, "open_safe_path_fd", _forbidden)
+        monkeypatch.setattr(allowlist_module, "_open_root_dir", _forbidden)
+        monkeypatch.setattr(os, "name", "nt")
+
+        calls = {
+            "create": lambda: service.create_snapshot(
+                "srv-c", live, snapshot_id="snap-nt"
+            ),
+            "restore": lambda: service.restore_snapshot("srv-c", "snap-nt", live),
+            "unpin": lambda: service.unpin_snapshot("srv-c", "snap-nt"),
+            "delete": lambda: service.delete_snapshot("srv-c", "snap-nt"),
+        }
+
+        with pytest.raises(CasUnsupportedPlatformError, match="POSIX host") as exc:
+            calls[operation]()
+
+        assert exc.value.code == "CAS_UNSUPPORTED_PLATFORM"
+        assert exc.value.http_status == 501
+        assert not layout.class_c_vault_dir("srv-c").exists()

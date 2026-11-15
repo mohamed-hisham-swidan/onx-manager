@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError, ServerModeVersioningDisabledError
@@ -21,4 +23,9 @@ async def require_advanced_mode(server_id: str) -> None:
     if mode == ServerMode.SIMPLE.value or mode == "simple":
         raise ServerModeVersioningDisabledError(
             f"Versioning operations are disabled for server '{server_id}' in simple mode"
+        )
+
+    if os.name != "posix":
+        raise ServerModeVersioningDisabledError(
+            "Versioning operations are disabled on non-POSIX hosts in this release"
         )
