@@ -257,7 +257,10 @@ def _validate_structured(path: str, data: bytes) -> None:
         if lowered.endswith(".json"):
             json.loads(text)
         elif lowered.endswith((".yml", ".yaml")):
-            yaml.safe_load(text)
+            # A YAML stream may hold several documents; consume all of them so
+            # valid multi-document files save while malformed ones fail closed.
+            for _doc in yaml.safe_load_all(text):
+                pass
         elif lowered.endswith(".toml"):
             tomllib.loads(text)
         elif lowered.endswith(".properties"):

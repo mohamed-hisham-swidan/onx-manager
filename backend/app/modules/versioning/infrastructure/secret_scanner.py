@@ -200,11 +200,21 @@ def _parse_properties(text: str) -> list[tuple[str, Any]]:
 
 def _parse_structured(path: str, text: str) -> list[tuple[str, Any]]:
     lowered = path.lower()
+    if lowered.endswith((".yml", ".yaml")):
+        # YAML streams may hold several documents. Scan every document so a
+        # secret in document 2+ is never missed. A malformed document stops
+        # iteration but keeps the keys already collected from earlier ones.
+        leaves: list[tuple[str, Any]] = []
+        try:
+            for doc in yaml.safe_load_all(text):
+                if doc is not None:
+                    leaves.extend(_flatten(doc, ()))
+        except (ValueError, TypeError, yaml.YAMLError):
+            pass
+        return leaves
     try:
         if lowered.endswith(".json"):
             return _flatten(json.loads(text), ())
-        if lowered.endswith((".yml", ".yaml")):
-            return _flatten(yaml.safe_load(text), ())
         if lowered.endswith(".toml"):
             return _flatten(tomllib.loads(text), ())
         if lowered.endswith(".properties"):

@@ -9,12 +9,15 @@ from pathlib import Path
 import pytest
 
 from app.core.config import AppSettings
-from app.core.exceptions import SecretFileInGitForbiddenError
+from app.core.exceptions import SecretFileInGitForbiddenError, ValidationError
 from app.core.host_state import HostStateLayout, ensure_host_state_layout
 from app.modules.versioning.domain.lockfile import LoaderRef, LockfileV21
 from app.modules.versioning.infrastructure.git_repository import (
     GITATTRIBUTES_RELPATH,
     GitRepositoryService,
+)
+from app.modules.versioning.infrastructure.git_save_commit import (
+    _validate_structured,
 )
 from app.modules.versioning.infrastructure.secret_scanner import (
     assert_no_secrets,
@@ -289,6 +292,77 @@ def test_malformed_structured_file_still_gets_pattern_scanning() -> None:
         for finding in scan_bytes("config/broken.json", f'{{"token": "{GITHUB_PAT}"'.encode())
     )
     assert scan_bytes("config/broken.json", b'{"token": ') == ()
+
+
+MULTI_DOC_SECRET = "S3cr3t-Multi-Doc-Pass-2026"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_key"),
+    [
+        (
+            f"---\ndata:\n  password: {MULTI_DOC_SECRET}\n---\nother: 1\n",
+            "data.password",
+        ),
+        (
+            f"---\nfoo: bar\n---\ndata:\n  password: {MULTI_DOC_SECRET}\n",
+            "data.password",
+        ),
+        (f"---\n---\npassword: {MULTI_DOC_SECRET}\n", "password"),
+        (
+            f"---\npassword: {MULTI_DOC_SECRET}\n---\n: [unclosed\n",
+            "password",
+        ),
+    ],
+)
+def test_multi_document_yaml_secrets_are_detected(
+    text: str, expected_key: str
+) -> None:
+    findings = scan_bytes("config/multi.yml", text.encode("utf-8"))
+    assert any(
+        finding.kind == "sensitive-key" and finding.key == expected_key
+        for finding in findings
+    ), findings
+
+
+def test_multi_document_yaml_placeholders_are_allowed() -> None:
+    text = (
+        "---\n"
+        "data:\n"
+        "  password: ${ONX_SECRET_DB_PASSWORD}\n"
+        "---\n"
+        "bot-token: changeme\n"
+        "---\n"
+        "enabled: false\n"
+    )
+    assert scan_bytes("config/multi.yml", text.encode("utf-8")) == ()
+
+
+def test_multi_document_yaml_redaction_keeps_only_kind_and_key_metadata() -> None:
+    text = f"---\nfoo: bar\n---\ndata:\n  password: {MULTI_DOC_SECRET}\n"
+    with pytest.raises(SecretFileInGitForbiddenError) as exc_info:
+        assert_no_secrets("config/multi.yml", text.encode("utf-8"))
+
+    assert MULTI_DOC_SECRET not in str(exc_info.value)
+    assert MULTI_DOC_SECRET not in json.dumps(exc_info.value.details)
+    assert exc_info.value.details["findings"] == [
+        {"kind": "sensitive-key", "key": "data.password"}
+    ]
+
+
+def test_validate_structured_accepts_multi_document_yaml() -> None:
+    _validate_structured(
+        "config/multi.yml",
+        b"---\nenabled: true\n---\nmotd: Hello\n",
+    )
+
+
+def test_validate_structured_rejects_malformed_multi_document_yaml() -> None:
+    with pytest.raises(ValidationError):
+        _validate_structured(
+            "config/multi.yml",
+            b"---\nkey: value\n---\n: [unclosed\n",
+        )
 
 
 def test_binary_files_are_not_decoded() -> None:

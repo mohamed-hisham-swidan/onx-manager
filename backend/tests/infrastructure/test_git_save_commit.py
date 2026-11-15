@@ -199,6 +199,53 @@ def test_invalid_or_conflicted_configs_are_rejected(
     assert _head(worktree) == before
 
 
+def test_valid_multi_document_yaml_saves_cleanly(
+    repo: tuple[HostStateLayout, Path, Path],
+) -> None:
+    layout, root, worktree = repo
+    payload = "---\nenabled: true\n---\nmotd: Hello\n"
+    _write(worktree, "config/multi.yml", payload)
+
+    result = _save(layout, root, "Add multi-document config")
+
+    assert "config/multi.yml" in result.files
+    assert _show(worktree, "config/multi.yml") == payload
+
+
+def test_multi_document_yaml_secret_in_second_document_is_rejected(
+    repo: tuple[HostStateLayout, Path, Path],
+) -> None:
+    layout, root, worktree = repo
+    before = _head(worktree)
+    _write(
+        worktree,
+        "config/multi.yml",
+        "---\nfoo: bar\n---\ndata:\n  password: multi-doc-secret-value\n",
+    )
+
+    with pytest.raises(SecretFileInGitForbiddenError) as exc_info:
+        _save(layout, root)
+
+    assert "multi-doc-secret-value" not in str(exc_info.value)
+    assert "multi-doc-secret-value" not in repr(exc_info.value.details)
+    assert _head(worktree) == before
+    with pytest.raises(subprocess.CalledProcessError):
+        _git(worktree, "cat-file", "-e", "HEAD:config/multi.yml")
+
+
+def test_malformed_multi_document_yaml_is_rejected(
+    repo: tuple[HostStateLayout, Path, Path],
+) -> None:
+    layout, root, worktree = repo
+    before = _head(worktree)
+    _write(worktree, "config/multi.yml", "---\nkey: value\n---\n: [unclosed\n")
+
+    with pytest.raises(ValidationError):
+        _save(layout, root)
+
+    assert _head(worktree) == before
+
+
 def test_oversized_icon_is_rejected(
     repo: tuple[HostStateLayout, Path, Path],
 ) -> None:
