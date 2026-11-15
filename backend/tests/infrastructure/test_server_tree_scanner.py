@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +16,52 @@ from app.modules.versioning.infrastructure.server_tree_scanner import (
     ScanReport,
     scan_server_tree,
 )
+
+
+class _SyntheticDirEntry:
+    """Minimal ``os.DirEntry`` stand-in so regression checks never touch disk."""
+
+    def __init__(self, name: str, path: str, *, is_dir: bool = False, size: int = 1) -> None:
+        self.name = name
+        self.path = path
+        self._is_dir = is_dir
+        self._size = size
+
+    def is_symlink(self) -> bool:
+        return False
+
+    def is_dir(self, *, follow_symlinks: bool = True) -> bool:
+        del follow_symlinks
+        return self._is_dir
+
+    def is_file(self, *, follow_symlinks: bool = True) -> bool:
+        del follow_symlinks
+        return not self._is_dir
+
+    def stat(self, *, follow_symlinks: bool = True) -> os.stat_result:
+        del follow_symlinks
+        mode = (stat.S_IFDIR | 0o755) if self._is_dir else (stat.S_IFREG | 0o644)
+        size = 0 if self._is_dir else self._size
+        return os.stat_result((mode, 1, 1, 1, 0, 0, size, 0, 0, 0))
+
+
+class _ScandirProxy:
+    """Expose ``os`` with ``scandir`` overridden for chosen directories only."""
+
+    def __init__(
+        self, real_os, entries: dict[str, list[_SyntheticDirEntry]]
+    ) -> None:
+        self._real_os = real_os
+        self._entries = entries
+
+    def scandir(self, path: str = "."):
+        synthetic = self._entries.get(os.path.normpath(str(path)))
+        if synthetic is None:
+            return self._real_os.scandir(path)
+        return contextlib.nullcontext(iter(synthetic))
+
+    def __getattr__(self, name: str):
+        return getattr(self._real_os, name)
 
 
 def _build_synthetic_tree(root: Path) -> None:
@@ -179,15 +227,90 @@ class TestServerTreeScanner:
         root = tmp_path / "server"
         root.mkdir()
 
-        # Trailing space in segment is legal on Linux POSIX but invalid per canonical rules
-        bad_file = root / "trail .jar "
+        # Trailing space/dot in a segment is legal on Linux POSIX but invalid per
+        # canonical rules. Windows strips such suffixes unless the extended-length
+        # (\\?\) form is used, so verify what the host actually preserved.
+        for bad_name in ("trail .jar ", "trail.jar."):
+            with contextlib.suppress(OSError):
+                (root / bad_name).write_bytes(b"bad-trailing-char")
+            if os.name == "nt" and bad_name not in os.listdir(root):
+                extended = "\\\\?\\" + str(root / bad_name)
+                try:
+                    with open(extended, "wb") as handle:
+                        handle.write(b"bad-trailing-char")
+                except OSError:
+                    pass
+
         try:
-            bad_file.write_bytes(b"bad-trailing-space")
-        except OSError:
-            pytest.skip("Filesystem does not support trailing-space filenames")
+            survived = [name for name in os.listdir(root) if name.endswith((" ", "."))]
+            if not survived:
+                pytest.skip("Host OS stripped trailing-dot/space names during file creation")
+
+            with pytest.raises(ValueError, match="trailing-dot/space segment"):
+                scan_server_tree(root)
+        finally:
+            for name in os.listdir(root):
+                if not name.endswith((" ", ".")):
+                    continue
+                target = "\\\\?\\" + str(root / name) if os.name == "nt" else str(root / name)
+                with contextlib.suppress(OSError):
+                    os.unlink(target)
+
+    @pytest.mark.parametrize("bad_name", ["trail .jar ", "trail.jar."])
+    def test_trailing_dot_or_space_file_always_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_name: str
+    ) -> None:
+        """Unconditional: synthetic scandir entries exercise the scanner on any OS."""
+        from app.modules.versioning.infrastructure import server_tree_scanner
+
+        root = tmp_path / "server"
+        root.mkdir()
+        entries = {
+            os.path.normpath(str(root)): [
+                _SyntheticDirEntry(bad_name, str(root / bad_name))
+            ]
+        }
+        monkeypatch.setattr(server_tree_scanner, "os", _ScandirProxy(os, entries))
 
         with pytest.raises(ValueError, match="trailing-dot/space segment"):
             scan_server_tree(root)
+
+    @pytest.mark.parametrize("bad_dir", ["sub ", "sub."])
+    def test_nested_trailing_dot_or_space_dir_always_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_dir: str
+    ) -> None:
+        """Unconditional: ``plugins/sub /cfg.yml`` and ``plugins/sub./cfg.yml``."""
+        from app.modules.versioning.infrastructure import server_tree_scanner
+
+        root = tmp_path / "server"
+        root.mkdir()
+        plugins = root / "plugins"
+        plugins.mkdir()
+        bad_dir_path = plugins / bad_dir
+        entries = {
+            os.path.normpath(str(plugins)): [
+                _SyntheticDirEntry(bad_dir, str(bad_dir_path), is_dir=True)
+            ],
+            os.path.normpath(str(bad_dir_path)): [
+                _SyntheticDirEntry("cfg.yml", str(bad_dir_path / "cfg.yml"))
+            ],
+        }
+        monkeypatch.setattr(server_tree_scanner, "os", _ScandirProxy(os, entries))
+
+        with pytest.raises(ValueError, match="trailing-dot/space segment"):
+            scan_server_tree(root)
+
+    @pytest.mark.parametrize("bad_dir", ["sub ", "sub."])
+    def test_scandir_proxy_preserves_trailing_dot_and_space_keys(
+        self, tmp_path: Path, bad_dir: str
+    ) -> None:
+        """L-1: proxy lookups must not run host abspath (Windows strips suffixes)."""
+        key = os.path.normpath(str(tmp_path / bad_dir))
+        assert key.endswith(bad_dir)
+
+        proxy = _ScandirProxy(os, {key: []})
+        with proxy.scandir(str(tmp_path / bad_dir)) as it:
+            assert list(it) == []
 
     def test_max_files_truncation_is_deterministic(self, tmp_path: Path) -> None:
         root = tmp_path / "server"

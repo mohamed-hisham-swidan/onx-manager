@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import logging
 import os
+import posixpath
 import shutil
 import tarfile
 import tempfile
@@ -10,6 +11,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from app.api.deps import build_backup_encryption, build_storage_backend
+from app.core.allowlist import validate_canonical_relpath
 from app.core.config import ConfigFactory
 from app.core.exceptions import InsufficientStorageError
 from app.core.identity import IDENTITY
@@ -125,22 +127,136 @@ async def _load_job_storage(backup_id: BackupJobId) -> tuple[str, int, str]:
         return job.storage_path, job.size_bytes, job.checksum
 
 
+def _normalized_tar_member_name(member: tarfile.TarInfo) -> str:
+    """Return the canonical relative name for a tar member.
+
+    Leading ``./`` prefixes are stripped repeatedly and a single trailing ``/``
+    is removed only for directory members. NUL bytes and backslashes are rejected
+    because Windows treats them as path syntax, which would let an archive name
+    alias a different on-disk path.
+    """
+    name = member.name
+    if "\x00" in name or "\\" in name:
+        raise RestoreError(f"Unsafe member path in backup archive: {member.name!r}")
+    while name.startswith("./"):
+        name = name[2:]
+    if member.isdir() and name.endswith("/"):
+        name = name[:-1]
+    return name
+
+
+def _validate_tar_member_name(member: tarfile.TarInfo) -> None:
+    """Reject non-canonical member names (trailing dot/space, ':', control chars)."""
+    name = _normalized_tar_member_name(member)
+    if member.isdir() and name in ("", "."):
+        # Benign archive root entry (``tar -cf x .`` / ``./``): nothing is written.
+        return
+    try:
+        validate_canonical_relpath(name)
+    except ValueError as exc:
+        raise RestoreError(
+            f"Unsafe or trailing-dot/space member path in backup archive: {member.name}"
+        ) from exc
+
+
+def _validate_tar_member_link(member: tarfile.TarInfo) -> None:
+    """Validate a symlink/hardlink target without any host path normalization.
+
+    Resolution is purely lexical POSIX: ``tarfile`` resolves ``SYMTYPE`` targets
+    relative to the member's directory and ``LNKTYPE`` targets relative to the
+    archive root. ``os.path.abspath``/``relpath`` must not be used here because
+    Windows ``GetFullPathNameW`` strips trailing ``"."``/``" "`` segments before
+    validation could see them. Raw segments are therefore validated before
+    ``posixpath.normpath`` can collapse a non-canonical segment away.
+    """
+    linkname = member.linkname
+    if "\x00" in linkname or "\\" in linkname:
+        raise RestoreError(
+            f"Unsafe link target in backup archive: {member.name} -> {member.linkname}"
+        )
+    norm_link = linkname
+    while norm_link.startswith("./"):
+        norm_link = norm_link[2:]
+    if norm_link in ("", "."):
+        raise RestoreError(
+            f"Unsafe or empty link target in backup archive: "
+            f"{member.name} -> {member.linkname}"
+        )
+    for segment in (seg for seg in norm_link.split("/") if seg not in ("", ".", "..")):
+        try:
+            validate_canonical_relpath(segment)
+        except ValueError as exc:
+            raise RestoreError(
+                f"Unsafe or trailing-dot/space link target in backup archive: "
+                f"{member.name} -> {member.linkname}"
+            ) from exc
+    member_rel = _normalized_tar_member_name(member)
+    base_dir = "" if member.islnk() else posixpath.dirname(member_rel)
+    if base_dir:
+        resolved_rel = posixpath.normpath(posixpath.join(base_dir, norm_link))
+    else:
+        resolved_rel = posixpath.normpath(norm_link)
+    if resolved_rel in ("", ".", "..") or resolved_rel.startswith("../"):
+        raise RestoreError(
+            f"Symlink traversal detected in backup archive: "
+            f"{member.name} -> {member.linkname}"
+        )
+    try:
+        validate_canonical_relpath(resolved_rel)
+    except ValueError as exc:
+        raise RestoreError(
+            f"Unsafe or trailing-dot/space link target in backup archive: "
+            f"{member.name} -> {member.linkname}"
+        ) from exc
+
+
 def _safe_extract_tar(tar: tarfile.TarFile, target_dir: str) -> None:
-    """Safely extract tar archive preventing directory traversal (tar slip / CVE-2007-4559)."""
+    """Safely extract a tar archive, rejecting traversal and non-canonical paths.
+
+    Every member is checked BEFORE ``extractall`` writes anything: path traversal
+    (tar slip / CVE-2007-4559) and symlink/hardlink escapes keep their original
+    ``RestoreError`` messages, while NUL/backslash bytes and non-canonical names
+    (trailing ``"."``/``" "`` on any segment, ``:``, newlines, ...) are rejected on
+    every platform. ``perform_safe_restore`` therefore fails closed before the live
+    server directory is modified, even for legacy Linux backups that contain
+    anomalous trailing-dot/space names.
+    """
     resolved_target = os.path.abspath(target_dir)
     for member in tar.getmembers():
-        member_path = os.path.abspath(os.path.join(resolved_target, member.name))
-        if os.path.commonpath([resolved_target, member_path]) != resolved_target:
+        try:
+            member_path = os.path.abspath(os.path.join(resolved_target, member.name))
+            member_escapes = (
+                os.path.commonpath([resolved_target, member_path]) != resolved_target
+            )
+        except ValueError as exc:
+            # Windows raises ValueError for cross-drive names (e.g. ``C:foo``).
+            raise RestoreError(
+                f"Path traversal detected in backup archive: {member.name}"
+            ) from exc
+        if member_escapes:
             raise RestoreError(f"Path traversal detected in backup archive: {member.name}")
         if member.issym() or member.islnk():
-            link_target = os.path.abspath(
-                os.path.join(os.path.dirname(member_path), member.linkname)
-            )
-            if os.path.commonpath([resolved_target, link_target]) != resolved_target:
+            # tarfile resolves hardlinks against the archive root and symlinks
+            # against the member's own directory.
+            link_base = resolved_target if member.islnk() else os.path.dirname(member_path)
+            try:
+                link_target = os.path.abspath(os.path.join(link_base, member.linkname))
+                link_escapes = (
+                    os.path.commonpath([resolved_target, link_target]) != resolved_target
+                )
+            except ValueError as exc:
+                raise RestoreError(
+                    f"Symlink traversal detected in backup archive: "
+                    f"{member.name} -> {member.linkname}"
+                ) from exc
+            if link_escapes:
                 raise RestoreError(
                     f"Symlink traversal detected in backup archive: "
                     f"{member.name} -> {member.linkname}"
                 )
+        _validate_tar_member_name(member)
+        if member.issym() or member.islnk():
+            _validate_tar_member_link(member)
 
     if hasattr(tarfile, "data_filter"):
         tar.extractall(target_dir, filter="data")
@@ -158,7 +274,11 @@ async def perform_safe_restore(
     """Decrypt, verify and atomically apply the top-level entries present in a backup archive.
 
     The archive is decrypted and fully extracted to a temp directory (never the live
-    server dir). For each dimension folder / plugins folder that exists in the extract,
+    server dir). Member paths are validated before extraction starts, so an archive
+    carrying trailing-dot/space (or otherwise non-canonical) names fails closed with
+    ``RestoreError`` before any live path is swapped or written.
+
+    For each dimension folder / plugins folder that exists in the extract,
     the corresponding live folder is atomically swapped in. Config files present in the
     extract are replaced at the file level. Playerdata pulled into the
     ``mcs_playerdata/<dim>/playerdata`` namespace is swapped onto only the live

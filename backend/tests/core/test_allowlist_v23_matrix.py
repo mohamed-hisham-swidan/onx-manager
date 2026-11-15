@@ -131,6 +131,17 @@ def test_reject_path_rows_raise_value_error() -> None:
             validate(path)
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["plugins/foo.", "dir./bar.yml", "plugins/foo ", "dir /bar.yml"],
+)
+def test_validate_canonical_relpath_rejects_trailing_dot_or_space(path: str) -> None:
+    """Unconditional on every platform; the TSV matrix block above stays untouched."""
+    validate = _allowlist_module().validate_canonical_relpath
+    with pytest.raises(ValueError, match="trailing-dot/space segment"):
+        validate(path)
+
+
 def test_quarantine_rows_match_hostile_executable_regex() -> None:
     hostile = _allowlist_module().HOSTILE_EXECUTABLE_QUARANTINE_REGEX
     for path, expected in MATRIX_ROWS:
