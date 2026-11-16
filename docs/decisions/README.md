@@ -33,6 +33,7 @@ This directory captures significant architectural decisions made during the proj
 | DECISION-2026-09-28-001 | [Stage B Canonical Test Directory Grounding Amendment](DECISION-2026-09-28-001-stage-b-canonical-test-dir-amendment.md) | 2026-09-28 | Accepted | D1 Standard amendment grounding canonical test-dir derivation in authoritative server deployment directory across all 5 lifecycle paths. |
 | 0020 | [Installer and launcher pin Python to exactly 3.12](0020-installer-python-312-pin.md) | 2026-11-02 | Accepted | Exact 3.12 probe in launcher/start scripts/bootstrap; versioned-only installs; venv deletion only in launcher.py. |
 | 0021 | [Frontend UX/IA Overhaul and Design Token System](0021-frontend-ux-ia-overhaul-token-system.md) | 2026-11-04 | Accepted (D1–D9; D10 provisional) | Layout/IA overhaul, design token skeleton (data-skin/mode/density), monolith modularization, shared primitives, and 19-batch execution plan. |
+| DECISION-2026-11-12-001 | [P2 Planning Closure (D-1 … D-12) & Acceptance](DECISION-2026-11-12-001-p2-planning.md) | 2026-11-12 (accepted 2026-11-16) | Accepted | Closes P2 scope/programme (`P2-1`…`P2-6g-b`), host-state contract, LEC grammar, protected Class-C roots, legacy projection, scanner enforcement, Advanced import block, `materialization_id` retirement plan, D-12 acceptance, and owner D-9 Option B deviation (Windows Simple-only fail-closed, `allowlist.py` frozen, no Win32 handle/reparse backend). P2 merged at `origin/master` `c49955a`. |
 
 ## New ADRs and Decisions
 

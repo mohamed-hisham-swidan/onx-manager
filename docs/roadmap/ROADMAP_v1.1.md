@@ -5,6 +5,16 @@
 **Supersedes:** `ROADMAP_v1.md` (2026-09-01 — external review found: no ground-truth baseline phase, a circular dependency between Phase 1 and Phase 2, branding conflated with functional UX, an unrecorded architecture-reorder decision, and looser language than the actual exit criteria implied). This version keeps every fact from v1.0 and fixes those five issues plus several smaller ones below.
 **Phase order:** dictated by Mohamed — ground truth first (new in v1.1), then bugs, backend, frontend, community-driven features, containers, core architecture refactor, install/wrap-up, and branding/UI polish **last**.
 
+## P1–P7 Programme Pointer (2026-11-09 → )
+
+**Source of truth:** [`docs/design/SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md`](../design/SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md) v8.7. For P1–P7 the spec overrides any conflicting project rule; governance paperwork for P1–P7 is waived by owner decision.
+
+**Current phase:** **P2 — Complete & Accepted (`origin/master` `c49955a`, 2026-11-16)** — P2a (`P2-1` Core substrate, `P2-2` Repo/branches, `P2-4` Branch Files/Save & Commit) and P2b (`P2-3` Clean export, `P2-5` Hardening/refresh/recovery, `P2-6` Real-run gates & Windows CI Option B) implemented and merged. Windows CI Run ID: `UNKNOWN: not recorded` (owner-reported green on `cff8d9c`; temporary trigger removed in `43f6dcc` / `c49955a`).
+
+**P2 planning & acceptance record:** [`DECISION-2026-11-12-001`](../decisions/DECISION-2026-11-12-001-p2-planning.md) (D-1…D-12 closed 2026-11-12; P2 accepted 2026-11-16 with owner D-9 Option B deviation: Windows Simple-only fail-closed, `allowlist.py` frozen, no Win32 handle/reparse backend).
+
+**Next work:** **P3 (`P3-B3`) — Merge engine, encrypted Class-C AES-256-GCM vault, Live State Files UI/API, Promote removal, `main` protection, and Advanced UI cutover**, beginning with Recon. Phase 6 (Final Installs / Wrap-up) remains READY after the P1–P7 programme.
+
 ## Current Release Objective
 
 > Prepare ONX Manager for a safe, verified, cross-platform open-source release — every claim in this roadmap backed by evidence gathered in this session or later, not carried forward from a prior document.
