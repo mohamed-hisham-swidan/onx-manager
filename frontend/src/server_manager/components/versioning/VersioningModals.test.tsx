@@ -3,7 +3,6 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import {
   CreateBranchModal,
   CreateCommitModal,
-  PromoteModal,
   InspectCommitModal,
   ViewLogsModal,
   BotSettingsModal,
@@ -150,78 +149,6 @@ describe("VersioningModals accessibility and migration contracts", () => {
           currentBranchObj={null}
           isDirectCommitBlocked={false}
           allowForceBypass={false}
-          onSubmit={vi.fn()}
-          onClose={onClose}
-          isPending={true}
-        />
-      );
-
-      const cancelBtn = screen.getByRole("button", { name: "Cancel" });
-      expect(cancelBtn).toBeDisabled();
-
-      fireEvent.keyDown(window, { key: "Escape" });
-      expect(onClose).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("PromoteModal", () => {
-    it("renders standard role='dialog', locks scroll, and responds to Escape", () => {
-      const onClose = vi.fn();
-      const { unmount } = render(
-        <PromoteModal
-          isOpen={true}
-          isForcePromote={false}
-          promoteTestRun={mockTestRun}
-          forceReason=""
-          onForceReasonChange={vi.fn()}
-          keepWorldChanges={false}
-          onKeepWorldChangesChange={vi.fn()}
-          onSubmit={vi.fn()}
-          onClose={onClose}
-        />
-      );
-
-      const dialog = screen.getByRole("dialog", { name: "Promote Verified Commit" });
-      expect(dialog).toBeInTheDocument();
-      expect(document.body.style.overflow).toBe("hidden");
-
-      fireEvent.keyDown(window, { key: "Escape" });
-      expect(onClose).toHaveBeenCalled();
-
-      unmount();
-      expect(document.body.style.overflow).toBe("");
-    });
-
-    it("renders force promotion role='dialog' with force override accessible name", () => {
-      const onClose = vi.fn();
-      render(
-        <PromoteModal
-          isOpen={true}
-          isForcePromote={true}
-          promoteTestRun={{ ...mockTestRun, status: "FAILED" }}
-          forceReason=""
-          onForceReasonChange={vi.fn()}
-          keepWorldChanges={false}
-          onKeepWorldChangesChange={vi.fn()}
-          onSubmit={vi.fn()}
-          onClose={onClose}
-        />
-      );
-
-      expect(screen.getByRole("dialog", { name: "Force Promotion Override" })).toBeInTheDocument();
-    });
-
-    it("ignores Escape and disables cancel button while pending", () => {
-      const onClose = vi.fn();
-      render(
-        <PromoteModal
-          isOpen={true}
-          isForcePromote={false}
-          promoteTestRun={mockTestRun}
-          forceReason=""
-          onForceReasonChange={vi.fn()}
-          keepWorldChanges={false}
-          onKeepWorldChangesChange={vi.fn()}
           onSubmit={vi.fn()}
           onClose={onClose}
           isPending={true}

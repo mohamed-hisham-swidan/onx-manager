@@ -230,7 +230,7 @@ def test_invariant_3_persistent_dataset_rejects_tracked_config_overwrite() -> No
 
 def test_branch_lifecycle_transitions() -> None:
     """Branch transitions: created -> active on head advance -> archived."""
-    branch = ServerBranch(id="b-1", server_id="srv-1", name="main")
+    branch = ServerBranch(id="b-1", server_id="srv-1", name="release")
     assert branch.status == BranchStatus.CREATED
     assert branch.head_commit_id is None
 

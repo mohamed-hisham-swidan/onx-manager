@@ -38,7 +38,6 @@ ROUTES: list[tuple[str, str, dict | None]] = [
     ("GET", "/tests", None),
     ("GET", "/tests/test-1", None),
     ("GET", "/tests/test-1/evidence", None),
-    ("POST", "/tests/test-1/promote", {}),
     ("POST", "/tests/test-1/discard", {}),
     ("GET", "/test-definitions", None),
     ("POST", "/test-definitions", {"name": "def"}),

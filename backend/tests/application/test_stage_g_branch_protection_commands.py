@@ -16,6 +16,7 @@ from app.modules.versioning.application import (
     CreateBranchCommand,
     CreateCommitCommand,
     GetBranchProtectionQuery,
+    MergeCommitsCommand,
     RemoveBranchProtectionCommand,
     SetBranchProtectionCommand,
 )
@@ -132,19 +133,137 @@ class TestStageGBranchProtectionCommands:
         cb, qb, _ = init_test_db
         server_id = "srv-g-1"
 
-        await cb.send(CreateBranchCommand(server_id=server_id, name="main"))
-        await cb.send(SetBranchProtectionCommand(server_id=server_id, branch_name="main"))
+        await cb.send(CreateBranchCommand(server_id=server_id, name="release"))
+        await cb.send(SetBranchProtectionCommand(server_id=server_id, branch_name="release"))
 
         # Remove protection
         res_del = await cb.send(
-            RemoveBranchProtectionCommand(server_id=server_id, branch_name="main")
+            RemoveBranchProtectionCommand(server_id=server_id, branch_name="release")
         )
         assert res_del.success is True
         assert res_del.details["is_protected"] is False
 
-        prot = await qb.ask(GetBranchProtectionQuery(server_id=server_id, branch_name="main"))
+        prot = await qb.ask(GetBranchProtectionQuery(server_id=server_id, branch_name="release"))
         assert prot["is_protected"] is False
         assert prot["policy"] is None
+
+    @pytest.mark.asyncio
+    async def test_remove_branch_protection_on_main_rejected(self, init_test_db) -> None:
+        cb, qb, _ = init_test_db
+        server_id = "srv-g-1"
+
+        await cb.send(CreateBranchCommand(server_id=server_id, name="main"))
+        await cb.send(SetBranchProtectionCommand(server_id=server_id, branch_name="main"))
+
+        res_del = await cb.send(
+            RemoveBranchProtectionCommand(server_id=server_id, branch_name="main")
+        )
+        assert res_del.success is False
+        assert res_del.error_code == "CONFLICT"
+        assert "system-protected and cannot be unprotected" in res_del.error
+
+        prot = await qb.ask(GetBranchProtectionQuery(server_id=server_id, branch_name="main"))
+        assert prot["is_protected"] is True
+
+    @pytest.mark.asyncio
+    async def test_merge_commit_into_main_rejected_without_force(self, init_test_db) -> None:
+        cb, _, _ = init_test_db
+        server_id = "srv-g-1"
+
+        await cb.send(CreateBranchCommand(server_id=server_id, name="main"))
+
+        res = await cb.send(
+            MergeCommitsCommand(
+                server_id=server_id,
+                target_branch_name="main",
+                parent_commit_ids=["c-1", "c-2"],
+                message="Merge into main",
+            )
+        )
+        assert res.success is False
+        assert res.error_code == "CONFLICT"
+        assert "Direct merge commit into protected branch 'main' is forbidden." in res.error
+
+    @pytest.mark.asyncio
+    async def test_merge_commit_into_main_force_requires_bypass_permission(
+        self, init_test_db
+    ) -> None:
+        cb, _, _ = init_test_db
+        server_id = "srv-g-1"
+
+        await cb.send(CreateBranchCommand(server_id=server_id, name="main"))
+
+        res = await cb.send(
+            MergeCommitsCommand(
+                server_id=server_id,
+                target_branch_name="main",
+                parent_commit_ids=["c-1", "c-2"],
+                message="Forced merge into main",
+                force=True,
+                caller_permissions=["server:version:commit"],
+            )
+        )
+        assert res.success is False
+        assert res.error_code == "PERMISSION_DENIED"
+        assert "server:version:branch:bypass_protection" in res.error
+
+    @pytest.mark.asyncio
+    async def test_merge_commit_into_protected_branch_rejected_without_force(
+        self, init_test_db
+    ) -> None:
+        cb, _, _ = init_test_db
+        server_id = "srv-g-1"
+
+        await cb.send(CreateBranchCommand(server_id=server_id, name="release-merge"))
+        await cb.send(
+            SetBranchProtectionCommand(
+                server_id=server_id,
+                branch_name="release-merge",
+                policy={"allow_direct_commit": False},
+            )
+        )
+
+        res = await cb.send(
+            MergeCommitsCommand(
+                server_id=server_id,
+                target_branch_name="release-merge",
+                parent_commit_ids=["c-1", "c-2"],
+                message="Merge into protected release",
+            )
+        )
+        assert res.success is False
+        assert res.error_code == "CONFLICT"
+        assert (
+            "Direct merge commit into protected branch 'release-merge' is forbidden." in res.error
+        )
+
+    @pytest.mark.asyncio
+    async def test_merge_commit_force_disabled_by_policy(self, init_test_db) -> None:
+        cb, _, _ = init_test_db
+        server_id = "srv-g-1"
+
+        await cb.send(CreateBranchCommand(server_id=server_id, name="release-merge"))
+        await cb.send(
+            SetBranchProtectionCommand(
+                server_id=server_id,
+                branch_name="release-merge",
+                policy={"allow_direct_commit": False, "allow_force_bypass": False},
+            )
+        )
+
+        res = await cb.send(
+            MergeCommitsCommand(
+                server_id=server_id,
+                target_branch_name="release-merge",
+                parent_commit_ids=["c-1", "c-2"],
+                message="Forced merge into protected release",
+                force=True,
+                caller_permissions=["server:version:branch:bypass_protection"],
+            )
+        )
+        assert res.success is False
+        assert res.error_code == "CONFLICT"
+        assert "Force bypass is disabled by protection policy" in res.error
 
     @pytest.mark.asyncio
     async def test_create_commit_to_protected_branch_fails(self, init_test_db) -> None:
@@ -268,6 +387,49 @@ class TestStageGBranchProtectionCommands:
                 assert bypass_logs[0].actor_id == "admin-user"
                 assert bypass_logs[0].details["branch"] == "protected-main"
                 assert bypass_logs[0].details["reason"] == "Critical CVE patch"
+
+    @pytest.mark.asyncio
+    async def test_create_commit_force_disabled_by_policy(self, init_test_db) -> None:
+        cb, _, _ = init_test_db
+        server_id = "srv-g-1"
+
+        await cb.send(CreateBranchCommand(server_id=server_id, name="protected-main"))
+        await cb.send(
+            SetBranchProtectionCommand(
+                server_id=server_id,
+                branch_name="protected-main",
+                policy={"allow_direct_commit": False, "allow_force_bypass": False},
+            )
+        )
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch(
+                "app.modules.versioning.infrastructure.storage_probe.StorageCapabilityProbe.assert_supports_reflink"
+            ),
+            patch(
+                "app.modules.versioning.infrastructure.btrfs_zfs_driver.BtrfsZfsSnapshotDriver.create_snapshot",
+                return_value=1024,
+            ),
+            patch(
+                "app.modules.versioning.infrastructure.manifest_builder.ManifestBuilder.build_manifest",
+                return_value=_sample_manifest(),
+            ),
+        ):
+            res = await cb.send(
+                CreateCommitCommand(
+                    server_id=server_id,
+                    branch_name="protected-main",
+                    message="Forced commit despite disabled bypass",
+                    author_id="admin-user",
+                    force=True,
+                    force_reason="Attempted bypass",
+                    caller_permissions=["server:version:branch:bypass_protection"],
+                )
+            )
+            assert res.success is False
+            assert res.error_code == "CONFLICT"
+            assert "Force bypass is disabled by protection policy" in res.error
 
     @pytest.mark.asyncio
     async def test_auto_commit_to_protected_branch_fails(self, init_test_db) -> None:

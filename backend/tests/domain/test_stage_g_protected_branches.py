@@ -8,14 +8,14 @@ from app.modules.versioning.domain.value_objects import BranchStatus
 
 class TestStageGBranchProtectionDomain:
     def test_branch_protection_defaults(self) -> None:
-        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        branch = ServerBranch(id="b1", server_id="srv-1", name="release")
         assert branch.is_protected is False
         assert branch.protection_policy is None
         assert branch.can_commit_directly() is True
         assert branch.can_archive() is True
 
     def test_branch_protect_enables_policy(self) -> None:
-        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        branch = ServerBranch(id="b1", server_id="srv-1", name="release")
         policy = BranchProtectionPolicy(
             require_test_pass=True,
             allow_direct_commit=False,
@@ -29,7 +29,7 @@ class TestStageGBranchProtectionDomain:
         assert branch.can_archive() is False
 
     def test_branch_unprotect(self) -> None:
-        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        branch = ServerBranch(id="b1", server_id="srv-1", name="release")
         branch.protect()
         assert branch.is_protected is True
         assert branch.protection_policy is not None
@@ -41,7 +41,7 @@ class TestStageGBranchProtectionDomain:
         assert branch.can_archive() is True
 
     def test_protect_archived_branch_rejected(self) -> None:
-        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        branch = ServerBranch(id="b1", server_id="srv-1", name="release")
         branch.archive()
         assert branch.status == BranchStatus.ARCHIVED
 
@@ -49,7 +49,7 @@ class TestStageGBranchProtectionDomain:
             branch.protect()
 
     def test_unprotect_archived_branch_rejected(self) -> None:
-        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        branch = ServerBranch(id="b1", server_id="srv-1", name="release")
         branch.protect()
         branch.archive()
 
@@ -57,7 +57,7 @@ class TestStageGBranchProtectionDomain:
             branch.unprotect()
 
     def test_archive_protected_branch_flag(self) -> None:
-        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        branch = ServerBranch(id="b1", server_id="srv-1", name="release")
         branch.protect(BranchProtectionPolicy(prevent_deletion=True))
         assert branch.can_archive() is False
 
@@ -66,7 +66,7 @@ class TestStageGBranchProtectionDomain:
         assert branch.can_archive() is True
 
     def test_direct_commit_policy_flags(self) -> None:
-        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        branch = ServerBranch(id="b1", server_id="srv-1", name="release")
         # Default protection policy has allow_direct_commit=False
         branch.protect()
         assert branch.can_commit_directly() is False
@@ -100,3 +100,35 @@ class TestStageGBranchProtectionDomain:
     def test_branch_protection_policy_from_none(self) -> None:
         restored = BranchProtectionPolicy.from_dict(None)
         assert restored == BranchProtectionPolicy()
+
+
+class TestMainBranchSystemProtection:
+    def test_main_cannot_be_unprotected(self) -> None:
+        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        branch.protect()
+
+        with pytest.raises(ValueError, match="system-protected and cannot be unprotected"):
+            branch.unprotect()
+
+        assert branch.is_protected is True
+        assert branch.protection_policy is not None
+
+    def test_main_cannot_be_archived(self) -> None:
+        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+
+        with pytest.raises(ValueError, match="system-protected and cannot be archived"):
+            branch.archive()
+
+        assert branch.status != BranchStatus.ARCHIVED
+
+    def test_main_can_archive_always_false(self) -> None:
+        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        assert branch.is_protected is False
+        assert branch.can_archive() is False
+
+        branch.protect(BranchProtectionPolicy(prevent_deletion=False))
+        assert branch.can_archive() is False
+
+    def test_main_can_still_commit_directly_at_domain_level(self) -> None:
+        branch = ServerBranch(id="b1", server_id="srv-1", name="main")
+        assert branch.can_commit_directly() is True

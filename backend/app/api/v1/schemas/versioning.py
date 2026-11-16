@@ -65,6 +65,8 @@ class MergeCommitsRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=500)
     author_id: str | None = None
     manifest: dict[str, Any] | None = None
+    force: bool = False
+    force_reason: str | None = None
 
 
 class DiffResponse(BaseResponse):
@@ -184,12 +186,6 @@ class EvidenceBundleResponse(BaseResponse):
     assertions: dict[str, Any] = Field(default_factory=dict)
     crash_analysis: dict[str, Any] = Field(default_factory=dict)
     log_tail: list[str] = Field(default_factory=list)
-
-
-class PromoteCommitRequest(BaseModel):
-    keep_world_changes: bool = False
-    force: bool = False
-    force_reason: str | None = None
 
 
 class BotSettingsRequest(BaseModel):
@@ -315,10 +311,10 @@ class ImportReviewActionResponse(BaseResponse):
 
 class BranchProtectionPolicySchema(BaseResponse):
     require_test_pass: bool = Field(
-        True, description="Require a passing test run before commit promotion"
+        True, description="Require a passing test run before merging"
     )
     allow_direct_commit: bool = Field(
-        False, description="Allow direct commits without test/promotion"
+        False, description="Allow direct commits without testing or merging"
     )
     allow_force_bypass: bool = Field(
         True, description="Allow admins with bypass permission to force commit"

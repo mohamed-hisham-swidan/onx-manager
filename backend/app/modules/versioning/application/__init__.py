@@ -48,10 +48,6 @@ from app.modules.versioning.application.commands.merge_commits import (
     MergeCommitsCommand,
     MergeCommitsHandler,
 )
-from app.modules.versioning.application.commands.promote_commit import (
-    PromoteCommitCommand,
-    PromoteCommitHandler,
-)
 from app.modules.versioning.application.commands.prune_test_artifacts import (
     PruneTestArtifactsCommand,
     PruneTestArtifactsHandler,
@@ -211,8 +207,6 @@ __all__ = [
     "ListTestDefinitionsQuery",
     "MergeCommitsCommand",
     "MergeCommitsHandler",
-    "PromoteCommitCommand",
-    "PromoteCommitHandler",
     "PruneTestArtifactsCommand",
     "PruneTestArtifactsHandler",
     "RemoveBranchProtectionCommand",

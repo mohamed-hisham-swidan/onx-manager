@@ -10,6 +10,7 @@ import pytest
 
 from app.core.config import AppSettings
 from app.core.exceptions import (
+    BranchProtectedError,
     ConflictError,
     OversizedGitTrackedFileError,
     SecretFileInGitForbiddenError,
@@ -369,6 +370,14 @@ def test_no_changes_returns_conflict(
     layout, root, _ = repo
     with pytest.raises(ConflictError):
         _save(layout, root)
+
+
+def test_main_branch_cannot_be_committed(
+    repo: tuple[HostStateLayout, Path, Path],
+) -> None:
+    layout, root, _ = repo
+    with pytest.raises(BranchProtectedError, match="Direct commits to branch 'main' are forbidden"):
+        GitSaveCommitService(layout).save(SERVER_ID, root, "main", "Save main")
 
 
 def test_deleted_lockfile_is_rejected(

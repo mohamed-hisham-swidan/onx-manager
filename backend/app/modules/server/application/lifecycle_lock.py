@@ -385,7 +385,6 @@ class ServerLifecycleLockMiddleware(Middleware):
         "StopServerCommand",
         "RestartServerCommand",
         "DeleteServerCommand",
-        "PromoteCommitCommand",
         "RetryProvisioningCommand",
         "RefreshServerCommand",
         "RollbackRefreshCommand",

@@ -24,6 +24,7 @@ from app.modules.versioning.application.git_branch_adapter import (
     git_branch_context,
 )
 from app.modules.versioning.domain.entities import (
+    BranchProtectionPolicy,
     ServerBranch,
     ServerCommit,
     ServerWorldSnapshot,
@@ -106,18 +107,82 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
 
         return res
 
+    async def _enforce_protected_branch(
+        self,
+        command: CreateCommitCommand,
+        branch: ServerBranch,
+        activity_repo: ActivityRepository,
+    ) -> None:
+        """Enforce protected-branch force policy and audit any bypass."""
+        if not branch.is_protected or branch.can_commit_directly():
+            return
+
+        if not command.force:
+            raise BranchProtectedError(
+                f"Direct commits to protected branch '{branch.name}' are forbidden. "
+                "Changes must be verified on a working branch and merged."
+            )
+
+        policy = branch.protection_policy or BranchProtectionPolicy()
+        if not policy.allow_force_bypass:
+            raise BranchProtectedError(
+                f"Force bypass is disabled by protection policy on branch '{branch.name}'"
+            )
+
+        perms = command.caller_permissions or []
+        if (
+            "admin:full" not in perms
+            and "server:version:branch:bypass_protection" not in perms
+        ):
+            raise PermissionDenied(
+                "Caller lacks 'server:version:branch:bypass_protection' "
+                "to bypass branch protection"
+            )
+
+        audit_log = ServerActivityLog(
+            id=str(uuid.uuid4()),
+            server_id=command.server_id,
+            event_type="versioning.branch_protection_bypassed",
+            summary=f"Direct commit to protected branch '{branch.name}' was force-bypassed",
+            actor_type="user" if command.author_id else "system",
+            actor_id=command.author_id,
+            details={
+                "branch": branch.name,
+                "reason": command.force_reason or "",
+            },
+        )
+        await activity_repo.save(audit_log)
+
     async def _execute_native_git(
         self,
         command: CreateCommitCommand,
         server: Server,
         context: GitBranchContext,
+        versioning_repo: VersioningRepository,
+        activity_repo: ActivityRepository,
         events: list[DomainEvent] | None = None,
     ) -> CommandResult:
         """Run the native Git Save & Commit path for an Advanced repository."""
         from app.modules.versioning.domain.events import CommitCreatedEvent
+        from app.modules.versioning.domain.value_objects import BranchStatus
+        from app.modules.versioning.infrastructure.git_repository import MAIN_BRANCH
         from app.modules.versioning.infrastructure.git_save_commit import (
             GitSaveCommitService,
         )
+
+        if command.branch_name == MAIN_BRANCH:
+            raise BranchProtectedError(
+                "Direct commits to branch 'main' are forbidden; "
+                "commit to a working branch and merge instead"
+            )
+
+        branch = await versioning_repo.get_branch_by_name(
+            command.server_id, command.branch_name
+        )
+        if branch is not None:
+            if branch.status == BranchStatus.ARCHIVED:
+                raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
+            await self._enforce_protected_branch(command, branch, activity_repo)
 
         result = GitSaveCommitService(context.layout).save(
             str(server.id),
@@ -172,7 +237,9 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
 
         git_context = git_branch_context(server)
         if git_context is not None:
-            return await self._execute_native_git(command, server, git_context, events)
+            return await self._execute_native_git(
+                command, server, git_context, versioning_repo, activity_repo, events
+            )
 
         server_dir = server.deployment.server_dir
         if not os.path.exists(server_dir):
@@ -193,37 +260,10 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
                 status=BranchStatus.CREATED,
             )
             await versioning_repo.save_branch(branch)
-        elif branch.status == BranchStatus.ARCHIVED:
-            raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
-        elif branch.is_protected and not branch.can_commit_directly():
-            if command.force:
-                perms = command.caller_permissions or []
-                if (
-                    "admin:full" not in perms
-                    and "server:version:branch:bypass_protection" not in perms
-                ):
-                    raise PermissionDenied(
-                        "Caller lacks 'server:version:branch:bypass_protection' "
-                        "to bypass branch protection"
-                    )
-                audit_log = ServerActivityLog(
-                    id=str(uuid.uuid4()),
-                    server_id=command.server_id,
-                    event_type="versioning.branch_protection_bypassed",
-                    summary=f"Direct commit to protected branch '{branch.name}' was force-bypassed",
-                    actor_type="user" if command.author_id else "system",
-                    actor_id=command.author_id,
-                    details={
-                        "branch": branch.name,
-                        "reason": command.force_reason or "",
-                    },
-                )
-                await activity_repo.save(audit_log)
-            else:
-                raise BranchProtectedError(
-                    f"Direct commits to protected branch '{branch.name}' are forbidden. "
-                    "Changes must be verified via an isolated test run and promoted."
-                )
+        else:
+            if branch.status == BranchStatus.ARCHIVED:
+                raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
+            await self._enforce_protected_branch(command, branch, activity_repo)
 
         expected_head = branch.head_commit_id
 

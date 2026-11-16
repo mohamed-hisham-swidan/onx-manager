@@ -28,7 +28,6 @@ from app.api.v1.schemas.versioning import (
     MaterializationTreeResponse,
     MergeCommitsRequest,
     PreflightResponse,
-    PromoteCommitRequest,
     RunIsolatedTestRequest,
     ScanLiveChangesRequest,
     ScanLiveChangesResponse,
@@ -44,7 +43,7 @@ from app.api.v1.schemas.versioning import (
     WriteMaterializedFileResponse,
 )
 from app.core.command_bus import CommandBus
-from app.core.exceptions import MaterializationFileTooLargeError, PermissionDenied
+from app.core.exceptions import MaterializationFileTooLargeError
 from app.core.persistence.db import database
 from app.core.query_bus import QueryBus
 from app.modules.server.infrastructure.models import ServerModel
@@ -77,7 +76,6 @@ from app.modules.versioning.application import (
     GetTestStatusQuery,
     ListTestDefinitionsQuery,
     MergeCommitsCommand,
-    PromoteCommitCommand,
     RemoveBranchProtectionCommand,
     RemoveMaterializationCommand,
     RevertImportReviewCommand,
@@ -288,6 +286,9 @@ async def merge_commits_endpoint(
         message=body.message,
         author_id=author_id,
         manifest=body.manifest,
+        force=body.force,
+        force_reason=body.force_reason,
+        caller_permissions=_current_user.get("permissions", []),
     )
     res = await command_bus.send(cmd)
     return check_command_result(res)
@@ -383,30 +384,6 @@ async def get_test_run_evidence(
 ) -> EvidenceBundleResponse:
     data = await query_bus.ask(GetTestRunEvidenceQuery(server_id=server_id, test_id=test_id))
     return EvidenceBundleResponse(**data)
-
-
-@router.post("/tests/{test_id}/promote", response_model=dict[str, Any])
-async def promote_commit(
-    server_id: str,
-    test_id: str,
-    body: PromoteCommitRequest,
-    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
-    current_user: Annotated[dict, Depends(require_permission("server:version:promote"))],
-) -> dict[str, Any]:
-    if body.force:
-        user_perms = current_user.get("permissions", [])
-        if "admin:full" not in user_perms and "server:version:promote:force" not in user_perms:
-            raise PermissionDenied("missing required permission: server:version:promote:force")
-    cmd = PromoteCommitCommand(
-        server_id=server_id,
-        test_id=test_id,
-        keep_world_changes=body.keep_world_changes,
-        force=body.force,
-        force_reason=body.force_reason,
-        actor_id=current_user.get("sub") or current_user.get("username"),
-    )
-    res = await command_bus.send(cmd)
-    return check_command_result(res)
 
 
 @router.post("/tests/{test_id}/discard", response_model=dict[str, Any])

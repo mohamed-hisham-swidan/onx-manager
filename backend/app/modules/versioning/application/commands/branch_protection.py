@@ -4,7 +4,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import BranchProtectedError, NotFoundError, ValidationError
 from app.modules.versioning.domain.entities import BranchProtectionPolicy
 from app.modules.versioning.domain.repository import VersioningRepository
 from app.modules.versioning.domain.value_objects import BranchStatus
@@ -146,6 +146,11 @@ class RemoveBranchProtectionHandler(CommandHandler[RemoveBranchProtectionCommand
         if branch.status == BranchStatus.ARCHIVED:
             raise ValidationError(
                 f"Cannot unprotect archived branch '{branch.name}'"
+            )
+
+        if branch.name == "main":
+            raise BranchProtectedError(
+                "Branch 'main' is system-protected and cannot be unprotected"
             )
 
         branch.unprotect()
