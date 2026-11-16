@@ -84,7 +84,9 @@ class LiveEnv:
 
 
 @pytest.fixture
-def live_env(tmp_path: Path):
+def live_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ONX_MASTER_KEK_FILE", raising=False)
+    monkeypatch.setenv("ONX_MASTER_KEK", "6c" * 32)
     db_path = tmp_path / "refresh.db"
     db_url = f"sqlite+aiosqlite:///{db_path}"
     result = DatabaseReconciler(db_url=db_url).reconcile(auto_upgrade=True)

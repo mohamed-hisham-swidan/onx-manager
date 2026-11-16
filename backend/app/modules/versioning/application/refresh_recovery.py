@@ -32,6 +32,9 @@ from app.core.config import AppSettings
 from app.core.exceptions import ValidationError
 from app.core.host_state import HostStateLayout, validate_server_segment
 from app.modules.versioning.application.repo_lease import RepoLeaseManager
+from app.modules.versioning.infrastructure.class_c_snapshot import (
+    ClassCSnapshotService,
+)
 from app.modules.versioning.infrastructure.directory_swap import (
     PHASE_SWAP_COMPLETED,
     PHASE_SWAP_ROLLED_BACK,
@@ -159,6 +162,26 @@ class RefreshStartupReconciler:
     def reconcile_sync(self) -> RefreshRecoverySummary:
         return asyncio.run(self._reconcile_async())
 
+    def _reconcile_class_c_vault(self, errors: list[str]) -> None:
+        """Remove orphan Class-C dirs and mark missing active ledger rows."""
+        service = ClassCSnapshotService(
+            self._layout,
+            session_factory=getattr(self._repository, "_session_factory", None),
+            sync_session_factory=getattr(
+                self._repository, "_sync_session_factory", None
+            ),
+        )
+        try:
+            summary = service.reconcile_snapshots()
+        except Exception as exc:  # noqa: BLE001 - startup reports, never crashes
+            errors.append(f"class-c: {exc}")
+            logger.warning("Class-C startup reconciliation failed: %s", exc)
+            return
+        finally:
+            service.close()
+        if summary.removed_directories or summary.marked_missing:
+            logger.warning("Class-C startup reconciliation: %s", summary)
+
     async def _reconcile_async(self) -> RefreshRecoverySummary:
         now = self._now or datetime.now(UTC)
         errors: list[str] = []
@@ -171,6 +194,7 @@ class RefreshStartupReconciler:
         retained = await self._repository.list_retained_previous_trees()
         removed = self._remove_unfinalized_staging(records, retained, errors)
         pruned = await self._prune_previous_trees(now, errors)
+        self._reconcile_class_c_vault(errors)
 
         summary = RefreshRecoverySummary(
             recovered_swaps=tuple(sorted(changed_swaps)),

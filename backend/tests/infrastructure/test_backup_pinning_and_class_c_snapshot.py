@@ -245,7 +245,11 @@ class TestBackupPinning:
 
 
 @pytest.fixture
-def snapshot_env(tmp_path: Path) -> tuple[ClassCSnapshotService, HostStateLayout]:
+def snapshot_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[ClassCSnapshotService, HostStateLayout]:
+    monkeypatch.delenv("ONX_MASTER_KEK_FILE", raising=False)
+    monkeypatch.setenv("ONX_MASTER_KEK", "a5" * 32)
     settings = AppSettings(
         host_state_dir=str(tmp_path / "host-state"),
         servers_data_dir=str(tmp_path / "servers"),
@@ -291,9 +295,10 @@ class TestClassCSnapshotService:
             assert stat.S_IMODE(root.stat().st_mode) == 0o700
             assert stat.S_IMODE((root / MANIFEST_FILENAME).stat().st_mode) == 0o600
             assert stat.S_IMODE((root / COMPLETE_MARKER_NAME).stat().st_mode) == 0o600
+            assert stat.S_IMODE((root / "blobs").stat().st_mode) == 0o700
 
         manifest = json.loads((root / MANIFEST_FILENAME).read_text(encoding="utf-8"))
-        assert manifest["format_version"] == FORMAT_VERSION
+        assert manifest["format_version"] == FORMAT_VERSION == 2
         assert manifest["snapshot_id"] == "snap-1"
         assert manifest["server_id"] == "srv-c"
         assert manifest["pinned"] is True
@@ -302,6 +307,14 @@ class TestClassCSnapshotService:
             "plugins/Essentials/warps/home.yml",
         ]
         assert all(len(entry["sha256"]) == 64 for entry in manifest["files"])
+        assert all(
+            entry["blob_relpath"].startswith("blobs/")
+            and entry["blob_relpath"].endswith(".enc")
+            and entry["chunk_count"] >= 1
+            for entry in manifest["files"]
+        )
+        assert len(manifest["wrapped_dek"]) == 96
+        assert len(manifest["dek_wrap_nonce"]) == 24
 
         marker = json.loads(
             (root / COMPLETE_MARKER_NAME).read_text(encoding="utf-8")
@@ -312,7 +325,16 @@ class TestClassCSnapshotService:
         assert marker["file_count"] == 2
         assert marker["completed_at"].endswith("Z")
 
-        assert (root / "ops.json").read_text(encoding="utf-8") == '["alice"]'
+        # No plaintext Class-C file ever exists inside the vault.
+        assert not (root / "ops.json").exists()
+        entry = next(
+            item for item in manifest["files"] if item["relpath"] == "ops.json"
+        )
+        blob = root / entry["blob_relpath"]
+        assert blob.is_file()
+        assert b'["alice"]' not in blob.read_bytes()
+        if os.name == "posix":
+            assert stat.S_IMODE(blob.stat().st_mode) == 0o600
         assert not (root / "server.properties").exists()
         assert not (root / "mods" / "example.jar").exists()
 
@@ -353,8 +375,15 @@ class TestClassCSnapshotService:
         live = tmp_path / "live"
         _make_live_tree(live)
         service.create_snapshot("srv-c", live, snapshot_id="snap-tamper")
-        snapshot_file = layout.class_c_vault_dir("srv-c") / "snap-tamper" / "ops.json"
-        snapshot_file.write_text("tampered", encoding="utf-8")
+        root = layout.class_c_vault_dir("srv-c") / "snap-tamper"
+        manifest = json.loads((root / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+        entry = next(
+            item for item in manifest["files"] if item["relpath"] == "ops.json"
+        )
+        snapshot_file = root / entry["blob_relpath"]
+        tampered = bytearray(snapshot_file.read_bytes())
+        tampered[-1] ^= 0x01
+        snapshot_file.write_bytes(bytes(tampered))
 
         (live / "ops.json").write_text("live", encoding="utf-8")
         with pytest.raises(ValidationError, match="digest"):
@@ -374,6 +403,26 @@ class TestClassCSnapshotService:
 
         with pytest.raises(ValidationError, match="missing"):
             service.restore_snapshot("srv-c", "snap-marker", live)
+
+    def test_restore_rejects_retired_format_version_1(
+        self, tmp_path: Path, snapshot_env: tuple[ClassCSnapshotService, HostStateLayout]
+    ) -> None:
+        service, layout = snapshot_env
+        live = tmp_path / "live"
+        _make_live_tree(live)
+        service.create_snapshot("srv-c", live, snapshot_id="snap-v1")
+        root = layout.class_c_vault_dir("srv-c") / "snap-v1"
+        for name in (MANIFEST_FILENAME, COMPLETE_MARKER_NAME):
+            path = root / name
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["format_version"] = 1
+            path.write_text(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+
+        with pytest.raises(ValidationError, match="format_version"):
+            service.restore_snapshot("srv-c", "snap-v1", live)
 
     def test_delete_refuses_pinned_then_deletes_after_unpin(
         self, tmp_path: Path, snapshot_env: tuple[ClassCSnapshotService, HostStateLayout]

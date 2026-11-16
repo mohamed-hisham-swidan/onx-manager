@@ -1269,7 +1269,13 @@ class TriadRollbackService:
             repository=self._repository,
             servers_data_dir=servers_data_dir,
         )
-        self._class_c = class_c_service or ClassCSnapshotService(layout)
+        self._class_c = class_c_service or ClassCSnapshotService(
+            layout,
+            session_factory=getattr(self._repository, "_session_factory", None),
+            sync_session_factory=getattr(
+                self._repository, "_sync_session_factory", None
+            ),
+        )
         self._backup = backup_service
         self._runtime = runtime
         self._stage_export = stage_export
@@ -1659,7 +1665,13 @@ class LiveRefreshService:
             repository=self._repository,
             servers_data_dir=servers_data_dir,
         )
-        self._class_c = class_c_service or ClassCSnapshotService(layout)
+        self._class_c = class_c_service or ClassCSnapshotService(
+            layout,
+            session_factory=getattr(self._repository, "_session_factory", None),
+            sync_session_factory=getattr(
+                self._repository, "_sync_session_factory", None
+            ),
+        )
         self._backup = backup_service
         self._runtime = runtime
         self._health_gate = health_gate

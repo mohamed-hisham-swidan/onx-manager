@@ -53,6 +53,9 @@ from app.modules.versioning.infrastructure.clean_export import (
     CleanExportResult,
     CleanExportService,
 )
+from app.modules.versioning.infrastructure.server_secret_vault import (
+    ServerSecretVault,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -401,6 +404,8 @@ class CleanExportStageAdapter:
         panel_properties: Mapping[str, str] | None = None,
         jvm_args: str | None = None,
         lec_root: str | Path | None = None,
+        secret_vault: ServerSecretVault | None = None,
+        secrets: Mapping[str, str] | None = None,
     ) -> None:
         self._layout = layout
         self._server_id = server_id
@@ -414,6 +419,15 @@ class CleanExportStageAdapter:
         )
         self._jvm_args = jvm_args
         self._lec_root = Path(lec_root) if lec_root is not None else None
+        self._secret_vault = secret_vault or ServerSecretVault(layout)
+        self._secrets = dict(secrets) if secrets is not None else None
+
+    def _resolve_secrets(self) -> dict[str, str]:
+        if self._secrets is not None:
+            return dict(self._secrets)
+        if self._secret_vault is not None:
+            return self._secret_vault.load_server_secrets(self._server_id)
+        return {}
 
     async def __call__(
         self,
@@ -440,7 +454,7 @@ class CleanExportStageAdapter:
         """M-5: fail before quiesce when the committed tree has placeholders."""
         _assert_off_loop(self._loop_thread_id, "CleanExportStageAdapter")
         self._service.assert_no_unresolved_secrets(
-            server_id, server_root, commit_sha
+            server_id, server_root, commit_sha, secrets=self._resolve_secrets()
         )
 
     def _stage_sync(
@@ -473,7 +487,7 @@ class CleanExportStageAdapter:
             lockfile=self._lockfile,
             panel_properties=panel_properties,
             jvm_args=jvm_args,
-            secrets={},
+            secrets=self._resolve_secrets(),
             lec_root=lec_root,
             export_id=export_id,
         )

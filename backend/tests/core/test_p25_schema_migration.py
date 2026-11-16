@@ -17,6 +17,7 @@ from app.core.persistence.reconciler import DatabaseReconciler, ReconcileStatus
 
 PRIOR_HEAD = "b1e2100000025"
 JOURNAL_REVISION = "b1e2100000026"
+HEAD_REVISION = "b1e2100000027"
 ACTIVE_JOURNAL_INDEX = "ix_refresh_journals_server_active"
 
 LEASE_COLUMNS = {
@@ -113,9 +114,9 @@ def test_journal_migration_upgrade_and_downgrade(tmp_path: Path) -> None:
     cfg = reconciler.get_alembic_config()
 
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == [JOURNAL_REVISION]
+    assert script.get_heads() == [HEAD_REVISION]
     assert script.get_revision(JOURNAL_REVISION).down_revision == PRIOR_HEAD
-    assert RELEASE_MINIMUM_DB_REVISION == JOURNAL_REVISION == EXPECTED_ALEMBIC_HEAD
+    assert RELEASE_MINIMUM_DB_REVISION == HEAD_REVISION == EXPECTED_ALEMBIC_HEAD
 
     # Downgrade to the previous head, then upgrade the migration under test.
     alembic_command.downgrade(cfg, PRIOR_HEAD)

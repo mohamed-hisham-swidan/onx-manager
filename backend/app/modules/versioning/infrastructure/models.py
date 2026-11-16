@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -260,5 +261,57 @@ class RefreshJournalModel(Base):
             sqlite_where=text("terminal = 0"),
             postgresql_where=text("terminal = false"),
         ),
+    )
+
+
+class ClassCSnapshotModel(Base):
+    """Encrypted Class-C snapshot ledger (P3-3, FORMAT_VERSION = 2)."""
+
+    __tablename__ = "class_c_snapshots"
+
+    snapshot_id = Column(String(36), primary_key=True)
+    server_id = Column(
+        String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    manifest_sha256 = Column(String(64), nullable=False)
+    kek_version = Column(Integer, nullable=False, server_default=text("1"))
+    file_count = Column(Integer, nullable=False, server_default=text("0"))
+    total_bytes = Column(BigInteger, nullable=False, server_default=text("0"))
+    pinned = Column(Boolean, nullable=False, server_default=text("0"))
+    status = Column(String(16), nullable=False, server_default="active")
+
+    __table_args__ = (
+        Index("ix_class_c_snapshots_server_id", "server_id"),
+        Index(
+            "ix_class_c_snapshots_server_created_at",
+            "server_id",
+            "created_at",
+        ),
+    )
+
+
+class ServerSecretModel(Base):
+    """Per-record encrypted ``${ONX_SECRET_*}`` value (P3-3, H3)."""
+
+    __tablename__ = "server_secrets"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(
+        String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False
+    )
+    key_name = Column(String(128), nullable=False)
+    wrapped_dek = Column(LargeBinary, nullable=False)
+    kek_version = Column(Integer, nullable=False, server_default=text("1"))
+    nonce = Column(LargeBinary(12), nullable=False)
+    ciphertext = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "server_id", "key_name", name="uq_server_secrets_server_key"
+        ),
+        Index("ix_server_secrets_server_id", "server_id"),
     )
 

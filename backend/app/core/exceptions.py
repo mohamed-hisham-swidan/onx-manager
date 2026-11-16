@@ -95,7 +95,7 @@ class TokenExpiredError(AuthenticationError):
         super().__init__("Token has expired")
 
 
-class PermissionDenied(MCSError):
+class PermissionDenied(MCSError):  # noqa: N818 - public error name is stable
     def __init__(self, message: str = "") -> None:
         super().__init__(
             message or "Permission denied",
@@ -220,6 +220,75 @@ class BackupPinnedError(ConflictError):
         )
 
 
+class MasterKekMissingError(ValidationError):
+    """The Advanced vault requires a master KEK that is not configured."""
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        field: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Master KEK is not configured",
+            field=field,
+            details=details,
+        )
+        self.code = "MASTER_KEK_MISSING"
+        self.http_status = 503
+
+
+class MasterKekInvalidError(ValidationError):
+    """The configured master KEK cannot be decoded as a 256-bit key."""
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        field: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message or "Master KEK is invalid",
+            field=field,
+            details=details,
+        )
+        self.code = "MASTER_KEK_INVALID"
+        self.http_status = 503
+
+
+class MasterKekVersionMismatchError(ValidationError):
+    """A wrapped DEK was produced by a different KEK version."""
+
+    def __init__(
+        self,
+        *,
+        stored_kek_version: int,
+        active_kek_version: int,
+        message: str = "",
+    ) -> None:
+        super().__init__(
+            message
+            or (
+                "KEK version mismatch: stored kek_version="
+                f"{stored_kek_version} does not match active kek_version="
+                f"{active_kek_version}"
+            ),
+            details={
+                "stored_kek_version": stored_kek_version,
+                "active_kek_version": active_kek_version,
+            },
+        )
+        # The contract exposes exactly the two version fields (no ``field`` key).
+        self.details = {
+            "stored_kek_version": stored_kek_version,
+            "active_kek_version": active_kek_version,
+        }
+        self.code = "MASTER_KEK_VERSION_MISMATCH"
+        self.http_status = 409
+
+
 class GuardConfigurationError(MCSError):
     def __init__(self, message: str = "") -> None:
         super().__init__(
@@ -229,7 +298,7 @@ class GuardConfigurationError(MCSError):
         )
 
 
-class RateLimitExceeded(MCSError):
+class RateLimitExceeded(MCSError):  # noqa: N818 - public error name is stable
     def __init__(self, retry_after: int = 60) -> None:
         super().__init__(
             "Rate limit exceeded",
@@ -406,9 +475,10 @@ class StorageCowUnavailableError(MCSError):
         details: dict[str, Any] | None = None,
     ) -> None:
         default_msg = (
-            f"Versioning and isolated testing requires a Btrfs or ZFS filesystem supporting "
-            f"copy-on-write on the server data path. Your server data directory ({path or 'unknown'}) "
-            f"does not support reflink cloning. Standard server management remains fully available."
+            "Versioning and isolated testing requires a Btrfs or ZFS filesystem "
+            "supporting copy-on-write on the server data path. Your server data "
+            f"directory ({path or 'unknown'}) does not support reflink cloning. "
+            "Standard server management remains fully available."
         )
         super().__init__(
             message or default_msg,

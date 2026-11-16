@@ -75,19 +75,27 @@ _FORBIDDEN_EXPORT_NAMES = frozenset({"run.sh", "run.bat", "serverstarterjar", "s
 _TEXT_SUFFIXES = frozenset(
     {
         ".cfg",
+        ".cjs",
         ".conf",
+        ".dsc",
+        ".ini",
+        ".js",
         ".json",
         ".json5",
         ".lang",
         ".mcmeta",
         ".mcfunction",
+        ".mjs",
         ".properties",
+        ".sk",
         ".snbt",
         ".toml",
+        ".ts",
         ".txt",
         ".xml",
         ".yaml",
         ".yml",
+        ".zs",
     }
 )
 _LEC_TREES: dict[str, tuple[str, ...]] = {
@@ -361,13 +369,14 @@ class CleanExportService:
         server_id: str,
         server_root: str | os.PathLike[str],
         commit_sha: str,
+        *,
+        secrets: Mapping[str, str] | None = None,
     ) -> None:
-        """M-5 preflight: reject secret placeholders before the server stops.
+        """M-5 preflight: reject unresolved secret placeholders before the server stops.
 
-        The export adapter always substitutes from an empty secret map, so any
-        ``${ONX_SECRET_*}`` token in the committed tree is guaranteed to fail
-        later at ``STAGING``. Scanning the commit here lets the refresh abort
-        *before* ``_quiesce`` takes the server down.
+        A placeholder is resolved when its key is present in ``secrets`` (loaded
+        from the per-server vault by the caller). Missing keys still fail closed
+        before ``_quiesce`` takes the server down.
         """
         if os.name != "posix":
             raise ServerModeVersioningDisabledError(
@@ -391,11 +400,47 @@ class CleanExportService:
             files = [
                 line[:256] for line in result.stdout.splitlines() if line.strip()
             ]
-            if files:
+            if not files:
+                return
+            keys_result = runner.run(
+                "grep",
+                "-I",
+                "-h",
+                "-o",
+                "-E",
+                "--",
+                r"\$\{ONX_SECRET_[A-Za-z0-9_]+\}",
+                resolved,
+                check=False,
+            )
+            if keys_result.returncode not in (0, 1):
+                raise ValidationError(
+                    "Unable to scan the committed tree for secret placeholders",
+                    field="secrets",
+                    details={"stderr": keys_result.stderr.strip()[:256]},
+                )
+            placeholder_keys = sorted(
+                {
+                    match.group(1)
+                    for match in _SECRET_PLACEHOLDER_RE.finditer(keys_result.stdout)
+                }
+            )
+            if not placeholder_keys:
+                return
+            unresolved: list[str] = []
+            for key in placeholder_keys:
+                value = None
+                if secrets is not None and key in secrets:
+                    value = secrets[key]
+                if value is None:
+                    unresolved.append(key)
+                    continue
+                _validate_secret_value(key, value)
+            if unresolved:
                 raise ValidationError(
                     "Committed tree contains unresolved secret placeholders",
                     field="secrets",
-                    details={"files": files[:10]},
+                    details={"files": files[:10], "unresolved_keys": unresolved[:10]},
                 )
             return
         if result.returncode == 1:

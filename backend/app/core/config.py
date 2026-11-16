@@ -39,6 +39,8 @@ class AppSettings(BaseSettings):
     jwt_private_key_path: str = ""
     servers_data_dir: str = "data/servers"
     backup_encryption_key_path: str = ""
+    master_kek_file: str = ""
+    master_kek: str = ""
     storage_backend: str = "local"
     backup_storage_path: str = "data/backups"
     plugin_providers: str = "modrinth"

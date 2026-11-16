@@ -15,6 +15,7 @@ import app.modules.health.infrastructure.models  # noqa
 import app.modules.monitoring.infrastructure.models  # noqa
 import app.modules.plugin.infrastructure.models  # noqa
 import app.modules.server.infrastructure.models  # noqa
+import app.modules.versioning.infrastructure.models  # noqa
 from alembic import context
 from app.core.persistence.base import Base
 
