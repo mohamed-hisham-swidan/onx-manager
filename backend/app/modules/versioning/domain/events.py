@@ -62,6 +62,7 @@ class TestRunFailedEvent(DomainEvent):
     blamed_mod: str | None = None
 
 
+# DEPRECATED (P3-1): retained for historical event-log deserialization only; never emitted
 class CommitPromotedEvent(DomainEvent):
     server_id: str
     commit_id: str

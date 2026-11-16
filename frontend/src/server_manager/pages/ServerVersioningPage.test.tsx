@@ -10,7 +10,6 @@ const mockApi = {
   getServerTestRuns: vi.fn(),
   runIsolatedTest: vi.fn(),
   getTestStatus: vi.fn(),
-  promoteTestCommit: vi.fn(),
   discardTest: vi.fn(),
   getBotSettings: vi.fn(),
   updateBotSettings: vi.fn(),
@@ -253,58 +252,6 @@ describe("ServerVersioningPage", () => {
     });
   });
 
-  it("promotes a passed test run with keep world changes toggle", async () => {
-    vi.mocked(mockApi.promoteTestCommit).mockResolvedValue({ success: true });
-
-    // Pre-populate with a passed test run
-    renderPage();
-
-    // Trigger test run addition to state via TestRunModal
-    vi.mocked(mockApi.runIsolatedTest).mockResolvedValue({ test_id: "test-pass-99" });
-    vi.mocked(mockApi.getTestStatus).mockResolvedValue({
-      id: "test-pass-99",
-      server_id: "srv-vers-1",
-      commit_id: "c-111222333",
-      node_id: "local",
-      status: "PASSED",
-      ephemeral_port: 25571,
-      log_output: "[BOT-VERIFY] Complete",
-      failure_reason: null,
-      created_at: "2026-09-14T10:15:00Z",
-      expires_at: null,
-      bot_count: 10,
-      duration_minutes: 15,
-      placement_mode: "sidecar",
-      bot_tech: "auto",
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText("Run Isolated Test")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("Run Isolated Test"));
-    fireEvent.click(screen.getByRole("button", { name: "Launch Test Run" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Promote to Live")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("Promote to Live"));
-
-    expect(screen.getByText("Promote Verified Commit")).toBeInTheDocument();
-    const checkbox = screen.getByRole("checkbox");
-    fireEvent.click(checkbox);
-    expect(checkbox).toBeChecked();
-
-    fireEvent.click(screen.getByRole("button", { name: "Confirm Promotion" }));
-
-    await waitFor(() => {
-      expect(mockApi.promoteTestCommit).toHaveBeenCalledWith("srv-vers-1", "test-pass-99", {
-        keep_world_changes: true,
-      });
-    });
-  });
-
   it("renders dark theme classes on empty state panels when branch has no commits", async () => {
     vi.mocked(mockApi.getServerCommits).mockResolvedValue([]);
     renderPage();
@@ -366,57 +313,6 @@ describe("ServerVersioningPage", () => {
     const closeButtons = screen.getAllByRole("button", { name: "Close" });
     fireEvent.click(closeButtons[0]);
     expect(screen.queryByText(/Test Run Console Output/i)).not.toBeInTheDocument();
-  });
-
-  it("allows force promoting a failed test run with mandatory bypass reason", async () => {
-    const mockFailedRuns = [
-      {
-        id: "test-fail-999999",
-        server_id: "srv-vers-1",
-        commit_id: "c-111222333",
-        status: "FAILED",
-        bot_count: 5,
-        bot_tech: "fakeplayer_next",
-        duration_minutes: 10,
-        placement_mode: "sidecar",
-        ephemeral_port: 25567,
-        failure_reason: "Handshake timed out",
-        log_output: "Handshake error",
-        created_at: "2026-09-15T10:05:00Z",
-      },
-    ];
-    vi.mocked(mockApi.getServerTestRuns).mockResolvedValue(mockFailedRuns);
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText("FAILED")).toBeInTheDocument();
-      expect(screen.getByText(/Handshake timed out/i)).toBeInTheDocument();
-    });
-
-    const forceBtn = screen.getByRole("button", { name: /Force Promote/i });
-    expect(forceBtn).toBeInTheDocument();
-    fireEvent.click(forceBtn);
-
-    expect(screen.getByText("Force Promotion Override")).toBeInTheDocument();
-    expect(screen.getByText(/server:version:promote:force/i)).toBeInTheDocument();
-
-    const confirmBtn = screen.getByRole("button", { name: "Confirm Force Promotion" });
-    expect(confirmBtn).toBeDisabled();
-
-    const reasonInput = screen.getByLabelText(/Bypass Reason/i);
-    fireEvent.change(reasonInput, { target: { value: "Manually verified in local client" } });
-    expect(confirmBtn).not.toBeDisabled();
-
-    fireEvent.click(confirmBtn);
-
-    await waitFor(() => {
-      expect(mockApi.promoteTestCommit).toHaveBeenCalledWith("srv-vers-1", "test-fail-999999", {
-        keep_world_changes: false,
-        force: true,
-        force_reason: "Manually verified in local client",
-      });
-    });
   });
 
   it("renders 3-step visual workflow guide banner collapsed by default and allows expanding and collapsing", async () => {

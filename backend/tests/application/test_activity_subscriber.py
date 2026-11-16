@@ -191,6 +191,33 @@ async def test_subscriber_records_versioning_events():
 
 
 @pytest.mark.asyncio
+async def test_commit_promoted_event_historical_json_deserializes_and_is_handled():
+    """P3-1: historical CommitPromotedEvent payloads must remain readable."""
+    historical_json = (
+        '{"event_id": "e-hist-1", "event_type": "CommitPromotedEvent", '
+        '"timestamp": 1700000000.0, "correlation_id": "", "schema_version": 1, '
+        '"server_id": "srv-v1", "commit_id": "cm-abcdef123", '
+        '"test_id": "test-run-1", "keep_world_changes": false, '
+        '"forced": true, "actor_id": "admin-1"}'
+    )
+    event = CommitPromotedEvent.model_validate_json(historical_json)
+    assert event.server_id == "srv-v1"
+    assert event.commit_id == "cm-abcdef123"
+    assert event.test_id == "test-run-1"
+    assert event.forced is True
+    assert event.actor_id == "admin-1"
+
+    repo = InMemoryActivityRepository()
+    subscriber = ActivityEventSubscriber(repo)
+    await subscriber.handle(event)
+
+    assert len(repo.logs) == 1
+    assert repo.logs[0].event_type == "versioning.promoted"
+    assert repo.logs[0].server_id == "srv-v1"
+    assert "cm-abcde" in repo.logs[0].summary
+
+
+@pytest.mark.asyncio
 async def test_subscriber_resilience_on_repo_failure():
     mock_repo = AsyncMock()
     mock_repo.save.side_effect = RuntimeError("DB connection dropped")

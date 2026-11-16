@@ -266,9 +266,9 @@ class TestTagsAndHistoryQueries:
                 manifest=_sample_manifest({"motd": "MCS Main"}),
             )
             branch = ServerBranch(
-                id="br-main",
+                id="br-release",
                 server_id=server_id,
-                name="main",
+                name="release",
                 head_commit_id=c1.id,
                 status=BranchStatus.ACTIVE,
             )
@@ -277,13 +277,13 @@ class TestTagsAndHistoryQueries:
             await repo.save_branch(branch)
             await session.commit()
 
-        # Merge c1 and c2 into main
+        # Merge c1 and c2 into release
         res = await cb.send(
             MergeCommitsCommand(
                 server_id=server_id,
-                target_branch_name="main",
+                target_branch_name="release",
                 parent_commit_ids=["c-main-1", "c-feat-1"],
-                message="Merge feature into main",
+                message="Merge feature into release",
             )
         )
         assert res.success is True
@@ -292,12 +292,12 @@ class TestTagsAndHistoryQueries:
         # Verify branch head was advanced
         async with database.session_factory() as session:
             repo = SQLVersioningRepository(session)
-            b = await repo.get_branch_by_name(server_id, "main")
+            b = await repo.get_branch_by_name(server_id, "release")
             assert b is not None
             assert b.head_commit_id == merge_commit_id
 
         # Query branch history
-        history = await qb.ask(GetBranchHistoryQuery(server_id=server_id, branch_name="main"))
+        history = await qb.ask(GetBranchHistoryQuery(server_id=server_id, branch_name="release"))
         history_ids = [c["id"] for c in history]
         assert merge_commit_id in history_ids
         assert "c-main-1" in history_ids

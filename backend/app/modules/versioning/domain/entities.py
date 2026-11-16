@@ -107,6 +107,8 @@ class ServerBranch:
         self.status = BranchStatus.ACTIVE
 
     def archive(self) -> None:
+        if self.name == "main":
+            raise ValueError("Branch 'main' is system-protected and cannot be archived")
         self.status = BranchStatus.ARCHIVED
 
     def advance_head(self, commit_id: str) -> None:
@@ -125,6 +127,8 @@ class ServerBranch:
         self.protection_policy = policy or BranchProtectionPolicy()
 
     def unprotect(self) -> None:
+        if self.name == "main":
+            raise ValueError("Branch 'main' is system-protected and cannot be unprotected")
         if self.status == BranchStatus.ARCHIVED:
             raise ValueError(f"Cannot unprotect archived branch '{self.name}'")
         self.is_protected = False
@@ -139,6 +143,8 @@ class ServerBranch:
         return policy.allow_direct_commit
 
     def can_archive(self) -> bool:
+        if self.name == "main":
+            return False
         if not self.is_protected:
             return True
         policy = self.protection_policy or BranchProtectionPolicy()

@@ -25,6 +25,7 @@ import yaml
 from app.core.allowlist import classify as classify_path
 from app.core.allowlist import open_safe_path_fd, validate_canonical_relpath
 from app.core.exceptions import (
+    BranchProtectedError,
     CaseCollisionError,
     ConflictError,
     GitRepositoryStateError,
@@ -46,6 +47,7 @@ from app.modules.versioning.infrastructure.git_branches import GitBranchService
 from app.modules.versioning.infrastructure.git_repository import (
     GITATTRIBUTES_RELPATH,
     LOCKFILE_RELPATH,
+    MAIN_BRANCH,
     PANEL_GITATTRIBUTES_CONTENT,
     _normalize_server_properties,
     _normalize_text,
@@ -381,6 +383,11 @@ class GitSaveCommitService:
         branch_name: str,
         message: str,
     ) -> GitSaveCommitResult:
+        if branch_name == MAIN_BRANCH:
+            raise BranchProtectedError(
+                "Direct commits to branch 'main' are forbidden; "
+                "commit to a working branch and merge instead"
+            )
         if not isinstance(message, str) or not message.strip():
             raise ValidationError("Commit message must not be empty", field="message")
         if len(message) > MAX_MESSAGE_LENGTH:

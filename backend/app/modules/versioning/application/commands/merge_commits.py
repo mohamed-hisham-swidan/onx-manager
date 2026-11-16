@@ -8,10 +8,15 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import (
+    BranchProtectedError,
+    ConflictError,
+    NotFoundError,
+    PermissionDenied,
+)
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.domain.dag import check_cycle
-from app.modules.versioning.domain.entities import ServerCommit
+from app.modules.versioning.domain.entities import BranchProtectionPolicy, ServerCommit
 from app.modules.versioning.domain.events import CommitCreatedEvent, MergeCommitCreatedEvent
 from app.modules.versioning.domain.repository import VersioningRepository
 from app.modules.versioning.domain.value_objects import BranchStatus, CommitManifest
@@ -24,6 +29,9 @@ class MergeCommitsCommand(Command):
     message: str
     author_id: str | None = None
     manifest: dict[str, Any] | None = None
+    force: bool = False
+    force_reason: str | None = None
+    caller_permissions: list[str] | None = None
 
 
 class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
@@ -104,6 +112,30 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
             )
         if branch.status == BranchStatus.ARCHIVED:
             raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
+
+        # main is system-protected even when is_protected is False in the DB.
+        effective_protected = branch.is_protected or branch.name == "main"
+        policy = branch.protection_policy or BranchProtectionPolicy()
+        if effective_protected and (
+            branch.name == "main" or not branch.can_commit_directly()
+        ):
+            if not command.force:
+                raise BranchProtectedError(
+                    f"Direct merge commit into protected branch '{branch.name}' is forbidden."
+                )
+            if not policy.allow_force_bypass:
+                raise BranchProtectedError(
+                    f"Force bypass is disabled by protection policy on branch '{branch.name}'"
+                )
+            perms = command.caller_permissions or []
+            if (
+                "admin:full" not in perms
+                and "server:version:branch:bypass_protection" not in perms
+            ):
+                raise PermissionDenied(
+                    "Caller lacks 'server:version:branch:bypass_protection' "
+                    "to bypass branch protection"
+                )
 
         expected_head = branch.head_commit_id
 

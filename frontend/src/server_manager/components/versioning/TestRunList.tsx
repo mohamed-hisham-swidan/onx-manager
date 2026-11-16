@@ -9,7 +9,6 @@ interface TestRunListProps {
   onTestProfiles: () => void;
   onEvidence: (testId: string) => void;
   onLogs: (run: ServerTestRun) => void;
-  onPromote: (testId: string) => void;
   onDiscard: (testId: string) => void;
   onCheckNow: (run: ServerTestRun) => Promise<void>;
   onRunTest?: (commitId: string) => void;
@@ -20,7 +19,6 @@ export function TestRunList({
   onTestProfiles,
   onEvidence,
   onLogs,
-  onPromote,
   onDiscard,
   onCheckNow,
   onRunTest,
@@ -301,27 +299,6 @@ export function TestRunList({
                     Logs
                   </button>
                 )}
-
-                {run.status === "PASSED" ? (
-                  <button
-                    type="button"
-                    onClick={() => onPromote(run.id)}
-                    className="inline-flex items-center gap-1 rounded-md bg-status-success text-accent-contrast-text px-3 py-1 text-xs font-bold hover:bg-status-success/90 transition-colors shadow-2xs cursor-pointer ml-auto"
-                  >
-                    <Icon name="check" size={14} />
-                    Promote to Live
-                  </button>
-                ) : run.status === "FAILED" ? (
-                  <button
-                    type="button"
-                    onClick={() => onPromote(run.id)}
-                    className="inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2.5 py-1 text-xs font-semibold text-status-warning hover:bg-status-warning-bg/80 transition-colors cursor-pointer ml-auto"
-                    title="Force promotion with administrative override"
-                  >
-                    <Icon name="alert" size={14} />
-                    Force Promote
-                  </button>
-                ) : null}
 
                 {(run.status === "RUNNING" || run.status === "BOOTING") && (
                   <button

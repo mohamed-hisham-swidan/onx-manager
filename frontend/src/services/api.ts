@@ -71,7 +71,6 @@ import type {
   MaterializationListItemResponse,
   MaterializationTreeResponse,
   PreflightStatus,
-  PromoteCommitRequest,
   RunIsolatedTestRequest,
   ScanLiveChangesResponse,
   ScanResult,
@@ -421,11 +420,6 @@ export function createApiClient(
       }),
     getTestStatus: (serverId: string, testId: string) =>
       request<ServerTestRun>(`/api/v1/servers/${serverId}/versioning/tests/${testId}`),
-    promoteTestCommit: (serverId: string, testId: string, body: PromoteCommitRequest) =>
-      request<Record<string, unknown>>(`/api/v1/servers/${serverId}/versioning/tests/${testId}/promote`, {
-        method: "POST",
-        body,
-      }),
     discardTest: (serverId: string, testId: string) =>
       request<Record<string, unknown>>(`/api/v1/servers/${serverId}/versioning/tests/${testId}/discard`, {
         method: "POST",

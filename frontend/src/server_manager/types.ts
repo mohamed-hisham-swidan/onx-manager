@@ -612,12 +612,6 @@ export interface RunIsolatedTestRequest {
   test_definition_id?: string | null;
 }
 
-export interface PromoteCommitRequest {
-  keep_world_changes?: boolean;
-  force?: boolean;
-  force_reason?: string;
-}
-
 export interface BotSettings {
   server_id: string;
   bot_count: number | null;

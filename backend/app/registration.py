@@ -252,8 +252,6 @@ from app.modules.versioning.application import (
     ListTestDefinitionsQuery,
     MergeCommitsCommand,
     MergeCommitsHandler,
-    PromoteCommitCommand,
-    PromoteCommitHandler,
     PruneTestArtifactsCommand,
     PruneTestArtifactsHandler,
     RemoveBranchProtectionCommand,
@@ -514,10 +512,6 @@ def _register_command_handlers(command_bus: CommandBus, event_bus: EventBus) -> 
     command_bus.register(CreateTagCommand, CreateTagHandler(event_bus=event_bus))
     command_bus.register(MergeCommitsCommand, MergeCommitsHandler(event_bus=event_bus))
     command_bus.register(RunIsolatedTestCommand, RunIsolatedTestHandler(event_bus=event_bus))
-    command_bus.register(
-        PromoteCommitCommand,
-        PromoteCommitHandler(command_bus=command_bus, event_bus=event_bus),
-    )
     command_bus.register(DiscardTestCommand, DiscardTestHandler())
     command_bus.register(
         CreateMaterializationCommand,

@@ -18,7 +18,6 @@ import { TestRunList } from "@/server_manager/components/versioning/TestRunList"
 import {
   CreateBranchModal,
   CreateCommitModal,
-  PromoteModal,
   InspectCommitModal,
   ViewLogsModal,
   BotSettingsModal,
@@ -65,10 +64,6 @@ export function ServerVersioningPage() {
 
   const [testModalCommitId, setTestModalCommitId] = useState<string | null>(null);
 
-  const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
-  const [promoteTestId, setPromoteTestId] = useState<string | null>(null);
-  const [keepWorldChanges, setKeepWorldChanges] = useState(false);
-
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsBotCount, setSettingsBotCount] = useState(10);
   const [settingsDuration, setSettingsDuration] = useState(15);
@@ -77,8 +72,6 @@ export function ServerVersioningPage() {
 
   const [inspectCommit, setInspectCommit] = useState<ServerCommit | null>(null);
   const [viewLogTestRun, setViewLogTestRun] = useState<ServerTestRun | null>(null);
-
-  const [forceReason, setForceReason] = useState("");
 
   // Advanced feature modal controls
   const [isProtectionModalOpen, setIsProtectionModalOpen] = useState(false);
@@ -94,7 +87,6 @@ export function ServerVersioningPage() {
   // Mutation pending guards for modals
   const [isBranchPending, setIsBranchPending] = useState(false);
   const [isCommitPending, setIsCommitPending] = useState(false);
-  const [isPromotePending, setIsPromotePending] = useState(false);
   const [isSettingsPending, setIsSettingsPending] = useState(false);
 
   const currentBranchObj = useMemo(
@@ -110,12 +102,6 @@ export function ServerVersioningPage() {
   const allowForceBypass = Boolean(
     currentBranchObj?.protection_policy?.allow_force_bypass
   );
-
-  const promoteTestRun = useMemo(
-    () => testRuns.find((r) => r.id === promoteTestId) || null,
-    [testRuns, promoteTestId]
-  );
-  const isForcePromote = Boolean(promoteTestRun && promoteTestRun.status !== "PASSED");
 
   useEffect(() => {
     if (!serverId) return;
@@ -231,32 +217,6 @@ export function ServerVersioningPage() {
       setError(err instanceof Error ? err.message : "Failed to create commit.");
     } finally {
       setIsCommitPending(false);
-    }
-  };
-
-  const handlePromote = async () => {
-    if (!serverId || !promoteTestId) return;
-    setIsPromotePending(true);
-    try {
-      await api.promoteTestCommit(serverId, promoteTestId, {
-        keep_world_changes: keepWorldChanges,
-        ...(isForcePromote
-          ? { force: true, ...(forceReason.trim() ? { force_reason: forceReason.trim() } : {}) }
-          : {}),
-      });
-      setIsPromoteModalOpen(false);
-      setPromoteTestId(null);
-      setForceReason("");
-      setActionSuccess(
-        isForcePromote
-          ? "Commit forcibly promoted to production (audit logged)."
-          : "Test commit promoted to production successfully."
-      );
-      refresh();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to promote commit.");
-    } finally {
-      setIsPromotePending(false);
     }
   };
 
@@ -572,10 +532,6 @@ export function ServerVersioningPage() {
             onTestProfiles={() => setIsTestDefinitionsOpen(true)}
             onEvidence={(testId) => setEvidenceModalTestId(testId)}
             onLogs={(run) => setViewLogTestRun(run)}
-            onPromote={(testId) => {
-              setPromoteTestId(testId);
-              setIsPromoteModalOpen(true);
-            }}
             onDiscard={handleDiscard}
             onRunTest={(commitId) => setTestModalCommitId(commitId)}
             onCheckNow={async (run) => {
@@ -627,23 +583,6 @@ export function ServerVersioningPage() {
         onSubmit={handleCreateCommit}
         onClose={() => setIsNewCommitOpen(false)}
         isPending={isCommitPending}
-      />
-
-      {/* Promote Confirmation Modal */}
-      <PromoteModal
-        isOpen={isPromoteModalOpen}
-        isForcePromote={isForcePromote}
-        promoteTestRun={promoteTestRun}
-        forceReason={forceReason}
-        onForceReasonChange={setForceReason}
-        keepWorldChanges={keepWorldChanges}
-        onKeepWorldChangesChange={setKeepWorldChanges}
-        onSubmit={handlePromote}
-        onClose={() => {
-          setIsPromoteModalOpen(false);
-          setForceReason("");
-        }}
-        isPending={isPromotePending}
       />
 
       {/* Manifest Inspect Modal */}

@@ -230,7 +230,9 @@ async def test_merge_commits_api(seed_server):
             message="Commit 2",
             manifest=CommitManifest(server_type="vanilla", minecraft_version="1.21.1"),
         )
-        branch = ServerBranch(id="br-main-api", server_id=srv_id, name="main", head_commit_id=c1.id)
+        branch = ServerBranch(
+            id="br-release-api", server_id=srv_id, name="release", head_commit_id=c1.id
+        )
         await repo.save_commit(c1)
         await repo.save_commit(c2)
         await repo.save_branch(branch)
@@ -241,7 +243,7 @@ async def test_merge_commits_api(seed_server):
         res = await client.post(
             f"/api/v1/servers/{srv_id}/versioning/commits/merge",
             json={
-                "target_branch_name": "main",
+                "target_branch_name": "release",
                 "parent_commit_ids": ["c-m-1", "c-m-2"],
                 "message": "Merge via API",
             },
@@ -252,7 +254,7 @@ async def test_merge_commits_api(seed_server):
         res = await client.post(
             f"/api/v1/servers/{srv_id}/versioning/commits/merge",
             json={
-                "target_branch_name": "main",
+                "target_branch_name": "release",
                 "parent_commit_ids": ["c-m-1", "c-m-2"],
                 "message": "Merge via API",
             },
@@ -261,11 +263,11 @@ async def test_merge_commits_api(seed_server):
         assert res.status_code == 201
         data = res.json()
         assert "commit_id" in data
-        assert data["branch_name"] == "main"
+        assert data["branch_name"] == "release"
 
         # Verify branch history API
         res = await client.get(
-            f"/api/v1/servers/{srv_id}/versioning/branches/main/history",
+            f"/api/v1/servers/{srv_id}/versioning/branches/release/history",
             headers=auth_headers(["server:version:read"]),
         )
         assert res.status_code == 200

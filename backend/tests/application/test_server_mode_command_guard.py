@@ -87,11 +87,6 @@ CASES = [
         ),
     ),
     (
-        "promote_commit",
-        "PromoteCommitHandler",
-        lambda: _cmd("promote_commit", "PromoteCommitCommand", test_id="test-1"),
-    ),
-    (
         "remove_materialization",
         "RemoveMaterializationHandler",
         lambda: _cmd(
