@@ -1,4 +1,4 @@
-## Current State (2026-11-12)
+## Current State (2026-11-16)
 
 **Roadmap: ROADMAP_v1.1** (docs/roadmap/ROADMAP_v1.1.md)
 - Phase 0 (Ground Truth/Baseline Freeze): CLOSED
@@ -22,30 +22,16 @@
 - **P1 Mode Gate (Backend & Frontend; 2026-11-12; SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02 v8.7): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Server Mode Simple/Advanced contract across backend and frontend (governance paperwork waived per spec line 25): (1) Backend: `server_mode` column in Alembic migration `b1e2100000024`, mode router dependency, `ServerMode` enum, Option A mode guard in 21 versioning command handlers raising `GuardConfigurationError` (500) and `ServerNotFoundError` (404), ordering/invariants/fail-closed tests; (2) Frontend: server mode selection in create/import wizards, `serverMode` utils, hiding Versions menu item and versioning pages for simple servers, wizard review and config steps; (3) Remediation history: Amendment 6 message-substring mapping to `NotFound` was wrong (superseded 2026-11-12 by Amendment 7: mock in `test_promote_and_rollback.py` updated to `ServerNotFoundError`, fail-closed regression test added, `mode_guard.py` restored byte-identical to HEAD, sha256 `33cb9ab3a91ac25c0a8f8e0fcbabba42aecef9f9efb0f129b3e102a994a4b553`). Independent verification by DeepSeek on merged tree `4bb8e37`: 0 new failures vs baseline `27f538c` across all 5 directories (api 372, application 806, core 591 with 2 baseline `test_version.py` failures, integration 43, infrastructure 885; 1 skipped); 6/6 quality gates PASS; frontend (verified on `0fe776c` with WT-local `npm ci`, frontend delta vs `4bb8e37` empty): typecheck clean (0 errors), ESLint clean (0 errors), Vitest 132 files / 1,198 tests passed.
 - **Allowlist v2.3 Matrix Slice (2026-11-12; SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02 v8.7): IMPLEMENTED_PENDING_FIRST_CI_RUN** — Allow-list v2.3 normative path classifier (`backend/app/core/allowlist.py`) implementing Step 0 `open_safe_path_fd`/`resolve_safe_disk_path`, 9-step lexical order, 5 class rules (Class-A code jars, Class-B configs, Class-C runtime/state, Class-D ignored, Class-E forbidden); 42 tests in `backend/tests/core/test_allowlist_v23_matrix.py`, MATRIX ROWS 110, MISMATCHES 0. Merged in `4bb8e37`. Owner's older untracked copy in master moved to `~/onx-chain/owner-master-matrix-backup-2026-11-11.py` (sha256 starts `3ce70a2b`).
 - **P2 Pre-work (2026-11-12; SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02 v8.7): IMPLEMENTED_PENDING_FIRST_CI_RUN** — T3 commit `0fe776c`: `BackupJobModel.pinned` boolean column, Alembic migration `b1e2100000025_add_backup_pinned.py`, `RELEASE_MINIMUM_DB_REVISION` raised to `b1e2100000025`; 71 targeted tests passed. Owner approval recorded strictly as his fast-forward of master to integration tip `4bb8e37` on 2026-11-12.
-- **P2 Clean Export + CAS + Lockfile Format 2.1 Engine: IN PROGRESS — B2+B3 slice IMPLEMENTED_PENDING_FIRST_CI_RUN (2026-11-12)** — P2 engine itself is NOT complete. B2 (Lockfile Format 2.1 pure-domain parser/serializer) and B3 (SHA-256 CAS) were implemented as one six-file slice in phase worktree `p2-b2-b3`: strict Format 2.1 (Format 1, legacy Format 2, and missing `base_overrides` rejected), hostile/duplicate/casefold path rejection, LEC grammar R-05 and loader consistency R-07, deterministic dump; CAS atomic put/dedupe/quarantine/containment/modes/no-hardlinks/streaming/ENOSPC/POSIX guard; typed B2/B3 errors in `backend/app/core/exceptions.py`. Targeted: 189 passed (145 domain + 43 infrastructure + 1 integration). Independent Review: PASS, no BLOCKER/HIGH; M-1 (unbounded error echoes) and L-1/L-2/L-3 fixed in-slice, L-4/L-5/L-6 dispositioned. Final per-directory verification: domain 465 passed; infrastructure 928 passed / 1 skipped; integration 44 passed; core with metadata shim 595 passed / 2 skipped; core bare 593 passed / 2 known metadata failures / 2 skipped; D-1 matrix 42 passed, 110 rows, 0 mismatches; 6/6 gates PASS. See `docs/reports/P2-B2-B3-IMPLEMENTATION-2026-11-12.md`. Boundary: B2+B3 is a slice; P2 is not complete; D-3 and Windows CI remain execution-pending. T4 recon card (`tasks/t4-p2-recon/card.md`) completed with verdict `NEEDS_DECISION` with open owner decisions D-1..D-6:
-  - D-1: How Allow-list v2.3 enters WT (merge frozen slice vs Builder re-creates + re-verifies) *(resolved by merge `4bb8e37`, recorded verbatim from card)*.
-  - D-2: `host_state_dir` config key and root; same `st_dev` as server roots.
-  - D-3: Accept an in-phase real-boot release gate after the loop.
-  - D-4: Slice boundary / batch budget (B1–B6, ~6 build jobs).
-  - D-5: Paper Step-3 attach targets (`cache/`, `versions/`, `libraries/`).
-  - D-6: Dynamic Class-C protected-root exclusion rule.
-- **Mandatory UNVERIFIED Items**:
-  - Full one-shot sequential `python -m pytest -q` across the entire repo was not run in one single command.
-  - Full production `npm run build` was not run in the merged integration verification.
-  - GitHub Actions CI run (no CI run ID exists for `4bb8e37` or `integration/2026-11-12`).
-  - Owner's manual smoke test on a running instance.
-  - Real Windows hardware execution (all runs executed on Linux x86_64).
-- **Process Notes (Overnight Loop 2026-11-11 / 2026-11-12)**:
-  - Overnight loop ran on branch `loop/night-2026-11-11` with `COMMIT_AUTHORIZED=NO`.
-  - Loop verify used master's `node_modules` via a parent-dir symlink, contrary to the T2 card.
-  - The conductor ran the wake alias (`changeip`) outside the `WAKE_ENABLED=NO` rule.
-  - The +1 test in core (591 vs 590 expected) is unexplained (UNKNOWN).
-- **Owner-Stated Standing Decisions**:
-  - `docs/design/SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md` v8.7 is the single source of truth for P1–P7.
-  - Conflicting repo rules/policies are to be amended to match the spec (not done in this job).
-  - Governance paperwork for P1–P7 was set aside by the owner (2026-11-09, 2026-11-11).
-  - `GOVERNANCE.md` and the spec are read-only.
-- **Next: Phase 6 (Final Installs / Wrap-up) — READY**: Installer polish, distribution packaging, first-run experience, documentation review (carried forward; Windows behavior UNVERIFIED pending green Windows CI run).
+- **P2 Simple/Advanced Core Substrate, Refresh/Rollback Engine & Acceptance (`P2-1`…`P2-6g-b`; `SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02` v8.7; `DECISION-2026-11-12-001`): COMPLETE, MERGED (`origin/master` `c49955a`), AND ACCEPTED (2026-11-16)** — Both P2a (`P2-1`, `P2-2`, `P2-4`) and P2b (`P2-3`, `P2-5`, `P2-6`) landed across `47580e4`..`c49955a`:
+  - **Core Substrate & Git Engine (`P2-B4`, `P2-2`, `P2-3`, `P2-4`):** Host-state layout (`ONX_HOST_STATE_DIR`), Lockfile Format 2.1 + SHA-256 CAS, `ensure_simple_baseline_lockfile()`, hardened `GitRunner`/`GitRepositoryService` (`repo.git` + `.onx/worktrees/<branch>`), branch-aware Files + Save & Commit + `server.properties` normalization, OD-v8.7-16 structured secret scanner (`secret_scanner.py` + multi-doc YAML scanning), 5-step clean export + `.onx-complete.json`, 1 MiB icon cap / 1–16 MiB Class-B → A-CAS routing, and HTTP 409 Advanced-import block. `backend/app/core/allowlist.py` remains frozen at SHA-256 `6b0cf099c779064150f67323fe6b400cd5b3894ad29fefe7e1114136a1541e4c`.
+  - **Refresh/Rollback & Platform Hardening (`P2-5a`..`P2-5d3`, `P2-6a`..`P2-6g-b`):** Alembic migration `b1e2100000026` (`refresh_journals`, `server_repo_leases`), `RepoLeaseManager` (monotonic `fencing_token`, 10s heartbeat, `flock`), two-tier `RefreshJournalRepository` + `RefreshStartupReconciler`, interim `0700` `ClassCSnapshotService` (`format_version=1`), `RefreshOrchestrator` (`1.10x` preflight, `ENOSPC` → 507, complement carry, `.prev` retention), `LiveRefreshService` + 4-step `HealthGateEvaluator` + `TriadRollbackService`, container hardening across all 4 spawn paths (`--user`, `--cap-drop=ALL`, `--security-opt=no-new-privileges:true`, `--pids-limit=2048`), and `P3` `"Coming soon"` disabled UI placeholders.
+  - **Owner Deviation from D-9 (`P2-6g` Option B):** Windows is Simple-only and fail-closed (`os.name != "posix"` guards in `require_advanced_mode`, `registration.py:325-328`, `ClassCSnapshotService`, `LiveRefreshService`); `allowlist.py` remains frozen with no Win32 handle/reparse backend. `.github/workflows/windows-ci.yml` returned to `workflow_dispatch: {}` only in `43f6dcc` / `c49955a`.
+  - **Verification & Acceptance Evidence:** Linux sequential backend suite `4,743 passed, 7 skipped, 0 failed` (`592de67` = `cff8d9c` code tree); `P2-6g-b` contract smoke `81 passed` (`110` TSV matrix rows, `0` mismatches); frontend `132 files / 1,214 passed` + `typecheck`/`lint`/`build` PASS (`43f6dcc`); 6/6 CI quality gates PASS (`156/156` routes, Alembic `b1e2100000026`); 7/7 real-run in-phase gates PASS (`docs/reports/P2-6-REAL-RUN-GATES-2026-11-14.md`, including D-3 Paper `1.20.4/499` offline boot ×2 with SHA-256 `cabed3ae77cf55deba7c7d8722bc9cfd5e991201c211665f9265616d9fe5c77b` `MATCH`, `docker inspect`, `kill -9` crash recovery, `ENOSPC` tmpfs, health-gate triad rollback, and DiscordSRV/LuckPerms scanner). Windows CI is owner-reported GREEN on `cff8d9c` (`Run ID: UNKNOWN: not recorded`).
+- **Owner-Stated Standing Decisions:**
+  - `docs/design/SPEC-2026-11-09-SIMPLE-ADVANCED-MODES-02.md` v8.7 is the single source of truth for P1–P7; governance paperwork for P1–P7 is waived.
+  - `GOVERNANCE.md` and the spec remain authoritative on scope.
+- **P3-1 (`main` Protection Backstop & Promote Removal): LOCAL COMMIT ON WORKTREE BRANCH (`slice/p3-1-main-protection-promote-removal` `855c428`, 2026-11-16)** — Enforced system-level `main` branch protection across Domain (`ServerBranch.unprotect`/`archive`/`can_archive`), Handlers (`RemoveBranchProtectionHandler`, `CreateCommitHandler._enforce_protected_branch`, `MergeCommitsHandler`), and native Git (`GitSaveCommitService.save`); removed Promote end-to-end across backend, frontend, and `contracts/permissions.yaml` (`156 -> 155` routes) while retaining `CommitPromotedEvent` for historical event-log deserialization.
+- **Next: P3 (`P3-B3`) — Merge engine (`P3-2`), encrypted Class-C AES-256-GCM vault (`P3-3`), Live State Files UI/API (`P3-4`), and Advanced UI cutover (`P3-5`/`P3-6`).** Phase 6 (Final Installs / Wrap-up) remains READY after the P1–P7 programme.
 
 
 **Resolved recently (for reference):**
@@ -139,10 +125,10 @@
 # ONX Manager — Current State (Verified)
 
 **Status:** Authoritative, evidence-based snapshot of the codebase as of
-2026-11-09. Every claim below was verified against source code, the database,
+2026-11-16 (`origin/master` `c49955a`). Every claim below was verified against source code, the database,
 and test runs.
 
-**Last verified:** 2026-11-09
+**Last verified:** 2026-11-15 (P2 close-out suites & gates; repo counts verified 2026-11-16)
 **App version (code):** `0.1.0` (`backend/pyproject.toml:3` → resolved at runtime by `backend/app/core/version.py:get_app_version()`)
 
 ---
@@ -151,29 +137,29 @@ and test runs.
 
 | Item | Count | Evidence |
 |------|-------|----------|
-| Backend Python source files | 416 | `backend/app/` (including domain aggregates, commands, queries, providers) |
-| Backend test files | 249 | `backend/tests/` (249 `test_*.py` test files across versioning, reliability, and modules) |
-| Frontend test files | 130 | `find frontend/src -name "*.test.*"` |
+| Backend Python source files | 444 | `backend/app/` (including domain aggregates, commands, queries, providers) |
+| Backend test files | 292 | `backend/tests/` (`test_*.py` test files across versioning, reliability, and modules) |
+| Frontend test files | 132 | `frontend/src/**/*.test.*` |
 | REST routers (`api/v1/routers/`) | 18 | `activity, auth, backups, exposure, files, health, invites, marketplace, monitoring, operations, plugins, schedules, servers, settings, setup, software, users, versioning` |
-| Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml`) |
-| Alembic migration revisions | 45 | `backend/alembic/versions/` (head `b1e2100000025`; raised 2026-11-12 from `b1e2100000023` via `b1e2100000024` server_mode and `b1e2100000025` backup_pinned) |
-| Architecture Decision Records & Decisions | 38 | `docs/decisions/` (23 ADRs 0001–0023 + 12 formal DECISION records + README + Phase 5.5 design) |
+| Live routes | 155 | `./scripts/check-route-contract` (155 live routes vs 155 entries in `contracts/permissions.yaml` on `P3-1` `855c428`; `master` `c49955a` had 156) |
+| Alembic migration revisions | 46 | `backend/alembic/versions/` (head `b1e2100000026`; raised in `P2-5a` for `refresh_journals` and `server_repo_leases`) |
+| Architecture Decision Records & Decisions | 39 | `docs/decisions/` (23 ADRs 0001–0023 + 13 formal DECISION records + README + 2 Phase 5.5 design docs) |
 | Contract files | 6 | `contracts/{api.yaml, config.schema.json, events.yaml, permissions.yaml, plugin.yaml, README.md}` |
 | DDD modules | 13 | `activity, auth, backup, event_store, exposure, health, monitoring, operations, plugin, server, shared, storage, versioning` |
-| CI workflows | 7 | `.github/workflows/{backend-tests.yml, docker-build-smoke.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml, windows-ci.yml}` — full backend pytest + DooD build smoke + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence; Windows CI |
+| CI workflows | 7 | `.github/workflows/{backend-tests.yml, docker-build-smoke.yml, backend-version-ci.yml, route-permission-ci.yml, frontend-ci.yml, verification-cadence.yml, windows-ci.yml}` — full backend pytest + DooD build smoke + DB-compat + Ruff-baseline gate; version-propagation check; route→permission contract check; frontend typecheck/lint/test/build; weekly re-verification cadence; Windows CI (`workflow_dispatch: {}` only as of `43f6dcc` / `c49955a`) |
 
 ---
 
 ## 2. Test suite (baseline provenance & verified metrics)
 
-### Backend — `backend/` `python -m pytest tests/`
+### Backend — `backend/` `python -m pytest -q`
 
 | Metric | Value | Provenance |
 |--------|-------|------------|
-| Collected | **3642** | Verified 2026-11-09 full sequential test suite (`./scripts/test`) |
-| Passed | **3636** | Verified 2026-11-09 full sequential test suite |
-| Skipped | **6** | Verified 2026-11-09 full sequential test suite |
-| Failed | **0** | Verified 2026-11-09 full sequential test suite |
+| Collected | **4750** | Verified 2026-11-15 full sequential test suite (`592de67` = `cff8d9c` code tree) |
+| Passed | **4743** | Verified 2026-11-15 full sequential test suite (`P2-6g-b` `43f6dcc` contract smoke: `81 passed`) |
+| Skipped | **7** | Verified 2026-11-15 (explicit Docker/Windows/version-floor skips) |
+| Failed | **0** | Verified 2026-11-15 |
 
 Backend CI runs the full suite on push/PR to `master`
 (`.github/workflows/backend-tests.yml`), followed by all 6 CI quality gates
@@ -183,18 +169,18 @@ Backend CI runs the full suite on push/PR to `master`
 
 | Metric | Value | Provenance |
 |--------|-------|------------|
-| Test files | **130** | Verified 2026-11-09 via `npm run test` (vitest run) |
-| Collected | **1178** | Verified 2026-11-09 via `npm run test` |
-| Passed | **1178** | Verified 2026-11-09 via `npm run test` |
-| Skipped | **0** | Verified 2026-11-09 via `npm run test` |
-| Failed | **0** | Verified 2026-11-09 via `npm run test` |
+| Test files | **132** | Verified 2026-11-15 on `P2-6g-b` (`43f6dcc`) via `npm run test` |
+| Collected | **1214** | Verified 2026-11-15 via `npm run test` |
+| Passed | **1214** | Verified 2026-11-15 via `npm run test` (`typecheck`, `lint`, `build` also PASS) |
+| Skipped | **0** | Verified 2026-11-15 |
+| Failed | **0** | Verified 2026-11-15 |
 
 ### Suite Totals
 Frontend CI (`frontend-ci.yml`) runs `typecheck`, `lint`, `test`, and `build`
 on every push/PR to `master`. Total test metrics (baseline):
-- **Total collected**: **4,820** (3,642 backend + 1,178 frontend; verified 2026-11-09)
-- **Total passed**: **4,814** (3,636 backend + 1,178 frontend)
-- **Total skipped**: **6** (backend)
+- **Total collected**: **5,964** (4,750 backend + 1,214 frontend; verified 2026-11-15)
+- **Total passed**: **5,957** (4,743 backend + 1,214 frontend)
+- **Total skipped**: **7** (backend)
 - **Total failed**: **0**
 
 ---
@@ -205,10 +191,10 @@ on every push/PR to `master`. Total test metrics (baseline):
 
 | Property | Value |
 |----------|-------|
-| Alembic revision | `b1e2100000025` — **at head** (raised 2026-11-12) |
-| Head revision | `b1e2100000025` (head == current) |
-| Revisions count | 45 migrations |
-| Refactor tables / columns | `server_commit_parents`, `server_tags`, `server_branches.status`, `server_branches.is_protected`, `server_branches.protection_policy`, `server_materializations`, `server_import_reviews`, `server_admission_leases`, `server_runtimes`, `server_test_definitions`, `server_test_runs.runtime_id`, `server_test_runs.test_definition_id`, `server_test_runs.evidence_bundle`, `server_test_runs.artifacts_purged`, `operations`, `operation_steps`, `server_test_runs.operation_id`, `server_lifecycle_leases`, `servers.mode` (`b1e2100000024`), `backup_jobs.pinned` (`b1e2100000025`) |
+| Alembic revision | `b1e2100000026` — **at head** (raised in `P2-5a`) |
+| Head revision | `b1e2100000026` (head == current) |
+| Revisions count | 46 migrations |
+| Refactor tables / columns | `server_commit_parents`, `server_tags`, `server_branches.status`, `server_branches.is_protected`, `server_branches.protection_policy`, `server_materializations`, `server_import_reviews`, `server_admission_leases`, `server_runtimes`, `server_test_definitions`, `server_test_runs.runtime_id`, `server_test_runs.test_definition_id`, `server_test_runs.evidence_bundle`, `server_test_runs.artifacts_purged`, `operations`, `operation_steps`, `server_test_runs.operation_id`, `server_lifecycle_leases`, `servers.mode` (`b1e2100000024`), `backup_jobs.pinned` (`b1e2100000025`), `refresh_journals` & `server_repo_leases` (`b1e2100000026`) |
 | Pre-Backend Reconciler | `backend/app/core/persistence/reconciler.py` automatically inspects, backs up, and reconciles DB schema before services start |
 
 ---
@@ -422,9 +408,9 @@ instead of trusting memory (Blueprint V5 §2.4):
 Checks executed each run (identical locally via `scripts/reverify`):
 
 1. `python ../scripts/check-version-propagation` — pyproject.toml / package.json / runtime agree (0.1.0)
-2. `python ../scripts/check-db-revision` — database schema matches compatible migration head (`b1e2100000025`)
+2. `python ../scripts/check-db-revision` — database schema matches compatible migration head (`b1e2100000026`)
 3. `python ../scripts/check-ruff-baseline` — no new violations vs `backend/ruff-baseline.json`
-4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 155 entries match 155 live routes
+4. `python ../scripts/check-route-contract` — `contracts/permissions.yaml` 155 entries match 155 live routes (`P3-1` `855c428`; `master` `c49955a` had 156)
 5. `python ../scripts/check-ps1-bom` — PowerShell scripts UTF-8 BOM encoding
 6. `python -m pytest -q` (backend) — full suite execution
 7. `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` (frontend) — typecheck, lint, test, build
