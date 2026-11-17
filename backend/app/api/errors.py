@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from app.core.exceptions import (
@@ -41,6 +42,8 @@ _ERROR_STATUS_MAP: dict[str, int] = {
     "INVALID_STATE_TRANSITION": 409,
     "SERVER_MODE_VERSIONING_DISABLED": 409,
     "GIT_REPOSITORY_STATE": 409,
+    "DIRTY_WORKTREE": 409,
+    "MERGE_CONFLICT": 409,
     "GIT_REF_INVALID": 422,
     "GIT_REMOTE_URL_INVALID": 422,
     "GIT_TRACKED_FILE_TOO_LARGE": 413,
@@ -159,7 +162,13 @@ async def not_found_handler(request: Request, exc: NotFoundError) -> JSONRespons
 
 
 async def conflict_error_handler(request: Request, exc: ConflictError) -> JSONResponse:
-    return _error_response(status=409, error=exc.message, code=exc.code, request=request)
+    return _error_response(
+        status=409,
+        error=exc.message,
+        code=exc.code,
+        detail=jsonable_encoder(exc.details or None),
+        request=request,
+    )
 
 
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:

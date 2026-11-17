@@ -88,9 +88,9 @@ def test_p33_migration_upgrade_and_downgrade(tmp_path: Path) -> None:
     cfg = reconciler.get_alembic_config()
 
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == [P33_REVISION]
+    assert script.get_heads() == [EXPECTED_ALEMBIC_HEAD]
     assert script.get_revision(P33_REVISION).down_revision == PRIOR_HEAD
-    assert RELEASE_MINIMUM_DB_REVISION == P33_REVISION == EXPECTED_ALEMBIC_HEAD
+    assert RELEASE_MINIMUM_DB_REVISION == EXPECTED_ALEMBIC_HEAD
 
     assert {"class_c_snapshots", "server_secrets"} <= _tables(db_url)
 
@@ -206,4 +206,4 @@ def test_p33_migration_upgrades_fresh_database(tmp_path: Path) -> None:
     tables = _tables(db_url)
     assert {"class_c_snapshots", "server_secrets", "refresh_journals"} <= tables
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == [P33_REVISION]
+    assert script.get_heads() == [EXPECTED_ALEMBIC_HEAD]

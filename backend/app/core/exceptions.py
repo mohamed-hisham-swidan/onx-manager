@@ -1034,3 +1034,51 @@ class SecretFileInGitForbiddenError(ValidationError):
         )
         self.code = "SECRET_FILE_IN_GIT_FORBIDDEN"
         self.http_status = 422
+
+
+class DirtyWorktreeError(ConflictError):
+    def __init__(
+        self,
+        branch: str = "",
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        msg = message or (
+            f"Branch '{branch}' has uncommitted changes in its worktree; commit or discard them before merging"  # noqa: E501
+            if branch
+            else "Branch worktree has uncommitted changes"
+        )
+        if branch:
+            merged_details = {"branch": branch[:128], **(details or {})}
+        else:
+            merged_details = dict(details or {})
+        MCSError.__init__(
+            self,
+            msg,
+            code="DIRTY_WORKTREE",
+            http_status=409,
+            details=merged_details,
+        )
+        self.branch = branch
+
+
+class MergeConflictError(ConflictError):
+    def __init__(
+        self,
+        message: str = "Merge failed due to conflicts",
+        *,
+        conflicts: list[dict[str, Any]] | None = None,
+        warnings: list[str] | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.conflicts = list(conflicts or [])
+        self.warnings = list(warnings or [])
+        self.details = {"conflicts": self.conflicts, "warnings": self.warnings, **(details or {})}
+        MCSError.__init__(
+            self,
+            message or "Merge failed due to conflicts",
+            code="MERGE_CONFLICT",
+            http_status=409,
+            details=self.details,
+        )

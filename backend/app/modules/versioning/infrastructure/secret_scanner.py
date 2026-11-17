@@ -58,7 +58,7 @@ _PREFIXED_DB_KEY_RE = re.compile(
 _SECRET_PLACEHOLDER_RE = re.compile(r"\A\$\{ONX_SECRET_[A-Za-z0-9_]+\}\Z", re.IGNORECASE)
 
 _BARE_PASSWORD_LEAVES = frozenset({"password", "passwd", "pwd"})
-_LIST_INDEX_SUFFIX_RE = re.compile(r"(?:\[\d+\])+$")
+_LIST_INDEX_SUFFIX_RE = re.compile(r"(?:\[[^\]]*\])+$")
 _FORBIDDEN_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore")
 _PLACEHOLDER_VALUES = frozenset({"", "none", "changeme", "password", "null", "~"})
 _BOOLEAN_STRING_VALUES = frozenset({"true", "false"})
@@ -96,9 +96,7 @@ def _flatten(value: Any, path: tuple[str, ...]) -> list[tuple[str, Any]]:
     if isinstance(value, (list, tuple)):
         leaves = []
         for index, child in enumerate(value):
-            indexed_path = (
-                (*path[:-1], f"{path[-1]}[{index}]") if path else (f"[{index}]",)
-            )
+            indexed_path = (*path[:-1], f"{path[-1]}[{index}]") if path else (f"[{index}]",)
             leaves.extend(_flatten(child, indexed_path))
         return leaves
     return [(".".join(path), value)] if path else []
@@ -137,8 +135,7 @@ def _is_sensitive_key(key_path: str) -> bool:
     if not parent:
         return False
     return any(
-        _PREFIXED_DB_KEY_RE.fullmatch(f"{parent}{separator}{leaf}")
-        for separator in (".", "_")
+        _PREFIXED_DB_KEY_RE.fullmatch(f"{parent}{separator}{leaf}") for separator in (".", "_")
     )
 
 
@@ -253,8 +250,139 @@ def assert_no_secrets(path: str, data: bytes) -> None:
         )
 
 
+
 __all__ = [
+    "REDACTED_LITERAL",
     "SecretFinding",
     "assert_no_secrets",
+    "redact_conflict_value",
     "scan_bytes",
 ]
+
+
+REDACTED_LITERAL = "[REDACTED]"
+
+
+def _try_json(text: str):
+    try:
+        import json as _j
+        return _j.loads(text)
+    except Exception:
+        return None
+
+
+def _try_yaml(text: str):
+    try:
+        import yaml as _y
+        return _y.safe_load(text)
+    except Exception:
+        return None
+
+
+def _try_toml(text: str):
+    try:
+        import tomllib as _t
+        return _t.loads(text)
+    except Exception:
+        return None
+
+
+def redact_conflict_value(relpath: str, key_path: str, value: Any) -> Any:
+    import dataclasses
+    from datetime import date, datetime, time
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        value = dataclasses.asdict(value)
+    if isinstance(value, (datetime, date, time)):
+        value = value.isoformat()
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    lowered = relpath.lower()
+    if lowered.endswith(_FORBIDDEN_SUFFIXES):
+        return REDACTED_LITERAL
+    if isinstance(value, bytes):
+        try:
+            value = value.decode("utf-8")
+        except UnicodeDecodeError:
+            return f"<bytes:{len(value)}>"
+    if isinstance(value, dict):
+        # sensitive key: redact leaves
+        if _is_sensitive_key(key_path):
+            def _all_placeholder(obj):
+                if isinstance(obj, dict):
+                    return all(_all_placeholder(v) for v in obj.values())
+                if isinstance(obj, (list, tuple)):
+                    return all(_all_placeholder(x) for x in obj)
+                return _is_placeholder(obj)
+            if _all_placeholder(value):
+                return value
+            return REDACTED_LITERAL
+        return {
+            str(k): redact_conflict_value(relpath, f"{key_path}.{k}" if key_path else str(k), v)
+            for k, v in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        if _is_sensitive_key(key_path):
+            def _all_placeholder(obj):
+                if isinstance(obj, dict):
+                    return all(_all_placeholder(v) for v in obj.values())
+                if isinstance(obj, (list, tuple)):
+                    return all(_all_placeholder(x) for x in obj)
+                return _is_placeholder(obj)
+            if _all_placeholder(value):
+                return value
+            return REDACTED_LITERAL
+        return [
+            redact_conflict_value(relpath, f"{key_path}[{i}]" if key_path else f"[{i}]", item)
+            for i, item in enumerate(value)
+        ]
+    if _is_sensitive_key(key_path):
+        if _is_placeholder(value):
+            return value
+        return REDACTED_LITERAL
+    if isinstance(value, str):
+        # whole-structured redaction
+        if key_path == "" or key_path.startswith("lines:"):
+            for parser in (_try_json, _try_yaml, _try_toml):
+                parsed = parser(value)
+                if parsed is not None and isinstance(parsed, (dict, list)):
+                    return redact_conflict_value(relpath, key_path, parsed)
+        # line-based / empty key_path
+        if key_path == "" or key_path.startswith("lines:"):
+            # line-by-line redaction fallback
+            lines = value.split("\n")
+            out_lines = []
+            for line in lines:
+                key = None
+                valpart = None
+                # choose delimiter that appears first
+                eq = line.find("=")
+                col = line.find(":")
+                if eq != -1 and (col == -1 or eq < col):
+                    k, v = line.split("=", 1)
+                    key, valpart = k.strip().lstrip("{").strip().strip("\"'"), v
+                elif col != -1 and not line.strip().startswith("#"):
+                    k, v = line.split(":", 1)
+                    key, valpart = k.strip().lstrip("{").strip().strip("\"'"), v
+                if key and (_is_sensitive_key(key) or key.lower() in {"pass", "pwd", "user"}):
+                    stripped_val = valpart.strip() if valpart is not None else ""
+                    if not _is_placeholder(stripped_val.strip("\"'")):
+                        if eq != -1 and (col == -1 or eq < col):
+                            idx = line.find("=")
+                            line = line[: idx + 1] + " " + REDACTED_LITERAL
+                        elif col != -1:
+                            idx = line.find(":")
+                            line = line[: idx + 1] + " " + REDACTED_LITERAL
+                out_lines.append(line)
+            value = "\n".join(out_lines)
+        # pattern rules
+        for kind, pattern in _PATTERN_RULES:  # noqa: B007
+            if pattern is _PRIVATE_KEY_RE:
+                if pattern.search(value):
+                    return REDACTED_LITERAL
+            else:
+                value = pattern.sub(REDACTED_LITERAL, value)
+        # truncate
+        if len(value) > 2048:
+            value = value[:2045] + "..."
+        return value
+    return value

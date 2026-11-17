@@ -315,3 +315,22 @@ class ServerSecretModel(Base):
         Index("ix_server_secrets_server_id", "server_id"),
     )
 
+
+class ServerDynamicClassCModel(Base):
+    """Per-server dynamic Class-C promotion registry (P3-2, D-D / OD-v8.4-4)."""
+
+    __tablename__ = "server_dynamic_class_c"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False)
+    relpath = Column(String(512), nullable=False)
+    reason = Column(String(128), nullable=False, server_default="ast_diverged")
+    baseline_ast_sha256 = Column(String(64), nullable=True)
+    live_ast_sha256 = Column(String(64), nullable=True)
+    promoted_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("server_id", "relpath", name="uq_server_dynamic_class_c_path"),
+        Index("ix_server_dynamic_class_c_server_id", "server_id"),
+    )
