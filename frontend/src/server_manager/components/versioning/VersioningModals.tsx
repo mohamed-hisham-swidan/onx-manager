@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Icon } from "@/components/ui/Icon";
 import type { ServerBranch, ServerCommit, ServerTestRun } from "@/server_manager/types";
@@ -714,7 +714,7 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
   const [secretValue, setSecretValue] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
-  const load = async () => {
+  const reloadVault = useCallback(async () => {
     try {
       const api = (await import("@/services/api")).createAuthenticatedApi();
       const [s, d, sec] = await Promise.all([
@@ -725,12 +725,34 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
       setSnapshots(Array.isArray(s) ? s : []);
       setDynamic(Array.isArray(d) ? d : []);
       setSecrets(Array.isArray(sec) ? sec : []);
-    } catch {}
-  };
+    } catch {
+      /* ignore */
+    }
+  }, [serverId]);
 
   useEffect(() => {
-    if (isOpen) load();
-  }, [isOpen]);
+    if (!isOpen) return;
+    let active = true;
+    void (async () => {
+      try {
+        const api = (await import("@/services/api")).createAuthenticatedApi();
+        const [s, d, sec] = await Promise.all([
+          api.listClassCSnapshots(serverId).catch(() => []),
+          api.listDynamicClassC(serverId).catch(() => []),
+          api.listSecrets(serverId).catch(() => []),
+        ]);
+        if (!active) return;
+        setSnapshots(Array.isArray(s) ? s : []);
+        setDynamic(Array.isArray(d) ? d : []);
+        setSecrets(Array.isArray(sec) ? sec : []);
+      } catch {
+        /* ignore reload errors */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isOpen, serverId]);
 
   if (!isOpen) return null;
 
@@ -753,7 +775,7 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
               <label className="text-xs"><input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} /> Pin snapshot</label>
               <button type="button" onClick={async () => {
                 await apiCall((api) => api.createClassCSnapshot(serverId, { pinned }));
-                await load();
+                await reloadVault();
               }} className="rounded-lg bg-accent-primary px-2 py-1 text-xs text-white">Create Class-C Snapshot</button>
             </div>
             {snapshots.map((s: any) => (
@@ -770,11 +792,11 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
                     } catch (e: any) {
                       setMessage(e?.message ?? "Server must be stopped before restoring a Class-C snapshot");
                     }
-                    await load();
+                    await reloadVault();
                   }}>Restore</button>
                   <button type="button" disabled={s.pinned} title={s.pinned ? "Pinned snapshot cannot be deleted until pins are released" : undefined} onClick={async () => {
                     await apiCall((api) => api.deleteClassCSnapshot(serverId, s.snapshot_id));
-                    await load();
+                    await reloadVault();
                   }}>Delete</button>
                 </div>
               </div>
@@ -788,7 +810,7 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
                 <div>{e.relpath} {e.promoted_at} {e.main_commit_sha}</div>
                 <button type="button" onClick={async () => {
                   await apiCall((api) => api.resetDynamicClassC(serverId, e.relpath));
-                  await load();
+                  await reloadVault();
                 }}>Reset to Class B (Track from main)</button>
               </div>
             ))}
@@ -801,7 +823,7 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
                 <div>{s.key_name} {s.placeholder} {s.kek_version} {s.updated_at}</div>
                 <button type="button" onClick={async () => {
                   await apiCall((api) => api.deleteSecret(serverId, s.key_name));
-                  await load();
+                  await reloadVault();
                 }}>Delete</button>
               </div>
             ))}
@@ -815,8 +837,10 @@ export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModal
                 setSecretValue("");
                 try {
                   await apiCall((api) => api.extractSecret(serverId, { branch, path, key_name: keyName, secret_value: value }));
-                  await load();
-                } catch {}
+                  await reloadVault();
+                } catch (e: any) {
+                  setMessage(e?.message ?? "Extract failed");
+                }
               }} className="rounded-lg bg-accent-primary px-2 py-1 text-xs text-white">Extract Secret</button>
               {message && <div className="text-xs">{message}</div>}
             </div>

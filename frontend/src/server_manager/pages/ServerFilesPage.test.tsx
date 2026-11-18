@@ -472,7 +472,6 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
   });
 
   it("switches to Live State Files and calls listLiveStateFiles", async () => {
-    const user = userEvent.setup();
     renderPage("srv-1", ["/servers/srv-1/files?view=live-state"]);
     await waitFor(() => {
       expect(screen.getByTestId("live-state-banner")).toBeInTheDocument();

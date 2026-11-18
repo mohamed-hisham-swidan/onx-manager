@@ -176,7 +176,6 @@ describe("ServerVersioningPage", () => {
     await user.click(screen.getByText("Merge Branch"));
     const modal = await screen.findByRole("dialog", { name: "Merge Branch" });
     expect(modal).toBeInTheDocument();
-    const selects = modal.querySelectorAll("select");
     // submit
     await user.click(screen.getByRole("button", { name: "Merge" }));
     await waitFor(() => expect(mockApi.mergeServerCommits).toHaveBeenCalled());

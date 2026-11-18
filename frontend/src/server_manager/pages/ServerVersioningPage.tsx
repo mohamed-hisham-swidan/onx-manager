@@ -74,9 +74,9 @@ export function ServerVersioningPage() {
   const [settingsRetention, setSettingsRetention] = useState("until_health_gate");
 
   const [refreshState, setRefreshState] = useState<any>(null);
-  const [classCSnapshots, setClassCSnapshots] = useState<any[]>([]);
-  const [dynamicClassC, setDynamicClassC] = useState<any[]>([]);
-  const [secrets, setSecrets] = useState<any[]>([]);
+  const [, setClassCSnapshots] = useState<any[]>([]);
+  const [, setDynamicClassC] = useState<any[]>([]);
+  const [, setSecrets] = useState<any[]>([]);
 
   const [isMergeBranchOpen, setIsMergeBranchOpen] = useState(false);
   const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
