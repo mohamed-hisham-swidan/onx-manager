@@ -5,6 +5,7 @@ P2-1 Core Substrate — B4f
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -34,11 +35,34 @@ from app.modules.server.infrastructure.repository import SQLServerRepository
 
 
 class TestAdvancedModeConfig:
-    def test_default_flag_is_false(self) -> None:
-        settings = AppSettings()
-        assert settings.advanced_mode_enabled is False
+    def test_default_flag_is_true_on_posix_and_false_on_non_posix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("ONX_ADVANCED_MODE_ENABLED", raising=False)
+        monkeypatch.delenv("MCS_ADVANCED_MODE_ENABLED", raising=False)
+        from app.core.config import ConfigFactory
+
+        monkeypatch.setattr(os, "name", "posix")
+        assert AppSettings().advanced_mode_enabled is True
+        assert ConfigFactory.global_settings().advanced_mode_enabled is True
+
+        monkeypatch.setattr(os, "name", "nt")
+        assert AppSettings().advanced_mode_enabled is False
+        assert ConfigFactory.global_settings().advanced_mode_enabled is False
 
     def test_onx_env_var_parsing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # ONX_ADVANCED_MODE_ENABLED=false overrides the POSIX True default
+        monkeypatch.setattr(os, "name", "posix")
+        monkeypatch.setenv("ONX_ADVANCED_MODE_ENABLED", "false")
+        assert AppSettings().advanced_mode_enabled is False
+
+        # ONX_ADVANCED_MODE_ENABLED=true overrides the non-POSIX False default
+        monkeypatch.setattr(os, "name", "nt")
+        monkeypatch.setenv("ONX_ADVANCED_MODE_ENABLED", "true")
+        assert AppSettings().advanced_mode_enabled is True
+
+        monkeypatch.delenv("ONX_ADVANCED_MODE_ENABLED", raising=False)
+        monkeypatch.setattr(os, "name", "posix")
         monkeypatch.setenv("ONX_ADVANCED_MODE_ENABLED", "true")
         assert AppSettings().advanced_mode_enabled is True
 
@@ -163,6 +187,28 @@ class TestSetupRoutesAdvancedModeMerge:
 
         assert resp.access_mode == "GLOBAL"
         assert resp.advanced_mode_enabled is flag_value
+
+    @pytest.mark.asyncio
+    async def test_get_setup_status_reports_platform_default_without_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("ONX_ADVANCED_MODE_ENABLED", raising=False)
+        monkeypatch.delenv("MCS_ADVANCED_MODE_ENABLED", raising=False)
+        fake_bus = AsyncMock()
+        fake_bus.ask.return_value = {
+            "initialized": True,
+            "access_mode": "LOCAL",
+            "user_count": 1,
+            "version": "1.0.0",
+        }
+
+        monkeypatch.setattr(os, "name", "posix")
+        resp = await get_setup_status(query_bus=fake_bus)
+        assert resp.advanced_mode_enabled is True
+
+        monkeypatch.setattr(os, "name", "nt")
+        resp = await get_setup_status(query_bus=fake_bus)
+        assert resp.advanced_mode_enabled is False
 
 
 class TestServerCreationGating:

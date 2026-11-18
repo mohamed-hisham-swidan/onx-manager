@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import Field
 from pydantic_settings import (
     BaseSettings,
     EnvSettingsSource,
@@ -66,7 +67,7 @@ class AppSettings(BaseSettings):
     test_artifact_retention_hours: float = 24.0
     server_startup_timeout_seconds: int = 120
     test_boot_timeout_seconds: int = 120
-    advanced_mode_enabled: bool = False
+    advanced_mode_enabled: bool = Field(default_factory=lambda: os.name == "posix")
 
     model_config = {"env_prefix": "ONX_", "extra": "ignore"}
 

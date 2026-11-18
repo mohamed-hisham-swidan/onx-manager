@@ -844,7 +844,7 @@ def test_simple_mode_and_empty_secrets_need_no_kek(
     # not require a KEK for Simple-mode/startup reconciliation paths.
     assert p33_env.vault.load_server_secrets(SERVER_A) == {}
     assert p33_env.service.reconcile_snapshots() == ClassCReconcileSummary()
-    assert AppSettings().advanced_mode_enabled is False
+    assert AppSettings().advanced_mode_enabled is (os.name == "posix")
 
 
 def test_standalone_ledger_fallback_uses_layout_root(
