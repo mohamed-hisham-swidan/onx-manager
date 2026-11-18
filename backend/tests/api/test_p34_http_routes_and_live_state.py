@@ -310,9 +310,16 @@ async def test_native_git_commit_history_merge_diff_and_tags(client: AsyncClient
 @pytest.mark.asyncio
 async def test_refresh_rollback_from_completed_and_confirm(client: AsyncClient, advanced_server):
     root, header = advanced_server
+    import base64
     import shutil
+    import zipfile
 
-    shutil.copyfile("/tmp/opencode/boot.jar", root / "server.jar")
+    _boot_class = base64.b64decode(
+        "yv66vgAAAD0ALAoAAgADBwAEDAAFAAYBABBqYXZhL2xhbmcvT2JqZWN0AQAGPGluaXQ+AQADKClWCQAIAAkHAAoMAAsADAEAEGphdmEvbGFuZy9TeXN0ZW0BAANvdXQBABVMamF2YS9pby9QcmludFN0cmVhbTsIAA4BACJEb25lICgwLjFzKSEgRm9yIGhlbHAsIHR5cGUgImhlbHAiCgAQABEHABIMABMAFAEAE2phdmEvaW8vUHJpbnRTdHJlYW0BAAdwcmludGxuAQAVKExqYXZhL2xhbmcvU3RyaW5nOylWCgAQABYMABcABgEABWZsdXNoBQAAAAAAAOpgCgAbABwHAB0MAB4AHwEAEGphdmEvbGFuZy9UaHJlYWQBAAVzbGVlcAEABChKKVYHACEBAARCb290AQAEQ29kZQEAD0xpbmVOdW1iZXJUYWJsZQEABG1haW4BABYoW0xqYXZhL2xhbmcvU3RyaW5nOylWAQANU3RhY2tNYXBUYWJsZQEACkV4Y2VwdGlvbnMHACkBABNqYXZhL2xhbmcvRXhjZXB0aW9uAQAKU291cmNlRmlsZQEACUJvb3QuamF2YQAhACAAAgAAAAAAAgABAAUABgABACIAAAAdAAEAAQAAAAUqtwABsQAAAAEAIwAAAAYAAQAAAAEACQAkACUAAgAiAAAAQAACAAEAAAAXsgAHEg22AA+yAAe2ABUUABi4ABqn//oAAAACACMAAAAOAAMAAAADAAgABAAOAAYAJgAAAAMAAQ4AJwAAAAQAAQAoAAEAKgAAAAIAKw=="
+    )
+    with zipfile.ZipFile(root / "server.jar", "w") as zf:
+        zf.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nMain-Class: Boot\n\n")
+        zf.writestr("Boot.class", _boot_class)
     (root / "server.properties").write_text(
         "motd=Hello\nserver-port=25565\nlevel-name=world\ngamemode=survival\n",
         encoding="utf-8",
