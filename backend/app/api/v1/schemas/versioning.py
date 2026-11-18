@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.api.v1.schemas.common import BaseResponse
 
@@ -41,9 +42,13 @@ class CommitResponse(BaseResponse):
     parent_commit_ids: list[str] = Field(default_factory=list)
     author_id: str | None = None
     message: str
-    manifest: dict[str, Any]
+    manifest: dict[str, Any] = Field(default_factory=dict)
     world_snapshot_id: str | None = None
     created_at: str
+    snapshot_hash: str | None = None
+    changes_summary: dict[str, Any] | None = None
+    warnings: list[Any] = Field(default_factory=list)
+    noop: bool = False
 
 
 class CreateTagRequest(BaseModel):
@@ -60,13 +65,25 @@ class TagResponse(BaseResponse):
 
 
 class MergeCommitsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     target_branch_name: str = Field(..., min_length=1, max_length=100)
-    parent_commit_ids: list[str] = Field(..., min_length=2)
+    parent_commit_ids: list[str] = Field(default_factory=list)
+    source_branch_name: str | None = Field(default=None, min_length=1, max_length=100)
     message: str = Field(..., min_length=1, max_length=500)
     author_id: str | None = None
     manifest: dict[str, Any] | None = None
     force: bool = False
     force_reason: str | None = None
+    force_bypass_protection: bool = False
+
+    @model_validator(mode="after")
+    def _normalize_parents(self) -> MergeCommitsRequest:
+        if not self.parent_commit_ids and self.source_branch_name:
+            self.parent_commit_ids = [self.target_branch_name, self.source_branch_name]
+        if len(self.parent_commit_ids) < 2:
+            raise ValueError("At least 2 parent_commit_ids or source_branch_name must be provided")
+        return self
 
 
 class DiffResponse(BaseResponse):
@@ -189,10 +206,13 @@ class EvidenceBundleResponse(BaseResponse):
 
 
 class BotSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     bot_count: int | None = None
     duration_minutes: int | None = None
     bot_tech: str | None = None
     placement_mode: str | None = None
+    previous_tree_retention: str | int | None = None
 
 
 class BotSettingsResponse(BaseResponse):
@@ -205,6 +225,7 @@ class BotSettingsResponse(BaseResponse):
     effective_duration_minutes: int
     effective_bot_tech: str
     effective_placement_mode: str
+    previous_tree_retention: str = "until_health_gate"
 
 
 class PreflightResponse(BaseResponse):
@@ -310,9 +331,7 @@ class ImportReviewActionResponse(BaseResponse):
 
 
 class BranchProtectionPolicySchema(BaseResponse):
-    require_test_pass: bool = Field(
-        True, description="Require a passing test run before merging"
-    )
+    require_test_pass: bool = Field(True, description="Require a passing test run before merging")
     allow_direct_commit: bool = Field(
         False, description="Allow direct commits without testing or merging"
     )
@@ -332,3 +351,159 @@ class BranchProtectionResponse(BaseResponse):
     is_protected: bool
     policy: BranchProtectionPolicySchema | None = None
 
+
+# --- P3-4 Batch B schemas ---
+
+
+class RefreshJournalSummaryResponse(BaseModel):
+    journal_id: str
+    server_id: str
+    phase: str
+    terminal: bool
+    target_main_sha: str
+    previous_main_sha: str
+    class_c_snapshot_id: str | None = None
+    class_c_Manifest_sha256: str | None = None  # noqa: N815
+    previous_dir: str | None = None
+    retention_policy: str
+    retain_until: datetime | None = None
+    rollback_reason: str | None = None
+    error_detail: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class RefreshStateResponse(BaseModel):
+    server_id: str
+    active_journal: RefreshJournalSummaryResponse | None = None
+    latest_journal: RefreshJournalSummaryResponse | None = None
+    can_confirm_upgrade: bool = False
+    can_rollback: bool = False
+    previous_tree_retention: str = "until_health_gate"
+
+
+class RefreshServerHttpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_main_sha: str | None = Field(default=None, min_length=1, max_length=64)
+    retention_policy: str | int | None = None
+    stop_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    health_timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
+
+
+class RefreshServerResponse(BaseModel):
+    server_id: str
+    journal_id: str | None = None
+    phase: str | None = None
+    status: str = "ok"
+
+
+class RollbackRefreshHttpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    journal_id: str | None = None
+    reason: str = Field(default="operator_requested", min_length=1, max_length=500)
+    stop_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    health_timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
+
+
+class RollbackRefreshResponse(BaseModel):
+    server_id: str
+    journal_id: str | None = None
+    phase: str | None = None
+    status: str = "ok"
+
+
+class ConfirmUpgradeHttpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    journal_id: str | None = None
+
+
+class ConfirmUpgradeResponse(BaseModel):
+    server_id: str
+    journal_id: str | None = None
+    phase: str | None = None
+    status: str = "ok"
+
+
+class CreateClassCSnapshotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pinned: bool = False
+
+
+class ClassCSnapshotResponse(BaseModel):
+    snapshot_id: str
+    server_id: str
+    created_at: str | None = None
+    manifest_sha256: str | None = None
+    pinned: bool = False
+    entry_count: int = 0
+    archive_size_bytes: int = 0
+
+
+class ClassCSnapshotRestoreResponse(BaseModel):
+    status: str = "restored"
+    server_id: str
+    snapshot_id: str
+
+
+class ClassCSnapshotDeleteResponse(BaseModel):
+    status: str = "deleted"
+    server_id: str
+    snapshot_id: str
+
+
+class DynamicClassCEntryResponse(BaseModel):
+    server_id: str
+    relpath: str
+    promoted_at: str | None = None
+    main_commit_sha: str | None = None
+    ast_Node_summary: Any = None  # noqa: N815
+
+
+class DynamicClassCResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(..., min_length=1)
+
+
+class DynamicClassCResetResponse(BaseModel):
+    server_id: str
+    path: str
+    reset: bool
+
+
+class SecretMetadataResponse(BaseModel):
+    server_id: str
+    key_name: str
+    placeholder: str
+    kek_version: int
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class ExtractSecretHttpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    branch: str = Field(..., min_length=1, max_length=100)
+    path: str = Field(..., min_length=1)
+    key_name: str = Field(..., min_length=1, max_length=128)
+    secret_value: str = Field(..., min_length=1)
+
+
+class ExtractSecretResponse(BaseModel):
+    server_id: str
+    branch: str
+    path: str
+    key_name: str
+    placeholder: str
+    replaced_occurrences: int
+    remaining_findings: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DeleteSecretResponse(BaseModel):
+    server_id: str
+    key_name: str
+    status: str = "deleted"

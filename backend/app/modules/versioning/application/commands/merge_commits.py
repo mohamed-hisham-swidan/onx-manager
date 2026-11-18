@@ -65,8 +65,11 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
 
         if self._server_repo is not None and self._versioning_repo is not None:
             from app.modules.activity.infrastructure.repository import SQLActivityRepository
+
             activity_repo = self._activity_repo or SQLActivityRepository()
-            res = await self._execute(command, self._server_repo, self._versioning_repo, activity_repo, events)  # noqa: E501
+            res = await self._execute(
+                command, self._server_repo, self._versioning_repo, activity_repo, events
+            )  # noqa: E501
         else:
             max_retries = 3
             for attempt in range(max_retries):
@@ -78,9 +81,12 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
                         from app.modules.activity.infrastructure.repository import (
                             SQLActivityRepository,
                         )
+
                         activity_repo = self._activity_repo or SQLActivityRepository(session)
                         events.clear()
-                        res = await self._execute(command, server_repo, versioning_repo, activity_repo, events)  # noqa: E501
+                        res = await self._execute(
+                            command, server_repo, versioning_repo, activity_repo, events
+                        )  # noqa: E501
                         await session.commit()
                     break
                 except ConflictError:
@@ -148,10 +154,7 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
                     f"Force bypass is disabled by protection policy on branch '{branch.name}'"
                 )
             perms = command.caller_permissions or []
-            if (
-            "admin:full" not in perms
-            and "server:version:branch:bypass_protection" not in perms
-        ):
+            if "admin:full" not in perms and "server:version:branch:bypass_protection" not in perms:
                 raise PermissionDenied(
                     "Caller lacks 'server:version:branch:bypass_protection' "
                     "to bypass branch protection"
@@ -255,7 +258,9 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
             },
         )
 
-    async def _execute_native_git(self, command, server, git_context, versioning_repo, activity_repo=None, events=None):  # noqa: E501
+    async def _execute_native_git(
+        self, command, server, git_context, versioning_repo, activity_repo=None, events=None
+    ):  # noqa: E501
 
         # validate parent count
         if len(command.parent_commit_ids) < 2:
@@ -270,8 +275,12 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
         if branch is not None and branch.status == BranchStatus.ARCHIVED:
             raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
 
-        effective_protected = (branch.is_protected if branch is not None else False) or command.target_branch_name == "main"  # noqa: E501
-        policy = (branch.protection_policy if branch is not None else None) or BranchProtectionPolicy()  # noqa: E501
+        effective_protected = (
+            branch.is_protected if branch is not None else False
+        ) or command.target_branch_name == "main"  # noqa: E501
+        policy = (
+            branch.protection_policy if branch is not None else None
+        ) or BranchProtectionPolicy()  # noqa: E501
         can_direct = branch.can_commit_directly() if branch is not None else False
         _bypass = False
         if effective_protected and (command.target_branch_name == "main" or not can_direct):
@@ -284,10 +293,7 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
                     f"Force bypass is disabled by protection policy on branch '{command.target_branch_name}'"  # noqa: E501
                 )
             perms = command.caller_permissions or []
-            if (
-                "admin:full" not in perms
-                and "server:version:branch:bypass_protection" not in perms
-            ):
+            if "admin:full" not in perms and "server:version:branch:bypass_protection" not in perms:
                 raise PermissionDenied(
                     "Caller lacks 'server:version:branch:bypass_protection' to bypass branch protection"  # noqa: E501
                 )
@@ -327,7 +333,6 @@ class MergeCommitsHandler(CommandHandler[MergeCommitsCommand]):
 
         # D-7 projection
         if branch is not None:
-
             if await versioning_repo.get_commit(merge_result.commit_id) is None:
                 commit = ServerCommit(
                     id=merge_result.commit_id,

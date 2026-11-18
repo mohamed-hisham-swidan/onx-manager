@@ -5,6 +5,7 @@ from typing import Any
 from app.core.exceptions import NotFoundError
 from app.core.query_bus import Query, QueryHandler
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.versioning.application.git_branch_adapter import git_branch_context
 from app.modules.versioning.domain.diff import diff_commits
 from app.modules.versioning.domain.repository import VersioningRepository
 
@@ -46,9 +47,135 @@ class DiffCommitsHandler(QueryHandler[DiffCommitsQuery]):
         from app.modules.shared.value_objects import ServerId
 
         try:
-            await server_repo.get(ServerId(query.server_id))
+            server = await server_repo.get(ServerId(query.server_id))
         except Exception as exc:
             raise NotFoundError(f"Server '{query.server_id}' not found") from exc
+
+        git_context = git_branch_context(server) if server is not None else None
+        if git_context is not None:
+            runner = git_context.service.open_runner(str(server.id), git_context.server_root)
+            from_sha = runner.run(
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                f"{query.from_commit_id}^{{commit}}",
+                check=False,
+            )
+            to_sha = runner.run(
+                "rev-parse", "--verify", "--quiet", f"{query.to_commit_id}^{{commit}}", check=False
+            )
+            if from_sha.returncode == 0 and to_sha.returncode == 0:
+                from_resolved = from_sha.stdout.strip()
+                to_resolved = to_sha.stdout.strip()
+
+                def _lockfile(sha):
+                    r = runner.run("show", f"{sha}:onx-jars.lock.json", check=False)
+                    if r.returncode != 0:
+                        return None
+                    try:
+                        import json
+
+                        return json.loads(r.stdout)
+                    except Exception:
+                        return None
+
+                lf_from = _lockfile(from_resolved)
+                lf_to = _lockfile(to_resolved)
+
+                mc_from = lf_from.get("mc") if isinstance(lf_from, dict) else None
+                mc_to = lf_to.get("mc") if isinstance(lf_to, dict) else None
+                loader_from = (
+                    lf_from.get("loader", {}).get("id") if isinstance(lf_from, dict) else None
+                )
+                loader_to = lf_to.get("loader", {}).get("id") if isinstance(lf_to, dict) else None
+
+                files_from = (
+                    {
+                        f.get("path"): f
+                        for f in (lf_from.get("files", []) if isinstance(lf_from, dict) else [])
+                    }
+                    if isinstance(lf_from, dict)
+                    else {}
+                )
+                files_to = (
+                    {
+                        f.get("path"): f
+                        for f in (lf_to.get("files", []) if isinstance(lf_to, dict) else [])
+                    }
+                    if isinstance(lf_to, dict)
+                    else {}
+                )
+
+                added_mods = sorted(set(files_to) - set(files_from))
+                removed_mods = sorted(set(files_from) - set(files_to))
+                modified_mods = sorted(
+                    p
+                    for p in (set(files_from) & set(files_to))
+                    if files_from[p].get("sha256") != files_to[p].get("sha256")
+                )
+
+                diff_result = runner.run(
+                    "diff-tree",
+                    "-r",
+                    "--no-commit-id",
+                    "--name-status",
+                    "-z",
+                    from_resolved,
+                    to_resolved,
+                    check=False,
+                )
+                added = []
+                removed = []
+                modified = []
+                for record in diff_result.stdout.split("\x00"):
+                    if not record:
+                        continue
+                    status = record[:1]
+                    path = record[1:].lstrip("\t") if len(record) > 1 else ""
+                    # diff-tree -z output: status\0path\0
+                # parse properly
+                tokens = diff_result.stdout.split("\x00")
+                i = 0
+                while i < len(tokens):
+                    tok = tokens[i]
+                    if not tok:
+                        i += 1
+                        continue
+                    status = tok[:1]
+                    path = tok[1:].strip() or (tokens[i + 1] if i + 1 < len(tokens) else "")
+                    # name-status -z gives "M\0path\0"
+                    if "\t" in tok:
+                        status, path = tok.split("\t", 1)
+                    if status.startswith("A"):
+                        added.append(path)
+                    elif status.startswith("D"):
+                        removed.append(path)
+                    elif status.startswith("M"):
+                        modified.append(path)
+                    i += 1
+                return {
+                    "from_commit_id": query.from_commit_id,
+                    "to_commit_id": query.to_commit_id,
+                    "has_changes": bool(
+                        added
+                        or removed
+                        or modified
+                        or added_mods
+                        or removed_mods
+                        or modified_mods
+                        or mc_from != mc_to
+                    ),
+                    "server_type": {"from": loader_from or "", "to": loader_to or ""},
+                    "minecraft_version": {"from": mc_from or "", "to": mc_to or ""},
+                    "java_args": {},
+                    "configs": {"added": added, "removed": removed, "modified": modified},
+                    "env_vars": {},
+                    "mods": {
+                        "added": added_mods,
+                        "removed": removed_mods,
+                        "modified": modified_mods,
+                    },
+                }
 
         commit_a = await versioning_repo.get_commit(query.from_commit_id)
         if commit_a is None or commit_a.server_id != query.server_id:

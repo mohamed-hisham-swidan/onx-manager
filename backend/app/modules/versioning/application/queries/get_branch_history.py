@@ -5,6 +5,7 @@ from typing import Any
 from app.core.exceptions import NotFoundError
 from app.core.query_bus import Query, QueryHandler
 from app.modules.server.domain.repository import ServerRepository
+from app.modules.versioning.application.git_branch_adapter import git_branch_context
 from app.modules.versioning.domain.dag import traverse_history
 from app.modules.versioning.domain.repository import VersioningRepository
 
@@ -46,9 +47,57 @@ class GetBranchHistoryHandler(QueryHandler[GetBranchHistoryQuery]):
         from app.modules.shared.value_objects import ServerId
 
         try:
-            await server_repo.get(ServerId(query.server_id))
+            server = await server_repo.get(ServerId(query.server_id))
         except Exception as exc:
             raise NotFoundError(f"Server '{query.server_id}' not found") from exc
+
+        git_context = git_branch_context(server) if server is not None else None
+        if git_context is not None:
+            runner = git_context.service.open_runner(str(server.id), git_context.server_root)
+            ref = f"refs/heads/{query.branch_name}"
+            check = runner.run("show-ref", "--verify", "--quiet", ref, check=False)
+            if check.returncode == 0:
+                result = runner.run(
+                    "log",
+                    ref,
+                    f"-n{query.limit}",
+                    "--format=%H%x1f%P%x1f%an%x1f%aI%x1f%s%x1e",
+                    check=False,
+                )
+                records = [r for r in result.stdout.split("\x1e") if r.strip()]
+                if records:
+                    out = []
+                    for rec in records:
+                        parts = rec.strip("\n").split("\x1f")
+                        if len(parts) < 5:
+                            continue
+                        sha = parts[0].strip()
+                        parents = [p for p in parts[1].split() if p]
+                        author = parts[2].strip()
+                        created = parts[3].strip()
+                        subject = parts[4].strip()
+                        db_commit = await versioning_repo.get_commit(sha)
+                        out.append(
+                            {
+                                "id": sha,
+                                "server_id": query.server_id,
+                                "message": db_commit.message if db_commit else subject,
+                                "branch_id": db_commit.branch_id if db_commit else None,
+                                "parent_commit_id": parents[0] if parents else None,
+                                "parent_commit_ids": parents,
+                                "author_id": (db_commit.author_id if db_commit else author),
+                                "world_snapshot_id": db_commit.world_snapshot_id
+                                if db_commit
+                                else None,
+                                "created_at": created,
+                                "manifest": db_commit.manifest.to_dict() if db_commit else {},
+                                "snapshot_hash": sha,
+                                "changes_summary": None,
+                                "warnings": [],
+                                "noop": False,
+                            }
+                        )
+                    return out
 
         branch = await versioning_repo.get_branch_by_name(query.server_id, query.branch_name)
         if branch is None:

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import os
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 
 from app.api.deps import get_command_bus, get_query_bus, require_permission
 from app.api.errors import check_command_result
@@ -14,13 +19,25 @@ from app.api.v1.schemas.versioning import (
     BotSettingsResponse,
     BranchProtectionResponse,
     BranchResponse,
+    ClassCSnapshotDeleteResponse,
+    ClassCSnapshotResponse,
+    ClassCSnapshotRestoreResponse,
     CommitResponse,
+    ConfirmUpgradeHttpRequest,
+    ConfirmUpgradeResponse,
     CreateBranchRequest,
+    CreateClassCSnapshotRequest,
     CreateCommitRequest,
     CreateMaterializationRequest,
     CreateTagRequest,
+    DeleteSecretResponse,
     DiffResponse,
+    DynamicClassCEntryResponse,
+    DynamicClassCResetRequest,
+    DynamicClassCResetResponse,
     EvidenceBundleResponse,
+    ExtractSecretHttpRequest,
+    ExtractSecretResponse,
     ImportReviewActionResponse,
     MaterializationCreateResponse,
     MaterializationFileResponse,
@@ -28,9 +45,16 @@ from app.api.v1.schemas.versioning import (
     MaterializationTreeResponse,
     MergeCommitsRequest,
     PreflightResponse,
+    RefreshJournalSummaryResponse,
+    RefreshServerHttpRequest,
+    RefreshServerResponse,
+    RefreshStateResponse,
+    RollbackRefreshHttpRequest,
+    RollbackRefreshResponse,
     RunIsolatedTestRequest,
     ScanLiveChangesRequest,
     ScanLiveChangesResponse,
+    SecretMetadataResponse,
     SetBranchProtectionRequest,
     SetEditModeRequest,
     SetEditModeResponse,
@@ -85,6 +109,12 @@ from app.modules.versioning.application import (
     SetMaterializationEditModeCommand,
     UpdateTestDefinitionCommand,
     WriteMaterializedFileCommand,
+)
+from app.modules.versioning.application.refresh_orchestrator import (
+    ConfirmUpgradeCommand,
+    RefreshServerCommand,
+    ReleaseRefreshPinsCommand,
+    RollbackRefreshCommand,
 )
 from app.modules.versioning.infrastructure.config_resolver import BotConfigResolver
 from app.modules.versioning.infrastructure.resource_probe import ResourcePreflightProbe
@@ -156,9 +186,7 @@ async def get_branch_protection(
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
     _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
 ) -> BranchProtectionResponse:
-    res = await query_bus.ask(
-        GetBranchProtectionQuery(server_id=server_id, branch_name=name)
-    )
+    res = await query_bus.ask(GetBranchProtectionQuery(server_id=server_id, branch_name=name))
     return BranchProtectionResponse(**res)
 
 
@@ -223,11 +251,14 @@ async def list_commits(
     server_id: str,
     query_bus: Annotated[QueryBus, Depends(get_query_bus)],
     _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+    branch: str | None = Query(default=None),
     branch_id: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[CommitResponse]:
     commits = await query_bus.ask(
-        GetCommitHistoryQuery(server_id=server_id, branch_id=branch_id, limit=limit)
+        GetCommitHistoryQuery(
+            server_id=server_id, branch_name=branch, branch_id=branch_id, limit=limit
+        )
     )
     return [CommitResponse(**c) for c in commits]
 
@@ -286,7 +317,7 @@ async def merge_commits_endpoint(
         message=body.message,
         author_id=author_id,
         manifest=body.manifest,
-        force=body.force,
+        force=body.force or body.force_bypass_protection,
         force_reason=body.force_reason,
         caller_permissions=_current_user.get("permissions", []),
     )
@@ -329,7 +360,7 @@ async def get_tag(
 ) -> TagResponse:
     tag = await query_bus.ask(GetServerTagQuery(server_id=server_id, name=name))
     if tag is None:
-        raise HTTPException(status_code=404, detail=f"Tag '{name}' not found")
+        raise HTTPException(status_code=404, detail=f"Tag '{name}' not found")  # noqa: B904
     return TagResponse(**tag)
 
 
@@ -442,7 +473,7 @@ async def get_test_definition(
 ) -> TestDefinitionResponse:
     data = await query_bus.ask(GetTestDefinitionQuery(server_id=server_id, definition_id=id))
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Test definition '{id}' not found")
+        raise HTTPException(status_code=404, detail=f"Test definition '{id}' not found")  # noqa: B904
     return TestDefinitionResponse(**data)
 
 
@@ -493,13 +524,29 @@ async def get_bot_settings(
     async with database.session_factory() as session:
         server = await session.get(ServerModel, server_id)
         if not server:
-            raise HTTPException(status_code=404, detail="Server not found")
+            raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
         stored = server.bot_verification_settings or {}
+
+        from app.modules.versioning.application.refresh_orchestrator import (
+            parse_retention_policy as _parse_retention,
+        )
+        from app.modules.versioning.infrastructure.models import ServerRepoLeaseModel
 
         resolved = BotConfigResolver.resolve_config(
             server_type=server.server_type,
             server_bot_settings=stored,
         )
+
+        lease = await session.get(ServerRepoLeaseModel, server_id)
+        retention = (
+            lease.previous_tree_retention
+            if lease is not None
+            else stored.get("previous_tree_retention", "until_health_gate")
+        )
+        try:
+            retention = _parse_retention(retention)[0]
+        except Exception:
+            retention = "until_health_gate"
 
         return BotSettingsResponse(
             server_id=server_id,
@@ -511,6 +558,7 @@ async def get_bot_settings(
             effective_duration_minutes=resolved.duration_minutes,
             effective_bot_tech=resolved.bot_tech.value,
             effective_placement_mode=resolved.placement_mode.value,
+            previous_tree_retention=retention,
         )
 
 
@@ -523,7 +571,7 @@ async def update_bot_settings(
     async with database.session_factory() as session:
         server = await session.get(ServerModel, server_id)
         if not server:
-            raise HTTPException(status_code=404, detail="Server not found")
+            raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
 
         stored = server.bot_verification_settings or {}
         new_settings = dict(stored)
@@ -536,6 +584,29 @@ async def update_bot_settings(
         if body.placement_mode is not None:
             new_settings["placement_mode"] = body.placement_mode
 
+        from app.modules.versioning.application.refresh_orchestrator import (
+            parse_retention_policy as _parse_retention,
+        )
+        from app.modules.versioning.infrastructure.models import ServerRepoLeaseModel
+
+        retention_value = "until_health_gate"
+        if body.previous_tree_retention is not None:
+            try:
+                normalized, _ = _parse_retention(body.previous_tree_retention)
+            except Exception as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc  # noqa: B904
+            new_settings["previous_tree_retention"] = normalized
+            retention_value = normalized
+
+            lease = await session.get(ServerRepoLeaseModel, server_id)
+            if lease is None:
+                lease = ServerRepoLeaseModel(
+                    server_id=server_id, previous_tree_retention=normalized
+                )
+                session.add(lease)
+            else:
+                lease.previous_tree_retention = normalized
+
         server.bot_verification_settings = new_settings
         await session.commit()
 
@@ -543,6 +614,10 @@ async def update_bot_settings(
             server_type=server.server_type,
             server_bot_settings=new_settings,
         )
+
+        lease = await session.get(ServerRepoLeaseModel, server_id)
+        if lease is not None:
+            retention_value = lease.previous_tree_retention
 
         return BotSettingsResponse(
             server_id=server_id,
@@ -554,6 +629,7 @@ async def update_bot_settings(
             effective_duration_minutes=resolved.duration_minutes,
             effective_bot_tech=resolved.bot_tech.value,
             effective_placement_mode=resolved.placement_mode.value,
+            previous_tree_retention=retention_value,
         )
 
 
@@ -566,7 +642,7 @@ async def get_preflight_status(
     async with database.session_factory() as session:
         server = await session.get(ServerModel, server_id)
         if not server:
-            raise HTTPException(status_code=404, detail="Server not found")
+            raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
         server_dir = server.root_path
         server_type = server.server_type
 
@@ -659,7 +735,7 @@ async def get_materialization_file(
     try:
         data = await query_bus.ask(query)
     except MaterializationFileTooLargeError as exc:
-        raise HTTPException(status_code=413, detail=exc.message) from exc
+        raise HTTPException(status_code=413, detail=exc.message) from exc  # noqa: B904
     return MaterializationFileResponse(**data)
 
 
@@ -806,3 +882,661 @@ async def revert_import_review(
     data = check_command_result(res)
     return ImportReviewActionResponse(**data)
 
+
+# --- P3-4 Batch B: refresh / rollback / confirm / release-pins ---
+
+
+@router.get("/refresh", response_model=RefreshStateResponse)
+async def get_refresh_state(
+    server_id: str,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> RefreshStateResponse:
+    from app.core.persistence.db import database
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+    from app.modules.shared.value_objects import ServerId
+    from app.modules.versioning.infrastructure.models import ServerRepoLeaseModel
+    from app.modules.versioning.infrastructure.refresh_journal import RefreshJournalRepository
+
+    async with database.session_factory() as session:
+        server_repo = SQLServerRepository(session)
+        try:
+            await server_repo.get(ServerId(server_id))
+        except Exception:
+            raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
+        from app.core.host_state import resolve_host_state_layout as _rhl
+
+        journal_repo = RefreshJournalRepository(_rhl())
+        active = await journal_repo.get_active_for_server(server_id)
+        latest = await journal_repo.get_latest_for_server(server_id)
+        lease = await session.get(ServerRepoLeaseModel, server_id)
+
+    def _summary(rec):
+        if rec is None:
+            return None
+        return RefreshJournalSummaryResponse(
+            journal_id=rec.journal_id,
+            server_id=rec.server_id,
+            phase=rec.phase,
+            terminal=rec.terminal,
+            target_main_sha=rec.target_main_sha or "",
+            previous_main_sha=rec.previous_main_sha or "",
+            class_c_snapshot_id=rec.class_c_snapshot_id,
+            class_c_Manifest_sha256=None,
+            previous_dir=(
+                rec.staging_path if getattr(rec, "used_exchange", False) else rec.previous_path
+            ),
+            retention_policy=rec.retention_policy,
+            retain_until=rec.previous_tree_expires_at,
+            rollback_reason=rec.error,
+            error_detail=rec.error,
+            created_at=rec.created_at,
+            updated_at=rec.updated_at,
+        )
+
+    active_s = _summary(active)
+    latest_s = _summary(latest)
+    def _prev_dir(rec):
+        if rec is None:
+            return None
+        return rec.staging_path if getattr(rec, "used_exchange", False) else rec.previous_path
+
+    can_confirm = bool(
+        latest
+        and latest.phase in ("COMPLETED", "ROLLED_BACK")
+        and (
+            bool(latest.class_c_snapshot_id)
+            or bool(_prev_dir(latest) and Path(_prev_dir(latest)).exists())
+        )
+    )
+    can_rollback = bool(
+        active is not None
+        or (
+            latest
+            and latest.phase == "COMPLETED"
+            and _prev_dir(latest)
+            and Path(_prev_dir(latest)).exists()
+        )
+    )
+    retention = lease.previous_tree_retention if lease is not None else "until_health_gate"
+    return RefreshStateResponse(
+        server_id=server_id,
+        active_journal=active_s,
+        latest_journal=latest_s,
+        can_confirm_upgrade=can_confirm,
+        can_rollback=can_rollback,
+        previous_tree_retention=retention,
+    )
+
+
+@router.post("/refresh", response_model=RefreshServerResponse)
+async def post_refresh(
+    server_id: str,
+    body: RefreshServerHttpRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> RefreshServerResponse:
+    from app.core.host_state import resolve_host_state_layout
+    from app.core.persistence.db import database
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+    from app.modules.shared.value_objects import ServerId
+    from app.modules.versioning.application.refresh_orchestrator import (
+        STAGING_SUFFIX,
+        LiveRefreshRequest,
+        parse_retention_policy,
+    )
+
+    layout = resolve_host_state_layout()
+    async with database.session_factory() as session:
+        server_repo = SQLServerRepository(session)
+        try:
+            server = await server_repo.get(ServerId(server_id))
+        except Exception:
+            raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
+        if server is None:
+            raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
+
+    root_path = (
+        getattr(getattr(server, "deployment", None), "root_path", None)
+        or getattr(server, "root_path", None)
+    )
+    if not root_path:
+        raise HTTPException(status_code=404, detail="Server root path not configured")  # noqa: B904
+    live_dir = Path(root_path).resolve()
+    staging_dir = Path(f"{live_dir}{STAGING_SUFFIX}")
+    repo_dir = layout.repo_dir(server_id) / "repo.git"
+
+    # target sha
+    import subprocess as _sp
+
+    target_main_sha = body.target_main_sha
+    if target_main_sha:
+        if repo_dir.is_dir():
+            r = await asyncio.to_thread(
+                _sp.run,
+                [
+                    "git",
+                    "--git-dir",
+                    str(repo_dir),
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    f"{target_main_sha}^{{commit}}",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if r.returncode != 0:
+                raise HTTPException(status_code=404, detail="Target ref not found")  # noqa: B904
+            target_main_sha = r.stdout.strip()
+    else:
+        if repo_dir.is_dir():
+            r = await asyncio.to_thread(
+                _sp.run,
+                [
+                    "git",
+                    "--git-dir",
+                    str(repo_dir),
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "refs/heads/main^{commit}",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if r.returncode != 0:
+                raise HTTPException(  # noqa: B904
+                    status_code=409, detail="Repository has no main branch commit to refresh"
+                )
+            target_main_sha = r.stdout.strip()
+        else:
+            raise HTTPException(  # noqa: B904
+                status_code=409, detail="Repository has no main branch commit to refresh"
+            )
+
+    # previous main sha
+    previous_main_sha = target_main_sha
+    _resolved_previous = False
+    onx_complete = live_dir / ".onx-complete.json"
+    if onx_complete.is_file():
+        try:
+            import json as _json
+
+            data = _json.loads(onx_complete.read_text())
+            if isinstance(data, dict) and data.get("target_main_sha"):
+                previous_main_sha = data["target_main_sha"]
+                _resolved_previous = True
+        except Exception:
+            pass
+    if not _resolved_previous:
+        try:
+            from app.modules.versioning.infrastructure.refresh_journal import (
+                RefreshJournalRepository,
+            )
+
+            _journal_repo = RefreshJournalRepository(layout)
+            _latest = await _journal_repo.get_latest_for_server(server_id)
+            if (
+                _latest is not None
+                and _latest.phase in ("COMPLETED", "UPGRADE_CONFIRMED")
+                and getattr(_latest, "target_main_sha", None)
+            ):
+                previous_main_sha = _latest.target_main_sha
+                _resolved_previous = True
+        except Exception:
+            pass
+    if not _resolved_previous:
+        previous_main_sha = target_main_sha
+
+    # (Staging directory is created by the clean-export stage inside refresh.)
+
+    # retention
+    if body.retention_policy is not None:
+        try:
+            retention_policy = parse_retention_policy(body.retention_policy)[0]
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc))  # noqa: B904
+    else:
+        from app.modules.versioning.infrastructure.models import ServerRepoLeaseModel
+
+        async with database.session_factory() as session:
+            lease = await session.get(ServerRepoLeaseModel, server_id)
+            retention_policy = (
+                lease.previous_tree_retention if lease is not None else "until_health_gate"
+            )
+
+    export_bytes = 0
+    if staging_dir.exists():
+        for root, _, files in os.walk(staging_dir):
+            for f in files:
+                with contextlib.suppress(OSError):
+                    export_bytes += (Path(root) / f).stat().st_size
+    elif live_dir.exists():
+        for root, _, files in os.walk(live_dir):
+            for f in files:
+                with contextlib.suppress(OSError):
+                    export_bytes += (Path(root) / f).stat().st_size
+
+    req = LiveRefreshRequest(
+        server_id=server_id,
+        live_dir=str(live_dir),
+        staging_dir=str(staging_dir),
+        export_bytes=export_bytes,
+        retention_policy=retention_policy,
+        previous_main_sha=previous_main_sha,
+        target_main_sha=target_main_sha,
+        export_id="",
+    )
+
+    cmd = RefreshServerCommand(
+        server_id=server_id,
+        request=req,
+        actor_id=str(_current_user.get("user_id") or _current_user.get("id") or ""),
+    )
+    res = await command_bus.send(cmd)
+    check_command_result(res)
+    journal = getattr(res, "data", None)
+    if hasattr(journal, "journal"):
+        journal = journal.journal
+    journal_id = getattr(journal, "journal_id", None) if journal is not None else None
+    phase = getattr(journal, "phase", None) if journal is not None else None
+    return RefreshServerResponse(
+        server_id=server_id, journal_id=journal_id, phase=phase, status="ok"
+    )
+
+
+@router.post("/rollback", response_model=RollbackRefreshResponse)
+async def post_rollback(
+    server_id: str,
+    body: RollbackRefreshHttpRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> RollbackRefreshResponse:
+    cmd = RollbackRefreshCommand(
+        server_id=server_id, journal_id=body.journal_id, reason=body.reason
+    )
+    res = await command_bus.send(cmd)
+    check_command_result(res)
+    journal = getattr(res, "data", None)
+    if hasattr(journal, "journal"):
+        journal = journal.journal
+    journal_id = getattr(journal, "journal_id", None) if journal is not None else body.journal_id
+    phase = getattr(journal, "phase", None) if journal is not None else None
+    return RollbackRefreshResponse(
+        server_id=server_id, journal_id=journal_id, phase=phase, status="ok"
+    )
+
+
+@router.post("/upgrade/confirm", response_model=ConfirmUpgradeResponse)
+async def post_confirm_upgrade(
+    server_id: str,
+    body: ConfirmUpgradeHttpRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> ConfirmUpgradeResponse:
+    cmd = ConfirmUpgradeCommand(server_id=server_id, journal_id=body.journal_id)
+    res = await command_bus.send(cmd)
+    check_command_result(res)
+    journal = getattr(res, "data", None)
+    journal_id = getattr(journal, "journal_id", None) if journal is not None else body.journal_id
+    phase = getattr(journal, "phase", None) if journal is not None else None
+    return ConfirmUpgradeResponse(
+        server_id=server_id, journal_id=journal_id, phase=phase, status="ok"
+    )
+
+
+@router.post("/refresh/release-pins", response_model=ConfirmUpgradeResponse)
+async def post_release_pins(
+    server_id: str,
+    body: ConfirmUpgradeHttpRequest,
+    command_bus: Annotated[CommandBus, Depends(get_command_bus)],
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> ConfirmUpgradeResponse:
+    cmd = ReleaseRefreshPinsCommand(server_id=server_id, journal_id=body.journal_id)
+    res = await command_bus.send(cmd)
+    check_command_result(res)
+    journal = getattr(res, "data", None)
+    journal_id = getattr(journal, "journal_id", None) if journal is not None else body.journal_id
+    phase = getattr(journal, "phase", None) if journal is not None else None
+    return ConfirmUpgradeResponse(
+        server_id=server_id, journal_id=journal_id, phase=phase, status="ok"
+    )
+
+
+# --- P3-4 Batch B: class-c snapshots / dynamic / secrets ---
+
+
+@router.get("/class-c/snapshots", response_model=list[ClassCSnapshotResponse])
+async def list_class_c_snapshots(
+    server_id: str,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> list[ClassCSnapshotResponse]:
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.versioning.infrastructure.class_c_snapshot import ClassCSnapshotService
+
+    layout = resolve_host_state_layout()
+    svc = ClassCSnapshotService(layout)
+    rows = svc.repository.list_active(server_id)
+    return [
+        ClassCSnapshotResponse(
+            snapshot_id=r.snapshot_id,
+            server_id=r.server_id,
+            created_at=r.created_at.isoformat()
+            if hasattr(r.created_at, "isoformat")
+            else str(r.created_at),
+            manifest_sha256=r.manifest_sha256,
+            pinned=r.pinned,
+            entry_count=r.file_count,
+            archive_size_bytes=r.total_bytes,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/class-c/snapshots", response_model=ClassCSnapshotResponse, status_code=201)
+async def create_class_c_snapshot(
+    server_id: str,
+    body: CreateClassCSnapshotRequest,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> ClassCSnapshotResponse:
+    from pathlib import Path
+
+    from app.core.host_state import resolve_host_state_layout
+    from app.core.persistence.db import database
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+    from app.modules.shared.value_objects import ServerId
+    from app.modules.versioning.application.repo_lease import RepoLeaseManager
+    from app.modules.versioning.infrastructure.class_c_snapshot import ClassCSnapshotService
+    from app.modules.versioning.infrastructure.dynamic_class_c import DynamicClassCService
+    layout = resolve_host_state_layout()
+    async with RepoLeaseManager(locks_dir=layout.locks).acquire(server_id, holder="class-c-snapshot-create"):  # noqa: E501
+        async with database.session_factory() as session:
+            server_repo = SQLServerRepository(session)
+            server = await server_repo.get(ServerId(server_id))
+            if server is None:
+                raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
+            root_path = (
+                getattr(getattr(server, "deployment", None), "root_path", None)
+                or getattr(server, "root_path", None)
+            )
+            if not root_path and getattr(server, "deployment", None):
+                root_path = getattr(server.deployment, "root_path", None)
+            if not root_path:
+                raise HTTPException(status_code=404, detail="Server root path not configured")  # noqa: B904
+            live_dir = Path(root_path).resolve()
+        dyn = DynamicClassCService(layout)
+        dynamic_paths = dyn.list_paths(server_id)
+        svc = ClassCSnapshotService(layout)
+        result = svc.create_snapshot(
+            server_id, live_dir, dynamic_class_c=dynamic_paths, pinned=body.pinned
+        )
+        return ClassCSnapshotResponse(
+            snapshot_id=result.snapshot_id,
+            server_id=server_id,
+            created_at=None,
+            manifest_sha256=result.manifest_sha256,
+            pinned=body.pinned,
+            entry_count=result.file_count,
+            archive_size_bytes=result.total_bytes,
+        )
+
+
+@router.post(
+    "/class-c/snapshots/{snapshot_id}/restore", response_model=ClassCSnapshotRestoreResponse
+)
+async def restore_class_c_snapshot(
+    server_id: str,
+    snapshot_id: str,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> ClassCSnapshotRestoreResponse:
+    from pathlib import Path
+
+    from app.core.host_state import resolve_host_state_layout
+    from app.core.persistence.db import database
+    from app.modules.server.infrastructure.repository import SQLServerRepository
+    from app.modules.shared.value_objects import ServerId
+    from app.modules.versioning.application.repo_lease import RepoLeaseManager
+    from app.modules.versioning.infrastructure.class_c_snapshot import ClassCSnapshotService
+    layout = resolve_host_state_layout()
+    async with RepoLeaseManager(locks_dir=layout.locks).acquire(server_id, holder="class-c-snapshot-restore"):  # noqa: E501
+        async with database.session_factory() as session:
+            server_repo = SQLServerRepository(session)
+            server = await server_repo.get(ServerId(server_id))
+            if server is None:
+                raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
+            status = str(getattr(server.status, "value", server.status)).upper()
+            if status in {"RUNNING", "STARTING", "STOPPING"}:
+                raise HTTPException(  # noqa: B904
+                    status_code=409, detail="Server must be stopped before restoring a Class-C snapshot"  # noqa: E501
+                )
+            root_path = (
+                getattr(getattr(server, "deployment", None), "root_path", None)
+                or getattr(server, "root_path", None)
+            )
+            if not root_path and getattr(server, "deployment", None):
+                root_path = getattr(server.deployment, "root_path", None)
+            if not root_path:
+                raise HTTPException(status_code=404, detail="Server root path not configured")  # noqa: B904
+            live_dir = Path(root_path).resolve()
+        svc = ClassCSnapshotService(layout)
+        try:
+            svc.restore_snapshot(server_id, snapshot_id, live_dir)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Snapshot not found")  # noqa: B904
+        return ClassCSnapshotRestoreResponse(server_id=server_id, snapshot_id=snapshot_id)
+
+
+@router.delete("/class-c/snapshots/{snapshot_id}", response_model=ClassCSnapshotDeleteResponse)
+async def delete_class_c_snapshot(
+    server_id: str,
+    snapshot_id: str,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> ClassCSnapshotDeleteResponse:
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.versioning.application.repo_lease import RepoLeaseManager
+    from app.modules.versioning.infrastructure.class_c_snapshot import ClassCSnapshotService
+    layout = resolve_host_state_layout()
+    async with RepoLeaseManager(locks_dir=layout.locks).acquire(server_id, holder="class-c-snapshot-delete"):  # noqa: E501
+        svc = ClassCSnapshotService(layout)
+        try:
+            svc.delete_snapshot(server_id, snapshot_id)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Snapshot not found")  # noqa: B904
+        except Exception as exc:
+            if "PINNED" in str(exc).upper():
+                raise HTTPException(status_code=409, detail="BACKUP_PINNED")  # noqa: B904
+            raise
+        return ClassCSnapshotDeleteResponse(server_id=server_id, snapshot_id=snapshot_id)
+
+
+@router.get("/class-c/dynamic", response_model=list[DynamicClassCEntryResponse])
+async def list_dynamic_class_c(
+    server_id: str,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> list[DynamicClassCEntryResponse]:
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.versioning.infrastructure.dynamic_class_c import DynamicClassCService
+
+    layout = resolve_host_state_layout()
+    svc = DynamicClassCService(layout)
+    entries = svc.list_entries(server_id)
+    return [
+        DynamicClassCEntryResponse(
+            server_id=server_id,
+            relpath=e.relpath,
+            promoted_at=e.promoted_at.isoformat()
+            if hasattr(e.promoted_at, "isoformat")
+            else str(e.promoted_at),
+            main_commit_sha=e.main_commit_sha,
+            ast_Node_summary=e.ast_node_summary if hasattr(e, "ast_node_summary") else None,
+        )
+        for e in entries
+    ]
+
+
+@router.post("/class-c/dynamic/reset", response_model=DynamicClassCResetResponse)
+async def reset_dynamic_class_c(
+    server_id: str,
+    body: DynamicClassCResetRequest,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> DynamicClassCResetResponse:
+    from app.core.allowlist import validate_canonical_relpath
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.versioning.infrastructure.dynamic_class_c import DynamicClassCService
+
+    try:
+        relpath = validate_canonical_relpath(body.path)
+    except ValueError as exc:
+        from app.core.exceptions import ValidationError
+
+        raise ValidationError(str(exc)) from exc
+    layout = resolve_host_state_layout()
+    svc = DynamicClassCService(layout)
+    removed = svc.reset_to_class_b(server_id, relpath)
+    return DynamicClassCResetResponse(server_id=server_id, path=relpath, reset=removed)
+
+
+@router.get("/secrets", response_model=list[SecretMetadataResponse])
+async def list_secrets(
+    server_id: str,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:read"))],
+) -> list[SecretMetadataResponse]:
+
+    from app.core.persistence.db import database
+    from app.modules.versioning.infrastructure.models import ServerSecretModel
+    from app.modules.versioning.infrastructure.server_secret_vault import placeholder_for
+
+    async with database.session_factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(ServerSecretModel).where(ServerSecretModel.server_id == server_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return [
+        SecretMetadataResponse(
+            server_id=r.server_id,
+            key_name=r.key_name,
+            placeholder=placeholder_for(r.key_name),
+            kek_version=r.kek_version,
+            created_at=r.created_at.isoformat()
+            if hasattr(r.created_at, "isoformat")
+            else str(r.created_at),
+            updated_at=r.updated_at.isoformat()
+            if hasattr(r.updated_at, "isoformat")
+            else str(r.updated_at),
+        )
+        for r in rows
+    ]
+
+
+@router.post("/secrets/extract", response_model=ExtractSecretResponse)
+async def extract_secret(
+    server_id: str,
+    body: ExtractSecretHttpRequest,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> ExtractSecretResponse:
+    from pathlib import Path
+
+    from app.core.allowlist import (
+        classify,
+        open_safe_path_fd,
+        resolve_safe_disk_path,
+        validate_canonical_relpath,
+    )
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.versioning.infrastructure.server_secret_vault import ServerSecretVault
+
+    if body.branch == "main":
+        raise HTTPException(status_code=403, detail="Direct writes to 'main' are forbidden")  # noqa: B904
+    if "/" in body.branch or ".." in body.branch:
+        raise HTTPException(status_code=422, detail="Invalid branch name")  # noqa: B904
+    try:
+        relpath = validate_canonical_relpath(body.path)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc  # noqa: B904
+    if classify(relpath) != "B":
+        raise HTTPException(  # noqa: B904
+            status_code=403, detail="Secrets can only be extracted from Class B config files"
+        )
+
+    # ensure branch worktree
+    # best-effort: use git context
+    from app.modules.versioning.application.repo_lease import RepoLeaseManager
+    layout = resolve_host_state_layout()
+    async with RepoLeaseManager(locks_dir=layout.locks).acquire(server_id, holder="secrets-extract"):  # noqa: E501
+        # find server
+        from app.core.persistence.db import database
+        from app.modules.server.infrastructure.repository import SQLServerRepository
+        from app.modules.shared.value_objects import ServerId
+
+        async with database.session_factory() as session:
+            server_repo = SQLServerRepository(session)
+            server = await server_repo.get(ServerId(server_id))
+            if server is None:
+                raise HTTPException(status_code=404, detail="Server not found")  # noqa: B904
+        root_path = (
+            getattr(getattr(server, "deployment", None), "root_path", None)
+            or getattr(server, "root_path", None)
+        )
+        if not root_path:
+            raise HTTPException(status_code=404, detail="Server root path not configured")  # noqa: B904
+        worktree_root = (
+            Path(root_path).resolve() / ".onx" / "worktrees" / body.branch
+        )
+
+        vault = ServerSecretVault(layout)
+        # read file
+        import os as _os
+
+        try:
+            fd = open_safe_path_fd(str(worktree_root), relpath, flags=_os.O_RDONLY)
+        except Exception:
+            raise HTTPException(status_code=404, detail="File not found")  # noqa: B904
+        import os as _os2
+
+        raw = _os2.read(fd, 10 * 1024 * 1024)
+        _os2.close(fd)
+        extraction = vault.extract_secret_from_bytes(
+            server_id,
+            relpath,
+            raw,
+            secret_value=body.secret_value,
+            key_name=body.key_name,
+        )
+        # write back
+        target = resolve_safe_disk_path(str(worktree_root), relpath, allow_create_parents=True)
+        from app.modules.versioning.infrastructure.fs_atomic import atomic_write_private
+
+        atomic_write_private(target, extraction.content)
+        remaining = getattr(extraction, "remaining_findings", []) or []
+        return ExtractSecretResponse(
+            server_id=server_id,
+            branch=body.branch,
+            path=relpath,
+            key_name=extraction.key_name,
+            placeholder=extraction.placeholder,
+            replaced_occurrences=extraction.replaced_count,
+            remaining_findings=remaining,
+        )
+
+
+@router.delete("/secrets/{key_name}", response_model=DeleteSecretResponse)
+async def delete_secret(
+    server_id: str,
+    key_name: str,
+    _current_user: Annotated[dict, Depends(require_permission("server:version:commit"))],
+) -> DeleteSecretResponse:
+    from app.core.host_state import resolve_host_state_layout
+    from app.modules.versioning.application.repo_lease import RepoLeaseManager
+    from app.modules.versioning.infrastructure.server_secret_vault import ServerSecretVault
+    layout = resolve_host_state_layout()
+    async with RepoLeaseManager(locks_dir=layout.locks).acquire(server_id, holder="secrets-delete"):  # noqa: E501
+        vault = ServerSecretVault(layout)
+        deleted = vault.delete_secret(server_id, key_name)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Secret not found")  # noqa: B904
+        return DeleteSecretResponse(server_id=server_id, key_name=key_name)

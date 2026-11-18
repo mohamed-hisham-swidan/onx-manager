@@ -130,13 +130,9 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
             )
 
         perms = command.caller_permissions or []
-        if (
-            "admin:full" not in perms
-            and "server:version:branch:bypass_protection" not in perms
-        ):
+        if "admin:full" not in perms and "server:version:branch:bypass_protection" not in perms:
             raise PermissionDenied(
-                "Caller lacks 'server:version:branch:bypass_protection' "
-                "to bypass branch protection"
+                "Caller lacks 'server:version:branch:bypass_protection' to bypass branch protection"
             )
 
         audit_log = ServerActivityLog(
@@ -176,13 +172,20 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
                 "commit to a working branch and merge instead"
             )
 
-        branch = await versioning_repo.get_branch_by_name(
-            command.server_id, command.branch_name
-        )
-        if branch is not None:
-            if branch.status == BranchStatus.ARCHIVED:
-                raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
-            await self._enforce_protected_branch(command, branch, activity_repo)
+        branch = await versioning_repo.get_branch_by_name(command.server_id, command.branch_name)
+        if branch is None:
+            from app.modules.versioning.domain.value_objects import BranchStatus
+
+            branch = ServerBranch(
+                id=str(uuid.uuid4()),
+                server_id=command.server_id,
+                name=command.branch_name,
+                status=BranchStatus.CREATED,
+            )
+            await versioning_repo.save_branch(branch)
+        if branch.status == BranchStatus.ARCHIVED:
+            raise ConflictError(f"Cannot commit to archived branch '{branch.name}'")
+        await self._enforce_protected_branch(command, branch, activity_repo)
 
         result = GitSaveCommitService(context.layout).save(
             str(server.id),
@@ -190,6 +193,28 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
             command.branch_name,
             command.message,
         )
+
+        from app.modules.versioning.domain.value_objects import CommitManifest
+
+        # D-7: project native Git commit into SQLite so DB-backed queries see it.
+        if result.commit_id:
+            if await versioning_repo.get_commit(result.commit_id) is None:
+                commit = ServerCommit(
+                    id=result.commit_id,
+                    server_id=command.server_id,
+                    branch_id=branch.id,
+                    message=command.message,
+                    author_id=command.author_id,
+                    parent_commit_id=result.parent_commit_id,
+                    parent_commit_ids=[result.parent_commit_id] if result.parent_commit_id else [],
+                    manifest=CommitManifest(
+                        server_type=str(server.server_type),
+                        minecraft_version=str(server.minecraft_version),
+                    ),
+                )
+                await versioning_repo.save_commit(commit)
+            branch.head_commit_id = result.commit_id
+            await versioning_repo.save_branch(branch)
 
         event = CommitCreatedEvent(
             server_id=command.server_id,
@@ -214,7 +239,10 @@ class CreateCommitHandler(CommandHandler[CreateCommitCommand]):
                 "files": list(result.files),
                 "routed_to_cas": list(result.routed_to_cas),
                 "quarantined": list(result.quarantined),
+                "snapshot_hash": None,
+                "changes_summary": None,
                 "warnings": list(result.warnings),
+                "noop": False,
                 "engine": "native-git",
             },
         )

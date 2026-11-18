@@ -49,6 +49,8 @@ def _with_git_metadata(server: Any, rows: list[dict[str, Any]]) -> list[dict[str
     seen: set[str] = set()
 
     for row in rows:
+        if row.get("name") == "main":
+            row["is_protected"] = True
         info = git_by_name.get(row["name"])
         if info is None:
             # Git is authoritative for ref existence.

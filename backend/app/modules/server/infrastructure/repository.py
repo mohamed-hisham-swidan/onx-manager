@@ -231,7 +231,8 @@ class SQLServerRepository(ServerRepository):
         from app.modules.server.domain.aggregate import ServerStatus
 
         status_map: dict[str, Any] = {s.value: s for s in ServerStatus}
-        server._status = status_map.get(model.status, ServerStatus.CREATED)
+        status_key = model.status.lower() if isinstance(model.status, str) else model.status
+        server._status = status_map.get(status_key, ServerStatus.CREATED)
 
         return server
 

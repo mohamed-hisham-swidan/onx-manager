@@ -215,12 +215,13 @@ class RepoLeaseManager:
         if dialect == "sqlite":
             return (
                 "INSERT OR IGNORE INTO server_repo_leases "
-                "(server_id, fencing_token, updated_at) "
-                f"VALUES (:sid, 0, {now})"
+                "(server_id, fencing_token, previous_tree_retention, updated_at) "
+                f"VALUES (:sid, 0, 'until_health_gate', {now})"
             )
         return (
-            "INSERT INTO server_repo_leases (server_id, fencing_token, updated_at) "
-            f"VALUES (:sid, 0, {now}) "
+            "INSERT INTO server_repo_leases "
+            "(server_id, fencing_token, previous_tree_retention, updated_at) "
+            f"VALUES (:sid, 0, 'until_health_gate', {now}) "
             "ON CONFLICT (server_id) DO NOTHING"
         )
 

@@ -44,9 +44,7 @@ from app.modules.versioning.infrastructure.models import RefreshJournalModel
 
 logger = logging.getLogger(__name__)
 
-TERMINAL_PHASES = frozenset(
-    {"COMPLETED", "ROLLED_BACK", "FAILED_CLEAN", "UPGRADE_CONFIRMED"}
-)
+TERMINAL_PHASES = frozenset({"COMPLETED", "ROLLED_BACK", "FAILED_CLEAN", "UPGRADE_CONFIRMED"})
 ACTIVE_PHASES = frozenset(
     {
         "QUIESCED",
@@ -169,9 +167,7 @@ class RefreshJournalRecord:
             )
         expected_terminal = self.phase in TERMINAL_PHASES
         if self.terminal != expected_terminal:
-            raise ValidationError(
-                "terminal flag does not match phase", field="terminal"
-            )
+            raise ValidationError("terminal flag does not match phase", field="terminal")
         if not isinstance(self.carried_entries, tuple):
             object.__setattr__(self, "carried_entries", tuple(self.carried_entries))
 
@@ -256,8 +252,7 @@ class RefreshJournalRecord:
 
 def _values_from_model(model: RefreshJournalModel) -> dict[str, Any]:
     return {
-        column.name: getattr(model, column.name)
-        for column in RefreshJournalModel.__table__.columns
+        column.name: getattr(model, column.name) for column in RefreshJournalModel.__table__.columns
     }
 
 
@@ -426,9 +421,7 @@ class RefreshJournalRepository:
                 "Refresh journal is not valid JSON", field="refresh_journal"
             ) from exc
         if not isinstance(data, dict):
-            raise ValidationError(
-                "Refresh journal must be a JSON object", field="refresh_journal"
-            )
+            raise ValidationError("Refresh journal must be a JSON object", field="refresh_journal")
         record = RefreshJournalRecord.from_dict(data)
         if record.server_id != validate_server_segment(server_id):
             raise ValidationError(
@@ -548,9 +541,7 @@ class RefreshJournalRepository:
         staging = _absolute_path(staging_path, "staging_path")
         previous = _absolute_path(previous_path, "previous_path")
         if live == staging:
-            raise ValidationError(
-                "live_path and staging_path must differ", field="staging_path"
-            )
+            raise ValidationError("live_path and staging_path must differ", field="staging_path")
         jid = journal_id or uuid.uuid4().hex
         if not isinstance(jid, str) or not jid:
             raise ValidationError("journal_id must be a non-empty string", field="journal_id")
@@ -734,9 +725,7 @@ class RefreshJournalRepository:
         if used_exchange is not None:
             values["used_exchange"] = used_exchange
         if carried_entries is not None:
-            values["carried_entries_json"] = json.dumps(
-                _normalise_carried(carried_entries)
-            )
+            values["carried_entries_json"] = json.dumps(_normalise_carried(carried_entries))
         if export_id is not None:
             values["export_id"] = export_id or None
         if retention_policy is not None:
@@ -801,15 +790,16 @@ class RefreshJournalRepository:
                 .where(
                     RefreshJournalModel.journal_id == journal_id,
                     RefreshJournalModel.fencing_token == fencing_token,
-                    RefreshJournalModel.terminal.is_(False),
+                    (
+                        RefreshJournalModel.terminal.is_(False)
+                        | ((RefreshJournalModel.phase == "COMPLETED") & (phase == "ROLLING_BACK"))
+                    ),
                 )
                 .values(**values)
                 .execution_options(synchronize_session=False)
             )
             row = session.execute(
-                select(RefreshJournalModel).where(
-                    RefreshJournalModel.journal_id == journal_id
-                )
+                select(RefreshJournalModel).where(RefreshJournalModel.journal_id == journal_id)
             ).scalar_one_or_none()
             if not cast(CursorResult[Any], result).rowcount or row is None:
                 self._raise_mismatch(
@@ -858,16 +848,17 @@ class RefreshJournalRepository:
                 .where(
                     RefreshJournalModel.journal_id == journal_id,
                     RefreshJournalModel.fencing_token == fencing_token,
-                    RefreshJournalModel.terminal.is_(False),
+                    (
+                        RefreshJournalModel.terminal.is_(False)
+                        | ((RefreshJournalModel.phase == "COMPLETED") & (phase == "ROLLING_BACK"))
+                    ),
                 )
                 .values(**values)
                 .execution_options(synchronize_session=False)
             )
             row = (
                 await session.execute(
-                    select(RefreshJournalModel).where(
-                        RefreshJournalModel.journal_id == journal_id
-                    )
+                    select(RefreshJournalModel).where(RefreshJournalModel.journal_id == journal_id)
                 )
             ).scalar_one_or_none()
             if not cast(CursorResult[Any], result).rowcount or row is None:
@@ -962,9 +953,7 @@ class RefreshJournalRepository:
             return _record_from_values(_values_from_model(row))
         return None
 
-    async def get_latest_for_server(
-        self, server_id: str
-    ) -> RefreshJournalRecord | None:
+    async def get_latest_for_server(self, server_id: str) -> RefreshJournalRecord | None:
         """Return the newest journal for a server, terminal or not."""
         segment = validate_server_segment(server_id)
         factory = self._get_async_factory()
@@ -1110,9 +1099,7 @@ class RefreshJournalRepository:
     ) -> RefreshJournalRecord:
         """Mark a COMPLETED journal (terminal) as UPGRADE_CONFIRMED."""
         if not isinstance(journal_id, str) or not journal_id:
-            raise ValidationError(
-                "journal_id must be a non-empty string", field="journal_id"
-            )
+            raise ValidationError("journal_id must be a non-empty string", field="journal_id")
         factory = self._get_async_factory()
         async with factory() as session:
             conditions = [

@@ -17,6 +17,7 @@ from app.registration import register_handlers
 
 SERVER_ID = "srv-mode-gate-1"
 VERSIONING = f"/api/v1/servers/{SERVER_ID}/versioning"
+FILES = f"/api/v1/servers/{SERVER_ID}/files"
 
 # (method, path suffix, body) — every versioning operation in P1's route list.
 ROUTES: list[tuple[str, str, dict | None]] = [
@@ -59,6 +60,30 @@ ROUTES: list[tuple[str, str, dict | None]] = [
     ("POST", "/import-review/rev-1/confirm", {}),
     ("POST", "/import-review/rev-1/dismiss", {}),
     ("POST", "/import-review/rev-1/revert", {}),
+    ("GET", "/refresh", None),
+    ("POST", "/refresh", {}),
+    ("POST", "/rollback", {}),
+    ("POST", "/upgrade/confirm", {}),
+    ("POST", "/refresh/release-pins", {}),
+    ("GET", "/class-c/snapshots", None),
+    ("POST", "/class-c/snapshots", {}),
+    ("POST", "/class-c/snapshots/snap-1/restore", {}),
+    ("DELETE", "/class-c/snapshots/snap-1", None),
+    ("GET", "/class-c/dynamic", None),
+    ("POST", "/class-c/dynamic/reset", {"path": "a.yml"}),
+    ("GET", "/secrets", None),
+    (
+        "POST",
+        "/secrets/extract",
+        {"branch": "feat", "path": "config/a.yml", "key_name": "K", "secret_value": "v"},
+    ),
+    ("DELETE", "/secrets/K", None),
+]
+
+LIVE_STATE_ROUTES: list[tuple[str, str, dict | None]] = [
+    ("GET", "/live-state", None),
+    ("GET", "/live-state/content?path=/whitelist.json", None),
+    ("PUT", "/live-state/content", {"path": "/whitelist.json", "content": "x"}),
 ]
 
 ROUTE_IDS = [f"{method} {path}" for method, path, _ in ROUTES]
@@ -122,6 +147,37 @@ async def test_simple_server_is_blocked_with_409(method: str, path: str, body: d
     status, payload = await _request(method, path, body)
     assert status == 409
     assert payload.get("code") == "SERVER_MODE_VERSIONING_DISABLED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path", "body"), LIVE_STATE_ROUTES, ids=[f"{m} {p}" for m, p, _ in LIVE_STATE_ROUTES]
+)
+async def test_live_state_simple_server_is_blocked(
+    method: str, path: str, body: dict | None
+) -> None:
+    await _seed_server()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        if body is None:
+            resp = await client.request(
+                method, f"{FILES}{path}", headers=_admin_headers()
+            )
+        else:
+            resp = await client.request(
+                method, f"{FILES}{path}", headers=_admin_headers(), json=body
+            )
+    payload = (
+        resp.json()
+        if resp.headers.get("content-type", "").startswith("application/json")
+        else {}
+    )
+    assert resp.status_code == 409
+    assert payload.get("code") in {
+        "SERVER_MODE_VERSIONING_DISABLED",
+        "VERSIONING_REQUIRES_ADVANCED_MODE",
+        "ADVANCED_MODE_DISABLED",
+    }
 
 
 @pytest.mark.asyncio

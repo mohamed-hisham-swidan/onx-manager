@@ -33,6 +33,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import threading
 import uuid
 from collections.abc import (
@@ -260,9 +261,7 @@ def staging_enospc_guard(
     if live_dir is not None:
         live = _absolute_path(live_dir, "live_dir")
         if staging == live:
-            raise ValidationError(
-                "staging_dir and live_dir must differ", field="staging_dir"
-            )
+            raise ValidationError("staging_dir and live_dir must differ", field="staging_dir")
         try:
             common = os.path.commonpath([str(staging), str(live)])
         except ValueError as exc:
@@ -296,9 +295,7 @@ def check_swap_preconditions(
     live = _existing_plain_directory(live_dir, "live_dir")
     staging = _absolute_path(staging_dir, "staging_dir")
     if os.path.ismount(live):
-        raise ConflictError(
-            f"Refusing to refresh: live directory is a mountpoint: {live}"
-        )
+        raise ConflictError(f"Refusing to refresh: live directory is a mountpoint: {live}")
     parent = staging.parent
     if parent.is_symlink() or not parent.is_dir():
         raise ValidationError(
@@ -387,15 +384,12 @@ def check_worktree_locks(
         if not worktree_meta.is_dir() or worktree_meta.is_symlink():
             continue
         for entry in sorted(os.scandir(worktree_meta), key=lambda item: item.name):
-            if entry.is_dir(follow_symlinks=False) and _has_locked_marker(
-                Path(entry.path)
-            ):
+            if entry.is_dir(follow_symlinks=False) and _has_locked_marker(Path(entry.path)):
                 locked.add(entry.name)
 
     if locked:
         raise ConflictError(
-            "A locked Git worktree blocks refresh; unlock it first: "
-            + ", ".join(sorted(locked))
+            "A locked Git worktree blocks refresh; unlock it first: " + ", ".join(sorted(locked))
         )
 
 
@@ -427,8 +421,7 @@ def parse_retention_policy(raw: str | int) -> tuple[str, timedelta | None]:
         match = _HOURS_RE.match(text)
         if match is None:
             raise ValidationError(
-                "retention_policy must be 'until_health_gate', 'until_confirm', "
-                "or 1..168 hours",
+                "retention_policy must be 'until_health_gate', 'until_confirm', or 1..168 hours",
                 field="retention_policy",
                 details={"value": str(raw)[:64]},
             )
@@ -535,9 +528,7 @@ def restore_carried_entries(
         if not os.path.lexists(source):
             continue
         if os.path.lexists(target):
-            raise ConflictError(
-                f"Cannot restore carried entry '{relpath}' over existing live data"
-            )
+            raise ConflictError(f"Cannot restore carried entry '{relpath}' over existing live data")
         os.rename(source, target)
         restored.append(relpath)
     return sorted(restored)
@@ -933,28 +924,16 @@ class HealthGateEvaluator:
         sleep: Callable[[float], Any] | None = None,
     ) -> None:
         if not callable(process_alive):
-            raise ValidationError(
-                "process_alive probe must be callable", field="process_alive"
-            )
-        if not isinstance(stability_window, (int, float)) or isinstance(
-            stability_window, bool
-        ):
-            raise ValidationError(
-                "stability_window must be a number", field="stability_window"
-            )
+            raise ValidationError("process_alive probe must be callable", field="process_alive")
+        if not isinstance(stability_window, (int, float)) or isinstance(stability_window, bool):
+            raise ValidationError("stability_window must be a number", field="stability_window")
         if float(stability_window) < 0:
-            raise ValidationError(
-                "stability_window must be non-negative", field="stability_window"
-            )
+            raise ValidationError("stability_window must be non-negative", field="stability_window")
         if timeout is not None:
             if not isinstance(timeout, (int, float)) or isinstance(timeout, bool):
-                raise ValidationError(
-                    "timeout must be a number", field="timeout"
-                )
+                raise ValidationError("timeout must be a number", field="timeout")
             if float(timeout) <= 0:
-                raise ValidationError(
-                    "timeout must be positive", field="timeout"
-                )
+                raise ValidationError("timeout must be positive", field="timeout")
         self._process_alive = process_alive
         self._boot_log = boot_log
         self._ready = ready
@@ -978,14 +957,10 @@ class HealthGateEvaluator:
         if self._boot_log is not None:
             log = await asyncio.to_thread(self._boot_log)
             if not isinstance(log, str):
-                raise ValidationError(
-                    "boot_log probe must return a string", field="boot_log"
-                )
+                raise ValidationError("boot_log probe must return a string", field="boot_log")
             reason = _crash_reason(log)
             if reason is not None:
-                return HealthGateResult(
-                    passed=False, failed_step=STEP_BOOT_LOG, reason=reason
-                )
+                return HealthGateResult(passed=False, failed_step=STEP_BOOT_LOG, reason=reason)
         if self._ready is not None:
             timeout = self._timeout
             try:
@@ -998,10 +973,7 @@ class HealthGateEvaluator:
                 return HealthGateResult(
                     passed=False,
                     failed_step=STEP_READINESS,
-                    reason=(
-                        "server did not report ready within "
-                        f"{(timeout or 0.0):.0f}s"
-                    ),
+                    reason=(f"server did not report ready within {(timeout or 0.0):.0f}s"),
                 )
             if not ready:
                 return HealthGateResult(
@@ -1022,9 +994,7 @@ class HealthGateEvaluator:
             if isinstance(log, str):
                 reason = _crash_reason(log)
                 if reason is not None:
-                    return HealthGateResult(
-                        passed=False, failed_step=STEP_STABILITY, reason=reason
-                    )
+                    return HealthGateResult(passed=False, failed_step=STEP_STABILITY, reason=reason)
         return HealthGateResult(passed=True)
 
 
@@ -1075,13 +1045,9 @@ class BackupServicePort(Protocol):
 
     async def create_pinned_backup(self, server_id: str, live_dir: Path) -> str: ...
 
-    async def restore_backup(
-        self, server_id: str, backup_id: str, live_dir: Path
-    ) -> None: ...
+    async def restore_backup(self, server_id: str, backup_id: str, live_dir: Path) -> None: ...
 
-    async def set_pinned(
-        self, server_id: str, backup_id: str, pinned: bool
-    ) -> None: ...
+    async def set_pinned(self, server_id: str, backup_id: str, pinned: bool) -> None: ...
 
 
 class StageExportPort(Protocol):
@@ -1138,9 +1104,7 @@ class Tier1BackupServiceAdapter:
                 backup_id=backup_id,
                 server_id=ServerId(server_id),
                 storage=build_storage_backend(settings),
-                encryption=build_backup_encryption(
-                    settings.backup_encryption_key_path
-                ),
+                encryption=build_backup_encryption(settings.backup_encryption_key_path),
                 backup_type=BackupType.FULL,
             )
         except Exception:
@@ -1153,18 +1117,14 @@ class Tier1BackupServiceAdapter:
             raise
         return str(backup_id)
 
-    async def restore_backup(
-        self, server_id: str, backup_id: str, live_dir: Path
-    ) -> None:
+    async def restore_backup(self, server_id: str, backup_id: str, live_dir: Path) -> None:
         from app.modules.backup.application.restore_service import perform_safe_restore
         from app.modules.shared.value_objects import BackupJobId
 
         del server_id  # The artifact itself is the authority for restore.
         await perform_safe_restore(BackupJobId(backup_id), str(live_dir))
 
-    async def set_pinned(
-        self, server_id: str, backup_id: str, pinned: bool
-    ) -> None:
+    async def set_pinned(self, server_id: str, backup_id: str, pinned: bool) -> None:
         from app.core.persistence.db import database
         from app.modules.backup.infrastructure.repository import SQLBackupRepository
         from app.modules.shared.value_objects import BackupJobId
@@ -1180,8 +1140,7 @@ def _assert_no_session_lock(live: Path) -> None:
     lock = live / SESSION_LOCK_FILENAME
     if os.path.lexists(lock):
         raise ConflictError(
-            f"{SESSION_LOCK_FILENAME} is still present in {live}; "
-            "the server is not fully stopped"
+            f"{SESSION_LOCK_FILENAME} is still present in {live}; the server is not fully stopped"
         )
 
 
@@ -1209,9 +1168,7 @@ class FencingGuard:
                 actual_token=None,
             )
         if self.repo_lease is not None:
-            self.repo_lease.assert_fencing_token_sync(
-                self.server_id, self.token.fencing_token
-            )
+            self.repo_lease.assert_fencing_token_sync(self.server_id, self.token.fencing_token)
 
     async def assert_live(self) -> None:
         if self._lost():
@@ -1221,9 +1178,7 @@ class FencingGuard:
                 actual_token=None,
             )
         if self.repo_lease is not None:
-            await self.repo_lease.assert_fencing_token(
-                self.server_id, self.token.fencing_token
-            )
+            await self.repo_lease.assert_fencing_token(self.server_id, self.token.fencing_token)
 
 
 # ----------------------------------------------------------------------
@@ -1272,9 +1227,7 @@ class TriadRollbackService:
         self._class_c = class_c_service or ClassCSnapshotService(
             layout,
             session_factory=getattr(self._repository, "_session_factory", None),
-            sync_session_factory=getattr(
-                self._repository, "_sync_session_factory", None
-            ),
+            sync_session_factory=getattr(self._repository, "_sync_session_factory", None),
         )
         self._backup = backup_service
         self._runtime = runtime
@@ -1305,7 +1258,23 @@ class TriadRollbackService:
                 restored_class_c=False,
                 restored_backup=False,
             )
-        if record.phase in TERMINAL_PHASES:
+        if record.phase == "COMPLETED":
+            prev = (
+                record.staging_path
+                if getattr(record, "used_exchange", False)
+                else record.previous_path
+            )
+            if not prev or not Path(prev).is_dir():
+                raise ConflictError(
+                    "Previous live tree has already been purged under retention policy; "
+                    "cannot triad-rollback"
+                )
+        if record.phase in ("UPGRADE_CONFIRMED", "FAILED_CLEAN"):
+            raise ConflictError(
+                f"Refresh journal {record.journal_id} is terminal ({record.phase}) "
+                "and cannot be rolled back"
+            )
+        if record.phase in TERMINAL_PHASES and record.phase != "COMPLETED":
             raise ConflictError(
                 f"Refresh journal {record.journal_id} is terminal ({record.phase}) "
                 "and cannot be rolled back"
@@ -1327,16 +1296,12 @@ class TriadRollbackService:
             segment, journal.live_path, field="live_path"
         )
         if live.is_symlink() or not live.is_dir():
-            raise ValidationError(
-                "live_path is not a plain directory", field="live_path"
-            )
+            raise ValidationError("live_path is not a plain directory", field="live_path")
         self._assert_fence(segment, lease_token)
         await self._stop_runtime()
         _assert_no_session_lock(live)
 
-        used_previous = await self._restore_class_ab(
-            segment, journal, live, lease_token
-        )
+        used_previous = await self._restore_class_ab(segment, journal, live, lease_token)
         restored_class_c = False
         if journal.class_c_snapshot_id:
             self._assert_fence(segment, lease_token)
@@ -1355,15 +1320,11 @@ class TriadRollbackService:
                     field="pre_upgrade_backup_id",
                 )
             self._assert_fence(segment, lease_token)
-            await self._backup.restore_backup(
-                segment, journal.pre_upgrade_backup_id, live
-            )
+            await self._backup.restore_backup(segment, journal.pre_upgrade_backup_id, live)
             restored_backup = True
         if self._reset_main_ref is not None and journal.previous_main_sha:
             self._assert_fence(segment, lease_token)
-            await asyncio.to_thread(
-                self._reset_main_ref, segment, journal.previous_main_sha
-            )
+            await asyncio.to_thread(self._reset_main_ref, segment, journal.previous_main_sha)
 
         self._assert_fence(segment, lease_token)
         await self._repository.mark_previous_tree_cleaned(journal.journal_id)
@@ -1416,9 +1377,7 @@ class TriadRollbackService:
         self._assert_fence(segment, token)
         rollback_source = live.with_name(live.name + ROLLBACK_SOURCE_SUFFIX)
         if os.path.lexists(rollback_source):
-            raise ConflictError(
-                f"A stale rollback source blocks rollback: {rollback_source}"
-            )
+            raise ConflictError(f"A stale rollback source blocks rollback: {rollback_source}")
         os.rename(previous, rollback_source)
         swap_journal = DirectorySwapJournal(
             self._layout.journal / segment / ROLLBACK_SWAP_JOURNAL_FILENAME
@@ -1442,9 +1401,7 @@ class TriadRollbackService:
         broken = swap.previous_tree_path
         if os.path.lexists(broken):
             if broken.is_symlink() or not broken.is_dir():
-                raise ValidationError(
-                    "Broken tree is not a plain directory", field="previous_path"
-                )
+                raise ValidationError("Broken tree is not a plain directory", field="previous_path")
             self._assert_fence(segment, token)
             carry_complement_entries(broken, live)
             shutil.rmtree(broken)
@@ -1524,9 +1481,7 @@ class TriadRollbackService:
         broken = swap.previous_tree_path
         if os.path.lexists(broken):
             if broken.is_symlink() or not broken.is_dir():
-                raise ValidationError(
-                    "Broken tree is not a plain directory", field="previous_path"
-                )
+                raise ValidationError("Broken tree is not a plain directory", field="previous_path")
             shutil.rmtree(broken)
 
     async def _stop_runtime(self) -> None:
@@ -1536,9 +1491,7 @@ class TriadRollbackService:
         if await asyncio.to_thread(runtime.is_running):
             confirmed = await asyncio.to_thread(runtime.stop)
             if not confirmed:
-                raise ConflictError(
-                    "Server runtime did not confirm stop during rollback"
-                )
+                raise ConflictError("Server runtime did not confirm stop during rollback")
         # B-2: never swap the live tree under a container that a fresh inspect
         # still reports running. The journal stays ROLLING_BACK and the caller
         # fails closed for operator reconciliation.
@@ -1548,20 +1501,18 @@ class TriadRollbackService:
                 "refusing to touch the live tree"
             )
 
-    async def _load(
-        self, server_id: str, journal_id: str | None
-    ) -> RefreshJournalRecord:
+    async def _load(self, server_id: str, journal_id: str | None) -> RefreshJournalRecord:
         if journal_id is None:
             record = await self._repository.get_active_for_server(server_id)
             if record is None:
-                raise NotFoundError(
-                    f"No active refresh journal for server '{server_id}'"
-                )
+                latest = await self._repository.get_latest_for_server(server_id)
+                if latest is not None and latest.phase == "COMPLETED":
+                    record = latest
+                else:
+                    raise NotFoundError(f"No active refresh journal for server '{server_id}'")
         else:
             if not isinstance(journal_id, str) or not journal_id:
-                raise ValidationError(
-                    "journal_id must be a non-empty string", field="journal_id"
-                )
+                raise ValidationError("journal_id must be a non-empty string", field="journal_id")
             record = await self._repository.get(journal_id)
             if record is None:
                 raise NotFoundError(f"Refresh journal '{journal_id}' not found")
@@ -1668,9 +1619,7 @@ class LiveRefreshService:
         self._class_c = class_c_service or ClassCSnapshotService(
             layout,
             session_factory=getattr(self._repository, "_session_factory", None),
-            sync_session_factory=getattr(
-                self._repository, "_sync_session_factory", None
-            ),
+            sync_session_factory=getattr(self._repository, "_sync_session_factory", None),
         )
         self._backup = backup_service
         self._runtime = runtime
@@ -1715,18 +1664,12 @@ class LiveRefreshService:
             )
 
         if lifecycle is None:
-            async with repo.acquire(
-                server_id, holder=holder, wait_timeout=timeout
-            ) as token:
+            async with repo.acquire(server_id, holder=holder, wait_timeout=timeout) as token:
                 yield handle(token)
             return
         async with (
-            lifecycle.acquire(
-                server_id, holder=holder, wait_timeout=timeout
-            ) as _lifecycle_token,
-            repo.acquire(
-                server_id, holder=holder, wait_timeout=timeout
-            ) as token,
+            lifecycle.acquire(server_id, holder=holder, wait_timeout=timeout) as _lifecycle_token,
+            repo.acquire(server_id, holder=holder, wait_timeout=timeout) as token,
         ):
             yield handle(token)
 
@@ -1747,9 +1690,7 @@ class LiveRefreshService:
 
     def _require_runtime(self) -> ServerRuntimePort:
         if self._runtime is None:
-            raise ValidationError(
-                "A server runtime is required for live refresh", field="runtime"
-            )
+            raise ValidationError("A server runtime is required for live refresh", field="runtime")
         return self._runtime
 
     def _require_backup(self) -> BackupServicePort:
@@ -1812,19 +1753,11 @@ class LiveRefreshService:
             # M-5: scan the committed tree before _quiesce stops the server.
             # An unresolved ${ONX_SECRET_*} would otherwise fail at STAGING,
             # after downtime has already begun.
-            preflight_secrets = getattr(
-                self._stage_export, "assert_no_unresolved_secrets", None
-            )
+            preflight_secrets = getattr(self._stage_export, "assert_no_unresolved_secrets", None)
             if callable(preflight_secrets):
-                await asyncio.to_thread(
-                    preflight_secrets, segment, live, request.target_main_sha
-                )
-            await self._orchestrator.prepare_prior_previous_tree(
-                segment, retention_policy=policy
-            )
-            journal = await self._quiesce(
-                segment, request, live, staging, policy, token, guard
-            )
+                await asyncio.to_thread(preflight_secrets, segment, live, request.target_main_sha)
+            await self._orchestrator.prepare_prior_previous_tree(segment, retention_policy=policy)
+            journal = await self._quiesce(segment, request, live, staging, policy, token, guard)
             try:
                 return await self._refresh_locked(
                     segment,
@@ -1857,9 +1790,7 @@ class LiveRefreshService:
         if await asyncio.to_thread(runtime.is_running):
             confirmed = await asyncio.to_thread(runtime.stop)
             if not confirmed:
-                raise ConflictError(
-                    f"Server '{segment}' did not confirm stop; refresh aborted"
-                )
+                raise ConflictError(f"Server '{segment}' did not confirm stop; refresh aborted")
         _assert_no_session_lock(live)
         if guard is not None:
             await guard.assert_live()
@@ -1875,6 +1806,119 @@ class LiveRefreshService:
             target_main_sha=request.target_main_sha,
             retention_policy=policy,
         )
+
+    def _collect_dynamic_class_c(
+        self,
+        segment: str,
+        live: Path,
+        target_main_sha: str,
+        previous_main_sha: str | None,
+    ) -> set[str]:
+        from app.core.allowlist import classify as classify_path
+        from app.modules.versioning.infrastructure.dynamic_class_c import (
+            DynamicClassCService,
+        )
+
+        dyn_svc = (
+            DynamicClassCService(self._layout, session_factory=self._journal._session_factory)
+            if hasattr(self._journal, "_session_factory")
+            else DynamicClassCService(self._layout)
+        )
+        dynamic_paths: set[str] = set()
+        repo_git = self._layout.repo_dir(segment) / "repo.git"
+        if not (repo_git.is_dir() and live.is_dir()):
+            try:
+                dynamic_paths = set(dyn_svc.list_paths(segment))
+            except Exception:
+                dynamic_paths = set()
+            return dynamic_paths
+
+        deny = {".git", ".onx", ".onx-manager", ".mcsmanager"}
+        for dirpath, dirnames, filenames in os.walk(live, topdown=True, followlinks=False):
+            dirnames[:] = [d for d in dirnames if d not in deny]
+            for name in filenames:
+                full = Path(dirpath) / name
+                try:
+                    if full.is_symlink():
+                        continue
+                except OSError:
+                    continue
+                relpath = full.relative_to(live).as_posix()
+                if classify_path(relpath) != "B":
+                    continue
+                if not any(
+                    relpath.endswith(s)
+                    for s in (
+                        ".yml",
+                        ".yaml",
+                        ".json",
+                        ".toml",
+                        ".properties",
+                        ".cfg",
+                        ".conf",
+                        ".ini",
+                        ".txt",
+                    )
+                ):
+                    continue
+                main_sha = previous_main_sha or target_main_sha
+                # try previous sha first
+                for sha in (previous_main_sha, target_main_sha):
+                    if not sha:
+                        continue
+                    try:
+                        check = subprocess.run(
+                            [
+                                "git",
+                                "--git-dir",
+                                str(repo_git),
+                                "cat-file",
+                                "-e",
+                                f"{sha}:{relpath}",
+                            ],
+                            capture_output=True,
+                            text=True,
+                        )
+                        if check.returncode == 0:
+                            main_sha = sha
+                            break
+                    except Exception:
+                        pass
+                try:
+                    result = subprocess.run(
+                        [
+                            "git",
+                            "--git-dir",
+                            str(repo_git),
+                            "cat-file",
+                            "blob",
+                            f"{main_sha}:{relpath}",
+                        ],
+                        capture_output=True,
+                    )
+                except Exception:
+                    result = None
+                if result is None or result.returncode != 0:
+                    continue
+                main_bytes = result.stdout
+                try:
+                    branch_bytes = full.read_bytes()
+                except OSError:
+                    continue
+                with contextlib.suppress(Exception):
+                    dyn_svc.evaluate_file(
+                        segment,
+                        relpath,
+                        live_bytes=branch_bytes,
+                        baseline_bytes=main_bytes,
+                    )
+        try:
+            dynamic_paths = set(dyn_svc.list_paths(segment))
+        except Exception:
+            dynamic_paths = set()
+        with contextlib.suppress(Exception):
+            dyn_svc.close()
+        return dynamic_paths
 
     async def _refresh_locked(
         self,
@@ -1894,8 +1938,25 @@ class LiveRefreshService:
 
         if guard is not None:
             await guard.assert_live()
+
+        dynamic_class_c_paths: set[str] = set()
+        try:
+            dynamic_class_c_paths = await asyncio.to_thread(
+                self._collect_dynamic_class_c,
+                segment,
+                live,
+                request.target_main_sha,
+                request.previous_main_sha,
+            )
+        except Exception:
+            dynamic_class_c_paths = set()
+
         snapshot: ClassCSnapshotResult = await asyncio.to_thread(
-            self._class_c.create_snapshot, segment, live, pinned=True
+            self._class_c.create_snapshot,
+            segment,
+            live,
+            dynamic_class_c=dynamic_class_c_paths,
+            pinned=True,
         )
         if guard is not None:
             await guard.assert_live()
@@ -1919,9 +1980,7 @@ class LiveRefreshService:
                 staging,
                 request.target_main_sha,
                 export_id=journal.export_id or request.export_id,
-                fencing_verifier=(
-                    guard.check if guard is not None else _noop_fencing_verifier
-                ),
+                fencing_verifier=(guard.check if guard is not None else _noop_fencing_verifier),
             )
             awaitable = _as_awaitable(staged)
             if awaitable is not None:
@@ -2030,11 +2089,7 @@ class LiveRefreshService:
             # The swap journal proves whether a swap may have happened; only
             # the no-swap-journal case is safe to fail clean after restoring
             # every journaled carried entry.
-            swap_path = (
-                self._layout.journal
-                / current.server_id
-                / SWAP_JOURNAL_FILENAME
-            )
+            swap_path = self._layout.journal / current.server_id / SWAP_JOURNAL_FILENAME
             if os.path.lexists(swap_path):
                 with contextlib.suppress(Exception):
                     await self._rollback.rollback(
@@ -2089,9 +2144,7 @@ class LiveRefreshService:
     ) -> bool:
         if guard is not None:
             await guard.assert_live()
-        removed = await asyncio.to_thread(
-            self._orchestrator.clean_previous_tree, journal
-        )
+        removed = await asyncio.to_thread(self._orchestrator.clean_previous_tree, journal)
         await self._repository.mark_previous_tree_cleaned(journal.journal_id)
         return removed
 
@@ -2121,9 +2174,7 @@ class LiveRefreshService:
                 backup = self._require_backup()
                 if guard is not None:
                     await guard.assert_live()
-                await backup.set_pinned(
-                    segment, record.pre_upgrade_backup_id, False
-                )
+                await backup.set_pinned(segment, record.pre_upgrade_backup_id, False)
             if record.class_c_snapshot_id:
                 if guard is not None:
                     await guard.assert_live()
@@ -2165,9 +2216,7 @@ class LiveRefreshService:
                 backup = self._require_backup()
                 if guard is not None:
                     await guard.assert_live()
-                await backup.set_pinned(
-                    segment, record.pre_upgrade_backup_id, False
-                )
+                await backup.set_pinned(segment, record.pre_upgrade_backup_id, False)
             if record.class_c_snapshot_id:
                 if guard is not None:
                     await guard.assert_live()
@@ -2196,17 +2245,13 @@ class LiveRefreshService:
                 fencing_token=lease.fencing_token,
             )
 
-    async def _load(
-        self, server_id: str, journal_id: str | None
-    ) -> RefreshJournalRecord:
+    async def _load(self, server_id: str, journal_id: str | None) -> RefreshJournalRecord:
         if journal_id is None:
             record = await self._repository.get_active_for_server(server_id)
             if record is None:
                 record = await self._repository.get_latest_for_server(server_id)
             if record is None:
-                raise NotFoundError(
-                    f"No refresh journal for server '{server_id}'"
-                )
+                raise NotFoundError(f"No refresh journal for server '{server_id}'")
         else:
             record = await self._repository.get(journal_id)
             if record is None:
@@ -2228,6 +2273,7 @@ class RefreshServerCommand(Command):
 
     server_id: str
     request: LiveRefreshRequest
+    actor_id: str | None = None
 
 
 class ConfirmUpgradeCommand(Command):
@@ -2253,8 +2299,7 @@ class ReleaseRefreshPinsCommand(Command):
 
 
 RefreshServiceFactory = (
-    LiveRefreshService
-    | Callable[[str], Awaitable[LiveRefreshService] | LiveRefreshService]
+    LiveRefreshService | Callable[[str], Awaitable[LiveRefreshService] | LiveRefreshService]
 )
 
 
@@ -2296,9 +2341,7 @@ class ConfirmUpgradeCommandHandler(CommandHandler[ConfirmUpgradeCommand]):
 
     async def __call__(self, command: ConfirmUpgradeCommand) -> RefreshJournalRecord:
         service = await _resolve_refresh_service(self._service, command.server_id)
-        return await service.confirm_upgrade_unpin(
-            command.server_id, command.journal_id
-        )
+        return await service.confirm_upgrade_unpin(command.server_id, command.journal_id)
 
 
 class RollbackRefreshCommandHandler(CommandHandler[RollbackRefreshCommand]):
@@ -2310,9 +2353,7 @@ class RollbackRefreshCommandHandler(CommandHandler[RollbackRefreshCommand]):
 
     async def __call__(self, command: RollbackRefreshCommand) -> RollbackResult:
         service = await _resolve_refresh_service(self._service, command.server_id)
-        return await service.rollback(
-            command.server_id, command.journal_id, reason=command.reason
-        )
+        return await service.rollback(command.server_id, command.journal_id, reason=command.reason)
 
 
 class ReleaseRefreshPinsCommandHandler(CommandHandler[ReleaseRefreshPinsCommand]):

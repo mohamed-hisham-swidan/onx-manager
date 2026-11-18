@@ -75,12 +75,21 @@ class CreateTagHandler(CommandHandler[CreateTagCommand]):
         events: list[DomainEvent] | None = None,
     ) -> CommandResult:
         from app.modules.shared.value_objects import ServerId
+        from app.modules.versioning.application.git_branch_adapter import git_branch_context
 
         # Verify server exists
         try:
-            await server_repo.get(ServerId(command.server_id))
+            server = await server_repo.get(ServerId(command.server_id))
         except Exception as exc:
             raise NotFoundError(f"Server '{command.server_id}' not found") from exc
+        if server is None:
+            raise NotFoundError(f"Server '{command.server_id}' not found")
+
+        git_context = git_branch_context(server)
+        if git_context is not None:
+            return await self._execute_native_git(
+                command, server, git_context, versioning_repo, events
+            )
 
         # Verify commit exists and belongs to server
         commit = await versioning_repo.get_commit(command.commit_id)
@@ -108,6 +117,99 @@ class CreateTagHandler(CommandHandler[CreateTagCommand]):
             server_id=command.server_id,
             tag_name=tag.name,
             commit_id=tag.commit_id,
+        )
+        if events is not None:
+            events.append(event)
+        elif self._event_bus is not None:
+            await self._event_bus.publish(event)
+
+        return CommandResult(
+            success=True,
+            entity_id=tag.id,
+            details={
+                "tag_id": tag.id,
+                "name": tag.name,
+                "server_id": tag.server_id,
+                "commit_id": tag.commit_id,
+            },
+        )
+
+    async def _execute_native_git(self, command, server, git_context, versioning_repo, events=None):
+        import uuid as _uuid
+
+        from app.core.exceptions import ValidationError
+        from app.modules.versioning.domain.entities import ServerCommit
+        from app.modules.versioning.domain.value_objects import CommitManifest
+
+        # validate tag name
+        runner = git_context.service.open_runner(str(server.id), git_context.server_root)
+        check = runner.run("check-ref-format", f"refs/tags/{command.name}", check=False)
+        if check.returncode != 0:
+            raise ValidationError(f"Invalid tag name '{command.name}'")
+
+        # duplicate in repo
+        existing_ref = runner.run(
+            "rev-parse", "--verify", "--quiet", f"refs/tags/{command.name}", check=False
+        )
+        if existing_ref.returncode == 0:
+            raise ConflictError(f"Tag '{command.name}' already exists")
+
+        # duplicate in db
+        db_existing = await versioning_repo.get_tag(command.server_id, command.name)
+        if db_existing is not None:
+            raise ConflictError(
+                f"Tag '{command.name}' already exists on server '{command.server_id}'"
+            )
+
+        # resolve commit
+        resolved = runner.run(
+            "rev-parse", "--verify", "--quiet", f"{command.commit_id}^{{commit}}", check=False
+        )
+        resolved_sha = None
+        if resolved.returncode == 0:
+            resolved_sha = resolved.stdout.strip()
+        else:
+            db_commit = await versioning_repo.get_commit(command.commit_id)
+            if db_commit is not None and db_commit.server_id == command.server_id:
+                resolved_sha = command.commit_id
+                # ensure in repo
+                check2 = runner.run(
+                    "rev-parse", "--verify", "--quiet", f"{resolved_sha}^{{commit}}", check=False
+                )
+                if check2.returncode != 0:
+                    raise NotFoundError(f"Commit '{command.commit_id}' not found in repository")
+        if not resolved_sha:
+            raise NotFoundError(
+                f"Commit '{command.commit_id}' not found on server '{command.server_id}'"
+            )
+
+        # create tag
+        runner.run("tag", command.name, resolved_sha)
+
+        # project commit if missing
+        if await versioning_repo.get_commit(resolved_sha) is None:
+            commit = ServerCommit(
+                id=resolved_sha,
+                server_id=command.server_id,
+                message="",
+                manifest=CommitManifest(
+                    server_type=str(server.server_type),
+                    minecraft_version=str(server.minecraft_version),
+                ),
+                author_id=None,
+            )
+            await versioning_repo.save_commit(commit)
+
+        tag = Tag(
+            id=str(_uuid.uuid4()),
+            server_id=command.server_id,
+            name=command.name,
+            commit_id=resolved_sha,
+        )
+        await versioning_repo.save_tag(tag)
+
+        event = TagCreatedEvent(
+            server_id=command.server_id, tag_name=tag.name, commit_id=tag.commit_id
         )
         if events is not None:
             events.append(event)
