@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from httpx import AsyncClient
 from app.core.host_state import ensure_host_state_layout
 from app.core.persistence.db import database
 from app.modules.server.infrastructure.models import ServerModel
+from app.modules.server.infrastructure.providers import provider_factory
+from app.modules.server.infrastructure.providers.base import ServerHandle
 from app.modules.versioning.domain.lockfile import LoaderRef, LockfileV21
 from app.modules.versioning.infrastructure.git_branches import GitBranchService
 from app.modules.versioning.infrastructure.git_repository import GitRepositoryService
@@ -51,7 +54,7 @@ async def _seed_server(root: Path) -> None:
                 working_directory=".",
                 startup_jar="server.jar",
                 deployment_host="127.0.0.1",
-                port=25565,
+                port=29965,
                 java_args="-Xmx1G",
                 mode="advanced",
                 provider="docker",
@@ -91,7 +94,16 @@ async def advanced_server(
     GitBranchService(layout).create_branch(SERVER_ID, root, "feat")
     WORKTREE = root / ".onx" / "worktrees" / "feat"
     header = await _seed_api_key_header(client, created_user["user_id"], ["admin:full"])
-    return root, header
+    try:
+        yield root, header
+    finally:
+        handle = ServerHandle(
+            provider="docker",
+            server_id=SERVER_ID,
+            external_id=f"onx-{SERVER_ID}",
+        )
+        with contextlib.suppress(Exception):
+            await provider_factory.get("docker").destroy(handle)
 
 
 # ---------- existing 5 tests ----------
@@ -321,7 +333,7 @@ async def test_refresh_rollback_from_completed_and_confirm(client: AsyncClient, 
         zf.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nMain-Class: Boot\n\n")
         zf.writestr("Boot.class", _boot_class)
     (root / "server.properties").write_text(
-        "motd=Hello\nserver-port=25565\nlevel-name=world\ngamemode=survival\n",
+        "motd=Hello\nserver-port=29965\nlevel-name=world\ngamemode=survival\n",
         encoding="utf-8",
     )
     # ensure docker provider
