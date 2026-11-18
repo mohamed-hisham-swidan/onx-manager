@@ -182,6 +182,25 @@ class RefreshStartupReconciler:
         if summary.removed_directories or summary.marked_missing:
             logger.warning("Class-C startup reconciliation: %s", summary)
 
+    async def _reconcile_data_templates(self, errors: list[str]) -> None:
+        try:
+            from app.modules.versioning.infrastructure.data_templates import (
+                reconcile_data_templates_and_save_off_async,
+            )
+
+            layout = self._layout
+            factory = getattr(self._repository, "_session_factory", None)
+            if factory is not None:
+                async with factory() as session:
+                    await reconcile_data_templates_and_save_off_async(
+                        layout, db_session=session
+                    )
+            else:
+                await reconcile_data_templates_and_save_off_async(layout)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"data-templates: {exc}")
+            logger.warning("Data template startup reconciliation failed: %s", exc)
+
     async def _reconcile_async(self) -> RefreshRecoverySummary:
         now = self._now or datetime.now(UTC)
         errors: list[str] = []
@@ -195,6 +214,7 @@ class RefreshStartupReconciler:
         removed = self._remove_unfinalized_staging(records, retained, errors)
         pruned = await self._prune_previous_trees(now, errors)
         self._reconcile_class_c_vault(errors)
+        await self._reconcile_data_templates(errors)
 
         summary = RefreshRecoverySummary(
             recovered_swaps=tuple(sorted(changed_swaps)),

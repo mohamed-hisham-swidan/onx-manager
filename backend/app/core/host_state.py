@@ -113,9 +113,14 @@ class HostStateLayout:
     repos: Path  # <root>/repos
     locks: Path  # <root>/locks
     journal: Path  # <root>/journal
+    data_templates: Path | None = None  # <root>/data-templates
     host_root: str | None = None
     marker_id: str = ""
     marker_status: str = "unverified"
+
+    def __post_init__(self) -> None:
+        if self.data_templates is None:
+            object.__setattr__(self, "data_templates", self.root / "data-templates")
 
     def server_meta_dir(self, server_id: str) -> Path:
         seg = validate_server_segment(server_id)
@@ -133,6 +138,11 @@ class HostStateLayout:
         """Return the per-server repository storage directory outside the server tree."""
         seg = validate_server_segment(server_id)
         return self.repos / seg
+
+    def data_templates_dir(self, server_id: str) -> Path:
+        seg = validate_server_segment(server_id)
+        assert self.data_templates is not None
+        return self.data_templates / seg
 
 
 def _ensure_directory(path: Path) -> None:
@@ -399,6 +409,7 @@ def resolve_host_state_layout(settings: AppSettings | None = None) -> HostStateL
         repos=canonical_root / "repos",
         locks=canonical_root / "locks",
         journal=canonical_root / "journal",
+        data_templates=canonical_root / "data-templates",
         host_root=host_root,
     )
 
@@ -418,6 +429,7 @@ def ensure_host_state_layout(settings: AppSettings | None = None) -> HostStateLa
         layout.repos,
         layout.locks,
         layout.journal,
+        layout.data_templates,
     ):
         _ensure_directory(subdir)
 
@@ -433,6 +445,7 @@ def ensure_host_state_layout(settings: AppSettings | None = None) -> HostStateLa
         repos=layout.repos,
         locks=layout.locks,
         journal=layout.journal,
+        data_templates=layout.data_templates,
         host_root=layout.host_root,
         marker_id=marker_id,
         marker_status=marker_status,

@@ -153,6 +153,19 @@ async def lifespan(_app: FastAPI):
         except Exception:
             logger.exception("Refresh startup recovery failed")
 
+        try:
+            from app.core.host_state import ensure_host_state_layout
+            from app.modules.versioning.infrastructure.data_templates import (
+                reconcile_data_templates_and_save_off_async,
+            )
+
+            layout = ensure_host_state_layout(settings)
+            await reconcile_data_templates_and_save_off_async(
+                layout, db_session=session
+            )
+        except Exception:
+            logger.exception("Data template startup reconciliation failed")
+
         repo = SQLServerRepository(session)
         try:
             from app.modules.server.application.services.import_service import (

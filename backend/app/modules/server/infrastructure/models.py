@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -46,6 +47,11 @@ class ServerModel(Base, TimestampMixin):
     view_distance = Column(Integer, nullable=False, default=10)
     simulation_distance = Column(Integer, nullable=False, default=10)
     mode = Column(String(16), nullable=False, default="simple")
+
+    rcon_save_off_active = Column(Boolean, nullable=False, default=False, server_default=text("0"))
+    max_concurrent_branch_runs = Column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
 
     provider = Column(String(32), nullable=False, default="")
     deployment_host = Column(String(255), nullable=True)

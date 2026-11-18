@@ -94,6 +94,11 @@ class ServerBranch:
     status: BranchStatus = BranchStatus.CREATED
     is_protected: bool = False
     protection_policy: BranchProtectionPolicy | None = None
+    port_set: dict[str, Any] | None = None
+    runtime_status: str = "stopped"
+    active_runtime_id: str | None = None
+    active_commit_sha: str | None = None
+    active_data_template_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.server_id:
@@ -403,6 +408,11 @@ class Runtime:
     started_at: datetime = field(default_factory=_utcnow)
     stopped_at: datetime | None = None
     created_at: datetime = field(default_factory=_utcnow)
+    branch_name: str | None = None
+    data_template_id: str | None = None
+    port_set: dict[str, Any] | None = None
+    allow_public_test_join: bool = False
+    export_path: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -640,6 +650,9 @@ class ServerTestRun:
     evidence_bundle: dict[str, Any] | None = None
     artifacts_purged: bool = False
     operation_id: str | None = None
+    branch_name: str | None = None
+    data_template_id: str | None = None
+    port_set: dict[str, Any] | None = None
 
     @property
     def is_terminal(self) -> bool:
@@ -684,3 +697,30 @@ class ServerTestRun:
 
 Run = ServerTestRun
 TestRun = ServerTestRun
+
+
+@dataclass
+class DataTemplate:
+    """Stored quiescent data template for a server."""
+
+    id: str
+    server_id: str
+    name: str
+    description: str = ""
+    source_branch_name: str | None = None
+    source_commit_sha: str | None = None
+    storage_path: str = ""
+    file_count: int = 0
+    total_bytes: int = 0
+    status: str = "ready"
+    operation_id: str | None = None
+    created_at: datetime = field(default_factory=_utcnow)
+    updated_at: datetime = field(default_factory=_utcnow)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("DataTemplate id cannot be empty")
+        if not self.server_id:
+            raise ValueError("DataTemplate server_id cannot be empty")
+        if not self.name:
+            raise ValueError("DataTemplate name cannot be empty")

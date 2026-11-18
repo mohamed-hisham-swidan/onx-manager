@@ -39,6 +39,12 @@ class ServerBranchModel(Base):
     protection_policy = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
+    port_set_json = Column(JSON, nullable=True)
+    runtime_status = Column(String(32), nullable=False, default="stopped", server_default="stopped")
+    active_runtime_id = Column(String(64), nullable=True)
+    active_commit_sha = Column(String(64), nullable=True)
+    active_data_template_id = Column(String(36), nullable=True)
+
     __table_args__ = (UniqueConstraint("server_id", "name", name="uq_server_branch_name"),)
 
 
@@ -121,6 +127,10 @@ class ServerTestRunModel(Base):
     artifacts_purged = Column(Boolean, nullable=False, default=False)
     # Stage B: Operation linkage
     operation_id = Column(String(36), nullable=True, index=True)
+    # P4
+    branch_name = Column(String(64), nullable=True)
+    data_template_id = Column(String(36), nullable=True)
+    port_set_json = Column(JSON, nullable=True)
 
 
 class ServerTestDefinitionModel(Base):
@@ -164,6 +174,17 @@ class ServerRuntimeModel(Base):
     started_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     stopped_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    # P4
+    branch_name = Column(String(64), nullable=True)
+    data_template_id = Column(String(36), nullable=True)
+    port_set_json = Column(JSON, nullable=True)
+    allow_public_test_join = Column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    export_path = Column(String(512), nullable=True)
+
+    __table_args__ = (Index("ix_server_runtimes_server_branch", "server_id", "branch_name"),)
 
 
 class ServerAdmissionLeaseModel(Base):
@@ -333,4 +354,29 @@ class ServerDynamicClassCModel(Base):
     __table_args__ = (
         UniqueConstraint("server_id", "relpath", name="uq_server_dynamic_class_c_path"),
         Index("ix_server_dynamic_class_c_server_id", "server_id"),
+    )
+
+
+class ServerDataTemplateModel(Base):
+    __tablename__ = "server_data_templates"
+
+    id = Column(String(36), primary_key=True)
+    server_id = Column(
+        String(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(String(100), nullable=False)
+    description = Column(String(500), nullable=False, default="", server_default="")
+    source_branch_name = Column(String(64), nullable=True)
+    source_commit_sha = Column(String(64), nullable=True)
+    storage_path = Column(String(512), nullable=False)
+    file_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    total_bytes = Column(BigInteger, nullable=False, default=0, server_default=text("0"))
+    status = Column(String(32), nullable=False, default="ready", server_default="ready")
+    operation_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("server_id", "name", name="uq_server_data_template_name"),
+        Index("ix_server_data_templates_server_id", "server_id"),
     )

@@ -97,6 +97,11 @@ class SQLVersioningRepository(VersioningRepository):
                 is_protected=branch.is_protected,
                 protection_policy=policy_data,
                 created_at=branch.created_at,
+                port_set_json=branch.port_set,
+                runtime_status=branch.runtime_status,
+                active_runtime_id=branch.active_runtime_id,
+                active_commit_sha=branch.active_commit_sha,
+                active_data_template_id=branch.active_data_template_id,
             )
             self._session.add(model)
         else:
@@ -105,6 +110,11 @@ class SQLVersioningRepository(VersioningRepository):
             model.status = status_val
             model.is_protected = branch.is_protected
             model.protection_policy = policy_data
+            model.port_set_json = branch.port_set
+            model.runtime_status = branch.runtime_status
+            model.active_runtime_id = branch.active_runtime_id
+            model.active_commit_sha = branch.active_commit_sha
+            model.active_data_template_id = branch.active_data_template_id
         await self._session.flush()
         return branch
 
@@ -344,6 +354,9 @@ class SQLVersioningRepository(VersioningRepository):
                 evidence_bundle=test_run.evidence_bundle,
                 artifacts_purged=test_run.artifacts_purged,
                 operation_id=test_run.operation_id,
+                branch_name=test_run.branch_name,
+                data_template_id=test_run.data_template_id,
+                port_set_json=test_run.port_set,
             )
             self._session.add(model)
         else:
@@ -368,6 +381,9 @@ class SQLVersioningRepository(VersioningRepository):
                 model.evidence_bundle = test_run.evidence_bundle
             if test_run.operation_id is not None:
                 model.operation_id = test_run.operation_id
+            model.branch_name = test_run.branch_name
+            model.data_template_id = test_run.data_template_id
+            model.port_set_json = test_run.port_set
             model.artifacts_purged = test_run.artifacts_purged
         await self._session.flush()
         return test_run
@@ -597,6 +613,11 @@ class SQLVersioningRepository(VersioningRepository):
                 started_at=runtime.started_at,
                 stopped_at=runtime.stopped_at,
                 created_at=runtime.created_at,
+                branch_name=runtime.branch_name,
+                data_template_id=runtime.data_template_id,
+                port_set_json=runtime.port_set,
+                allow_public_test_join=runtime.allow_public_test_join,
+                export_path=runtime.export_path,
             )
             self._session.add(model)
         else:
@@ -607,6 +628,11 @@ class SQLVersioningRepository(VersioningRepository):
             model.exit_code = runtime.exit_code
             model.oom_killed = runtime.oom_killed
             model.stopped_at = runtime.stopped_at
+            model.branch_name = runtime.branch_name
+            model.data_template_id = runtime.data_template_id
+            model.port_set_json = runtime.port_set
+            model.allow_public_test_join = runtime.allow_public_test_join
+            model.export_path = runtime.export_path
         await self._session.flush()
         return runtime
 
@@ -643,6 +669,11 @@ class SQLVersioningRepository(VersioningRepository):
             status=status,
             is_protected=is_protected,
             protection_policy=protection_policy,
+            port_set=getattr(m, "port_set_json", None),
+            runtime_status=getattr(m, "runtime_status", None) or "stopped",
+            active_runtime_id=getattr(m, "active_runtime_id", None),
+            active_commit_sha=getattr(m, "active_commit_sha", None),
+            active_data_template_id=getattr(m, "active_data_template_id", None),
         )
 
     @staticmethod
@@ -722,6 +753,9 @@ class SQLVersioningRepository(VersioningRepository):
             evidence_bundle=m.evidence_bundle,
             artifacts_purged=bool(m.artifacts_purged) if m.artifacts_purged is not None else False,
             operation_id=m.operation_id,
+            branch_name=getattr(m, "branch_name", None),
+            data_template_id=getattr(m, "data_template_id", None),
+            port_set=getattr(m, "port_set_json", None),
         )
 
     @staticmethod
@@ -830,5 +864,10 @@ class SQLVersioningRepository(VersioningRepository):
             started_at=m.started_at,
             stopped_at=m.stopped_at,
             created_at=m.created_at,
+            branch_name=getattr(m, "branch_name", None),
+            data_template_id=getattr(m, "data_template_id", None),
+            port_set=getattr(m, "port_set_json", None),
+            allow_public_test_join=bool(getattr(m, "allow_public_test_join", False)),
+            export_path=getattr(m, "export_path", None),
         )
 

@@ -156,6 +156,90 @@ class ServerModeVersioningDisabledError(ConflictError):
         )
 
 
+class DuplicatePortSetError(ConflictError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        conflicting_ports: list[Any] | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        merged: dict[str, Any] = {"conflicting_ports": list(conflicting_ports or [])}
+        if details:
+            merged.update(details)
+        MCSError.__init__(
+            self,
+            message or "Duplicate port set",
+            code="DUPLICATE_PORT_SET",
+            http_status=409,
+            details=merged,
+        )
+
+
+class PortAllocationExhaustedError(ConflictError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        MCSError.__init__(
+            self,
+            message or "Port allocation exhausted",
+            code="PORT_ALLOCATION_EXHAUSTED",
+            http_status=409,
+            details=details or {},
+        )
+
+
+class HotCloneRefusedError(ConflictError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        MCSError.__init__(
+            self,
+            message or "Hot clone refused",
+            code="HOT_CLONE_REFUSED",
+            http_status=409,
+            details=details or {},
+        )
+
+
+class BranchRuntimeActiveError(ConflictError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        MCSError.__init__(
+            self,
+            message or "Branch runtime active",
+            code="BRANCH_RUNTIME_ACTIVE",
+            http_status=409,
+            details=details or {},
+        )
+
+
+class BranchConcurrencyLimitError(ConflictError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        MCSError.__init__(
+            self,
+            message or "Branch concurrency limit exceeded",
+            code="BRANCH_CONCURRENCY_LIMIT",
+            http_status=409,
+            details=details or {},
+        )
+
+
 class RefreshRecoveryRequiredError(ConflictError):
     """A non-terminal refresh journal must be reconciled before boot."""
 

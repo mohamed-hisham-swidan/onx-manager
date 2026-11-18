@@ -25,8 +25,12 @@ class ServerActivityLogModel(Base):
     actor_id = Column(String(64), nullable=True)
     summary = Column(Text, nullable=False)
     details_json = Column(Text, nullable=True)
+    branch_name = Column(String(64), nullable=True, index=True)
 
-    __table_args__ = (Index("ix_activity_server_timestamp", "server_id", "timestamp"),)
+    __table_args__ = (
+        Index("ix_activity_server_timestamp", "server_id", "timestamp"),
+        Index("ix_activity_server_branch_timestamp", "server_id", "branch_name", "timestamp"),
+    )
 
     def to_details_dict(self) -> dict[str, Any]:
         if not self.details_json:
