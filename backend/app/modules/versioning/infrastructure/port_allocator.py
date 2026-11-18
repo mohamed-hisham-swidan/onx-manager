@@ -183,3 +183,12 @@ async def allocate_port_set(
         query_port=query_port,
         plugin_ports=plugin_ports,
     )
+
+
+def release_port_set(port_set: HostPortSet) -> None:
+    """Remove a stopped runtime's ports from the in-process allocated set."""
+    try:
+        ports = set(port_set.all_host_ports())
+    except Exception:
+        ports = set()
+    _ALLOCATED_PORTS.difference_update(ports)

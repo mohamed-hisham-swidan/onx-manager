@@ -4,7 +4,7 @@ import asyncio
 
 from app.core.command_bus import Command, CommandHandler, CommandResult
 from app.core.event_bus import DomainEvent, EventBus
-from app.core.exceptions import BranchProtectedError, NotFoundError
+from app.core.exceptions import BranchProtectedError, BranchRuntimeActiveError, NotFoundError
 from app.modules.server.domain.repository import ServerRepository
 from app.modules.versioning.application.git_branch_adapter import git_branch_context
 from app.modules.versioning.domain.repository import VersioningRepository
@@ -96,8 +96,47 @@ class DeleteBranchHandler(CommandHandler[DeleteBranchCommand]):
                 "Unprotect the branch before deleting."
             )
 
+        if branch.runtime_status in ("starting", "running"):
+            raise BranchRuntimeActiveError(
+                f"Cannot delete branch '{branch.name}' while a runtime is active "
+                f"(status={branch.runtime_status}); stop the branch runtime first.",
+                details={
+                    "branch": branch.name,
+                    "runtime_status": branch.runtime_status,
+                    "active_runtime_id": branch.active_runtime_id,
+                },
+            )
+        active_rt = await versioning_repo.get_active_runtime_for_branch(
+            command.server_id, branch.name
+        )
+        if active_rt is not None:
+            raise BranchRuntimeActiveError(
+                f"Cannot delete branch '{branch.name}' while a runtime is active.",
+                details={
+                    "branch": branch.name,
+                    "active_runtime_id": active_rt.id,
+                    "runtime_status": active_rt.status.value
+                    if hasattr(active_rt.status, "value")
+                    else str(active_rt.status),
+                },
+            )
         git_context = git_branch_context(server)
         if git_context is not None:
+            git_info = git_context.service.get_branch(
+                command.server_id, git_context.server_root, command.name
+            )
+            if (
+                git_info is not None
+                and git_info.worktree_locked
+                and (git_info.worktree_lock_reason or "").startswith("runtime:")
+            ):
+                raise BranchRuntimeActiveError(
+                    f"Cannot delete branch '{branch.name}' while a runtime is active.",
+                    details={
+                        "branch": branch.name,
+                        "worktree_lock_reason": git_info.worktree_lock_reason,
+                    },
+                )
             git_context.service.delete_branch(
                 command.server_id,
                 git_context.server_root,

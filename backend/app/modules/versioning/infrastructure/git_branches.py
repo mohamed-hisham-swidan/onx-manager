@@ -21,10 +21,13 @@ from pathlib import Path
 
 from app.core.exceptions import (
     BranchProtectedError,
+    BranchRuntimeActiveError,
     ConflictError,
     GitRefValidationError,
     GitRepositoryStateError,
     NotFoundError,
+    ServerModeVersioningDisabledError,
+    ValidationError,
 )
 from app.core.host_state import HostStateLayout, validate_server_segment
 from app.modules.versioning.infrastructure.git_repository import (
@@ -49,6 +52,7 @@ class GitBranchInfo:
     sha: str
     worktree_path: Path | None = None
     worktree_locked: bool = False
+    worktree_lock_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,7 @@ class _WorktreeRecord:
     path: Path
     branch_ref: str
     locked: bool
+    lock_reason: str | None = None
 
 
 def _require_object_id(value: str, kind: str) -> str:
@@ -187,6 +192,7 @@ class GitBranchService:
                     sha=_require_object_id(oid, "commit"),
                     worktree_path=worktree.path if worktree else None,
                     worktree_locked=worktree.locked if worktree else False,
+                    worktree_lock_reason=worktree.lock_reason if worktree else None,
                 )
             )
         return branches
@@ -230,6 +236,102 @@ class GitBranchService:
                 },
             )
         return branch
+
+    def lock_worktree(
+        self,
+        server_id: str,
+        server_root: str | os.PathLike[str],
+        name: str,
+        *,
+        reason: str,
+    ) -> Path:
+        if os.name != "posix":
+            raise ServerModeVersioningDisabledError()
+        segments = _validate_branch_path_name(name)
+        root = validate_server_root(server_root)
+        if not isinstance(reason, str) or not reason:
+            raise ValidationError("Lock reason must be a non-empty string", field="reason")
+        if len(reason) > 128:
+            raise ValidationError("Lock reason must be at most 128 characters", field="reason")
+        if re.search(r"[\x00-\x1f\x7f]", reason):
+            raise ValidationError("Lock reason must not contain control characters", field="reason")
+
+        runner = self._open_repository(server_id, root)
+        runner.validate_branch_name(name)
+        ref = f"refs/heads/{name}"
+        worktrees = self._worktrees_by_ref(runner)
+        worktree = worktrees.get(ref)
+        if worktree is None:
+            raise NotFoundError(f"Branch '{name}' not found")
+        expected = self._worktree_path(root, segments)
+        if not _same_path(worktree.path, expected):
+            raise GitRepositoryStateError(
+                "Branch worktree is outside the panel worktree root",
+                details={"branch": name[:128], "path": str(worktree.path)[:256]},
+            )
+        if worktree.path.is_symlink() or not worktree.path.is_dir():
+            raise GitRepositoryStateError(
+                "Branch worktree is missing or is a symlink",
+                details={"branch": name[:128], "path": str(worktree.path)[:256]},
+            )
+        if worktree.locked:
+            raise BranchRuntimeActiveError(
+                f"Worktree for branch '{name}' is already locked",
+                details={"branch": name, "reason": worktree.lock_reason},
+            )
+        runner.run("worktree", "lock", "--reason", reason, str(worktree.path))
+        new_worktrees = self._worktrees_by_ref(runner)
+        new_wt = new_worktrees.get(ref)
+        if new_wt is None or not new_wt.locked:
+            raise GitRepositoryStateError(
+                "Git did not register the worktree lock",
+                details={"branch": name[:128]},
+            )
+        return worktree.path
+
+    def unlock_worktree(
+        self,
+        server_id: str,
+        server_root: str | os.PathLike[str],
+        name: str,
+        *,
+        expected_reason: str | None = None,
+        ignore_unlocked: bool = True,
+    ) -> bool:
+        if os.name != "posix":
+            raise ServerModeVersioningDisabledError()
+        segments = _validate_branch_path_name(name)
+        root = validate_server_root(server_root)
+        runner = self._open_repository(server_id, root)
+        runner.validate_branch_name(name)
+        ref = f"refs/heads/{name}"
+        worktrees = self._worktrees_by_ref(runner)
+        worktree = worktrees.get(ref)
+        if worktree is None:
+            if ignore_unlocked:
+                return False
+            raise NotFoundError(f"Branch '{name}' not found")
+        expected = self._worktree_path(root, segments)
+        if not _same_path(worktree.path, expected):
+            raise GitRepositoryStateError(
+                "Branch worktree is outside the panel worktree root",
+                details={"branch": name[:128], "path": str(worktree.path)[:256]},
+            )
+        if not worktree.locked:
+            if ignore_unlocked:
+                return False
+            raise GitRepositoryStateError(
+                "Branch worktree is not locked",
+                details={"branch": name[:128]},
+            )
+        if (
+            expected_reason is not None
+            and worktree.lock_reason is not None
+            and worktree.lock_reason != expected_reason
+        ):
+            raise ConflictError(f"Worktree lock reason mismatch for branch '{name}'")
+        runner.run("worktree", "unlock", str(worktree.path))
+        return True
 
     def create_branch(
         self,
@@ -308,6 +410,7 @@ class GitBranchService:
             sha=sha,
             worktree_path=target,
             worktree_locked=worktree.locked,
+            worktree_lock_reason=worktree.lock_reason,
         )
 
     def archive_branch(
@@ -524,6 +627,7 @@ class GitBranchService:
                 current["branch"] = value
             elif key == "locked":
                 current["locked"] = True
+                current["lock_reason"] = value.strip() or None
         if current:
             records.append(current)
         return records
@@ -547,10 +651,12 @@ class GitBranchService:
                     "Git reported the same branch in multiple worktrees",
                     details={"branch": branch_ref[:128]},
                 )
+            lock_reason = record.get("lock_reason")
             worktrees[branch_ref] = _WorktreeRecord(
                 path=Path(path_value),
                 branch_ref=branch_ref,
                 locked=bool(record.get("locked")),
+                lock_reason=lock_reason if isinstance(lock_reason, str) else None,
             )
         return worktrees
 

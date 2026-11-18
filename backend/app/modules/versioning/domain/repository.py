@@ -155,3 +155,14 @@ class VersioningRepository(ABC):
     async def save_runtime(self, runtime: Runtime) -> Runtime:
         return runtime
 
+    async def get_active_runtime_for_branch(
+        self, server_id: str, branch_name: str
+    ) -> Runtime | None:
+        _ = (server_id, branch_name)
+        return None
+
+    async def list_active_runtimes(
+        self, server_id: str | None = None, *, exclude_main: bool = False
+    ) -> list[Runtime]:
+        _ = (server_id, exclude_main)
+        return []

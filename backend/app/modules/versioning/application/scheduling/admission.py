@@ -24,13 +24,24 @@ import logging
 import os
 import shutil
 import uuid
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
 
-from app.core.exceptions import BotRunInsufficientResourcesError, ConflictError
+from app.core.exceptions import (
+    BotRunInsufficientResourcesError,
+    BranchConcurrencyLimitError,
+    BranchRuntimeActiveError,
+    ConflictError,
+    DuplicatePortSetError,
+    NotFoundError,
+    PortAllocationExhaustedError,
+    ServerModeVersioningDisabledError,
+    ValidationError,
+)
 from app.modules.versioning.domain.entities import ServerTestRun
 from app.modules.versioning.domain.value_objects import (
     BotTech,
@@ -409,3 +420,436 @@ async def admit(
         req_cores,
     )
     return AdmittedReservation(test_run=test_run, occupied_count=len(rows))
+
+
+# ---------------------------------------------------------------------------
+# P4-2 Branch Runtime admission
+# ---------------------------------------------------------------------------
+
+DEFAULT_MAX_CONCURRENT_BRANCH_RUNS = 1
+MAX_CONCURRENT_BRANCH_RUNS_LIMIT = 3
+BRANCH_MEMORY_FLOOR_MB = 2048
+LIGHTWEIGHT_BRANCH_MEMORY_FLOOR_MB = 1024
+BRANCH_DEFAULT_MEMORY_MB = 4096
+BRANCH_DEFAULT_CPU_CORES = 2
+LIGHTWEIGHT_BRANCH_SERVER_TYPES = frozenset(
+    {"vanilla", "velocity", "bungeecord", "waterfall", "proxy"}
+)
+_ACTIVE_RUNTIME_STATUSES = ("starting", "running")
+
+STALE_TIMEOUT_HOURS_DEFAULT = 6.0
+
+
+
+@dataclass(frozen=True)
+class BranchAdmissionDecision:
+    runtime_id: str
+    server_id: str
+    branch_name: str
+    commit_sha: str
+    memory_max_mb: int
+    memory_min_mb: int
+    cpu_cores: int
+    pids_limit: int
+    port_set: Any = None
+    server_active_branch_count: int = 0
+    server_branch_cap: int = 1
+
+
+@dataclass
+class BranchAdmissionRequest:
+    server_id: str
+    branch_name: str
+    commit_sha: str
+    server_type: str = "vanilla"
+    runtime_id: str | None = None
+    requested_memory_mb: int | None = None
+    requested_cpu_cores: int | None = None
+    max_concurrent_branch_runs: int | None = None
+    port_set: Any = None
+    allocate_ports: bool = False
+    include_query: bool = False
+    plugin_port_names: Sequence[str] = ()
+    check_os_ports: bool = True
+    data_template_id: str | None = None
+    allow_public_test_join: bool = False
+    export_path: str | None = None
+    persist_runtime: bool = True
+    now: Any = None
+
+
+class RuntimeAdmissionScheduler:
+    def __init__(
+        self,
+        engine: Any | None = None,
+        *,
+        headroom_probe: Callable[[int, str], Any] | None = None,
+    ) -> None:
+        self._engine = engine
+        self._headroom_probe = headroom_probe
+
+    @staticmethod
+    def resolve_branch_resources(
+        *,
+        server_type: str,
+        server_memory_max_mb: int | None,
+        requested_memory_mb: int | None = None,
+        server_cpu_cores: int | None = None,
+        requested_cpu_cores: int | None = None,
+    ) -> tuple[int, int, int]:
+        floor_mb = (
+            LIGHTWEIGHT_BRANCH_MEMORY_FLOOR_MB
+            if str(server_type).lower() in LIGHTWEIGHT_BRANCH_SERVER_TYPES
+            else BRANCH_MEMORY_FLOOR_MB
+        )
+        if requested_memory_mb is not None:
+            if requested_memory_mb < floor_mb:
+                raise ValidationError(
+                    f"Branch runtime requires at least {floor_mb} MB RAM "
+                    f"for server type '{server_type}'",
+                    field="memory_max_mb",
+                    details={"floor_mb": floor_mb, "requested_mb": requested_memory_mb},
+                )
+            mem_max = requested_memory_mb
+        else:
+            if server_memory_max_mb is not None and int(server_memory_max_mb) > 0:
+                mem_max = max(int(server_memory_max_mb), floor_mb)
+            else:
+                mem_max = BRANCH_DEFAULT_MEMORY_MB
+        mem_min = min(1024, mem_max)
+        if requested_cpu_cores is not None and int(requested_cpu_cores) > 0:
+            cpu_cores = int(requested_cpu_cores)
+        elif server_cpu_cores is not None and int(server_cpu_cores) > 0:
+            cpu_cores = int(server_cpu_cores)
+        else:
+            cpu_cores = BRANCH_DEFAULT_CPU_CORES
+        return mem_min, mem_max, cpu_cores
+
+    async def admit_branch_runtime(
+        self,
+        *,
+        server_id: str,
+        branch_name: str,
+        commit_sha: str,
+        server_type: str = "vanilla",
+        runtime_id: str | None = None,
+        requested_memory_mb: int | None = None,
+        requested_cpu_cores: int | None = None,
+        max_concurrent_branch_runs: int | None = None,
+        port_set: Any = None,
+        allocate_ports: bool = False,
+        include_query: bool = False,
+        plugin_port_names: Sequence[str] = (),
+        check_os_ports: bool = True,
+        data_template_id: str | None = None,
+        allow_public_test_join: bool = False,
+        export_path: str | None = None,
+        persist_runtime: bool = True,
+        now: Any = None,
+    ) -> BranchAdmissionDecision:
+        if os.name != "posix":
+            raise ServerModeVersioningDisabledError()
+        if branch_name == "main":
+            raise ValidationError(
+                "Branch runtime engine only launches non-main branches",
+                field="branch_name",
+            )
+        if max_concurrent_branch_runs is not None and not (
+            1 <= int(max_concurrent_branch_runs) <= 3
+        ):
+            raise ValidationError(
+                "max_concurrent_branch_runs must be between 1 and 3",
+                field="max_concurrent_branch_runs",
+            )
+
+        from app.core.container_hardening import PIDS_LIMIT
+        from app.core.persistence.db import database
+        from app.modules.server.infrastructure.models import ServerModel
+        from app.modules.versioning.infrastructure.models import (
+            ServerBranchModel,
+            ServerCommitModel,
+            ServerRuntimeModel,
+        )
+        from app.modules.versioning.infrastructure.port_allocator import (
+            allocate_port_set,
+            validate_port_set_atomic,
+        )
+        from app.modules.versioning.infrastructure.resource_probe import (
+            ResourcePreflightProbe,
+        )
+
+        eng = self._engine
+        if eng is None:
+            eng = database._engine
+        if eng is None:
+            raise RuntimeError("Database not initialized; cannot admit branch runtime")
+
+        at = now
+        if at is None:
+            at = datetime.now(UTC)
+
+        async with eng.connect() as conn:
+            await _claim_global_lock(conn, holder=f"branch-admit:{server_id}:{branch_name}")
+            try:
+                await reap_stale_reservations(conn, at=at, stale_hours=STALE_TIMEOUT_HOURS_DEFAULT)
+
+                srv_tbl = ServerModel.__table__
+                srv_row = (
+                    await conn.execute(srv_tbl.select().where(srv_tbl.c.id == server_id))
+                ).mappings().first()
+                if srv_row is None:
+                    raise NotFoundError(f"Server '{server_id}' not found")
+                srv = dict(srv_row)
+                srv_type = srv.get("server_type") or server_type or "vanilla"
+                override_cap = max_concurrent_branch_runs
+                if override_cap is None:
+                    override_cap = srv.get("max_concurrent_branch_runs")
+                server_cap = min(
+                    max(int(override_cap if override_cap is not None else 1), 1),
+                    MAX_CONCURRENT_BRANCH_RUNS_LIMIT,
+                )
+
+                mem_min, mem_max, req_cores = self.resolve_branch_resources(
+                    server_type=srv_type,
+                    server_memory_max_mb=srv.get("memory_max_mb"),
+                    requested_memory_mb=requested_memory_mb,
+                    server_cpu_cores=srv.get("cpu_cores"),
+                    requested_cpu_cores=requested_cpu_cores,
+                )
+
+                rt_tbl = ServerRuntimeModel.__table__
+                active_runtimes = [
+                    dict(r)
+                    for r in (
+                        await conn.execute(
+                            rt_tbl.select().where(
+                                rt_tbl.c.status.in_(_ACTIVE_RUNTIME_STATUSES),
+                                rt_tbl.c.branch_name.is_not(None),
+                                rt_tbl.c.branch_name != "main",
+                            )
+                        )
+                    ).mappings().all()
+                ]
+                server_branch_rows = [
+                    r for r in active_runtimes if r["server_id"] == server_id
+                ]
+
+                # Same branch already active
+                for r in server_branch_rows:
+                    if r.get("branch_name") == branch_name:
+                        raise BranchRuntimeActiveError(
+                            f"Branch '{branch_name}' already has an active runtime",
+                            details={
+                                "server_id": server_id,
+                                "branch_name": branch_name,
+                                "active_runtime_id": r["id"],
+                            },
+                        )
+
+                if len(server_branch_rows) >= server_cap:
+                    raise BranchConcurrencyLimitError(
+                        f"Server '{server_id}' reached active branch run limit "
+                        f"({len(server_branch_rows)}/{server_cap}); "
+                        "stop an active branch run before starting another.",
+                        details={
+                            "server_id": server_id,
+                            "active_count": len(server_branch_rows),
+                            "limit": server_cap,
+                            "active_branches": [r["branch_name"] for r in server_branch_rows],
+                        },
+                    )
+
+                # Earmarked RAM/cores
+                run_tbl = ServerTestRunModel.__table__
+                test_runs = [
+                    dict(r)
+                    for r in (
+                        await conn.execute(
+                            run_tbl.select().where(
+                                run_tbl.c.status.in_(("PENDING", "BOOTING", "RUNNING"))
+                            )
+                        )
+                    ).mappings().all()
+                ]
+                earmarked_ram = 0
+                earmarked_cores = 0
+                for row in test_runs:
+                    ram = row.get("reserved_ram_mb")
+                    cores = row.get("reserved_cores")
+                    if ram is None or cores is None:
+                        legacy_ram, legacy_cores = (
+                            ResourcePreflightProbe.calculate_required_resources(
+                                row.get("bot_count") or 0, srv_type
+                            )
+                        )
+                        ram = legacy_ram if ram is None else ram
+                        cores = legacy_cores if cores is None else cores
+                        await conn.execute(
+                            run_tbl.update()
+                            .where(run_tbl.c.id == row["id"])
+                            .values(reserved_ram_mb=ram, reserved_cores=cores)
+                        )
+                    earmarked_ram += int(ram or 0)
+                    earmarked_cores += int(cores or 0)
+
+                # starting branch runtimes earmark
+                starting_branch_runtimes = [
+                    r for r in active_runtimes if r.get("status") == "starting"
+                ]
+                server_ids_sb = {r["server_id"] for r in starting_branch_runtimes}
+                srv_rows_sb: dict[str, Any] = {}
+                if server_ids_sb:
+                    srv_rows_sb = {
+                        r["id"]: r
+                        for r in (
+                            await conn.execute(
+                                srv_tbl.select().where(srv_tbl.c.id.in_(server_ids_sb))
+                            )
+                        ).mappings().all()
+                    }
+                for r in starting_branch_runtimes:
+                    s = srv_rows_sb.get(r["server_id"])
+                    mem = 4096
+                    cores = 2
+                    if s is not None:
+                        if s.get("memory_max_mb"):
+                            mem = int(s["memory_max_mb"])
+                        if s.get("cpu_cores"):
+                            cores = int(s["cpu_cores"])
+                    earmarked_ram += mem
+                    earmarked_cores += cores
+
+                headroom = ResourcePreflightProbe.check_headroom(
+                    0, srv_type, custom_floor_mb=mem_max, custom_floor_cores=req_cores
+                )
+                if (
+                    earmarked_ram + mem_max > getattr(headroom, "available_ram_mb", 0)
+                    or earmarked_cores + req_cores > getattr(headroom, "available_cores", 0)
+                ):
+                    raise BotRunInsufficientResourcesError(
+                        message="Insufficient resources for branch runtime",
+                        details={
+                            "earmarked_ram_mb": earmarked_ram,
+                            "required_ram_mb": mem_max,
+                            "available_ram_mb": getattr(headroom, "available_ram_mb", 0),
+                            "earmarked_cores": earmarked_cores,
+                            "required_cores": req_cores,
+                            "available_cores": getattr(headroom, "available_cores", 0),
+                        },
+                    )
+
+                # Ports
+                resolved_port_set = port_set
+                if port_set is not None or allocate_ports:
+                    from sqlalchemy.ext.asyncio import AsyncSession
+
+                    async with AsyncSession(bind=conn) as p_session:
+                        if allocate_ports:
+                            resolved_port_set = await allocate_port_set(
+                                p_session,
+                                include_query=include_query,
+                                plugin_port_names=plugin_port_names,
+                                check_os_ports=check_os_ports,
+                            )
+                        else:
+                            await validate_port_set_atomic(
+                                p_session,
+                                port_set,
+                                exclude_runtime_id=runtime_id,
+                                check_os_ports=check_os_ports,
+                            )
+                            resolved_port_set = port_set
+
+                rt_id = runtime_id or str(uuid.uuid4())
+
+                if persist_runtime:
+                    commit_tbl = ServerCommitModel.__table__
+                    existing_commit = await conn.execute(
+                        commit_tbl.select().where(commit_tbl.c.id == commit_sha)
+                    )
+                    if existing_commit.scalar_one_or_none() is None:
+                        await conn.execute(
+                            commit_tbl.insert().values(
+                                id=commit_sha,
+                                server_id=server_id,
+                                message=f"Git commit {commit_sha[:12]}",
+                                manifest_json={},
+                                created_at=at,
+                            )
+                        )
+                    port_val = resolved_port_set.game_port if resolved_port_set else None
+                    port_set_json = (
+                        resolved_port_set.to_dict() if resolved_port_set else None
+                    )
+                    await conn.execute(
+                        rt_tbl.insert().values(
+                            id=rt_id,
+                            server_id=server_id,
+                            commit_id=commit_sha,
+                            materialization_id=None,
+                            provider_type="docker",
+                            port=port_val,
+                            status="starting",
+                            started_at=at,
+                            created_at=at,
+                            branch_name=branch_name,
+                            data_template_id=data_template_id,
+                            port_set_json=port_set_json,
+                            allow_public_test_join=allow_public_test_join,
+                            export_path=export_path,
+                        )
+                    )
+                    branch_tbl = ServerBranchModel.__table__
+                    await conn.execute(
+                        branch_tbl.update()
+                        .where(
+                            branch_tbl.c.server_id == server_id,
+                            branch_tbl.c.name == branch_name,
+                        )
+                        .values(
+                            runtime_status="starting",
+                            active_runtime_id=rt_id,
+                            active_commit_sha=commit_sha,
+                            active_data_template_id=data_template_id,
+                            port_set_json=port_set_json,
+                        )
+                    )
+
+                await conn.commit()
+            except (
+                BranchRuntimeActiveError,
+                BranchConcurrencyLimitError,
+                DuplicatePortSetError,
+                PortAllocationExhaustedError,
+                BotRunInsufficientResourcesError,
+                ValidationError,
+            ):
+                try:
+                    await conn.commit()
+                except Exception:
+                    await conn.rollback()
+                raise
+            except Exception:
+                await conn.rollback()
+                raise
+
+        return BranchAdmissionDecision(
+            runtime_id=rt_id,
+            server_id=server_id,
+            branch_name=branch_name,
+            commit_sha=commit_sha,
+            memory_max_mb=mem_max,
+            memory_min_mb=mem_min,
+            cpu_cores=req_cores,
+            pids_limit=PIDS_LIMIT,
+            port_set=resolved_port_set,
+            server_active_branch_count=len(server_branch_rows),
+            server_branch_cap=server_cap,
+        )
+
+
+async def admit_branch_runtime(*args: Any, **kwargs: Any) -> BranchAdmissionDecision:
+    engine = kwargs.pop("engine", None)
+    headroom_probe = kwargs.pop("headroom_probe", None)
+    scheduler = RuntimeAdmissionScheduler(engine=engine, headroom_probe=headroom_probe)
+    return await scheduler.admit_branch_runtime(*args, **kwargs)

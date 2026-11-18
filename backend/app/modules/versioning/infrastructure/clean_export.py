@@ -126,6 +126,7 @@ class CleanExportRequest:
     data_template_dir: str | os.PathLike[str] | None = None
     class_c_overlay_dir: str | os.PathLike[str] | None = None
     lec_root: str | os.PathLike[str] | None = None
+    dynamic_class_c: frozenset[str] = field(default_factory=frozenset)
     joinable_test_container: bool = False
     export_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
@@ -328,6 +329,7 @@ class CleanExportService:
                     label="Data Template",
                     allowed_class="E",
                     require_marker=True,
+                    dynamic_class_c=request.dynamic_class_c,
                 )
             if request.class_c_overlay_dir is not None:
                 self._copy_tree(
@@ -337,6 +339,7 @@ class CleanExportService:
                     label="Class-C snapshot",
                     allowed_class="C",
                     require_marker=True,
+                    dynamic_class_c=request.dynamic_class_c,
                 )
             self._inject_class_d(destination, request)
             file_count, total_bytes = self._measure_export(destination)
@@ -723,6 +726,7 @@ class CleanExportService:
         dest_prefix: str = "",
         allowed_class: str = "",
         require_marker: bool = False,
+        dynamic_class_c: frozenset[str] = frozenset(),
     ) -> None:
         source = Path(os.path.abspath(source_root))
         if source.is_symlink() or not source.is_dir():
@@ -738,7 +742,14 @@ class CleanExportService:
                     details={"path": str(source)[:256]},
                 )
         self._copy_tree_dir(
-            source, source, destination_root, overwrite, label, dest_prefix, allowed_class
+            source,
+            source,
+            destination_root,
+            overwrite,
+            label,
+            dest_prefix,
+            allowed_class,
+            dynamic_class_c=dynamic_class_c,
         )
 
     def _copy_tree_dir(
@@ -750,6 +761,8 @@ class CleanExportService:
         label: str,
         dest_prefix: str,
         allowed_class: str,
+        *,
+        dynamic_class_c: frozenset[str] = frozenset(),
     ) -> None:
         try:
             entries = sorted(os.scandir(current), key=lambda item: item.name)
@@ -777,6 +790,7 @@ class CleanExportService:
                     label,
                     dest_prefix,
                     allowed_class,
+                    dynamic_class_c=dynamic_class_c,
                 )
                 continue
             if not entry.is_file(follow_symlinks=False):
@@ -788,7 +802,9 @@ class CleanExportService:
             if name in _FORBIDDEN_EXPORT_NAMES or entry.name == EXPORT_MARKER_NAME:
                 continue
             _validate_export_relpath(dest_relpath)
-            if allowed_class and classify(dest_relpath) != allowed_class:
+            if allowed_class and classify(
+                dest_relpath, dynamic_class_c=dynamic_class_c
+            ) != allowed_class:
                 raise ValidationError(
                     f"{label} may only contain class-{allowed_class} paths",
                     field="overlay",

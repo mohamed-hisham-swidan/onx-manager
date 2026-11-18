@@ -636,6 +636,39 @@ class SQLVersioningRepository(VersioningRepository):
         await self._session.flush()
         return runtime
 
+    async def get_active_runtime_for_branch(
+        self, server_id: str, branch_name: str
+    ) -> Runtime | None:
+        stmt = (
+            select(ServerRuntimeModel)
+            .where(
+                ServerRuntimeModel.server_id == server_id,
+                ServerRuntimeModel.branch_name == branch_name,
+                ServerRuntimeModel.status.in_(("starting", "running")),
+            )
+            .order_by(desc(ServerRuntimeModel.created_at))
+        )
+        res = await self._session.execute(stmt)
+        model = res.scalar_one_or_none()
+        return self._runtime_to_domain(model) if model else None
+
+    async def list_active_runtimes(
+        self, server_id: str | None = None, *, exclude_main: bool = False
+    ) -> list[Runtime]:
+        stmt = select(ServerRuntimeModel).where(
+            ServerRuntimeModel.status.in_(("starting", "running"))
+        )
+        if server_id is not None:
+            stmt = stmt.where(ServerRuntimeModel.server_id == server_id)
+        if exclude_main:
+            stmt = stmt.where(
+                (ServerRuntimeModel.branch_name.is_(None))
+                | (ServerRuntimeModel.branch_name != "main")
+            )
+        stmt = stmt.order_by(ServerRuntimeModel.created_at)
+        res = await self._session.execute(stmt)
+        return [self._runtime_to_domain(m) for m in res.scalars().all()]
+
     # Model mappers
     @staticmethod
     def _branch_to_domain(m: ServerBranchModel) -> ServerBranch:
