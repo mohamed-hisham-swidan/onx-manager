@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState, ErrorState } from "@/components/ui/States";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Modal } from "@/components/ui/Modal";
 import { TableSkeleton } from "@/components/Skeleton";
 import { CreateBackupDialog } from "@/server_manager/components/CreateBackupDialog";
 import { HashBadge } from "@/components/ui/HashBadge";
@@ -38,6 +39,7 @@ export function BackupListPage() {
   const [deleteTarget, setDeleteTarget] = useState<BackupResponse | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<BackupResponse | null>(null);
   const [verifyResult, setVerifyResult] = useState<Record<string, string>>({});
+  const [vaultOpen, setVaultOpen] = useState(false);
 
   const serverMap = useMemo(
     () => new Map(servers?.map((s) => [s.server_id, s.name]) ?? []),
@@ -102,17 +104,12 @@ export function BackupListPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled
-              aria-disabled="true"
-              aria-label="Class-C Secret Vault (Coming soon)"
-              title="P3 Class-C Secret Vault / extraction is coming soon"
-              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-3.5 py-2 text-sm font-medium text-text-muted/70"
+              onClick={() => setVaultOpen(true)}
+              aria-label="Class-C Secret Vault"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-3.5 py-2 text-sm font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
             >
               <Icon name="lock" size={16} />
               <span>Secret Vault</span>
-              <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
-                Coming soon
-              </span>
             </button>
             <button
               type="button"
@@ -358,6 +355,13 @@ export function BackupListPage() {
         onConfirm={handleConfirmRestore}
         onCancel={() => setRestoreTarget(null)}
       />
+
+  <Modal open={vaultOpen} onClose={() => setVaultOpen(false)} title="Class-C Secret Vault">
+    <div className="space-y-2 text-sm text-text-muted">
+      <p>Class-C Secret Vault applies to Advanced-mode servers.</p>
+      <p>Select an Advanced server to manage Class-C snapshots, dynamic Class-C files, and secrets.</p>
+    </div>
+  </Modal>
     </div>
   );
 }

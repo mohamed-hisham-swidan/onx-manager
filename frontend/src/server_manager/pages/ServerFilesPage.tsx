@@ -58,6 +58,7 @@ export function ServerFilesPage() {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [showCommitDialog, setShowCommitDialog] = useState(false);
+  const [reloadCommand, setReloadCommand] = useState("");
   const [commitMessage, setCommitMessage] = useState("");
   const [prevCurrentPath, setPrevCurrentPath] = useState(currentPath);
   if (currentPath !== prevCurrentPath) {
@@ -102,6 +103,18 @@ export function ServerFilesPage() {
     setUserEdited(false);
     setEditContent("");
   }
+
+  const switchView = (mode: "branch" | "live-state") => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (mode === "live-state") next.set("view", "live-state");
+      else next.delete("view");
+      next.delete("mode");
+      next.delete("file");
+      next.delete("edit");
+      return next;
+    });
+  };
 
   const updateCurrentPath = (newPath: string) => {
     setCurrentPage(1);
@@ -165,13 +178,18 @@ export function ServerFilesPage() {
   const api = useMemo(() => createAuthenticatedApi(), []);
   const queryClient = useQueryClient();
 
+  const viewParam = searchParams.get("view") || searchParams.get("mode");
+  const viewMode = viewParam === "live-state" || viewParam === "live_state" ? "live-state" : "branch";
+  const isLiveState = viewMode === "live-state";
+  const showViewSwitcher = branchContext?.gitBacked === true || viewParam === "live-state" || viewParam === "live_state";
+
   const { data: files, isLoading, error } = useQuery({
     queryKey: queryKeys.files.list(serverId!, currentPath, activeBranch),
     queryFn: () =>
       activeBranch
         ? api.listServerFiles(serverId!, currentPath, activeBranch)
         : api.listServerFiles(serverId!, currentPath),
-    enabled: !!serverId,
+    enabled: !!serverId && !isLiveState,
   });
 
   const { data: fileContentData, isLoading: isContentLoading, error: fileContentError } = useQuery({
@@ -191,6 +209,55 @@ export function ServerFilesPage() {
   const rawTextContent =
     typeof fileContentData === "string" ? fileContentData : (fileContentData?.content ?? "");
   const displayedContent = userEdited ? editContent : rawTextContent;
+
+  const liveStatePath = currentPath || "/";
+
+  const { data: liveStateFiles, isLoading: isLiveStateLoading, error: liveStateError } = useQuery({
+    queryKey: queryKeys.files.liveStateList(serverId!, liveStatePath),
+    queryFn: () => (api.listLiveStateFiles ? api.listLiveStateFiles(serverId!, liveStatePath) : Promise.resolve({ items: [] })),
+    enabled: !!serverId && isLiveState,
+  });
+
+  const { data: liveStateContentData, isLoading: isLiveStateContentLoading, error: liveStateContentError } = useQuery({
+    queryKey: queryKeys.files.liveStateContent(serverId!, editingFile?.path ?? ""),
+    queryFn: async () => {
+      const res = await (api.readLiveStateFileContent
+        ? api.readLiveStateFileContent(serverId!, editingFile!.path)
+        : Promise.resolve({ content: "" }));
+      return res;
+    },
+    enabled: !!serverId && isLiveState && !!editingFile,
+  });
+
+  const liveStateRawContent =
+    (liveStateContentData as { content?: string } | undefined)?.content ?? "";
+  const liveStateDisplayedContent = userEdited ? editContent : liveStateRawContent;
+
+  const effectiveDisplayedContent = isLiveState ? liveStateDisplayedContent : displayedContent;
+  const effectiveContentLoading = isLiveState ? isLiveStateContentLoading : isContentLoading;
+  const effectiveContentError = isLiveState ? liveStateContentError : fileContentError;
+
+  const liveStateSaveMutation = useMutation({
+    mutationFn: () =>
+      api.writeLiveStateFileContent
+        ? api.writeLiveStateFileContent(serverId!, {
+            path: editingFile!.path,
+            content: liveStateDisplayedContent,
+            reload_command: reloadCommand || null,
+          })
+        : Promise.resolve({ status: "ok", rcon_reloaded: false, reload_command: null } as any),
+    onSuccess: (res: any) => {
+      toast(
+        "success",
+        res?.rcon_reloaded ? `Saved & reloaded (${res?.reload_command})` : "Saved to stopped server live state",
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.files.liveStateContent(serverId!, editingFile!.path) });
+      handleCloseEditor();
+    },
+    onError: (err: Error) => {
+      handleMutationError("Failed to save file", err);
+    },
+  });
 
   const handleMutationError = (defaultTitle: string, err: Error) => {
     if (err instanceof ApiError && err.status === 403) {
@@ -382,8 +449,13 @@ export function ServerFilesPage() {
     });
   };
 
-  if (isLoading && !files) return <PageSkeleton />;
-  if (error) return <ErrorState message={error.message} />;
+  if (isLiveState) {
+    if (isLiveStateLoading && !liveStateFiles) return <PageSkeleton />;
+    if (liveStateError) return <ErrorState message={liveStateError instanceof Error ? liveStateError.message : "Failed to load"} />;
+  } else {
+    if (isLoading && !files) return <PageSkeleton />;
+    if (error) return <ErrorState message={error.message} />;
+  }
 
   const pathParts = currentPath.split("/").filter(Boolean);
   const breadcrumbs = [
@@ -457,23 +529,38 @@ export function ServerFilesPage() {
             >
               Cancel
             </button>
-            {!isBinary && !readOnlyBranch && (
-              <Button
-                variant="primary"
-                onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending || isContentLoading || !!fileContentError}
-                loading={saveMutation.isPending}
-                icon="save"
-              >
-                Save
-              </Button>
+            {!isBinary && (isLiveState || !readOnlyBranch) && (
+              <>
+                {isLiveState && (
+                  <select
+                    aria-label="RCON Reload Command"
+                    value={reloadCommand}
+                    onChange={(e) => setReloadCommand(e.target.value)}
+                    className="rounded-lg border border-border-default bg-surface-card px-2 py-1.5 text-sm"
+                  >
+                    <option value="">Auto</option>
+                    <option value="whitelist reload">whitelist reload</option>
+                    <option value="minecraft:reload">minecraft:reload</option>
+                    <option value="reload">reload</option>
+                  </select>
+                )}
+                <Button
+                  variant="primary"
+                  onClick={() => (isLiveState ? liveStateSaveMutation.mutate() : saveMutation.mutate())}
+                  disabled={(isLiveState ? liveStateSaveMutation.isPending : saveMutation.isPending) || effectiveContentLoading || !!effectiveContentError}
+                  loading={isLiveState ? liveStateSaveMutation.isPending : saveMutation.isPending}
+                  icon="save"
+                >
+                  {isLiveState ? "Save Live State" : "Save"}
+                </Button>
+              </>
             )}
           </div>
         </div>
         <div className="flex-1 p-4">
-          {isContentLoading ? (
+          {effectiveContentLoading ? (
             <div className="h-64 flex items-center justify-center text-text-muted">Loading content...</div>
-          ) : fileContentError ? (
+          ) : effectiveContentError ? (
             <div className="h-64 flex flex-col items-center justify-center text-center p-8 bg-surface-page border border-border-default rounded-xl">
               <Icon name="alert" size={48} className="text-status-danger mb-3" />
               <h3 className="text-base font-semibold text-text-primary mb-1">
@@ -508,7 +595,7 @@ export function ServerFilesPage() {
             </div>
           ) : (
             <CodeEditor
-              value={displayedContent}
+              value={effectiveDisplayedContent}
               filename={editingFile.name}
               onChange={(val) => {
                 setEditContent(val);
@@ -524,9 +611,34 @@ export function ServerFilesPage() {
   // File browser view
   return (
     <div className="flex flex-col flex-1 min-h-0 space-y-4">
-      {isLoading && <LoadingBar />}
+      {showViewSwitcher && (
+        <div data-testid="files-view-switcher" className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => switchView("branch")}
+            className={`px-3 py-1.5 text-sm rounded-lg border ${viewMode === "branch" ? "bg-accent-primary text-white" : "bg-surface-card"}`}
+          >
+            Branch Config Files (Class B)
+          </button>
+          <button
+            type="button"
+            onClick={() => switchView("live-state")}
+            className={`px-3 py-1.5 text-sm rounded-lg border ${viewMode === "live-state" ? "bg-accent-primary text-white" : "bg-surface-card"}`}
+          >
+            Live State Files (Class C)
+          </button>
+        </div>
+      )}
 
-      {activeBranch && (
+      {isLiveState && (
+        <div data-testid="live-state-banner" className="rounded-xl border border-border-default bg-surface-card px-4 py-3 text-sm text-text-secondary">
+          Live State edits apply directly to Class-C runtime files on the live server directory. If the server is RUNNING, saving triggers an automatic RCON save-all flush + reload; if STOPPED, saving writes atomically after checking world/session.lock.
+        </div>
+      )}
+
+      {!isLiveState && isLoading && <LoadingBar />}
+
+      {!isLiveState && activeBranch && (
         <div
           data-testid="branch-context-banner"
           className="flex flex-wrap items-center gap-2 rounded-xl border border-border-default bg-surface-card px-4 py-2.5 text-xs text-text-secondary"
@@ -611,7 +723,7 @@ export function ServerFilesPage() {
               Delete Selected ({selectedPaths.size})
             </Button>
           )}
-          {activeBranch && !readOnlyBranch && (
+          {!isLiveState && activeBranch && !readOnlyBranch && (
             <Button
               variant="secondary"
               icon="save"
@@ -620,7 +732,7 @@ export function ServerFilesPage() {
               Save &amp; Commit
             </Button>
           )}
-          {!readOnlyBranch && (
+          {!isLiveState && !readOnlyBranch && (
             <>
               <Button
                 variant="secondary"
@@ -681,7 +793,31 @@ export function ServerFilesPage() {
         </div>
       )}
 
-      {/* File Browser Table */}
+      {isLiveState && (
+        <div className="flex flex-col gap-2">
+          {(liveStateFiles?.items ?? []).map((f: any) => (
+            <button
+              key={f.path}
+              type="button"
+              onClick={() => {
+                if (f.is_dir) updateCurrentPath(f.path);
+                else openFileEditor({ name: f.name, path: f.path, is_dir: false, size: f.size });
+              }}
+              className="flex items-center justify-between rounded-lg border border-border-default bg-surface-card px-4 py-2 text-sm"
+            >
+              <span>{f.name}</span>
+              <span className="text-xs text-text-muted">
+                {f.size ? `${f.size} B` : ""}
+                {f.is_dynamic_class_c ? " · Dynamic Class-C" : ""}
+                {f.writable ? " · Editable" : " · Read-Only Binary"}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!isLiveState && (
+      /* File Browser Table */
       <div className="flex flex-col flex-1 min-h-0 bg-surface-card rounded-xl shadow-xs border border-border-default overflow-hidden">
         {files?.length === 0 && !currentPath ? (
           <EmptyState
@@ -861,6 +997,7 @@ export function ServerFilesPage() {
           </div>
         )}
       </div>
+      )}
 
       <Modal
         open={showCommitDialog}

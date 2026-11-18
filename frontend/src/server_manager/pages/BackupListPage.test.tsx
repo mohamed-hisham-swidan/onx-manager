@@ -89,17 +89,15 @@ describe("BackupListPage", () => {
     expect(screen.getByRole("heading", { name: "Backups" })).toBeInTheDocument();
   });
 
-  it("renders disabled P3 Class-C Secret Vault control with Coming soon tooltip", () => {
+  it("renders enabled Class-C Secret Vault control", async () => {
+    const user = userEvent.setup();
     renderPage();
 
-    const vault = screen.getByRole("button", { name: "Class-C Secret Vault (Coming soon)" });
-    expect(vault).toBeDisabled();
-    expect(vault).toHaveAttribute("aria-disabled", "true");
-    expect(vault).toHaveAttribute(
-      "title",
-      "P3 Class-C Secret Vault / extraction is coming soon",
-    );
-    expect(vault).toHaveTextContent("Coming soon");
+    const vault = screen.getByRole("button", { name: "Class-C Secret Vault" });
+    expect(vault).not.toBeDisabled();
+    expect(vault).not.toHaveTextContent("Coming soon");
+    await user.click(vault);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("shows summary stats", () => {

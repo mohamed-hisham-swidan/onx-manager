@@ -54,6 +54,22 @@ import type {
   BotSettings,
   BotSettingsRequest,
   BranchProtectionResponse,
+  ClassCSnapshot,
+  ConfirmUpgradeRequest,
+  DynamicClassCEntry,
+  ExtractSecretRequest,
+  ExtractSecretResponse,
+  LiveStateFileContentResponse,
+  LiveStateFileListResponse,
+  LiveStateWriteRequest,
+  LiveStateWriteResponse,
+  MergeCommitsRequest,
+  MergeCommitsResponse,
+  RefreshActionResponse,
+  RefreshServerRequest,
+  RefreshStateResponse,
+  RollbackRefreshRequest,
+  SecretMetadata,
   CommandRequest,
   ConsoleResponse,
   CrashReportSummary,
@@ -397,9 +413,10 @@ export function createApiClient(
         method: "POST",
         body,
       }),
-    getServerCommits: (serverId: string, branchId?: string, limit?: number) =>
+    getServerCommits: (serverId: string, branchId?: string, limit?: number, branchName?: string) =>
       request<ServerCommit[]>(`/api/v1/servers/${serverId}/versioning/commits`, {
         params: {
+          branch: branchName,
           branch_id: branchId,
           limit: limit?.toString(),
         },
@@ -435,6 +452,71 @@ export function createApiClient(
       request<PreflightStatus>(`/api/v1/servers/${serverId}/versioning/preflight`, {
         params: { bot_count: botCount?.toString() },
       }),
+
+    // P3-4 / P3-5
+    mergeServerCommits: (serverId: string, body: MergeCommitsRequest) =>
+      request<MergeCommitsResponse>(`/api/v1/servers/${serverId}/versioning/commits/merge`, {
+        method: "POST",
+        body,
+      }),
+    getRefreshState: (serverId: string) =>
+      request<RefreshStateResponse>(`/api/v1/servers/${serverId}/versioning/refresh`),
+    refreshServer: (serverId: string, body?: RefreshServerRequest) =>
+      request<RefreshActionResponse>(`/api/v1/servers/${serverId}/versioning/refresh`, {
+        method: "POST",
+        body: body ?? {},
+      }),
+    rollbackRefresh: (serverId: string, body?: RollbackRefreshRequest) =>
+      request<RefreshActionResponse>(`/api/v1/servers/${serverId}/versioning/rollback`, {
+        method: "POST",
+        body: body ?? {},
+      }),
+    confirmUpgrade: (serverId: string, body?: ConfirmUpgradeRequest) =>
+      request<RefreshActionResponse>(`/api/v1/servers/${serverId}/versioning/upgrade/confirm`, {
+        method: "POST",
+        body: body ?? {},
+      }),
+    releaseRefreshPins: (serverId: string, body?: ConfirmUpgradeRequest) =>
+      request<RefreshActionResponse>(`/api/v1/servers/${serverId}/versioning/refresh/release-pins`, {
+        method: "POST",
+        body: body ?? {},
+      }),
+    listClassCSnapshots: (serverId: string) =>
+      request<ClassCSnapshot[]>(`/api/v1/servers/${serverId}/versioning/class-c/snapshots`),
+    createClassCSnapshot: (serverId: string, body?: { pinned?: boolean }) =>
+      request<ClassCSnapshot>(`/api/v1/servers/${serverId}/versioning/class-c/snapshots`, {
+        method: "POST",
+        body: body ?? {},
+      }),
+    restoreClassCSnapshot: (serverId: string, snapshotId: string) =>
+      request<{ status: string; server_id: string; snapshot_id: string }>(
+        `/api/v1/servers/${serverId}/versioning/class-c/snapshots/${encodeURIComponent(snapshotId)}/restore`,
+        { method: "POST" },
+      ),
+    deleteClassCSnapshot: (serverId: string, snapshotId: string) =>
+      request<{ status: string; server_id: string; snapshot_id: string }>(
+        `/api/v1/servers/${serverId}/versioning/class-c/snapshots/${encodeURIComponent(snapshotId)}`,
+        { method: "DELETE" },
+      ),
+    listDynamicClassC: (serverId: string) =>
+      request<DynamicClassCEntry[]>(`/api/v1/servers/${serverId}/versioning/class-c/dynamic`),
+    resetDynamicClassC: (serverId: string, path: string) =>
+      request<{ server_id: string; path: string; reset: boolean }>(
+        `/api/v1/servers/${serverId}/versioning/class-c/dynamic/reset`,
+        { method: "POST", body: { path } },
+      ),
+    listSecrets: (serverId: string) =>
+      request<SecretMetadata[]>(`/api/v1/servers/${serverId}/versioning/secrets`),
+    extractSecret: (serverId: string, body: ExtractSecretRequest) =>
+      request<ExtractSecretResponse>(`/api/v1/servers/${serverId}/versioning/secrets/extract`, {
+        method: "POST",
+        body,
+      }),
+    deleteSecret: (serverId: string, keyName: string) =>
+      request<{ server_id: string; key_name: string; status: string }>(
+        `/api/v1/servers/${serverId}/versioning/secrets/${encodeURIComponent(keyName)}`,
+        { method: "DELETE" },
+      ),
 
     // Branch Protection (Stage G)
     getBranchProtection: (serverId: string, branchName: string) =>
@@ -801,6 +883,21 @@ export function createApiClient(
         params: { path: fullPath, branch },
       });
     },
+
+    // Live State Files (Class C)
+    listLiveStateFiles: (serverId: string, path: string = "/") =>
+      request<LiveStateFileListResponse>(`/api/v1/servers/${serverId}/files/live-state`, {
+        params: { path },
+      }),
+    readLiveStateFileContent: (serverId: string, path: string) =>
+      request<LiveStateFileContentResponse>(`/api/v1/servers/${serverId}/files/live-state/content`, {
+        params: { path },
+      }),
+    writeLiveStateFileContent: (serverId: string, body: LiveStateWriteRequest) =>
+      request<LiveStateWriteResponse>(`/api/v1/servers/${serverId}/files/live-state/content`, {
+        method: "PUT",
+        body,
+      }),
 
     // Setup & Invites
     getSetupStatus: () =>

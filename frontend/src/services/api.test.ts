@@ -454,4 +454,91 @@ describe("createApiClient", () => {
     mockXhr.onload?.();
     await expect(uploadPromise).rejects.toThrow("Archive too large");
   });
+
+  it("mergeServerCommits sends POST to commits/merge", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ commit_id: "m1", server_id: "s1", branch_name: "main", parent_commit_ids: [] }));
+    const res = await api.mergeServerCommits("s1", { target_branch_name: "main", source_branch_name: "feat", message: "merge" });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/commits/merge",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ target_branch_name: "main", source_branch_name: "feat", message: "merge" }) }),
+    );
+    expect((res as any).commit_id).toBe("m1");
+  });
+
+  it("getRefreshState sends GET to /versioning/refresh", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", active_journal: null, latest_journal: null, can_confirm_upgrade: false, can_rollback: false, previous_tree_retention: "until_health_gate" }));
+    const res = await api.getRefreshState("s1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/refresh",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect((res as any).server_id).toBe("s1");
+  });
+
+  it("refreshServer sends POST to /versioning/refresh", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", journal_id: "j1", phase: "done", status: "ok" }));
+    await api.refreshServer("s1", { retention_policy: "until_health_gate" });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/refresh",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ retention_policy: "until_health_gate" }) }),
+    );
+  });
+
+  it("rollbackRefresh sends POST to /versioning/rollback", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", journal_id: "j1", phase: "rolled_back", status: "ok" }));
+    await api.rollbackRefresh("s1", { journal_id: "j1", reason: "operator_requested" });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/rollback",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("confirmUpgrade sends POST to /versioning/upgrade/confirm", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", journal_id: "j1", phase: "confirmed", status: "ok" }));
+    await api.confirmUpgrade("s1", { journal_id: "j1" });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/upgrade/confirm",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("listClassCSnapshots sends GET", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch([{ snapshot_id: "snap1", server_id: "s1", created_at: null, manifest_sha256: null, pinned: false, entry_count: 1, archive_size_bytes: 10 }]));
+    const res = await api.listClassCSnapshots("s1");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/class-c/snapshots",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(res).toHaveLength(1);
+  });
+
+  it("extractSecret sends POST and returns placeholder", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ server_id: "s1", branch: "dev", path: "config.yml", key_name: "DB_PASSWORD", placeholder: "${ONX_SECRET_DB_PASSWORD}", replaced_occurrences: 1, remaining_findings: [] }));
+    const res = await api.extractSecret("s1", { branch: "dev", path: "config.yml", key_name: "DB_PASSWORD", secret_value: "secret" });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/versioning/secrets/extract",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect((res as any).placeholder).toBe("${ONX_SECRET_DB_PASSWORD}");
+  });
+
+  it("listLiveStateFiles sends GET to /files/live-state", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ items: [{ name: "whitelist.json", path: "/whitelist.json", is_dir: false, size: 10, modified_at: 1, file_class: "C", is_dynamic_class_c: false, writable: true }] }));
+    const res = await api.listLiveStateFiles("s1", "/");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files/live-state?path=%2F",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect((res as any).items).toHaveLength(1);
+  });
+
+  it("writeLiveStateFileContent sends PUT to /files/live-state/content", async () => {
+    vi.mocked(fetch).mockImplementationOnce(mockFetch({ status: "ok", server_id: "s1", path: "/whitelist.json", rcon_flushed: true, rcon_reloaded: true, reload_command: "whitelist reload" }));
+    await api.writeLiveStateFileContent("s1", { path: "/whitelist.json", content: "{}", reload_command: "whitelist reload" });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/servers/s1/files/live-state/content",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ path: "/whitelist.json", content: "{}", reload_command: "whitelist reload" }) }),
+    );
+  });
+
 });

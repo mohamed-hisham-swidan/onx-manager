@@ -77,7 +77,7 @@ describe("ServerModeChooser", () => {
     const advancedCard = screen.getByTestId("server-mode-advanced");
     expect(advancedCard).toBeInTheDocument();
     expect(screen.getByText("Advanced")).toBeInTheDocument();
-    expect(screen.getByText("Preview")).toBeInTheDocument();
+    expect(screen.getByText("POSIX Advanced")).toBeInTheDocument();
     expect(
       screen.getByText(
         "Git-backed server with branches, safe upgrades, and commit history.",

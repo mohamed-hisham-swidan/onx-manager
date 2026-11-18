@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Icon } from "@/components/ui/Icon";
 import type { ServerBranch, ServerCommit, ServerTestRun } from "@/server_manager/types";
@@ -339,6 +339,8 @@ interface BotSettingsModalProps {
   onTechChange: (val: string) => void;
   placement: string;
   onPlacementChange: (val: string) => void;
+  retention: string;
+  onRetentionChange: (val: string) => void;
   onSubmit: () => void;
   onClose: () => void;
   isPending?: boolean;
@@ -354,6 +356,8 @@ export function BotSettingsModal({
   onTechChange,
   placement,
   onPlacementChange,
+  retention,
+  onRetentionChange,
   onSubmit,
   onClose,
   isPending = false,
@@ -527,6 +531,28 @@ export function BotSettingsModal({
               <option value="in_container">In Container</option>
             </select>
           </div>
+
+          <div>
+            <label htmlFor="settings-retention-select" className="block font-medium text-text-secondary mb-1">
+              Previous Tree Retention Policy
+            </label>
+            <select
+              id="settings-retention-select"
+              aria-label="Previous Tree Retention Policy"
+              value={retention}
+              onChange={(e) => onRetentionChange(e.target.value)}
+              disabled={isPending}
+              className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-primary disabled:opacity-50"
+            >
+              <option value="until_health_gate">Until Health Gate Passes (Default)</option>
+              <option value="until_confirm">Until Operator Confirms Upgrade</option>
+              <option value="1h">1 Hour</option>
+              <option value="6h">6 Hours</option>
+              <option value="24h">24 Hours</option>
+              <option value="72h">72 Hours</option>
+              <option value="168h">168 Hours (7 Days)</option>
+            </select>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-3 border-t border-border-subtle">
@@ -547,6 +573,256 @@ export function BotSettingsModal({
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+// ==========================================
+// Merge Branch Modal
+// ==========================================
+interface MergeBranchModalProps {
+  isOpen: boolean;
+  serverId: string;
+  branches: any[];
+  selectedBranch?: string;
+  onClose: () => void;
+}
+
+export function MergeBranchModal({ isOpen, serverId, branches, selectedBranch, onClose }: MergeBranchModalProps) {
+  const [targetBranch, setTargetBranch] = useState(selectedBranch || "main");
+  const [sourceBranch, setSourceBranch] = useState("");
+  const [message, setMessage] = useState("");
+  const [forceBypass, setForceBypass] = useState(false);
+  const [forceReason, setForceReason] = useState("");
+  const [pending, setPending] = useState(false);
+  const [warnings, setWarnings] = useState<any[]>([]);
+  const [conflicts, setConflicts] = useState<any[]>([]);
+  const [findings, setFindings] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const nonArchived = (branches || []).filter((b: any) => b.status !== "archived");
+  const sources = nonArchived.filter((b: any) => b.name !== targetBranch);
+
+  if (!isOpen) return null;
+
+  const submit = async () => {
+    setPending(true);
+    setWarnings([]);
+    setConflicts([]);
+    setFindings([]);
+    setError(null);
+    try {
+      const api = (await import("@/services/api")).createAuthenticatedApi();
+      const res = await api.mergeServerCommits(serverId, {
+        target_branch_name: targetBranch,
+        source_branch_name: sourceBranch || null,
+        message: message || `Merge branch '${sourceBranch}' into ${targetBranch}`,
+        force: forceBypass,
+        force_reason: forceBypass ? forceReason || null : null,
+        force_bypass_protection: forceBypass,
+      });
+      if (Array.isArray(res?.warnings)) setWarnings(res.warnings);
+      onClose();
+    } catch (e: any) {
+      const detail = e?.detail ?? null;
+      if (detail && typeof detail === "object") {
+        if (Array.isArray((detail as any).conflicts)) setConflicts((detail as any).conflicts);
+        if (Array.isArray((detail as any).findings)) setFindings((detail as any).findings);
+      }
+      setError(e?.message ?? "Merge failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Modal open={isOpen} onClose={onClose} title="Merge Branch">
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs font-medium text-text-secondary mb-1">Target branch</label>
+          <select value={targetBranch} onChange={(e) => setTargetBranch(e.target.value)} className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm">
+            {nonArchived.map((b: any) => <option key={b.id ?? b.name} value={b.name}>{b.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-text-secondary mb-1">Source branch</label>
+          <select value={sourceBranch} onChange={(e) => setSourceBranch(e.target.value)} className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm">
+            <option value="">Select source</option>
+            {sources.map((b: any) => <option key={b.id ?? b.name} value={b.name}>{b.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-text-secondary mb-1">Message</label>
+          <input value={message} onChange={(e) => setMessage(e.target.value)} className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm" />
+        </div>
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={forceBypass} onChange={(e) => setForceBypass(e.target.checked)} />
+          Force bypass protection
+        </label>
+        {forceBypass && (
+          <input value={forceReason} onChange={(e) => setForceReason(e.target.value)} placeholder="Reason" className="w-full rounded-lg border border-border-default bg-surface-page px-3 py-2 text-sm" />
+        )}
+        {warnings.length > 0 && (
+          <div className="rounded-lg border border-status-warning-border bg-status-warning-bg p-2 text-xs">
+            {warnings.map((w, i) => <div key={i}>{String(w)}</div>)}
+          </div>
+        )}
+        {conflicts.length > 0 && (
+          <div className="rounded-lg border border-status-danger-border bg-status-danger-bg p-2 text-xs">
+            {conflicts.map((c, i) => (
+              <div key={i}>
+                {c?.path} {c?.key_path} {c?.base} {c?.ours} {c?.theirs}
+              </div>
+            ))}
+          </div>
+        )}
+        {findings.length > 0 && (
+          <div className="rounded-lg border border-status-danger-border bg-status-danger-bg p-2 text-xs">
+            {findings.map((f, i) => <div key={i}>{JSON.stringify(f)}</div>)}
+          </div>
+        )}
+        {error && <div className="text-xs text-status-danger">{error}</div>}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-lg border border-border-default px-3 py-1.5 text-xs">Cancel</button>
+          <button type="button" onClick={submit} disabled={pending} className="rounded-lg bg-accent-primary px-3 py-1.5 text-xs text-white">
+            {pending ? "Merging..." : "Merge"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ==========================================
+// Class-C & Secret Vault Modal
+// ==========================================
+interface ClassCVaultModalProps {
+  isOpen: boolean;
+  serverId: string;
+  onClose: () => void;
+}
+
+export function ClassCVaultModal({ isOpen, serverId, onClose }: ClassCVaultModalProps) {
+  const [tab, setTab] = useState("snapshots");
+  const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [dynamic, setDynamic] = useState<any[]>([]);
+  const [secrets, setSecrets] = useState<any[]>([]);
+  const [pinned, setPinned] = useState(false);
+  const [branch, setBranch] = useState("");
+  const [path, setPath] = useState("");
+  const [keyName, setKeyName] = useState("");
+  const [secretValue, setSecretValue] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const api = (await import("@/services/api")).createAuthenticatedApi();
+      const [s, d, sec] = await Promise.all([
+        api.listClassCSnapshots(serverId).catch(() => []),
+        api.listDynamicClassC(serverId).catch(() => []),
+        api.listSecrets(serverId).catch(() => []),
+      ]);
+      setSnapshots(Array.isArray(s) ? s : []);
+      setDynamic(Array.isArray(d) ? d : []);
+      setSecrets(Array.isArray(sec) ? sec : []);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (isOpen) load();
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const apiCall = async (fn: (api: any) => Promise<any>) => {
+    const api = (await import("@/services/api")).createAuthenticatedApi();
+    return fn(api);
+  };
+
+  return (
+    <Modal open={isOpen} onClose={onClose} title="Class-C & Secret Vault">
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setTab("snapshots")} className="text-xs">Snapshots</button>
+          <button type="button" onClick={() => setTab("dynamic")} className="text-xs">Dynamic Class-C</button>
+          <button type="button" onClick={() => setTab("secrets")} className="text-xs">Secrets</button>
+        </div>
+        {tab === "snapshots" && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <label className="text-xs"><input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} /> Pin snapshot</label>
+              <button type="button" onClick={async () => {
+                await apiCall((api) => api.createClassCSnapshot(serverId, { pinned }));
+                await load();
+              }} className="rounded-lg bg-accent-primary px-2 py-1 text-xs text-white">Create Class-C Snapshot</button>
+            </div>
+            {snapshots.map((s: any) => (
+              <div key={s.snapshot_id} className="flex items-center justify-between text-xs border rounded p-2">
+                <div>
+                  <div>{s.snapshot_id}</div>
+                  <div>{s.created_at} {s.entry_count} {s.archive_size_bytes} {s.manifest_sha256?.slice(0, 8)}</div>
+                  {s.pinned && <span className="text-[10px]">Pinned</span>}
+                </div>
+                <div className="flex gap-1">
+                  <button type="button" onClick={async () => {
+                    try {
+                      await apiCall((api) => api.restoreClassCSnapshot(serverId, s.snapshot_id));
+                    } catch (e: any) {
+                      setMessage(e?.message ?? "Server must be stopped before restoring a Class-C snapshot");
+                    }
+                    await load();
+                  }}>Restore</button>
+                  <button type="button" disabled={s.pinned} title={s.pinned ? "Pinned snapshot cannot be deleted until pins are released" : undefined} onClick={async () => {
+                    await apiCall((api) => api.deleteClassCSnapshot(serverId, s.snapshot_id));
+                    await load();
+                  }}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab === "dynamic" && (
+          <div className="space-y-2">
+            {dynamic.map((e: any) => (
+              <div key={e.relpath} className="flex items-center justify-between text-xs border rounded p-2">
+                <div>{e.relpath} {e.promoted_at} {e.main_commit_sha}</div>
+                <button type="button" onClick={async () => {
+                  await apiCall((api) => api.resetDynamicClassC(serverId, e.relpath));
+                  await load();
+                }}>Reset to Class B (Track from main)</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab === "secrets" && (
+          <div className="space-y-2">
+            {secrets.map((s: any) => (
+              <div key={s.key_name} className="flex items-center justify-between text-xs border rounded p-2">
+                <div>{s.key_name} {s.placeholder} {s.kek_version} {s.updated_at}</div>
+                <button type="button" onClick={async () => {
+                  await apiCall((api) => api.deleteSecret(serverId, s.key_name));
+                  await load();
+                }}>Delete</button>
+              </div>
+            ))}
+            <div className="space-y-2 border-t pt-2">
+              <input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Branch" className="w-full rounded-lg border px-2 py-1 text-xs" />
+              <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="Config File Path (Class B)" className="w-full rounded-lg border px-2 py-1 text-xs" />
+              <input value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="Secret Key Name" className="w-full rounded-lg border px-2 py-1 text-xs" />
+              <input type="password" autoComplete="off" value={secretValue} onChange={(e) => setSecretValue(e.target.value)} placeholder="Secret Plaintext Value" className="w-full rounded-lg border px-2 py-1 text-xs" />
+              <button type="button" onClick={async () => {
+                const value = secretValue;
+                setSecretValue("");
+                try {
+                  await apiCall((api) => api.extractSecret(serverId, { branch, path, key_name: keyName, secret_value: value }));
+                  await load();
+                } catch {}
+              }} className="rounded-lg bg-accent-primary px-2 py-1 text-xs text-white">Extract Secret</button>
+              {message && <div className="text-xs">{message}</div>}
+            </div>
+          </div>
+        )}
+      </div>
     </Modal>
   );
 }

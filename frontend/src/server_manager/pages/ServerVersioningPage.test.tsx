@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { ServerVersioningPage } from "./ServerVersioningPage";
 const mockApi = {
@@ -19,6 +20,16 @@ const mockApi = {
   getBranchProtection: vi.fn().mockResolvedValue({ is_protected: false, policy: null }),
   getTestDefinitions: vi.fn().mockResolvedValue([]),
   getMaterializations: vi.fn().mockResolvedValue([]),
+  getRefreshState: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", active_journal: null, latest_journal: { journal_id: "j1", class_c_snapshot_id: "snap1", phase: "done" }, can_confirm_upgrade: true, can_rollback: true, previous_tree_retention: "until_health_gate" }),
+  refreshServer: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", journal_id: "j1", phase: "done", status: "ok" }),
+  rollbackRefresh: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", journal_id: "j1", phase: "rolled_back", status: "ok" }),
+  confirmUpgrade: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", journal_id: "j1", phase: "confirmed", status: "ok" }),
+  releaseRefreshPins: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", journal_id: "j1", phase: "done", status: "ok" }),
+  listClassCSnapshots: vi.fn().mockResolvedValue([{ snapshot_id: "snap1", server_id: "srv-vers-1", created_at: "2024", manifest_sha256: "abcd", pinned: false, entry_count: 1, archive_size_bytes: 10 }]),
+  listDynamicClassC: vi.fn().mockResolvedValue([{ server_id: "srv-vers-1", relpath: "whitelist.json", promoted_at: "2024", main_commit_sha: "sha" }]),
+  listSecrets: vi.fn().mockResolvedValue([{ server_id: "srv-vers-1", key_name: "DB_PASSWORD", placeholder: "${ONX_SECRET_DB_PASSWORD}", kek_version: 1, created_at: "2024", updated_at: "2024" }]),
+  mergeServerCommits: vi.fn().mockResolvedValue({ commit_id: "m1", server_id: "srv-vers-1", branch_name: "main", parent_commit_ids: [], warnings: ["lossy"] }),
+  extractSecret: vi.fn().mockResolvedValue({ server_id: "srv-vers-1", branch: "dev", path: "config.yml", key_name: "DB_PASSWORD", placeholder: "${ONX_SECRET_DB_PASSWORD}", replaced_occurrences: 1, remaining_findings: [] }),
 };
 
 vi.mock("@/services/api", () => ({
@@ -84,6 +95,7 @@ const mockBotSettings = {
   effective_duration_minutes: 15,
   effective_bot_tech: "fakeplayer_next",
   effective_placement_mode: "sidecar",
+  previous_tree_retention: "until_health_gate",
 };
 
 describe("ServerVersioningPage", () => {
@@ -118,26 +130,87 @@ describe("ServerVersioningPage", () => {
     expect(screen.getByText("c-111222")).toBeInTheDocument();
   });
 
-  it("renders disabled P3 preview controls with Coming soon tooltips", async () => {
+  it("renders active P3 controls", async () => {
     renderPage();
 
     await waitFor(() => {
       expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument();
     });
 
-    const liveRefresh = screen.getByRole("button", { name: "Live Refresh (Coming soon)" });
-    const rollback = screen.getByRole("button", { name: "Rollback (Coming soon)" });
-    const confirmUpgrade = screen.getByRole("button", { name: "Confirm Upgrade (Coming soon)" });
+    expect(screen.getByRole("button", { name: "Live Refresh" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rollback" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm Upgrade" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Class-C & Secret Vault" })).toBeInTheDocument();
+    expect(screen.getByText("Merge Branch")).toBeInTheDocument();
+  });
 
-    for (const control of [liveRefresh, rollback, confirmUpgrade]) {
-      expect(control).toBeDisabled();
-      expect(control).toHaveAttribute("aria-disabled", "true");
-      expect(control).toHaveTextContent("Coming soon");
-    }
+  it("clicking Live Refresh calls refreshServer", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Live Refresh" }));
+    await waitFor(() => expect(mockApi.refreshServer).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ retention_policy: "until_health_gate" })));
+  });
 
-    expect(liveRefresh).toHaveAttribute("title", "P3 Live Refresh is coming soon");
-    expect(rollback).toHaveAttribute("title", "P3 Rollback is coming soon");
-    expect(confirmUpgrade).toHaveAttribute("title", "P3 Confirm Upgrade is coming soon");
+  it("clicking Rollback calls rollbackRefresh when can_rollback", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Rollback" }));
+    await waitFor(() => expect(mockApi.rollbackRefresh).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ journal_id: "j1", reason: "operator_requested" })));
+  });
+
+  it("clicking Confirm Upgrade calls confirmUpgrade", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Confirm Upgrade" }));
+    await waitFor(() => expect(mockApi.confirmUpgrade).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ journal_id: "j1" })));
+  });
+
+  it("Merge Branch modal submits and shows warnings/conflicts", async () => {
+    const user = userEvent.setup();
+    mockApi.mergeServerCommits.mockRejectedValueOnce(Object.assign(new Error("conflict"), { detail: { conflicts: [{ path: "a", key_path: "k", base: "b", ours: "o", theirs: "t" }], findings: [{ x: 1 }] } }));
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await user.click(screen.getByText("Merge Branch"));
+    const modal = await screen.findByRole("dialog", { name: "Merge Branch" });
+    expect(modal).toBeInTheDocument();
+    const selects = modal.querySelectorAll("select");
+    // submit
+    await user.click(screen.getByRole("button", { name: "Merge" }));
+    await waitFor(() => expect(mockApi.mergeServerCommits).toHaveBeenCalled());
+    expect(screen.getByText(/a k b o t/)).toBeInTheDocument();
+    expect(screen.getByText(/\{"x":1\}/)).toBeInTheDocument();
+  });
+
+  it("Previous Tree Retention Policy saves previous_tree_retention", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Verification Defaults" }));
+    const select = await screen.findByLabelText("Previous Tree Retention Policy");
+    await user.selectOptions(select, "24h");
+    await user.click(screen.getByRole("button", { name: "Save Defaults" }));
+    await waitFor(() => expect(mockApi.updateBotSettings).toHaveBeenCalledWith("srv-vers-1", expect.objectContaining({ previous_tree_retention: "24h" })));
+  });
+
+  it("Class-C & Secret Vault modal lists and extracts secret clearing password", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Versions & Isolated Testing")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Class-C & Secret Vault" }));
+    expect(await screen.findByText("snap1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Dynamic Class-C" }));
+    expect(await screen.findByRole("button", { name: "Reset to Class B (Track from main)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Secrets" }));
+    expect(await screen.findByText(/\$\{ONX_SECRET_DB_PASSWORD\}/)).toBeInTheDocument();
+    const pwd = screen.getByPlaceholderText("Secret Plaintext Value") as HTMLInputElement;
+    await user.type(pwd, "secret");
+    expect(pwd.value).toBe("secret");
+    await user.click(screen.getByRole("button", { name: "Extract Secret" }));
+    await waitFor(() => expect(pwd.value).toBe(""));
+    expect(mockApi.extractSecret).toHaveBeenCalled();
   });
 
   it("displays warning state when instant storage cloning is unavailable", async () => {

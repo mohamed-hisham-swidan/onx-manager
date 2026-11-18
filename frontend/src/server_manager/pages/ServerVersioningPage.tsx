@@ -21,6 +21,8 @@ import {
   InspectCommitModal,
   ViewLogsModal,
   BotSettingsModal,
+  MergeBranchModal,
+  ClassCVaultModal,
 } from "@/server_manager/components/versioning/VersioningModals";
 import type {
   ServerBranch,
@@ -69,6 +71,15 @@ export function ServerVersioningPage() {
   const [settingsDuration, setSettingsDuration] = useState(15);
   const [settingsTech, setSettingsTech] = useState("auto");
   const [settingsPlacement, setSettingsPlacement] = useState("sidecar");
+  const [settingsRetention, setSettingsRetention] = useState("until_health_gate");
+
+  const [refreshState, setRefreshState] = useState<any>(null);
+  const [classCSnapshots, setClassCSnapshots] = useState<any[]>([]);
+  const [dynamicClassC, setDynamicClassC] = useState<any[]>([]);
+  const [secrets, setSecrets] = useState<any[]>([]);
+
+  const [isMergeBranchOpen, setIsMergeBranchOpen] = useState(false);
+  const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
 
   const [inspectCommit, setInspectCommit] = useState<ServerCommit | null>(null);
   const [viewLogTestRun, setViewLogTestRun] = useState<ServerTestRun | null>(null);
@@ -109,16 +120,20 @@ export function ServerVersioningPage() {
 
     const run = async () => {
       try {
-        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData] =
+        const [branchesData, commitsData, settingsData, preflightData, testRunsData, tagsData, liveData, refreshStateData, snapshotsData, dynamicData, secretsData] =
           await Promise.all([
             api.getServerBranches(serverId),
-            api.getServerCommits(serverId),
+            api.getServerCommits(serverId, undefined, undefined, selectedBranch),
             api.getBotSettings(serverId),
             api.getPreflightStatus(serverId),
             api.getServerTestRuns?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
             api.getServerTags?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
             api.getLiveChanges?.(serverId, selectedBranch || "main")?.catch(() => null) ??
               Promise.resolve(null),
+            api.getRefreshState?.(serverId)?.catch(() => null) ?? Promise.resolve(null),
+            api.listClassCSnapshots?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
+            api.listDynamicClassC?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
+            api.listSecrets?.(serverId)?.catch(() => []) ?? Promise.resolve([]),
           ]);
 
         if (!isMounted) return;
@@ -128,12 +143,17 @@ export function ServerVersioningPage() {
         setTestRuns(testRunsData);
         setTags(tagsData);
         setLiveChanges(liveData);
+        setRefreshState(refreshStateData);
+        setClassCSnapshots(Array.isArray(snapshotsData) ? snapshotsData : []);
+        setDynamicClassC(Array.isArray(dynamicData) ? dynamicData : []);
+        setSecrets(Array.isArray(secretsData) ? secretsData : []);
 
         if (settingsData) {
           setSettingsBotCount(settingsData.effective_bot_count);
           setSettingsDuration(settingsData.effective_duration_minutes);
           setSettingsTech(settingsData.effective_bot_tech);
           setSettingsPlacement(settingsData.effective_placement_mode);
+          if (settingsData.previous_tree_retention) setSettingsRetention(settingsData.previous_tree_retention);
         }
 
         if (
@@ -243,6 +263,7 @@ export function ServerVersioningPage() {
         duration_minutes: settingsDuration,
         bot_tech: settingsTech,
         placement_mode: settingsPlacement,
+        previous_tree_retention: settingsRetention,
       });
       setIsSettingsModalOpen(false);
       setActionSuccess("Bot verification settings updated.");
@@ -307,52 +328,101 @@ export function ServerVersioningPage() {
         </div>
       </div>
 
-      {/* P3 preview controls (D-P26-4): visible but intentionally disabled. */}
-      <div className="flex flex-wrap items-center gap-2" data-testid="p3-coming-soon">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-          P3 preview
-        </span>
+      {/* P3 Live Refresh & Upgrade Bar */}
+      <div className="flex flex-wrap items-center gap-2" data-testid="p3-refresh-toolbar">
         <button
           type="button"
-          disabled
-          aria-disabled="true"
-          aria-label="Live Refresh (Coming soon)"
-          title="P3 Live Refresh is coming soon"
-          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-text-muted/70"
+          aria-label="Live Refresh"
+          onClick={async () => {
+            if (!serverId) return;
+            try {
+              await api.refreshServer(serverId, { retention_policy: settingsRetention });
+              setActionSuccess("Live Refresh completed");
+              refresh();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Live Refresh failed");
+            }
+          }}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
         >
           <Icon name="activity" size={13} />
           <span>Live Refresh</span>
-          <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
-            Coming soon
-          </span>
+          {refreshState?.active_journal?.phase || refreshState?.latest_journal?.phase ? (
+            <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
+              {refreshState?.active_journal?.phase || refreshState?.latest_journal?.phase}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"
-          disabled
-          aria-disabled="true"
-          aria-label="Rollback (Coming soon)"
-          title="P3 Rollback is coming soon"
-          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-text-muted/70"
+          aria-label="Rollback"
+          disabled={!refreshState?.can_rollback}
+          title={!refreshState?.can_rollback ? "No active or rollback-eligible refresh journal" : undefined}
+          onClick={async () => {
+            if (!serverId) return;
+            try {
+              await api.rollbackRefresh(serverId, {
+                journal_id: refreshState?.active_journal?.journal_id ?? refreshState?.latest_journal?.journal_id,
+                reason: "operator_requested",
+              });
+              setActionSuccess("Rollback completed");
+              refresh();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Rollback failed");
+            }
+          }}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
         >
           <Icon name="restart" size={13} />
           <span>Rollback</span>
-          <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
-            Coming soon
-          </span>
         </button>
         <button
           type="button"
-          disabled
-          aria-disabled="true"
-          aria-label="Confirm Upgrade (Coming soon)"
-          title="P3 Confirm Upgrade is coming soon"
-          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-text-muted/70"
+          aria-label="Confirm Upgrade"
+          disabled={!refreshState?.can_confirm_upgrade}
+          onClick={async () => {
+            if (!serverId) return;
+            try {
+              await api.confirmUpgrade(serverId, { journal_id: refreshState?.latest_journal?.journal_id });
+              setActionSuccess("Upgrade confirmed");
+              refresh();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Confirm upgrade failed");
+            }
+          }}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer disabled:opacity-50"
         >
           <Icon name="check" size={13} />
           <span>Confirm Upgrade</span>
-          <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
-            Coming soon
-          </span>
+        </button>
+        {(refreshState?.latest_journal?.class_c_snapshot_id || refreshState?.can_confirm_upgrade) && (
+          <button
+            type="button"
+            aria-label="Release Pins"
+            onClick={async () => {
+              if (!serverId) return;
+              try {
+                await api.releaseRefreshPins(serverId, { journal_id: refreshState?.latest_journal?.journal_id });
+                setActionSuccess("Pins released");
+                refresh();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Release pins failed");
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+          >
+            <Icon name="lock" size={13} />
+            <span>Release Pins</span>
+          </button>
+        )}
+        <button
+          type="button"
+          aria-label="Class-C & Secret Vault"
+          onClick={() => setIsVaultModalOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-card px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover transition-colors cursor-pointer"
+        >
+          <Icon name="lock" size={13} />
+          <span>Class-C & Secret Vault</span>
         </button>
       </div>
 
@@ -508,6 +578,7 @@ export function ServerVersioningPage() {
         }}
         onManageBranches={() => setIsManageBranchesOpen(true)}
         onExploreWorktree={() => setIsMaterializationOpen(true)}
+        onMergeBranch={() => setIsMergeBranchOpen(true)}
       />
 
       {/* 12-Column Split Workspace (Commit Graph + Isolated Bot Testing) */}
@@ -608,9 +679,25 @@ export function ServerVersioningPage() {
         onTechChange={setSettingsTech}
         placement={settingsPlacement}
         onPlacementChange={setSettingsPlacement}
+        retention={settingsRetention}
+        onRetentionChange={setSettingsRetention}
         onSubmit={handleSaveSettings}
         onClose={() => setIsSettingsModalOpen(false)}
         isPending={isSettingsPending}
+      />
+
+      <MergeBranchModal
+        isOpen={isMergeBranchOpen}
+        serverId={serverId!}
+        branches={branches}
+        selectedBranch={selectedBranch}
+        onClose={() => setIsMergeBranchOpen(false)}
+      />
+
+      <ClassCVaultModal
+        isOpen={isVaultModalOpen}
+        serverId={serverId!}
+        onClose={() => setIsVaultModalOpen(false)}
       />
 
       {/* Branch Protection Modal */}

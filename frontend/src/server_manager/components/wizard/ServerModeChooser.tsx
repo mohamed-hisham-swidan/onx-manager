@@ -65,7 +65,7 @@ export function ServerModeChooser({
                 Advanced
               </span>
               <span className="text-[10px] bg-accent-primary/15 text-accent-primary px-1.5 py-0.5 rounded font-medium border border-accent-primary/30">
-                Preview
+                POSIX Advanced
               </span>
             </div>
             <div className="text-xs text-text-muted mt-0.5">

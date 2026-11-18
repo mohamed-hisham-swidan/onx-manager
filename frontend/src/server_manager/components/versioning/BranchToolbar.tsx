@@ -11,6 +11,7 @@ interface BranchToolbarProps {
   onProtectionRules: () => void;
   onManageBranches: () => void;
   onExploreWorktree: () => void;
+  onMergeBranch?: () => void;
 }
 
 export function BranchToolbar({
@@ -23,6 +24,7 @@ export function BranchToolbar({
   onProtectionRules,
   onManageBranches,
   onExploreWorktree,
+  onMergeBranch,
 }: BranchToolbarProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-card p-3 rounded-xl border border-border-default">
@@ -91,6 +93,17 @@ export function BranchToolbar({
           <Icon name="folder" size={12} />
           Explore Worktree
         </button>
+
+        {onMergeBranch && (
+          <button
+            type="button"
+            onClick={onMergeBranch}
+            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-accent-primary hover:bg-surface-hover transition-colors cursor-pointer"
+          >
+            <Icon name="plus" size={12} />
+            Merge Branch
+          </button>
+        )}
       </div>
 
       <div className="text-xs text-text-muted">

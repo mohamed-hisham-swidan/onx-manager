@@ -225,6 +225,8 @@ describe("VersioningModals accessibility and migration contracts", () => {
           onTechChange={vi.fn()}
           placement="sidecar"
           onPlacementChange={vi.fn()}
+          retention="until_health_gate"
+          onRetentionChange={vi.fn()}
           onSubmit={vi.fn()}
           onClose={onClose}
         />
@@ -254,6 +256,8 @@ describe("VersioningModals accessibility and migration contracts", () => {
           onTechChange={vi.fn()}
           placement="sidecar"
           onPlacementChange={vi.fn()}
+          retention="until_health_gate"
+          onRetentionChange={vi.fn()}
           onSubmit={vi.fn()}
           onClose={onClose}
           isPending={true}

@@ -59,10 +59,16 @@ export const queryKeys = {
     all: ["files"] as const,
     list: (serverId: string, path: string, branch?: string) => ["files", "list", serverId, path, branch ?? null] as const,
     content: (serverId: string, path: string, branch?: string) => ["files", "content", serverId, path, branch ?? null] as const,
+    liveStateList: (serverId: string, path: string) => ["files", "live-state", "list", serverId, path] as const,
+    liveStateContent: (serverId: string, path: string) => ["files", "live-state", "content", serverId, path] as const,
   },
   versioning: {
     branches: (serverId: string) => ["versioning", "branches", serverId] as const,
     commits: (serverId: string) => ["versioning", "commits", serverId] as const,
+    refresh: (serverId: string) => ["versioning", "refresh", serverId] as const,
+    classCSnapshots: (serverId: string) => ["versioning", "class-c", "snapshots", serverId] as const,
+    dynamicClassC: (serverId: string) => ["versioning", "class-c", "dynamic", serverId] as const,
+    secrets: (serverId: string) => ["versioning", "secrets", serverId] as const,
   },
   exposure: {
     all: ["exposure"] as const,

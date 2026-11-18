@@ -373,6 +373,10 @@ export interface ServerCommit {
   manifest: CommitManifest;
   world_snapshot_id: string | null;
   created_at: string;
+  snapshot_hash?: string | null;
+  changes_summary?: Record<string, unknown> | null;
+  warnings?: unknown[];
+  noop?: boolean;
 }
 
 export interface CreateCommitRequest {
@@ -622,6 +626,7 @@ export interface BotSettings {
   effective_duration_minutes: number;
   effective_bot_tech: string;
   effective_placement_mode: string;
+  previous_tree_retention?: string;
 }
 
 export interface BotSettingsRequest {
@@ -629,6 +634,7 @@ export interface BotSettingsRequest {
   duration_minutes?: number | null;
   bot_tech?: string | null;
   placement_mode?: string | null;
+  previous_tree_retention?: string | number | null;
 }
 
 export interface PreflightStatus {
@@ -665,4 +671,161 @@ export interface GetActivityParams {
   event_type?: string;
   from_date?: number;
   to_date?: number;
+}
+// P3-4 / P3-5 types
+
+export interface MergeCommitsRequest {
+  target_branch_name: string;
+  source_branch_name?: string | null;
+  parent_commit_ids?: string[];
+  message: string;
+  author_id?: string | null;
+  manifest?: Record<string, unknown> | null;
+  force?: boolean;
+  force_reason?: string | null;
+  force_bypass_protection?: boolean;
+}
+
+export interface MergeCommitsResponse {
+  commit_id: string;
+  server_id: string;
+  branch_name: string;
+  parent_commit_ids: string[];
+  files?: string[];
+  warnings?: unknown[];
+  engine?: string;
+}
+
+export interface RefreshJournalSummary {
+  journal_id: string;
+  server_id: string;
+  phase: string;
+  terminal: boolean;
+  target_main_sha: string;
+  previous_main_sha: string;
+  class_c_snapshot_id: string | null;
+  previous_dir: string | null;
+  retention_policy: string;
+  retain_until: string | null;
+  rollback_reason: string | null;
+  error_detail: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface RefreshStateResponse {
+  server_id: string;
+  active_journal: RefreshJournalSummary | null;
+  latest_journal: RefreshJournalSummary | null;
+  can_confirm_upgrade: boolean;
+  can_rollback: boolean;
+  previous_tree_retention: string;
+}
+
+export interface RefreshServerRequest {
+  target_main_sha?: string | null;
+  retention_policy?: string | number | null;
+  stop_timeout_seconds?: number;
+  health_timeout_seconds?: number;
+}
+
+export interface RollbackRefreshRequest {
+  journal_id?: string | null;
+  reason?: string;
+  stop_timeout_seconds?: number;
+  health_timeout_seconds?: number;
+}
+
+export interface ConfirmUpgradeRequest {
+  journal_id?: string | null;
+}
+
+export interface RefreshActionResponse {
+  server_id: string;
+  journal_id: string | null;
+  phase: string | null;
+  status: string;
+}
+
+export interface ClassCSnapshot {
+  snapshot_id: string;
+  server_id: string;
+  created_at: string | null;
+  manifest_sha256: string | null;
+  pinned: boolean;
+  entry_count: number;
+  archive_size_bytes: number;
+}
+
+export interface DynamicClassCEntry {
+  server_id: string;
+  relpath: string;
+  promoted_at: string | null;
+  main_commit_sha: string | null;
+  ast_Node_summary?: unknown;
+}
+
+export interface SecretMetadata {
+  server_id: string;
+  key_name: string;
+  placeholder: string;
+  kek_version: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ExtractSecretRequest {
+  branch: string;
+  path: string;
+  key_name: string;
+  secret_value: string;
+}
+
+export interface ExtractSecretResponse {
+  server_id: string;
+  branch: string;
+  path: string;
+  key_name: string;
+  placeholder: string;
+  replaced_occurrences: number;
+  remaining_findings: Array<Record<string, unknown>>;
+}
+
+export interface LiveStateFileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  modified_at: number;
+  file_class: "C";
+  is_dynamic_class_c: boolean;
+  writable: boolean;
+}
+
+export interface LiveStateFileListResponse {
+  items: LiveStateFileEntry[];
+}
+
+export interface LiveStateFileContentResponse {
+  server_id: string;
+  path: string;
+  content: string;
+  encoding: string;
+  size: number;
+  is_dynamic_class_c: boolean;
+}
+
+export interface LiveStateWriteRequest {
+  path: string;
+  content: string;
+  reload_command?: string | null;
+}
+
+export interface LiveStateWriteResponse {
+  status: string;
+  server_id: string;
+  path: string;
+  rcon_flushed: boolean;
+  rcon_reloaded: boolean;
+  reload_command: string | null;
 }

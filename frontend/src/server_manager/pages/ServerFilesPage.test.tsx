@@ -23,12 +23,18 @@ let writeServerFileContentMock: ReturnType<typeof vi.fn>;
 let mkdirServerDirectoryMock: ReturnType<typeof vi.fn>;
 let deleteServerFileMock: ReturnType<typeof vi.fn>;
 let createServerCommitMock: ReturnType<typeof vi.fn>;
+let listLiveStateFilesMock: ReturnType<typeof vi.fn>;
+let readLiveStateFileContentMock: ReturnType<typeof vi.fn>;
+let writeLiveStateFileContentMock: ReturnType<typeof vi.fn>;
 
 vi.mock("@/services/api", () => ({
   createAuthenticatedApi: () => ({
     listServerFiles: listServerFilesMock,
     readServerFileContent: readServerFileContentMock,
     writeServerFileContent: writeServerFileContentMock,
+    listLiveStateFiles: listLiveStateFilesMock,
+    readLiveStateFileContent: readLiveStateFileContentMock,
+    writeLiveStateFileContent: writeLiveStateFileContentMock,
     mkdirServerDirectory: mkdirServerDirectoryMock,
     deleteServerFile: (...args: unknown[]) => deleteServerFileMock(...args),
     uploadServerFile: vi.fn().mockResolvedValue({}),
@@ -78,6 +84,9 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
       branch_name: "dev",
       files: ["server.properties"],
     });
+    listLiveStateFilesMock = vi.fn().mockResolvedValue({ items: [{ name: "whitelist.json", path: "/whitelist.json", is_dir: false, size: 10, modified_at: 1, file_class: "C", is_dynamic_class_c: false, writable: true }] });
+    readLiveStateFileContentMock = vi.fn().mockResolvedValue({ server_id: "srv-1", path: "/whitelist.json", content: "whitelist content", encoding: "utf-8", size: 10, is_dynamic_class_c: false });
+    writeLiveStateFileContentMock = vi.fn().mockResolvedValue({ status: "ok", server_id: "srv-1", path: "/whitelist.json", rcon_flushed: true, rcon_reloaded: true, reload_command: "whitelist reload" });
     mkdirServerDirectoryMock = vi.fn().mockImplementation((_serverId, path) => {
       const name = path.split("/").pop();
       const newFolder: FileItem = { name, is_dir: true, size: 0, path };
@@ -460,5 +469,33 @@ describe("ServerFilesPage (ISS-044, ISS-045, ISS-046)", () => {
     expect(screen.queryByRole("button", { name: /save & commit/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("switches to Live State Files and calls listLiveStateFiles", async () => {
+    const user = userEvent.setup();
+    renderPage("srv-1", ["/servers/srv-1/files?view=live-state"]);
+    await waitFor(() => {
+      expect(screen.getByTestId("live-state-banner")).toBeInTheDocument();
+    });
+    const api = (await import("@/services/api")).createAuthenticatedApi();
+    expect(api.listLiveStateFiles).toHaveBeenCalledWith("srv-1", "/");
+    expect(api.listServerFiles).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("branch-context-banner")).not.toBeInTheDocument();
+  });
+
+  it("reads and writes a live-state file", async () => {
+    const user = userEvent.setup();
+    renderPage("srv-1", ["/servers/srv-1/files?view=live-state"]);
+    await waitFor(() => {
+      expect(screen.getByText("whitelist.json")).toBeInTheDocument();
+    });
+    await user.click(screen.getByText("whitelist.json"));
+    await waitFor(() => {
+      expect(screen.getByText("Editing: whitelist.json")).toBeInTheDocument();
+    });
+    const api = (await import("@/services/api")).createAuthenticatedApi();
+    expect(api.readLiveStateFileContent).toHaveBeenCalledWith("srv-1", "/whitelist.json");
+    await user.click(screen.getByRole("button", { name: "Save Live State" }));
+    await waitFor(() => expect(api.writeLiveStateFileContent).toHaveBeenCalledWith("srv-1", expect.objectContaining({ path: "/whitelist.json", content: "whitelist content", reload_command: null })));
   });
 });
